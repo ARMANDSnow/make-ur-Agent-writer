@@ -1,0 +1,43 @@
+{
+  "rules": {
+    "meta_chapter_markers": {
+      "enabled": true
+    },
+    "not_x_but_y": {
+      "enabled": true
+    },
+    "short_sentence_openings": {
+      "enabled": true,
+      "threshold": 3,
+      "window": 7
+    },
+    "name_drift": {
+      "enabled": true,
+      "disallowed_terms": [
+        {
+          "wrong": "上彬绘梨衣",
+          "correct": "上杉绘梨衣"
+        },
+        {
+          "wrong": "凯撒",
+          "correct": "恺撒"
+        },
+        {
+          "wrong": "路鸣非",
+          "correct": "路明非"
+        }
+      ]
+    },
+    "ai_cliche_terms": {
+      "enabled": true,
+      "terms": [
+        "命运的齿轮",
+        "无声地诉说",
+        "仿佛在诉说",
+        "宿命感",
+        "内心深处涌起",
+        "这一刻他终于明白"
+      ]
+    }
+  }
+}

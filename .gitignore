@@ -1,0 +1,38 @@
+# --- secrets ---
+.env
+
+# --- source material (copyright, do not commit) ---
+小说txt/
+
+# --- derived data (depends on source material; regenerate via pipeline) ---
+data/
+outputs/
+logs/
+
+# --- python build / test artifacts ---
+.pycache/
+__pycache__/
+*.pyc
+*.pyo
+
+# --- backups ---
+*.bak
+*.bak_*
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- editor / IDE ---
+.idea/
+.vscode/
+*.swp
+
+# --- Claude Code local config ---
+.claude/settings.local.json
+
+# --- playwright debug artifacts ---
+.playwright-cli/
+
+# --- unrelated tools (kept locally, not project scope) ---
+tools/

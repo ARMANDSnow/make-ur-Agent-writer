@@ -1,0 +1,6 @@
+litellm
+pydantic
+python-dotenv
+tqdm
+pytest
+tiktoken

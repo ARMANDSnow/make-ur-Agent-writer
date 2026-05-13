@@ -1,0 +1,44 @@
+{
+  "default": {
+    "model": "mock",
+    "temperature": 0.2,
+    "max_tokens": 2000,
+    "context_limit": 128000,
+    "retry_attempts": 1,
+    "retry_backoff_seconds": 0.5,
+    "json_repair": true
+  },
+  "tasks": {
+    "extract": {
+      "temperature": 0.1,
+      "max_tokens": 3500,
+      "context_limit": 128000,
+      "rolling_summary_chars": 4000,
+      "rolling_summary_items": 12,
+      "chunk_threshold_chars": 24000,
+      "chunk_count": 3,
+      "chunk_overlap_chars": 200
+    },
+    "compress": {
+      "temperature": 0.2,
+      "max_tokens": 5000,
+      "context_limit": 128000
+    },
+    "debate": {
+      "temperature": 0.45,
+      "max_tokens": 1800,
+      "context_limit": 128000
+    },
+    "write": {
+      "temperature": 0.65,
+      "max_tokens": 5000,
+      "context_limit": 128000,
+      "cache_enabled": true
+    },
+    "review": {
+      "temperature": 0.1,
+      "max_tokens": 1800,
+      "context_limit": 128000
+    }
+  }
+}

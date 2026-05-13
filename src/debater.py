@@ -1,0 +1,361 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Literal
+
+from pydantic import BaseModel, Field
+
+from .config import ROOT, load_config
+from .llm_client import LLMClient
+from .manual_facts import global_facts_summary
+from .schemas import DebateDecisions, model_to_dict
+from .state import log_event, write_text_atomic
+from .utils import ensure_dir, read_json, write_json
+
+
+DEBATE_DIR = ROOT / "outputs" / "debate"
+KB_PATH = ROOT / "data" / "knowledge_base" / "global_knowledge.md"
+INDEX_PATH = ROOT / "data" / "knowledge_base" / "knowledge_index.json"
+
+ROUNDS = [
+    "立场陈述",
+    "补充约束",
+    "互相质询",
+    "修正方案",
+    "打分",
+    "共识收敛",
+]
+
+
+class AgentVoteBallotItem(BaseModel):
+    question_index: int
+    position: Literal["agree", "abstain", "reject"]
+    reason: str = ""
+
+
+class AgentVoteBallot(BaseModel):
+    ballots: List[AgentVoteBallotItem] = Field(default_factory=list)
+
+
+def load_agents() -> List[Dict[str, Any]]:
+    cfg = load_config("agents.yaml")
+    return cfg.get("debate_agents", [])
+
+
+def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") -> Dict[str, Any]:
+    ensure_dir(DEBATE_DIR)
+    if not KB_PATH.exists():
+        raise FileNotFoundError("global knowledge not found; run `python main.py compress` first")
+    agents = load_agents()
+    if not agents:
+        raise ValueError("no debate agents configured")
+    knowledge = KB_PATH.read_text(encoding="utf-8")
+    index = read_json(INDEX_PATH, {})
+    facts = global_facts_summary()
+    client = LLMClient("debate")
+    log_path = DEBATE_DIR / "debate_log.jsonl"
+    if log_path.exists():
+        log_path.unlink()
+
+    transcript: List[Dict[str, Any]] = []
+    for round_index, round_name in enumerate(ROUNDS, 1):
+        for agent in agents:
+            try:
+                response = client.complete_text(
+                    [
+                        {"role": "system", "content": agent.get("system_prompt", agent.get("stance", ""))},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"辩论主题: {topic}\n"
+                                f"轮次: {round_index} - {round_name}\n"
+                                f"agent_name: {agent['name']}\n"
+                                f"已有共识/争议:\n{json.dumps(transcript[-12:], ensure_ascii=False)[:6000]}\n\n"
+                                f"人工全局事实:\n{facts}\n\n"
+                                f"知识文档摘要:\n{knowledge[:9000]}\n\n"
+                                f"索引统计: {json.dumps({k: len(v) if hasattr(v, '__len__') else 0 for k, v in index.items()}, ensure_ascii=False)}"
+                            ),
+                        },
+                    ],
+                    temperature=agent.get("temperature", 0.4),
+                )
+                item = {"round": round_index, "round_name": round_name, "agent": agent["name"], "response": response}
+            except Exception as exc:
+                item = {"round": round_index, "round_name": round_name, "agent": agent["name"], "error": str(exc), "response": ""}
+                log_event("debate", "agent_error", agent=agent["name"], round=round_index, error=str(exc))
+            transcript.append(item)
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    decisions = build_decisions(agents, transcript, client)
+    agent_ballots: Dict[str, List[Dict[str, Any]]] = {}
+    for agent in agents:
+        ballot_entry = _collect_agent_votes(agent, decisions.get("votes", []), transcript, client)
+        agent_ballots[agent["name"]] = ballot_entry["ballots"]
+        log_item = {
+            "round": len(ROUNDS) + 1,
+            "round_name": "裁决投票",
+            "agent": agent["name"],
+            "response": ballot_entry["response"],
+            "ballots": ballot_entry["ballots"],
+        }
+        if ballot_entry.get("error"):
+            log_item["error"] = ballot_entry["error"]
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(log_item, ensure_ascii=False) + "\n")
+    decisions = _apply_agent_ballots(decisions, agent_ballots, len(transcript))
+    outline = build_outline(topic, decisions, transcript, client)
+    write_json(DEBATE_DIR / "decisions.json", decisions)
+    write_text_atomic(DEBATE_DIR / "outline.md", outline)
+    log_event("debate", "done", agents=len(agents), rounds=len(ROUNDS), output=str(DEBATE_DIR))
+    return {"decisions": decisions, "outline": outline}
+
+
+def _transcript_summary(transcript: List[Dict[str, Any]]) -> str:
+    if len(transcript) <= 30:
+        return json.dumps(transcript, ensure_ascii=False)
+    first_6 = transcript[:6]
+    last_24 = transcript[-24:]
+    return json.dumps(first_6 + [{"__truncated__": f"{len(transcript) - 30} items omitted"}] + last_24, ensure_ascii=False)
+
+
+def _fallback_ballots(agent_name: str, votes: List[Dict[str, Any]], reason: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            "agent_name": agent_name,
+            "question_index": idx,
+            "position": "abstain",
+            "reason": reason,
+        }
+        for idx, _vote in enumerate(votes)
+    ]
+
+
+def _collect_agent_votes(
+    agent: Dict[str, Any],
+    votes: List[Dict[str, Any]],
+    transcript: List[Dict[str, Any]],
+    client: LLMClient,
+) -> Dict[str, Any]:
+    agent_name = agent["name"]
+    if client.is_mock:
+        ballots = _fallback_ballots(agent_name, votes, "(mock)")
+        return {"response": "(mock)", "ballots": ballots}
+
+    try:
+        result = client.complete_json(
+            [
+                {"role": "system", "content": agent.get("system_prompt", agent.get("stance", ""))},
+                {
+                    "role": "user",
+                    "content": (
+                        "你正在进行辩论后的裁决投票。请只输出合法 JSON。"
+                        "对每个 question_index 给出 position: agree、abstain 或 reject，并写一句简短 reason。\n\n"
+                        f"agent_name: {agent_name}\n"
+                        f"议题列表（question_index 从 0 开始）:\n"
+                        f"{json.dumps([{'question_index': idx, 'question': vote.get('question', ''), 'result': vote.get('result', '')} for idx, vote in enumerate(votes)], ensure_ascii=False)}\n\n"
+                        f"辩论记录摘要:\n{_transcript_summary(transcript)[:8000]}"
+                    ),
+                },
+            ],
+            AgentVoteBallot,
+        )
+        data = model_to_dict(result)
+        by_index = {int(item["question_index"]): item for item in data.get("ballots", [])}
+        ballots: List[Dict[str, Any]] = []
+        for idx, _vote in enumerate(votes):
+            item = by_index.get(idx)
+            if not item:
+                ballots.append(
+                    {
+                        "agent_name": agent_name,
+                        "question_index": idx,
+                        "position": "abstain",
+                        "reason": "(missing)",
+                    }
+                )
+                continue
+            ballots.append(
+                {
+                    "agent_name": agent_name,
+                    "question_index": idx,
+                    "position": item["position"],
+                    "reason": item.get("reason", ""),
+                }
+            )
+        return {"response": json.dumps(data, ensure_ascii=False), "ballots": ballots}
+    except Exception as exc:
+        log_event("debate", "ballot_fallback", agent=agent_name, error=str(exc))
+        ballots = _fallback_ballots(agent_name, votes, "(parse_failed)")
+        return {"response": "", "ballots": ballots, "error": str(exc)}
+
+
+def _with_result_prefix(result: str, prefix: str) -> str:
+    if result.startswith("[平票] ") or result.startswith("[多数反对] "):
+        return result
+    return f"{prefix} {result}"
+
+
+def _apply_agent_ballots(
+    decisions: Dict[str, Any],
+    agent_ballots: Dict[str, List[Dict[str, Any]]],
+    transcript_items: int,
+) -> Dict[str, Any]:
+    votes = decisions.get("votes", [])
+    for idx, vote in enumerate(votes):
+        ballots: List[Dict[str, Any]] = []
+        for agent_name, agent_items in agent_ballots.items():
+            for item in agent_items:
+                if int(item.get("question_index", -1)) != idx:
+                    continue
+                ballots.append(
+                    {
+                        "agent_name": item.get("agent_name", agent_name),
+                        "position": item.get("position", "abstain"),
+                        "reason": item.get("reason", ""),
+                    }
+                )
+        agree = [item["agent_name"] for item in ballots if item["position"] == "agree"]
+        reject = [item["agent_name"] for item in ballots if item["position"] == "reject"]
+        vote["for"] = agree
+        vote["against"] = reject
+        if len(agree) < len(reject):
+            vote["result"] = _with_result_prefix(vote.get("result", ""), "[多数反对]")
+        elif len(agree) == len(reject):
+            vote["result"] = _with_result_prefix(vote.get("result", ""), "[平票]")
+        vote["agent_votes"] = ballots
+    decisions["aggregation_method"] = "majority"
+    decisions["transcript_items"] = transcript_items
+    return decisions
+
+
+def build_decisions(
+    agents: List[Dict[str, Any]],
+    transcript: List[Dict[str, Any]],
+    client: LLMClient,
+    global_facts: str | None = None,
+    *,
+    agent_ballots: Dict[str, List[Dict[str, Any]]] | None = None,
+) -> Dict[str, Any]:
+    voter_names = [agent["name"] for agent in agents]
+    if client.is_mock:
+        data = {
+            "topic": "续写核心裁决",
+            "votes": [
+                {
+                    "question": "路鸣泽在最终牺牲前是否保留过夺权念头",
+                    "result": "有，但不把角色简化成反派",
+                    "for": voter_names[:4],
+                    "against": voter_names[4:],
+                },
+                {
+                    "question": "楚子航回归后是否丢失夏弥记忆",
+                    "result": "不丢失，记忆作为代价和行动动机保留",
+                    "for": voter_names[:5],
+                    "against": voter_names[5:],
+                },
+            ],
+            "aggregation_method": "majority",
+            "transcript_items": len(transcript),
+        }
+        if agent_ballots is not None:
+            return _apply_agent_ballots(data, agent_ballots, len(transcript))
+        return data
+    try:
+        result = client.complete_json(
+            [
+                {"role": "system", "content": "你是辩论汇总裁判。根据多轮辩论记录，提取核心投票裁决，输出合法 JSON。"},
+                {
+                    "role": "user",
+                    "content": (
+                        "根据以下辩论记录，总结 2-5 个核心投票问题及裁决结果。"
+                        "每个 vote 包含 question、result、for（支持该裁决的 agent 名列表）、against（反对的 agent 名列表）。\n\n"
+                        f"Agent 列表: {json.dumps(voter_names, ensure_ascii=False)}\n\n"
+                        f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
+                        f"辩论记录:\n{_transcript_summary(transcript)}"
+                    ),
+                },
+            ],
+            DebateDecisions,
+        )
+        data = model_to_dict(result)
+        data["transcript_items"] = len(transcript)
+        data["aggregation_method"] = "majority"
+        if agent_ballots is not None:
+            return _apply_agent_ballots(data, agent_ballots, len(transcript))
+        return data
+    except Exception as exc:
+        log_event("debate", "decision_fallback", error=str(exc))
+        data = {
+            "topic": "续写核心裁决",
+            "votes": [
+                {
+                    "question": "路鸣泽在最终牺牲前是否保留过夺权念头",
+                    "result": "有，但不把角色简化成反派",
+                    "for": voter_names[:4],
+                    "against": voter_names[4:],
+                },
+                {
+                    "question": "楚子航回归后是否丢失夏弥记忆",
+                    "result": "不丢失，记忆作为代价和行动动机保留",
+                    "for": voter_names[:5],
+                    "against": voter_names[5:],
+                },
+            ],
+            "aggregation_method": "majority",
+            "transcript_items": len(transcript),
+        }
+        if agent_ballots is not None:
+            return _apply_agent_ballots(data, agent_ballots, len(transcript))
+        return data
+
+
+def build_outline(
+    topic: str,
+    decisions: Dict[str, Any],
+    transcript: List[Dict[str, Any]],
+    client: LLMClient,
+    global_facts: str | None = None,
+) -> str:
+    if client.is_mock:
+        return _hardcoded_outline(topic, decisions)
+    try:
+        text = client.complete_text(
+            [
+                {"role": "system", "content": "你是小说大纲撰写者，基于辩论裁决和记录生成章节大纲，输出 Markdown。"},
+                {
+                    "role": "user",
+                    "content": (
+                        f"主题: {topic}\n\n"
+                        f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
+                        f"裁决结果:\n{json.dumps(decisions, ensure_ascii=False)[:6000]}\n\n"
+                        f"辩论摘要:\n{_transcript_summary(transcript)[:6000]}\n\n"
+                        "请输出 Markdown 大纲，包含：核心共识、投票裁决、章节方向（默认 18 章）。"
+                    ),
+                },
+            ],
+            temperature=0.3,
+        )
+        return text.strip() + "\n"
+    except Exception as exc:
+        log_event("debate", "outline_fallback", error=str(exc))
+        return _hardcoded_outline(topic, decisions)
+
+
+def _hardcoded_outline(topic: str, decisions: Dict[str, Any]) -> str:
+    lines = [
+        f"# {topic}",
+        "",
+        "## 核心共识",
+        "- 路明非的选择必须改变结局，而不是被世界观机械碾过。",
+        "- 主要情感关系需要有明确去向，但保留江南式余味。",
+        "- 未闭合伏笔必须进入章节级写作约束。",
+        "- 世界观硬规则优先于爽点。",
+        "",
+        "## 投票裁决",
+    ]
+    for vote in decisions.get("votes", []):
+        lines.append(f"- {vote['question']}：{vote['result']}。")
+    lines.extend(["", "## 章节方向", "- 以十八章为默认输出规模，每章写作前读取上一章状态和全局知识索引。"])
+    return "\n".join(lines) + "\n"
