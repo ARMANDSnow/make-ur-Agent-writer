@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -17,6 +18,11 @@ DEFAULT_CONTEXT_LIMITS = {
 
 
 def load_dotenv_if_available() -> None:
+    if _running_under_unittest_discover():
+        os.environ["OPENAI_MODEL"] = "mock"
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("OPENAI_BASE_URL", None)
+        return
     try:
         from dotenv import load_dotenv
 
@@ -77,3 +83,9 @@ def _default_context_limit(model: str) -> int:
         if lower.startswith(prefix) or prefix in lower:
             return limit
     return 128000
+
+
+def _running_under_unittest_discover() -> bool:
+    if "unittest" not in sys.modules:
+        return False
+    return any(arg == "discover" or "unittest" in arg for arg in sys.argv)

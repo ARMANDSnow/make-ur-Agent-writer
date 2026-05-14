@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
-from src.debater import _collect_agent_votes, _transcript_summary, build_decisions, build_outline
+from src.debater import AgentVoteBallot, AgentVoteBallotItem, _collect_agent_votes, _transcript_summary, build_decisions, build_outline
 from src.llm_client import LLMClient
 from src.schemas import DebateDecisions, DebateVote
 
@@ -117,6 +117,45 @@ class DebaterAgentFailureTests(unittest.TestCase):
         self.assertEqual([item["reason"] for item in result["ballots"]], ["(parse_failed)", "(parse_failed)"])
         mock_log.assert_called_once()
         self.assertEqual(mock_log.call_args.args[:2], ("debate", "ballot_fallback"))
+
+    def test_collect_agent_votes_retries_on_empty_ballots(self) -> None:
+        agent = {"name": "a1", "stance": "s1"}
+        votes = [{"question": "Q1", "result": "R1"}, {"question": "Q2", "result": "R2"}]
+        transcript = [{"round": 1, "agent": "a1", "response": "x"}]
+        complete = AgentVoteBallot(
+            ballots=[
+                AgentVoteBallotItem(question_index=0, position="agree", reason="yes"),
+                AgentVoteBallotItem(question_index=1, position="reject", reason="no"),
+            ]
+        )
+        with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = False
+            with patch.object(self.client, "complete_json", side_effect=[AgentVoteBallot(ballots=[]), complete]) as mock_complete:
+                with patch("src.debater.log_event") as mock_log:
+                    result = _collect_agent_votes(agent, votes, transcript, self.client)
+        self.assertEqual([item["position"] for item in result["ballots"]], ["agree", "reject"])
+        self.assertEqual(mock_complete.call_count, 2)
+        self.assertTrue(any(call.args[:2] == ("debate", "ballot_retry") for call in mock_log.call_args_list))
+
+    def test_collect_agent_votes_falls_back_after_retry(self) -> None:
+        agent = {"name": "a1", "stance": "s1"}
+        votes = [{"question": "Q1", "result": "R1"}, {"question": "Q2", "result": "R2"}]
+        transcript = [{"round": 1, "agent": "a1", "response": "x"}]
+        with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = False
+            with patch.object(
+                self.client,
+                "complete_json",
+                side_effect=[AgentVoteBallot(ballots=[]), AgentVoteBallot(ballots=[])],
+            ):
+                with patch("src.debater.log_event") as mock_log:
+                    result = _collect_agent_votes(agent, votes, transcript, self.client)
+        self.assertEqual([item["position"] for item in result["ballots"]], ["abstain", "abstain"])
+        self.assertEqual(
+            [item["reason"] for item in result["ballots"]],
+            ["(missing-after-retry)", "(missing-after-retry)"],
+        )
+        self.assertTrue(any(call.args[:2] == ("debate", "ballot_empty_after_retry") for call in mock_log.call_args_list))
 
 
 class DebaterTranscriptTests(unittest.TestCase):

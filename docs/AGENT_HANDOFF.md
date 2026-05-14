@@ -65,6 +65,13 @@
   - Real `bash scripts/debate_smoke.sh` completed with approved network access; 48/48 DeepSeek calls were `ok`, final preflight was warn with no FATAL.
   - Important observed failure: ballot JSON responses were `{"ballots": []}` for all 6 agents, so `agent_votes` were filled as `(missing)` abstain and final `for` / `against` stayed empty. Treat this as the next debate prompt hardening target.
   - Cache observation: `cache_write_tokens` increased but `cache_read_tokens` stayed 0.
+- Iteration 007 test isolation + ballot hardening:
+  - `python3 -m unittest discover -s tests` is now protected from `.env` real-model leakage; tests force `OPENAI_MODEL=mock` and `src/config.py` skips dotenv during unittest discovery.
+  - `bash scripts/verify.sh` explicitly exports `OPENAI_MODEL=mock` and unsets `OPENAI_API_KEY` / `OPENAI_BASE_URL`; verify log delta was mock-only.
+  - `_collect_agent_votes` now gives the model a numbered question list, requires ballots length to strictly equal question count, forbids empty arrays, and retries once before `(missing-after-retry)` fallback.
+  - `scripts/debate_smoke.sh` saves `outputs/debate/snapshots/<ts>/` so true-model outputs survive later mock runs.
+  - DeepSeek cache note added at `docs/notes/deepseek_cache_2026_05.md`; two identical cached calls still logged `cache_read_tokens=0`.
+  - P6 true-model debate rerun is pending user confirmation that `.env` contains the rotated key.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -76,7 +83,8 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 007 candidate: harden `AgentVoteBallot` prompt/repair so each agent must return one ballot per `question_index`; current true-model output returns empty `ballots`.
-- Investigate DeepSeek prompt cache behavior: cache writes are logged, cache reads remain 0.
+- Run iteration 007 P6 true-model debate rerun after user confirms the rotated `.env` key is ready; inspect `outputs/debate/snapshots/<ts>/`.
+- If P6 still returns empty ballots, escalate to schema-enforced JSON mode or model/provider-specific structured output handling.
+- DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。
 - Add a lightweight terminal UI or dashboard if operator reports become too verbose.

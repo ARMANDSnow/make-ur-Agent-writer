@@ -132,6 +132,78 @@ def _fallback_ballots(agent_name: str, votes: List[Dict[str, Any]], reason: str)
     ]
 
 
+def _question_list_for_ballot(votes: List[Dict[str, Any]]) -> str:
+    return "\n".join(
+        f"{idx}. {vote.get('question', '')} -> proposed result: {vote.get('result', '')}"
+        for idx, vote in enumerate(votes)
+    )
+
+
+def _ballot_data_is_complete(data: Dict[str, Any], expected_count: int) -> bool:
+    ballots = data.get("ballots", [])
+    if expected_count == 0:
+        return ballots == []
+    if len(ballots) != expected_count:
+        return False
+    try:
+        indexes = {int(item["question_index"]) for item in ballots}
+    except (KeyError, TypeError, ValueError):
+        return False
+    return indexes == set(range(expected_count))
+
+
+def _collect_agent_vote_json(
+    agent: Dict[str, Any],
+    votes: List[Dict[str, Any]],
+    transcript: List[Dict[str, Any]],
+    client: LLMClient,
+    *,
+    retry: bool = False,
+) -> Dict[str, Any]:
+    agent_name = agent["name"]
+    expected_count = len(votes)
+    if retry:
+        system_content = (
+            "你之前漏掉了 ballot；这次必须输出完整 JSON。"
+            f"ballots 数组长度必须严格等于 {expected_count}，一个不少。"
+        )
+        user_intro = (
+            f"你必须为每一个议题输出一个 ballot。禁止返回空数组。"
+            f"ballots 数组长度必须严格等于 {expected_count}。"
+            f"question_index 必须是 0 到 {max(expected_count - 1, 0)} 中唯一的整数。"
+        )
+        transcript_text = ""
+    else:
+        system_content = (
+            f"{agent.get('system_prompt', agent.get('stance', ''))}\n"
+            "你正在进行辩论后的裁决投票。只输出合法 JSON。"
+        )
+        user_intro = (
+            f"你必须为下面每一个议题输出一个 ballot。ballots 数组长度必须严格等于 {expected_count}。"
+            f"每个 ballot 的 question_index 必须是 0 到 {max(expected_count - 1, 0)} 中唯一的一个整数。"
+            "禁止返回空数组。"
+            "position 只能是 agree、abstain 或 reject，并写一句简短 reason。"
+        )
+        transcript_text = f"\n\n辩论记录摘要:\n{_transcript_summary(transcript)[:8000]}"
+    result = client.complete_json(
+        [
+            {"role": "system", "content": system_content},
+            {
+                "role": "user",
+                "content": (
+                    f"{user_intro}\n\n"
+                    f"agent_name: {agent_name}\n"
+                    f"议题清单（numbered question list，question_index 从 0 开始）:\n"
+                    f"{_question_list_for_ballot(votes)}"
+                    f"{transcript_text}"
+                ),
+            },
+        ],
+        AgentVoteBallot,
+    )
+    return model_to_dict(result)
+
+
 def _collect_agent_votes(
     agent: Dict[str, Any],
     votes: List[Dict[str, Any]],
@@ -144,24 +216,27 @@ def _collect_agent_votes(
         return {"response": "(mock)", "ballots": ballots}
 
     try:
-        result = client.complete_json(
-            [
-                {"role": "system", "content": agent.get("system_prompt", agent.get("stance", ""))},
-                {
-                    "role": "user",
-                    "content": (
-                        "你正在进行辩论后的裁决投票。请只输出合法 JSON。"
-                        "对每个 question_index 给出 position: agree、abstain 或 reject，并写一句简短 reason。\n\n"
-                        f"agent_name: {agent_name}\n"
-                        f"议题列表（question_index 从 0 开始）:\n"
-                        f"{json.dumps([{'question_index': idx, 'question': vote.get('question', ''), 'result': vote.get('result', '')} for idx, vote in enumerate(votes)], ensure_ascii=False)}\n\n"
-                        f"辩论记录摘要:\n{_transcript_summary(transcript)[:8000]}"
-                    ),
-                },
-            ],
-            AgentVoteBallot,
-        )
-        data = model_to_dict(result)
+        data = _collect_agent_vote_json(agent, votes, transcript, client)
+        if not _ballot_data_is_complete(data, len(votes)):
+            log_event(
+                "debate",
+                "ballot_retry",
+                agent=agent_name,
+                expected=len(votes),
+                received=len(data.get("ballots", [])),
+            )
+            data = _collect_agent_vote_json(agent, votes, transcript, client, retry=True)
+        if not _ballot_data_is_complete(data, len(votes)):
+            log_event(
+                "debate",
+                "ballot_empty_after_retry",
+                agent=agent_name,
+                expected=len(votes),
+                received=len(data.get("ballots", [])),
+            )
+            ballots = _fallback_ballots(agent_name, votes, "(missing-after-retry)")
+            return {"response": json.dumps(data, ensure_ascii=False), "ballots": ballots}
+
         by_index = {int(item["question_index"]): item for item in data.get("ballots", [])}
         ballots: List[Dict[str, Any]] = []
         for idx, _vote in enumerate(votes):
