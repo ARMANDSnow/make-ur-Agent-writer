@@ -45,8 +45,10 @@ This iteration fixes the two P0s first, adds smoke snapshots, time-boxes DeepSee
 
 ### P6. 真模型复跑
 
-- Pending user confirmation that `.env` contains the rotated DeepSeek key.
-- Do not run `bash scripts/debate_smoke.sh` until the user explicitly confirms.
+- User confirmed `.env` contains the rotated DeepSeek key.
+- Ran `bash scripts/debate_smoke.sh` with approved network access.
+- Log path: `logs/debate_smoke_20260514_205954.log`.
+- Snapshot path: `outputs/debate/snapshots/20260514_205954/`.
 
 ### P7. 文档
 
@@ -66,7 +68,7 @@ This iteration fixes the two P0s first, adds smoke snapshots, time-boxes DeepSee
 | C1 | ballot prompt 硬约束 | `src/debater.py` | 含严格等于/禁止空数组/numbered list |
 | C2 | retry 路径 | `tests/test_debater.py` | retry success/fallback 测试通过 |
 | D1 | snapshot 落盘 | `scripts/debate_smoke.sh` | 含 `outputs/debate/snapshots/${ts}` 拷贝块 |
-| E1-E4 | 真模型 smoke 复跑 | 新 `logs/debate_smoke_<ts>.log` + snapshot | pending user confirmation |
+| E1-E4 | 真模型 smoke 复跑 | `logs/debate_smoke_20260514_205954.log` + snapshot | 通过，见 Acceptance Result |
 | F1 | cache 调研 note | `docs/notes/deepseek_cache_2026_05.md` | 已写入调研结论 |
 | F2-F4 | 文档同步 | iteration doc / README / handoff | 已完成 |
 | F5 | 无 key 泄露 | secret-prefix scan | 无新增 secret |
@@ -102,10 +104,30 @@ call 1: status=ok, prompt_tokens=504, response_tokens=1, cache_read_tokens=0, ca
 call 2: status=ok, prompt_tokens=504, response_tokens=1, cache_read_tokens=0, cache_write_tokens=504
 ```
 
-Pending:
+P6 true-model rerun:
 
-- P6 true-model debate rerun is intentionally not executed yet. Awaiting user confirmation that `.env` contains the rotated DeepSeek key.
-- After P6, this section must be updated with the new `logs/debate_smoke_<ts>.log` path, snapshot path, ballot non-fallback ratio, `for`/`against` status, ok rate, and cost estimate.
+```bash
+bash scripts/debate_smoke.sh
+# exit code 0
+# Debate smoke log written: logs/debate_smoke_20260514_205954.log
+# Snapshot saved: outputs/debate/snapshots/20260514_205954
+```
+
+Snapshot acceptance:
+
+- `outputs/debate/snapshots/20260514_205954/debate_log.jsonl` has 42 items and 6 `裁决投票` entries.
+- 3/6 agents returned complete non-fallback ballots of length 4: `路明非本位`, `江南人格模拟`, `读者代言人`.
+- 3/6 agents still parse-failed because they returned ballot objects without `position`: `情感关系`, `伏笔猎人`, `世界观守门人`.
+- `outputs/debate/snapshots/20260514_205954/decisions.json` has 4 votes; every vote has `agent_votes` length 6.
+- `for` list lengths are `[3, 3, 2, 3]`; `against` list lengths are `[0, 0, 0, 0]`; therefore E3 passed.
+- Last 50 DeepSeek calls: `model=deepseek/deepseek-chat`, `status=ok` 50/50.
+- Token totals for the final 50-call block: prompt 231,581; response 56,294; total 287,875; `cache_read_tokens=0`; `cache_write_tokens=231,581`.
+- `data/extraction_failures/` remained empty.
+
+Residual:
+
+- Ballot hardening fixed empty `ballots: []` for half the agents, but 3 agents still returned near-correct JSON with an invalid field name instead of `position`. Next step should normalize/repair obvious `answer`/`preference`-style fields or add schema-enforced JSON mode.
+- Cost exceeded the original soft budget because retry/long responses made the final block 287,875 tokens. No key material was written to tracked files.
 
 ## 文件变更汇总
 

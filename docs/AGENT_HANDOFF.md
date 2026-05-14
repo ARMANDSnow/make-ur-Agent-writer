@@ -71,7 +71,8 @@
   - `_collect_agent_votes` now gives the model a numbered question list, requires ballots length to strictly equal question count, forbids empty arrays, and retries once before `(missing-after-retry)` fallback.
   - `scripts/debate_smoke.sh` saves `outputs/debate/snapshots/<ts>/` so true-model outputs survive later mock runs.
   - DeepSeek cache note added at `docs/notes/deepseek_cache_2026_05.md`; two identical cached calls still logged `cache_read_tokens=0`.
-  - P6 true-model debate rerun is pending user confirmation that `.env` contains the rotated key.
+  - P6 true-model debate rerun completed: `logs/debate_smoke_20260514_205954.log`, snapshot `outputs/debate/snapshots/20260514_205954/`.
+  - Result: 3/6 agents returned complete non-fallback ballots, all 4 votes have nonempty `for` lists, and the final 50 DeepSeek calls were 50/50 `ok`. Remaining issue: 3 agents returned near-correct JSON without `position`, causing `(parse_failed)` abstain.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -83,8 +84,7 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Run iteration 007 P6 true-model debate rerun after user confirms the rotated `.env` key is ready; inspect `outputs/debate/snapshots/<ts>/`.
-- If P6 still returns empty ballots, escalate to schema-enforced JSON mode or model/provider-specific structured output handling.
+- Debate ballot next step: normalize/repair near-correct ballot fields that omit `position`, or escalate to schema-enforced JSON mode/model-specific structured output handling.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。
 - Add a lightweight terminal UI or dashboard if operator reports become too verbose.
