@@ -32,6 +32,7 @@ def run_preflight(root: Path = ROOT) -> Dict[str, Any]:
 
     _check_env(fatal, warn, model, is_mock)
     _check_agents_config(fatal)
+    _check_provider_routing(fatal, warn, model, is_mock)
     _check_context_limits(fatal, info, model_cfg)
     _check_logs_writable(fatal, root)
     _check_extraction_failures(fatal, root)
@@ -87,6 +88,23 @@ def _check_agents_config(fatal: List[str]) -> None:
     value = cfg.get("max_review_attempts")
     if not isinstance(value, int) or value <= 0:
         fatal.append("agents.yaml missing required key 'max_review_attempts' or value is not a positive integer.")
+
+
+def _check_provider_routing(fatal: List[str], warn: List[str], model: str, is_mock: bool) -> None:
+    if is_mock:
+        return
+    try:
+        from litellm import get_llm_provider
+    except Exception:
+        warn.append("litellm not installed; provider routing not verified.")
+        return
+    try:
+        get_llm_provider(model)
+    except Exception as exc:
+        fatal.append(
+            f"litellm cannot resolve provider for OPENAI_MODEL='{model}': {exc}. "
+            f"Use explicit prefix like 'deepseek/deepseek-chat' or 'openai/gpt-4'."
+        )
 
 
 def _check_context_limits(fatal: List[str], info: List[str], model_cfg: Dict[str, Any]) -> None:

@@ -14,3 +14,4 @@
 3. [Iteration 003 - Real Model Preflight + Loose Ends](./iteration_003_real_model_preflight.md)
 4. [Iteration 004 - max_review_attempts 硬要求 + Splitter Confidence](./iteration_004_post_003_cleanup.md)
 5. [Iteration 005 - Debate 结构化投票 + DeepSeek 真模型小样本](./iteration_005_debate_vote_and_real_smoke.md)
+6. [Iteration 006 - Preflight Provider Routing + Debate 真模型小样本](./iteration_006_debate_real_smoke.md)

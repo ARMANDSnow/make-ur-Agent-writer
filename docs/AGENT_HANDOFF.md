@@ -58,6 +58,13 @@
   - `python3 main.py debate` keeps the six free-text debate rounds, then writes a structured `裁决投票` audit round to `outputs/debate/debate_log.jsonl`.
   - `build_decisions(..., agent_ballots=...)` explicitly recomputes `for` / `against` from agent ballots and marks `[平票]` or `[多数反对]` in `result` when needed.
   - `scripts/debate_smoke.sh` was added and verified in mock mode. Real DeepSeek extract smoke is still blocked until the user writes a rotated key into `.env`.
+- Iteration 006 provider routing + debate real smoke:
+  - `python3 main.py preflight` now FATALs when LiteLLM cannot resolve a non-mock model provider, catching bare `deepseek-chat` before any remote call.
+  - Correct DeepSeek routing is `OPENAI_MODEL=deepseek/deepseek-chat`.
+  - User-confirmed local `data/manual_overrides/global_facts.json` placeholder facts were used for debate smoke; this file remains ignored and local.
+  - Real `bash scripts/debate_smoke.sh` completed with approved network access; 48/48 DeepSeek calls were `ok`, final preflight was warn with no FATAL.
+  - Important observed failure: ballot JSON responses were `{"ballots": []}` for all 6 agents, so `agent_votes` were filled as `(missing)` abstain and final `for` / `against` stayed empty. Treat this as the next debate prompt hardening target.
+  - Cache observation: `cache_write_tokens` increased but `cache_read_tokens` stayed 0.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -69,7 +76,7 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Run the real-model smoke path once the user writes the rotated DeepSeek key into `.env`, then inspect `logs/real_smoke_<timestamp>.log` and `logs/llm_calls.jsonl`.
-- Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。优先级建议在跑过真模型小样本后按真实翻车样式排序。
-- Debate true-model联调 can use `bash scripts/debate_smoke.sh` after extract smoke is clean.
+- Iteration 007 candidate: harden `AgentVoteBallot` prompt/repair so each agent must return one ballot per `question_index`; current true-model output returns empty `ballots`.
+- Investigate DeepSeek prompt cache behavior: cache writes are logged, cache reads remain 0.
+- Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。
 - Add a lightweight terminal UI or dashboard if operator reports become too verbose.

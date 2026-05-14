@@ -1,6 +1,8 @@
 import json
 import os
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -39,7 +41,9 @@ def build_root() -> tempfile.TemporaryDirectory:
 class PreflightTests(unittest.TestCase):
     def test_missing_api_key_for_real_model_is_fatal(self) -> None:
         with build_root() as tmp:
-            with patch.dict(os.environ, {"OPENAI_MODEL": "deepseek-chat", "OPENAI_BASE_URL": "https://example.com"}, clear=True):
+            with patch.dict(os.environ, {"OPENAI_MODEL": "deepseek-chat", "OPENAI_BASE_URL": "https://example.com"}, clear=True), patch(
+                "src.preflight.load_dotenv_if_available"
+            ):
                 report = run_preflight(Path(tmp))
         self.assertEqual(report["status"], "fail")
         self.assertTrue(any("OPENAI_API_KEY" in item for item in report["fatal"]))
@@ -119,6 +123,37 @@ class PreflightTests(unittest.TestCase):
                 report = run_preflight(root)
         self.assertEqual(report["status"], "warn")
         self.assertTrue(any("global_facts.json" in item for item in report["warn"]))
+
+    def test_real_model_unknown_provider_is_fatal(self) -> None:
+        fake_litellm = types.SimpleNamespace(
+            get_llm_provider=lambda model: (_ for _ in ()).throw(ValueError("unknown provider"))
+        )
+        env = {
+            "OPENAI_MODEL": "deepseek-chat",
+            "OPENAI_API_KEY": "test",
+            "OPENAI_BASE_URL": "https://x.com",
+        }
+        with build_root() as tmp:
+            with patch.dict(os.environ, env, clear=True), patch.dict(sys.modules, {"litellm": fake_litellm}), patch(
+                "src.preflight.load_dotenv_if_available"
+            ):
+                report = run_preflight(Path(tmp))
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("provider" in item.lower() for item in report["fatal"]))
+
+    def test_real_model_known_provider_no_fatal_routing(self) -> None:
+        fake_litellm = types.SimpleNamespace(get_llm_provider=lambda model: ("deepseek", model, None, None))
+        env = {
+            "OPENAI_MODEL": "deepseek/deepseek-chat",
+            "OPENAI_API_KEY": "test",
+            "OPENAI_BASE_URL": "https://x.com",
+        }
+        with build_root() as tmp:
+            with patch.dict(os.environ, env, clear=True), patch.dict(sys.modules, {"litellm": fake_litellm}), patch(
+                "src.preflight.load_dotenv_if_available"
+            ):
+                report = run_preflight(Path(tmp))
+        self.assertFalse(any("provider" in item.lower() for item in report["fatal"]))
 
 
 if __name__ == "__main__":
