@@ -26,16 +26,28 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
     def test_review_prompt_includes_global_facts(self) -> None:
         captured = {}
 
-        def fake_complete_json(self, messages, response_model):
+        def fake_complete_text(self, messages):
             captured["prompt"] = "\n".join(m.get("content", "") for m in messages)
-            return response_model(agent_name="agent", verdict="Approve", score=8, issues=[], suggestions=[])
+            return '{"agent_name":"agent","verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
 
         with patch("src.reviewer.global_facts_summary", return_value="FACT: 绘梨衣已死亡"), patch(
-            "src.llm_client.LLMClient.complete_json", fake_complete_json
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
         ), patch("src.reviewer.load_review_agents", return_value=[{"name": "agent", "system_prompt": "review"}]):
             report = review_text("干净正文。", "clean.md", precomputed_lint_issues=[])
         self.assertEqual(report["verdict"], "Approve")
         self.assertIn("FACT: 绘梨衣已死亡", captured["prompt"])
+
+    def test_missing_agent_name_is_repaired_from_config(self) -> None:
+        def fake_complete_text(self, messages):
+            return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
+
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "文本守门人", "system_prompt": "review"}]), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("干净正文。", "missing_agent.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["agent_reviews"][0]["agent_name"], "文本守门人")
+        self.assertEqual(report["verdict"], "Approve")
 
 
 if __name__ == "__main__":

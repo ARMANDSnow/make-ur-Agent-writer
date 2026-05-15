@@ -73,6 +73,16 @@
   - DeepSeek cache note added at `docs/notes/deepseek_cache_2026_05.md`; two identical cached calls still logged `cache_read_tokens=0`.
   - P6 true-model debate rerun completed: `logs/debate_smoke_20260514_205954.log`, snapshot `outputs/debate/snapshots/20260514_205954/`.
   - Result: 3/6 agents returned complete non-fallback ballots, all 4 votes have nonempty `for` lists, and the final 50 DeepSeek calls were 50/50 `ok`. Remaining issue: 3 agents returned near-correct JSON without `position`, causing `(parse_failed)` abstain.
+- Iteration 008 ballot field repair + true-model write smoke:
+  - `_collect_agent_vote_json` now uses `complete_text` + `extract_json_object` + `_repair_ballot_dict` instead of pydantic-validating directly into `AgentVoteBallot`.
+  - Missing or invalid `position` is repaired from common alias fields (`answer`, `preference`, `verdict`, `vote`) or inferred from agree/reject language in `reason`.
+  - JSON extraction/parsing errors still use `(parse_failed)`; incomplete parsed ballots still retry once and then use `(missing-after-retry)`.
+  - `review_text` now repairs missing review `agent_name` before `AgentReview` validation; this was exposed by the first true-model review attempt.
+  - `write_chapters` now persists rejected/lint-failed drafts as `chapter_XX.md` plus meta with `needs_human_review=true`, instead of leaving only a truncated failure preview.
+  - Added `scripts/write_smoke.sh` for the gated true-model chain: preflight → compress → debate → write 1 chapter → review → status → estimate-cost → preflight, with snapshots under `outputs/drafts/snapshots/<ts>/`.
+  - Local mock-only acceptance passed before the true run: `python3 -m unittest discover -s tests` ran 85 tests OK, `bash scripts/verify.sh` ran 85 tests OK, and `python3 main.py preflight` reported warn with FATAL none. Post-repair targeted tests ran 27 tests OK.
+  - True-model result: initial `bash scripts/write_smoke.sh` wrote `logs/write_smoke_20260514_214854.log` but exited during standalone review due missing `agent_name`; after repairs, resumed write/review without re-running debate.
+  - Final snapshot: `outputs/drafts/snapshots/20260514_220808/`. Debate produced 42 log items, 6/6 complete non-fallback ballot agents, 2 decisions with `for` lengths `[6, 6]`. Draft `chapter_01.md` is 1825 chars; meta has `rewrite_count=1`, `needs_human_review=true`, 7 reviewer outputs, and 16 structured issues. Measured DeepSeek block was 67/67 `ok`; `data/extraction_failures/` stayed empty.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -84,7 +94,8 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Debate ballot next step: normalize/repair near-correct ballot fields that omit `position`, or escalate to schema-enforced JSON mode/model-specific structured output handling.
+- Stage 3 generalization: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
+- True-model write follow-up: use Iteration 008 review failures as concrete targets: diary provenance, contract/bloodline causality, and overly direct/AI-like exposition.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。
 - Add a lightweight terminal UI or dashboard if operator reports become too verbose.

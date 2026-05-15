@@ -11,7 +11,7 @@ from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .schemas import DebateDecisions, model_to_dict
 from .state import log_event, write_text_atomic
-from .utils import ensure_dir, read_json, write_json
+from .utils import ensure_dir, extract_json_object, read_json, write_json
 
 
 DEBATE_DIR = ROOT / "outputs" / "debate"
@@ -152,6 +152,79 @@ def _ballot_data_is_complete(data: Dict[str, Any], expected_count: int) -> bool:
     return indexes == set(range(expected_count))
 
 
+def _infer_position_from_reason(reason: Any) -> Literal["agree", "abstain", "reject"]:
+    if not isinstance(reason, str):
+        return "abstain"
+    text = reason.lower()
+    reject_keywords = ("反对", "反驳", "拒绝", "否决", "不同意", "不支持", "disagree", "reject", "oppose", "against")
+    agree_keywords = ("同意", "赞同", "支持", "认可", "agree", "approve", "support")
+    if any(keyword in text for keyword in reject_keywords):
+        return "reject"
+    if any(keyword in text for keyword in agree_keywords):
+        return "agree"
+    return "abstain"
+
+
+def _normalized_position(value: Any, reason: Any) -> Literal["agree", "abstain", "reject"]:
+    text = str(value).strip().lower() if value is not None else ""
+    aliases = {
+        "agree": "agree",
+        "approve": "agree",
+        "support": "agree",
+        "yes": "agree",
+        "赞同": "agree",
+        "同意": "agree",
+        "支持": "agree",
+        "reject": "reject",
+        "disagree": "reject",
+        "oppose": "reject",
+        "against": "reject",
+        "no": "reject",
+        "反对": "reject",
+        "拒绝": "reject",
+        "否决": "reject",
+        "abstain": "abstain",
+        "neutral": "abstain",
+        "skip": "abstain",
+        "弃权": "abstain",
+        "中立": "abstain",
+    }
+    if text in aliases:
+        return aliases[text]  # type: ignore[return-value]
+    return _infer_position_from_reason(reason)
+
+
+def _repair_ballot_dict(raw: Any, agent_name: str, expected_count: int) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {"ballots": []}
+    raw_ballots = raw.get("ballots", [])
+    if not isinstance(raw_ballots, list):
+        return {"ballots": []}
+
+    repaired: List[Dict[str, Any]] = []
+    for idx, item in enumerate(raw_ballots):
+        if not isinstance(item, dict):
+            continue
+        reason = item.get("reason", item.get("rationale", item.get("explanation", "")))
+        position_value = item.get(
+            "position",
+            item.get("answer", item.get("preference", item.get("verdict", item.get("vote")))),
+        )
+        try:
+            question_index = int(item.get("question_index", idx))
+        except (TypeError, ValueError):
+            question_index = idx
+        repaired.append(
+            {
+                "agent_name": str(item.get("agent_name", agent_name) or agent_name),
+                "question_index": question_index,
+                "position": _normalized_position(position_value, reason),
+                "reason": str(reason or ""),
+            }
+        )
+    return {"ballots": repaired}
+
+
 def _collect_agent_vote_json(
     agent: Dict[str, Any],
     votes: List[Dict[str, Any]],
@@ -183,9 +256,10 @@ def _collect_agent_vote_json(
             f"每个 ballot 的 question_index 必须是 0 到 {max(expected_count - 1, 0)} 中唯一的一个整数。"
             "禁止返回空数组。"
             "position 只能是 agree、abstain 或 reject，并写一句简短 reason。"
+            "如果你倾向支持，必须显式写 position: agree；反对写 reject；无法判断写 abstain。"
         )
         transcript_text = f"\n\n辩论记录摘要:\n{_transcript_summary(transcript)[:8000]}"
-    result = client.complete_json(
+    content = client.complete_text(
         [
             {"role": "system", "content": system_content},
             {
@@ -199,9 +273,9 @@ def _collect_agent_vote_json(
                 ),
             },
         ],
-        AgentVoteBallot,
     )
-    return model_to_dict(result)
+    raw = json.loads(extract_json_object(content))
+    return _repair_ballot_dict(raw, agent_name, expected_count)
 
 
 def _collect_agent_votes(

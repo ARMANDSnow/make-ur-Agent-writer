@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -9,7 +10,7 @@ from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .schemas import AgentReview, model_to_dict
 from .state import log_event
-from .utils import ensure_dir, write_json
+from .utils import ensure_dir, extract_json_object, write_json
 
 
 REVIEWS_DIR = ROOT / "outputs" / "reviews"
@@ -18,6 +19,21 @@ REVIEWS_DIR = ROOT / "outputs" / "reviews"
 def load_review_agents() -> List[Dict[str, Any]]:
     cfg = load_config("agents.yaml")
     return cfg.get("review_agents", [])
+
+
+def _repair_agent_review_dict(raw: Any, agent_name: str) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {}
+    repaired = dict(raw)
+    repaired["agent_name"] = str(repaired.get("agent_name") or agent_name)
+    verdict = str(repaired.get("verdict", "Reject")).strip().lower()
+    repaired["verdict"] = "Reject" if verdict == "reject" else "Approve"
+    repaired.setdefault("score", 7)
+    if not isinstance(repaired.get("issues"), list):
+        repaired["issues"] = []
+    if not isinstance(repaired.get("suggestions"), list):
+        repaired["suggestions"] = []
+    return repaired
 
 
 def review_text(
@@ -48,7 +64,7 @@ def review_text(
     facts = global_facts_summary()
     reviews = []
     for agent in agents:
-        result = client.complete_json(
+        content = client.complete_text(
             [
                 {"role": "system", "content": agent.get("system_prompt", agent.get("stance", ""))},
                 {
@@ -63,8 +79,9 @@ def review_text(
                     ),
                 },
             ],
-            AgentReview,
         )
+        raw = json.loads(extract_json_object(content))
+        result = AgentReview(**_repair_agent_review_dict(raw, agent["name"]))
         data = model_to_dict(result)
         data["agent_name"] = agent["name"]
         reviews.append(data)

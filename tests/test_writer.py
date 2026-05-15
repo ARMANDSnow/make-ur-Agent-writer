@@ -8,7 +8,7 @@ from src.writer import write_chapters
 
 
 class WriterLintFailureTests(unittest.TestCase):
-    def test_lint_error_does_not_write_draft(self) -> None:
+    def test_lint_error_writes_human_review_draft_and_failure_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             drafts = tmp / "drafts"
@@ -33,12 +33,18 @@ class WriterLintFailureTests(unittest.TestCase):
                     reports = write_chapters(chapters=1, force=True, max_attempts=1)
 
             md_path = drafts / "chapter_01.md"
+            meta_path = drafts / "chapter_01.meta.json"
             failure_path = drafts / "chapter_01.failure.json"
-            self.assertFalse(md_path.exists())
+            self.assertTrue(md_path.exists())
+            self.assertTrue(meta_path.exists())
             self.assertTrue(failure_path.exists())
             failure = json.loads(failure_path.read_text(encoding="utf-8"))
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
             self.assertIn("lint_issues", failure)
-            self.assertEqual(reports[0]["written"], False)
+            self.assertTrue(meta["needs_human_review"])
+            self.assertEqual(meta["rewrite_count"], 0)
+            self.assertEqual(meta["last_blocking_reasons"][0]["reviewer"], "deterministic_linter")
+            self.assertEqual(reports[0]["written"], True)
 
 
 class WriterRejectLintCleanTests(unittest.TestCase):

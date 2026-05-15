@@ -79,6 +79,7 @@ def write_chapters(
 
         if not lint_ok:
             failure_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.failure.json"
+            meta_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.meta.json"
             failure_report = {
                 "chapter": chapter_no,
                 "lint_issues": report.get("lint_issues", []),
@@ -88,8 +89,22 @@ def write_chapters(
                 "draft_preview": draft[:2000],
             }
             write_json(failure_path, failure_report)
+            meta = {
+                "target": out_path.name,
+                "rewrite_round": max(0, attempt - 1),
+                "lint_issues": report.get("lint_issues", []),
+                "agent_reviews": [],
+                "verdict": "Reject",
+                "rewrite_count": max(0, attempt - 1),
+                "needs_human_review": True,
+                "last_blocking_reasons": last_blocking_reasons,
+                "failure_path": str(failure_path),
+            }
+            write_text_atomic(out_path, draft + "\n")
+            write_json(meta_path, meta)
+            previous_state = draft[-2000:]
             log_event("write", "failure", chapter=chapter_no, reason="lint_errors")
-            reports.append({"chapter": chapter_no, "path": str(failure_path), "review": report, "written": False})
+            reports.append({"chapter": chapter_no, "path": str(out_path), "failure_path": str(failure_path), "review": meta, "written": True})
         else:
             meta = dict(report)
             meta["rewrite_count"] = max(0, attempt - 1)
@@ -98,6 +113,9 @@ def write_chapters(
                 meta["last_blocking_reasons"] = last_blocking_reasons
             write_text_atomic(out_path, draft + "\n")
             write_json(DRAFTS_DIR / f"chapter_{chapter_no:02d}.meta.json", meta)
+            failure_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.failure.json"
+            if failure_path.exists():
+                failure_path.unlink()
             previous_state = draft[-2000:]
             reports.append({"chapter": chapter_no, "path": str(out_path), "review": report, "written": True})
             log_event("write", report.get("verdict", "unknown").lower(), chapter=chapter_no, output=str(out_path))

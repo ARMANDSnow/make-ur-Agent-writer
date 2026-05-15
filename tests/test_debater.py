@@ -4,7 +4,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
-from src.debater import AgentVoteBallot, AgentVoteBallotItem, _collect_agent_votes, _transcript_summary, build_decisions, build_outline
+from src.debater import (
+    _collect_agent_votes,
+    _infer_position_from_reason,
+    _repair_ballot_dict,
+    _transcript_summary,
+    build_decisions,
+    build_outline,
+)
 from src.llm_client import LLMClient
 from src.schemas import DebateDecisions, DebateVote
 
@@ -110,7 +117,7 @@ class DebaterAgentFailureTests(unittest.TestCase):
         transcript = [{"round": 1, "agent": "a1", "response": "x"}]
         with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
             mock_prop.return_value = False
-            with patch.object(self.client, "complete_json", side_effect=RuntimeError("bad json")):
+            with patch.object(self.client, "complete_text", side_effect=RuntimeError("bad json")):
                 with patch("src.debater.log_event") as mock_log:
                     result = _collect_agent_votes(agent, votes, transcript, self.client)
         self.assertEqual([item["position"] for item in result["ballots"]], ["abstain", "abstain"])
@@ -122,15 +129,10 @@ class DebaterAgentFailureTests(unittest.TestCase):
         agent = {"name": "a1", "stance": "s1"}
         votes = [{"question": "Q1", "result": "R1"}, {"question": "Q2", "result": "R2"}]
         transcript = [{"round": 1, "agent": "a1", "response": "x"}]
-        complete = AgentVoteBallot(
-            ballots=[
-                AgentVoteBallotItem(question_index=0, position="agree", reason="yes"),
-                AgentVoteBallotItem(question_index=1, position="reject", reason="no"),
-            ]
-        )
+        complete = '{"ballots":[{"question_index":0,"position":"agree","reason":"yes"},{"question_index":1,"position":"reject","reason":"no"}]}'
         with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
             mock_prop.return_value = False
-            with patch.object(self.client, "complete_json", side_effect=[AgentVoteBallot(ballots=[]), complete]) as mock_complete:
+            with patch.object(self.client, "complete_text", side_effect=['{"ballots":[]}', complete]) as mock_complete:
                 with patch("src.debater.log_event") as mock_log:
                     result = _collect_agent_votes(agent, votes, transcript, self.client)
         self.assertEqual([item["position"] for item in result["ballots"]], ["agree", "reject"])
@@ -145,8 +147,8 @@ class DebaterAgentFailureTests(unittest.TestCase):
             mock_prop.return_value = False
             with patch.object(
                 self.client,
-                "complete_json",
-                side_effect=[AgentVoteBallot(ballots=[]), AgentVoteBallot(ballots=[])],
+                "complete_text",
+                side_effect=['{"ballots":[]}', '{"ballots":[]}'],
             ):
                 with patch("src.debater.log_event") as mock_log:
                     result = _collect_agent_votes(agent, votes, transcript, self.client)
@@ -156,6 +158,48 @@ class DebaterAgentFailureTests(unittest.TestCase):
             ["(missing-after-retry)", "(missing-after-retry)"],
         )
         self.assertTrue(any(call.args[:2] == ("debate", "ballot_empty_after_retry") for call in mock_log.call_args_list))
+
+    def test_infer_position_from_reason_agree_keywords(self) -> None:
+        self.assertEqual(_infer_position_from_reason("我赞同这个方案，并且支持推进"), "agree")
+        self.assertEqual(_infer_position_from_reason("I agree with this outcome"), "agree")
+
+    def test_infer_position_from_reason_reject_keywords(self) -> None:
+        self.assertEqual(_infer_position_from_reason("我反对这个结果"), "reject")
+        self.assertEqual(_infer_position_from_reason("I disagree and reject it"), "reject")
+
+    def test_infer_position_from_reason_neutral_falls_to_abstain(self) -> None:
+        self.assertEqual(_infer_position_from_reason("需要更多证据"), "abstain")
+        self.assertEqual(_infer_position_from_reason(""), "abstain")
+        self.assertEqual(_infer_position_from_reason(None), "abstain")
+
+    def test_repair_ballot_dict_fills_missing_position(self) -> None:
+        repaired = _repair_ballot_dict(
+            {"ballots": [{"agent_name": "a1", "question_index": 0, "reason": "我赞同这个裁决"}]},
+            "fallback-agent",
+            1,
+        )
+        self.assertEqual(repaired["ballots"][0]["agent_name"], "a1")
+        self.assertEqual(repaired["ballots"][0]["question_index"], 0)
+        self.assertEqual(repaired["ballots"][0]["position"], "agree")
+        self.assertEqual(repaired["ballots"][0]["reason"], "我赞同这个裁决")
+
+    def test_collect_agent_votes_recovers_from_position_missing_json(self) -> None:
+        agent = {"name": "a1", "stance": "s1"}
+        votes = [{"question": "Q1", "result": "R1"}, {"question": "Q2", "result": "R2"}]
+        transcript = [{"round": 1, "agent": "a1", "response": "x"}]
+        response = (
+            '{"ballots":['
+            '{"agent_name":"a1","question_index":0,"reason":"我赞同 Q1 的裁决"},'
+            '{"agent_name":"a1","question_index":1,"reason":"我反对 Q2 的裁决"}'
+            "]}"
+        )
+        with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = False
+            with patch.object(self.client, "complete_text", return_value=response):
+                result = _collect_agent_votes(agent, votes, transcript, self.client)
+        self.assertEqual(len(result["ballots"]), 2)
+        self.assertEqual([item["position"] for item in result["ballots"]], ["agree", "reject"])
+        self.assertNotEqual([item["reason"] for item in result["ballots"]], ["(parse_failed)", "(parse_failed)"])
 
 
 class DebaterTranscriptTests(unittest.TestCase):
