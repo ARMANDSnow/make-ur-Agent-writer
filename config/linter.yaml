@@ -38,6 +38,9 @@
         "内心深处涌起",
         "这一刻他终于明白"
       ]
+    },
+    "short_chapter_length": {
+      "enabled": true
     }
   }
 }

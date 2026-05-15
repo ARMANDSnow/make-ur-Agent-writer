@@ -52,8 +52,16 @@ class PreflightTests(unittest.TestCase):
         with build_root() as tmp:
             with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=True):
                 report = run_preflight(Path(tmp))
-        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["status"], "warn")
         self.assertEqual(report["fatal"], [])
+        self.assertTrue(any("continuation_anchor" in item for item in report["warn"]))
+
+    def test_empty_continuation_anchor_is_warn(self) -> None:
+        with build_root() as tmp:
+            with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=True):
+                report = run_preflight(Path(tmp))
+        self.assertEqual(report["status"], "warn")
+        self.assertTrue(any("continuation_anchor is empty" in item for item in report["warn"]))
 
     def test_residual_extraction_failure_is_fatal(self) -> None:
         with build_root() as tmp:

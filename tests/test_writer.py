@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.writer import write_chapters
+from src.writer import _write_prompt, write_chapters
 
 
 class WriterLintFailureTests(unittest.TestCase):
@@ -81,6 +81,41 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             self.assertTrue(meta.get("needs_human_review"))
             self.assertEqual(reports[0]["written"], True)
+
+    def test_writer_prompt_includes_style_examples_when_present(self) -> None:
+        messages, cache_segments = _write_prompt(
+            chapter_no=1,
+            knowledge="knowledge",
+            facts="facts",
+            style_examples="### opening_rhythm\n\n风格样例",
+            continuation_anchor="",
+            index={},
+            outline="outline",
+            previous_state="",
+            feedback="",
+        )
+        prompt = "\n".join(item["content"] for item in messages)
+        cached_text = "\n".join(item["content"] for item in cache_segments if item.get("cache"))
+        self.assertIn("opening_rhythm", prompt)
+        self.assertIn("不要复制具体情节", prompt)
+        self.assertIn("opening_rhythm", cached_text)
+
+    def test_writer_prompt_includes_continuation_anchor(self) -> None:
+        messages, _cache_segments = _write_prompt(
+            chapter_no=1,
+            knowledge="knowledge",
+            facts="facts",
+            style_examples="",
+            continuation_anchor="第三部结局后三个月",
+            index={},
+            outline="outline",
+            previous_state="",
+            feedback="",
+        )
+        prompt = "\n".join(item["content"] for item in messages)
+        self.assertIn("续写起点", prompt)
+        self.assertIn("第三部结局后三个月", prompt)
+        self.assertIn("中文正文 3500-5500 字", prompt)
 
 
 if __name__ == "__main__":

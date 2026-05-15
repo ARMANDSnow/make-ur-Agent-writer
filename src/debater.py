@@ -11,6 +11,7 @@ from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .schemas import DebateDecisions, model_to_dict
 from .state import log_event, write_text_atomic
+from .style import load_style_examples
 from .utils import ensure_dir, extract_json_object, read_json, write_json
 
 
@@ -346,6 +347,27 @@ def _with_result_prefix(result: str, prefix: str) -> str:
     return f"{prefix} {result}"
 
 
+def _continuation_anchor() -> str:
+    return str(load_config("agents.yaml").get("continuation_anchor", "") or "").strip()
+
+
+def _anchor_prompt_block() -> str:
+    anchor = _continuation_anchor()
+    if not anchor:
+        return ""
+    return f"续写起点（must-anchor）:\n{anchor}\n\n"
+
+
+def _style_prompt_block() -> str:
+    examples = load_style_examples()
+    if not examples:
+        return ""
+    return (
+        "作者风格参考（只学习节奏、含蓄度与意象方式，不复制具体情节/人名/场景）:\n"
+        f"{examples[:6000]}\n\n"
+    )
+
+
 def _apply_agent_ballots(
     decisions: Dict[str, Any],
     agent_ballots: Dict[str, List[Dict[str, Any]]],
@@ -421,6 +443,7 @@ def build_decisions(
                         "根据以下辩论记录，总结 2-5 个核心投票问题及裁决结果。"
                         "每个 vote 包含 question、result、for（支持该裁决的 agent 名列表）、against（反对的 agent 名列表）。\n\n"
                         f"Agent 列表: {json.dumps(voter_names, ensure_ascii=False)}\n\n"
+                        f"{_anchor_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
                         f"辩论记录:\n{_transcript_summary(transcript)}"
                     ),
@@ -477,6 +500,8 @@ def build_outline(
                     "role": "user",
                     "content": (
                         f"主题: {topic}\n\n"
+                        f"{_anchor_prompt_block()}"
+                        f"{_style_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
                         f"裁决结果:\n{json.dumps(decisions, ensure_ascii=False)[:6000]}\n\n"
                         f"辩论摘要:\n{_transcript_summary(transcript)[:6000]}\n\n"

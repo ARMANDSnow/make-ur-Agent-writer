@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import ROOT, load_config
-from .linter import NovelLinter
+from .linter import NovelLinter, count_chinese_chars
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .reviewer import review_text
 from .state import log_event, write_text_atomic
+from .style import load_style_examples
 from .utils import ensure_dir, read_json, write_json
 
 
@@ -30,10 +31,12 @@ def write_chapters(
     outline = OUTLINE_PATH.read_text(encoding="utf-8")
     index = read_json(INDEX_PATH, {})
     facts = global_facts_summary()
+    style_examples = load_style_examples()
     client = LLMClient("write")
     agent_cfg = load_config("agents.yaml")
     if "max_review_attempts" not in agent_cfg:
         raise KeyError("agents.yaml missing required key 'max_review_attempts'")
+    continuation_anchor = str(agent_cfg.get("continuation_anchor", "") or "").strip()
     configured_attempts = int(agent_cfg["max_review_attempts"])
     rewrite_limit = int(max_attempts) if max_attempts is not None else configured_attempts
     linter = NovelLinter()
@@ -54,6 +57,8 @@ def write_chapters(
                 chapter_no=chapter_no,
                 knowledge=knowledge,
                 facts=facts,
+                style_examples=style_examples,
+                continuation_anchor=continuation_anchor,
                 index=index,
                 outline=outline,
                 previous_state=previous_state,
@@ -85,6 +90,7 @@ def write_chapters(
                 "lint_issues": report.get("lint_issues", []),
                 "last_attempt": attempt,
                 "rewrite_count": max(0, attempt - 1),
+                "chinese_char_count": count_chinese_chars(draft),
                 "last_blocking_reasons": last_blocking_reasons,
                 "draft_preview": draft[:2000],
             }
@@ -96,6 +102,7 @@ def write_chapters(
                 "agent_reviews": [],
                 "verdict": "Reject",
                 "rewrite_count": max(0, attempt - 1),
+                "chinese_char_count": count_chinese_chars(draft),
                 "needs_human_review": True,
                 "last_blocking_reasons": last_blocking_reasons,
                 "failure_path": str(failure_path),
@@ -108,8 +115,9 @@ def write_chapters(
         else:
             meta = dict(report)
             meta["rewrite_count"] = max(0, attempt - 1)
+            meta["chinese_char_count"] = count_chinese_chars(draft)
+            meta["needs_human_review"] = report.get("verdict") != "Approve"
             if report.get("verdict") != "Approve":
-                meta["needs_human_review"] = True
                 meta["last_blocking_reasons"] = last_blocking_reasons
             write_text_atomic(out_path, draft + "\n")
             write_json(DRAFTS_DIR / f"chapter_{chapter_no:02d}.meta.json", meta)
@@ -140,18 +148,32 @@ def _write_prompt(
     chapter_no: int,
     knowledge: str,
     facts: str,
+    style_examples: str,
+    continuation_anchor: str,
     index: Dict[str, Any],
     outline: str,
     previous_state: str,
     feedback: str,
 ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
     system_prompt = "你是长篇小说续写写作者。只输出正文，不要输出章节编号或解释。"
+    style_context = ""
+    if style_examples:
+        style_context = (
+            "# 作者风格参考（重点匹配此节奏与含蓄度，不要复制具体情节/人名/场景）\n\n"
+            f"{style_examples}\n\n"
+            "写作时优先匹配上述风格参考的节奏、含蓄度与意象使用方式；不要复制具体情节、地名、人名或事件。\n\n"
+        )
     stable_context = (
+        f"{style_context}"
         f"全局知识:\n{knowledge[:9000]}\n\n"
         f"机器索引统计:\n{_index_stats(index)}\n\n"
         f"辩论大纲:\n{outline[:6000]}"
     )
+    anchor_context = f"# 续写起点（must-anchor）\n\n{continuation_anchor}\n\n" if continuation_anchor else ""
     dynamic_context = (
+        f"{anchor_context}"
+        "# 本章目标长度\n\n"
+        "中文正文 3500-5500 字之间，过短会被自动重写。\n\n"
         f"续写第 {chapter_no} 章。\n\n"
         f"人工全局事实:\n{facts}\n\n"
         f"上一章状态:\n{previous_state}\n\n"

@@ -17,3 +17,4 @@
 6. [Iteration 006 - Preflight Provider Routing + Debate 真模型小样本](./iteration_006_debate_real_smoke.md)
 7. [Iteration 007 - Ballot Hardening + Test Isolation](./iteration_007_ballot_hardening_and_test_isolation.md)
 8. [Iteration 008 - Write Smoke + Ballot Field Repair](./iteration_008_write_smoke_and_ballot_repair.md)
+9. [Iteration 009 - Writing Quality Surge](./iteration_009_writing_quality_surge.md)

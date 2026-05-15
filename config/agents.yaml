@@ -1,5 +1,6 @@
 {
-  "max_review_attempts": 2,
+  "max_review_attempts": 3,
+  "continuation_anchor": "",
   "debate_agents": [
     {
       "name": "路明非本位",

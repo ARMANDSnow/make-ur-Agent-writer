@@ -34,6 +34,23 @@ class LinterTests(unittest.TestCase):
         self.assertIn("name_drift", rules)
         self.assertIn("ai_cliche_terms", rules)
 
+    def test_short_chapter_length_error_triggers_rewrite(self) -> None:
+        linter = NovelLinter(
+            {
+                "rules": {
+                    "meta_chapter_markers": {"enabled": False},
+                    "not_x_but_y": {"enabled": False},
+                    "short_sentence_openings": {"enabled": False},
+                    "name_drift": {"enabled": False},
+                    "ai_cliche_terms": {"enabled": False},
+                    "short_chapter_length": {"enabled": True},
+                }
+            }
+        )
+        issues = linter.lint("路明非" * 100)
+        self.assertEqual(issues[0]["rule"], "short_chapter_length")
+        self.assertEqual(issues[0]["severity"], "error")
+
 
 if __name__ == "__main__":
     unittest.main()

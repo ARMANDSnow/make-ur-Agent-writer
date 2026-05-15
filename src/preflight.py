@@ -31,7 +31,7 @@ def run_preflight(root: Path = ROOT) -> Dict[str, Any]:
     is_mock = model.lower().startswith("mock")
 
     _check_env(fatal, warn, model, is_mock)
-    _check_agents_config(fatal)
+    _check_agents_config(fatal, warn)
     _check_provider_routing(fatal, warn, model, is_mock)
     _check_context_limits(fatal, info, model_cfg)
     _check_logs_writable(fatal, root)
@@ -79,7 +79,7 @@ def _check_env(fatal: List[str], warn: List[str], model: str, is_mock: bool) -> 
         fatal.append("OPENAI_BASE_URL is empty or invalid while OPENAI_MODEL is not mock.")
 
 
-def _check_agents_config(fatal: List[str]) -> None:
+def _check_agents_config(fatal: List[str], warn: List[str]) -> None:
     try:
         cfg = load_config("agents.yaml")
     except Exception as exc:
@@ -88,6 +88,8 @@ def _check_agents_config(fatal: List[str]) -> None:
     value = cfg.get("max_review_attempts")
     if not isinstance(value, int) or value <= 0:
         fatal.append("agents.yaml missing required key 'max_review_attempts' or value is not a positive integer.")
+    if not str(cfg.get("continuation_anchor", "") or "").strip():
+        warn.append("continuation_anchor is empty; writer will lack temporal anchor.")
 
 
 def _check_provider_routing(fatal: List[str], warn: List[str], model: str, is_mock: bool) -> None:

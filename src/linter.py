@@ -7,6 +7,10 @@ from .config import load_config
 from .schemas import LintIssue, model_to_dict
 
 
+def count_chinese_chars(text: str) -> int:
+    return sum(1 for ch in text if "一" <= ch <= "鿿")
+
+
 class NovelLinter:
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         self.config = config if config is not None else load_config("linter.yaml")
@@ -25,6 +29,8 @@ class NovelLinter:
             issues.extend(self._name_drift(lines))
         if self.rules.get("ai_cliche_terms", {}).get("enabled", True):
             issues.extend(self._ai_cliches(lines))
+        if self.rules.get("short_chapter_length", {}).get("enabled", True):
+            issues.extend(self._short_chapter_length(text))
         return [model_to_dict(issue) for issue in issues]
 
     def _meta_chapter_markers(self, lines: List[str]) -> List[LintIssue]:
@@ -92,7 +98,21 @@ class NovelLinter:
                             message=f"疑似现代 AI 腔词：{term}。",
                             line=i,
                             excerpt=line.strip(),
-                        )
                     )
+                )
         return issues
 
+    def _short_chapter_length(self, text: str) -> List[LintIssue]:
+        count = count_chinese_chars(text)
+        if count >= 3500:
+            return []
+        severity = "error" if count < 2500 else "warning"
+        return [
+            LintIssue(
+                rule="short_chapter_length",
+                severity=severity,
+                message=f"章节中文字数过短：{count}，目标 3500-5500。",
+                line=1,
+                excerpt=f"chinese_char_count={count}",
+            )
+        ]

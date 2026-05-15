@@ -31,7 +31,7 @@
     },
     "write": {
       "temperature": 0.65,
-      "max_tokens": 5000,
+      "max_tokens": 8000,
       "context_limit": 128000,
       "cache_enabled": true
     },
