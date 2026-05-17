@@ -1,0 +1,43 @@
+{
+  "entities": [
+    {
+      "id": "<用户填写实体ID_1>",
+      "name": "<用户填写实体名_1>",
+      "type": "<character|location|organization|object|concept>",
+      "aliases": [
+        "<用户填写别名，可留空>"
+      ],
+      "key_facts": [
+        "<用户用自己的话填写基础属性>"
+      ]
+    },
+    {
+      "id": "<用户填写实体ID_2>",
+      "name": "<用户填写实体名_2>",
+      "type": "<character|location|organization|object|concept>",
+      "aliases": [],
+      "key_facts": [
+        "<用户用自己的话填写基础属性>"
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "src_id": "<用户填写实体ID_1>",
+      "dst_id": "<用户填写实体ID_2>",
+      "relation_type": "<用户填写关系类型>",
+      "timeline": [
+        {
+          "anchor_chapter": "<用户填写早期锚点>",
+          "state": "<用户用自己的话写当时关系状态>",
+          "active": false
+        },
+        {
+          "anchor_chapter": "<用户填写当前续写起点锚点>",
+          "state": "<用户用自己的话写当前活跃关系状态>",
+          "active": true
+        }
+      ]
+    }
+  ]
+}

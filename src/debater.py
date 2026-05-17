@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal
 from pydantic import BaseModel, Field
 
 from .config import ROOT, load_config
+from .entities import load_entity_graph, render_active_state
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .schemas import DebateDecisions, model_to_dict
@@ -492,6 +493,13 @@ def build_outline(
 ) -> str:
     if client.is_mock:
         return _hardcoded_outline(topic, decisions)
+    entity_state = render_active_state(load_entity_graph())
+    entity_block = (
+        f"{entity_state}\n"
+        "严格遵守'当前活跃关系'：大纲中的人物互动、人物对彼此的认知、关系推进必须匹配上面 active 状态。\n\n"
+        if entity_state
+        else ""
+    )
     try:
         text = client.complete_text(
             [
@@ -503,6 +511,7 @@ def build_outline(
                         f"{_anchor_prompt_block()}"
                         f"{_style_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
+                        f"{entity_block}"
                         f"裁决结果:\n{json.dumps(decisions, ensure_ascii=False)[:6000]}\n\n"
                         f"辩论摘要:\n{_transcript_summary(transcript)[:6000]}\n\n"
                         "请输出 Markdown 大纲，包含：核心共识、投票裁决、章节方向（默认 18 章）。"

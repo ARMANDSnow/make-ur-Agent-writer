@@ -77,10 +77,22 @@ class ManualFactsTests(unittest.TestCase):
                 captured["prompt"] = "\n".join(m.get("content", "") for m in messages)
                 return "干净正文。"
 
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return {
+                        "max_review_attempts": 3,
+                        "polish_pass": False,
+                        "review_during_lint_block": True,
+                        "continuation_anchor": "",
+                    }
+                raise AssertionError(name)
+
             with patch("src.writer.DRAFTS_DIR", drafts), patch("src.writer.OUTLINE_PATH", outline), patch(
                 "src.writer.KB_PATH", kb
             ), patch("src.writer.INDEX_PATH", idx), patch(
                 "src.writer.global_facts_summary", return_value="FACT: 绘梨衣已死亡"
+            ), patch(
+                "src.writer.load_config", side_effect=fake_load_config
             ), patch(
                 "src.llm_client.LLMClient.complete_text", fake_complete_text
             ), patch(

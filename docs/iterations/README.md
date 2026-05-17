@@ -19,3 +19,4 @@
 8. [Iteration 008 - Write Smoke + Ballot Field Repair](./iteration_008_write_smoke_and_ballot_repair.md)
 9. [Iteration 009 - Writing Quality Surge](./iteration_009_writing_quality_surge.md)
 10. [Iteration 010 - Linter Thresholds + Polish Pass + Reviewer Bypass Safety](./iteration_010_polish_and_linter_thresholds.md)
+11. [Iteration 011 - Entity Graph + Consistency Reviewer + Polish Length Floor](./iteration_011_entity_graph_and_consistency.md)

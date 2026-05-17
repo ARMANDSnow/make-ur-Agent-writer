@@ -141,6 +141,40 @@ class WriterRejectLintCleanTests(unittest.TestCase):
         self.assertIn("第三部结局后三个月", prompt)
         self.assertIn("中文正文 3500-5500 字", prompt)
 
+    def test_writer_prompt_includes_entity_state_when_present(self) -> None:
+        graph = {
+            "entities": [
+                {"id": "a", "name": "甲", "type": "character", "key_facts": ["事实甲"]},
+                {"id": "b", "name": "乙", "type": "character", "key_facts": ["事实乙"]},
+            ],
+            "relationships": [
+                {
+                    "src_id": "a",
+                    "dst_id": "b",
+                    "relation_type": "同盟",
+                    "timeline": [{"anchor_chapter": "now", "state": "当前必须互相信任", "active": True}],
+                }
+            ],
+        }
+        with patch("src.writer.load_entity_graph", return_value=graph):
+            messages, cache_segments = _write_prompt(
+                chapter_no=1,
+                knowledge="knowledge",
+                facts="facts",
+                style_examples="",
+                continuation_anchor="",
+                index={},
+                outline="outline",
+                previous_state="",
+                feedback="",
+            )
+        prompt = "\n".join(item["content"] for item in messages)
+        cached_text = "\n".join(item["content"] for item in cache_segments if item.get("cache"))
+        self.assertIn("当前活跃关系", prompt)
+        self.assertIn("当前必须互相信任", prompt)
+        self.assertIn("严格遵守'当前活跃关系'", prompt)
+        self.assertIn("当前必须互相信任", cached_text)
+
     def test_polish_pass_runs_after_final_reject_and_respects_disable(self) -> None:
         for enabled in (True, False):
             with self.subTest(polish_pass=enabled), tempfile.TemporaryDirectory() as tmp:
@@ -176,6 +210,40 @@ class WriterRejectLintCleanTests(unittest.TestCase):
                 self.assertEqual(("polished draft" in draft), enabled)
                 if enabled:
                     self.assertEqual(meta["polish_diff_stats"]["pre_chars"], len("first draft"))
+
+    def test_polish_triggers_when_chinese_chars_below_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            drafts, outline, kb, idx = _write_fixture(tmp)
+            calls = []
+
+            def fake_complete_text(self, messages, temperature=None, cache_segments=None):
+                calls.append("\n".join(message.get("content", "") for message in messages))
+                return "扩写后正文" if len(calls) > 1 else "短正文"
+
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return _agent_config(polish_pass=True)
+                raise AssertionError(name)
+
+            with patch("src.writer.DRAFTS_DIR", drafts), patch("src.writer.OUTLINE_PATH", outline), patch(
+                "src.writer.KB_PATH", kb
+            ), patch("src.writer.INDEX_PATH", idx), patch("src.writer.load_config", side_effect=fake_load_config), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.llm_client.LLMClient.complete_text", fake_complete_text
+            ), patch(
+                "src.writer.review_text",
+                return_value={"verdict": "Approve", "lint_issues": [], "agent_reviews": []},
+            ):
+                linter_cls.return_value.lint.return_value = []
+                write_chapters(chapters=1, force=True, max_attempts=1)
+
+            meta = json.loads((drafts / "chapter_01.meta.json").read_text(encoding="utf-8"))
+            draft = (drafts / "chapter_01.md").read_text(encoding="utf-8")
+            self.assertTrue(meta["polish_applied"])
+            self.assertIn("扩写后正文", draft)
+            self.assertIn("目标 3500-5500 中文字", calls[-1])
 
     def test_reviewer_runs_even_when_lint_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

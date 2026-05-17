@@ -110,6 +110,14 @@
   - Writer meta says `verdict=Approve`, `needs_human_review=false`, `rewrite_count=2`, `chinese_char_count=2694`, `polish_applied=false`, and `lint_blocked_reviews=[]`.
   - Reviewer signal is now available: writer in-loop meta has 7 `agent_reviews`, all `Approve`; standalone review has 7 reviewer outputs with 6 `Approve` and 1 `Reject`.
   - Remaining failure: D1 still misses the 3000 Chinese-character hard floor (`2694`). Reviewer keyword scan for `风格` / `节奏` / `含蓄` / `言外之意` / `设定说明` found zero hits, so P5 did not prove reviewer feedback was explicitly style-example-aware.
+- Iteration 011 entity graph + consistency reviewer + polish length floor:
+  - Added optional `data/entity_graph.json` support through `src/entities.py`; missing graph returns `{}` and prompt injection degrades to empty state.
+  - Added tracked `data/entity_graph.example.json` as schema-only placeholders. It intentionally contains no plot content or quoted source text.
+  - Writer stable prompt context now includes active entity relationships when present and explicitly requires role interactions and relationship descriptions to obey current active states.
+  - Debate outline generation receives the same entity-state block; agent ballot prompts remain unchanged.
+  - Reviewer prompts now receive entity state after global facts, and `config/agents.yaml` has an eighth review agent: `关系一致性`.
+  - Polish now runs when enabled and the final draft is lint-blocked, reviewer-rejected, or under 3000 Chinese characters; short drafts get an expansion instruction targeting 3500-5500 Chinese characters.
+  - User still owns `.env` model switching to `deepseek/deepseek-v4-pro`; do not run `scripts/write_smoke.sh` until the user fills `data/entity_graph.json` and replies `可以跑了`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -121,8 +129,8 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 011 writing-quality follow-up: D1 is still the blocker; prioritize chunked writing or an explicit expansion pass keyed to `short_chapter_length`.
-- Reviewer prompt follow-up: now that reviewer output exists, decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence.
+- Iteration 012 relationship advance: decide whether each generated chapter should propose updates to `entity_graph.json` active timeline markers for user approval.
+- Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence.
 - Stage 3 generalization: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .config import ROOT, load_config
+from .entities import load_entity_graph, render_active_state
 from .linter import NovelLinter
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
@@ -63,6 +64,8 @@ def review_text(
     agents = load_review_agents()
     client = LLMClient("review")
     facts = global_facts_summary()
+    entity_state = render_active_state(load_entity_graph())
+    entity_block = f"{entity_state}\n" if entity_state else ""
     reviews = []
     for agent in agents:
         content = client.complete_text(
@@ -76,6 +79,7 @@ def review_text(
                         "issues 可输出字符串，或输出对象 {message, rule_id, severity, anchor}；"
                         "severity 只能是 block、major、minor。\n\n"
                         f"人工全局事实:\n{facts}\n\n"
+                        f"{entity_block}"
                         f"{text[:18000]}"
                     ),
                 },

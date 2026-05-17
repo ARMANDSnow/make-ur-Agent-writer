@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import ROOT, load_config
+from .entities import load_entity_graph, render_active_state
 from .linter import NovelLinter, count_chinese_chars
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
@@ -107,7 +108,17 @@ def write_chapters(
             last_blocking_reasons = _blocking_reasons(report)
             feedback = _review_feedback(report)
 
-        if draft and polish_enabled and (not lint_ok or report.get("verdict") != "Approve"):
+        chinese_chars = count_chinese_chars(draft)
+        needs_polish = (
+            polish_enabled
+            and draft
+            and (
+                not lint_ok
+                or report.get("verdict") != "Approve"
+                or chinese_chars < 3000
+            )
+        )
+        if needs_polish:
             polished = _polish_draft(
                 client=client,
                 draft=draft,
@@ -115,6 +126,7 @@ def write_chapters(
                 review_report=report,
                 style_examples=style_examples,
                 continuation_anchor=continuation_anchor,
+                chinese_chars=chinese_chars,
             )
             if polished:
                 pre_chars = len(draft)
@@ -222,6 +234,14 @@ def _write_prompt(
         f"机器索引统计:\n{_index_stats(index)}\n\n"
         f"辩论大纲:\n{outline[:6000]}"
     )
+    entity_state = render_active_state(load_entity_graph())
+    if entity_state:
+        stable_context = (
+            f"{stable_context}\n\n"
+            f"{entity_state}\n"
+            "严格遵守'当前活跃关系'：任何角色互动、人物对彼此的认知、关系描述必须匹配上面 active 状态；"
+            "不要编造未列出的关系；不要让角色行为与已确立关系冲突。"
+        )
     anchor_context = f"# 续写起点（must-anchor）\n\n{continuation_anchor}\n\n" if continuation_anchor else ""
     dynamic_context = (
         f"{anchor_context}"
@@ -266,6 +286,7 @@ def _polish_draft(
     review_report: Dict[str, Any],
     style_examples: str,
     continuation_anchor: str,
+    chinese_chars: int | None = None,
 ) -> str:
     review_feedback = _review_feedback(review_report)
     lint_feedback = _format_lint_feedback(lint_issues)
@@ -276,6 +297,14 @@ def _polish_draft(
         else ""
     )
     anchor_context = f"# 续写起点\n\n{continuation_anchor}\n\n" if continuation_anchor else ""
+    measured_chinese_chars = count_chinese_chars(draft) if chinese_chars is None else chinese_chars
+    expansion_context = ""
+    if measured_chinese_chars < 3000:
+        expansion_context = (
+            f"# 扩写要求\n\n当前 {measured_chinese_chars} 中文字，目标 3500-5500 中文字，"
+            "扩充环境/动作/心理/对话。在保留现有情节和风格基础上增加环境与动作细节描写、"
+            "深化心理活动、补充对话张力；不要改写为大纲，不要删减既有关键情节。\n\n"
+        )
     system_prompt = (
         "你是长篇小说终稿修订者。只输出修订后的完整正文。"
         "不要解释，不要输出问题清单，不要加章节编号。"
@@ -288,6 +317,7 @@ def _polish_draft(
         "保持现有故事线和章节长度，不少于现稿。"
         "避免反复使用'不是X，是Y'/'不是X而是Y'句式；同章最多出现 2 次。"
         "如需对比，优先用动作/环境替代说明。\n\n"
+        f"{expansion_context}"
         f"# deterministic linter 问题\n\n{lint_feedback}\n\n"
         f"# reviewer 问题\n\n{review_feedback}\n\n"
         f"# 最后一稿全文\n\n{draft}"

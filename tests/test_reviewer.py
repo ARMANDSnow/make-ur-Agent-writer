@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.reviewer import review_text
+from src.reviewer import load_review_agents
 
 
 class ReviewerPrecomputedLintTests(unittest.TestCase):
@@ -48,6 +49,40 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
 
         self.assertEqual(report["agent_reviews"][0]["agent_name"], "文本守门人")
         self.assertEqual(report["verdict"], "Approve")
+
+    def test_relationship_consistency_agent_in_review_pipeline(self) -> None:
+        graph = {
+            "entities": [
+                {"id": "a", "name": "甲", "type": "character", "key_facts": ["事实甲"]},
+                {"id": "b", "name": "乙", "type": "character", "key_facts": ["事实乙"]},
+            ],
+            "relationships": [
+                {
+                    "src_id": "a",
+                    "dst_id": "b",
+                    "relation_type": "同盟",
+                    "timeline": [{"anchor_chapter": "now", "state": "当前必须互相信任", "active": True}],
+                }
+            ],
+        }
+        captured = {}
+
+        def fake_complete_text(self, messages):
+            prompt = "\n".join(m.get("content", "") for m in messages)
+            agent_name = prompt.split("agent_name: ", 1)[1].split("\n", 1)[0]
+            captured[agent_name] = prompt
+            return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
+
+        self.assertIn("关系一致性", [agent["name"] for agent in load_review_agents()])
+        with patch("src.reviewer.load_entity_graph", return_value=graph), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("干净正文。", "relationship.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertIn("关系一致性", [item["agent_name"] for item in report["agent_reviews"]])
+        self.assertIn("当前必须互相信任", captured["关系一致性"])
+        self.assertIn("人工全局事实", captured["关系一致性"])
 
 
 if __name__ == "__main__":
