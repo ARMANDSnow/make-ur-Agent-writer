@@ -96,7 +96,7 @@
   - Draft length improved to 3478 total chars / 2924 Chinese chars, but missed the `>=3000` Chinese-char hard floor. Writer used all 3 attempts and persisted a human-review draft with `rewrite_count=2`, `needs_human_review=true`.
   - Blocking issue: deterministic linter rejected the final draft for 6 `not_x_but_y` errors plus 1 `short_chapter_length` warning; standalone review did not produce true reviewer-agent issues because the draft was already linter-rejected.
   - Debate side produced 42 log rows, 2 final votes, 12 `agent_votes`, 10 non-fallback ballots, 2 fallback ballots, `for` lengths `[4, 5]`, and `against` lengths `[0, 0]`.
-- Iteration 010 linter thresholds + polish + reviewer bypass safety (P1-P4/P6 only):
+- Iteration 010 linter thresholds + polish + reviewer bypass safety:
   - `not_x_but_y` is now thresholded in `config/linter.yaml`: 0-2 hits no issue, 3-4 warning, 5+ error.
   - Every deterministic lint issue now carries an `anchor`; cumulative `not_x_but_y` issues also carry `count`.
   - Writer feedback now includes lint rule, count, and anchor, and the writer system prompt explicitly limits repeated `not_x_but_y` / `not_x_but_y`-style contrast sentences.
@@ -104,7 +104,12 @@
   - `write_chapters` runs one terminal `_polish_draft` call after the normal rewrite budget is exhausted and the draft is still Reject; polish output is persisted without a recursive review loop.
   - Meta/failure reports now include `polish_applied`, `polish_diff_stats`, and `lint_blocked_reviews`.
   - `review_text` has an opt-in `run_agents_on_lint_error=True` path so writer can collect shadow reviewer signal while deterministic lint still blocks the draft; default reviewer behavior is unchanged.
-  - P5 true-model smoke has not been run. Wait for user to confirm `可以跑了`, then run `bash scripts/write_smoke.sh`, update the Iteration 010 Acceptance Result, and commit `Iteration 010: record write smoke results`.
+  - P5 true-model smoke ran on 2026-05-17 after user confirmation. Snapshot: `outputs/drafts/snapshots/20260517_155018/`; log: `logs/write_smoke_20260517_155018.log`.
+  - Result: script exited 0, DeepSeek increment was 76/76 `ok`, `data/extraction_failures/` stayed empty, and rough logged-token cost was about `$0.18`.
+  - `not_x_but_y` no longer blocked the writer. Final meta has only `short_chapter_length` as a warning, not an error.
+  - Writer meta says `verdict=Approve`, `needs_human_review=false`, `rewrite_count=2`, `chinese_char_count=2694`, `polish_applied=false`, and `lint_blocked_reviews=[]`.
+  - Reviewer signal is now available: writer in-loop meta has 7 `agent_reviews`, all `Approve`; standalone review has 7 reviewer outputs with 6 `Approve` and 1 `Reject`.
+  - Remaining failure: D1 still misses the 3000 Chinese-character hard floor (`2694`). Reviewer keyword scan for `风格` / `节奏` / `含蓄` / `言外之意` / `设定说明` found zero hits, so P5 did not prove reviewer feedback was explicitly style-example-aware.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -116,8 +121,8 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 010 P5: after user confirms budget/key readiness, run `bash scripts/write_smoke.sh` and record true-model results.
-- If Iteration 010 P5 still misses D1/D3/D4, decide between chunked writing and reviewer prompt tuning using the new `lint_blocked_reviews` / `agent_reviews` evidence.
+- Iteration 011 writing-quality follow-up: D1 is still the blocker; prioritize chunked writing or an explicit expansion pass keyed to `short_chapter_length`.
+- Reviewer prompt follow-up: now that reviewer output exists, decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence.
 - Stage 3 generalization: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

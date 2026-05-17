@@ -60,7 +60,7 @@ Iteration 009 improved prompt inputs but failed the writing-quality gate. The tr
 | B3 | writer feedback uses anchor/count | Added |
 | B4 | polish pass | Added with config switch and tests |
 | B5 | shadow review on lint block | Added with config switch and tests |
-| C1-D7 | P5 true-model smoke | Not run in this commit by design |
+| C1-D7 | P5 true-model smoke | Run on 2026-05-17; script exited 0; D1 still failed at 2694 Chinese chars |
 | F1-F3 | docs/index/handoff | Updated |
 | F4 | secret scan | Secret-like token regex scan returned no hits |
 
@@ -92,22 +92,38 @@ python3 main.py preflight
 
 Secret-like token regex scan returned no hits in tracked source/docs/config/script files outside ignored runtime artifacts.
 
-P5 true-model smoke is intentionally not run yet. Required next action:
+P5 true-model smoke result after user confirmation:
 
 ```bash
 bash scripts/write_smoke.sh
+# Snapshot saved: outputs/drafts/snapshots/20260517_155018
+# Write smoke log written: logs/write_smoke_20260517_155018.log
 ```
 
-Only run this after user confirms budget/key readiness with `可以跑了`. After P5, update this section with:
+P5 metrics:
 
-- snapshot path and log path;
-- Chinese char count;
-- `agent_reviews` count;
-- `polish_applied`;
-- `lint_blocked_reviews` presence/count;
-- DeepSeek ok rate and rough cost;
-- reviewer keyword scan for style-related feedback (`风格` / `节奏` / `含蓄` / `言外之意` / `设定说明`);
-- D4 user score placeholder: `待用户评分`.
+- Snapshot: `outputs/drafts/snapshots/20260517_155018/`
+- Log: `logs/write_smoke_20260517_155018.log`
+- C1: script exited 0; head and tail preflight were `warn`, FATAL `none`.
+- D1: `chapter_01.md` = 3378 total chars / 2694 Chinese chars. This misses the `>=3000` Chinese-char hard floor.
+- D2: meta includes `chinese_char_count=2694`, `rewrite_count=2`, `needs_human_review=false`, `polish_applied=false`, `polish_diff_stats={}`, and `lint_blocked_reviews=[]`.
+- D3: writer in-loop meta has 7 `agent_reviews`, all `Approve`, with 2 total issues. The standalone review file under `reviews/chapter_01.review.json` has 7 reviewer outputs with 6 `Approve` and 1 `Reject`, so reviewer signal is now available either way.
+- D4: pending user read/score (`待用户评分`).
+- D5: DeepSeek increment from line 3100 was 76/76 `ok`: 1 compress, 44 debate, 3 write, 28 review.
+- D6: `data/extraction_failures/` stayed empty.
+- D7: snapshot contains chapter, meta, debate decisions, debate outline, and reviews directory.
+- E: rough DeepSeek-V3 token cost from logged prompt/response tokens was about `$0.18`; provider cache logs showed `cache_read_tokens=51840`, `cache_write_tokens=345940`.
+
+Specific Iteration 010 gates:
+
+- `not_x_but_y` no longer blocked the writer. Final meta has only one deterministic lint issue: `short_chapter_length` warning.
+- `polish_applied=false` because the final in-loop writer review approved; this respects the trigger rule that polish only runs when the final result is still Reject.
+- `lint_blocked_reviews=[]` because deterministic lint did not hard-block after thresholding. This is acceptable for this run and confirms the bypass safety was not needed.
+- Reviewer keyword scan over snapshot reviewer JSON found zero hits for `风格` / `节奏` / `含蓄` / `言外之意` / `设定说明`. That means P5 did not provide evidence that reviewer feedback explicitly referenced the style-example axis.
+
+Debate side result: decisions have 5 votes, 30 `agent_votes`, 5 fallback ballots, `for` lengths `[3, 3, 4, 5, 5]`, and `against` lengths `[2, 2, 1, 0, 0]`.
+
+Conclusion: Iteration 010 fixed the three engineering bottlenecks from Iteration 009: `not_x_but_y` no longer causes a hard lint loop, reviewer signal is collected, and polish stays correctly gated. The remaining failure is length: the chapter is still under the 3000 Chinese-character hard floor despite 3 write attempts and reviewer approval. Next likely target is chunked writing or an explicit expansion pass keyed to `short_chapter_length`.
 
 ## 文件变更汇总
 
