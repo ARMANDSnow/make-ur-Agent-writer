@@ -1,5 +1,7 @@
 {
   "max_review_attempts": 3,
+  "polish_pass": true,
+  "review_during_lint_block": true,
 
   "continuation_anchor": "
 续写起点：第 3 部《黑月之潮下》之后 / 某事件之前

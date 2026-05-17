@@ -4,7 +4,9 @@
       "enabled": true
     },
     "not_x_but_y": {
-      "enabled": true
+      "enabled": true,
+      "warn_threshold": 2,
+      "error_threshold": 5
     },
     "short_sentence_openings": {
       "enabled": true,

@@ -41,6 +41,7 @@ def review_text(
     target_name: str = "draft",
     precomputed_lint_issues: List[Dict[str, Any]] | None = None,
     rewrite_round: int = 0,
+    run_agents_on_lint_error: bool = False,
 ) -> Dict[str, Any]:
     ensure_dir(REVIEWS_DIR)
     if precomputed_lint_issues is not None:
@@ -48,7 +49,7 @@ def review_text(
     else:
         linter = NovelLinter()
         lint_issues = linter.lint(text)
-    if any(issue["severity"] == "error" for issue in lint_issues):
+    if any(issue["severity"] == "error" for issue in lint_issues) and not run_agents_on_lint_error:
         report = {
             "target": target_name,
             "rewrite_round": rewrite_round,

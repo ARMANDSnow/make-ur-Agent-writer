@@ -97,6 +97,8 @@ class LintIssue(BaseModel):
     message: str
     line: int
     excerpt: str = ""
+    anchor: str = ""
+    count: Optional[int] = None
 
 
 class ChapterManifestEntry(BaseModel):

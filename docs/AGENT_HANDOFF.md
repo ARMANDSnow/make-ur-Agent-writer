@@ -96,6 +96,15 @@
   - Draft length improved to 3478 total chars / 2924 Chinese chars, but missed the `>=3000` Chinese-char hard floor. Writer used all 3 attempts and persisted a human-review draft with `rewrite_count=2`, `needs_human_review=true`.
   - Blocking issue: deterministic linter rejected the final draft for 6 `not_x_but_y` errors plus 1 `short_chapter_length` warning; standalone review did not produce true reviewer-agent issues because the draft was already linter-rejected.
   - Debate side produced 42 log rows, 2 final votes, 12 `agent_votes`, 10 non-fallback ballots, 2 fallback ballots, `for` lengths `[4, 5]`, and `against` lengths `[0, 0]`.
+- Iteration 010 linter thresholds + polish + reviewer bypass safety (P1-P4/P6 only):
+  - `not_x_but_y` is now thresholded in `config/linter.yaml`: 0-2 hits no issue, 3-4 warning, 5+ error.
+  - Every deterministic lint issue now carries an `anchor`; cumulative `not_x_but_y` issues also carry `count`.
+  - Writer feedback now includes lint rule, count, and anchor, and the writer system prompt explicitly limits repeated `not_x_but_y` / `not_x_but_y`-style contrast sentences.
+  - `config/agents.yaml` now has `polish_pass: true` and `review_during_lint_block: true`.
+  - `write_chapters` runs one terminal `_polish_draft` call after the normal rewrite budget is exhausted and the draft is still Reject; polish output is persisted without a recursive review loop.
+  - Meta/failure reports now include `polish_applied`, `polish_diff_stats`, and `lint_blocked_reviews`.
+  - `review_text` has an opt-in `run_agents_on_lint_error=True` path so writer can collect shadow reviewer signal while deterministic lint still blocks the draft; default reviewer behavior is unchanged.
+  - P5 true-model smoke has not been run. Wait for user to confirm `可以跑了`, then run `bash scripts/write_smoke.sh`, update the Iteration 010 Acceptance Result, and commit `Iteration 010: record write smoke results`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -107,8 +116,8 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 010 writing-quality follow-up: fix the `not_x_but_y` failure mode and decide whether it should be prompt guidance, linter tuning, or both.
-- Iteration 010 candidate: add a polish pass or chunked writing so final drafts reliably exceed 3000 Chinese chars without relying on the last rewrite attempt.
+- Iteration 010 P5: after user confirms budget/key readiness, run `bash scripts/write_smoke.sh` and record true-model results.
+- If Iteration 010 P5 still misses D1/D3/D4, decide between chunked writing and reviewer prompt tuning using the new `lint_blocked_reviews` / `agent_reviews` evidence.
 - Stage 3 generalization: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

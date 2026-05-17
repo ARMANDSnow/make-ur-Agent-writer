@@ -84,9 +84,14 @@ class ManualFactsTests(unittest.TestCase):
             ), patch(
                 "src.llm_client.LLMClient.complete_text", fake_complete_text
             ), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.writer.load_style_examples", return_value=""
+            ), patch(
                 "src.writer.review_text",
                 return_value={"verdict": "Approve", "lint_issues": [], "agent_reviews": []},
             ):
+                linter_cls.return_value.lint.return_value = []
                 write_chapters(chapters=1, force=True, max_attempts=1)
         self.assertIn("FACT: 绘梨衣已死亡", captured["prompt"])
 

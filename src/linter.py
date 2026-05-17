@@ -36,17 +36,43 @@ class NovelLinter:
     def _meta_chapter_markers(self, lines: List[str]) -> List[LintIssue]:
         pattern = re.compile(r"^\s*(?:第\s*\d+\s*章|第[一二三四五六七八九十百零〇两]+\s*章|Chapter\s+\d+)", re.I)
         return [
-            LintIssue(rule="meta_chapter_markers", severity="error", message="正文中出现元叙事章节标记。", line=i, excerpt=line.strip())
+            LintIssue(
+                rule="meta_chapter_markers",
+                severity="error",
+                message="正文中出现元叙事章节标记。",
+                line=i,
+                excerpt=line.strip(),
+                anchor=_anchor_from_line(line),
+            )
             for i, line in enumerate(lines, 1)
             if pattern.search(line)
         ]
 
     def _not_x_but_y(self, lines: List[str]) -> List[LintIssue]:
+        cfg = self.rules.get("not_x_but_y", {})
+        warn_threshold = int(cfg.get("warn_threshold", 2))
+        error_threshold = int(cfg.get("error_threshold", 5))
         pattern = re.compile(r"不是.{1,28}?[，,、\s]*是")
-        return [
-            LintIssue(rule="not_x_but_y", severity="error", message="疑似 AI 标记句式：不是 X，是 Y。", line=i, excerpt=line.strip())
+        matches = [
+            (i, line, match)
             for i, line in enumerate(lines, 1)
-            if pattern.search(line)
+            for match in pattern.finditer(line)
+        ]
+        count = len(matches)
+        if count <= warn_threshold:
+            return []
+        severity = "error" if count >= error_threshold else "warning"
+        return [
+            LintIssue(
+                rule="not_x_but_y",
+                severity=severity,
+                message=f"疑似 AI 标记句式：不是 X，是 Y。本章命中 {count} 次，建议控制在 {warn_threshold} 次以内。",
+                line=i,
+                excerpt=line.strip(),
+                anchor=_anchor_from_line(line, match.start(), match.end()),
+                count=count,
+            )
+            for i, line, match in matches
         ]
 
     def _short_sentence_openings(self, lines: List[str]) -> List[LintIssue]:
@@ -64,6 +90,7 @@ class NovelLinter:
                     message=f"章节开头短句过密：前 {window} 个非空行中有 {short_count} 个短句。",
                     line=line_no,
                     excerpt=line,
+                    anchor=_anchor_from_line(line),
                 )
             ]
         return []
@@ -81,6 +108,7 @@ class NovelLinter:
                             message=f"疑似称谓漂移：{term.get('wrong')}，建议核对是否应为 {term.get('correct')}。",
                             line=i,
                             excerpt=line.strip(),
+                            anchor=_anchor_from_line(line),
                         )
                     )
         return issues
@@ -98,6 +126,7 @@ class NovelLinter:
                             message=f"疑似现代 AI 腔词：{term}。",
                             line=i,
                             excerpt=line.strip(),
+                            anchor=_anchor_from_line(line),
                     )
                 )
         return issues
@@ -114,5 +143,22 @@ class NovelLinter:
                 message=f"章节中文字数过短：{count}，目标 3500-5500。",
                 line=1,
                 excerpt=f"chinese_char_count={count}",
+                anchor=f"chinese_char_count={count}",
             )
         ]
+
+
+def _anchor_from_line(line: str, start: int | None = None, end: int | None = None) -> str:
+    text = line.strip()
+    if not text:
+        return ""
+    if start is None or end is None:
+        return text[:100]
+    left = max(0, start - 20)
+    right = min(len(line), end + 20)
+    anchor = line[left:right].strip()
+    if left > 0:
+        anchor = "..." + anchor
+    if right < len(line):
+        anchor = anchor + "..."
+    return anchor[:100]

@@ -39,6 +39,8 @@ def write_chapters(
     continuation_anchor = str(agent_cfg.get("continuation_anchor", "") or "").strip()
     configured_attempts = int(agent_cfg["max_review_attempts"])
     rewrite_limit = int(max_attempts) if max_attempts is not None else configured_attempts
+    polish_enabled = bool(agent_cfg.get("polish_pass", True))
+    shadow_review_enabled = bool(agent_cfg.get("review_during_lint_block", True))
     linter = NovelLinter()
     reports: List[Dict[str, Any]] = []
     previous_state = ""
@@ -51,6 +53,10 @@ def write_chapters(
         report: Dict[str, Any] = {}
         feedback = ""
         lint_ok = False
+        polish_applied = False
+        polish_diff_stats: Dict[str, int] = {}
+        lint_blocked_reviews: List[Dict[str, Any]] = []
+        last_lint_issues: List[Dict[str, Any]] = []
         last_blocking_reasons: List[Dict[str, Any]] = []
         for attempt in range(1, rewrite_limit + 1):
             messages, cache_segments = _write_prompt(
@@ -66,10 +72,29 @@ def write_chapters(
             )
             draft = _complete_write_text(client, messages, cache_segments).strip()
             lint_issues = linter.lint(draft)
+            last_lint_issues = lint_issues
             if any(issue["severity"] == "error" for issue in lint_issues):
-                feedback = "请修复 deterministic linter 问题:\n" + "\n".join(issue["message"] for issue in lint_issues)
+                if shadow_review_enabled:
+                    try:
+                        shadow_review = review_text(
+                            draft,
+                            out_path.name,
+                            precomputed_lint_issues=lint_issues,
+                            rewrite_round=attempt - 1,
+                            run_agents_on_lint_error=True,
+                        )
+                        lint_blocked_reviews.append({"attempt": attempt, "review": shadow_review})
+                    except Exception as exc:
+                        log_event("write", "shadow_review_error", chapter=chapter_no, error=str(exc))
+                feedback = "请修复 deterministic linter 问题:\n" + _format_lint_feedback(lint_issues)
                 last_blocking_reasons = [
-                    {"reviewer": "deterministic_linter", "severity": issue.get("severity"), "message": issue.get("message")}
+                    {
+                        "reviewer": "deterministic_linter",
+                        "rule_id": issue.get("rule"),
+                        "severity": issue.get("severity"),
+                        "message": issue.get("message"),
+                        "anchor": issue.get("anchor") or issue.get("excerpt", ""),
+                    }
                     for issue in lint_issues
                 ]
                 report = {"verdict": "Reject", "lint_issues": lint_issues, "attempt": attempt}
@@ -82,6 +107,21 @@ def write_chapters(
             last_blocking_reasons = _blocking_reasons(report)
             feedback = _review_feedback(report)
 
+        if draft and polish_enabled and (not lint_ok or report.get("verdict") != "Approve"):
+            polished = _polish_draft(
+                client=client,
+                draft=draft,
+                lint_issues=last_lint_issues,
+                review_report=report,
+                style_examples=style_examples,
+                continuation_anchor=continuation_anchor,
+            )
+            if polished:
+                pre_chars = len(draft)
+                draft = polished.strip()
+                polish_applied = True
+                polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
+
         if not lint_ok:
             failure_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.failure.json"
             meta_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.meta.json"
@@ -91,6 +131,9 @@ def write_chapters(
                 "last_attempt": attempt,
                 "rewrite_count": max(0, attempt - 1),
                 "chinese_char_count": count_chinese_chars(draft),
+                "polish_applied": polish_applied,
+                "polish_diff_stats": polish_diff_stats,
+                "lint_blocked_reviews": lint_blocked_reviews,
                 "last_blocking_reasons": last_blocking_reasons,
                 "draft_preview": draft[:2000],
             }
@@ -104,6 +147,9 @@ def write_chapters(
                 "rewrite_count": max(0, attempt - 1),
                 "chinese_char_count": count_chinese_chars(draft),
                 "needs_human_review": True,
+                "polish_applied": polish_applied,
+                "polish_diff_stats": polish_diff_stats,
+                "lint_blocked_reviews": lint_blocked_reviews,
                 "last_blocking_reasons": last_blocking_reasons,
                 "failure_path": str(failure_path),
             }
@@ -117,6 +163,9 @@ def write_chapters(
             meta["rewrite_count"] = max(0, attempt - 1)
             meta["chinese_char_count"] = count_chinese_chars(draft)
             meta["needs_human_review"] = report.get("verdict") != "Approve"
+            meta["polish_applied"] = polish_applied
+            meta["polish_diff_stats"] = polish_diff_stats
+            meta["lint_blocked_reviews"] = lint_blocked_reviews
             if report.get("verdict") != "Approve":
                 meta["last_blocking_reasons"] = last_blocking_reasons
             write_text_atomic(out_path, draft + "\n")
@@ -155,7 +204,11 @@ def _write_prompt(
     previous_state: str,
     feedback: str,
 ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
-    system_prompt = "你是长篇小说续写写作者。只输出正文，不要输出章节编号或解释。"
+    system_prompt = (
+        "你是长篇小说续写写作者。只输出正文，不要输出章节编号或解释。"
+        "避免反复使用'不是X，是Y'/'不是X而是Y'句式；同章最多出现 2 次。"
+        "如需对比，优先用动作/环境替代说明。"
+    )
     style_context = ""
     if style_examples:
         style_context = (
@@ -191,10 +244,67 @@ def _write_prompt(
     return messages, cache_segments
 
 
+def _format_lint_feedback(lint_issues: List[Dict[str, Any]]) -> str:
+    parts: List[str] = []
+    for issue in lint_issues:
+        rule = issue.get("rule", "lint")
+        count = issue.get("count")
+        count_text = f"，命中 {count} 次" if isinstance(count, int) else ""
+        anchor = issue.get("anchor") or issue.get("excerpt", "")
+        parts.append(
+            f"[规则 {rule}{count_text}] {issue.get('message', '')} "
+            f"锚点：'{anchor}'。"
+        )
+    return "\n".join(parts)
+
+
+def _polish_draft(
+    *,
+    client: LLMClient,
+    draft: str,
+    lint_issues: List[Dict[str, Any]],
+    review_report: Dict[str, Any],
+    style_examples: str,
+    continuation_anchor: str,
+) -> str:
+    review_feedback = _review_feedback(review_report)
+    lint_feedback = _format_lint_feedback(lint_issues)
+    style_context = (
+        "# 作者风格参考（只学习节奏、含蓄度和意象使用，不复制具体内容）\n\n"
+        f"{style_examples}\n\n"
+        if style_examples
+        else ""
+    )
+    anchor_context = f"# 续写起点\n\n{continuation_anchor}\n\n" if continuation_anchor else ""
+    system_prompt = (
+        "你是长篇小说终稿修订者。只输出修订后的完整正文。"
+        "不要解释，不要输出问题清单，不要加章节编号。"
+    )
+    dynamic_prompt = (
+        f"{anchor_context}"
+        "# 修订目标\n\n"
+        "以下是被反复拒绝的草稿和完整问题清单。请做一次集中修订，重点解决："
+        "lint anchor 提到的具体句子；reviewer 标的 rule_id/anchor。"
+        "保持现有故事线和章节长度，不少于现稿。"
+        "避免反复使用'不是X，是Y'/'不是X而是Y'句式；同章最多出现 2 次。"
+        "如需对比，优先用动作/环境替代说明。\n\n"
+        f"# deterministic linter 问题\n\n{lint_feedback}\n\n"
+        f"# reviewer 问题\n\n{review_feedback}\n\n"
+        f"# 最后一稿全文\n\n{draft}"
+    )
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": style_context + dynamic_prompt}]
+    cache_segments = [
+        {"role": "system", "content": system_prompt, "cache": True},
+        {"role": "user", "content": style_context, "cache": True},
+        {"role": "user", "content": dynamic_prompt, "cache": False},
+    ]
+    return _complete_write_text(client, messages, cache_segments).strip()
+
+
 def _review_feedback(report: Dict[str, Any]) -> str:
     parts: List[str] = []
     for issue in report.get("lint_issues", []):
-        parts.append(issue.get("message", ""))
+        parts.append(_format_lint_feedback([issue]))
     for review in report.get("agent_reviews", []):
         if review.get("verdict") == "Reject":
             for issue in review.get("issues", []):
