@@ -53,15 +53,15 @@ Iteration 008 proved the true-model write/review path but produced a 5/10 chapte
 | A1 | `python3 -m unittest discover -s tests` | Passed: `Ran 92 tests in 1.760s, OK` |
 | A2 | `bash scripts/verify.sh` | Passed: `Ran 92 tests in 1.888s, OK`; log delta 85 rows, all mock |
 | A3 | `OPENAI_MODEL=mock python3 main.py preflight` | Passed: warn with empty `continuation_anchor`, FATAL none |
-| B1 | style example files | Pending user action; README scaffold exists |
+| B1 | style example files | P6 prereq passed locally: 8 ignored files, 19695 chars |
 | B2 | style injection tests | Added |
 | B3 | anchor injection tests | Added |
 | B4 | short chapter lint rule | Added |
-| B5 | agents.yaml | `max_review_attempts=3`, `continuation_anchor=""` |
+| B5 | agents.yaml | `max_review_attempts=3`, `continuation_anchor` filled locally for P6 |
 | B6 | models.yaml | `write.max_tokens=8000` |
-| C1-D7 | true-model P6 smoke | Not run in this commit by design |
+| C1-D7 | true-model P6 smoke | Run on 2026-05-17; script exited 0, D1 failed at 2924 Chinese chars |
 | F1-F3 | docs/index/handoff | Updated |
-| F4 | secret scan | Pending final grep before commit |
+| F4 | secret scan | secret-prefix scan only hit historical stage summary text |
 
 ## Implementation Notes
 
@@ -89,11 +89,46 @@ OPENAI_MODEL=mock python3 main.py preflight
 # WARN includes: continuation_anchor is empty; writer will lack temporal anchor.
 ```
 
-P6 true-model smoke is intentionally not run yet. Required user preparation:
+Post-P6 local verification:
 
-- Add 3-5 local excerpts under `data/style_examples/<name>.md`.
-- Fill `continuation_anchor` in [config/agents.yaml](../../config/agents.yaml).
-- Confirm DeepSeek budget before running `bash scripts/write_smoke.sh`.
+```bash
+python3 -m unittest discover -s tests
+# Ran 92 tests in 1.985s, OK
+
+bash scripts/verify.sh
+# Ran 92 tests in 2.093s, OK
+# LLM log delta from row 2562: new_count=126, models={'mock': 126}, statuses={'ok': 126}
+
+OPENAI_MODEL=mock python3 main.py preflight
+# PREFLIGHT: warn
+# FATAL: none
+# WARN: longest chapter exceeds 90% context window; no empty-anchor WARN because P6 anchor is filled locally.
+```
+
+P6 true-model smoke result after user prepared local style examples and `continuation_anchor`:
+
+```bash
+bash scripts/write_smoke.sh
+# Snapshot saved: outputs/drafts/snapshots/20260517_145845
+# Write smoke log written: logs/write_smoke_20260517_145845.log
+```
+
+Key metrics:
+
+- Prereqs: 8 ignored style example files, 19695 total chars; `continuation_anchor` non-empty.
+- C1: script exited 0; head and tail preflight were `warn`, FATAL `none`.
+- D1: `chapter_01.md` = 3478 total chars / 2924 Chinese chars. This is a clear improvement over Iteration 008's 1825 total chars, but misses the `>=3000` Chinese-char hard floor.
+- D2: meta includes `chinese_char_count=2924`, `rewrite_count=2`, `needs_human_review=true`.
+- D3: standalone `chapter_01.review.json` is deterministic-linter-only Reject: 6 `not_x_but_y` errors plus 1 `short_chapter_length` warning. No true reviewer-agent issues were produced because the writer stopped at lint failure after 3 attempts.
+- D4: pending user read/score.
+- D5: DeepSeek increment from line 2473 was 49/49 `ok`: 1 compress, 45 debate, 3 write attempts.
+- D6: `data/extraction_failures/` stayed empty.
+- D7: snapshot contains chapter, meta, debate decisions, debate outline, and reviews directory.
+- E: rough DeepSeek-V3 token cost from logged prompt/response tokens was about `$0.16`; provider cache logs showed `cache_read_tokens=31488`, `cache_write_tokens=290351`.
+
+Debate side result: 42 debate log rows; decisions have 2 votes, 12 `agent_votes`, 10 non-fallback ballots, 2 fallback ballots, `for` lengths `[4, 5]`, and `against` lengths `[0, 0]`.
+
+Conclusion: Iteration 009 P6 improved length and anchoring inputs but did not pass the hard writing-quality gate. The next engineering target should be Iteration 010: reduce over-triggering / prompt attraction around `not_x_but_y`, then add either a polish pass or chunked writing to reliably cross 3000+ Chinese chars without deterministic lint failure.
 
 ## 文件变更汇总
 
@@ -118,7 +153,7 @@ P6 true-model smoke is intentionally not run yet. Required user preparation:
 
 ## 不在本轮范围
 
-- Running P6 true-model smoke.
+- Re-running P6 true-model smoke after the failed hard gate.
 - Writing or committing copyrighted source excerpts.
 - Polish pass.
 - Chunked writing.

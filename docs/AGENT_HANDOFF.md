@@ -83,14 +83,19 @@
   - Local mock-only acceptance passed before the true run: `python3 -m unittest discover -s tests` ran 85 tests OK, `bash scripts/verify.sh` ran 85 tests OK, and `python3 main.py preflight` reported warn with FATAL none. Post-repair targeted tests ran 27 tests OK.
   - True-model result: initial `bash scripts/write_smoke.sh` wrote `logs/write_smoke_20260514_214854.log` but exited during standalone review due missing `agent_name`; after repairs, resumed write/review without re-running debate.
   - Final snapshot: `outputs/drafts/snapshots/20260514_220808/`. Debate produced 42 log items, 6/6 complete non-fallback ballot agents, 2 decisions with `for` lengths `[6, 6]`. Draft `chapter_01.md` is 1825 chars; meta has `rewrite_count=1`, `needs_human_review=true`, 7 reviewer outputs, and 16 structured issues. Measured DeepSeek block was 67/67 `ok`; `data/extraction_failures/` stayed empty.
-- Iteration 009 writing quality surge engineering (P1-P5/P7 only):
+- Iteration 009 writing quality surge:
   - Added `src/style.py::load_style_examples`, reading local `data/style_examples/*.md` except README and joining sorted examples for prompt injection.
   - Added tracked `data/style_examples/README.md` with instructions; real source excerpts must remain local ignored files.
   - Writer prompt now injects style examples, optional `continuation_anchor`, target length 3500-5500 Chinese chars, and writes `chinese_char_count` into meta/failure reports.
   - Debate decisions/outline prompts now receive non-empty `continuation_anchor`; outline prompt also receives style examples.
   - Linter has `short_chapter_length`: under 2500 Chinese chars is error, 2500-3499 warning, 3500+ clean.
-  - `config/agents.yaml` now has `max_review_attempts=3` and empty `continuation_anchor`; `config/models.yaml` has `write.max_tokens=8000`.
-  - `python3 main.py preflight` should WARN on empty `continuation_anchor` but FATAL none in mock. P6 true-model smoke has not been run and must wait for user style examples + anchor.
+  - `config/agents.yaml` now has `max_review_attempts=3`; `config/models.yaml` has `write.max_tokens=8000`. Empty `continuation_anchor` still WARNs in preflight, but the P6 run used a filled local anchor.
+  - P1-P5 mock acceptance passed before P6: 92 unit tests OK, `scripts/verify.sh` mock-only, and empty-anchor preflight WARN tested.
+  - P6 true-model smoke ran on 2026-05-17 after user confirmation. Snapshot: `outputs/drafts/snapshots/20260517_145845/`; log: `logs/write_smoke_20260517_145845.log`.
+  - Result: script exited 0, DeepSeek increment was 49/49 `ok`, `data/extraction_failures/` stayed empty, and rough logged-token cost was about `$0.16`.
+  - Draft length improved to 3478 total chars / 2924 Chinese chars, but missed the `>=3000` Chinese-char hard floor. Writer used all 3 attempts and persisted a human-review draft with `rewrite_count=2`, `needs_human_review=true`.
+  - Blocking issue: deterministic linter rejected the final draft for 6 `not_x_but_y` errors plus 1 `short_chapter_length` warning; standalone review did not produce true reviewer-agent issues because the draft was already linter-rejected.
+  - Debate side produced 42 log rows, 2 final votes, 12 `agent_votes`, 10 non-fallback ballots, 2 fallback ballots, `for` lengths `[4, 5]`, and `against` lengths `[0, 0]`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -102,8 +107,8 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 009 P6: after user adds 3-5 local style examples and fills `continuation_anchor`, run `bash scripts/write_smoke.sh` and record the true-model result.
-- Writing quality follow-up: polish pass or chunked writing if Iteration 009 still misses length/quality targets.
+- Iteration 010 writing-quality follow-up: fix the `not_x_but_y` failure mode and decide whether it should be prompt guidance, linter tuning, or both.
+- Iteration 010 candidate: add a polish pass or chunked writing so final drafts reliably exceed 3000 Chinese chars without relying on the last rewrite attempt.
 - Stage 3 generalization: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

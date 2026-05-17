@@ -11,6 +11,16 @@ from src.preflight import run_preflight
 from src.utils import write_json
 
 
+def load_config_with_empty_anchor(name: str):
+    from src.config import load_config as real_load_config
+
+    cfg = real_load_config(name)
+    if name == "agents.yaml":
+        cfg = dict(cfg)
+        cfg["continuation_anchor"] = ""
+    return cfg
+
+
 def build_root() -> tempfile.TemporaryDirectory:
     tmp = tempfile.TemporaryDirectory()
     root = Path(tmp.name)
@@ -50,7 +60,9 @@ class PreflightTests(unittest.TestCase):
 
     def test_mock_model_with_clean_files_is_ok(self) -> None:
         with build_root() as tmp:
-            with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=True):
+            with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=True), patch(
+                "src.preflight.load_config", side_effect=load_config_with_empty_anchor
+            ):
                 report = run_preflight(Path(tmp))
         self.assertEqual(report["status"], "warn")
         self.assertEqual(report["fatal"], [])
@@ -58,7 +70,9 @@ class PreflightTests(unittest.TestCase):
 
     def test_empty_continuation_anchor_is_warn(self) -> None:
         with build_root() as tmp:
-            with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=True):
+            with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=True), patch(
+                "src.preflight.load_config", side_effect=load_config_with_empty_anchor
+            ):
                 report = run_preflight(Path(tmp))
         self.assertEqual(report["status"], "warn")
         self.assertTrue(any("continuation_anchor is empty" in item for item in report["warn"]))
