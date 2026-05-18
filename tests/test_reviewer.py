@@ -53,8 +53,8 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
     def test_relationship_consistency_agent_in_review_pipeline(self) -> None:
         graph = {
             "entities": [
-                {"id": "a", "name": "甲", "type": "character", "key_facts": ["事实甲"]},
-                {"id": "b", "name": "乙", "type": "character", "key_facts": ["事实乙"]},
+                {"id": "a", "name": "甲", "type": "character", "tags": ["#同盟"], "key_facts": ["事实甲"]},
+                {"id": "b", "name": "乙", "type": "character", "tags": ["#同盟"], "key_facts": ["事实乙"]},
             ],
             "relationships": [
                 {
@@ -81,6 +81,8 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
 
         self.assertEqual(report["verdict"], "Approve")
         self.assertIn("关系一致性", [item["agent_name"] for item in report["agent_reviews"]])
+        self.assertIn("tags:", captured["关系一致性"])
+        self.assertIn("tag 反向索引", captured["关系一致性"])
         self.assertIn("当前必须互相信任", captured["关系一致性"])
         self.assertIn("人工全局事实", captured["关系一致性"])
 

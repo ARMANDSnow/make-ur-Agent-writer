@@ -6,7 +6,9 @@ Iteration 010 made reviewer signal available and loosened the over-strict determ
 
 ## P1 Entity Graph
 
-Added [src/entities.py](../../src/entities.py) with `load_entity_graph()` and `render_active_state()`. `load_entity_graph()` reads `data/entity_graph.json` when present and returns `{}` when absent, so existing workflows degrade gracefully. `render_active_state()` renders key entities and only `active: true` relationship timeline nodes into Markdown. Added [data/entity_graph.example.json](../../data/entity_graph.example.json) as schema-only placeholder data with `<用户填写>` values and no source plot content or quoted text.
+Added [src/entities.py](../../src/entities.py) with `load_entity_graph()`, `_build_tag_index()`, and `render_active_state()`. `load_entity_graph()` reads `data/entity_graph.json` when present and returns `{}` when absent, so existing workflows degrade gracefully. `render_active_state()` renders three prompt sections: entity list, shared-tag reverse index, and only `active: true` relationship timeline nodes. Added [data/entity_graph.example.json](../../data/entity_graph.example.json) as schema v2 placeholder data with `_meta.note`, entity `tags`, optional `description`, `<用户填写>` values, and no source plot content or quoted text.
+
+Schema v2: `tags` uses `#xxx` keywords and triggers an automatic reverse index when at least two entities share a tag. `description` is optional and is reserved for the user to summarize current state in their own words.
 
 ## P2 Prompt Injection
 
@@ -22,7 +24,7 @@ Added [src/entities.py](../../src/entities.py) with `load_entity_graph()` and `r
 
 ## P6 Tests
 
-Added [tests/test_entities.py](../../tests/test_entities.py) with missing-file and active-timeline rendering coverage. Added writer tests for entity-state prompt/cache injection and polish triggering on approved short drafts. Added a reviewer pipeline test proving the `关系一致性` agent is loaded and receives the rendered active state. Existing debate-agent count tests were unaffected because only review agents changed.
+Added [tests/test_entities.py](../../tests/test_entities.py) with four entity tests: missing-file graceful degrade, active-timeline filtering, shared-tag reverse index rendering, and optional description rendering. Added writer tests for entity-state prompt/cache injection and polish triggering on approved short drafts. Added a reviewer pipeline test proving the `关系一致性` agent is loaded and receives the rendered active state. Total planned test growth is +7, from 98 to 105. Existing debate-agent count tests were unaffected because only review agents changed.
 
 ## Acceptance Result
 

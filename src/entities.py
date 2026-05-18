@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-"""Entity graph loader and active-state renderer for prompt injection."""
+"""Entity graph loader + tag index + active-state renderer."""
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -15,13 +16,24 @@ def load_entity_graph(root: Path = ROOT) -> Dict[str, Any]:
     return read_json(path, {}) or {}
 
 
+def _build_tag_index(entities: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """Build a tag -> entity names reverse index for implicit associations."""
+    index: Dict[str, List[str]] = defaultdict(list)
+    for ent in entities:
+        name = str(ent.get("name") or ent.get("id") or "?")
+        for tag in ent.get("tags", []) or []:
+            if tag:
+                index[str(tag)].append(name)
+    return dict(sorted(index.items()))
+
+
 def render_active_state(graph: Dict[str, Any]) -> str:
-    """Render active relationship states as Markdown for writer/reviewer prompts."""
+    """Render entity list, shared-tag index, and active relationship states."""
     if not graph:
         return ""
 
-    entities = [ent for ent in graph.get("entities", []) if isinstance(ent, dict)]
-    relationships = [rel for rel in graph.get("relationships", []) if isinstance(rel, dict)]
+    entities = [ent for ent in graph.get("entities", []) or [] if isinstance(ent, dict)]
+    relationships = [rel for rel in graph.get("relationships", []) or [] if isinstance(rel, dict)]
     entities_by_id = {str(ent.get("id", "")): ent for ent in entities if ent.get("id")}
     lines: List[str] = ["## 当前续写起点的实体关系状态", "", "### 关键实体"]
 
@@ -29,12 +41,25 @@ def render_active_state(graph: Dict[str, Any]) -> str:
         name = str(ent.get("name") or ent.get("id") or "<未命名实体>")
         ent_type = str(ent.get("type") or "entity")
         aliases = [str(alias) for alias in ent.get("aliases", []) if alias]
-        alias_str = f"（也叫{'/'.join(aliases)}）" if aliases else ""
-        facts = "; ".join(str(fact) for fact in ent.get("key_facts", []) if fact)
-        fact_text = facts or "<无补充事实>"
-        lines.append(f"- **{name}**{alias_str} [{ent_type}]: {fact_text}")
+        alias_str = f"(也叫{'/'.join(aliases)})" if aliases else ""
+        tags_str = " ".join(str(tag) for tag in ent.get("tags", []) or [] if tag)
+        facts_str = "; ".join(str(fact) for fact in ent.get("key_facts", []) or [] if fact)
+        description = str(ent.get("description") or "").strip()
+        lines.append(f"- **{name}**{alias_str} [{ent_type}]")
+        if tags_str:
+            lines.append(f"  - tags: {tags_str}")
+        if facts_str:
+            lines.append(f"  - 核心: {facts_str}")
+        if description:
+            lines.append(f"  - 描写: {description}")
 
-    lines.extend(["", "### 当前活跃关系（写作时必须遵守）"])
+    shared_tags = {tag: names for tag, names in _build_tag_index(entities).items() if len(names) >= 2}
+    if shared_tags:
+        lines.extend(["", "### tag 反向索引(共享 tag 的实体之间有隐式联想)"])
+        for tag, names in shared_tags.items():
+            lines.append(f"- {tag} -> {' / '.join(names)}")
+
+    lines.extend(["", "### 当前活跃关系(写作时必须遵守)"])
     for rel in relationships:
         timeline = rel.get("timeline", [])
         if not isinstance(timeline, list):
@@ -49,6 +74,6 @@ def render_active_state(graph: Dict[str, Any]) -> str:
         relation_type = str(rel.get("relation_type") or "关系")
         state = str(active_state.get("state") or "").strip()
         if state:
-            lines.append(f"- **{src} ↔ {dst}** ({relation_type}): {state}")
+            lines.append(f"- **{src} <-> {dst}** ({relation_type}): {state}")
 
     return "\n".join(lines) + "\n"

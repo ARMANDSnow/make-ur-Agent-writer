@@ -144,8 +144,8 @@ class WriterRejectLintCleanTests(unittest.TestCase):
     def test_writer_prompt_includes_entity_state_when_present(self) -> None:
         graph = {
             "entities": [
-                {"id": "a", "name": "甲", "type": "character", "key_facts": ["事实甲"]},
-                {"id": "b", "name": "乙", "type": "character", "key_facts": ["事实乙"]},
+                {"id": "a", "name": "甲", "type": "character", "tags": ["#同盟"], "key_facts": ["事实甲"]},
+                {"id": "b", "name": "乙", "type": "character", "tags": ["#同盟"], "key_facts": ["事实乙"]},
             ],
             "relationships": [
                 {
@@ -170,9 +170,13 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             )
         prompt = "\n".join(item["content"] for item in messages)
         cached_text = "\n".join(item["content"] for item in cache_segments if item.get("cache"))
+        self.assertIn("tags:", prompt)
+        self.assertIn("tag 反向索引", prompt)
         self.assertIn("当前活跃关系", prompt)
         self.assertIn("当前必须互相信任", prompt)
         self.assertIn("严格遵守'当前活跃关系'", prompt)
+        self.assertIn("tags:", cached_text)
+        self.assertIn("tag 反向索引", cached_text)
         self.assertIn("当前必须互相信任", cached_text)
 
     def test_polish_pass_runs_after_final_reject_and_respects_disable(self) -> None:

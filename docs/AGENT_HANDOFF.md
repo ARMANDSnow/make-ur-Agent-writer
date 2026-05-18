@@ -112,7 +112,8 @@
   - Remaining failure: D1 still misses the 3000 Chinese-character hard floor (`2694`). Reviewer keyword scan for `风格` / `节奏` / `含蓄` / `言外之意` / `设定说明` found zero hits, so P5 did not prove reviewer feedback was explicitly style-example-aware.
 - Iteration 011 entity graph + consistency reviewer + polish length floor:
   - Added optional `data/entity_graph.json` support through `src/entities.py`; missing graph returns `{}` and prompt injection degrades to empty state.
-  - Added tracked `data/entity_graph.example.json` as schema-only placeholders. It intentionally contains no plot content or quoted source text.
+  - Added tracked `data/entity_graph.example.json` as schema v2 placeholders. It has `_meta.note`, per-entity `tags`, optional `description`, and intentionally contains no plot content or quoted source text.
+  - Entity rendering now outputs entity list, automatic shared-tag reverse index, and active relationship state; only tags shared by at least two entities appear in the reverse index.
   - Writer stable prompt context now includes active entity relationships when present and explicitly requires role interactions and relationship descriptions to obey current active states.
   - Debate outline generation receives the same entity-state block; agent ballot prompts remain unchanged.
   - Reviewer prompts now receive entity state after global facts, and `config/agents.yaml` has an eighth review agent: `关系一致性`.

@@ -35,6 +35,39 @@ class EntityGraphTests(unittest.TestCase):
         self.assertIn("当前必须互相信任", text)
         self.assertNotIn("过去状态不应出现", text)
 
+    def test_render_active_state_includes_tag_reverse_index_for_shared_tags(self) -> None:
+        graph = {
+            "entities": [
+                {"id": "a", "name": "A", "type": "character", "tags": ["#X", "#soloA"]},
+                {"id": "b", "name": "B", "type": "character", "tags": ["#X"]},
+                {"id": "c", "name": "C", "type": "character", "tags": ["#soloC"]},
+            ],
+            "relationships": [],
+        }
+        text = render_active_state(graph)
+        self.assertIn("tag 反向索引", text)
+        self.assertIn("#X -> A / B", text)
+        self.assertNotIn("#soloA ->", text)
+        self.assertNotIn("#soloC ->", text)
+
+    def test_render_active_state_includes_description_when_present(self) -> None:
+        graph = {
+            "entities": [
+                {
+                    "id": "a",
+                    "name": "A",
+                    "type": "character",
+                    "tags": ["#X"],
+                    "key_facts": ["事实A"],
+                    "description": "这是一段用户自己的当前状态描述。",
+                }
+            ],
+            "relationships": [],
+        }
+        text = render_active_state(graph)
+        self.assertIn("tags: #X", text)
+        self.assertIn("这是一段用户自己的当前状态描述。", text)
+
 
 if __name__ == "__main__":
     unittest.main()
