@@ -122,11 +122,16 @@
 - Iteration 012 reviewer JSON robustness + debate fallback + consistency strict:
   - `review_text` now catches unparseable reviewer responses at the per-agent JSON extraction point, logs `review/json_parse_fallback`, writes a structured Approve fallback, and returns `_fallback_reason="(parse_failed)"` instead of crashing standalone review.
   - `AgentReview` now accepts optional `comparison_checklist` so the relationship-consistency reviewer can return explicit comparison evidence.
+  - `关系一致性` reviews now have a local guard: if the model returns pure Approve with both `issues=[]` and `comparison_checklist=[]`, the result becomes a visible Reject issue with `rule_id=relationship_checklist_missing`.
   - `build_decisions` now detects empty LLM `votes`, logs `debate/votes_empty_fallback`, asks for loose legacy-style votes, parses flexible `for` / `against` aliases, and falls back to placeholder abstain-style review votes only if needed.
   - `config/agents.yaml` strengthens only the `关系一致性` reviewer: it must output a `对照清单`, compare draft interactions to active entity relationships, and may not produce an empty pure Approve without explaining the comparison process.
-  - Added focused tests for review fallback, debate empty-votes fallback, loose legacy vote parsing, relationship prompt requirements, and writer shadow-review compatibility.
-  - Engineering validation passed before true smoke: 110 unit tests OK, `bash scripts/verify.sh` OK, and `python3 main.py preflight` reported warn with FATAL none.
-  - True-model `bash scripts/write_smoke.sh` is still pending user confirmation; do not run it until the user replies `可以跑了`.
+  - Added focused tests for review fallback, debate empty-votes fallback, loose legacy vote parsing, relationship prompt requirements, relationship checklist enforcement, and writer shadow-review compatibility.
+  - Engineering validation after the guard: 112 unit tests OK, `bash scripts/verify.sh` OK, and `python3 main.py preflight` reported warn with FATAL none.
+  - True-model `bash scripts/write_smoke.sh` ran after user confirmation on 2026-05-19. Snapshot: `outputs/drafts/snapshots/20260519_103436/`; log: `logs/write_smoke_20260519_103436.log`.
+  - Smoke result: script exited 0, final preflight warn with FATAL none, snapshot auto-generated, `data/extraction_failures/` empty, approved network DeepSeek block 83/83 ok.
+  - Debate fix held: `debate_decisions.json` has 3 votes, each with 6 agent ballots (`for` lengths `[6, 6, 6]`, `against` `[0, 0, 0]`).
+  - Review crash fix held: standalone review completed. However the true `关系一致性` reviewer still returned pure empty Approve, so D3 failed for the smoke artifact; this directly triggered the local `relationship_checklist_missing` guard described above.
+  - Draft result: 3921 Chinese chars, `rewrite_count=2`, `polish_applied=true`, but meta is still `Reject` / `needs_human_review=true` because deterministic lint reports repeated `not_x_but_y` errors and `name_drift` warnings. User self-review is still pending.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands

@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.reviewer import review_text
+from src.reviewer import _repair_agent_review_dict, review_text
 from src.reviewer import load_review_agents
 
 
@@ -69,6 +69,23 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertIn("对照清单", agents_yaml)
         self.assertIn("禁止输出空 issues 的纯 Approve", agents_yaml)
 
+    def test_relationship_consistency_empty_approve_becomes_review_issue(self) -> None:
+        repaired = _repair_agent_review_dict(
+            {"verdict": "Approve", "score": 7, "issues": [], "suggestions": []},
+            "关系一致性",
+        )
+        self.assertEqual(repaired["verdict"], "Reject")
+        self.assertEqual(repaired["issues"][0]["rule_id"], "relationship_checklist_missing")
+
+    def test_relationship_consistency_checklist_approve_is_preserved(self) -> None:
+        repaired = _repair_agent_review_dict(
+            {"verdict": "Approve", "score": 8, "issues": [], "comparison_checklist": ["甲-乙：匹配"]},
+            "关系一致性",
+        )
+        self.assertEqual(repaired["verdict"], "Approve")
+        self.assertEqual(repaired["issues"], [])
+        self.assertEqual(repaired["comparison_checklist"], ["甲-乙：匹配"])
+
     def test_relationship_consistency_agent_in_review_pipeline(self) -> None:
         graph = {
             "entities": [
@@ -90,6 +107,8 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             prompt = "\n".join(m.get("content", "") for m in messages)
             agent_name = prompt.split("agent_name: ", 1)[1].split("\n", 1)[0]
             captured[agent_name] = prompt
+            if agent_name == "关系一致性":
+                return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[],"comparison_checklist":["甲-乙：匹配"]}'
             return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
 
         self.assertIn("关系一致性", [agent["name"] for agent in load_review_agents()])

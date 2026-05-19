@@ -34,6 +34,18 @@ def _repair_agent_review_dict(raw: Any, agent_name: str) -> Dict[str, Any]:
         repaired["issues"] = []
     if not isinstance(repaired.get("suggestions"), list):
         repaired["suggestions"] = []
+    if not isinstance(repaired.get("comparison_checklist"), list):
+        repaired["comparison_checklist"] = []
+    if agent_name == "关系一致性" and not repaired["issues"] and not repaired["comparison_checklist"]:
+        repaired["verdict"] = "Reject"
+        repaired["issues"] = [
+            {
+                "message": "关系一致性 reviewer 未输出对照清单，需人工复核 active 关系状态。",
+                "rule_id": "relationship_checklist_missing",
+                "severity": "major",
+                "anchor": "",
+            }
+        ]
     return repaired
 
 
