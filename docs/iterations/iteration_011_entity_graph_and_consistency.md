@@ -47,6 +47,33 @@ The most recent 200 LLM log rows after `verify.sh` were mock-only. A secret-like
 
 The DeepSeek v4-pro switch is intentionally user-owned and was not applied by Codex in this iteration. Current preflight still sees `deepseek/deepseek-chat` from the existing environment and reports warn / FATAL none. Routing validation for `deepseek/deepseek-v4-pro` will happen after the user edits `.env`; if LiteLLM does not recognize it, the fallback note should be recorded separately before any true-model write smoke.
 
+### P7 真模型 smoke (DeepSeek v4-pro)
+
+执行：`bash scripts/write_smoke.sh`。前置：用户切 `.env` 到 `deepseek/deepseek-v4-pro`，并手工补齐 14 条 active=false 关系（路明非↔绘梨衣等核心关系的 timeline 最后一节点设 active=true）。
+
+- log: `logs/write_smoke_20260518_234246.log`
+- snapshot（脚本崩在 snapshot 之前，手工补救）: `outputs/drafts/snapshots/20260518_234246_recovered/`
+
+| # | 项 | 结果 |
+|---|---|---|
+| D1 | 中文字数 ≥ 3000 | ✅ **4507**（远超 hard floor） |
+| D2 | meta 字段完整 | ✅ `chinese_char_count=4507`, `polish_applied=false`, `rewrite_count=0`, `agent_reviews=8` |
+| D3 | 新 reviewer 真跑 | ✅ "关系一致性" 在 review pipeline 内，verdict=Approve, issues=0 |
+| D4 | 关系一致性反馈 | ⚠️ 薄弱 —— Approve 但 issues=0，没明确说明对照过 entity_graph；用户主观读章未发现 OOC（关系层无"旅游景点"类错位） |
+| D5 | meta 含 polish_applied/lint_blocked_reviews | ✅ |
+| D6 | 用户自评 | ✅ **8/10**（语言/对话有"活人感"、人物刻画合理、出现"江南式幽默"、关系层无 OOC、文笔质感提升） |
+| D7 | DeepSeek ok 率 | ✅ **60/60 = 100%**（compress 1 + debate 47 + write 1 + review 11） |
+| D8 | 失败无残留 | ✅ |
+| D9 | snapshot 完整 | ⚠️ 脚本崩在 snapshot 之前，**手工补救**至 `snapshots/20260518_234246_recovered/` |
+| E | 成本受控 | ✅ ~$0.42（按 v3 单价 2x 估算；447k prompt / 80k response tokens） |
+
+**新暴露的两个工程坑（iter 012 必修）**：
+
+1. **`scripts/write_smoke.sh` 崩在 standalone review**：`python3 main.py review` 调 `review_target → review_text → extract_json_object` 抛 `ValueError: No JSON object found in LLM response`，因 reviewer 二次跑时一个 agent 返回不可解析 JSON。`set -e` 导致脚本未执行后续 status/estimate-cost/preflight/snapshot 步骤。
+2. **`outputs/debate/decisions.json` votes=[]**：v4-pro 在 structured ballot JSON 上不稳，build_decisions 拿到空数组未走 fallback，最终 `votes=0`（但 outline.md 内容正常）。
+
+**模型选择结论**：v4-pro 在文笔质量上明显优于 v3（用户主观验收 5 → 6+ → 8），但在 structured JSON 输出（debate ballot / standalone review）上系统性不稳。iter 012 修两个坑后保留 v4-pro，结构层加 fallback。
+
 ## File Summary
 
 | File | Change |
