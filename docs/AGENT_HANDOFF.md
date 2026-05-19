@@ -132,6 +132,15 @@
   - Debate fix held: `debate_decisions.json` has 3 votes, each with 6 agent ballots (`for` lengths `[6, 6, 6]`, `against` `[0, 0, 0]`).
   - Review crash fix held: standalone review completed. However the true `关系一致性` reviewer still returned pure empty Approve, so D3 failed for the smoke artifact; this directly triggered the local `relationship_checklist_missing` guard described above.
   - Draft result: 3921 Chinese chars, `rewrite_count=2`, `polish_applied=true`, but meta is still `Reject` / `needs_human_review=true` because deterministic lint reports repeated `not_x_but_y` errors and `name_drift` warnings. User self-review is still pending.
+- Iteration 013 multi-chapter architecture engineering:
+  - Added `src/chapter_summary.py` and runtime `outputs/drafts/rolling_chapter_summary.json` for per-chapter `{summary, key_events, ending_state}` accumulation.
+  - Writer prompts no longer depend on raw previous-draft tail; they inject rendered recent chapter context, previous ending state, and an explicit opening-transition instruction when rolling state exists.
+  - `write_chapters` now supports `resume_from` so `python3 main.py write --chapters 1 --resume-from N` can write one specific chapter for chapter-boundary workflows.
+  - Added post-write `_summarize_chapter` and `_propose_entity_advance` hooks. Mock mode returns fixed summary data and empty proposals; real mode writes proposal JSON under `outputs/drafts/chapter_NN.entity_advance_proposals.json`.
+  - Added `src/entity_advance.py`, `src/cli_apply_advance.py`, and `python3 main.py apply-advance --chapter NN --proposal-idx ... [--confirm]`. Dry-run prints a diff; `--confirm` flips old relationship timeline nodes inactive and appends the selected active state.
+  - `review_text` now has `enforce_relationship_checklist=False` by default for compatibility; `main.py review`, `review-chapter`, and writer-internal review enable it.
+  - Added `scripts/write_book.sh` for gated multi-chapter smoke. It skips existing chapters, writes one missing chapter, pauses before the next chapter for user apply-advance, and snapshots after all requested chapters exist.
+  - Engineering validation: 120 unit tests OK, `bash scripts/verify.sh` exited 0 with mock-only new LLM logs, and `python3 main.py preflight` reported warn with FATAL none. True-model P7 is still blocked until the user says `可以跑了`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -143,8 +152,9 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 013 multi-chapter continuation architecture: chapter-to-chapter continuity, active relationship advancement proposals, and user-approved `entity_graph.json` timeline updates.
-- Iteration 014+ generalization axis: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
+- Iteration 013 P7 true-model two-chapter smoke: run `bash scripts/write_book.sh 2` only after user says `可以跑了`, pause after chapter 1 for user-selected `apply-advance`, then continue chapter 2 after user replies `继续`.
+- Iteration 014: chapter plan generation, fuller `write_book.sh` automation, and chapter failure resume/retry.
+- Iteration 015+ generalization axis: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
 - Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence beyond the relationship checklist.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

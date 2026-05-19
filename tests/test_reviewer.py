@@ -86,6 +86,23 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(repaired["issues"], [])
         self.assertEqual(repaired["comparison_checklist"], ["甲-乙：匹配"])
 
+    def test_enforce_relationship_checklist_rejects_empty_standalone_review(self) -> None:
+        def fake_complete_text(self, messages):
+            return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
+
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "关系一致性", "system_prompt": "review"}]), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text(
+                "干净正文。",
+                "relationship_empty.md",
+                precomputed_lint_issues=[],
+                enforce_relationship_checklist=True,
+            )
+
+        self.assertEqual(report["verdict"], "Reject")
+        self.assertEqual(report["agent_reviews"][0]["issues"][0]["rule_id"], "relationship_checklist_missing")
+
     def test_relationship_consistency_agent_in_review_pipeline(self) -> None:
         graph = {
             "entities": [

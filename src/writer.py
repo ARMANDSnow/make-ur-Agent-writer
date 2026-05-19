@@ -3,12 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .entities import load_entity_graph, render_active_state
+from .entity_advance import active_relationships, save_entity_advance_proposals
 from .linter import NovelLinter, count_chinese_chars
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .reviewer import review_text
+from .schemas import ChapterSummary, EntityAdvanceProposalSet, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
 from .utils import ensure_dir, read_json, write_json
@@ -24,6 +27,7 @@ def write_chapters(
     chapters: int = 18,
     force: bool = False,
     max_attempts: Optional[int] = None,
+    resume_from: int = 1,
 ) -> List[Dict[str, Any]]:
     ensure_dir(DRAFTS_DIR)
     if not OUTLINE_PATH.exists():
@@ -44,12 +48,13 @@ def write_chapters(
     shadow_review_enabled = bool(agent_cfg.get("review_during_lint_block", True))
     linter = NovelLinter()
     reports: List[Dict[str, Any]] = []
-    previous_state = ""
-    for chapter_no in range(1, chapters + 1):
+    for chapter_no in range(int(resume_from), int(resume_from) + int(chapters)):
         out_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.md"
         if out_path.exists() and not force:
-            previous_state = out_path.read_text(encoding="utf-8")[-2000:]
             continue
+        rolling_path = DRAFTS_DIR / "rolling_chapter_summary.json"
+        rolling_context = render_rolling_context(max_chapters=5, path=rolling_path)
+        previous_chapter_ending = latest_ending_state(path=rolling_path)
         draft = ""
         report: Dict[str, Any] = {}
         feedback = ""
@@ -68,7 +73,8 @@ def write_chapters(
                 continuation_anchor=continuation_anchor,
                 index=index,
                 outline=outline,
-                previous_state=previous_state,
+                rolling_context=rolling_context,
+                previous_chapter_ending=previous_chapter_ending,
                 feedback=feedback,
             )
             draft = _complete_write_text(client, messages, cache_segments).strip()
@@ -83,6 +89,7 @@ def write_chapters(
                             precomputed_lint_issues=lint_issues,
                             rewrite_round=attempt - 1,
                             run_agents_on_lint_error=True,
+                            enforce_relationship_checklist=True,
                         )
                         lint_blocked_reviews.append({"attempt": attempt, "review": shadow_review})
                     except Exception as exc:
@@ -101,7 +108,13 @@ def write_chapters(
                 report = {"verdict": "Reject", "lint_issues": lint_issues, "attempt": attempt}
                 continue
             lint_ok = True
-            report = review_text(draft, out_path.name, precomputed_lint_issues=lint_issues, rewrite_round=attempt - 1)
+            report = review_text(
+                draft,
+                out_path.name,
+                precomputed_lint_issues=lint_issues,
+                rewrite_round=attempt - 1,
+                enforce_relationship_checklist=True,
+            )
             if report["verdict"] == "Approve":
                 last_blocking_reasons = []
                 break
@@ -133,6 +146,17 @@ def write_chapters(
                 draft = polished.strip()
                 polish_applied = True
                 polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
+
+        chapter_summary = _summarize_chapter(client, chapter_no, draft)
+        append_chapter_summary(
+            chapter_no,
+            chapter_summary.get("summary", ""),
+            chapter_summary.get("key_events", []),
+            chapter_summary.get("ending_state", ""),
+            path=DRAFTS_DIR / "rolling_chapter_summary.json",
+        )
+        proposals = _propose_entity_advance(client, chapter_no, draft, load_entity_graph())
+        proposal_path = save_entity_advance_proposals(chapter_no, proposals, drafts_dir=DRAFTS_DIR)
 
         if not lint_ok:
             failure_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.failure.json"
@@ -167,9 +191,17 @@ def write_chapters(
             }
             write_text_atomic(out_path, draft + "\n")
             write_json(meta_path, meta)
-            previous_state = draft[-2000:]
             log_event("write", "failure", chapter=chapter_no, reason="lint_errors")
-            reports.append({"chapter": chapter_no, "path": str(out_path), "failure_path": str(failure_path), "review": meta, "written": True})
+            reports.append(
+                {
+                    "chapter": chapter_no,
+                    "path": str(out_path),
+                    "failure_path": str(failure_path),
+                    "proposal_path": str(proposal_path),
+                    "review": meta,
+                    "written": True,
+                }
+            )
         else:
             meta = dict(report)
             meta["rewrite_count"] = max(0, attempt - 1)
@@ -185,8 +217,15 @@ def write_chapters(
             failure_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.failure.json"
             if failure_path.exists():
                 failure_path.unlink()
-            previous_state = draft[-2000:]
-            reports.append({"chapter": chapter_no, "path": str(out_path), "review": report, "written": True})
+            reports.append(
+                {
+                    "chapter": chapter_no,
+                    "path": str(out_path),
+                    "proposal_path": str(proposal_path),
+                    "review": report,
+                    "written": True,
+                }
+            )
             log_event("write", report.get("verdict", "unknown").lower(), chapter=chapter_no, output=str(out_path))
     return reports
 
@@ -213,8 +252,9 @@ def _write_prompt(
     continuation_anchor: str,
     index: Dict[str, Any],
     outline: str,
-    previous_state: str,
-    feedback: str,
+    rolling_context: str = "",
+    previous_chapter_ending: str = "",
+    feedback: str = "",
 ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
     system_prompt = (
         "你是长篇小说续写写作者。只输出正文，不要输出章节编号或解释。"
@@ -243,13 +283,23 @@ def _write_prompt(
             "不要编造未列出的关系；不要让角色行为与已确立关系冲突。"
         )
     anchor_context = f"# 续写起点（must-anchor）\n\n{continuation_anchor}\n\n" if continuation_anchor else ""
+    rolling_block = f"{rolling_context}\n" if rolling_context else ""
+    ending_block = (
+        "## 上一章结尾状态\n\n"
+        f"{previous_chapter_ending}\n\n"
+        "## 本章开场衔接提示\n\n"
+        "本章开场必须自然衔接上述结尾状态；可以闪回但不能直接跳到不相关场景。\n\n"
+        if previous_chapter_ending
+        else ""
+    )
     dynamic_context = (
         f"{anchor_context}"
         "# 本章目标长度\n\n"
         "中文正文 3500-5500 字之间，过短会被自动重写。\n\n"
         f"续写第 {chapter_no} 章。\n\n"
         f"人工全局事实:\n{facts}\n\n"
-        f"上一章状态:\n{previous_state}\n\n"
+        f"{rolling_block}"
+        f"{ending_block}"
         f"previous_review_feedback:\n{feedback}"
     )
     messages = [
@@ -262,6 +312,75 @@ def _write_prompt(
         {"role": "user", "content": dynamic_context, "cache": False},
     ]
     return messages, cache_segments
+
+
+def _summarize_chapter(client: LLMClient, chapter_no: int, draft: str) -> Dict[str, Any]:
+    if client.is_mock:
+        return {
+            "summary": f"mock 第 {chapter_no} 章摘要：本章承接上一章状态并推进主要冲突。",
+            "key_events": ["mock 事件推进", "mock 关系变化"],
+            "ending_state": f"mock 第 {chapter_no} 章结尾状态",
+        }
+    try:
+        result = client.complete_json(
+            [
+                {
+                    "role": "system",
+                    "content": "你是长篇续写的章节状态记录员。只输出 JSON。",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"请总结续写第 {chapter_no} 章，输出字段 summary、key_events、ending_state。"
+                        "summary 200-400 字；key_events 3-6 条；ending_state 描述本章结尾人物位置、状态和情绪基调。\n\n"
+                        f"{draft[:20000]}"
+                    ),
+                },
+            ],
+            ChapterSummary,
+        )
+        return model_to_dict(result)
+    except Exception as exc:
+        log_event("write", "chapter_summary_fallback", chapter=chapter_no, error=str(exc))
+        return {
+            "summary": draft[:500],
+            "key_events": ["summary_fallback"],
+            "ending_state": draft[-300:] if draft else "",
+        }
+
+
+def _propose_entity_advance(
+    client: LLMClient,
+    chapter_no: int,
+    draft: str,
+    entity_graph: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    relationships = active_relationships(entity_graph)
+    if client.is_mock or not relationships:
+        return []
+    try:
+        result = client.complete_json(
+            [
+                {
+                    "role": "system",
+                    "content": "你是实体关系演进审查员。只输出 JSON，不要直接修改实体图。",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"续写第 {chapter_no} 章已完成。请根据正文判断哪些 active relationship 需要提出演进建议。"
+                        "只提出正文中有明确触发事件的变化；不确定则返回空 proposed_advances。\n\n"
+                        f"# 当前 active relationships\n{relationships}\n\n"
+                        f"# 本章正文\n{draft[:20000]}"
+                    ),
+                },
+            ],
+            EntityAdvanceProposalSet,
+        )
+        return [model_to_dict(item) for item in result.proposed_advances]
+    except Exception as exc:
+        log_event("write", "entity_advance_fallback", chapter=chapter_no, error=str(exc))
+        return []
 
 
 def _format_lint_feedback(lint_issues: List[Dict[str, Any]]) -> str:

@@ -92,6 +92,25 @@ class AgentReview(BaseModel):
     comparison_checklist: List[str] = Field(default_factory=list)
 
 
+class ChapterSummary(BaseModel):
+    summary: str = ""
+    key_events: List[str] = Field(default_factory=list)
+    ending_state: str = ""
+
+
+class EntityAdvanceProposal(BaseModel):
+    src_id: str
+    dst_id: str
+    old_active_state: str = ""
+    new_state: str
+    trigger_event: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class EntityAdvanceProposalSet(BaseModel):
+    proposed_advances: List[EntityAdvanceProposal] = Field(default_factory=list)
+
+
 class LintIssue(BaseModel):
     rule: str
     severity: str

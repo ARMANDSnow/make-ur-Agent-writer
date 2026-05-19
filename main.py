@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from src.chapter_splitter import split_all
+from src.cli_apply_advance import apply_advance_cli, render_apply_advance_result
 from src.compressor import compress_all
 from src.cost_estimator import estimate_cost, render_cost_estimate
 from src.debater import run_debate
@@ -49,10 +50,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     write = sub.add_parser("write")
     write.add_argument("--chapters", type=int, default=18)
+    write.add_argument("--resume-from", type=int, default=1)
     write.add_argument("--force", action="store_true")
 
     review = sub.add_parser("review")
     review.add_argument("--target", default="outputs/drafts")
+    review_chapter = sub.add_parser("review-chapter")
+    review_chapter.add_argument("chapter", type=int)
+
+    apply_advance = sub.add_parser("apply-advance")
+    apply_advance.add_argument("--chapter", type=int, required=True)
+    apply_advance.add_argument("--proposal-idx", required=True)
+    apply_advance.add_argument("--confirm", action="store_true")
 
     run_all = sub.add_parser("run-all")
     run_all.add_argument("--chapters", type=int, default=18)
@@ -109,9 +118,14 @@ def main() -> None:
     elif args.command == "debate":
         run_debate()
     elif args.command == "write":
-        write_chapters(chapters=args.chapters, force=args.force)
+        write_chapters(chapters=args.chapters, force=args.force, resume_from=args.resume_from)
     elif args.command == "review":
-        review_target(Path(args.target))
+        review_target(Path(args.target), enforce_relationship_checklist=True)
+    elif args.command == "review-chapter":
+        review_target(Path(f"outputs/drafts/chapter_{args.chapter:02d}.md"), enforce_relationship_checklist=True)
+    elif args.command == "apply-advance":
+        result = apply_advance_cli(args.chapter, args.proposal_idx, confirm=args.confirm)
+        print(render_apply_advance_result(result), end="")
     elif args.command == "run-all":
         normalize_all()
         split_all()

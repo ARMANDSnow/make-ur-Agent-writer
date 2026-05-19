@@ -22,7 +22,16 @@ def load_review_agents() -> List[Dict[str, Any]]:
     return cfg.get("review_agents", [])
 
 
-def _repair_agent_review_dict(raw: Any, agent_name: str) -> Dict[str, Any]:
+def _relationship_checklist_issue() -> Dict[str, str]:
+    return {
+        "message": "关系一致性 reviewer 未输出对照清单，需人工复核 active 关系状态。",
+        "rule_id": "relationship_checklist_missing",
+        "severity": "major",
+        "anchor": "",
+    }
+
+
+def _repair_agent_review_dict(raw: Any, agent_name: str, enforce_relationship_checklist: bool = True) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raw = {}
     repaired = dict(raw)
@@ -36,16 +45,14 @@ def _repair_agent_review_dict(raw: Any, agent_name: str) -> Dict[str, Any]:
         repaired["suggestions"] = []
     if not isinstance(repaired.get("comparison_checklist"), list):
         repaired["comparison_checklist"] = []
-    if agent_name == "关系一致性" and not repaired["issues"] and not repaired["comparison_checklist"]:
+    if (
+        enforce_relationship_checklist
+        and agent_name == "关系一致性"
+        and not repaired["issues"]
+        and not repaired["comparison_checklist"]
+    ):
         repaired["verdict"] = "Reject"
-        repaired["issues"] = [
-            {
-                "message": "关系一致性 reviewer 未输出对照清单，需人工复核 active 关系状态。",
-                "rule_id": "relationship_checklist_missing",
-                "severity": "major",
-                "anchor": "",
-            }
-        ]
+        repaired["issues"] = [_relationship_checklist_issue()]
     return repaired
 
 
@@ -71,6 +78,7 @@ def review_text(
     precomputed_lint_issues: List[Dict[str, Any]] | None = None,
     rewrite_round: int = 0,
     run_agents_on_lint_error: bool = False,
+    enforce_relationship_checklist: bool = False,
 ) -> Dict[str, Any]:
     ensure_dir(REVIEWS_DIR)
     if precomputed_lint_issues is not None:
@@ -132,7 +140,7 @@ def review_text(
             )
             write_json(REVIEWS_DIR / f"{Path(target_name).stem}.review.json", report)
             return report
-        result = AgentReview(**_repair_agent_review_dict(raw, agent["name"]))
+        result = AgentReview(**_repair_agent_review_dict(raw, agent["name"], enforce_relationship_checklist))
         data = model_to_dict(result)
         data["agent_name"] = agent["name"]
         reviews.append(data)
@@ -149,12 +157,24 @@ def review_text(
     return report
 
 
-def review_target(target: Path) -> List[Dict[str, Any]]:
+def review_target(target: Path, enforce_relationship_checklist: bool = False) -> List[Dict[str, Any]]:
     if target.is_file():
-        return [review_text(target.read_text(encoding="utf-8"), target.name)]
+        return [
+            review_text(
+                target.read_text(encoding="utf-8"),
+                target.name,
+                enforce_relationship_checklist=enforce_relationship_checklist,
+            )
+        ]
     if target.is_dir():
         reports = []
         for path in sorted(target.glob("*.md")):
-            reports.append(review_text(path.read_text(encoding="utf-8"), path.name))
+            reports.append(
+                review_text(
+                    path.read_text(encoding="utf-8"),
+                    path.name,
+                    enforce_relationship_checklist=enforce_relationship_checklist,
+                )
+            )
         return reports
     raise FileNotFoundError(f"review target not found: {target}")

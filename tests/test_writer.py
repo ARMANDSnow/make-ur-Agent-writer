@@ -115,7 +115,6 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             continuation_anchor="",
             index={},
             outline="outline",
-            previous_state="",
             feedback="",
         )
         prompt = "\n".join(item["content"] for item in messages)
@@ -133,13 +132,31 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             continuation_anchor="第三部结局后三个月",
             index={},
             outline="outline",
-            previous_state="",
             feedback="",
         )
         prompt = "\n".join(item["content"] for item in messages)
         self.assertIn("续写起点", prompt)
         self.assertIn("第三部结局后三个月", prompt)
         self.assertIn("中文正文 3500-5500 字", prompt)
+
+    def test_writer_prompt_includes_rolling_context_and_ending_state(self) -> None:
+        messages, _cache_segments = _write_prompt(
+            chapter_no=2,
+            knowledge="knowledge",
+            facts="facts",
+            style_examples="",
+            continuation_anchor="",
+            index={},
+            outline="outline",
+            rolling_context="## 已写章节回顾\n第 1 章摘要",
+            previous_chapter_ending="上一章停在雨夜门口",
+            feedback="",
+        )
+        prompt = "\n".join(item["content"] for item in messages)
+        self.assertIn("已写章节回顾", prompt)
+        self.assertIn("上一章结尾状态", prompt)
+        self.assertIn("本章开场衔接提示", prompt)
+        self.assertIn("上一章停在雨夜门口", prompt)
 
     def test_writer_prompt_includes_entity_state_when_present(self) -> None:
         graph = {
@@ -165,7 +182,6 @@ class WriterRejectLintCleanTests(unittest.TestCase):
                 continuation_anchor="",
                 index={},
                 outline="outline",
-                previous_state="",
                 feedback="",
             )
         prompt = "\n".join(item["content"] for item in messages)
@@ -281,6 +297,51 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             self.assertEqual(meta["lint_blocked_reviews"][0]["attempt"], 1)
             self.assertEqual(meta["lint_blocked_reviews"][0]["review"]["agent_reviews"][0]["agent_name"], "江南人格模拟")
             self.assertTrue(mock_review.call_args.kwargs["run_agents_on_lint_error"])
+
+    def test_write_chapter_persists_summary_and_entity_proposals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            drafts, outline, kb, idx = _write_fixture(tmp)
+
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return _agent_config(polish_pass=False)
+                raise AssertionError(name)
+
+            with patch("src.writer.DRAFTS_DIR", drafts), patch("src.writer.OUTLINE_PATH", outline), patch(
+                "src.writer.KB_PATH", kb
+            ), patch("src.writer.INDEX_PATH", idx), patch("src.writer.load_config", side_effect=fake_load_config), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.writer.review_text",
+                return_value={"verdict": "Approve", "lint_issues": [], "agent_reviews": []},
+            ), patch(
+                "src.writer._complete_write_text", return_value="足够干净的正文"
+            ), patch(
+                "src.writer._summarize_chapter",
+                return_value={"summary": "本章摘要", "key_events": ["事件"], "ending_state": "结尾状态"},
+            ) as summarize, patch(
+                "src.writer._propose_entity_advance",
+                return_value=[
+                    {
+                        "src_id": "a",
+                        "dst_id": "b",
+                        "old_active_state": "旧",
+                        "new_state": "新",
+                        "trigger_event": "事件",
+                        "confidence": 0.9,
+                    }
+                ],
+            ) as propose:
+                linter_cls.return_value.lint.return_value = []
+                write_chapters(chapters=1, force=True, max_attempts=1)
+
+            rolling = json.loads((drafts / "rolling_chapter_summary.json").read_text(encoding="utf-8"))
+            proposals = json.loads((drafts / "chapter_01.entity_advance_proposals.json").read_text(encoding="utf-8"))
+        summarize.assert_called_once()
+        propose.assert_called_once()
+        self.assertEqual(rolling["chapters"][0]["ending_state"], "结尾状态")
+        self.assertEqual(proposals["proposed_advances"][0]["new_state"], "新")
 
     def test_shadow_review_handles_review_text_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
