@@ -282,6 +282,41 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             self.assertEqual(meta["lint_blocked_reviews"][0]["review"]["agent_reviews"][0]["agent_name"], "江南人格模拟")
             self.assertTrue(mock_review.call_args.kwargs["run_agents_on_lint_error"])
 
+    def test_shadow_review_handles_review_text_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            drafts, outline, kb, idx = _write_fixture(tmp)
+
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return _agent_config(polish_pass=False, review_during_lint_block=True)
+                raise AssertionError(name)
+
+            fallback_report = {
+                "target": "chapter_01.md",
+                "rewrite_round": 0,
+                "verdict": "Approve",
+                "lint_issues": [{"rule": "not_x_but_y", "severity": "error", "message": "bad", "line": 1, "anchor": "bad"}],
+                "agent_reviews": [],
+                "_fallback_reason": "(parse_failed)",
+            }
+            with patch("src.writer.DRAFTS_DIR", drafts), patch("src.writer.OUTLINE_PATH", outline), patch(
+                "src.writer.KB_PATH", kb
+            ), patch("src.writer.INDEX_PATH", idx), patch("src.writer.load_config", side_effect=fake_load_config), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.writer.review_text", return_value=fallback_report
+            ):
+                linter_cls.return_value.lint.return_value = [
+                    {"rule": "not_x_but_y", "severity": "error", "message": "bad", "line": 1, "anchor": "bad", "count": 5}
+                ]
+                write_chapters(chapters=1, force=True, max_attempts=1)
+
+            meta = json.loads((drafts / "chapter_01.meta.json").read_text(encoding="utf-8"))
+            self.assertTrue(meta["lint_blocked_reviews"])
+            self.assertEqual(meta["lint_blocked_reviews"][0]["review"]["_fallback_reason"], "(parse_failed)")
+            self.assertEqual(meta["lint_blocked_reviews"][0]["review"]["verdict"], "Approve")
+
 
 if __name__ == "__main__":
     unittest.main()

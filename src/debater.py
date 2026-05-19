@@ -402,6 +402,103 @@ def _apply_agent_ballots(
     return decisions
 
 
+def _coerce_vote_list(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        raw_votes = raw.get("votes", [])
+    elif isinstance(raw, list):
+        raw_votes = raw
+    else:
+        raw_votes = []
+    if not isinstance(raw_votes, list):
+        return []
+
+    votes: List[Dict[str, Any]] = []
+    for idx, item in enumerate(raw_votes):
+        if not isinstance(item, dict):
+            continue
+        question = str(item.get("question") or item.get("议题") or item.get("title") or f"fallback vote {idx + 1}").strip()
+        result = str(item.get("result") or item.get("裁决") or item.get("decision") or item.get("summary") or "").strip()
+        if not result:
+            result = "由辩论记录宽松推断出的临时裁决"
+        supporters = item.get("for", item.get("supporters", item.get("支持", [])))
+        opponents = item.get("against", item.get("opponents", item.get("反对", [])))
+        if not isinstance(supporters, list):
+            supporters = [str(supporters)] if supporters else []
+        if not isinstance(opponents, list):
+            opponents = [str(opponents)] if opponents else []
+        votes.append(
+            {
+                "question": question,
+                "result": result,
+                "for": [str(name) for name in supporters],
+                "against": [str(name) for name in opponents],
+            }
+        )
+    return votes
+
+
+def _placeholder_votes(voter_names: List[str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "question": "结构化投票缺失时是否保留当前大纲约束",
+            "result": "由于 LLM 未返回有效投票，默认全员 abstain，保留辩论摘要供人工复核",
+            "for": [],
+            "against": [],
+        },
+        {
+            "question": "是否需要人工复核本次 debate decisions",
+            "result": "需要；本条为防空 fallback，不代表真实多数决",
+            "for": [],
+            "against": [],
+        },
+        {
+            "question": "outline 是否继续生成",
+            "result": "继续生成，但标记 votes_empty_fallback 以便后续追踪",
+            "for": [],
+            "against": [],
+        },
+    ]
+
+
+def _legacy_llm_derived_votes(
+    agents: List[Dict[str, Any]],
+    transcript: List[Dict[str, Any]],
+    client: LLMClient,
+    global_facts: str | None = None,
+) -> List[Dict[str, Any]]:
+    voter_names = [agent["name"] for agent in agents]
+    try:
+        content = client.complete_text(
+            [
+                {
+                    "role": "system",
+                    "content": "你是辩论记录整理员。宽松推断核心裁决即可，优先输出 JSON。",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "structured decisions 的 votes 为空。请基于辩论记录补 1-3 条临时裁决。"
+                        "输出 JSON 对象，格式为 {\"votes\":[{\"question\":\"...\",\"result\":\"...\",\"for\":[...],\"against\":[...]}]}。"
+                        "for/against 填 agent 名；不确定可留空。\n\n"
+                        f"Agent 列表: {json.dumps(voter_names, ensure_ascii=False)}\n\n"
+                        f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
+                        f"辩论记录:\n{_transcript_summary(transcript)[:10000]}"
+                    ),
+                },
+            ]
+        )
+        try:
+            raw = json.loads(extract_json_object(content))
+        except (ValueError, json.JSONDecodeError):
+            raw = []
+        votes = _coerce_vote_list(raw)
+        if votes:
+            return votes[:3]
+    except Exception as exc:
+        log_event("debate", "votes_empty_fallback_error", error=str(exc))
+    return _placeholder_votes(voter_names)
+
+
 def build_decisions(
     agents: List[Dict[str, Any]],
     transcript: List[Dict[str, Any]],
@@ -455,27 +552,18 @@ def build_decisions(
         data = model_to_dict(result)
         data["transcript_items"] = len(transcript)
         data["aggregation_method"] = "majority"
+        if not data.get("votes"):
+            log_event("debate", "votes_empty_fallback", reason="llm_returned_empty_votes")
+            data["votes"] = _legacy_llm_derived_votes(agents, transcript, client, global_facts)
         if agent_ballots is not None:
             return _apply_agent_ballots(data, agent_ballots, len(transcript))
         return data
     except Exception as exc:
         log_event("debate", "decision_fallback", error=str(exc))
+        votes = _legacy_llm_derived_votes(agents, transcript, client, global_facts)
         data = {
             "topic": "续写核心裁决",
-            "votes": [
-                {
-                    "question": "路鸣泽在最终牺牲前是否保留过夺权念头",
-                    "result": "有，但不把角色简化成反派",
-                    "for": voter_names[:4],
-                    "against": voter_names[4:],
-                },
-                {
-                    "question": "楚子航回归后是否丢失夏弥记忆",
-                    "result": "不丢失，记忆作为代价和行动动机保留",
-                    "for": voter_names[:5],
-                    "against": voter_names[5:],
-                },
-            ],
+            "votes": votes,
             "aggregation_method": "majority",
             "transcript_items": len(transcript),
         }

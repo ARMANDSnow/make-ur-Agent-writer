@@ -89,6 +89,7 @@ class AgentReview(BaseModel):
     score: int = Field(default=7, ge=0, le=10)
     issues: List[Union[str, ReviewIssue]] = Field(default_factory=list)
     suggestions: List[str] = Field(default_factory=list)
+    comparison_checklist: List[str] = Field(default_factory=list)
 
 
 class LintIssue(BaseModel):

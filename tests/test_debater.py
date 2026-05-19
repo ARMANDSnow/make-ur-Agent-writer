@@ -7,6 +7,7 @@ from unittest.mock import PropertyMock, patch
 from src.debater import (
     _collect_agent_votes,
     _infer_position_from_reason,
+    _legacy_llm_derived_votes,
     _repair_ballot_dict,
     _transcript_summary,
     build_decisions,
@@ -84,6 +85,32 @@ class DebaterAgentFailureTests(unittest.TestCase):
                 decisions = build_decisions(agents, transcript, self.client)
                 self.assertEqual(decisions["votes"][0]["for"], ["a2"])
                 self.assertEqual(decisions["votes"][0]["against"], ["a1"])
+
+    def test_build_decisions_falls_back_when_all_votes_empty(self) -> None:
+        agents = [{"name": "a1", "stance": "s1"}, {"name": "a2", "stance": "s2"}]
+        transcript = [{"round": 1, "round_name": "test", "agent": "a1", "response": "a1 支持保留关系约束"}]
+        llm_result = DebateDecisions(topic="裁决", votes=[], transcript_items=1)
+        loose_votes = '{"votes":[{"question":"是否保留关系约束","result":"保留","for":["a1"],"against":[]}]}'
+        with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = False
+            with patch.object(self.client, "complete_json", return_value=llm_result), patch.object(
+                self.client, "complete_text", return_value=loose_votes
+            ), patch("src.debater.log_event") as mock_log:
+                decisions = build_decisions(agents, transcript, self.client)
+        self.assertGreater(len(decisions["votes"]), 0)
+        self.assertEqual(decisions["votes"][0]["question"], "是否保留关系约束")
+        self.assertTrue(any(call.args[:2] == ("debate", "votes_empty_fallback") for call in mock_log.call_args_list))
+
+    def test_legacy_llm_derived_votes_handles_loose_json(self) -> None:
+        agents = [{"name": "a1"}, {"name": "a2"}]
+        transcript = [{"round": 1, "agent": "a1", "response": "支持 Q"}]
+        loose = '```json\n{"votes":[{"question":"Q","result":"R","supporters":["a1"],"opponents":["a2"]}]}\n```'
+        with patch.object(self.client, "complete_text", return_value=loose):
+            votes = _legacy_llm_derived_votes(agents, transcript, self.client)
+        self.assertEqual(votes[0]["question"], "Q")
+        self.assertEqual(votes[0]["result"], "R")
+        self.assertEqual(votes[0]["for"], ["a1"])
+        self.assertEqual(votes[0]["against"], ["a2"])
 
     def test_build_decisions_aggregates_agent_ballots_by_majority(self) -> None:
         agents = [{"name": "a1"}, {"name": "a2"}, {"name": "a3"}]

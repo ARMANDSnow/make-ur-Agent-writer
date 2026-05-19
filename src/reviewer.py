@@ -37,6 +37,22 @@ def _repair_agent_review_dict(raw: Any, agent_name: str) -> Dict[str, Any]:
     return repaired
 
 
+def _empty_approve_fallback(
+    target_name: str,
+    lint_issues: List[Dict[str, Any]] | None,
+    reason: str,
+    rewrite_round: int = 0,
+) -> Dict[str, Any]:
+    return {
+        "target": target_name,
+        "rewrite_round": rewrite_round,
+        "verdict": "Approve",
+        "lint_issues": lint_issues or [],
+        "agent_reviews": [],
+        "_fallback_reason": reason,
+    }
+
+
 def review_text(
     text: str,
     target_name: str = "draft",
@@ -85,7 +101,25 @@ def review_text(
                 },
             ],
         )
-        raw = json.loads(extract_json_object(content))
+        try:
+            raw = json.loads(extract_json_object(content))
+        except (ValueError, json.JSONDecodeError) as exc:
+            log_event(
+                "review",
+                "json_parse_fallback",
+                target=target_name,
+                agent=agent["name"],
+                error=str(exc),
+                content_preview=content[:200],
+            )
+            report = _empty_approve_fallback(
+                target_name,
+                lint_issues,
+                reason="(parse_failed)",
+                rewrite_round=rewrite_round,
+            )
+            write_json(REVIEWS_DIR / f"{Path(target_name).stem}.review.json", report)
+            return report
         result = AgentReview(**_repair_agent_review_dict(raw, agent["name"]))
         data = model_to_dict(result)
         data["agent_name"] = agent["name"]

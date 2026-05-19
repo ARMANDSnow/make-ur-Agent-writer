@@ -50,6 +50,25 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(report["agent_reviews"][0]["agent_name"], "文本守门人")
         self.assertEqual(report["verdict"], "Approve")
 
+    def test_review_text_falls_back_when_outer_json_unparseable(self) -> None:
+        def fake_complete_text(self, messages):
+            return "random text without json"
+
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "文本守门人", "system_prompt": "review"}]), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ), patch("src.reviewer.log_event") as mock_log:
+            report = review_text("干净正文。", "parse_failed.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertEqual(report["_fallback_reason"], "(parse_failed)")
+        self.assertEqual(report["agent_reviews"], [])
+        self.assertTrue(any(call.args[:2] == ("review", "json_parse_fallback") for call in mock_log.call_args_list))
+
+    def test_relationship_consistency_prompt_requires_checklist(self) -> None:
+        agents_yaml = Path("config/agents.yaml").read_text(encoding="utf-8")
+        self.assertIn("对照清单", agents_yaml)
+        self.assertIn("禁止输出空 issues 的纯 Approve", agents_yaml)
+
     def test_relationship_consistency_agent_in_review_pipeline(self) -> None:
         graph = {
             "entities": [

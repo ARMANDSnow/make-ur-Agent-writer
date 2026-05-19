@@ -20,3 +20,4 @@
 9. [Iteration 009 - Writing Quality Surge](./iteration_009_writing_quality_surge.md)
 10. [Iteration 010 - Linter Thresholds + Polish Pass + Reviewer Bypass Safety](./iteration_010_polish_and_linter_thresholds.md)
 11. [Iteration 011 - Entity Graph + Consistency Reviewer + Polish Length Floor](./iteration_011_entity_graph_and_consistency.md)
+12. [Iteration 012 - Reviewer JSON Robustness + Debate Fallback + Consistency Strict](./iteration_012_reviewer_robustness_and_consistency_strict.md)

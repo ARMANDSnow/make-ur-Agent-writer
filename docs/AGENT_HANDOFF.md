@@ -119,6 +119,14 @@
   - Reviewer prompts now receive entity state after global facts, and `config/agents.yaml` has an eighth review agent: `关系一致性`.
   - Polish now runs when enabled and the final draft is lint-blocked, reviewer-rejected, or under 3000 Chinese characters; short drafts get an expansion instruction targeting 3500-5500 Chinese characters.
   - User still owns `.env` model switching to `deepseek/deepseek-v4-pro`; do not run `scripts/write_smoke.sh` until the user fills `data/entity_graph.json` and replies `可以跑了`.
+- Iteration 012 reviewer JSON robustness + debate fallback + consistency strict:
+  - `review_text` now catches unparseable reviewer responses at the per-agent JSON extraction point, logs `review/json_parse_fallback`, writes a structured Approve fallback, and returns `_fallback_reason="(parse_failed)"` instead of crashing standalone review.
+  - `AgentReview` now accepts optional `comparison_checklist` so the relationship-consistency reviewer can return explicit comparison evidence.
+  - `build_decisions` now detects empty LLM `votes`, logs `debate/votes_empty_fallback`, asks for loose legacy-style votes, parses flexible `for` / `against` aliases, and falls back to placeholder abstain-style review votes only if needed.
+  - `config/agents.yaml` strengthens only the `关系一致性` reviewer: it must output a `对照清单`, compare draft interactions to active entity relationships, and may not produce an empty pure Approve without explaining the comparison process.
+  - Added focused tests for review fallback, debate empty-votes fallback, loose legacy vote parsing, relationship prompt requirements, and writer shadow-review compatibility.
+  - Engineering validation passed before true smoke: 110 unit tests OK, `bash scripts/verify.sh` OK, and `python3 main.py preflight` reported warn with FATAL none.
+  - True-model `bash scripts/write_smoke.sh` is still pending user confirmation; do not run it until the user replies `可以跑了`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -130,9 +138,9 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 012 relationship advance: decide whether each generated chapter should propose updates to `entity_graph.json` active timeline markers for user approval.
-- Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence.
-- Stage 3 generalization: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
+- Iteration 013 multi-chapter continuation architecture: chapter-to-chapter continuity, active relationship advancement proposals, and user-approved `entity_graph.json` timeline updates.
+- Iteration 014+ generalization axis: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
+- Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence beyond the relationship checklist.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。
 - Add a lightweight terminal UI or dashboard if operator reports become too verbose.
