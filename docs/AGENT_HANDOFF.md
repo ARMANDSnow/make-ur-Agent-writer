@@ -140,7 +140,12 @@
   - Added `src/entity_advance.py`, `src/cli_apply_advance.py`, and `python3 main.py apply-advance --chapter NN --proposal-idx ... [--confirm]`. Dry-run prints a diff; `--confirm` flips old relationship timeline nodes inactive and appends the selected active state.
   - `review_text` now has `enforce_relationship_checklist=False` by default for compatibility; `main.py review`, `review-chapter`, and writer-internal review enable it.
   - Added `scripts/write_book.sh` for gated multi-chapter smoke. It skips existing chapters, writes one missing chapter, pauses before the next chapter for user apply-advance, and snapshots after all requested chapters exist.
-  - Engineering validation: 120 unit tests OK, `bash scripts/verify.sh` exited 0 with mock-only new LLM logs, and `python3 main.py preflight` reported warn with FATAL none. True-model P7 is still blocked until the user says `可以跑了`.
+  - Engineering validation: 120 unit tests OK, `bash scripts/verify.sh` exited 0 with mock-only new LLM logs, and `python3 main.py preflight` reported warn with FATAL none.
+  - True-model `bash scripts/write_book.sh 2` ran after user confirmation on 2026-05-19. Chapter 1 run paused as designed; chapter 1 proposals were empty, so the user replied `继续` without applying advances; chapter 2 then completed and snapshot was saved at `outputs/drafts/snapshots/20260519_152801/`.
+  - Smoke result: `chapter_01.md` has 4331 Chinese chars and `chapter_02.md` has 3765 Chinese chars. Both writer meta files have `verdict=Approve`, `needs_human_review=false`, `rewrite_count=0`, and no failures.
+  - Continuity signal held: chapter 2 opens on the flight descending into Chicago and carries forward chapter 1's airport departure, the coin, and the "continue living" state.
+  - DeepSeek approved block after the initial sandbox error was 38/38 ok (`write=6`, `review=32`), with logged prompt 375,949 / response 43,155 / cache_read 273,920 / cache_write 102,029 tokens.
+  - Caveats for follow-up: chapter 1 entity proposal output was malformed and fell back to `proposed_advances=[]`, so C2/D3 relationship-advance workflow was not truly exercised; chapter 2 summary used local fallback because `ending_state` came back as an object instead of string.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -152,8 +157,7 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 013 P7 true-model two-chapter smoke: run `bash scripts/write_book.sh 2` only after user says `可以跑了`, pause after chapter 1 for user-selected `apply-advance`, then continue chapter 2 after user replies `继续`.
-- Iteration 014: chapter plan generation, fuller `write_book.sh` automation, and chapter failure resume/retry.
+- Iteration 014: harden true-model schema repair for chapter summary and entity advance proposal outputs, then add chapter plan generation, fuller `write_book.sh` automation, and chapter failure resume/retry.
 - Iteration 015+ generalization axis: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
 - Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence beyond the relationship checklist.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.

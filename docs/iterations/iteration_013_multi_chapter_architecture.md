@@ -67,7 +67,35 @@ python3 main.py preflight
 
 New LLM log rows from the validation tail are mock-only (`model="mock"`).
 
-True-model P7 is intentionally pending user confirmation. The chapter 1 smoke must not run until the user says `可以跑了`.
+True-model P7 ran after user confirmation on 2026-05-19:
+
+```bash
+bash scripts/write_book.sh 2
+# First sandboxed attempt skipped an old mock chapter_01 and then failed before network access.
+# Mock chapter_01 artifacts were moved to outputs/drafts/mock_before_iter013_p7/.
+# Approved network run 1 exited 0 after chapter 1 and paused for user review.
+# Approved network run 2 skipped chapter 1, generated chapter 2, and saved snapshot.
+```
+
+Snapshot: `outputs/drafts/snapshots/20260519_152801/`.
+
+| Item | Result |
+|------|--------|
+| C1 chapter 1 | Passed: `chapter_01.md`, `chapter_01.meta.json`, and `chapter_01.entity_advance_proposals.json` exist |
+| C2 user apply | Not exercised: chapter 1 proposal generation fell back to `proposed_advances=[]`, so there was no selectable relationship advance to apply |
+| C3 chapter 2 | Passed: `chapter_02.md`, `chapter_02.meta.json`, and `chapter_02.entity_advance_proposals.json` exist |
+| D1 chapter 2 length | Passed: `chinese_char_count=3765` |
+| D2 chapter transition | Pending user score; observable signal is positive because chapter 2 opens on the flight descending into Chicago, carrying forward chapter 1's airport departure, the coin, and the decision to keep living |
+| D3 relationship advance visible | Pending / not exercised because no user-approved advance was available; relationship consistency reviewers reported no drift |
+| D4 user self-review | Pending user score |
+| D5 DeepSeek ok rate | Successful approved block after the sandbox error: 38/38 ok (`write=6`, `review=32`) |
+| D6 snapshot | Passed: snapshot contains chapters 1-2, meta, proposals, rolling summary, reviews, and debate artifacts |
+| E cost | Logged tokens for successful approved block: prompt 375,949 / response 43,155 / cache_read 273,920 / cache_write 102,029; rough run remains within the planned ~$1 order of magnitude |
+
+Two caveats from the true run:
+
+- Chapter 1 entity advance proposal call received malformed model output missing `new_state`, so `_propose_entity_advance()` logged `entity_advance_fallback` and persisted an empty proposal list. This kept the user-review gate safe but did not prove C2.
+- Chapter 2 summary call received structured `ending_state` instead of a string, so `_summarize_chapter()` logged `chapter_summary_fallback`. The writer still had chapter 1 rolling context for chapter 2; the chapter 2 rolling entry should be hardened in a follow-up.
 
 ## 文件变更汇总
 
