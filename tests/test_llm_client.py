@@ -1,3 +1,4 @@
+import os
 import unittest
 import tempfile
 from pathlib import Path
@@ -8,6 +9,20 @@ from src.schemas import AgentReview
 
 
 class LLMClientJsonParseTests(unittest.TestCase):
+    def test_task_api_key_env_and_base_url_env_are_used(self) -> None:
+        env = {
+            "OPENAI_MODEL": "deepseek/deepseek-chat",
+            "PLANNER_API_KEY": "planner-key",
+            "PLANNER_BASE_URL": "https://planner.example/v1",
+        }
+        with patch.dict(os.environ, env, clear=True), patch("src.config.load_dotenv_if_available"):
+            client = LLMClient("plot_planner")
+        self.assertEqual(client.config["api_key_env"], "PLANNER_API_KEY")
+        self.assertEqual(client.config["base_url_env"], "PLANNER_BASE_URL")
+        self.assertEqual(client.config["api_key"], "planner-key")
+        self.assertEqual(client.config["base_url"], "https://planner.example/v1")
+        self.assertEqual(client.model, "openai/claude-opus-4-5")
+
     def test_invalid_json_raises_runtime_error_with_context(self) -> None:
         client = LLMClient("review")
         with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:

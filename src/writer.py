@@ -11,7 +11,7 @@ from .linter import NovelLinter, count_chinese_chars
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .reviewer import review_text
-from .schemas import ChapterSummary, EntityAdvanceProposalSet, model_to_dict
+from .schemas import ChapterPlan, ChapterSummary, EntityAdvanceProposalSet, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
 from .utils import ensure_dir, read_json, write_json
@@ -21,6 +21,7 @@ DRAFTS_DIR = ROOT / "outputs" / "drafts"
 OUTLINE_PATH = ROOT / "outputs" / "debate" / "outline.md"
 KB_PATH = ROOT / "data" / "knowledge_base" / "global_knowledge.md"
 INDEX_PATH = ROOT / "data" / "knowledge_base" / "knowledge_index.json"
+CHAPTER_PLAN_PATH = ROOT / "outputs" / "debate" / "chapter_plan.json"
 
 
 def write_chapters(
@@ -35,6 +36,7 @@ def write_chapters(
     knowledge = KB_PATH.read_text(encoding="utf-8") if KB_PATH.exists() else ""
     outline = OUTLINE_PATH.read_text(encoding="utf-8")
     index = read_json(INDEX_PATH, {})
+    chapter_plan = _load_chapter_plan()
     facts = global_facts_summary()
     style_examples = load_style_examples()
     client = LLMClient("write")
@@ -55,6 +57,7 @@ def write_chapters(
         rolling_path = DRAFTS_DIR / "rolling_chapter_summary.json"
         rolling_context = render_rolling_context(max_chapters=5, path=rolling_path)
         previous_chapter_ending = latest_ending_state(path=rolling_path)
+        chapter_plan_item = _chapter_plan_item(chapter_plan, chapter_no)
         draft = ""
         report: Dict[str, Any] = {}
         feedback = ""
@@ -73,6 +76,7 @@ def write_chapters(
                 continuation_anchor=continuation_anchor,
                 index=index,
                 outline=outline,
+                chapter_plan_item=chapter_plan_item,
                 rolling_context=rolling_context,
                 previous_chapter_ending=previous_chapter_ending,
                 feedback=feedback,
@@ -234,6 +238,23 @@ def _index_stats(index: Dict[str, Any]) -> str:
     return ", ".join(f"{key}={len(value) if hasattr(value, '__len__') else 0}" for key, value in index.items())
 
 
+def _load_chapter_plan() -> Optional[Dict[int, Dict[str, Any]]]:
+    if not CHAPTER_PLAN_PATH.exists():
+        return None
+    data = read_json(CHAPTER_PLAN_PATH, {})
+    plan = ChapterPlan(**data)
+    return {int(item.chapter_no): model_to_dict(item) for item in plan.chapters}
+
+
+def _chapter_plan_item(chapter_plan: Optional[Dict[int, Dict[str, Any]]], chapter_no: int) -> Optional[Dict[str, Any]]:
+    if chapter_plan is None:
+        return None
+    item = chapter_plan.get(int(chapter_no))
+    if item is None:
+        raise ValueError(f"chapter_plan.json exists but has no plan for chapter {chapter_no}")
+    return item
+
+
 def _complete_write_text(client: LLMClient, messages: List[Dict[str, str]], cache_segments: List[Dict[str, Any]]) -> str:
     try:
         return client.complete_text(messages, temperature=0.6, cache_segments=cache_segments)
@@ -252,6 +273,7 @@ def _write_prompt(
     continuation_anchor: str,
     index: Dict[str, Any],
     outline: str,
+    chapter_plan_item: Optional[Dict[str, Any]] = None,
     rolling_context: str = "",
     previous_chapter_ending: str = "",
     feedback: str = "",
@@ -292,6 +314,30 @@ def _write_prompt(
         if previous_chapter_ending
         else ""
     )
+    chapter_plan_block = ""
+    if chapter_plan_item:
+        key_events = "\n".join(f"- {event}" for event in chapter_plan_item.get("key_events", []))
+        relationships = "\n".join(
+            f"- {item}" for item in chapter_plan_item.get("relationships_in_play", [])
+        )
+        if not relationships:
+            relationships = "- 无特别指定"
+        chapter_plan_block = (
+            "## 本章计划（必须严格遵守）\n\n"
+            "优先级：已写章节回顾/上一章结尾状态 > 本章计划 > 辩论大纲。"
+            "如果本章计划与已发生内容冲突，优先承接已发生内容，并在正文中自然化解冲突。\n\n"
+            f"title: {chapter_plan_item.get('title', '')}\n"
+            f"opening_scene: {chapter_plan_item.get('opening_scene', '')}\n"
+            f"target_chinese_chars: {chapter_plan_item.get('target_chinese_chars', 4000)}\n"
+            f"plot_purpose: {chapter_plan_item.get('plot_purpose', '')}\n"
+            f"ending_hook: {chapter_plan_item.get('ending_hook', '')}\n\n"
+            "key_events（必须全部发生）：\n"
+            f"{key_events}\n\n"
+            "relationships_in_play：\n"
+            f"{relationships}\n\n"
+            "严格按上述本章计划写。开场必须是 opening_scene 指定的场景；"
+            "必须发生所有 key_events；不要引入计划之外的主要剧情节点。\n\n"
+        )
     dynamic_context = (
         f"{anchor_context}"
         "# 本章目标长度\n\n"
@@ -300,6 +346,7 @@ def _write_prompt(
         f"人工全局事实:\n{facts}\n\n"
         f"{rolling_block}"
         f"{ending_block}"
+        f"{chapter_plan_block}"
         f"previous_review_feedback:\n{feedback}"
     )
     messages = [

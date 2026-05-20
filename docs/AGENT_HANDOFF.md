@@ -146,6 +146,16 @@
   - Continuity signal held: chapter 2 opens on the flight descending into Chicago and carries forward chapter 1's airport departure, the coin, and the "continue living" state.
   - DeepSeek approved block after the initial sandbox error was 38/38 ok (`write=6`, `review=32`), with logged prompt 375,949 / response 43,155 / cache_read 273,920 / cache_write 102,029 tokens.
   - Caveats for follow-up: chapter 1 entity proposal output was malformed and fell back to `proposed_advances=[]`, so C2/D3 relationship-advance workflow was not truly exercised; chapter 2 summary used local fallback because `ending_state` came back as an object instead of string.
+- Iteration 014 plot planner + multi-provider LLM support:
+  - Added task-level `api_key_env` / `base_url_env` support in model config and LLM client configuration. Existing write/extract/review tasks still inherit the current `OPENAI_*` route, while the new planner task uses `PLANNER_API_KEY` and `PLANNER_BASE_URL`.
+  - Added `plot_planner` task in `config/models.yaml` with an OpenAI-compatible planner model route, 0.4 temperature, 16k max tokens, and 200k context limit.
+  - Added `src/plot_planner.py` and `python3 main.py plan-chapters --chapters N [--force]`, writing `outputs/debate/chapter_plan.json`.
+  - Added `ChapterPlanItem` / `ChapterPlan` schemas. Each chapter carries `title`, `opening_scene`, `key_events`, `relationships_in_play`, `ending_hook`, `target_chinese_chars`, and `plot_purpose`.
+  - Mock planner mode writes a fixed five-chapter placeholder plan, keeping unit tests and verify fully local.
+  - Writer now loads `outputs/debate/chapter_plan.json` when present and injects `## 本章计划（必须严格遵守）` into dynamic context. Prompt priority is explicit: already written rolling state > chapter plan > debate outline.
+  - Missing plan remains backward compatible for direct `main.py write`; `scripts/write_book.sh` now requires a plan unless called with `--no-plan`.
+  - P1-P6 + P8 engineering validation passed: 126 unit tests OK in 2.051s, `bash scripts/verify.sh` exited 0 with 126 tests OK in 2.071s and mock-only new LLM logs, and `python3 main.py preflight` reported warn with FATAL none.
+  - True planner/write smoke is gated on user confirmation and then user editing of `chapter_plan.json`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -157,8 +167,10 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 014: harden true-model schema repair for chapter summary and entity advance proposal outputs, then add chapter plan generation, fuller `write_book.sh` automation, and chapter failure resume/retry.
-- Iteration 015+ generalization axis: workspace concept, multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
+- Iteration 015: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.
+- Iteration 016: workspace concept for `workspaces/<book>/` and cleaner per-book runtime isolation.
+- Iteration 017: auto-bootstrap entity graph, global facts, and continuation anchor from extracted data.
+- Iteration 018+ generalization axis: multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
 - Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence beyond the relationship checklist.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

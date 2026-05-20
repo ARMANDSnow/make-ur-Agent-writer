@@ -158,6 +158,34 @@ class WriterRejectLintCleanTests(unittest.TestCase):
         self.assertIn("本章开场衔接提示", prompt)
         self.assertIn("上一章停在雨夜门口", prompt)
 
+    def test_writer_prompt_includes_chapter_plan_when_present(self) -> None:
+        messages, _cache_segments = _write_prompt(
+            chapter_no=3,
+            knowledge="knowledge",
+            facts="facts",
+            style_examples="",
+            continuation_anchor="",
+            index={},
+            outline="outline",
+            chapter_plan_item={
+                "chapter_no": 3,
+                "title": "计划中的第三章",
+                "opening_scene": "路明非在芝加哥车站醒来，手里攥着旧硬币。",
+                "key_events": ["发现列车票背面的暗号", "与旧同伴重新建立联系"],
+                "relationships_in_play": ["路明非/旧同伴"],
+                "ending_hook": "站台广播念出一个不该出现的名字。",
+                "target_chinese_chars": 4200,
+                "plot_purpose": "把第二章的线索转入主动调查。",
+            },
+            rolling_context="## 已写章节回顾\n上一章已经抵达芝加哥。",
+            feedback="",
+        )
+        prompt = "\n".join(item["content"] for item in messages)
+        self.assertIn("本章计划（必须严格遵守）", prompt)
+        self.assertIn("路明非在芝加哥车站醒来", prompt)
+        self.assertIn("发现列车票背面的暗号", prompt)
+        self.assertIn("已写章节回顾/上一章结尾状态 > 本章计划 > 辩论大纲", prompt)
+
     def test_writer_prompt_includes_entity_state_when_present(self) -> None:
         graph = {
             "entities": [
@@ -342,6 +370,42 @@ class WriterRejectLintCleanTests(unittest.TestCase):
         propose.assert_called_once()
         self.assertEqual(rolling["chapters"][0]["ending_state"], "结尾状态")
         self.assertEqual(proposals["proposed_advances"][0]["new_state"], "新")
+
+    def test_write_chapters_falls_back_when_chapter_plan_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            drafts, outline, kb, idx = _write_fixture(tmp)
+            missing_plan = tmp / "missing_chapter_plan.json"
+
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return _agent_config(polish_pass=False)
+                raise AssertionError(name)
+
+            with patch("src.writer.DRAFTS_DIR", drafts), patch("src.writer.OUTLINE_PATH", outline), patch(
+                "src.writer.KB_PATH", kb
+            ), patch("src.writer.INDEX_PATH", idx), patch(
+                "src.writer.CHAPTER_PLAN_PATH", missing_plan
+            ), patch(
+                "src.writer.load_config", side_effect=fake_load_config
+            ), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.writer.review_text",
+                return_value={"verdict": "Approve", "lint_issues": [], "agent_reviews": []},
+            ), patch(
+                "src.writer._complete_write_text", return_value="没有计划也可以写的正文"
+            ), patch(
+                "src.writer._summarize_chapter",
+                return_value={"summary": "摘要", "key_events": ["事件"], "ending_state": "结尾"},
+            ), patch(
+                "src.writer._propose_entity_advance", return_value=[]
+            ):
+                linter_cls.return_value.lint.return_value = []
+                reports = write_chapters(chapters=1, force=True, max_attempts=1)
+
+            self.assertEqual(reports[0]["chapter"], 1)
+            self.assertTrue((drafts / "chapter_01.md").exists())
 
     def test_shadow_review_handles_review_text_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

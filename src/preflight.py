@@ -14,7 +14,7 @@ from .llm_client import LLMClient
 from .utils import read_json
 
 
-TASKS = ("extract", "compress", "debate", "write", "review")
+TASKS = ("extract", "compress", "debate", "write", "review", "plot_planner")
 CACHE_PROVIDER_HINTS = ("anthropic", "bedrock", "claude", "deepseek")
 
 
@@ -28,16 +28,16 @@ def run_preflight(root: Path = ROOT) -> Dict[str, Any]:
     env_model = os.getenv("OPENAI_MODEL")
     default_model = str(model_cfg.get("default", {}).get("model", "mock"))
     model = env_model or default_model
-    is_mock = model.lower().startswith("mock")
+    is_global_mock = model.lower().startswith("mock")
 
-    _check_env(fatal, warn, model, is_mock)
+    _check_env(fatal, warn, is_global_mock)
     _check_agents_config(fatal, warn)
-    _check_provider_routing(fatal, warn, model, is_mock)
+    _check_provider_routing(fatal, warn, is_global_mock)
     _check_context_limits(fatal, info, model_cfg)
     _check_logs_writable(fatal, root)
     _check_extraction_failures(fatal, root)
     _check_rolling_state(fatal, warn, root)
-    _check_tiktoken(warn, model, is_mock)
+    _check_tiktoken(warn, is_global_mock)
     _check_longest_chapter(warn, info, root)
     _check_cache_provider(warn)
     _check_global_facts(warn, root)
@@ -68,15 +68,23 @@ def render_preflight(report: Dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _check_env(fatal: List[str], warn: List[str], model: str, is_mock: bool) -> None:
-    if is_mock:
+def _check_env(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
+    if is_global_mock:
         return
-    if not os.getenv("OPENAI_API_KEY"):
-        fatal.append("OPENAI_API_KEY is empty while OPENAI_MODEL is not mock.")
-    base_url = os.getenv("OPENAI_BASE_URL", "")
-    parsed = urlparse(base_url)
-    if not base_url or not parsed.netloc:
-        fatal.append("OPENAI_BASE_URL is empty or invalid while OPENAI_MODEL is not mock.")
+    for task in TASKS:
+        cfg = get_model_config(task)
+        model = str(cfg.get("model", "mock"))
+        if model.lower().startswith("mock"):
+            continue
+        api_key_env = str(cfg.get("api_key_env") or "OPENAI_API_KEY")
+        if not os.getenv(api_key_env):
+            fatal.append(f"{api_key_env} is empty while task '{task}' model is not mock.")
+        base_url_env = str(cfg.get("base_url_env") or "")
+        if base_url_env:
+            base_url = os.getenv(base_url_env, "")
+            parsed = urlparse(base_url)
+            if not base_url or not parsed.netloc:
+                fatal.append(f"{base_url_env} is empty or invalid while task '{task}' model is not mock.")
 
 
 def _check_agents_config(fatal: List[str], warn: List[str]) -> None:
@@ -92,21 +100,25 @@ def _check_agents_config(fatal: List[str], warn: List[str]) -> None:
         warn.append("continuation_anchor is empty; writer will lack temporal anchor.")
 
 
-def _check_provider_routing(fatal: List[str], warn: List[str], model: str, is_mock: bool) -> None:
-    if is_mock:
+def _check_provider_routing(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
+    if is_global_mock:
         return
     try:
         from litellm import get_llm_provider
     except Exception:
         warn.append("litellm not installed; provider routing not verified.")
         return
-    try:
-        get_llm_provider(model)
-    except Exception as exc:
-        fatal.append(
-            f"litellm cannot resolve provider for OPENAI_MODEL='{model}': {exc}. "
-            f"Use explicit prefix like 'deepseek/deepseek-chat' or 'openai/gpt-4'."
-        )
+    for task in TASKS:
+        model = str(get_model_config(task).get("model", "mock"))
+        if model.lower().startswith("mock"):
+            continue
+        try:
+            get_llm_provider(model)
+        except Exception as exc:
+            fatal.append(
+                f"litellm cannot resolve provider for task '{task}' model='{model}': {exc}. "
+                f"Use an explicit provider prefix such as 'deepseek/deepseek-chat' or 'openai/gpt-4'."
+            )
 
 
 def _check_context_limits(fatal: List[str], info: List[str], model_cfg: Dict[str, Any]) -> None:
@@ -155,15 +167,25 @@ def _check_rolling_state(fatal: List[str], warn: List[str], root: Path) -> None:
             )
 
 
-def _check_tiktoken(warn: List[str], model: str, is_mock: bool) -> None:
-    if is_mock:
+def _check_tiktoken(warn: List[str], is_global_mock: bool) -> None:
+    if is_global_mock:
         return
     try:
         import tiktoken  # type: ignore
 
-        tiktoken.encoding_for_model(model)
+        for task in TASKS:
+            model = str(get_model_config(task).get("model", "mock"))
+            if model.lower().startswith("mock"):
+                continue
+            try:
+                tiktoken.encoding_for_model(model)
+            except Exception:
+                warn.append(
+                    f"tiktoken has no direct encoding for task '{task}' model '{model}'; "
+                    "token counts may fall back to cl100k_base or char estimate."
+                )
     except Exception:
-        warn.append(f"tiktoken has no direct encoding for model '{model}'; token counts may fall back to cl100k_base or char estimate.")
+        warn.append("tiktoken is not installed; token counts may fall back to char estimate.")
 
 
 def _check_longest_chapter(warn: List[str], info: List[str], root: Path) -> None:

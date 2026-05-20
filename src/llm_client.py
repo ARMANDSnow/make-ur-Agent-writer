@@ -288,6 +288,26 @@ class LLMClient:
                 "suggestions": [],
             }
             return response_model(**payload)
+        if name == "ChapterPlan":
+            payload = {
+                "target_chapters": 5,
+                "overall_arc": "mock 五章大纲：角色先确认当前处境，再逐步推进线索、关系与最终选择。",
+                "generated_by": "plot_planner_v1_mock",
+                "chapters": [
+                    {
+                        "chapter_no": chapter_no,
+                        "title": f"mock 第 {chapter_no} 章",
+                        "opening_scene": f"第 {chapter_no} 章开场在一个具体地点承接上一章结尾。",
+                        "key_events": [f"mock 第 {chapter_no} 章事件一", f"mock 第 {chapter_no} 章事件二"],
+                        "relationships_in_play": ["mock 关系"],
+                        "ending_hook": f"第 {chapter_no} 章结尾留下下一章钩子。",
+                        "target_chinese_chars": 4000,
+                        "plot_purpose": f"推进第 {chapter_no} 段情节并保持主线可控。",
+                    }
+                    for chapter_no in range(1, 6)
+                ],
+            }
+            return response_model(**payload)
         return response_model(**{})
 
 

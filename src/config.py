@@ -22,6 +22,8 @@ def load_dotenv_if_available() -> None:
         os.environ["OPENAI_MODEL"] = "mock"
         os.environ.pop("OPENAI_API_KEY", None)
         os.environ.pop("OPENAI_BASE_URL", None)
+        os.environ.pop("PLANNER_API_KEY", None)
+        os.environ.pop("PLANNER_BASE_URL", None)
         return
     try:
         from dotenv import load_dotenv
@@ -55,17 +57,35 @@ def load_config(name: str) -> Dict[str, Any]:
 def get_model_config(task: str = "default") -> Dict[str, Any]:
     load_dotenv_if_available()
     cfg = load_config("models.yaml")
-    default = dict(cfg.get("default", {}))
+    default_cfg = dict(cfg.get("default", {}))
+    default = dict(default_cfg)
     task_cfg = dict(cfg.get("tasks", {}).get(task, {}))
     default.update(task_cfg)
-    model = os.getenv("OPENAI_MODEL") or default.get("model") or "mock"
+    env_model = os.getenv("OPENAI_MODEL")
+    default_model = str(default_cfg.get("model") or "mock")
+    model_env = task_cfg.get("model_env")
+    if (env_model and env_model.lower().startswith("mock")) or (
+        not env_model and default_model.lower().startswith("mock")
+    ):
+        model = "mock"
+    elif model_env and os.getenv(str(model_env)):
+        model = os.getenv(str(model_env))
+    elif task_cfg.get("model"):
+        model = task_cfg.get("model")
+    else:
+        model = env_model or default.get("model") or "mock"
+    api_key_env = str(task_cfg.get("api_key_env") or default_cfg.get("api_key_env") or "OPENAI_API_KEY")
+    base_url_env = task_cfg.get("base_url_env", default_cfg.get("base_url_env", "OPENAI_BASE_URL"))
+    base_url_env_name = str(base_url_env) if base_url_env else ""
     context_limit = task_cfg.get("context_limit", default.get("context_limit"))
     if context_limit is None:
         context_limit = _default_context_limit(str(model))
     return {
         "model": model,
-        "api_key": os.getenv("OPENAI_API_KEY") or default.get("api_key"),
-        "base_url": os.getenv("OPENAI_BASE_URL") or default.get("base_url"),
+        "api_key_env": api_key_env,
+        "base_url_env": base_url_env_name,
+        "api_key": os.getenv(api_key_env) or default.get("api_key"),
+        "base_url": (os.getenv(base_url_env_name) if base_url_env_name else None) or default.get("base_url"),
         "temperature": default.get("temperature", 0.2),
         "max_tokens": default.get("max_tokens", 2000),
         "retry_attempts": int(default.get("retry_attempts", 1)),

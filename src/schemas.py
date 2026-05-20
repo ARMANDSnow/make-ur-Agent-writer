@@ -98,6 +98,24 @@ class ChapterSummary(BaseModel):
     ending_state: str = ""
 
 
+class ChapterPlanItem(BaseModel):
+    chapter_no: int
+    title: str
+    opening_scene: str = Field(description="一句话具体开场场景，writer 必须遵守")
+    key_events: List[str] = Field(description="本章必须发生的 2-5 个核心事件", min_items=2, max_items=5)
+    relationships_in_play: List[str] = Field(default_factory=list, description="本章重点演进的关系")
+    ending_hook: str = Field(description="本章结尾留给下章承接的钩子")
+    target_chinese_chars: int = Field(default=4000, ge=2500, le=6000)
+    plot_purpose: str = Field(description="本章在整本书情节弧线中的作用")
+
+
+class ChapterPlan(BaseModel):
+    target_chapters: int
+    overall_arc: str = Field(description="整本书的情节弧线")
+    chapters: List[ChapterPlanItem]
+    generated_by: str = "plot_planner_v1"
+
+
 class EntityAdvanceProposal(BaseModel):
     src_id: str
     dst_id: str

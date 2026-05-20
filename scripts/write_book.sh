@@ -4,7 +4,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-CHAPTERS="${1:-2}"
+CHAPTERS="2"
+REQUIRE_PLAN="1"
+for arg in "$@"; do
+  if [ "$arg" = "--no-plan" ]; then
+    REQUIRE_PLAN="0"
+  else
+    CHAPTERS="$arg"
+  fi
+done
+
+if [ "$REQUIRE_PLAN" = "1" ] && [ ! -f "outputs/debate/chapter_plan.json" ]; then
+  echo "ERROR: chapter_plan.json not found."
+  echo "Run: python3 main.py plan-chapters --chapters $CHAPTERS"
+  echo "Or bypass intentionally with: bash scripts/write_book.sh $CHAPTERS --no-plan"
+  exit 1
+fi
+
 mkdir -p logs outputs/drafts/snapshots
 ts="$(date +%Y%m%d_%H%M%S)"
 log_path="logs/write_book_${ts}.log"

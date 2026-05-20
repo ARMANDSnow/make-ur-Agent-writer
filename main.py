@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("compress")
     sub.add_parser("debate")
 
+    plan_chapters = sub.add_parser("plan-chapters")
+    plan_chapters.add_argument("--chapters", type=int, default=18)
+    plan_chapters.add_argument("--force", action="store_true", help="overwrite existing chapter_plan.json")
+
     write = sub.add_parser("write")
     write.add_argument("--chapters", type=int, default=18)
     write.add_argument("--resume-from", type=int, default=1)
@@ -117,6 +121,12 @@ def main() -> None:
         compress_all()
     elif args.command == "debate":
         run_debate()
+    elif args.command == "plan-chapters":
+        from src.plot_planner import generate_chapter_plan
+
+        data = generate_chapter_plan(target_chapters=args.chapters, force=args.force)
+        print(f"chapter_plan.json written: {len(data['chapters'])} chapters")
+        print(f"overall_arc: {str(data['overall_arc'])[:200]}")
     elif args.command == "write":
         write_chapters(chapters=args.chapters, force=args.force, resume_from=args.resume_from)
     elif args.command == "review":
