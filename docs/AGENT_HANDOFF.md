@@ -155,7 +155,11 @@
   - Writer now loads `outputs/debate/chapter_plan.json` when present and injects `## 本章计划（必须严格遵守）` into dynamic context. Prompt priority is explicit: already written rolling state > chapter plan > debate outline.
   - Missing plan remains backward compatible for direct `main.py write`; `scripts/write_book.sh` now requires a plan unless called with `--no-plan`.
   - P1-P6 + P8 engineering validation passed: 126 unit tests OK in 2.051s, `bash scripts/verify.sh` exited 0 with 126 tests OK in 2.071s and mock-only new LLM logs, and `python3 main.py preflight` reported warn with FATAL none.
-  - True planner/write smoke is gated on user confirmation and then user editing of `chapter_plan.json`.
+  - True planner/write smoke ran after user confirmation. Planner wrote 5 chapters to `outputs/debate/chapter_plan.json`; the real planner log has `model=openai/claude-opus-4-5`, status `ok`, prompt 9,579 / response 2,173 tokens.
+  - Chapter 3 smoke snapshot: `outputs/drafts/snapshots/20260522_232617/`. Chapter 3 has 6,912 Chinese chars; writer meta is `Approve`, `needs_human_review=false`, `rewrite_count=0`, `polish_applied=true`.
+  - Local grep found evidence for all 3 planned chapter 3 key events: Fingerel's decrypted deep-sea coordinate/signal data, Zero bringing "boss" intelligence about an expanding Nibelungen rift, and Zero telling Lu Mingfei the deal is not over.
+  - Standalone `review-chapter 3` rejected before agent review because deterministic lint found 8 `not_x_but_y` errors, so `agent_reviews=[]` in `outputs/reviews/chapter_03.review.json`. User scoring for D1/D3/D4 remains pending.
+  - Caveat: current runtime `rolling_chapter_summary.json` had a mock chapter 1 summary from engineering verification plus the true chapter 2 summary, so the smoke proves plan adherence but not a perfectly clean iter 013 continuation state. The iter 013 snapshot was backed up at `/tmp/iter013_snapshot_backup`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands

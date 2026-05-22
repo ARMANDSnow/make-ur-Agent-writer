@@ -66,11 +66,43 @@ python3 main.py preflight
 
 `logs/llm_calls.jsonl` tail after verification was mock-only (`model="mock"`). LiteLLM local routing sanity returned `('claude-opus-4-5', 'openai', None, None)` for `openai/claude-opus-4-5`.
 
-True-model planner/write smoke is intentionally pending user confirmation:
+True-model planner/write smoke ran after user confirmation and manual `chapter_plan.json` review:
 
-- C1/C2 planner generation: pending `可以跑了`.
-- D1/D3/D4 plan adherence and user scoring: pending user-edited `chapter_plan.json` and chapter 3 smoke.
-- D5 cost: planner expected around `$1.5`; writer cost to be measured from logs after smoke.
+```bash
+python3 main.py plan-chapters --chapters 5
+# chapter_plan.json written: 5 chapters
+
+cp -r outputs/drafts/snapshots/20260519_152801 /tmp/iter013_snapshot_backup
+python3 main.py write --chapters 1 --resume-from 3 --force
+python3 main.py review-chapter 3
+```
+
+Snapshot: `outputs/drafts/snapshots/20260522_232617/`.
+
+| Item | Result |
+|------|--------|
+| C1 chapter plan | Passed: `outputs/debate/chapter_plan.json` contains 5 chapters |
+| C2 planner call | Passed after one sandbox/network failure: real planner log has `model=openai/claude-opus-4-5`, status `ok`, prompt 9,579 / response 2,173 tokens |
+| D1 key events | 待用户评分; local grep found evidence for 3/3 planned chapter 3 key events |
+| D2 chapter 3 length | Passed: 6,912 Chinese chars |
+| D3 opening scene match | 待用户评分; opening is the tactical meeting around the deep-sea coordinate, but user should judge exact scene fidelity |
+| D4 user self-review | 待用户评分 |
+| D5 cost | Planner logged prompt 9,579 / response 2,173 tokens, expected around `$1.5`; writer/reviewer block logged 159,890 prompt / 20,638 response tokens across 12 ok calls plus one sandbox/network error, exact bill left to provider console |
+| D6 failure residue | Passed: `data/extraction_failures/` is empty |
+| D7 snapshot | Passed: snapshot contains chapter 3, meta, proposals, reviews, debate artifacts, and `chapter_plan.json` |
+
+Chapter 3 plan key-event check:
+
+| Planned key event | Local evidence in `chapter_03.md` |
+|---|---|
+| Finch/Fingerel shows decrypted data: Chu Zihang's coordinate points to a deep-sea trench, with frequent non-official signal access and Black Swan Harbor archive overlap | Appears: lines mention Fingerel presenting the coordinate, heat/signal data, Black Swan Harbor archive comparison, three-month access, and six non-official signal sources |
+| Zero joins as Executive Department special delegate with anonymous intelligence from "the boss" about an unclosed Nibelungen rift expanding | Appears: Zero enters the meeting, brings "boss" intelligence, and states the rift is slowly expanding near the coordinate |
+| Lu Mingfei later asks Zero about "the boss" and the text message; Zero says the deal is not over, but this time he is not looking for him | Appears nearly verbatim: Zero tells him "交易还没结束，但这次不是他找你" |
+
+Smoke caveats:
+
+- The current runtime `rolling_chapter_summary.json` had a mock chapter 1 summary from engineering verification plus the true chapter 2 summary. This smoke proves chapter-plan injection and event adherence, but it is not a perfectly clean continuation from the iter 013 two-chapter runtime state. The original iter 013 snapshot was backed up at `/tmp/iter013_snapshot_backup`.
+- Writer-internal meta approved chapter 3 (`verdict=Approve`, `needs_human_review=false`, `rewrite_count=0`, `polish_applied=true`). Standalone `review-chapter 3` rejected before agent review because deterministic lint found 8 `not_x_but_y` errors, so `agent_reviews=[]` in `outputs/reviews/chapter_03.review.json`.
 
 ## 文件变更汇总
 
