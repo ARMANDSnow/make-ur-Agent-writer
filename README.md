@@ -1,131 +1,305 @@
-# Dragon Raja AI Continuer MVP
+<div align="center">
 
-多 Agent 长篇小说续写流水线 MVP。默认使用 `mock` 模型跑通工程流程；配置 `.env` 后可通过 LiteLLM 接真实模型。
+# Continuator
 
-## Quick Start
+**A multi-agent LLM pipeline for long-form novel continuation, built with engineering discipline.**
+
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-126_passing-brightgreen.svg)](#testing)
+[![Iterations](https://img.shields.io/badge/iterations-14_logged-orange.svg)](docs/iterations/)
+[![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
+[![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#testing)
+
+</div>
+
+---
+
+## TL;DR
+
+Read a published novel → build a structured knowledge base → debate the continuation direction with 6 agents → plan N chapters with a strong reasoner → write each chapter with a cheap fast model → 8-reviewer quality gate → measured cost & quality.
+
+**Not** "yet another GPT wrapper." The interesting part is the **engineering scaffold around the LLM**: 14 iterations of mock-first development, real-model validation, preflight guardrails, prompt-cache aware writer, entity graph for relationship consistency, per-call cost telemetry.
+
+Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes, 2.3M source characters. Latest measured chapter: **4507 Chinese characters, user-rated 8/10, $0.42 per chapter.**
+
+> The source novel itself is gitignored. This repo ships the engine, not the corpus.
+
+---
+
+## Why this might catch your eye
+
+| Layer | What it looks like in code |
+|---|---|
+| **Mock-first dev** | 126 unit tests, **runs in 3 seconds** without burning a single token. `tests/__init__.py` force-sets `OPENAI_MODEL=mock` to prevent `.env` leakage. |
+| **Preflight guardrails** | 7 categories of FATAL checks before any real-model call: env / context limit / agents config / rolling state / manifest integrity / **provider routing** / manual facts. |
+| **Cost telemetry** | Every call logs `request_hash`, prompt/response tokens, cache_read/cache_write tokens. `estimate-cost` aggregates with provider-specific pricing. |
+| **Chunked extraction** | Chapters >24k chars split front/middle/end; **all-or-nothing merge** so no half-baked summaries. |
+| **Structured debate** | 6 agents × 6 rounds + structured ballot with `position: agree/abstain/reject`. Majority aggregation with `[平票]` / `[多数反对]` markers. Empty-ballot fallback path. |
+| **Entity graph w/ timeline** | Characters/locations/concepts as entities. Relationships carry `timeline[]` with `active=true` markers. **Writer sees only active state**; a "relationship consistency" reviewer agent verifies. 32 entities, 33 relationships in current test graph. |
+| **Style example injection** | User curates 3-5 prose passages from the source author, dropped into writer's prompt cache for voice matching. |
+| **Two-tier model architecture** | Planner: Claude Opus (high reasoning, runs once per N chapters). Writer: DeepSeek-V4 (cheap, runs per chapter). LiteLLM routes both. |
+| **Iteration log** | [14 entries](docs/iterations/), each with Context / Plan / Acceptance criteria / Measured results / File summary. The repo doubles as an engineering journal. |
+| **Snapshot mechanism** | Real-model outputs auto-snapshotted to `outputs/drafts/snapshots/<ts>/` so a subsequent mock run can never overwrite them. |
+| **Polish pass** | When the lint + 7 reviewers approve but the chapter is still <3000 Chinese chars, a polish call forcibly expands it. |
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph "Source (gitignored)"
+        TXT[小说txt/ raw volumes]
+    end
+
+    subgraph "Data layer"
+        NORM[normalized_texts]
+        MANIFEST[chapter_manifest.json]
+        EXTRACT[extracted_jsons]
+        ROLL[rolling_summaries]
+        KB[knowledge_base]
+        EG[entity_graph.json]
+        FACTS[manual_overrides<br/>global_facts.json]
+        STYLE[style_examples]
+    end
+
+    subgraph "Pipeline (LLM-backed stages in orange)"
+        N[normalize]:::local
+        SP[split]:::local
+        EX[extract]:::llm
+        CP[compress]:::llm
+        DB[debate<br/>6 agents × 6 rounds]:::llm
+        PL[plan-chapters<br/>Claude Opus]:::strong
+        WR[write<br/>+ 8 reviewers + polish]:::llm
+        RV[review<br/>standalone re-check]:::llm
+    end
+
+    subgraph "Outputs"
+        OUT[outputs/drafts<br/>chapter_NN.md + meta.json]
+        SNAP[outputs/drafts/snapshots/&lt;ts&gt;/]
+        REVIEWS[outputs/reviews]
+    end
+
+    TXT --> N --> NORM --> SP --> MANIFEST
+    MANIFEST --> EX
+    EX --> EXTRACT
+    EX --> ROLL
+    EXTRACT --> CP --> KB
+    KB --> DB
+    EG --> DB
+    FACTS --> DB
+    DB --> PL
+    PL --> WR
+    KB --> WR
+    EG --> WR
+    STYLE --> WR
+    FACTS --> WR
+    ROLL --> WR
+    WR --> OUT --> SNAP
+    OUT --> RV --> REVIEWS
+
+    classDef local fill:#e8f5e9,stroke:#388e3c,color:#1b5e20
+    classDef llm fill:#fff3e0,stroke:#f57c00,color:#bf360c
+    classDef strong fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+```
+
+Three execution tiers:
+
+- 🟩 **Local-only**: deterministic file processing, no LLM.
+- 🟧 **Cheap fast model** (`deepseek/deepseek-v4-pro` etc.): per-chapter work.
+- 🟦 **Strong reasoner** (`Claude Opus`): one-shot planning, called per N-chapter batch.
+
+---
+
+## Quick start
+
+### Mock mode — no API key, no network
 
 ```bash
-python3 main.py normalize
-python3 main.py split
-python3 main.py extract --volume all
-python3 main.py compress
-python3 main.py debate
-python3 main.py write --chapters 18
-python3 main.py review --target outputs/drafts
-```
-
-一键小规模验证：
-
-```bash
-python3 main.py run-all --extract-limit 2 --chapters 1 --force
-```
-
-查看流水线状态和报告：
-
-```bash
-python3 main.py status
-python3 main.py check-manifest
-python3 main.py manifest-report
-python3 main.py review-summary
-python3 main.py check-reports
-python3 main.py estimate-cost
-python3 main.py preflight
-```
-
-## Real Model Setup
-
-复制 `.env.example` 为 `.env`，填入模型配置：
-
-```bash
-OPENAI_API_KEY=...
-OPENAI_BASE_URL=...
-OPENAI_MODEL=deepseek/deepseek-chat
-```
-
-默认模型配置在 `config/models.yaml`。如果不设置 `.env`，系统会使用 `mock`，不会发起网络请求。
-真实模型调用会在 `logs/llm_calls.jsonl` 记录 `request_hash`、prompt/response token、context overflow 信息和 provider cache token；不会记录完整 prompt 正文。
-
-## Real Model Hardening
-
-- Rolling summary 会按中文句末边界保留尾部，不再直接字符硬截断。
-- `extract` 超过 `chunk_threshold_chars` 的章节会分 chunk 抽取；任一 chunk 失败时整章进入 `data/extraction_failures/`，不写半成品。
-- `write` 会把上一轮 reviewer reject 的结构化反馈写回下一轮 prompt，并受 `config/agents.yaml` 的 `max_review_attempts` 硬上限控制。
-- `preflight` 会在真实小样本前做只读检查：`.env`、context limit、失败残留、rolling state、chunk 触发、cache provider、人工全局事实和最近 token 日志。
-- `scripts/real_smoke.sh` 串起 `preflight -> extract --limit 2 -> status -> estimate-cost -> preflight`，日志写入 `logs/real_smoke_<timestamp>.log`。
-- `write` 的尝试次数配置名为 `max_review_attempts`（必填键，缺失时 writer 与 preflight 直接报错），含义是初稿加重写的总次数。
-- `write` 会把稳定的 system prompt、全局知识和大纲标为 prompt cache segment；不支持 cache 的 provider 会自动降级普通调用。
-- `estimate-cost` 优先汇总 `logs/llm_calls.jsonl` 中的真实 token 与 cache token，没有真实日志时仍保留 source char 估算。
-
-## Pipeline
-
-- `normalize`：识别 UTF-16 / GB18030，输出 UTF-8 到 `data/normalized_texts/`，行号映射到 `data/source_map/`。
-- `split`：生成 `data/chapter_manifest.json`，后续步骤只信这个 manifest。
-- `extract`：按章节提取 JSON，加入 rolling context，长章节自动前/中/末 chunk 抽取并合并，输出到 `data/extracted_jsons/`。
-- `compress`：生成 `data/knowledge_base/global_knowledge.md` 和 `knowledge_index.json`。
-- `debate`：六 Agent 六轮辩论，输出 `outline.md`、`decisions.json`、`debate_log.jsonl`。
-- `write`：按大纲生成章节，先过 linter，再过七 Agent 审查。
-- `review`：对已有草稿目录或单文件重新审查。
-- `preflight`：真实模型小样本前的只读检查；任一 FATAL 项会以非零退出码停止。
-- `check-manifest`：校验 `chapter_manifest.json` 的必需字段、章节 ID 唯一性、行号范围、文件存在性和同文件章节重叠；短章作为 warning 输出。
-- `check-reports`：只读校验 `chapter_manifest.md` 和 `review_summary.md` 是否与当前 JSON 输入一致；需要刷新时加 `--update`。
-
-## Manual Overrides
-
-把人工裁决 JSON 放入 `data/manual_overrides/`，字段会覆盖对应章节提取结果。示例：
-
-```json
-{
-  "chapter_id": "longzu_3_3_ch024",
-  "character_states": [
-    {
-      "character": "上杉绘梨衣",
-      "before": "生死状态存在模型误判风险",
-      "after": "已死亡",
-      "status": "dead",
-      "evidence_spans": []
-    }
-  ]
-}
-```
-
-人工覆盖优先级高于模型输出，并会写入 `manual_overrides_applied`。
-
-全局人工事实放入 `data/manual_overrides/global_facts.json`，用于“绘梨衣死亡”这类跨章隐性裁决，并会注入 compress、debate、write、review：
-
-```json
-[
-  {
-    "fact_id": "erii_status_dead",
-    "statement": "上杉绘梨衣已死亡；这是跨章隐性线索汇总后的人工裁决，优先于模型逐章抽取。",
-    "confidence": 1.0,
-    "scope": "global",
-    "applies_to": ["compress", "debate", "write", "review"],
-    "evidence_spans": []
-  }
-]
-```
-
-## Tests
-
-```bash
-PYTHONPYCACHEPREFIX="$PWD/.pycache" python3 -m unittest discover -s tests
-```
-
-## Development Acceptance
-
-固定验收：
-
-```bash
+git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
+cd make-ur-Agent-writer
+pip install -r requirements.txt
 bash scripts/verify.sh
 ```
 
-该脚本会执行语法检查、完整单元测试、normalize/split、mock 小闭环、状态报告和成本估算。
-脚本也会运行 `check-manifest` 和 `check-reports`，确保章节清单结构有效、生成报告没有未同步漂移。
+`verify.sh` runs:
+- 126 unit tests
+- normalize → split → extract → compress → debate → write 1 chapter → review
+- manifest integrity check
+- report snapshot drift check
+- cost estimator
 
-## Real Model Checklist
+All in mock mode, ~30 seconds. Exit code 0 means the entire pipeline is wired correctly.
 
-- 确认 `python3 main.py status` 没有意外失败队列。
-- 先跑 `python3 main.py preflight`，处理所有 FATAL。
-- 确认 `python3 main.py manifest-report` 中章节切片符合预期。
-- 配置 `.env` 后先跑小样本脚本：`bash scripts/real_smoke.sh`。
-- 若提取失败，先看 `data/extraction_failures/`，修复后跑 `python3 main.py retry-failures`。
+### Real model mode
+
+```bash
+cp .env.example .env
+# Edit .env:
+#   OPENAI_API_KEY=sk-...
+#   OPENAI_BASE_URL=https://api.deepseek.com
+#   OPENAI_MODEL=deepseek/deepseek-v4-pro
+#
+# Optionally for the planner tier (Claude via OpenAI-compatible router):
+#   PLANNER_API_KEY=...
+#   PLANNER_BASE_URL=...
+#   PLANNER_MODEL=openai/claude-opus-4-5
+
+python3 main.py preflight    # 7-category FATAL check; non-zero exit if anything's off
+bash scripts/write_smoke.sh  # preflight → compress → debate → write 1 chapter → review → snapshot
+```
+
+`scripts/write_smoke.sh` writes one chapter and snapshots all outputs to `outputs/drafts/snapshots/<timestamp>/`. Typical run: 5-15 minutes, $0.30-$0.50 per chapter with DeepSeek-V4.
+
+> **Bring your own source**: put your `.txt` files into `小说txt/` (gitignored). The pipeline auto-detects UTF-16 / GB18030 and normalizes to UTF-8. Then write `data/entity_graph.json` and `data/manual_overrides/global_facts.json` with your novel's facts. Templates are in `data/entity_graph.example.json`.
+
+---
+
+## CLI
+
+```bash
+python3 main.py <command> [options]
+```
+
+| Command | What it does |
+|---|---|
+| `normalize` | Detect encoding (UTF-16 / GB18030), normalize to UTF-8, save line-number map |
+| `split` | Build `chapter_manifest.json` from normalized text. Each entry gets a deterministic `confidence ∈ [0,1]` |
+| `extract` | Per-chapter structured extraction. Long chapters auto-chunk; all-or-nothing merge |
+| `compress` | Build `knowledge_base/global_knowledge.md` + `knowledge_index.json` |
+| `debate` | 6 agents × 6 rounds free-text + structured ballot vote → `outline.md` + `decisions.json` |
+| `plan-chapters` | Use Claude Opus to plan N chapter-level outlines → `chapter_plan.json` |
+| `write` | Generate chapters under outline + chapter plan. 8 reviewers + lint + polish |
+| `review` | Re-run reviewers on existing drafts |
+| `retry-failures` | Retry chapters in `data/extraction_failures/` |
+| `preflight` | Read-only pre-run check; FATAL exits non-zero |
+| `status` | Pipeline state report |
+| `check-manifest` | Validate `chapter_manifest.json` integrity |
+| `check-reports` | Verify generated Markdown reports are in sync with JSON inputs |
+| `manifest-report` | Render manifest as Markdown |
+| `review-summary` | Aggregate reviewer verdicts and lint rules |
+| `estimate-cost` | Cost report (sums actual logged tokens + chunk estimates) |
+| `run-all` | Mock-only end-to-end shortcut |
+
+### Smoke scripts
+
+| Script | Purpose |
+|---|---|
+| `scripts/verify.sh` | Mock-only sanity (no API calls). Forces `OPENAI_MODEL=mock` and unsets keys, so it always exits 0 on a clean repo |
+| `scripts/real_smoke.sh` | preflight → extract 2 chapters → preflight |
+| `scripts/debate_smoke.sh` | preflight → debate → estimate-cost → preflight, snapshot to `outputs/debate/snapshots/<ts>/` |
+| `scripts/write_smoke.sh` | preflight → compress → debate → write 1 chapter → review → snapshot |
+| `scripts/write_book.sh` | Multi-chapter continuation (iter 013+) |
+
+---
+
+## Project layout
+
+```
+.
+├── src/                          # 24 modules, 4170 LOC
+│   ├── llm_client.py             # LiteLLM wrapper with cache_control, context overflow guard, retry, request_hash
+│   ├── preflight.py              # 7 FATAL categories, real-model safety gate
+│   ├── extractor.py              # chunked extraction with all-or-nothing merge
+│   ├── debater.py                # 6-agent debate + structured ballot with majority/tie/veto
+│   ├── plot_planner.py           # Claude Opus chapter-level planner (iter 014)
+│   ├── writer.py                 # writer with style/anchor/plan injection + polish pass
+│   ├── reviewer.py               # 8 reviewer agents (incl. relationship-consistency)
+│   ├── entities.py               # entity graph loader + active-state renderer + tag reverse index
+│   ├── linter.py                 # deterministic style lint (not_x_but_y threshold etc.)
+│   ├── schemas.py                # Pydantic models, single source of truth for shapes
+│   └── ...
+├── tests/                        # 29 files, 2571 LOC, 126 tests
+├── docs/
+│   ├── iterations/               # 14 iteration logs, each a working postmortem
+│   ├── stage_01_summary.md       # mock-first foundation
+│   ├── stage_02_summary.md       # first real-model validation
+│   ├── notes/                    # debugging notes (e.g. deepseek_cache_2026_05.md)
+│   └── AGENT_HANDOFF.md          # session continuity anchor
+├── config/
+│   ├── agents.yaml               # 6 debate + 8 review agents + max_review_attempts + continuation_anchor
+│   ├── models.yaml               # per-task model / temperature / max_tokens / context_limit
+│   └── linter.yaml               # lint rules with thresholds
+├── prompts/                      # writer / reviewer / debate / extractor system prompts
+├── scripts/                      # 5 entry-point shell scripts (see above)
+├── main.py                       # CLI dispatch
+├── data/                         # gitignored: source texts, derived data, knowledge base
+└── outputs/                      # gitignored: drafts, reviews, debate artifacts, snapshots
+```
+
+---
+
+## Engineering journal
+
+The repo is also a **transparent record of how it got built**. Each iteration is one engineering decision documented end-to-end:
+
+### Stage 1 — Mock-first foundation (iter 001-005)
+[stage_01_summary.md](docs/stage_01_summary.md) · CLI surface, observability, real-model hardening, preflight, splitter confidence.
+
+### Stage 2 — First real-model validation (iter 006-008)
+[stage_02_summary.md](docs/stage_02_summary.md) · Provider routing FATAL, debate structured voting, ballot field repair, first true-model `write` smoke.
+
+### Stage 3 — Writing quality axis (iter 009+)
+- [009](docs/iterations/iteration_009_writing_quality_surge.md) — Style injection + time anchor + length floor + +1 rewrite
+- [010](docs/iterations/iteration_010_polish_and_linter_thresholds.md) — Linter thresholds + polish pass + reviewer-bypass safety
+- [011](docs/iterations/iteration_011_entity_graph_and_consistency.md) — **Entity graph + consistency reviewer**. User rated chapter 8/10.
+- [012](docs/iterations/iteration_012_reviewer_robustness_and_consistency_strict.md) — Reviewer JSON robustness + debate fallback
+- [013](docs/iterations/iteration_013_multi_chapter_architecture.md) — Multi-chapter architecture
+- [014](docs/iterations/iteration_014_plot_planner.md) — Claude Opus chapter planner
+
+Each entry follows the same 8-section template: Context · Plan · Acceptance criteria · Implementation Notes · Acceptance Result · File Summary · Out-of-scope · Notes. Acceptance Result lists **measured numbers**, not promises.
+
+---
+
+## Latest measured results
+
+| Metric | Value | Source |
+|---|---|---|
+| Test corpus | 5 volumes, 101 chapters, **2,308,674 chars** | `data/chapter_manifest.json` |
+| Entity graph | **32 entities, 33 relationships** | `data/entity_graph.json` |
+| Generated chapter length | **4,507 Chinese chars** (target 3500-5500) | iter 011 snapshot |
+| User quality rating | **8 / 10** | iter 011 P7 verification |
+| Real-model calls per chapter | 60 (compress 1 + debate 47 + write 1 + review 11) | `logs/llm_calls.jsonl` |
+| DeepSeek-V4 success rate | **60/60 = 100%** | latest smoke |
+| Cost per chapter | **~$0.42** | DeepSeek-V4 pricing |
+| Unit tests | **126 passing in 3.0s** (mock-only) | `python3 -m unittest discover -s tests` |
+
+---
+
+## Stack
+
+- **Python 3.9+**
+- [LiteLLM](https://github.com/BerriAI/litellm) — multi-provider routing (OpenAI, DeepSeek, Anthropic, ...)
+- [Pydantic](https://docs.pydantic.dev/) — schema source of truth
+- [tiktoken](https://github.com/openai/tiktoken) — token counting (with `cl100k_base` fallback)
+- [python-dotenv](https://github.com/theskumar/python-dotenv)
+
+No async, no framework lock-in, no orchestration library. Plain Python + LLM calls + JSON I/O.
+
+---
+
+## Status
+
+✅ **Stage 1** (mock foundation) — done
+✅ **Stage 2** (real-model first smoke) — done
+🔄 **Stage 3** (writing quality) — Phase 1 done (8/10 chapter), multi-chapter & plot planner in progress
+⏳ **Stage 4** (generalization) — workspace, multilingual splitter, agent persona abstraction
+
+See [docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md) for the current session continuity anchor.
+
+---
+
+## Scope notes
+
+- This project is a **research-grade engineering exercise**, not a product.
+- The source novel (《龙族》) is **not redistributed**. `小说txt/`, `data/`, `outputs/`, `logs/` are all gitignored. The repo ships **code, configs, prompts, docs, and the iteration log** — that's it.
+- Generated continuations are derivative works of copyrighted source material and are kept local.
+- To use with a different novel: drop your `.txt` files into `小说txt/`, write your own `entity_graph.json` and `global_facts.json` (templates in `data/entity_graph.example.json` and `data/manual_overrides/`), and the same pipeline runs.
+
+---
+
+<div align="center">
+
+Built with 14 iterations of *measure, then commit*.
+
+</div>
