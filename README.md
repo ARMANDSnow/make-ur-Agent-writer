@@ -4,11 +4,13 @@
 
 **A multi-agent LLM pipeline for long-form novel continuation, built with engineering discipline.**
 
+[English](README.md) · [简体中文](README.zh.md)
+
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-126_passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-126_passing-brightgreen.svg)](#status)
 [![Iterations](https://img.shields.io/badge/iterations-14_logged-orange.svg)](docs/iterations/)
 [![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
-[![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#testing)
+[![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#quick-start)
 
 </div>
 
@@ -18,7 +20,7 @@
 
 Read a published novel → build a structured knowledge base → debate the continuation direction with 6 agents → plan N chapters with a strong reasoner → write each chapter with a cheap fast model → 8-reviewer quality gate → measured cost & quality.
 
-**Not** "yet another GPT wrapper." The interesting part is the **engineering scaffold around the LLM**: 14 iterations of mock-first development, real-model validation, preflight guardrails, prompt-cache aware writer, entity graph for relationship consistency, per-call cost telemetry.
+**Not** "yet another GPT wrapper." The interesting part is the **engineering scaffold around the LLM**: 14 iterations of mock-first development, real-model validation, preflight guardrails, prompt-cache-aware writer, entity graph for relationship consistency, per-call cost telemetry.
 
 Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes, 2.3M source characters. Latest measured chapter: **4507 Chinese characters, user-rated 8/10, $0.42 per chapter.**
 
@@ -34,8 +36,8 @@ Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes,
 | **Preflight guardrails** | 7 categories of FATAL checks before any real-model call: env / context limit / agents config / rolling state / manifest integrity / **provider routing** / manual facts. |
 | **Cost telemetry** | Every call logs `request_hash`, prompt/response tokens, cache_read/cache_write tokens. `estimate-cost` aggregates with provider-specific pricing. |
 | **Chunked extraction** | Chapters >24k chars split front/middle/end; **all-or-nothing merge** so no half-baked summaries. |
-| **Structured debate** | 6 agents × 6 rounds + structured ballot with `position: agree/abstain/reject`. Majority aggregation with `[平票]` / `[多数反对]` markers. Empty-ballot fallback path. |
-| **Entity graph w/ timeline** | Characters/locations/concepts as entities. Relationships carry `timeline[]` with `active=true` markers. **Writer sees only active state**; a "relationship consistency" reviewer agent verifies. 32 entities, 33 relationships in current test graph. |
+| **Structured debate** | 6 agents × 6 rounds + structured ballot with `position: agree/abstain/reject`. Majority aggregation with tie/multi-reject markers. Empty-ballot fallback path. |
+| **Entity graph w/ timeline** | Characters/locations/concepts as entities. Relationships carry `timeline[]` with `active=true` markers. **Writer sees only active state**; a "relationship consistency" reviewer agent verifies. 32 entities / 33 relationships in current test graph. |
 | **Style example injection** | User curates 3-5 prose passages from the source author, dropped into writer's prompt cache for voice matching. |
 | **Two-tier model architecture** | Planner: Claude Opus (high reasoning, runs once per N chapters). Writer: DeepSeek-V4 (cheap, runs per chapter). LiteLLM routes both. |
 | **Iteration log** | [14 entries](docs/iterations/), each with Context / Plan / Acceptance criteria / Measured results / File summary. The repo doubles as an engineering journal. |
@@ -49,7 +51,7 @@ Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes,
 ```mermaid
 flowchart LR
     subgraph "Source (gitignored)"
-        TXT[小说txt/ raw volumes]
+        TXT[raw novel volumes]
     end
 
     subgraph "Data layer"
@@ -59,11 +61,11 @@ flowchart LR
         ROLL[rolling_summaries]
         KB[knowledge_base]
         EG[entity_graph.json]
-        FACTS[manual_overrides<br/>global_facts.json]
+        FACTS[manual_overrides/<br/>global_facts.json]
         STYLE[style_examples]
     end
 
-    subgraph "Pipeline (LLM-backed stages in orange)"
+    subgraph "Pipeline"
         N[normalize]:::local
         SP[split]:::local
         EX[extract]:::llm
@@ -105,9 +107,9 @@ flowchart LR
 
 Three execution tiers:
 
-- 🟩 **Local-only**: deterministic file processing, no LLM.
-- 🟧 **Cheap fast model** (`deepseek/deepseek-v4-pro` etc.): per-chapter work.
-- 🟦 **Strong reasoner** (`Claude Opus`): one-shot planning, called per N-chapter batch.
+- 🟩 **Local-only** — deterministic file processing, no LLM
+- 🟧 **Cheap fast model** (`deepseek/deepseek-v4-pro` etc.) — per-chapter work
+- 🟦 **Strong reasoner** (`Claude Opus`) — one-shot planning, called per N-chapter batch
 
 ---
 
@@ -187,7 +189,7 @@ python3 main.py <command> [options]
 |---|---|
 | `scripts/verify.sh` | Mock-only sanity (no API calls). Forces `OPENAI_MODEL=mock` and unsets keys, so it always exits 0 on a clean repo |
 | `scripts/real_smoke.sh` | preflight → extract 2 chapters → preflight |
-| `scripts/debate_smoke.sh` | preflight → debate → estimate-cost → preflight, snapshot to `outputs/debate/snapshots/<ts>/` |
+| `scripts/debate_smoke.sh` | preflight → debate → estimate-cost → preflight; snapshots to `outputs/debate/snapshots/<ts>/` |
 | `scripts/write_smoke.sh` | preflight → compress → debate → write 1 chapter → review → snapshot |
 | `scripts/write_book.sh` | Multi-chapter continuation (iter 013+) |
 
@@ -206,7 +208,7 @@ python3 main.py <command> [options]
 │   ├── writer.py                 # writer with style/anchor/plan injection + polish pass
 │   ├── reviewer.py               # 8 reviewer agents (incl. relationship-consistency)
 │   ├── entities.py               # entity graph loader + active-state renderer + tag reverse index
-│   ├── linter.py                 # deterministic style lint (not_x_but_y threshold etc.)
+│   ├── linter.py                 # deterministic style lint with thresholds
 │   ├── schemas.py                # Pydantic models, single source of truth for shapes
 │   └── ...
 ├── tests/                        # 29 files, 2571 LOC, 126 tests
@@ -214,10 +216,10 @@ python3 main.py <command> [options]
 │   ├── iterations/               # 14 iteration logs, each a working postmortem
 │   ├── stage_01_summary.md       # mock-first foundation
 │   ├── stage_02_summary.md       # first real-model validation
-│   ├── notes/                    # debugging notes (e.g. deepseek_cache_2026_05.md)
+│   ├── notes/                    # debugging notes
 │   └── AGENT_HANDOFF.md          # session continuity anchor
 ├── config/
-│   ├── agents.yaml               # 6 debate + 8 review agents + max_review_attempts + continuation_anchor
+│   ├── agents.yaml               # 6 debate + 8 review agents + writer config
 │   ├── models.yaml               # per-task model / temperature / max_tokens / context_limit
 │   └── linter.yaml               # lint rules with thresholds
 ├── prompts/                      # writer / reviewer / debate / extractor system prompts
@@ -231,7 +233,7 @@ python3 main.py <command> [options]
 
 ## Engineering journal
 
-The repo is also a **transparent record of how it got built**. Each iteration is one engineering decision documented end-to-end:
+The repo doubles as a **transparent record of how it got built**. Each iteration is one engineering decision, documented end-to-end.
 
 ### Stage 1 — Mock-first foundation (iter 001-005)
 [stage_01_summary.md](docs/stage_01_summary.md) · CLI surface, observability, real-model hardening, preflight, splitter confidence.
@@ -242,7 +244,7 @@ The repo is also a **transparent record of how it got built**. Each iteration is
 ### Stage 3 — Writing quality axis (iter 009+)
 - [009](docs/iterations/iteration_009_writing_quality_surge.md) — Style injection + time anchor + length floor + +1 rewrite
 - [010](docs/iterations/iteration_010_polish_and_linter_thresholds.md) — Linter thresholds + polish pass + reviewer-bypass safety
-- [011](docs/iterations/iteration_011_entity_graph_and_consistency.md) — **Entity graph + consistency reviewer**. User rated chapter 8/10.
+- [011](docs/iterations/iteration_011_entity_graph_and_consistency.md) — **Entity graph + consistency reviewer.** User rated chapter 8/10.
 - [012](docs/iterations/iteration_012_reviewer_robustness_and_consistency_strict.md) — Reviewer JSON robustness + debate fallback
 - [013](docs/iterations/iteration_013_multi_chapter_architecture.md) — Multi-chapter architecture
 - [014](docs/iterations/iteration_014_plot_planner.md) — Claude Opus chapter planner
