@@ -6,6 +6,7 @@
 
 # --- derived data (depends on source material; regenerate via pipeline) ---
 data/*
+data/proposals/
 !data/entity_graph.example.json
 !data/style_examples/
 data/style_examples/*

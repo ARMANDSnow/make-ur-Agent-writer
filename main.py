@@ -3,7 +3,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from src.auto_bootstrap import (
+    bootstrap_all,
+    bootstrap_continuation_anchor,
+    bootstrap_entity_graph,
+    bootstrap_global_facts,
+    bootstrap_style_examples,
+    proposal_summary,
+)
 from src.chapter_splitter import split_all
+from src.cli_apply_bootstrap import apply_bootstrap, render_apply_bootstrap_result
 from src.cli_apply_advance import apply_advance_cli, render_apply_advance_result
 from src.compressor import compress_all
 from src.cost_estimator import estimate_cost, render_cost_estimate
@@ -47,6 +56,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("compress")
     sub.add_parser("debate")
+
+    bootstrap_facts = sub.add_parser("bootstrap-facts")
+    bootstrap_facts.add_argument("--force", action="store_true")
+    bootstrap_graph = sub.add_parser("bootstrap-graph")
+    bootstrap_graph.add_argument("--force", action="store_true")
+    bootstrap_anchor = sub.add_parser("bootstrap-anchor")
+    bootstrap_anchor.add_argument("--force", action="store_true")
+    bootstrap_style = sub.add_parser("bootstrap-style")
+    bootstrap_style.add_argument("--force", action="store_true")
+
+    apply_bootstrap_cmd = sub.add_parser("apply-bootstrap")
+    apply_bootstrap_cmd.add_argument("--name", required=True)
+    apply_bootstrap_cmd.add_argument("--confirm", action="store_true")
+
+    init_book = sub.add_parser("init-book")
+    init_book.add_argument("--skip-extract", action="store_true")
+    init_book.add_argument("--extract-limit", type=int, default=10)
+    init_book.add_argument("--force", action="store_true")
 
     plan_chapters = sub.add_parser("plan-chapters")
     plan_chapters.add_argument("--chapters", type=int, default=18)
@@ -121,6 +148,23 @@ def main() -> None:
         compress_all()
     elif args.command == "debate":
         run_debate()
+    elif args.command == "bootstrap-facts":
+        result = bootstrap_global_facts(force=args.force)
+        print(_render_bootstrap_result(result), end="")
+    elif args.command == "bootstrap-graph":
+        result = bootstrap_entity_graph(force=args.force)
+        print(_render_bootstrap_result(result), end="")
+    elif args.command == "bootstrap-anchor":
+        result = bootstrap_continuation_anchor(force=args.force)
+        print(_render_bootstrap_result(result), end="")
+    elif args.command == "bootstrap-style":
+        result = bootstrap_style_examples(force=args.force)
+        print(_render_bootstrap_result(result), end="")
+    elif args.command == "apply-bootstrap":
+        print(render_apply_bootstrap_result(apply_bootstrap(args.name, confirm=args.confirm)), end="")
+    elif args.command == "init-book":
+        results = init_book_pipeline(skip_extract=args.skip_extract, extract_limit=args.extract_limit, force=args.force)
+        print(_render_init_book_results(results), end="")
     elif args.command == "plan-chapters":
         from src.plot_planner import generate_chapter_plan
 
@@ -143,6 +187,51 @@ def main() -> None:
         compress_all()
         run_debate()
         write_chapters(chapters=args.chapters, force=args.force)
+
+
+def init_book_pipeline(skip_extract: bool = False, extract_limit: int | None = 10, force: bool = False):
+    raw_dir = Path("小说txt")
+    normalized_dir = Path("data/normalized_texts")
+    manifest_path = Path("data/chapter_manifest.json")
+    if not any(raw_dir.glob("*.txt")):
+        raise FileNotFoundError("no txt files found in 小说txt/")
+    if not any(normalized_dir.glob("*.txt")):
+        normalize_all()
+    if not manifest_path.exists():
+        split_all()
+    if not skip_extract:
+        extract_all(volume="all", limit=extract_limit, force=force)
+    compress_all()
+    return bootstrap_all(force=force)
+
+
+def _render_bootstrap_result(result) -> str:
+    lines = [f"{result['name']}: {result['status']}", f"path: {result['path']}"]
+    if result.get("message"):
+        lines.append(result["message"])
+    else:
+        lines.append(proposal_summary(result))
+    return "\n".join(lines) + "\n"
+
+
+def _render_init_book_results(results) -> str:
+    lines = ["init-book proposals:"]
+    for name, result in results.items():
+        line = f"- {name}: {result['status']} ({result['path']})"
+        if result.get("message"):
+            line += f" - {result['message']}"
+        else:
+            line += f" - {proposal_summary(result)}"
+        lines.append(line)
+    lines.extend(
+        [
+            "",
+            "Review and edit data/proposals/*.proposal.json, then apply each proposal explicitly:",
+            "python3 main.py apply-bootstrap --name global_facts",
+            "python3 main.py apply-bootstrap --name global_facts --confirm",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 if __name__ == "__main__":

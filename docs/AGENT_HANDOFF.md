@@ -160,6 +160,16 @@
   - Local grep found evidence for all 3 planned chapter 3 key events: Fingerel's decrypted deep-sea coordinate/signal data, Zero bringing "boss" intelligence about an expanding Nibelungen rift, and Zero telling Lu Mingfei the deal is not over.
   - Standalone `review-chapter 3` rejected before agent review because deterministic lint found 8 `not_x_but_y` errors, so `agent_reviews=[]` in `outputs/reviews/chapter_03.review.json`. User scoring for D1/D3/D4 remains pending.
   - Caveat: current runtime `rolling_chapter_summary.json` had a mock chapter 1 summary from engineering verification plus the true chapter 2 summary, so the smoke proves plan adherence but not a perfectly clean iter 013 continuation state. The iter 013 snapshot was backed up at `/tmp/iter013_snapshot_backup`.
+- Iteration 015 auto-bootstrap pipeline for any novel:
+  - Added `src/auto_bootstrap.py` with four proposal generators: global facts, entity graph, continuation anchor, and style examples. All use the existing `plot_planner` task route and write only ignored `data/proposals/*.proposal.json`.
+  - Added proposal schemas in `src/schemas.py` and mock `LLMClient` responses so all bootstrap tests run locally with `OPENAI_MODEL=mock`.
+  - Added `src/cli_apply_bootstrap.py` and `python3 main.py apply-bootstrap --name ... [--confirm]`. Dry-run shows current vs proposed diff; confirm writes manual files and backs up existing targets to `data/proposals/.backup/<ts>/`.
+  - Style proposal safety: proposal stores source file, line range, target file, and `preview <= 100`; full excerpts are copied only on confirm into gitignored `data/style_examples/*.md` with `<!-- source: data/normalized_texts/<file>.txt lines X-Y -->`.
+  - Added gitignored runtime continuation anchor path `data/manual_overrides/continuation_anchor.txt`; legacy `config/agents.yaml` anchor remains fallback for existing Dragon Raja workflow.
+  - Added `python3 main.py init-book [--skip-extract] [--extract-limit N] [--force]`. It checks normalized state, optionally extracts, compresses, and generates the four proposals. It never auto-applies them.
+  - Existing manual files are skipped by default unless `--force` is provided, preserving the current Dragon Raja workflow.
+  - Engineering validation for Step 1 passed: 135 unit tests OK in 2.277s, `bash scripts/verify.sh` exited 0 with 135 tests OK in 2.164s, and `python3 main.py preflight` reported warn with FATAL none.
+  - Step 1 engineering is ready for the commit `Iteration 015: auto-bootstrap pipeline for any novel`; cross-novel smoke waits for user preparation and explicit `可以跑 init-book`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -171,10 +181,11 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 015: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.
+- Finish Iteration 015 cross-novel smoke after user prepares a new Chinese novel txt and confirms `可以跑 init-book`.
 - Iteration 016: workspace concept for `workspaces/<book>/` and cleaner per-book runtime isolation.
-- Iteration 017: auto-bootstrap entity graph, global facts, and continuation anchor from extracted data.
-- Iteration 018+ generalization axis: multilingual splitter, agent persona abstraction, and `--mode independent` prompt flag.
+- Iteration 017: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.
+- Iteration 018: multilingual splitter and English novel support.
+- Iteration 019: agent persona abstraction and optional `--mode independent` prompt flag.
 - Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence beyond the relationship checklist.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

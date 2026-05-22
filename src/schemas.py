@@ -179,3 +179,40 @@ class GlobalFact(BaseModel):
     scope: str = "global"
     evidence_spans: List[EvidenceSpan] = Field(default_factory=list)
     applies_to: List[str] = Field(default_factory=list)
+
+
+class ProposalMeta(BaseModel):
+    review_instructions: str = ""
+    generated_by: str = "auto_bootstrap_v1"
+    source_summary: str = ""
+
+
+class GlobalFactsProposal(BaseModel):
+    meta: ProposalMeta = Field(default_factory=ProposalMeta, alias="_meta")
+    facts: List[GlobalFact] = Field(default_factory=list)
+
+
+class EntityGraphProposal(BaseModel):
+    meta: ProposalMeta = Field(default_factory=ProposalMeta, alias="_meta")
+    entities: List[Dict[str, Any]] = Field(default_factory=list)
+    relationships: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ContinuationAnchorProposal(BaseModel):
+    meta: ProposalMeta = Field(default_factory=ProposalMeta, alias="_meta")
+    anchor_text: str = ""
+    key_state_points: List[str] = Field(default_factory=list)
+
+
+class StyleExampleRange(BaseModel):
+    category: str
+    source_file: str
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+    preview: str = Field(default="", max_length=100)
+    target_file: str
+
+
+class StyleExamplesProposal(BaseModel):
+    meta: ProposalMeta = Field(default_factory=ProposalMeta, alias="_meta")
+    examples: List[StyleExampleRange] = Field(default_factory=list)

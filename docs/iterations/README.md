@@ -23,3 +23,4 @@
 12. [Iteration 012 - Reviewer JSON Robustness + Debate Fallback + Consistency Strict](./iteration_012_reviewer_robustness_and_consistency_strict.md)
 13. [Iteration 013 - Multi-Chapter Architecture Engineering](./iteration_013_multi_chapter_architecture.md)
 14. [Iteration 014 - Plot Planner + Multi-Provider LLM Support](./iteration_014_plot_planner.md)
+15. [Iteration 015 - Auto Bootstrap Pipeline for Any Novel](./iteration_015_auto_bootstrap.md)

@@ -308,6 +308,76 @@ class LLMClient:
                 ],
             }
             return response_model(**payload)
+        if name == "GlobalFactsProposal":
+            payload = {
+                "_meta": {"review_instructions": "mock review"},
+                "facts": [
+                    {
+                        "fact_id": "mock_fact_1",
+                        "statement": "mock 全局事实：主角已经进入新的选择节点。",
+                        "confidence": 0.8,
+                        "scope": "global",
+                        "evidence_spans": [],
+                        "applies_to": ["mock 主角"],
+                    }
+                ],
+            }
+            return response_model(**payload)
+        if name == "EntityGraphProposal":
+            payload = {
+                "_meta": {"review_instructions": "mock review"},
+                "entities": [
+                    {
+                        "id": "mock_protagonist",
+                        "name": "mock 主角",
+                        "type": "character",
+                        "aliases": [],
+                        "tags": ["#主角", "#同伴"],
+                        "key_facts": ["处在新的选择节点"],
+                        "description": "mock 角色状态。",
+                    },
+                    {
+                        "id": "mock_companion",
+                        "name": "mock 同伴",
+                        "type": "character",
+                        "aliases": [],
+                        "tags": ["#同伴"],
+                        "key_facts": ["与主角共享线索"],
+                        "description": "mock 同伴状态。",
+                    },
+                ],
+                "relationships": [
+                    {
+                        "src_id": "mock_protagonist",
+                        "dst_id": "mock_companion",
+                        "relation_type": "同伴",
+                        "timeline": [{"anchor_chapter": "mock_chapter", "state": "共同面对下一步选择", "active": True}],
+                    }
+                ],
+            }
+            return response_model(**payload)
+        if name == "ContinuationAnchorProposal":
+            payload = {
+                "_meta": {"review_instructions": "mock review"},
+                "anchor_text": "mock 续写起点：上一轮事件结束后，主角需要处理新的线索和关系压力。",
+                "key_state_points": ["mock 主角状态：需要主动选择", "mock 关系状态：同伴仍在场"],
+            }
+            return response_model(**payload)
+        if name == "StyleExamplesProposal":
+            payload = {
+                "_meta": {"review_instructions": "mock review"},
+                "examples": [
+                    {
+                        "category": "opening_rhythm",
+                        "source_file": "data/normalized_texts/mock.txt",
+                        "start_line": 1,
+                        "end_line": 2,
+                        "preview": "mock preview",
+                        "target_file": "data/style_examples/opening_rhythm.md",
+                    }
+                ],
+            }
+            return response_model(**payload)
         return response_model(**{})
 
 

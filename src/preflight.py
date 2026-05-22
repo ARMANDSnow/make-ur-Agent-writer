@@ -31,7 +31,7 @@ def run_preflight(root: Path = ROOT) -> Dict[str, Any]:
     is_global_mock = model.lower().startswith("mock")
 
     _check_env(fatal, warn, is_global_mock)
-    _check_agents_config(fatal, warn)
+    _check_agents_config(fatal, warn, root)
     _check_provider_routing(fatal, warn, is_global_mock)
     _check_context_limits(fatal, info, model_cfg)
     _check_logs_writable(fatal, root)
@@ -87,7 +87,7 @@ def _check_env(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
                 fatal.append(f"{base_url_env} is empty or invalid while task '{task}' model is not mock.")
 
 
-def _check_agents_config(fatal: List[str], warn: List[str]) -> None:
+def _check_agents_config(fatal: List[str], warn: List[str], root: Path = ROOT) -> None:
     try:
         cfg = load_config("agents.yaml")
     except Exception as exc:
@@ -96,7 +96,11 @@ def _check_agents_config(fatal: List[str], warn: List[str]) -> None:
     value = cfg.get("max_review_attempts")
     if not isinstance(value, int) or value <= 0:
         fatal.append("agents.yaml missing required key 'max_review_attempts' or value is not a positive integer.")
-    if not str(cfg.get("continuation_anchor", "") or "").strip():
+    manual_anchor = root / "data" / "manual_overrides" / "continuation_anchor.txt"
+    anchor = manual_anchor.read_text(encoding="utf-8").strip() if manual_anchor.exists() else str(
+        cfg.get("continuation_anchor", "") or ""
+    ).strip()
+    if not anchor:
         warn.append("continuation_anchor is empty; writer will lack temporal anchor.")
 
 

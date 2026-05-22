@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
+from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
 from .entity_advance import active_relationships, save_entity_advance_proposals
 from .linter import NovelLinter, count_chinese_chars
@@ -43,7 +44,7 @@ def write_chapters(
     agent_cfg = load_config("agents.yaml")
     if "max_review_attempts" not in agent_cfg:
         raise KeyError("agents.yaml missing required key 'max_review_attempts'")
-    continuation_anchor = str(agent_cfg.get("continuation_anchor", "") or "").strip()
+    continuation_anchor = load_continuation_anchor()
     configured_attempts = int(agent_cfg["max_review_attempts"])
     rewrite_limit = int(max_attempts) if max_attempts is not None else configured_attempts
     polish_enabled = bool(agent_cfg.get("polish_pass", True))

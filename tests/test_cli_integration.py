@@ -1,6 +1,9 @@
 import io
+import os
+import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 import main
@@ -113,6 +116,69 @@ class CliIntegrationTests(unittest.TestCase):
         compress.assert_called_once()
         debate.assert_called_once()
         write.assert_called_once_with(chapters=1, force=True)
+
+    def test_init_book_runs_extract_compress_and_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                (Path("小说txt")).mkdir()
+                (Path("小说txt") / "book.txt").write_text("text", encoding="utf-8")
+                (Path("data") / "normalized_texts").mkdir(parents=True)
+                (Path("data") / "normalized_texts" / "book.txt").write_text("text", encoding="utf-8")
+                (Path("data") / "chapter_manifest.json").write_text("[]", encoding="utf-8")
+                order = []
+                with patch("main.extract_all", side_effect=lambda **kwargs: order.append("extract")) as extract, patch(
+                    "main.compress_all", side_effect=lambda: order.append("compress")
+                ), patch(
+                    "main.bootstrap_all",
+                    side_effect=lambda force=False: order.append("bootstrap")
+                    or {
+                        "global_facts": {"name": "global_facts", "status": "written", "path": "p", "data": {"facts": []}},
+                        "entity_graph": {"name": "entity_graph", "status": "written", "path": "p", "data": {}},
+                        "continuation_anchor": {
+                            "name": "continuation_anchor",
+                            "status": "written",
+                            "path": "p",
+                            "data": {},
+                        },
+                        "style_examples": {"name": "style_examples", "status": "written", "path": "p", "data": {}},
+                    },
+                ):
+                    main.init_book_pipeline(extract_limit=10)
+                extract.assert_called_once_with(volume="all", limit=10, force=False)
+                self.assertEqual(order, ["extract", "compress", "bootstrap"])
+            finally:
+                os.chdir(cwd)
+
+    def test_init_book_skip_extract_does_not_call_extract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                (Path("小说txt")).mkdir()
+                (Path("小说txt") / "book.txt").write_text("text", encoding="utf-8")
+                (Path("data") / "normalized_texts").mkdir(parents=True)
+                (Path("data") / "normalized_texts" / "book.txt").write_text("text", encoding="utf-8")
+                (Path("data") / "chapter_manifest.json").write_text("[]", encoding="utf-8")
+                with patch("main.extract_all") as extract, patch("main.compress_all"), patch(
+                    "main.bootstrap_all",
+                    return_value={
+                        "global_facts": {"name": "global_facts", "status": "written", "path": "p", "data": {"facts": []}},
+                        "entity_graph": {"name": "entity_graph", "status": "written", "path": "p", "data": {}},
+                        "continuation_anchor": {
+                            "name": "continuation_anchor",
+                            "status": "written",
+                            "path": "p",
+                            "data": {},
+                        },
+                        "style_examples": {"name": "style_examples", "status": "written", "path": "p", "data": {}},
+                    },
+                ):
+                    main.init_book_pipeline(skip_extract=True)
+                extract.assert_not_called()
+            finally:
+                os.chdir(cwd)
 
 
 if __name__ == "__main__":

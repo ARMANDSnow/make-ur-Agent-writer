@@ -7,8 +7,8 @@
 [English](README.md) · [简体中文](README.zh.md)
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-126_passing-brightgreen.svg)](#status)
-[![Iterations](https://img.shields.io/badge/iterations-14_logged-orange.svg)](docs/iterations/)
+[![Tests](https://img.shields.io/badge/tests-135_passing-brightgreen.svg)](#status)
+[![Iterations](https://img.shields.io/badge/iterations-15_logged-orange.svg)](docs/iterations/)
 [![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
 [![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#quick-start)
 
@@ -20,7 +20,7 @@
 
 Read a published novel → build a structured knowledge base → debate the continuation direction with 6 agents → plan N chapters with a strong reasoner → write each chapter with a cheap fast model → 8-reviewer quality gate → measured cost & quality.
 
-**Not** "yet another GPT wrapper." The interesting part is the **engineering scaffold around the LLM**: 14 iterations of mock-first development, real-model validation, preflight guardrails, prompt-cache-aware writer, entity graph for relationship consistency, per-call cost telemetry.
+**Not** "yet another GPT wrapper." The interesting part is the **engineering scaffold around the LLM**: 15 iterations of mock-first development, real-model validation, preflight guardrails, prompt-cache-aware writer, entity graph for relationship consistency, per-call cost telemetry.
 
 Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes, 2.3M source characters. Latest measured chapter: **4507 Chinese characters, user-rated 8/10, $0.42 per chapter.**
 
@@ -32,7 +32,7 @@ Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes,
 
 | Layer | What it looks like in code |
 |---|---|
-| **Mock-first dev** | 126 unit tests, **runs in 3 seconds** without burning a single token. `tests/__init__.py` force-sets `OPENAI_MODEL=mock` to prevent `.env` leakage. |
+| **Mock-first dev** | 135 unit tests, **runs in 3 seconds** without burning a single token. `tests/__init__.py` force-sets `OPENAI_MODEL=mock` to prevent `.env` leakage. |
 | **Preflight guardrails** | 7 categories of FATAL checks before any real-model call: env / context limit / agents config / rolling state / manifest integrity / **provider routing** / manual facts. |
 | **Cost telemetry** | Every call logs `request_hash`, prompt/response tokens, cache_read/cache_write tokens. `estimate-cost` aggregates with provider-specific pricing. |
 | **Chunked extraction** | Chapters >24k chars split front/middle/end; **all-or-nothing merge** so no half-baked summaries. |
@@ -40,7 +40,7 @@ Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes,
 | **Entity graph w/ timeline** | Characters/locations/concepts as entities. Relationships carry `timeline[]` with `active=true` markers. **Writer sees only active state**; a "relationship consistency" reviewer agent verifies. 32 entities / 33 relationships in current test graph. |
 | **Style example injection** | User curates 3-5 prose passages from the source author, dropped into writer's prompt cache for voice matching. |
 | **Two-tier model architecture** | Planner: Claude Opus (high reasoning, runs once per N chapters). Writer: DeepSeek-V4 (cheap, runs per chapter). LiteLLM routes both. |
-| **Iteration log** | [14 entries](docs/iterations/), each with Context / Plan / Acceptance criteria / Measured results / File summary. The repo doubles as an engineering journal. |
+| **Iteration log** | [15 entries](docs/iterations/), each with Context / Plan / Acceptance criteria / Measured results / File summary. The repo doubles as an engineering journal. |
 | **Snapshot mechanism** | Real-model outputs auto-snapshotted to `outputs/drafts/snapshots/<ts>/` so a subsequent mock run can never overwrite them. |
 | **Polish pass** | When the lint + 7 reviewers approve but the chapter is still <3000 Chinese chars, a polish call forcibly expands it. |
 
@@ -125,7 +125,7 @@ bash scripts/verify.sh
 ```
 
 `verify.sh` runs:
-- 126 unit tests
+- 135 unit tests
 - normalize → split → extract → compress → debate → write 1 chapter → review
 - manifest integrity check
 - report snapshot drift check
@@ -153,7 +153,33 @@ bash scripts/write_smoke.sh  # preflight → compress → debate → write 1 cha
 
 `scripts/write_smoke.sh` writes one chapter and snapshots all outputs to `outputs/drafts/snapshots/<timestamp>/`. Typical run: 5-15 minutes, $0.30-$0.50 per chapter with DeepSeek-V4.
 
-> **Bring your own source**: put your `.txt` files into `小说txt/` (gitignored). The pipeline auto-detects UTF-16 / GB18030 and normalizes to UTF-8. Then write `data/entity_graph.json` and `data/manual_overrides/global_facts.json` with your novel's facts. Templates are in `data/entity_graph.example.json`.
+> **Bring your own source**: put your `.txt` files into `小说txt/` (gitignored). The pipeline auto-detects UTF-16 / GB18030 and normalizes to UTF-8. `init-book` can now generate reviewable proposals for facts, entity graph, continuation anchor, and style examples.
+
+### Quick start for any novel
+
+```bash
+python3 main.py normalize
+python3 main.py split
+python3 main.py init-book --extract-limit 10
+
+# Review and edit proposals under data/proposals/ first.
+python3 main.py apply-bootstrap --name global_facts
+python3 main.py apply-bootstrap --name global_facts --confirm
+python3 main.py apply-bootstrap --name entity_graph
+python3 main.py apply-bootstrap --name entity_graph --confirm
+python3 main.py apply-bootstrap --name continuation_anchor
+python3 main.py apply-bootstrap --name continuation_anchor --confirm
+python3 main.py apply-bootstrap --name style_examples
+python3 main.py apply-bootstrap --name style_examples --confirm
+
+python3 main.py debate
+python3 main.py plan-chapters --chapters 3
+# Edit outputs/debate/chapter_plan.json, then:
+python3 main.py write --chapters 1 --resume-from 1 --force
+python3 main.py review-chapter 1
+```
+
+`data/proposals/`, applied style examples, outputs, and logs are gitignored. Style proposals contain only line ranges and short previews; full style excerpts are copied only during explicit `apply-bootstrap --confirm`.
 
 ---
 
@@ -199,21 +225,23 @@ python3 main.py <command> [options]
 
 ```
 .
-├── src/                          # 24 modules, 4170 LOC
+├── src/                          # 26 modules
 │   ├── llm_client.py             # LiteLLM wrapper with cache_control, context overflow guard, retry, request_hash
 │   ├── preflight.py              # 7 FATAL categories, real-model safety gate
 │   ├── extractor.py              # chunked extraction with all-or-nothing merge
 │   ├── debater.py                # 6-agent debate + structured ballot with majority/tie/veto
 │   ├── plot_planner.py           # Claude Opus chapter-level planner (iter 014)
+│   ├── auto_bootstrap.py         # Reviewable bootstrap proposals (iter 015)
+│   ├── cli_apply_bootstrap.py    # Dry-run/confirm apply workflow
 │   ├── writer.py                 # writer with style/anchor/plan injection + polish pass
 │   ├── reviewer.py               # 8 reviewer agents (incl. relationship-consistency)
 │   ├── entities.py               # entity graph loader + active-state renderer + tag reverse index
 │   ├── linter.py                 # deterministic style lint with thresholds
 │   ├── schemas.py                # Pydantic models, single source of truth for shapes
 │   └── ...
-├── tests/                        # 29 files, 2571 LOC, 126 tests
+├── tests/                        # 31 files, 135 tests
 ├── docs/
-│   ├── iterations/               # 14 iteration logs, each a working postmortem
+│   ├── iterations/               # 15 iteration logs, each a working postmortem
 │   ├── stage_01_summary.md       # mock-first foundation
 │   ├── stage_02_summary.md       # first real-model validation
 │   ├── notes/                    # debugging notes
@@ -248,6 +276,7 @@ The repo doubles as a **transparent record of how it got built**. Each iteration
 - [012](docs/iterations/iteration_012_reviewer_robustness_and_consistency_strict.md) — Reviewer JSON robustness + debate fallback
 - [013](docs/iterations/iteration_013_multi_chapter_architecture.md) — Multi-chapter architecture
 - [014](docs/iterations/iteration_014_plot_planner.md) — Claude Opus chapter planner
+- [015](docs/iterations/iteration_015_auto_bootstrap.md) — Auto-bootstrap proposals for new novels
 
 Each entry follows the same 8-section template: Context · Plan · Acceptance criteria · Implementation Notes · Acceptance Result · File Summary · Out-of-scope · Notes. Acceptance Result lists **measured numbers**, not promises.
 
@@ -264,7 +293,7 @@ Each entry follows the same 8-section template: Context · Plan · Acceptance cr
 | Real-model calls per chapter | 60 (compress 1 + debate 47 + write 1 + review 11) | `logs/llm_calls.jsonl` |
 | DeepSeek-V4 success rate | **60/60 = 100%** | latest smoke |
 | Cost per chapter | **~$0.42** | DeepSeek-V4 pricing |
-| Unit tests | **126 passing in 3.0s** (mock-only) | `python3 -m unittest discover -s tests` |
+| Unit tests | **135 passing in 2.2s** (mock-only) | `python3 -m unittest discover -s tests` |
 
 ---
 
@@ -284,8 +313,8 @@ No async, no framework lock-in, no orchestration library. Plain Python + LLM cal
 
 ✅ **Stage 1** (mock foundation) — done
 ✅ **Stage 2** (real-model first smoke) — done
-🔄 **Stage 3** (writing quality) — Phase 1 done (8/10 chapter), multi-chapter & plot planner in progress
-⏳ **Stage 4** (generalization) — workspace, multilingual splitter, agent persona abstraction
+🔄 **Stage 3** (writing quality + generalization) — Phase 1 done (8/10 chapter), multi-chapter, plot planner, and auto-bootstrap engineering in progress
+⏳ **Stage 4** (productization) — workspace, multilingual splitter, agent persona abstraction
 
 See [docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md) for the current session continuity anchor.
 
@@ -296,12 +325,12 @@ See [docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md) for the current session conti
 - This project is a **research-grade engineering exercise**, not a product.
 - The source novel (《龙族》) is **not redistributed**. `小说txt/`, `data/`, `outputs/`, `logs/` are all gitignored. The repo ships **code, configs, prompts, docs, and the iteration log** — that's it.
 - Generated continuations are derivative works of copyrighted source material and are kept local.
-- To use with a different novel: drop your `.txt` files into `小说txt/`, write your own `entity_graph.json` and `global_facts.json` (templates in `data/entity_graph.example.json` and `data/manual_overrides/`), and the same pipeline runs.
+- To use with a different novel: drop your `.txt` files into `小说txt/`, run `init-book`, review the four proposal files under `data/proposals/`, apply them explicitly, then continue with debate → plan → write.
 
 ---
 
 <div align="center">
 
-Built with 14 iterations of *measure, then commit*.
+Built with 15 iterations of *measure, then commit*.
 
 </div>

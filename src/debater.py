@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal
 from pydantic import BaseModel, Field
 
 from .config import ROOT, load_config
+from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
@@ -349,7 +350,7 @@ def _with_result_prefix(result: str, prefix: str) -> str:
 
 
 def _continuation_anchor() -> str:
-    return str(load_config("agents.yaml").get("continuation_anchor", "") or "").strip()
+    return load_continuation_anchor()
 
 
 def _anchor_prompt_block() -> str:
