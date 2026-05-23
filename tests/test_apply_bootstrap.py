@@ -62,6 +62,54 @@ class ApplyBootstrapTests(unittest.TestCase):
         self.assertTrue(text.startswith("<!-- source: data/normalized_texts/book.txt lines 1-2 -->"))
         self.assertIn("line one\nline two", text)
 
+    def test_personas_dry_run_then_confirm_writes_manual_file(self) -> None:
+        """Iter 016: apply-bootstrap --name personas dry-run/confirm cycle.
+
+        Dry run must not write to manual_overrides/personas.json. --confirm
+        must write the seven persona binding fields and (when the target
+        already exists) back up the old one.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            proposal_payload = {
+                "_meta": {"review_instructions": "test"},
+                "protagonist_name": "新主角",
+                "protagonist_role": "新身份",
+                "author_name": "新作者",
+                "style_short_descriptor": "简洁含蓄",
+                "world_setting_brief": "世界观骨架描述。",
+                "core_relationships": ["新主角 与 新同伴 的 同伴 关系"],
+                "core_setting_rules": ["规则一", "规则二"],
+            }
+            write_json(
+                root / "data" / "proposals" / "personas.proposal.json",
+                proposal_payload,
+            )
+
+            applied = root / "data" / "manual_overrides" / "personas.json"
+
+            dry = apply_bootstrap("personas", root=root)
+            self.assertEqual(dry["status"], "dry_run")
+            self.assertFalse(applied.exists())
+
+            # Seed an existing manual file to verify backup creation.
+            write_json(applied, {"protagonist_name": "旧主角"})
+
+            confirmed = apply_bootstrap("personas", confirm=True, root=root)
+            written = json.loads(applied.read_text(encoding="utf-8"))
+            backups = list((root / "data" / "proposals" / ".backup").glob("*"))
+
+        self.assertEqual(confirmed["status"], "applied")
+        # _meta must be stripped on apply; only seven binding fields remain.
+        self.assertNotIn("_meta", written)
+        self.assertEqual(written["protagonist_name"], "新主角")
+        self.assertEqual(written["protagonist_role"], "新身份")
+        self.assertEqual(written["author_name"], "新作者")
+        self.assertEqual(written["core_relationships"], ["新主角 与 新同伴 的 同伴 关系"])
+        self.assertEqual(written["core_setting_rules"], ["规则一", "规则二"])
+        self.assertTrue(backups)
+
 
 if __name__ == "__main__":
     unittest.main()

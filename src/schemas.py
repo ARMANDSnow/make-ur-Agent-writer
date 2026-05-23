@@ -216,3 +216,22 @@ class StyleExampleRange(BaseModel):
 class StyleExamplesProposal(BaseModel):
     meta: ProposalMeta = Field(default_factory=ProposalMeta, alias="_meta")
     examples: List[StyleExampleRange] = Field(default_factory=list)
+
+
+class PersonasProposal(BaseModel):
+    """Iter 016: persona bindings that fill agent prompt templates.
+
+    All fields are LLM-extracted from already-bootstrapped data (entity_graph,
+    global_facts, outline, normalized texts). The fields here are intentionally
+    short — they get injected verbatim into prompt templates, so longer prose
+    bloats every agent call.
+    """
+
+    meta: ProposalMeta = Field(default_factory=ProposalMeta, alias="_meta")
+    protagonist_name: str = Field(default="", max_length=40)
+    protagonist_role: str = Field(default="", max_length=120)
+    author_name: str = Field(default="", max_length=40)
+    style_short_descriptor: str = Field(default="", max_length=80)
+    world_setting_brief: str = Field(default="", max_length=400)
+    core_relationships: List[str] = Field(default_factory=list)
+    core_setting_rules: List[str] = Field(default_factory=list)

@@ -9,6 +9,7 @@ from .entities import load_entity_graph, render_active_state
 from .linter import NovelLinter
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
+from .persona_loader import load_personas, render_agent_fields
 from .schemas import AgentReview, model_to_dict
 from .state import log_event
 from .utils import ensure_dir, extract_json_object, write_json
@@ -98,6 +99,23 @@ def review_text(
         return report
 
     agents = load_review_agents()
+    # Iter 016: render review agents through persona binding.
+    personas = load_personas()
+    rendered_agents: List[Dict[str, Any]] = []
+    legacy_to_rendered_name: Dict[str, str] = {}
+    for agent in agents:
+        legacy_name = str(agent.get("name") or "")
+        name, system_prompt, stance = render_agent_fields(agent, personas, log_context="review")
+        rendered = dict(agent)
+        rendered["name"] = name or legacy_name or "agent"
+        rendered["system_prompt"] = system_prompt
+        rendered["stance"] = stance
+        # Keep legacy_name so downstream logic that special-cases "关系一致性" still
+        # works when persona binding replaces the display name.
+        rendered["_legacy_name"] = legacy_name
+        legacy_to_rendered_name[legacy_name] = rendered["name"]
+        rendered_agents.append(rendered)
+    agents = rendered_agents
     client = LLMClient("review")
     facts = global_facts_summary()
     entity_state = render_active_state(load_entity_graph())
@@ -140,7 +158,13 @@ def review_text(
             )
             write_json(REVIEWS_DIR / f"{Path(target_name).stem}.review.json", report)
             return report
-        result = AgentReview(**_repair_agent_review_dict(raw, agent["name"], enforce_relationship_checklist))
+        # The relationship checklist enforcement keys off the legacy agent name
+        # (a rule-semantic identifier), not the persona-rendered display name.
+        repair_name = str(agent.get("_legacy_name") or agent.get("name") or "")
+        repaired = _repair_agent_review_dict(raw, repair_name, enforce_relationship_checklist)
+        # Display the rendered name in the final review report.
+        repaired["agent_name"] = agent["name"]
+        result = AgentReview(**repaired)
         data = model_to_dict(result)
         data["agent_name"] = agent["name"]
         reviews.append(data)

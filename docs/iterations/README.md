@@ -24,3 +24,4 @@
 13. [Iteration 013 - Multi-Chapter Architecture Engineering](./iteration_013_multi_chapter_architecture.md)
 14. [Iteration 014 - Plot Planner + Multi-Provider LLM Support](./iteration_014_plot_planner.md)
 15. [Iteration 015 - Auto Bootstrap Pipeline for Any Novel](./iteration_015_auto_bootstrap.md)
+16. [Iteration 016 - Agent Persona Abstraction](./iteration_016_persona_abstraction.md)

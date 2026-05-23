@@ -142,5 +142,56 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertIn("人工全局事实", captured["关系一致性"])
 
 
+class ReviewerPersonaRenderingTests(unittest.TestCase):
+    """Iter 016: persona-rendered reviewer agents must (1) appear with the
+    rendered name in the report, (2) inject persona-bound variables into the
+    system prompt, and (3) preserve the legacy-name-keyed relationship
+    checklist enforcement so 关系一致性 still gets its hard guard.
+    """
+
+    def test_review_renders_persona_into_reviewer_prompt_and_name(self) -> None:
+        captured = {}
+
+        def fake_complete_text(self, messages):
+            system_content = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
+            user_content = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+            agent_name = user_content.split("agent_name: ", 1)[1].split("\n", 1)[0]
+            captured.setdefault(agent_name, []).append(system_content)
+            return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[],"comparison_checklist":["mock"]}'
+
+        agents = [
+            {
+                "name": "路明非本位",
+                "system_prompt": "legacy prompt for 路明非",
+                "name_template": "{protagonist_name}本位",
+                "system_prompt_template": "审查章节是否让 {protagonist_name}（{protagonist_role}）保持主动性。",
+            }
+        ]
+        personas = {
+            "protagonist_name": "甲",
+            "protagonist_role": "主角",
+            "author_name": "乙",
+            "style_short_descriptor": "白话",
+            "world_setting_brief": "骨架",
+            "core_relationships": [],
+            "core_setting_rules": [],
+        }
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+            "src.reviewer.load_personas", return_value=personas
+        ), patch("src.llm_client.LLMClient.complete_text", fake_complete_text):
+            report = review_text("干净正文。", "persona_render.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["verdict"], "Approve")
+        # Rendered name appears in the report, legacy name does not.
+        names = [item["agent_name"] for item in report["agent_reviews"]]
+        self.assertIn("甲本位", names)
+        self.assertNotIn("路明非本位", names)
+        # The system prompt the LLM actually received is the rendered template.
+        rendered_system = captured["甲本位"][0]
+        self.assertIn("甲", rendered_system)
+        self.assertIn("主角", rendered_system)
+        self.assertNotIn("路明非", rendered_system)
+
+
 if __name__ == "__main__":
     unittest.main()

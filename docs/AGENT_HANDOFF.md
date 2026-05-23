@@ -176,6 +176,16 @@
   - Downstream pipeline: `plan-chapters --chapters 3` produced a coherent three-chapter plan whose chapter 3 plans a canonical major event from the source novel. `write --chapters 1` produced `outputs/drafts/chapter_01.md` with 5695 Chinese characters (above the iter 015 minimum of 3000), writer meta verdict `Approve`. `review-chapter 1` returned `Approve` with the same `_fallback_reason=(parse_failed)` reviewer fallback observed in iter 014.
   - Snapshot at `outputs/drafts/snapshots/20260523_120329/` includes chapter, meta, plan, debate decisions, both outlines, reviews, rolling summary, and the four bootstrap proposals.
   - Engineering: 135 unit tests still OK after the debater resume patch.
+- Iteration 016 agent persona abstraction:
+  - Closes the iter 015 caveat that left manual outline rewriting as the last cross-novel bottleneck.
+  - Added `PersonasProposal` schema and `bootstrap_personas` in `src/auto_bootstrap.py`. `bootstrap_all` (and therefore `init-book`) now returns five proposal keys.
+  - Added `python3 main.py bootstrap-personas` and extended `apply-bootstrap` with `--name personas`. Applied bindings land at gitignored `data/manual_overrides/personas.json`.
+  - `config/agents.yaml` now carries `name_template` / `system_prompt_template` / `stance_template` on every debate and review agent, plus the legacy fields as fallback. The behavior contract is recorded in `_persona_template_note` inside the yaml itself.
+  - New `src/persona_loader.py` renders templates via `str.format_map` with a default-empty mapping. `load_personas` returns `None` when the applied file is missing or `protagonist_name` is blank, so the original validation-corpus workflow is preserved untouched.
+  - `src/debater.py` and `src/reviewer.py` now render agent prompts through persona binding when available; `build_outline` injects an explicit persona block forbidding drift to other corpora. The relationship-checklist guard still keys off the legacy reviewer name so 关系一致性 enforcement stays intact under any renaming.
+  - Added `python3 main.py debate --topic "..."` so the smoke can override the legacy validation-corpus topic.
+  - Tests +14 → 149 OK in under 5 seconds. `bash scripts/verify.sh` exited 0; `python3 main.py preflight` reported `warn` / `FATAL: none`.
+  - Cross-novel re-smoke is pending user confirmation `可以跑 persona smoke`. The smoke removes the manually-rewritten outline from iter 015 and the personas.json (if any), then runs bootstrap-personas / apply / debate / plan-chapters / write / review and verifies the outline references the new-novel protagonist instead of the original validation corpus.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -187,11 +197,11 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Finish Iteration 015 cross-novel smoke after user prepares a new Chinese novel txt and confirms `可以跑 init-book`.
-- Iteration 016: workspace concept for `workspaces/<book>/` and cleaner per-book runtime isolation.
-- Iteration 017: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.
-- Iteration 018: multilingual splitter and English novel support.
-- Iteration 019: agent persona abstraction and optional `--mode independent` prompt flag.
+- Finish Iteration 016 cross-novel re-smoke once the user clears the iter 015 outline and confirms `可以跑 persona smoke`.
+- Iteration 017: workspace concept for `workspaces/<book>/` and cleaner per-book runtime isolation; allow multiple books on disk without manual backup-and-clear.
+- Iteration 018: multilingual splitter and English novel support (`Chapter N` / Japanese / etc).
+- Iteration 019: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.
+- Iteration 020+: hosted-product layer — web UI / SaaS / per-user workspace isolation.
 - Reviewer prompt follow-up: decide whether to make reviewers explicitly evaluate style-example alignment and continuation-anchor adherence beyond the relationship checklist.
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。

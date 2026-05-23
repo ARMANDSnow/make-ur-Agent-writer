@@ -180,6 +180,45 @@ class CliIntegrationTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
+    def test_debate_cli_topic_overrides_default(self) -> None:
+        """Iter 016: `python3 main.py debate --topic "..."` must forward the
+        topic to run_debate; absent --topic, default kwarg is used so the
+        legacy validation-corpus topic still applies for the original
+        workflow.
+        """
+
+        with patch("main.run_debate") as run_debate:
+            self.run_cli(["debate", "--topic", "雪后山门"])
+            run_debate.assert_called_once_with(topic="雪后山门")
+            run_debate.reset_mock()
+            self.run_cli(["debate"])
+            run_debate.assert_called_once_with()
+
+    def test_init_book_bootstrap_all_returns_five_proposal_keys(self) -> None:
+        """Iter 016: bootstrap_all() must produce all five proposals
+        (global_facts/entity_graph/continuation_anchor/style_examples/personas)
+        so `init-book` covers persona binding too.
+        """
+
+        from src.auto_bootstrap import bootstrap_all
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "data" / "extracted_jsons").mkdir(parents=True)
+            (root / "data" / "normalized_texts").mkdir(parents=True)
+            (root / "data" / "normalized_texts" / "book.txt").write_text("第一行\n第二行\n", encoding="utf-8")
+            results = bootstrap_all(root=root)
+            self.assertEqual(
+                set(results.keys()),
+                {"global_facts", "entity_graph", "continuation_anchor", "style_examples", "personas"},
+            )
+            # The personas proposal must hit "written" status (mock LLM) and
+            # the proposal file must exist on disk (assert inside the tmpdir
+            # context so the path is still valid).
+            personas = results["personas"]
+            self.assertEqual(personas["status"], "written")
+            self.assertTrue(Path(personas["path"]).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

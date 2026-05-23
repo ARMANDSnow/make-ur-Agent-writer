@@ -13,6 +13,7 @@ from .schemas import (
     ContinuationAnchorProposal,
     EntityGraphProposal,
     GlobalFactsProposal,
+    PersonasProposal,
     StyleExamplesProposal,
     model_to_dict,
     model_to_json_schema,
@@ -140,12 +141,63 @@ def bootstrap_style_examples(force: bool = False, root: Path = ROOT) -> Dict[str
     return {"name": "style_examples", "status": "written", "path": str(path), "data": data}
 
 
+def bootstrap_personas(force: bool = False, root: Path = ROOT) -> Dict[str, Any]:
+    """Iter 016: derive persona binding from already-bootstrapped manual data.
+
+    Reads entity_graph (manual or proposal fallback), global_facts (same),
+    continuation_anchor, and a short normalized-text sample. Asks the planner
+    LLM to fill `PersonasProposal`: protagonist name/role, author name, style
+    descriptor, world setting brief, core relationships, core setting rules.
+
+    The proposal binds variables that `data/manual_overrides/personas.json`
+    will hold after `apply-bootstrap --name personas`. Those variables fill
+    `*_template` fields in `config/agents.yaml` so that debate and review
+    agents stop being anchored on the original validation corpus.
+    """
+
+    path = _proposal_path("personas", root)
+    existing = root / "data" / "manual_overrides" / "personas.json"
+    if _has_manual_json(existing) and not force:
+        return _skip_result("personas", path)
+
+    prompt = _build_json_prompt(
+        title="personas",
+        schema=model_to_json_schema(PersonasProposal),
+        instructions=(
+            "请基于已有 manual 数据为本部小说推断 persona 绑定。绑定字段会被注入到 debate/review agent 的 prompt 模板，"
+            "所以每个字段都必须精炼。\n"
+            "硬规则：\n"
+            "1. protagonist_name 必须出现在 entity_graph 中（不要凭空创造主角）。\n"
+            "2. protagonist_role 用一句话写主角的身份/位置（≤120 字符）。\n"
+            "3. author_name 优先从 normalized 文本头部 metadata 或常识推断；推不出就留空字符串。\n"
+            "4. style_short_descriptor 用 ≤80 字符描述作者笔法（如 \"白话+反讽\" / \"长短句交错+含蓄叙事\"）。\n"
+            "5. world_setting_brief ≤400 字符；只写世界观骨架，不写情节。\n"
+            "6. core_relationships 列 3-5 条最关键的关系，每条形如 \"<entity_a> 与 <entity_b> 的 <type> 关系\"，必须出自 entity_graph。\n"
+            "7. core_setting_rules 列 2-5 条世界观硬规则；如果原作的设定不涉及硬规则（如纯写实作品）则留空数组。\n"
+            "8. 所有字符串只能用自己的话总结，禁止复制原文片段。"
+        ),
+        context=_personas_context(root),
+    )
+    proposal = LLMClient("plot_planner").complete_json(_json_messages(prompt), PersonasProposal)
+    data = _with_meta(
+        model_to_dict(proposal),
+        "personas",
+        (
+            "审核 protagonist_name 是否准确（必须出自 entity_graph）；author_name 是否对得上；"
+            "world_setting_brief 不超过 400 字且不写情节；core_relationships/core_setting_rules 条数适中。"
+        ),
+    )
+    write_json(path, data)
+    return {"name": "personas", "status": "written", "path": str(path), "data": data}
+
+
 def bootstrap_all(force: bool = False, root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
     return {
         "global_facts": bootstrap_global_facts(force=force, root=root),
         "entity_graph": bootstrap_entity_graph(force=force, root=root),
         "continuation_anchor": bootstrap_continuation_anchor(force=force, root=root),
         "style_examples": bootstrap_style_examples(force=force, root=root),
+        "personas": bootstrap_personas(force=force, root=root),
     }
 
 
@@ -161,6 +213,13 @@ def proposal_summary(data: Dict[str, Any]) -> str:
         return f"anchor_preview={anchor}"
     if name == "style_examples":
         return f"ranges={len(payload.get('examples', []) or [])}"
+    if name == "personas":
+        return (
+            f"protagonist={payload.get('protagonist_name') or '?'}, "
+            f"author={payload.get('author_name') or '?'}, "
+            f"relationships={len(payload.get('core_relationships', []) or [])}, "
+            f"rules={len(payload.get('core_setting_rules', []) or [])}"
+        )
     return str(data.get("status", "unknown"))
 
 
@@ -309,6 +368,87 @@ def _sample_numbered_lines(lines: List[str]) -> List[Tuple[int, str]]:
             selected.extend(range(start, end))
         indexes = sorted(set(selected))
     return [(idx + 1, lines[idx]) for idx in indexes if lines[idx].strip()]
+
+
+def _personas_context(root: Path) -> str:
+    """Compact context for persona bootstrap: existing entity_graph + facts +
+    anchor + outline + a small normalized-text head sample. Stays well under
+    the planner context limit and never quotes long source excerpts.
+    """
+
+    parts: List[str] = []
+
+    # Entity graph — prefer applied manual, fall back to proposal.
+    graph_path = root / "data" / "entity_graph.json"
+    if not graph_path.exists():
+        graph_path = root / "data" / "proposals" / "entity_graph.proposal.json"
+    graph = read_json(graph_path, {}) if graph_path.exists() else {}
+    if graph:
+        compact_graph = {
+            "entities": [
+                {
+                    "id": e.get("id"),
+                    "canonical_name": e.get("canonical_name") or e.get("name"),
+                    "type": e.get("type"),
+                    "tags": e.get("tags") or [],
+                    "key_facts": (e.get("key_facts") or [])[:3],
+                    "description": (e.get("description") or "")[:200],
+                }
+                for e in (graph.get("entities") or [])
+            ],
+            "relationships": [
+                {
+                    "source": r.get("source") or r.get("from"),
+                    "target": r.get("target") or r.get("to"),
+                    "relation_type": r.get("relation_type") or r.get("type"),
+                    "active": r.get("active", True),
+                }
+                for r in (graph.get("relationships") or [])
+            ],
+        }
+        parts.append("## entity_graph (compact)\n" + json.dumps(compact_graph, ensure_ascii=False, indent=2))
+
+    # Global facts — prefer applied manual, fall back to proposal.
+    facts_path = root / "data" / "manual_overrides" / "global_facts.json"
+    if not facts_path.exists():
+        facts_path = root / "data" / "proposals" / "global_facts.proposal.json"
+    facts = read_json(facts_path, {}) if facts_path.exists() else {}
+    if facts:
+        compact_facts = [
+            {"fact_id": f.get("fact_id"), "statement": (f.get("statement") or "")[:300]}
+            for f in (facts.get("facts") or [])
+        ]
+        parts.append("## global_facts (compact)\n" + json.dumps(compact_facts, ensure_ascii=False, indent=2))
+
+    # Continuation anchor (already-applied or proposal).
+    anchor_path = root / "data" / "manual_overrides" / "continuation_anchor.txt"
+    if anchor_path.exists():
+        parts.append("## continuation_anchor\n" + anchor_path.read_text(encoding="utf-8")[:2000])
+    else:
+        anchor_proposal = read_json(root / "data" / "proposals" / "continuation_anchor.proposal.json", {})
+        if anchor_proposal:
+            anchor_text = anchor_proposal.get("anchor_text") or ""
+            if anchor_text:
+                parts.append("## continuation_anchor (proposal)\n" + anchor_text[:2000])
+
+    # Outline if present (helps author voice inference).
+    outline_path = root / "outputs" / "debate" / "outline.md"
+    if outline_path.exists():
+        parts.append("## outline (excerpt)\n" + outline_path.read_text(encoding="utf-8")[:2000])
+
+    # Normalized text head sample for author voice / setting clues.
+    norm_dir = root / "data" / "normalized_texts"
+    if norm_dir.exists():
+        head_parts: List[str] = []
+        for path in sorted(norm_dir.glob("*.txt"))[:2]:
+            rel = path.relative_to(root)
+            head_lines = path.read_text(encoding="utf-8").splitlines()[:80]
+            head_parts.append(f"### {rel}\n" + "\n".join(line[:160] for line in head_lines if line.strip()))
+        if head_parts:
+            parts.append("## normalized_text head sample (≤80 lines per file)\n" + "\n\n".join(head_parts))
+
+    text = "\n\n".join(parts) if parts else "No source data found."
+    return text[:60000]
 
 
 def _safe_style_target(category: str, target_file: str) -> str:

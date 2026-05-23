@@ -153,7 +153,7 @@ bash scripts/write_smoke.sh  # preflight → compress → debate → write 1 cha
 
 `scripts/write_smoke.sh` writes one chapter and snapshots all outputs to `outputs/drafts/snapshots/<timestamp>/`. Typical run: 5-15 minutes, $0.30-$0.50 per chapter with DeepSeek-V4.
 
-> **Bring your own source**: put your `.txt` files into `小说txt/` (gitignored). The pipeline auto-detects UTF-16 / GB18030 and normalizes to UTF-8. `init-book` can now generate reviewable proposals for facts, entity graph, continuation anchor, and style examples.
+> **Bring your own source**: put your `.txt` files into `小说txt/` (gitignored). The pipeline auto-detects UTF-16 / GB18030 and normalizes to UTF-8. `init-book` generates reviewable proposals for facts, entity graph, continuation anchor, style examples, and (since iter 016) persona bindings so debate / review agents stop anchoring on the original validation corpus.
 
 ### Quick start for any novel
 
@@ -171,15 +171,18 @@ python3 main.py apply-bootstrap --name continuation_anchor
 python3 main.py apply-bootstrap --name continuation_anchor --confirm
 python3 main.py apply-bootstrap --name style_examples
 python3 main.py apply-bootstrap --name style_examples --confirm
+# iter 016: personas binds debate / review agent prompts to this novel.
+python3 main.py apply-bootstrap --name personas
+python3 main.py apply-bootstrap --name personas --confirm
 
-python3 main.py debate
+python3 main.py debate            # add --topic "..." to override the default
 python3 main.py plan-chapters --chapters 3
 # Edit outputs/debate/chapter_plan.json, then:
 python3 main.py write --chapters 1 --resume-from 1 --force
 python3 main.py review-chapter 1
 ```
 
-`data/proposals/`, applied style examples, outputs, and logs are gitignored. Style proposals contain only line ranges and short previews; full style excerpts are copied only during explicit `apply-bootstrap --confirm`.
+`data/proposals/`, `data/manual_overrides/personas.json`, applied style examples, outputs, and logs are all gitignored. Style proposals contain only line ranges and short previews; full style excerpts are copied only during explicit `apply-bootstrap --confirm`. Persona proposals contain only short binding strings (protagonist name, author name, world brief, key relationships, hard rules) — never source excerpts.
 
 ---
 

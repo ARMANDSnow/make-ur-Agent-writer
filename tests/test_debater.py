@@ -288,5 +288,72 @@ class DebaterHardcodedFallbackTests(unittest.TestCase):
             self.assertEqual(len(ballot_items), 6)
 
 
+class DebaterPersonaRenderingTests(unittest.TestCase):
+    """Iter 016: with personas.json present, debate log agent names must
+    contain the rendered protagonist/author binding rather than the legacy
+    validation-corpus names.
+    """
+
+    def test_run_debate_with_personas_renders_agent_names(self) -> None:
+        from src.debater import run_debate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            kb = tmp_path / "global_knowledge.md"
+            kb.write_text("# kb", encoding="utf-8")
+            idx = tmp_path / "knowledge_index.json"
+            idx.write_text("{}", encoding="utf-8")
+
+            personas_path = tmp_path / "personas.json"
+            personas_path.write_text(
+                json.dumps(
+                    {
+                        "protagonist_name": "甲",
+                        "protagonist_role": "主角",
+                        "author_name": "乙",
+                        "style_short_descriptor": "白话",
+                        "world_setting_brief": "骨架",
+                        "core_relationships": ["甲 与 丙 的 同伴 关系"],
+                        "core_setting_rules": ["规则一"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("src.debater.KB_PATH", kb), patch("src.debater.INDEX_PATH", idx), patch(
+                "src.debater.DEBATE_DIR", tmp_path
+            ), patch("src.persona_loader.PERSONAS_PATH", personas_path):
+                # Force the loader to read from our temp path even though
+                # run_debate calls load_personas() with the default argument.
+                from src import persona_loader
+
+                original_loader = persona_loader.load_personas
+                try:
+                    persona_loader.load_personas = lambda path=personas_path: original_loader(path)  # type: ignore[assignment]
+                    # debater imported load_personas at top — re-point it.
+                    import src.debater as debater_mod
+
+                    debater_mod.load_personas = persona_loader.load_personas  # type: ignore[assignment]
+                    run_debate()
+                finally:
+                    persona_loader.load_personas = original_loader  # type: ignore[assignment]
+                    import src.debater as debater_mod
+
+                    debater_mod.load_personas = original_loader  # type: ignore[assignment]
+
+            log_items = [
+                json.loads(line)
+                for line in (tmp_path / "debate_log.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            agent_names = {item.get("agent") for item in log_items if item.get("round_name") != "裁决投票"}
+
+        # Persona-rendered agent names must contain the protagonist binding;
+        # legacy validation-corpus names must not leak in.
+        self.assertIn("甲本位", agent_names)
+        self.assertIn("乙人格模拟", agent_names)
+        self.assertNotIn("路明非本位", agent_names)
+        self.assertNotIn("江南人格模拟", agent_names)
+
+
 if __name__ == "__main__":
     unittest.main()

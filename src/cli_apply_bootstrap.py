@@ -10,7 +10,17 @@ from .config import ROOT
 from .utils import ensure_dir, read_json, write_json
 
 
-BOOTSTRAP_NAMES = {"global_facts", "entity_graph", "continuation_anchor", "style_examples"}
+BOOTSTRAP_NAMES = {"global_facts", "entity_graph", "continuation_anchor", "style_examples", "personas"}
+
+PERSONAS_FIELDS = (
+    "protagonist_name",
+    "protagonist_role",
+    "author_name",
+    "style_short_descriptor",
+    "world_setting_brief",
+    "core_relationships",
+    "core_setting_rules",
+)
 
 
 def apply_bootstrap(name: str, confirm: bool = False, root: Path = ROOT) -> Dict[str, Any]:
@@ -51,6 +61,8 @@ def apply_bootstrap(name: str, confirm: bool = False, root: Path = ROOT) -> Dict
         _write_anchor(root, proposal)
     elif name == "style_examples":
         _write_style_examples(root, proposal)
+    elif name == "personas":
+        _write_personas(root, proposal)
     result["status"] = "applied"
     result["backup_dir"] = str(backup_dir) if backup_dir else ""
     return result
@@ -84,6 +96,8 @@ def _target_paths(name: str, root: Path, proposal: Dict[str, Any]) -> List[Path]
         return [root / "data" / "entity_graph.json"]
     if name == "continuation_anchor":
         return [root / "data" / "manual_overrides" / "continuation_anchor.txt"]
+    if name == "personas":
+        return [root / "data" / "manual_overrides" / "personas.json"]
     targets = []
     for item in proposal.get("examples", []) or []:
         targets.append(_safe_target_path(root, str(item.get("target_file") or "")))
@@ -102,6 +116,13 @@ def _render_diff(name: str, proposal: Dict[str, Any], root: Path) -> str:
         )
     elif name == "continuation_anchor":
         header = f"anchor chars: current={len(current.get('anchor_text', ''))}, proposed={len(proposed.get('anchor_text', ''))}"
+    elif name == "personas":
+        header = (
+            f"personas: protagonist current={current.get('protagonist_name') or '-'} -> proposed={proposed.get('protagonist_name') or '-'}; "
+            f"author current={current.get('author_name') or '-'} -> proposed={proposed.get('author_name') or '-'}; "
+            f"relationships proposed={len(proposed.get('core_relationships', []) or [])}; "
+            f"setting_rules proposed={len(proposed.get('core_setting_rules', []) or [])}"
+        )
     else:
         header = f"style ranges: proposed={len(proposal.get('examples', []) or [])}"
     current_text = _stable_text(current)
@@ -127,6 +148,9 @@ def _current_payload(name: str, root: Path) -> Dict[str, Any]:
     if name == "continuation_anchor":
         path = root / "data" / "manual_overrides" / "continuation_anchor.txt"
         return {"anchor_text": path.read_text(encoding="utf-8").strip() if path.exists() else ""}
+    if name == "personas":
+        data = read_json(root / "data" / "manual_overrides" / "personas.json", {})
+        return data if isinstance(data, dict) else {}
     return {"examples": []}
 
 
@@ -137,6 +161,8 @@ def _proposed_payload(name: str, proposal: Dict[str, Any]) -> Dict[str, Any]:
         return {"entities": proposal.get("entities", []), "relationships": proposal.get("relationships", [])}
     if name == "continuation_anchor":
         return {"anchor_text": proposal.get("anchor_text", ""), "key_state_points": proposal.get("key_state_points", [])}
+    if name == "personas":
+        return {field: proposal.get(field, "" if field not in ("core_relationships", "core_setting_rules") else []) for field in PERSONAS_FIELDS}
     return {"examples": proposal.get("examples", [])}
 
 
@@ -190,6 +216,28 @@ def _write_style_examples(root: Path, proposal: Dict[str, Any]) -> None:
             f"<!-- source: {rel_source} lines {start_line}-{end_line} -->\n\n{snippet}\n",
             encoding="utf-8",
         )
+
+
+def _write_personas(root: Path, proposal: Dict[str, Any]) -> None:
+    """Iter 016: write applied persona bindings.
+
+    Strips _meta and source-summary fields (they live in the proposal only) and
+    keeps the seven persona binding fields. Coerces missing values to empty
+    string / empty list so prompt template rendering always succeeds.
+    """
+
+    path = root / "data" / "manual_overrides" / "personas.json"
+    ensure_dir(path.parent)
+    payload: Dict[str, Any] = {}
+    for field in PERSONAS_FIELDS:
+        default: Any = [] if field in ("core_relationships", "core_setting_rules") else ""
+        value = proposal.get(field, default)
+        if field in ("core_relationships", "core_setting_rules"):
+            value = [str(item).strip() for item in (value or []) if str(item).strip()]
+        else:
+            value = str(value or "").strip()
+        payload[field] = value
+    write_json(path, payload)
 
 
 def _safe_source_path(root: Path, source_file: str) -> Path:

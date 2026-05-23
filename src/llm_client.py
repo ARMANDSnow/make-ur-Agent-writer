@@ -378,6 +378,18 @@ class LLMClient:
                 ],
             }
             return response_model(**payload)
+        if name == "PersonasProposal":
+            payload = {
+                "_meta": {"review_instructions": "mock review"},
+                "protagonist_name": "mock 主角",
+                "protagonist_role": "mock 主角的身份与处境",
+                "author_name": "mock 作者",
+                "style_short_descriptor": "mock 风格描述",
+                "world_setting_brief": "mock 世界观骨架：用于让 agent 模板知道大概背景。",
+                "core_relationships": ["mock 主角 与 mock 同伴 的 同伴 关系"],
+                "core_setting_rules": ["mock 设定规则一"],
+            }
+            return response_model(**payload)
         return response_model(**{})
 
 

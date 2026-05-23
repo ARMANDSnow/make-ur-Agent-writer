@@ -8,6 +8,7 @@ from src.auto_bootstrap import (
     bootstrap_continuation_anchor,
     bootstrap_entity_graph,
     bootstrap_global_facts,
+    bootstrap_personas,
     bootstrap_style_examples,
     proposal_summary,
 )
@@ -55,7 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--force", action="store_true")
 
     sub.add_parser("compress")
-    sub.add_parser("debate")
+    debate_cmd = sub.add_parser("debate")
+    debate_cmd.add_argument(
+        "--topic",
+        default=None,
+        help="Override the debate topic; defaults to the legacy validation-corpus topic.",
+    )
 
     bootstrap_facts = sub.add_parser("bootstrap-facts")
     bootstrap_facts.add_argument("--force", action="store_true")
@@ -65,6 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap_anchor.add_argument("--force", action="store_true")
     bootstrap_style = sub.add_parser("bootstrap-style")
     bootstrap_style.add_argument("--force", action="store_true")
+    bootstrap_personas_cmd = sub.add_parser("bootstrap-personas")
+    bootstrap_personas_cmd.add_argument("--force", action="store_true")
 
     apply_bootstrap_cmd = sub.add_parser("apply-bootstrap")
     apply_bootstrap_cmd.add_argument("--name", required=True)
@@ -147,7 +155,11 @@ def main() -> None:
     elif args.command == "compress":
         compress_all()
     elif args.command == "debate":
-        run_debate()
+        topic = getattr(args, "topic", None)
+        if topic:
+            run_debate(topic=topic)
+        else:
+            run_debate()
     elif args.command == "bootstrap-facts":
         result = bootstrap_global_facts(force=args.force)
         print(_render_bootstrap_result(result), end="")
@@ -159,6 +171,9 @@ def main() -> None:
         print(_render_bootstrap_result(result), end="")
     elif args.command == "bootstrap-style":
         result = bootstrap_style_examples(force=args.force)
+        print(_render_bootstrap_result(result), end="")
+    elif args.command == "bootstrap-personas":
+        result = bootstrap_personas(force=args.force)
         print(_render_bootstrap_result(result), end="")
     elif args.command == "apply-bootstrap":
         print(render_apply_bootstrap_result(apply_bootstrap(args.name, confirm=args.confirm)), end="")
@@ -229,6 +244,7 @@ def _render_init_book_results(results) -> str:
             "Review and edit data/proposals/*.proposal.json, then apply each proposal explicitly:",
             "python3 main.py apply-bootstrap --name global_facts",
             "python3 main.py apply-bootstrap --name global_facts --confirm",
+            "(repeat for entity_graph, continuation_anchor, style_examples, personas)",
         ]
     )
     return "\n".join(lines) + "\n"

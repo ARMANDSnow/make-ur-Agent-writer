@@ -11,6 +11,7 @@ from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
+from .persona_loader import load_personas, render_agent_fields
 from .schemas import DebateDecisions, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
@@ -58,6 +59,22 @@ def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") 
     facts = global_facts_summary()
     client = LLMClient("debate")
     log_path = DEBATE_DIR / "debate_log.jsonl"
+
+    # Iter 016: render agents through persona binding when available. When
+    # personas.json is missing/empty, render_agent_fields returns legacy
+    # fields, preserving the original validation-corpus workflow.
+    personas = load_personas()
+    rendered_agents: List[Dict[str, Any]] = []
+    for agent in agents:
+        name, system_prompt, stance = render_agent_fields(agent, personas, log_context="debate")
+        rendered = dict(agent)
+        rendered["name"] = name or rendered.get("name") or "agent"
+        rendered["system_prompt"] = system_prompt
+        rendered["stance"] = stance
+        rendered_agents.append(rendered)
+    agents = rendered_agents
+    if personas:
+        log_event("debate", "persona_applied", protagonist=personas.get("protagonist_name"), author=personas.get("author_name"))
 
     # Resume support (iter 015 cross-novel smoke): rather than always unlinking
     # the log, read previously-completed (round, agent) entries with non-empty
@@ -648,6 +665,24 @@ def build_outline(
         if entity_state
         else ""
     )
+    # Iter 016: inject persona binding so the outline LLM call anchors on the
+    # current novel rather than the original validation corpus.
+    personas = load_personas()
+    persona_block = ""
+    if personas:
+        bullets = []
+        if personas.get("protagonist_name"):
+            bullets.append(f"- 主角：{personas.get('protagonist_name')}（{personas.get('protagonist_role') or '？'}）")
+        if personas.get("author_name"):
+            bullets.append(f"- 作者风格参考：{personas.get('author_name')}（{personas.get('style_short_descriptor') or '？'}）")
+        if personas.get("world_setting_brief"):
+            bullets.append(f"- 世界观骨架：{personas.get('world_setting_brief')}")
+        if personas.get("core_relationships"):
+            bullets.append("- 核心关系：" + "；".join(personas["core_relationships"]))
+        if personas.get("core_setting_rules"):
+            bullets.append("- 世界观硬规则：" + "；".join(personas["core_setting_rules"]))
+        if bullets:
+            persona_block = "# 本书 persona 绑定（大纲严格遵守，禁止引用其他小说角色或世界观）\n" + "\n".join(bullets) + "\n\n"
     try:
         text = client.complete_text(
             [
@@ -656,6 +691,7 @@ def build_outline(
                     "role": "user",
                     "content": (
                         f"主题: {topic}\n\n"
+                        f"{persona_block}"
                         f"{_anchor_prompt_block()}"
                         f"{_style_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
