@@ -3,6 +3,11 @@
 
 # --- source material (copyright, do not commit) ---
 小说txt/
+*.epub
+*.mobi
+*.pdf
+*.fb2
+*.azw3
 
 # --- derived data (depends on source material; regenerate via pipeline) ---
 data/*

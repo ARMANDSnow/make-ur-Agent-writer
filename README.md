@@ -189,6 +189,29 @@ python3 main.py --book myBook review-chapter 1
 
 Switching between books is a single flag change (`--book myBook` / `--book otherBook`). You can also export `WORKSPACE_NAME=myBook` once per shell instead of repeating `--book`. `python3 main.py workspace-list` shows existing workspaces; `python3 main.py workspace-show --name myBook` summarizes one. To migrate an in-place legacy setup (repo-root `data/`, `outputs/`, `小说txt/`) into a workspace, run `python3 main.py workspace-import-current --to <name>` (use `--dry-run` first).
 
+### Quick start for English novels (iter 018)
+
+The splitter and normalizer auto-detect language. EPUB input is supported via a stdlib-only extractor — no third-party dependencies.
+
+```bash
+python3 main.py workspace-init myEnglishBook
+
+# Extract EPUB → UTF-8 .txt directly into the workspace's 小说txt/ directory.
+# --book-filter is an optional regex on spine entry hrefs, useful for picking
+# one book out of a multi-book bundle EPUB.
+python3 main.py --book myEnglishBook epub-import \
+  --src ~/path/to/novel.epub \
+  --out myBook.txt \
+  --book-filter 'part00[1-9][0-9]'   # optional
+
+# normalize and split auto-detect lang=en from CJK / ASCII letter ratio.
+# Use --lang en / --lang zh to force, or omit for auto.
+python3 main.py --book myEnglishBook normalize
+python3 main.py --book myEnglishBook split
+```
+
+The English splitter recognises four heading formats: `PROLOGUE` / `EPILOGUE` / `INTRODUCTION` single-word markers, `CHAPTER I` / `Chapter 1: Title` (roman or arabic + optional title), and all-caps POV style (`ALICE`, `BOB`, `ALICE SMITH` — up to three ASCII-uppercase words). The English normalizer strips Project Gutenberg headers, ISBN / copyright / URL lines, and the series-banner line that EPUB exports tend to repeat before every chapter.
+
 `data/proposals/`, `data/manual_overrides/personas.json`, applied style examples, outputs, logs, and the per-book `workspaces/<book>/{data,outputs,小说txt,logs}/` are all gitignored. Style proposals contain only line ranges and short previews; full style excerpts are copied only during explicit `apply-bootstrap --confirm`. Persona proposals contain only short binding strings (protagonist name, author name, world brief, key relationships, hard rules) — never source excerpts.
 
 ---

@@ -26,3 +26,4 @@
 15. [Iteration 015 - Auto Bootstrap Pipeline for Any Novel](./iteration_015_auto_bootstrap.md)
 16. [Iteration 016 - Agent Persona Abstraction](./iteration_016_persona_abstraction.md)
 17. [Iteration 017 - Multi-book Workspace Isolation](./iteration_017_multi_workspace.md)
+18. [Iteration 018 - Multilingual Splitter (English first)](./iteration_018_multilingual.md)

@@ -40,6 +40,7 @@ from src.observability import (
     render_manifest_check,
     status_report,
 )
+from src.epub_to_txt import extract_epub, render_extract_result
 from src.preflight import render_preflight, run_preflight
 from src.reviewer import review_target
 from src.text_normalizer import normalize_all
@@ -81,8 +82,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Dragon Raja AI Continuer MVP")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("normalize")
-    sub.add_parser("split")
+    normalize_cmd = sub.add_parser("normalize")
+    normalize_cmd.add_argument(
+        "--lang",
+        default=None,
+        help="Force script language (zh/en). Default: auto-detect per file.",
+    )
+    split_cmd = sub.add_parser("split")
+    split_cmd.add_argument(
+        "--lang",
+        default=None,
+        help="Force script language (zh/en). Default: auto-detect per file.",
+    )
+
+    epub_import_cmd = sub.add_parser("epub-import")
+    epub_import_cmd.add_argument("--src", required=True, help="Path to source .epub file.")
+    epub_import_cmd.add_argument("--out", required=True, help="Output txt filename (written under <workspace>/小说txt/).")
+    epub_import_cmd.add_argument(
+        "--book-filter",
+        default=None,
+        help="Optional regex; only spine entries whose path matches are extracted (e.g. 'part00(09|1[0-9])' to pick Book 1 out of a bundle).",
+    )
     sub.add_parser("status")
     sub.add_parser("manifest-report")
     sub.add_parser("review-summary")
@@ -182,9 +202,14 @@ def main() -> None:
         print(render_show(summary), end="")
         return
     if args.command == "normalize":
-        normalize_all()
+        normalize_all(lang=getattr(args, "lang", None))
     elif args.command == "split":
-        split_all()
+        split_all(lang=getattr(args, "lang", None))
+    elif args.command == "epub-import":
+        from src import paths
+        out_path = paths.raw_txt_dir() / args.out if paths.workspace_name() else Path("小说txt") / args.out
+        result = extract_epub(Path(args.src).expanduser(), out_path, book_filter=args.book_filter)
+        print(render_extract_result(result), end="")
     elif args.command == "status":
         print(status_report(), end="")
     elif args.command == "manifest-report":

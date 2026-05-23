@@ -32,17 +32,43 @@ def _normalized_manifest_path() -> Path:
 CN_NUM = "一二三四五六七八九十百零〇两0-9"
 HEADING_RE = re.compile(rf"^\s*((?:第[{CN_NUM}]+[章节幕]\s*[^\n]{{0,70}})|(?:楔子[^\n]{{0,70}})|(?:序章[^\n]{{0,70}})|(?:序幕[^\n]{{0,70}})|(?:尾声[^\n]{{0,70}}))\s*$")
 
+# Iter 018: English chapter heading regex.
+# Covers four common formats:
+#   - PROLOGUE / EPILOGUE / INTRODUCTION single-word section markers
+#   - CHAPTER I / CHAPTER 1 / Chapter 1: Title  (roman numerals or arabic)
+#   - All-caps POV style (e.g. ALICE / BOB / ALICE SMITH) — up to 3 words,
+#     each 3-15 ASCII uppercase letters. Catches POV-per-chapter epic-fantasy
+#     formats where each chapter is titled with the viewpoint character.
+HEADING_RE_EN = re.compile(
+    r"^\s*("
+    r"PROLOGUE|EPILOGUE|INTRODUCTION|FOREWORD|AFTERWORD"
+    r"|CHAPTER\s+[IVXLCDM\d]+(\s*[:：]\s*[^\n]{1,80})?"
+    r"|Chapter\s+\d+(\s*[:：]\s*[^\n]{1,80})?"
+    r"|[A-Z]{3,15}(\s+[A-Z]{3,15}){0,2}"
+    r")\s*$"
+)
 
-def is_heading(line: str) -> bool:
+LANG_HEADING_PATTERNS = {
+    "zh": HEADING_RE,
+    "en": HEADING_RE_EN,
+}
+
+
+def is_heading(line: str, lang: str = "zh") -> bool:
     stripped = line.strip()
     if len(stripped) > 90:
         return False
-    if re.search(r"[章节幕]\s*完$", stripped):
+    if lang == "zh" and re.search(r"[章节幕]\s*完$", stripped):
         return False
-    return bool(HEADING_RE.match(stripped))
+    pattern = LANG_HEADING_PATTERNS.get(lang, HEADING_RE)
+    return bool(pattern.match(stripped))
 
 
-def heading_allowed(volume_id: str, heading: str) -> bool:
+def heading_allowed(volume_id: str, heading: str, lang: str = "zh") -> bool:
+    if lang == "en":
+        # Iter 018: English headings are accepted as-is by is_heading(); no
+        # additional volume-specific filtering. Empty heading is rejected.
+        return bool(heading.strip())
     if heading.startswith(("楔子", "序章", "序幕", "尾声")):
         return True
     if volume_id in {"longzu_1", "longzu_2"}:
@@ -54,8 +80,8 @@ def normalize_heading_key(heading: str) -> str:
     return re.sub(r"\s+", "", heading).replace("＆", "&")
 
 
-def candidate_headings(lines: List[str], volume_id: str) -> List[Tuple[int, str]]:
-    candidates = [(i, line.strip()) for i, line in enumerate(lines, 1) if is_heading(line) and heading_allowed(volume_id, line.strip())]
+def candidate_headings(lines: List[str], volume_id: str, lang: str = "zh") -> List[Tuple[int, str]]:
+    candidates = [(i, line.strip()) for i, line in enumerate(lines, 1) if is_heading(line, lang) and heading_allowed(volume_id, line.strip(), lang)]
     early = [item for item in candidates if item[0] <= 100]
     if len(early) >= 5:
         first_line, first_heading = early[0]
@@ -100,16 +126,20 @@ def _heading_confidence(title: str, char_count: int, in_dedup_risk_zone: bool) -
     return round(min(pattern_score, length_score, position_score), 2)
 
 
-def split_file(path: Path) -> List[ChapterManifestEntry]:
+def split_file(path: Path, lang: str | None = None) -> List[ChapterManifestEntry]:
     volume_id = path.stem
-    lines = path.read_text(encoding="utf-8").splitlines()
+    text = path.read_text(encoding="utf-8")
+    if lang is None:
+        from .lang_detect import detect_language
+        lang = detect_language(text)
+    lines = text.splitlines()
     raw_candidates = [
         (i, line.strip())
         for i, line in enumerate(lines, 1)
-        if is_heading(line) and heading_allowed(volume_id, line.strip())
+        if is_heading(line, lang) and heading_allowed(volume_id, line.strip(), lang)
     ]
     early_dense = sum(1 for line_no, _ in raw_candidates if line_no <= 100) >= 5
-    headings = candidate_headings(lines, volume_id)
+    headings = candidate_headings(lines, volume_id, lang)
     entries: List[ChapterManifestEntry] = []
     for chapter_index, (start_line, title) in enumerate(headings, 1):
         end_line = (headings[chapter_index][0] - 1) if chapter_index < len(headings) else len(lines)
@@ -133,7 +163,7 @@ def split_file(path: Path) -> List[ChapterManifestEntry]:
     return entries
 
 
-def split_all(normalized_dir: Path | None = None) -> List[Dict[str, object]]:
+def split_all(normalized_dir: Path | None = None, lang: str | None = None) -> List[Dict[str, object]]:
     if normalized_dir is None:
         normalized_dir = _normalized_dir()
     manifest_path = _manifest_path()
@@ -142,7 +172,7 @@ def split_all(normalized_dir: Path | None = None) -> List[Dict[str, object]]:
     normalized_manifest = read_json(_normalized_manifest_path(), [])
     source_by_volume = {item["volume_id"]: item["source_file"] for item in normalized_manifest}
     for path in sorted(normalized_dir.glob("*.txt")):
-        for entry in split_file(path):
+        for entry in split_file(path, lang=lang):
             data = model_to_dict(entry)
             data["source_file"] = source_by_volume.get(entry.volume_id, entry.source_file)
             entries.append(data)
