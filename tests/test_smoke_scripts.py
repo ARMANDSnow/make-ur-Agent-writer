@@ -10,8 +10,17 @@ class SmokeScriptTests(unittest.TestCase):
 
     def test_debate_smoke_creates_snapshot_block(self) -> None:
         text = Path("scripts/debate_smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("outputs/debate/snapshots/${ts}", text)
+        # iter 017: snapshot path is now derived from per-workspace
+        # DEBATE_DIR (legacy mode still resolves to outputs/debate/).
+        self.assertIn("snapshots/${ts}", text)
         self.assertIn("Snapshot saved: $snap", text)
+
+    def test_smoke_scripts_accept_book_flag(self) -> None:
+        """Iter 017: all smoke scripts must accept --book / $WORKSPACE_NAME."""
+        for name in ("debate_smoke.sh", "write_smoke.sh", "real_smoke.sh", "write_book.sh", "verify.sh"):
+            text = Path(f"scripts/{name}").read_text(encoding="utf-8")
+            self.assertIn("--book", text, f"{name} must accept --book flag")
+            self.assertIn("WORKSPACE_NAME", text, f"{name} must honor WORKSPACE_NAME env var")
 
 
 if __name__ == "__main__":

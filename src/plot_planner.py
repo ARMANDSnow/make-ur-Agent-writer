@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Dict
 
+from . import paths
 from .config import ROOT
 from .entities import load_entity_graph, render_active_state
 from .llm_client import LLMClient
@@ -12,17 +14,29 @@ from .style import load_style_examples
 from .utils import write_json
 
 
+# Legacy constants — kept for iter 014-016 test backward compat
+# (``patch("src.plot_planner.OUTLINE_PATH", ...)`` still works).
 CHAPTER_PLAN_PATH = ROOT / "outputs" / "debate" / "chapter_plan.json"
 OUTLINE_PATH = ROOT / "outputs" / "debate" / "outline.md"
 
 
+def _chapter_plan_path() -> Path:
+    return paths.chapter_plan_path() if paths.workspace_name() else CHAPTER_PLAN_PATH
+
+
+def _outline_path() -> Path:
+    return paths.outline_path() if paths.workspace_name() else OUTLINE_PATH
+
+
 def generate_chapter_plan(target_chapters: int = 18, force: bool = False) -> Dict[str, Any]:
-    if CHAPTER_PLAN_PATH.exists() and not force:
+    chapter_plan_path = _chapter_plan_path()
+    outline_path = _outline_path()
+    if chapter_plan_path.exists() and not force:
         raise FileExistsError("chapter_plan.json already exists; use --force to overwrite")
-    if not OUTLINE_PATH.exists():
+    if not outline_path.exists():
         raise FileNotFoundError("outline not found; run `python main.py debate` first")
 
-    outline = OUTLINE_PATH.read_text(encoding="utf-8")
+    outline = outline_path.read_text(encoding="utf-8")
     entity_state = render_active_state(load_entity_graph())
     style_examples = load_style_examples()[:3000]
     facts = global_facts_summary()
@@ -46,7 +60,7 @@ def generate_chapter_plan(target_chapters: int = 18, force: bool = False) -> Dic
         ChapterPlan,
     )
     data = model_to_dict(result)
-    write_json(CHAPTER_PLAN_PATH, data)
+    write_json(chapter_plan_path, data)
     return data
 
 

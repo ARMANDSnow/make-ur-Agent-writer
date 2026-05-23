@@ -219,6 +219,70 @@ class CliIntegrationTests(unittest.TestCase):
             self.assertEqual(personas["status"], "written")
             self.assertTrue(Path(personas["path"]).exists())
 
+    def test_book_flag_sets_workspace_name_env(self) -> None:
+        """Iter 017: ``--book <name>`` is stripped from argv and exported as
+        ``WORKSPACE_NAME`` so downstream ``paths.*`` calls see the workspace.
+        """
+        from src import paths
+
+        saved = os.environ.get("WORKSPACE_NAME")
+        try:
+            os.environ.pop("WORKSPACE_NAME", None)
+            # workspace-list is a fast read-only path that returns immediately
+            # without touching the filesystem when workspaces/ is empty.
+            self.run_cli(["--book", "abc", "workspace-list"])
+            self.assertEqual(os.environ.get("WORKSPACE_NAME"), "abc")
+            self.assertEqual(paths.workspace_name(), "abc")
+        finally:
+            if saved is None:
+                os.environ.pop("WORKSPACE_NAME", None)
+            else:
+                os.environ["WORKSPACE_NAME"] = saved
+
+    def test_workspace_init_creates_directory_structure(self) -> None:
+        """Iter 017: workspace-init produces the four canonical subdirs."""
+        from src import paths
+
+        saved_ws = paths.WORKSPACE_DIR
+        saved_env = os.environ.get("WORKSPACE_NAME")
+        try:
+            os.environ.pop("WORKSPACE_NAME", None)
+            with tempfile.TemporaryDirectory() as tmp:
+                paths.WORKSPACE_DIR = Path(tmp)
+                # workspace_init reads paths.WORKSPACE_DIR at call time.
+                out = self.run_cli(["workspace-init", "demo"])
+                self.assertIn("workspace-init demo: created", out)
+                for sub in ("小说txt", "data", "outputs", "logs"):
+                    self.assertTrue((Path(tmp) / "demo" / sub).is_dir(), f"missing subdir: {sub}")
+        finally:
+            paths.WORKSPACE_DIR = saved_ws
+            if saved_env is not None:
+                os.environ["WORKSPACE_NAME"] = saved_env
+
+    def test_workspace_import_dry_run_does_not_move(self) -> None:
+        """Iter 017: workspace-import-current --dry-run lists planned moves
+        but does not touch the filesystem."""
+        from src import cli_workspace, paths
+
+        saved_root_ws = paths.WORKSPACE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            paths.WORKSPACE_DIR = tmp_path / "workspaces"
+            # cli_workspace inspects ROOT directly for src dirs; use a stub
+            # root with a data/ subdir that has a sentinel file.
+            with patch.object(cli_workspace, "ROOT", tmp_path):
+                (tmp_path / "data").mkdir()
+                sentinel = tmp_path / "data" / "sentinel.json"
+                sentinel.write_text("{}", encoding="utf-8")
+                try:
+                    result = cli_workspace.import_current("dry_target", dry_run=True)
+                    self.assertTrue(result["dry_run"])
+                    self.assertTrue(sentinel.exists(), "dry-run must not delete source")
+                    target_data = paths.WORKSPACE_DIR / "dry_target" / "data"
+                    self.assertFalse(target_data.exists(), "dry-run must not create target")
+                finally:
+                    paths.WORKSPACE_DIR = saved_root_ws
+
 
 if __name__ == "__main__":
     unittest.main()

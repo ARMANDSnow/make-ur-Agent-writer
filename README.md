@@ -153,36 +153,43 @@ bash scripts/write_smoke.sh  # preflight → compress → debate → write 1 cha
 
 `scripts/write_smoke.sh` writes one chapter and snapshots all outputs to `outputs/drafts/snapshots/<timestamp>/`. Typical run: 5-15 minutes, $0.30-$0.50 per chapter with DeepSeek-V4.
 
-> **Bring your own source**: put your `.txt` files into `小说txt/` (gitignored). The pipeline auto-detects UTF-16 / GB18030 and normalizes to UTF-8. `init-book` generates reviewable proposals for facts, entity graph, continuation anchor, style examples, and (since iter 016) persona bindings so debate / review agents stop anchoring on the original validation corpus.
+> **Bring your own source**: put your `.txt` files into `小说txt/` (or `workspaces/<book>/小说txt/` once you start using multi-book workspaces; both are gitignored). The pipeline auto-detects UTF-16 / GB18030 and normalizes to UTF-8. `init-book` generates reviewable proposals for facts, entity graph, continuation anchor, style examples, and (since iter 016) persona bindings so debate / review agents stop anchoring on the original validation corpus.
 
 ### Quick start for any novel
 
 ```bash
-python3 main.py normalize
-python3 main.py split
-python3 main.py init-book --extract-limit 10
+# iter 017 (optional): give the book its own workspace. Without --book, all
+# commands run in legacy mode against repo-root data/outputs/小说txt/.
+python3 main.py workspace-init myBook
+cp ~/your-novel.txt workspaces/myBook/小说txt/
 
-# Review and edit proposals under data/proposals/ first.
-python3 main.py apply-bootstrap --name global_facts
-python3 main.py apply-bootstrap --name global_facts --confirm
-python3 main.py apply-bootstrap --name entity_graph
-python3 main.py apply-bootstrap --name entity_graph --confirm
-python3 main.py apply-bootstrap --name continuation_anchor
-python3 main.py apply-bootstrap --name continuation_anchor --confirm
-python3 main.py apply-bootstrap --name style_examples
-python3 main.py apply-bootstrap --name style_examples --confirm
+python3 main.py --book myBook normalize
+python3 main.py --book myBook split
+python3 main.py --book myBook init-book --extract-limit 10
+
+# Review and edit proposals under workspaces/myBook/data/proposals/ first.
+python3 main.py --book myBook apply-bootstrap --name global_facts
+python3 main.py --book myBook apply-bootstrap --name global_facts --confirm
+python3 main.py --book myBook apply-bootstrap --name entity_graph
+python3 main.py --book myBook apply-bootstrap --name entity_graph --confirm
+python3 main.py --book myBook apply-bootstrap --name continuation_anchor
+python3 main.py --book myBook apply-bootstrap --name continuation_anchor --confirm
+python3 main.py --book myBook apply-bootstrap --name style_examples
+python3 main.py --book myBook apply-bootstrap --name style_examples --confirm
 # iter 016: personas binds debate / review agent prompts to this novel.
-python3 main.py apply-bootstrap --name personas
-python3 main.py apply-bootstrap --name personas --confirm
+python3 main.py --book myBook apply-bootstrap --name personas
+python3 main.py --book myBook apply-bootstrap --name personas --confirm
 
-python3 main.py debate            # add --topic "..." to override the default
-python3 main.py plan-chapters --chapters 3
-# Edit outputs/debate/chapter_plan.json, then:
-python3 main.py write --chapters 1 --resume-from 1 --force
-python3 main.py review-chapter 1
+python3 main.py --book myBook debate            # add --topic "..." to override the default
+python3 main.py --book myBook plan-chapters --chapters 3
+# Edit workspaces/myBook/outputs/debate/chapter_plan.json, then:
+python3 main.py --book myBook write --chapters 1 --resume-from 1 --force
+python3 main.py --book myBook review-chapter 1
 ```
 
-`data/proposals/`, `data/manual_overrides/personas.json`, applied style examples, outputs, and logs are all gitignored. Style proposals contain only line ranges and short previews; full style excerpts are copied only during explicit `apply-bootstrap --confirm`. Persona proposals contain only short binding strings (protagonist name, author name, world brief, key relationships, hard rules) — never source excerpts.
+Switching between books is a single flag change (`--book myBook` / `--book otherBook`). You can also export `WORKSPACE_NAME=myBook` once per shell instead of repeating `--book`. `python3 main.py workspace-list` shows existing workspaces; `python3 main.py workspace-show --name myBook` summarizes one. To migrate an in-place legacy setup (repo-root `data/`, `outputs/`, `小说txt/`) into a workspace, run `python3 main.py workspace-import-current --to <name>` (use `--dry-run` first).
+
+`data/proposals/`, `data/manual_overrides/personas.json`, applied style examples, outputs, logs, and the per-book `workspaces/<book>/{data,outputs,小说txt,logs}/` are all gitignored. Style proposals contain only line ranges and short previews; full style excerpts are copied only during explicit `apply-bootstrap --confirm`. Persona proposals contain only short binding strings (protagonist name, author name, world brief, key relationships, hard rules) — never source excerpts.
 
 ---
 

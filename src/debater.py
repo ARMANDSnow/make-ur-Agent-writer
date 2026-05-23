@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field
 
+from . import paths
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
@@ -18,9 +19,25 @@ from .style import load_style_examples
 from .utils import ensure_dir, extract_json_object, read_json, write_json
 
 
+# Legacy constants — kept so iter 014-016 tests that ``patch("src.debater.DEBATE_DIR", ...)``
+# continue to work in legacy mode. In workspace mode (WORKSPACE_NAME env set
+# or --book CLI flag), ``_debate_dir()`` / ``_kb_path()`` / ``_index_path()``
+# defer to ``paths`` so per-book directories are used.
 DEBATE_DIR = ROOT / "outputs" / "debate"
 KB_PATH = ROOT / "data" / "knowledge_base" / "global_knowledge.md"
 INDEX_PATH = ROOT / "data" / "knowledge_base" / "knowledge_index.json"
+
+
+def _debate_dir() -> Path:
+    return paths.debate_dir() if paths.workspace_name() else DEBATE_DIR
+
+
+def _kb_path() -> Path:
+    return paths.kb_path() if paths.workspace_name() else KB_PATH
+
+
+def _index_path() -> Path:
+    return paths.index_path() if paths.workspace_name() else INDEX_PATH
 
 ROUNDS = [
     "立场陈述",
@@ -48,17 +65,20 @@ def load_agents() -> List[Dict[str, Any]]:
 
 
 def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") -> Dict[str, Any]:
-    ensure_dir(DEBATE_DIR)
-    if not KB_PATH.exists():
+    debate_dir = _debate_dir()
+    kb_path = _kb_path()
+    index_path = _index_path()
+    ensure_dir(debate_dir)
+    if not kb_path.exists():
         raise FileNotFoundError("global knowledge not found; run `python main.py compress` first")
     agents = load_agents()
     if not agents:
         raise ValueError("no debate agents configured")
-    knowledge = KB_PATH.read_text(encoding="utf-8")
-    index = read_json(INDEX_PATH, {})
+    knowledge = kb_path.read_text(encoding="utf-8")
+    index = read_json(index_path, {})
     facts = global_facts_summary()
     client = LLMClient("debate")
-    log_path = DEBATE_DIR / "debate_log.jsonl"
+    log_path = debate_dir / "debate_log.jsonl"
 
     # Iter 016: render agents through persona binding when available. When
     # personas.json is missing/empty, render_agent_fields returns legacy
@@ -185,9 +205,9 @@ def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") 
                         agent_ballots[ag] = entry.get("ballots", [])
     decisions = _apply_agent_ballots(decisions, agent_ballots, len(transcript))
     outline = build_outline(topic, decisions, transcript, client)
-    write_json(DEBATE_DIR / "decisions.json", decisions)
-    write_text_atomic(DEBATE_DIR / "outline.md", outline)
-    log_event("debate", "done", agents=len(agents), rounds=len(ROUNDS), output=str(DEBATE_DIR))
+    write_json(debate_dir / "decisions.json", decisions)
+    write_text_atomic(debate_dir / "outline.md", outline)
+    log_event("debate", "done", agents=len(agents), rounds=len(ROUNDS), output=str(debate_dir))
     return {"decisions": decisions, "outline": outline}
 
 

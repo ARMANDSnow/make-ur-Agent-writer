@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import os
+import sys
+
 from src.auto_bootstrap import (
     bootstrap_all,
     bootstrap_continuation_anchor,
@@ -15,6 +18,16 @@ from src.auto_bootstrap import (
 from src.chapter_splitter import split_all
 from src.cli_apply_bootstrap import apply_bootstrap, render_apply_bootstrap_result
 from src.cli_apply_advance import apply_advance_cli, render_apply_advance_result
+from src.cli_workspace import (
+    import_current,
+    init_workspace,
+    list_workspaces,
+    render_import,
+    render_init,
+    render_list,
+    render_show,
+    show_workspace,
+)
 from src.compressor import compress_all
 from src.cost_estimator import estimate_cost, render_cost_estimate
 from src.debater import run_debate
@@ -31,6 +44,37 @@ from src.preflight import render_preflight, run_preflight
 from src.reviewer import review_target
 from src.text_normalizer import normalize_all
 from src.writer import write_chapters
+
+
+def _consume_book_pre_arg() -> None:
+    """Iter 017: pre-parse a global ``--book <name>`` flag.
+
+    argparse subparsers are not great at accepting a parent-level flag both
+    before and inside subcommand position. We strip ``--book`` from sys.argv
+    here and set ``WORKSPACE_NAME`` so every ``src.paths.*`` call downstream
+    sees the active workspace. ``--book`` may appear anywhere in argv.
+    """
+    argv = sys.argv[1:]
+    book: str | None = None
+    keep: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--book":
+            if i + 1 >= len(argv):
+                raise SystemExit("--book requires a value")
+            book = argv[i + 1]
+            i += 2
+            continue
+        if arg.startswith("--book="):
+            book = arg.split("=", 1)[1]
+            i += 1
+            continue
+        keep.append(arg)
+        i += 1
+    if book is not None:
+        os.environ["WORKSPACE_NAME"] = book
+    sys.argv = [sys.argv[0], *keep]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,6 +146,16 @@ def build_parser() -> argparse.ArgumentParser:
     apply_advance.add_argument("--proposal-idx", required=True)
     apply_advance.add_argument("--confirm", action="store_true")
 
+    # iter 017: multi-book workspace management
+    sub.add_parser("workspace-list")
+    workspace_init_cmd = sub.add_parser("workspace-init")
+    workspace_init_cmd.add_argument("name")
+    workspace_import_cmd = sub.add_parser("workspace-import-current")
+    workspace_import_cmd.add_argument("--to", required=True, dest="to_name")
+    workspace_import_cmd.add_argument("--dry-run", action="store_true")
+    workspace_show_cmd = sub.add_parser("workspace-show")
+    workspace_show_cmd.add_argument("--name", default=None)
+
     run_all = sub.add_parser("run-all")
     run_all.add_argument("--chapters", type=int, default=18)
     run_all.add_argument("--extract-limit", type=int, default=None)
@@ -110,7 +164,23 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    _consume_book_pre_arg()
     args = build_parser().parse_args()
+    if args.command == "workspace-list":
+        print(render_list(list_workspaces()), end="")
+        return
+    if args.command == "workspace-init":
+        result = init_workspace(args.name)
+        print(render_init(result), end="")
+        return
+    if args.command == "workspace-import-current":
+        result = import_current(args.to_name, dry_run=args.dry_run)
+        print(render_import(result), end="")
+        return
+    if args.command == "workspace-show":
+        summary = show_workspace(args.name)
+        print(render_show(summary), end="")
+        return
     if args.command == "normalize":
         normalize_all()
     elif args.command == "split":

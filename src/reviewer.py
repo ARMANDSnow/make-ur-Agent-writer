@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import paths
 from .config import ROOT, load_config
 from .entities import load_entity_graph, render_active_state
 from .linter import NovelLinter
@@ -15,7 +16,12 @@ from .state import log_event
 from .utils import ensure_dir, extract_json_object, write_json
 
 
+# Legacy constant — kept for iter 014-016 test backward compat.
 REVIEWS_DIR = ROOT / "outputs" / "reviews"
+
+
+def _reviews_dir() -> Path:
+    return paths.reviews_dir() if paths.workspace_name() else REVIEWS_DIR
 
 
 def load_review_agents() -> List[Dict[str, Any]]:
@@ -81,7 +87,8 @@ def review_text(
     run_agents_on_lint_error: bool = False,
     enforce_relationship_checklist: bool = False,
 ) -> Dict[str, Any]:
-    ensure_dir(REVIEWS_DIR)
+    reviews_dir = _reviews_dir()
+    ensure_dir(reviews_dir)
     if precomputed_lint_issues is not None:
         lint_issues = precomputed_lint_issues
     else:
@@ -95,7 +102,7 @@ def review_text(
             "agent_reviews": [],
             "verdict": "Reject",
         }
-        write_json(REVIEWS_DIR / f"{Path(target_name).stem}.review.json", report)
+        write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
         return report
 
     agents = load_review_agents()
@@ -156,7 +163,7 @@ def review_text(
                 reason="(parse_failed)",
                 rewrite_round=rewrite_round,
             )
-            write_json(REVIEWS_DIR / f"{Path(target_name).stem}.review.json", report)
+            write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
             return report
         # The relationship checklist enforcement keys off the legacy agent name
         # (a rule-semantic identifier), not the persona-rendered display name.
@@ -176,7 +183,7 @@ def review_text(
         "agent_reviews": reviews,
         "verdict": verdict,
     }
-    write_json(REVIEWS_DIR / f"{Path(target_name).stem}.review.json", report)
+    write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
     log_event("review", verdict.lower(), target=target_name)
     return report
 

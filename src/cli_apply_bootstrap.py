@@ -6,8 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import paths
 from .config import ROOT
 from .utils import ensure_dir, read_json, write_json
+
+
+def _resolve_root(root: Path | None) -> Path:
+    if root is not None:
+        return root
+    return paths.workspace_root() if paths.workspace_name() else ROOT
 
 
 BOOTSTRAP_NAMES = {"global_facts", "entity_graph", "continuation_anchor", "style_examples", "personas"}
@@ -23,7 +30,8 @@ PERSONAS_FIELDS = (
 )
 
 
-def apply_bootstrap(name: str, confirm: bool = False, root: Path = ROOT) -> Dict[str, Any]:
+def apply_bootstrap(name: str, confirm: bool = False, root: Path | None = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     if name not in BOOTSTRAP_NAMES:
         raise ValueError(f"unknown bootstrap proposal '{name}'")
     proposal_path = root / "data" / "proposals" / f"{name}.proposal.json"

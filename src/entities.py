@@ -6,13 +6,23 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import paths
 from .config import ROOT
 from .utils import read_json
 
 
-def load_entity_graph(root: Path = ROOT) -> Dict[str, Any]:
-    """Load optional entity graph data; missing files degrade to an empty graph."""
-    path = root / "data" / "entity_graph.json"
+def load_entity_graph(root: Path | None = None) -> Dict[str, Any]:
+    """Load optional entity graph data; missing files degrade to an empty graph.
+
+    Iter 017: when ``root`` is None we resolve the active workspace via
+    ``paths.entity_graph_path()`` (or the legacy repo-root path when no
+    workspace is active). Callers that explicitly pass ``root=Path(tmp)``
+    keep the iter 015/016 test override behavior.
+    """
+    if root is None:
+        path = paths.entity_graph_path() if paths.workspace_name() else (ROOT / "data" / "entity_graph.json")
+    else:
+        path = root / "data" / "entity_graph.json"
     return read_json(path, {}) or {}
 
 

@@ -5,6 +5,7 @@ from difflib import unified_diff
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+from . import paths
 from .config import ROOT
 from .utils import ensure_dir, read_json
 
@@ -12,7 +13,14 @@ from .utils import ensure_dir, read_json
 SHORT_CHAPTER_CHAR_THRESHOLD = 2000
 
 
-def collect_status(root: Path = ROOT) -> Dict[str, Any]:
+def _resolve_root(root: Path | None) -> Path:
+    if root is not None:
+        return root
+    return paths.workspace_root() if paths.workspace_name() else ROOT
+
+
+def collect_status(root: Path | None = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     data_dir = root / "data"
     outputs_dir = root / "outputs"
     manifest = read_json(data_dir / "chapter_manifest.json", [])
@@ -98,7 +106,8 @@ def render_status(status: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def status_report(root: Path = ROOT) -> str:
+def status_report(root: Path | None = None) -> str:
+    root = _resolve_root(root)
     return render_status(collect_status(root))
 
 
@@ -129,7 +138,8 @@ def build_manifest_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def generate_manifest_report(root: Path = ROOT, output_path: Path | None = None) -> Path:
+def generate_manifest_report(root: Path | None = None, output_path: Path | None = None) -> Path:
+    root = _resolve_root(root)
     manifest_path = root / "data" / "chapter_manifest.json"
     manifest = read_json(manifest_path, [])
     if not manifest:
@@ -140,7 +150,8 @@ def generate_manifest_report(root: Path = ROOT, output_path: Path | None = None)
     return output_path
 
 
-def collect_review_summary(root: Path = ROOT) -> Dict[str, Any]:
+def collect_review_summary(root: Path | None = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     reviews_dir = root / "outputs" / "reviews"
     drafts_dir = root / "outputs" / "drafts"
     review_reports = [read_json(path, {}) for path in sorted(reviews_dir.glob("*.review.json"))]
@@ -191,7 +202,8 @@ def render_review_summary(summary: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def generate_review_summary(root: Path = ROOT, output_path: Path | None = None) -> Tuple[Dict[str, Any], Path]:
+def generate_review_summary(root: Path | None = None, output_path: Path | None = None) -> Tuple[Dict[str, Any], Path]:
+    root = _resolve_root(root)
     summary = collect_review_summary(root)
     output_path = output_path or (root / "outputs" / "reviews" / "review_summary.md")
     ensure_dir(output_path.parent)
@@ -199,7 +211,8 @@ def generate_review_summary(root: Path = ROOT, output_path: Path | None = None) 
     return summary, output_path
 
 
-def expected_report_snapshots(root: Path = ROOT) -> Dict[Path, str]:
+def expected_report_snapshots(root: Path | None = None) -> Dict[Path, str]:
+    root = _resolve_root(root)
     manifest_path = root / "data" / "chapter_manifest.json"
     manifest = read_json(manifest_path, [])
     if not manifest:
@@ -211,7 +224,8 @@ def expected_report_snapshots(root: Path = ROOT) -> Dict[Path, str]:
     }
 
 
-def check_report_snapshots(root: Path = ROOT, update: bool = False) -> Dict[str, Any]:
+def check_report_snapshots(root: Path | None = None, update: bool = False) -> Dict[str, Any]:
+    root = _resolve_root(root)
     expected = expected_report_snapshots(root)
     mismatches: Dict[str, str] = {}
     for path, expected_text in expected.items():
@@ -238,8 +252,9 @@ def check_report_snapshots(root: Path = ROOT, update: bool = False) -> Dict[str,
 
 
 def check_manifest_integrity(
-    root: Path = ROOT, short_threshold: int = SHORT_CHAPTER_CHAR_THRESHOLD, strict: bool = False
+    root: Path | None = None, short_threshold: int = SHORT_CHAPTER_CHAR_THRESHOLD, strict: bool = False
 ) -> Dict[str, Any]:
+    root = _resolve_root(root)
     manifest_path = root / "data" / "chapter_manifest.json"
     manifest = read_json(manifest_path, [])
     if not manifest:

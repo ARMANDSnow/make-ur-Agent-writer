@@ -8,7 +8,13 @@ from .config import ROOT
 from .utils import append_jsonl, ensure_dir
 
 
+# Legacy constant — kept for iter 014-016 test backward compat.
 STATE_LOG = ROOT / "logs" / "run_state.jsonl"
+
+
+def _state_log() -> Path:
+    from . import paths
+    return paths.run_state_log_path() if paths.workspace_name() else STATE_LOG
 
 
 def log_event(step: str, status: str, **payload: Any) -> None:
@@ -18,7 +24,7 @@ def log_event(step: str, status: str, **payload: Any) -> None:
         "status": status,
     }
     record.update(payload)
-    append_jsonl(STATE_LOG, record)
+    append_jsonl(_state_log(), record)
 
 
 def output_done(path: Path) -> bool:

@@ -27,12 +27,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from . import paths
 from .config import ROOT
 from .state import log_event
 from .utils import read_json
 
 
+# Legacy constant — kept for iter 014-016 test backward compat
+# (``patch("src.persona_loader.PERSONAS_PATH", ...)`` still works).
 PERSONAS_PATH = ROOT / "data" / "manual_overrides" / "personas.json"
+
+
+def _personas_path() -> Path:
+    return paths.personas_path() if paths.workspace_name() else PERSONAS_PATH
 
 PERSONAS_FIELDS = (
     "protagonist_name",
@@ -52,15 +59,21 @@ class _SafeDefaultDict(dict):
         return ""
 
 
-def load_personas(path: Path = PERSONAS_PATH) -> Optional[Dict[str, Any]]:
+def load_personas(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
     """Return the applied personas dict, or ``None`` when not available.
 
     A persona is considered "available" only when the file exists, parses as
     a dict, and has a non-empty ``protagonist_name``. An empty protagonist is
     treated as not-yet-applied so that prompt rendering does not produce
     obviously broken templates like ``"本位"`` with no name.
+
+    When ``path`` is None the loader resolves the active workspace via
+    ``paths.personas_path()`` (or the legacy ``PERSONAS_PATH`` when no
+    workspace is active).
     """
 
+    if path is None:
+        path = _personas_path()
     data = read_json(path, None)
     if not isinstance(data, dict):
         return None

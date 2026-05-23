@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List
 
+from pathlib import Path
+
+from . import paths
 from .config import ROOT
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary, load_global_facts
@@ -10,12 +13,21 @@ from .state import log_event, write_text_atomic
 from .utils import ensure_dir, read_json, write_json
 
 
+# Legacy constants — kept for iter 014-016 test backward compat.
 EXTRACTED_DIR = ROOT / "data" / "extracted_jsons"
 KB_DIR = ROOT / "data" / "knowledge_base"
 
 
+def _extracted_dir() -> Path:
+    return paths.extracted_dir() if paths.workspace_name() else EXTRACTED_DIR
+
+
+def _kb_dir() -> Path:
+    return paths.knowledge_base_dir() if paths.workspace_name() else KB_DIR
+
+
 def load_extractions() -> List[Dict[str, Any]]:
-    return [read_json(path, {}) for path in sorted(EXTRACTED_DIR.glob("*.json"))]
+    return [read_json(path, {}) for path in sorted(_extracted_dir().glob("*.json"))]
 
 
 def build_knowledge_index(extractions: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -46,7 +58,8 @@ def build_knowledge_index(extractions: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def compress_all() -> Dict[str, Any]:
-    ensure_dir(KB_DIR)
+    kb_dir = _kb_dir()
+    ensure_dir(kb_dir)
     extractions = load_extractions()
     if not extractions:
         raise FileNotFoundError("no extracted JSON files found; run `python main.py extract --volume all` first")
@@ -71,9 +84,9 @@ def compress_all() -> Dict[str, Any]:
                 },
             ]
         )
-    write_text_atomic(KB_DIR / "global_knowledge.md", text.strip() + "\n")
-    write_json(KB_DIR / "knowledge_index.json", index)
-    log_event("compress", "done", chapters=len(extractions), output=str(KB_DIR / "global_knowledge.md"))
+    write_text_atomic(kb_dir / "global_knowledge.md", text.strip() + "\n")
+    write_json(kb_dir / "knowledge_index.json", index)
+    log_event("compress", "done", chapters=len(extractions), output=str(kb_dir / "global_knowledge.md"))
     return index
 
 

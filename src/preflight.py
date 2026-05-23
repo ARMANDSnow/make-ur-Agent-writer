@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
+from . import paths
 from .chapter_splitter import load_manifest
 from .config import ROOT, get_model_config, load_config, load_dotenv_if_available
 from .extractor import _extract_settings, build_extraction_prompt
@@ -18,7 +19,14 @@ TASKS = ("extract", "compress", "debate", "write", "review", "plot_planner")
 CACHE_PROVIDER_HINTS = ("anthropic", "bedrock", "claude", "deepseek")
 
 
-def run_preflight(root: Path = ROOT) -> Dict[str, Any]:
+def _resolve_root(root: Path | None) -> Path:
+    if root is not None:
+        return root
+    return paths.workspace_root() if paths.workspace_name() else ROOT
+
+
+def run_preflight(root: Path | None = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     load_dotenv_if_available()
     fatal: List[str] = []
     warn: List[str] = []
@@ -87,7 +95,8 @@ def _check_env(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
                 fatal.append(f"{base_url_env} is empty or invalid while task '{task}' model is not mock.")
 
 
-def _check_agents_config(fatal: List[str], warn: List[str], root: Path = ROOT) -> None:
+def _check_agents_config(fatal: List[str], warn: List[str], root: Path | None = None) -> None:
+    root = _resolve_root(root)
     try:
         cfg = load_config("agents.yaml")
     except Exception as exc:

@@ -3,16 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import paths
 from .config import ROOT
 from .schemas import GlobalFact, model_to_dict
 from .utils import read_json
 
 
+# Legacy constant — kept for iter 014-016 test backward compat.
 GLOBAL_FACTS_PATH = ROOT / "data" / "manual_overrides" / "global_facts.json"
 
 
+def _global_facts_path() -> Path:
+    return paths.global_facts_path() if paths.workspace_name() else GLOBAL_FACTS_PATH
+
+
 def load_global_facts(path: Path | None = None) -> List[Dict[str, Any]]:
-    path = path or GLOBAL_FACTS_PATH
+    path = path or _global_facts_path()
     data = read_json(path, [])
     if isinstance(data, dict):
         items = data.get("facts", [data])

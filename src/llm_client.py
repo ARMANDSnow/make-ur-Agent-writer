@@ -181,7 +181,9 @@ class LLMClient:
             record["attempt"] = attempt
         if error is not None:
             record["error"] = f"{type(error).__name__}: {error}"
-        append_jsonl(ROOT / "logs" / "llm_calls.jsonl", record)
+        from . import paths
+        log_path = paths.llm_calls_log_path() if paths.workspace_name() else (ROOT / "logs" / "llm_calls.jsonl")
+        append_jsonl(log_path, record)
 
     def _prepare_messages(
         self, messages: List[Dict[str, str]], cache_segments: Optional[List[Dict[str, Any]]]

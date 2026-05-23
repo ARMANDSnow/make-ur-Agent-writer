@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from . import paths
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
@@ -18,11 +19,33 @@ from .style import load_style_examples
 from .utils import ensure_dir, read_json, write_json
 
 
+# Legacy constants — kept so iter 014-016 tests that ``patch("src.writer.DRAFTS_DIR", ...)``
+# still work. In workspace mode the ``_resolved_*()`` helpers defer to ``paths``.
 DRAFTS_DIR = ROOT / "outputs" / "drafts"
 OUTLINE_PATH = ROOT / "outputs" / "debate" / "outline.md"
 KB_PATH = ROOT / "data" / "knowledge_base" / "global_knowledge.md"
 INDEX_PATH = ROOT / "data" / "knowledge_base" / "knowledge_index.json"
 CHAPTER_PLAN_PATH = ROOT / "outputs" / "debate" / "chapter_plan.json"
+
+
+def _drafts_dir() -> Path:
+    return paths.drafts_dir() if paths.workspace_name() else DRAFTS_DIR
+
+
+def _outline_path() -> Path:
+    return paths.outline_path() if paths.workspace_name() else OUTLINE_PATH
+
+
+def _kb_path() -> Path:
+    return paths.kb_path() if paths.workspace_name() else KB_PATH
+
+
+def _index_path() -> Path:
+    return paths.index_path() if paths.workspace_name() else INDEX_PATH
+
+
+def _chapter_plan_path() -> Path:
+    return paths.chapter_plan_path() if paths.workspace_name() else CHAPTER_PLAN_PATH
 
 
 def write_chapters(
@@ -31,12 +54,16 @@ def write_chapters(
     max_attempts: Optional[int] = None,
     resume_from: int = 1,
 ) -> List[Dict[str, Any]]:
-    ensure_dir(DRAFTS_DIR)
-    if not OUTLINE_PATH.exists():
+    drafts_dir = _drafts_dir()
+    outline_path = _outline_path()
+    kb_path = _kb_path()
+    index_path = _index_path()
+    ensure_dir(drafts_dir)
+    if not outline_path.exists():
         raise FileNotFoundError("outline not found; run `python main.py debate` first")
-    knowledge = KB_PATH.read_text(encoding="utf-8") if KB_PATH.exists() else ""
-    outline = OUTLINE_PATH.read_text(encoding="utf-8")
-    index = read_json(INDEX_PATH, {})
+    knowledge = kb_path.read_text(encoding="utf-8") if kb_path.exists() else ""
+    outline = outline_path.read_text(encoding="utf-8")
+    index = read_json(index_path, {})
     chapter_plan = _load_chapter_plan()
     facts = global_facts_summary()
     style_examples = load_style_examples()
@@ -52,10 +79,10 @@ def write_chapters(
     linter = NovelLinter()
     reports: List[Dict[str, Any]] = []
     for chapter_no in range(int(resume_from), int(resume_from) + int(chapters)):
-        out_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.md"
+        out_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
         if out_path.exists() and not force:
             continue
-        rolling_path = DRAFTS_DIR / "rolling_chapter_summary.json"
+        rolling_path = drafts_dir / "rolling_chapter_summary.json"
         rolling_context = render_rolling_context(max_chapters=5, path=rolling_path)
         previous_chapter_ending = latest_ending_state(path=rolling_path)
         chapter_plan_item = _chapter_plan_item(chapter_plan, chapter_no)
@@ -158,14 +185,14 @@ def write_chapters(
             chapter_summary.get("summary", ""),
             chapter_summary.get("key_events", []),
             chapter_summary.get("ending_state", ""),
-            path=DRAFTS_DIR / "rolling_chapter_summary.json",
+            path=drafts_dir / "rolling_chapter_summary.json",
         )
         proposals = _propose_entity_advance(client, chapter_no, draft, load_entity_graph())
-        proposal_path = save_entity_advance_proposals(chapter_no, proposals, drafts_dir=DRAFTS_DIR)
+        proposal_path = save_entity_advance_proposals(chapter_no, proposals, drafts_dir=drafts_dir)
 
         if not lint_ok:
-            failure_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.failure.json"
-            meta_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.meta.json"
+            failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
+            meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
             failure_report = {
                 "chapter": chapter_no,
                 "lint_issues": report.get("lint_issues", []),
@@ -218,8 +245,8 @@ def write_chapters(
             if report.get("verdict") != "Approve":
                 meta["last_blocking_reasons"] = last_blocking_reasons
             write_text_atomic(out_path, draft + "\n")
-            write_json(DRAFTS_DIR / f"chapter_{chapter_no:02d}.meta.json", meta)
-            failure_path = DRAFTS_DIR / f"chapter_{chapter_no:02d}.failure.json"
+            write_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", meta)
+            failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
             if failure_path.exists():
                 failure_path.unlink()
             reports.append(
@@ -240,9 +267,10 @@ def _index_stats(index: Dict[str, Any]) -> str:
 
 
 def _load_chapter_plan() -> Optional[Dict[int, Dict[str, Any]]]:
-    if not CHAPTER_PLAN_PATH.exists():
+    chapter_plan_path = _chapter_plan_path()
+    if not chapter_plan_path.exists():
         return None
-    data = read_json(CHAPTER_PLAN_PATH, {})
+    data = read_json(chapter_plan_path, {})
     plan = ChapterPlan(**data)
     return {int(item.chapter_no): model_to_dict(item) for item in plan.chapters}
 

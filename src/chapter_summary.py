@@ -5,19 +5,27 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import paths
 from .config import ROOT
 from .utils import ensure_dir, read_json, write_json
 
 
+# Legacy constant — kept for iter 014-016 test backward compat.
 ROLLING_PATH = ROOT / "outputs" / "drafts" / "rolling_chapter_summary.json"
+
+
+def _rolling_path() -> Path:
+    return paths.rolling_summary_path() if paths.workspace_name() else ROLLING_PATH
 
 
 def _empty_state() -> Dict[str, Any]:
     return {"chapters": [], "compressed_older": []}
 
 
-def load_rolling_summary(path: Path = ROLLING_PATH) -> Dict[str, Any]:
+def load_rolling_summary(path: Path | None = None) -> Dict[str, Any]:
     """Read rolling chapter summaries; missing or malformed files degrade to empty state."""
+    if path is None:
+        path = _rolling_path()
     data = read_json(path, _empty_state())
     if not isinstance(data, dict):
         return _empty_state()
@@ -30,7 +38,9 @@ def load_rolling_summary(path: Path = ROLLING_PATH) -> Dict[str, Any]:
     return {"chapters": chapters, "compressed_older": compressed}
 
 
-def save_rolling_summary(data: Dict[str, Any], path: Path = ROLLING_PATH) -> None:
+def save_rolling_summary(data: Dict[str, Any], path: Path | None = None) -> None:
+    if path is None:
+        path = _rolling_path()
     ensure_dir(path.parent)
     write_json(path, data)
 
@@ -40,9 +50,11 @@ def append_chapter_summary(
     summary: str,
     key_events: List[str],
     ending_state: str = "",
-    path: Path = ROLLING_PATH,
+    path: Path | None = None,
 ) -> None:
     """Append or replace one chapter summary in rolling state."""
+    if path is None:
+        path = _rolling_path()
     data = load_rolling_summary(path)
     chapters = [item for item in data["chapters"] if int(item.get("chapter_no", -1)) != int(chapter_no)]
     chapters.append(
@@ -57,7 +69,9 @@ def append_chapter_summary(
     save_rolling_summary(data, path)
 
 
-def latest_ending_state(path: Path = ROLLING_PATH) -> str:
+def latest_ending_state(path: Path | None = None) -> str:
+    if path is None:
+        path = _rolling_path()
     chapters = load_rolling_summary(path).get("chapters", [])
     if not chapters:
         return ""
@@ -65,8 +79,10 @@ def latest_ending_state(path: Path = ROLLING_PATH) -> str:
     return str(latest.get("ending_state") or "").strip()
 
 
-def render_rolling_context(max_chapters: int = 5, path: Path = ROLLING_PATH) -> str:
+def render_rolling_context(max_chapters: int = 5, path: Path | None = None) -> str:
     """Render recent chapter summaries for writer prompt injection."""
+    if path is None:
+        path = _rolling_path()
     data = load_rolling_summary(path)
     chapters = sorted(data.get("chapters", []), key=lambda item: int(item.get("chapter_no", 0)))
     if not chapters:

@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from . import paths
 from .config import ROOT
 from .llm_client import LLMClient
 from .schemas import (
@@ -21,6 +22,8 @@ from .schemas import (
 from .utils import ensure_dir, read_json, write_json
 
 
+# Legacy constants — kept for iter 015/016 test backward compat
+# (tests that pass ``root=Path(tmp)`` still work).
 PROPOSALS_DIR = ROOT / "data" / "proposals"
 EXTRACTED_DIR = ROOT / "data" / "extracted_jsons"
 NORMALIZED_DIR = ROOT / "data" / "normalized_texts"
@@ -30,7 +33,18 @@ CONTINUATION_ANCHOR_PATH = ROOT / "data" / "manual_overrides" / "continuation_an
 STYLE_EXAMPLES_DIR = ROOT / "data" / "style_examples"
 
 
-def bootstrap_global_facts(force: bool = False, root: Path = ROOT) -> Dict[str, Any]:
+def _resolve_root(root: Path | None) -> Path:
+    """Iter 017: when caller doesn't supply ``root``, default to the active
+    workspace root (or repo ROOT in legacy mode). Callers that pass
+    ``root=Path(tmp)`` keep iter 015/016 test override behavior unchanged.
+    """
+    if root is not None:
+        return root
+    return paths.workspace_root() if paths.workspace_name() else ROOT
+
+
+def bootstrap_global_facts(force: bool = False, root: Path = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     path = _proposal_path("global_facts", root)
     existing = root / "data" / "manual_overrides" / "global_facts.json"
     if _has_manual_json(existing) and not force:
@@ -57,7 +71,8 @@ def bootstrap_global_facts(force: bool = False, root: Path = ROOT) -> Dict[str, 
     return {"name": "global_facts", "status": "written", "path": str(path), "data": data}
 
 
-def bootstrap_entity_graph(force: bool = False, root: Path = ROOT) -> Dict[str, Any]:
+def bootstrap_entity_graph(force: bool = False, root: Path = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     path = _proposal_path("entity_graph", root)
     existing = root / "data" / "entity_graph.json"
     if _has_manual_json(existing) and not force:
@@ -85,7 +100,8 @@ def bootstrap_entity_graph(force: bool = False, root: Path = ROOT) -> Dict[str, 
     return {"name": "entity_graph", "status": "written", "path": str(path), "data": data}
 
 
-def bootstrap_continuation_anchor(force: bool = False, root: Path = ROOT) -> Dict[str, Any]:
+def bootstrap_continuation_anchor(force: bool = False, root: Path = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     path = _proposal_path("continuation_anchor", root)
     existing = root / "data" / "manual_overrides" / "continuation_anchor.txt"
     if existing.exists() and existing.read_text(encoding="utf-8").strip() and not force:
@@ -111,7 +127,8 @@ def bootstrap_continuation_anchor(force: bool = False, root: Path = ROOT) -> Dic
     return {"name": "continuation_anchor", "status": "written", "path": str(path), "data": data}
 
 
-def bootstrap_style_examples(force: bool = False, root: Path = ROOT) -> Dict[str, Any]:
+def bootstrap_style_examples(force: bool = False, root: Path = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     path = _proposal_path("style_examples", root)
     examples_dir = root / "data" / "style_examples"
     existing_examples = [p for p in examples_dir.glob("*.md") if p.name.lower() != "readme.md"] if examples_dir.exists() else []
@@ -141,7 +158,7 @@ def bootstrap_style_examples(force: bool = False, root: Path = ROOT) -> Dict[str
     return {"name": "style_examples", "status": "written", "path": str(path), "data": data}
 
 
-def bootstrap_personas(force: bool = False, root: Path = ROOT) -> Dict[str, Any]:
+def bootstrap_personas(force: bool = False, root: Path = None) -> Dict[str, Any]:
     """Iter 016: derive persona binding from already-bootstrapped manual data.
 
     Reads entity_graph (manual or proposal fallback), global_facts (same),
@@ -154,7 +171,7 @@ def bootstrap_personas(force: bool = False, root: Path = ROOT) -> Dict[str, Any]
     `*_template` fields in `config/agents.yaml` so that debate and review
     agents stop being anchored on the original validation corpus.
     """
-
+    root = _resolve_root(root)
     path = _proposal_path("personas", root)
     existing = root / "data" / "manual_overrides" / "personas.json"
     if _has_manual_json(existing) and not force:
@@ -191,7 +208,8 @@ def bootstrap_personas(force: bool = False, root: Path = ROOT) -> Dict[str, Any]
     return {"name": "personas", "status": "written", "path": str(path), "data": data}
 
 
-def bootstrap_all(force: bool = False, root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
+def bootstrap_all(force: bool = False, root: Path = None) -> Dict[str, Dict[str, Any]]:
+    root = _resolve_root(root)
     return {
         "global_facts": bootstrap_global_facts(force=force, root=root),
         "entity_graph": bootstrap_entity_graph(force=force, root=root),

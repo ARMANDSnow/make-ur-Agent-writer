@@ -4,14 +4,32 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from . import paths
 from .config import ROOT
 from .state import log_event, write_text_atomic
 from .utils import ensure_dir, iter_text_files, write_json
 
 
+# Legacy constants — kept for iter 014-016 test backward compat.
 RAW_DIR = ROOT / "小说txt"
 NORMALIZED_DIR = ROOT / "data" / "normalized_texts"
 SOURCE_MAP_DIR = ROOT / "data" / "source_map"
+
+
+def _raw_dir() -> Path:
+    return paths.raw_txt_dir() if paths.workspace_name() else RAW_DIR
+
+
+def _normalized_dir() -> Path:
+    return paths.normalized_dir() if paths.workspace_name() else NORMALIZED_DIR
+
+
+def _source_map_dir() -> Path:
+    return (paths.data_dir() / "source_map") if paths.workspace_name() else SOURCE_MAP_DIR
+
+
+def _normalized_manifest_path() -> Path:
+    return (paths.data_dir() / "normalized_manifest.json") if paths.workspace_name() else (ROOT / "data" / "normalized_manifest.json")
 
 BOILERPLATE_PATTERNS = [
     re.compile(r"本书下载"),
@@ -70,8 +88,8 @@ def normalize_file(path: Path) -> Tuple[Path, Path, Dict[str, object]]:
     encoding = detect_encoding(raw)
     text = raw.decode(encoding, errors="replace")
     volume_id = volume_id_for(path)
-    out_path = NORMALIZED_DIR / f"{volume_id}.txt"
-    map_path = SOURCE_MAP_DIR / f"{volume_id}.json"
+    out_path = _normalized_dir() / f"{volume_id}.txt"
+    map_path = _source_map_dir() / f"{volume_id}.json"
 
     normalized_lines: List[str] = []
     source_map: List[Dict[str, int]] = []
@@ -97,12 +115,14 @@ def normalize_file(path: Path) -> Tuple[Path, Path, Dict[str, object]]:
     return out_path, map_path, meta
 
 
-def normalize_all(raw_dir: Path = RAW_DIR) -> List[Dict[str, object]]:
-    ensure_dir(NORMALIZED_DIR)
-    ensure_dir(SOURCE_MAP_DIR)
+def normalize_all(raw_dir: Path | None = None) -> List[Dict[str, object]]:
+    if raw_dir is None:
+        raw_dir = _raw_dir()
+    ensure_dir(_normalized_dir())
+    ensure_dir(_source_map_dir())
     results = []
     for path in iter_text_files(raw_dir):
         results.append(normalize_file(path)[2])
-    write_json(ROOT / "data" / "normalized_manifest.json", results)
+    write_json(_normalized_manifest_path(), results)
     return results
 

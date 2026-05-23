@@ -193,6 +193,17 @@
   - Downstream chain ran on the auto-generated outline: `plan-chapters --chapters 3 --force` produced a 3-chapter plan grounded in the new novel (each chapter title matches the outline section titles); `write --chapters 1 --resume-from 1 --force` produced `chapter_01.md` with 3466 Chinese characters, writer meta `verdict=Approve`; `review-chapter 1` returned `Approve` with the same `_fallback_reason=(parse_failed)` reviewer fallback observed in iter 014/015.
   - Snapshot at `outputs/drafts/snapshots/20260523_181110_iter016/` includes chapter, meta, plan, decisions, both outlines (the iter 016 auto-generated one is the active one), reviews, rolling summary, the five bootstrap proposals, and the applied personas binding.
   - Legacy validation-corpus workflow is preserved: `load_personas()` returns `None` when the personas file is missing or has a blank protagonist; `render_agent_fields` falls back to legacy `name` / `system_prompt` / `stance` per slot. The 135 unit tests in iter 015 covered the legacy path and still pass.
+- Iteration 017 multi-book workspace isolation:
+  - Introduced `workspaces/<book>/` layout. Multiple books coexist in the same checkout; switching is a single `--book <name>` CLI flag or `WORKSPACE_NAME` env var.
+  - New `src/paths.py` is the single source of truth for per-book path resolution. ~20 helpers (`data_dir`, `debate_dir`, `drafts_dir`, `reviews_dir`, `raw_txt_dir`, `manual_overrides_dir`, `personas_path`, `outline_path`, `chapter_plan_path`, etc.) all derive from `workspace_root()` and re-read the env var on every call.
+  - 22 modules in `src/` refactored. Module-level path constants are kept verbatim (so the ~30 iter 014-016 tests that `patch("src.module.CONSTANT", ...)` still work) and each gains `_resolved_*()` helpers that defer to `paths.*()` when a workspace is active, falling back to the legacy constant otherwise.
+  - `main.py` now pre-parses a global `--book <name>` flag (anywhere in argv, also `--book=<name>` form) and exports it as `WORKSPACE_NAME` before argparse runs. Every existing subcommand works with `--book` unchanged.
+  - New `src/cli_workspace.py` and four subcommands: `workspace-list`, `workspace-init <name>`, `workspace-import-current --to <name> [--dry-run]`, `workspace-show [--name <name>]`. `import-current` uses `shutil.move` (not copy) so the source novel only exists in one canonical location.
+  - Shell scripts (`write_book.sh`, `verify.sh`, `debate_smoke.sh`, `write_smoke.sh`, `real_smoke.sh`) accept `--book` and `$WORKSPACE_NAME`, resolving per-book output paths via inline `python3 -c "from src import paths; ..."` calls.
+  - `.gitignore` adds `workspaces/*/{小说txt,data,outputs,logs}/` rules and a `workspaces/.gitkeep` placeholder. Per-book content stays out of git on the same principle as legacy paths.
+  - Tests +20 → 170 OK in under 5s. New files: `tests/test_paths.py` (+12 cases for `workspace_name` permutations, `workspace_root` resolution, per-helper derivation, mid-process env switch) and `tests/test_workspace_isolation.py` (+3 cases verifying every refactored module resolves correctly in both modes and that two workspaces can coexist in one process). `tests/test_cli_integration.py` +3 (`--book` env export, `workspace-init` directory creation, `workspace-import-current --dry-run` is read-only). `tests/test_smoke_scripts.py` +1.
+  - Backward compatibility hard requirement: every iter 014-016 behavior is preserved when no workspace is active. All 149 tests from iter 016 still pass byte-identically.
+  - Cross-workspace smoke (migration of the existing source novel into a named workspace + bring-up of a second workspace + byte-identical isolation check) is pending user confirmation `可以跑 workspace smoke`.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -204,7 +215,7 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Iteration 017: workspace concept for `workspaces/<book>/` and cleaner per-book runtime isolation; allow multiple books on disk without manual backup-and-clear.
+- Finish Iteration 017 cross-workspace smoke after user confirms `可以跑 workspace smoke`.
 - Iteration 018: multilingual splitter and English novel support (`Chapter N` / Japanese / etc).
 - Iteration 019: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.
 - Iteration 020+: hosted-product layer — web UI / SaaS / per-user workspace isolation.

@@ -12,6 +12,7 @@ except Exception:
     def tqdm(iterable, **_: object):  # type: ignore[no-redef]
         return iterable
 
+from . import paths
 from .chapter_splitter import chapter_text, load_manifest
 from .config import ROOT, load_config
 from .llm_client import LLMClient
@@ -20,6 +21,8 @@ from .state import log_event
 from .utils import deep_merge, ensure_dir, read_json, write_json
 
 
+# Legacy constants — kept for iter 014-016 test backward compat
+# (``patch("src.extractor.FAILURES_DIR", ...)`` and friends still work).
 EXTRACTED_DIR = ROOT / "data" / "extracted_jsons"
 OVERRIDES_DIR = ROOT / "data" / "manual_overrides"
 FAILURES_DIR = ROOT / "data" / "extraction_failures"
@@ -29,8 +32,24 @@ DEFAULT_ROLLING_SUMMARY_CHARS = 4000
 DEFAULT_ROLLING_SUMMARY_ITEMS = 12
 
 
+def _extracted_dir() -> Path:
+    return paths.extracted_dir() if paths.workspace_name() else EXTRACTED_DIR
+
+
+def _overrides_dir() -> Path:
+    return paths.manual_overrides_dir() if paths.workspace_name() else OVERRIDES_DIR
+
+
+def _failures_dir() -> Path:
+    return paths.extraction_failures_dir() if paths.workspace_name() else FAILURES_DIR
+
+
+def _rolling_dir() -> Path:
+    return paths.rolling_summaries_dir() if paths.workspace_name() else ROLLING_DIR
+
+
 def _output_path(chapter_id: str) -> Path:
-    return EXTRACTED_DIR / f"{chapter_id}.json"
+    return _extracted_dir() / f"{chapter_id}.json"
 
 
 def _extract_settings() -> Dict[str, Any]:
@@ -60,7 +79,7 @@ def _tail_by_sentence(text: str, max_chars: int) -> str:
 
 def _load_overrides() -> Dict[str, Dict[str, Any]]:
     overrides: Dict[str, Dict[str, Any]] = {}
-    for path in sorted(OVERRIDES_DIR.glob("*.json")):
+    for path in sorted(_overrides_dir().glob("*.json")):
         data = read_json(path, {})
         items = data if isinstance(data, list) else [data]
         for item in items:
@@ -228,7 +247,7 @@ def _extract_chapter_data(
 
 
 def _rolling_path(volume_id: str) -> Path:
-    return ROLLING_DIR / f"{volume_id}.json"
+    return _rolling_dir() / f"{volume_id}.json"
 
 
 def _load_rolling_state(volume_id: str) -> Dict[str, Any]:
@@ -262,9 +281,10 @@ def _save_rolling_state(
 
 
 def _write_failure(entry: Dict[str, object], text: str, exc: Exception) -> None:
-    ensure_dir(FAILURES_DIR)
+    failures_dir = _failures_dir()
+    ensure_dir(failures_dir)
     chapter_id = str(entry["chapter_id"])
-    existing = read_json(FAILURES_DIR / f"{chapter_id}.json", {})
+    existing = read_json(failures_dir / f"{chapter_id}.json", {})
     retry_count = int(existing.get("retry_count", 0)) + 1
     failure = {
         "chapter_id": chapter_id,
@@ -276,12 +296,12 @@ def _write_failure(entry: Dict[str, object], text: str, exc: Exception) -> None:
         "failed_at": datetime.now(timezone.utc).isoformat(),
         "prompt_summary": text[:500],
     }
-    write_json(FAILURES_DIR / f"{chapter_id}.json", failure)
+    write_json(failures_dir / f"{chapter_id}.json", failure)
     log_event("extract", "failure", chapter_id=chapter_id, error=str(exc), retry_count=retry_count)
 
 
 def _clear_failure(chapter_id: str) -> None:
-    path = FAILURES_DIR / f"{chapter_id}.json"
+    path = _failures_dir() / f"{chapter_id}.json"
     if path.exists():
         path.unlink()
 
@@ -292,8 +312,8 @@ def extract_all(
     force: bool = False,
     chapter_ids: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
-    ensure_dir(EXTRACTED_DIR)
-    ensure_dir(ROLLING_DIR)
+    ensure_dir(_extracted_dir())
+    ensure_dir(_rolling_dir())
     manifest = load_manifest()
     if volume != "all":
         manifest = [entry for entry in manifest if str(entry["volume_id"]) == volume]
@@ -376,7 +396,7 @@ def extract_all(
 
 
 def retry_failures() -> List[Dict[str, Any]]:
-    failure_ids = {path.stem for path in FAILURES_DIR.glob("*.json")}
+    failure_ids = {path.stem for path in _failures_dir().glob("*.json")}
     if not failure_ids:
         return []
     return extract_all(volume="all", force=True, chapter_ids=failure_ids)

@@ -4,14 +4,30 @@ import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
+from . import paths
 from .config import ROOT
 from .schemas import ChapterManifestEntry, model_to_dict
 from .state import log_event
 from .utils import ensure_dir, read_json, write_json
 
 
+# Legacy constants — kept for iter 014-016 test backward compat.
 NORMALIZED_DIR = ROOT / "data" / "normalized_texts"
 MANIFEST_PATH = ROOT / "data" / "chapter_manifest.json"
+
+
+def _normalized_dir() -> Path:
+    return paths.normalized_dir() if paths.workspace_name() else NORMALIZED_DIR
+
+
+def _manifest_path() -> Path:
+    return paths.chapter_manifest_path() if paths.workspace_name() else MANIFEST_PATH
+
+
+def _normalized_manifest_path() -> Path:
+    if paths.workspace_name():
+        return paths.data_dir() / "normalized_manifest.json"
+    return ROOT / "data" / "normalized_manifest.json"
 
 CN_NUM = "一二三四五六七八九十百零〇两0-9"
 HEADING_RE = re.compile(rf"^\s*((?:第[{CN_NUM}]+[章节幕]\s*[^\n]{{0,70}})|(?:楔子[^\n]{{0,70}})|(?:序章[^\n]{{0,70}})|(?:序幕[^\n]{{0,70}})|(?:尾声[^\n]{{0,70}}))\s*$")
@@ -117,23 +133,26 @@ def split_file(path: Path) -> List[ChapterManifestEntry]:
     return entries
 
 
-def split_all(normalized_dir: Path = NORMALIZED_DIR) -> List[Dict[str, object]]:
-    ensure_dir(MANIFEST_PATH.parent)
+def split_all(normalized_dir: Path | None = None) -> List[Dict[str, object]]:
+    if normalized_dir is None:
+        normalized_dir = _normalized_dir()
+    manifest_path = _manifest_path()
+    ensure_dir(manifest_path.parent)
     entries: List[Dict[str, object]] = []
-    normalized_manifest = read_json(ROOT / "data" / "normalized_manifest.json", [])
+    normalized_manifest = read_json(_normalized_manifest_path(), [])
     source_by_volume = {item["volume_id"]: item["source_file"] for item in normalized_manifest}
     for path in sorted(normalized_dir.glob("*.txt")):
         for entry in split_file(path):
             data = model_to_dict(entry)
             data["source_file"] = source_by_volume.get(entry.volume_id, entry.source_file)
             entries.append(data)
-    write_json(MANIFEST_PATH, entries)
-    log_event("split", "done", chapters=len(entries), output=str(MANIFEST_PATH))
+    write_json(manifest_path, entries)
+    log_event("split", "done", chapters=len(entries), output=str(manifest_path))
     return entries
 
 
 def load_manifest() -> List[Dict[str, object]]:
-    manifest = read_json(MANIFEST_PATH, [])
+    manifest = read_json(_manifest_path(), [])
     if not manifest:
         raise FileNotFoundError("chapter manifest not found; run `python main.py normalize` then `python main.py split`")
     return manifest

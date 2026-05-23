@@ -7,23 +7,37 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
+from . import paths
 from .config import ROOT
 from .utils import ensure_dir, read_json, write_json
 
 
+# Legacy constants — kept for iter 014-016 test backward compat.
 DRAFTS_DIR = ROOT / "outputs" / "drafts"
 ENTITY_GRAPH_PATH = ROOT / "data" / "entity_graph.json"
 
 
-def proposal_path(chapter_no: int, drafts_dir: Path = DRAFTS_DIR) -> Path:
+def _drafts_dir() -> Path:
+    return paths.drafts_dir() if paths.workspace_name() else DRAFTS_DIR
+
+
+def _entity_graph_path() -> Path:
+    return paths.entity_graph_path() if paths.workspace_name() else ENTITY_GRAPH_PATH
+
+
+def proposal_path(chapter_no: int, drafts_dir: Path | None = None) -> Path:
+    if drafts_dir is None:
+        drafts_dir = _drafts_dir()
     return drafts_dir / f"chapter_{chapter_no:02d}.entity_advance_proposals.json"
 
 
 def save_entity_advance_proposals(
     chapter_no: int,
     proposed_advances: List[Dict[str, Any]],
-    drafts_dir: Path = DRAFTS_DIR,
+    drafts_dir: Path | None = None,
 ) -> Path:
+    if drafts_dir is None:
+        drafts_dir = _drafts_dir()
     path = proposal_path(chapter_no, drafts_dir)
     ensure_dir(path.parent)
     write_json(path, {"chapter_no": int(chapter_no), "proposed_advances": proposed_advances})
@@ -59,10 +73,14 @@ def apply_advance_proposals(
     chapter_no: int,
     proposal_indexes: str | Iterable[int],
     confirm: bool = False,
-    graph_path: Path = ENTITY_GRAPH_PATH,
-    drafts_dir: Path = DRAFTS_DIR,
+    graph_path: Path | None = None,
+    drafts_dir: Path | None = None,
 ) -> Dict[str, Any]:
     """Dry-run or apply selected proposal indexes to data/entity_graph.json."""
+    if graph_path is None:
+        graph_path = _entity_graph_path()
+    if drafts_dir is None:
+        drafts_dir = _drafts_dir()
     indexes = _parse_indexes(proposal_indexes)
     proposals_data = read_json(proposal_path(chapter_no, drafts_dir), {})
     proposals = proposals_data.get("proposed_advances", [])

@@ -5,11 +5,19 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
+from . import paths
 from .config import ROOT
 from .utils import read_json
 
 
-def estimate_cost(root: Path = ROOT) -> Dict[str, Any]:
+def _resolve_root(root: Path | None) -> Path:
+    if root is not None:
+        return root
+    return paths.workspace_root() if paths.workspace_name() else ROOT
+
+
+def estimate_cost(root: Path | None = None) -> Dict[str, Any]:
+    root = _resolve_root(root)
     manifest = read_json(root / "data" / "chapter_manifest.json", [])
     total_chars = sum(int(entry.get("char_count", 0)) for entry in manifest)
     estimated_tokens = math.ceil(total_chars / 1.6) if total_chars else 0
