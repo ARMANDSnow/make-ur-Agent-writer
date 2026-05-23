@@ -170,6 +170,12 @@
   - Existing manual files are skipped by default unless `--force` is provided, preserving the current Dragon Raja workflow.
   - Engineering validation for Step 1 passed: 135 unit tests OK in 2.277s, `bash scripts/verify.sh` exited 0 with 135 tests OK in 2.164s, and `python3 main.py preflight` reported warn with FATAL none.
   - Step 1 engineering is ready for the commit `Iteration 015: auto-bootstrap pipeline for any novel`; cross-novel smoke waits for user preparation and explicit `可以跑 init-book`.
+  - Cross-novel smoke (Step 2-4) ran 2026-05-23 against a user-provided Chinese novel. `init-book` produced four proposals; the user applied them and authorized the downstream pipeline. Bootstrap manual files: 15 facts, 12 entities, 6 relationships, anchor block with 7 entity states, single style example file with `<!-- source: ... lines X-Y -->` header — full excerpt stays in gitignored `data/style_examples/style.md`.
+  - During the smoke, the six debate agents in `config/agents.yaml` were observed to anchor on the original validation corpus and produce an outline disconnected from the bootstrap manual files. The 6×6 agent outline was preserved as `outputs/debate/outline_longzu_fallback.md` and `outline.md` was rewritten to a source-novel-grounded outline before running `plan-chapters`. This is the documented caveat from the iter 015 plan (note #6) and remains an open follow-up for iter 019 (agent persona abstraction).
+  - `src/debater.py` gained resume support: partial logs are not unlinked; previously-completed `(round, agent)` entries with non-empty responses and previously-completed ballots are skipped on rerun. This made the long debate survivable across externally-induced process resets.
+  - Downstream pipeline: `plan-chapters --chapters 3` produced a coherent three-chapter plan whose chapter 3 plans a canonical major event from the source novel. `write --chapters 1` produced `outputs/drafts/chapter_01.md` with 5695 Chinese characters (above the iter 015 minimum of 3000), writer meta verdict `Approve`. `review-chapter 1` returned `Approve` with the same `_fallback_reason=(parse_failed)` reviewer fallback observed in iter 014.
+  - Snapshot at `outputs/drafts/snapshots/20260523_120329/` includes chapter, meta, plan, debate decisions, both outlines, reviews, rolling summary, and the four bootstrap proposals.
+  - Engineering: 135 unit tests still OK after the debater resume patch.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands

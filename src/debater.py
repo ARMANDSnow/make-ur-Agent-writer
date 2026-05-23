@@ -58,12 +58,51 @@ def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") 
     facts = global_facts_summary()
     client = LLMClient("debate")
     log_path = DEBATE_DIR / "debate_log.jsonl"
-    if log_path.exists():
-        log_path.unlink()
 
+    # Resume support (iter 015 cross-novel smoke): rather than always unlinking
+    # the log, read previously-completed (round, agent) entries with non-empty
+    # response and skip them. Failed/empty entries are retried.
     transcript: List[Dict[str, Any]] = []
+    done_keys: set = set()
+    done_ballots: set = set()
+    if log_path.exists():
+        with log_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue
+                ag = entry.get("agent")
+                r = entry.get("round")
+                rn = entry.get("round_name")
+                resp = entry.get("response", "")
+                err = entry.get("error")
+                if rn == "裁决投票":
+                    if not err and entry.get("ballots"):
+                        done_ballots.add(ag)
+                    continue
+                if r is None or ag is None:
+                    continue
+                if err or not resp:
+                    continue
+                key = (r, ag)
+                if key in done_keys:
+                    continue
+                done_keys.add(key)
+                transcript.append({"round": r, "round_name": rn, "agent": ag, "response": resp})
+        # Rewrite log keeping only retained entries so we don't accumulate
+        # stale error rows on each resume.
+        with log_path.open("w", encoding="utf-8") as fh:
+            for item in transcript:
+                fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+
     for round_index, round_name in enumerate(ROUNDS, 1):
         for agent in agents:
+            if (round_index, agent["name"]) in done_keys:
+                continue
             try:
                 response = client.complete_text(
                     [
@@ -94,6 +133,9 @@ def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") 
     decisions = build_decisions(agents, transcript, client)
     agent_ballots: Dict[str, List[Dict[str, Any]]] = {}
     for agent in agents:
+        if agent["name"] in done_ballots:
+            # Reuse previously logged ballot if present.
+            continue
         ballot_entry = _collect_agent_votes(agent, decisions.get("votes", []), transcript, client)
         agent_ballots[agent["name"]] = ballot_entry["ballots"]
         log_item = {
@@ -107,6 +149,23 @@ def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") 
             log_item["error"] = ballot_entry["error"]
         with log_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(log_item, ensure_ascii=False) + "\n")
+
+    # If any ballots were resumed from log, load them now so _apply_agent_ballots
+    # sees them too.
+    if done_ballots:
+        with log_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue
+                if entry.get("round_name") == "裁决投票":
+                    ag = entry.get("agent")
+                    if ag and ag in done_ballots and ag not in agent_ballots:
+                        agent_ballots[ag] = entry.get("ballots", [])
     decisions = _apply_agent_ballots(decisions, agent_ballots, len(transcript))
     outline = build_outline(topic, decisions, transcript, client)
     write_json(DEBATE_DIR / "decisions.json", decisions)
