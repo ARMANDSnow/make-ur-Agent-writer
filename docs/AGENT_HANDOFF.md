@@ -203,7 +203,10 @@
   - `.gitignore` adds `workspaces/*/{小说txt,data,outputs,logs}/` rules and a `workspaces/.gitkeep` placeholder. Per-book content stays out of git on the same principle as legacy paths.
   - Tests +20 → 170 OK in under 5s. New files: `tests/test_paths.py` (+12 cases for `workspace_name` permutations, `workspace_root` resolution, per-helper derivation, mid-process env switch) and `tests/test_workspace_isolation.py` (+3 cases verifying every refactored module resolves correctly in both modes and that two workspaces can coexist in one process). `tests/test_cli_integration.py` +3 (`--book` env export, `workspace-init` directory creation, `workspace-import-current --dry-run` is read-only). `tests/test_smoke_scripts.py` +1.
   - Backward compatibility hard requirement: every iter 014-016 behavior is preserved when no workspace is active. All 149 tests from iter 016 still pass byte-identically.
-  - Cross-workspace smoke (migration of the existing source novel into a named workspace + bring-up of a second workspace + byte-identical isolation check) is pending user confirmation `可以跑 workspace smoke`.
+  - Cross-workspace smoke ran 2026-05-23. The iter 016 source novel was migrated into `workspaces/workspace1/` via `workspace-import-current` (dry-run first, then real `shutil.move`); preflight clean; baseline sha256 recorded for chapter_01.md / outline.md / personas.json / entity_graph.json. A second workspace `workspaces/workspace2/` was created from a separate source novel and the full `init-book → apply 5 proposals → debate → plan → write → review` pipeline ran on it. Two engineering fixes landed alongside the smoke: `main.init_book_pipeline` was using hardcoded `Path("小说txt")` / `Path("data/...")` strings — now resolved through `paths.*()` in workspace mode while legacy mode keeps the cwd-relative strings; `main review-chapter` similarly resolves `chapter_NN.md` through `paths.drafts_dir()` in workspace mode.
+  - workspace2 produced 5 proposals, debate completed with persona-rendered agents using workspace2's protagonist and author, outline had 22 keyword hits for workspace2's source and 0 for workspace1's, chapter_01.md was 4552 Chinese characters, and review returned Approve.
+  - **Critical isolation acceptance (C4)**: every monitor tick during the workspace2 debate showed workspace1's chapter_01.md sha256 prefix unchanged. After the full smoke, all four baseline files were byte-identical — workspace1's chapter, outline, personas, and entity graph survived the entire workspace2 init-book → debate → plan → write → review pipeline untouched.
+  - Snapshot at `workspaces/workspace2/outputs/drafts/snapshots/<ts>_iter017_workspace2/` contains the workspace2 chapter, meta, plan, decisions, outline, reviews, rolling summary, the five workspace2 bootstrap proposals, and the applied workspace2 personas binding.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -215,7 +218,6 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Finish Iteration 017 cross-workspace smoke after user confirms `可以跑 workspace smoke`.
 - Iteration 018: multilingual splitter and English novel support (`Chapter N` / Japanese / etc).
 - Iteration 019: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.
 - Iteration 020+: hosted-product layer — web UI / SaaS / per-user workspace isolation.

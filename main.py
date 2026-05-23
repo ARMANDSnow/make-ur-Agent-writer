@@ -261,7 +261,12 @@ def main() -> None:
     elif args.command == "review":
         review_target(Path(args.target), enforce_relationship_checklist=True)
     elif args.command == "review-chapter":
-        review_target(Path(f"outputs/drafts/chapter_{args.chapter:02d}.md"), enforce_relationship_checklist=True)
+        # iter 017: resolve drafts dir via paths.py so review-chapter honors
+        # --book. Legacy mode keeps the same outputs/drafts/ path.
+        from src import paths
+
+        drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
+        review_target(drafts_dir / f"chapter_{args.chapter:02d}.md", enforce_relationship_checklist=True)
     elif args.command == "apply-advance":
         result = apply_advance_cli(args.chapter, args.proposal_idx, confirm=args.confirm)
         print(render_apply_advance_result(result), end="")
@@ -275,12 +280,23 @@ def main() -> None:
 
 
 def init_book_pipeline(skip_extract: bool = False, extract_limit: int | None = 10, force: bool = False):
-    raw_dir = Path("小说txt")
-    normalized_dir = Path("data/normalized_texts")
-    manifest_path = Path("data/chapter_manifest.json")
-    if not any(raw_dir.glob("*.txt")):
-        raise FileNotFoundError("no txt files found in 小说txt/")
-    if not any(normalized_dir.glob("*.txt")):
+    # iter 017: in workspace mode, resolve raw/normalized/manifest paths
+    # through paths.py so init-book honors --book / WORKSPACE_NAME. In legacy
+    # mode (no workspace), keep cwd-relative paths so iter 014-016 tests that
+    # chdir into a tmp dir still work without modification.
+    from src import paths
+
+    if paths.workspace_name():
+        raw_dir = paths.raw_txt_dir()
+        normalized_dir = paths.normalized_dir()
+        manifest_path = paths.chapter_manifest_path()
+    else:
+        raw_dir = Path("小说txt")
+        normalized_dir = Path("data/normalized_texts")
+        manifest_path = Path("data/chapter_manifest.json")
+    if not raw_dir.exists() or not any(raw_dir.glob("*.txt")):
+        raise FileNotFoundError(f"no txt files found in {raw_dir}")
+    if not normalized_dir.exists() or not any(normalized_dir.glob("*.txt")):
         normalize_all()
     if not manifest_path.exists():
         split_all()

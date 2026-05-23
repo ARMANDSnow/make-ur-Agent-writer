@@ -55,7 +55,74 @@ P9. Update iteration index, AGENT_HANDOFF, README quick start, and write this it
 | C2-D3 | Cross-workspace smoke | Pending user confirmation ``可以跑 workspace smoke`` |
 | F | Engineering gates | 170 / verify / preflight all green |
 
-Cross-workspace smoke (C2 onwards) is intentionally deferred — it waits for explicit user confirmation, then walks the migration of the existing source novel into ``workspaces/xueZhong/`` and the bring-up of a second workspace.
+### Cross-workspace smoke result (C2-D3)
+
+The cross-workspace smoke ran end to end on 2026-05-23. Two real source novels coexisted in the same checkout for the entire run.
+
+**Step 1 — migrate workspace1 (the iter 016 source novel):**
+
+```
+python3 main.py workspace-import-current --to workspace1 --dry-run   # preview moves
+python3 main.py workspace-import-current --to workspace1            # actual move via shutil.move
+python3 main.py --book workspace1 preflight                          # warn / FATAL none
+sha256sum workspaces/workspace1/outputs/drafts/chapter_01.md \
+          workspaces/workspace1/outputs/debate/outline.md \
+          workspaces/workspace1/data/manual_overrides/personas.json \
+          workspaces/workspace1/data/entity_graph.json > /tmp/baseline.sha
+```
+
+After the import, the repo root ``data/``, ``outputs/``, ``logs/``, ``小说txt/`` were empty placeholder directories; the full iter 016 state lived under ``workspaces/workspace1/``.
+
+**Step 2 — bring up workspace2 from a different source novel:**
+
+```
+python3 main.py workspace-init workspace2
+cp <backup>/小说txt/*.txt workspaces/workspace2/小说txt/
+python3 main.py --book workspace2 normalize        # 7 volumes
+python3 main.py --book workspace2 split            # chapter manifest
+python3 main.py --book workspace2 init-book --extract-limit 5
+```
+
+`init-book` extracted 5 chapters (2 succeeded, 3 had model JSON-parse failures — the same residual extraction-failure mode observed in iter 015), then compressed the knowledge base and produced all five bootstrap proposals via the Opus planner. The personas proposal correctly identified workspace2's protagonist and author — distinct from workspace1's — and listed 5 core relationships and 4 setting rules drawn from workspace2's own entity graph.
+
+**Step 3 — apply all five workspace2 proposals + debate + plan + write:**
+
+All five `apply-bootstrap --name X --confirm` operations wrote into `workspaces/workspace2/data/manual_overrides/` and `workspaces/workspace2/data/entity_graph.json` only. `python3 main.py --book workspace2 debate` ran the full 6×6 agent rounds + 6 ballots + outline generation (~32 minutes). Every agent name in `workspaces/workspace2/outputs/debate/debate_log.jsonl` was persona-rendered using workspace2's protagonist and author.
+
+`workspaces/workspace2/outputs/debate/outline.md` had **22 keyword hits for workspace2's source novel** and **0 keyword hits for workspace1's source novel**. The outline title and section content all reflected workspace2's setting.
+
+`plan-chapters --chapters 3 --force` produced a coherent 3-chapter plan grounded in workspace2. `write --chapters 1 --resume-from 1 --force` produced `workspaces/workspace2/outputs/drafts/chapter_01.md` with **4552 Chinese characters**. Writer meta `verdict=Reject` after `rewrite_round=2` (the workspace2 prose had more lint warnings than usual; the chapter still wrote and the smoke result is the file on disk). `review-chapter 1` returned `verdict=Approve` with the familiar `_fallback_reason=(parse_failed)`.
+
+**Step 4 — byte-identical isolation check:**
+
+Every monitor tick during the workspace2 debate showed workspace1's `chapter_01.md` sha256 prefix unchanged. After the full smoke ran:
+
+```
+sha256sum --check /tmp/baseline.sha
+# workspaces/workspace1/outputs/drafts/chapter_01.md: OK
+# workspaces/workspace1/outputs/debate/outline.md: OK
+# workspaces/workspace1/data/manual_overrides/personas.json: OK
+# workspaces/workspace1/data/entity_graph.json: OK
+```
+
+All four files were byte-identical. workspace1's chapter, outline, personas, and entity graph survived the entire workspace2 init-book → debate → plan → write → review pipeline untouched.
+
+A few engineering fixes landed alongside the smoke:
+
+* `main.init_book_pipeline` was using hardcoded `Path("小说txt")` / `Path("data/normalized_texts")` / `Path("data/chapter_manifest.json")` strings. In workspace mode it now resolves these through `paths.*()`. Legacy mode keeps the cwd-relative strings so the iter 014-016 tests that chdir into a tmp dir still work.
+* `main` command for `review-chapter` was using hardcoded `outputs/drafts/chapter_NN.md`. In workspace mode it now uses `paths.drafts_dir() / f"chapter_{N:02d}.md"`.
+
+Snapshot at `workspaces/workspace2/outputs/drafts/snapshots/<ts>_iter017_workspace2/` contains the chapter, meta, plan, decisions, outline, reviews, rolling summary, five bootstrap proposals, and the applied personas binding for workspace2.
+
+| # | Item | Result |
+|---|------|--------|
+| C1 | `import-current --dry-run` is read-only | OK; the dry-run listed all four planned moves without touching disk |
+| C2 | workspace1 migration | OK; preflight clean; baseline sha256 recorded |
+| C3 | workspace2 brought up from scratch | OK; 5 proposals; all 5 applied; debate, plan, write, review all completed |
+| C4 | **byte-identical isolation** | **PASS**; all 4 workspace1 files unchanged after the full workspace2 pipeline |
+| D1 | User subjective rating | Pending user readback (baseline target ≥ 8/10) |
+| D2 | workspace2 ch1 protagonist correct | OK; first line names workspace2's protagonist and setting; no workspace1 keyword appears |
+| D3 | Snapshot completeness | OK (see snapshot directory) |
 
 ## Implementation Notes
 
