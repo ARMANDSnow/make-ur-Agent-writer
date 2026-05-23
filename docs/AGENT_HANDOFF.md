@@ -185,7 +185,14 @@
   - `src/debater.py` and `src/reviewer.py` now render agent prompts through persona binding when available; `build_outline` injects an explicit persona block forbidding drift to other corpora. The relationship-checklist guard still keys off the legacy reviewer name so 关系一致性 enforcement stays intact under any renaming.
   - Added `python3 main.py debate --topic "..."` so the smoke can override the legacy validation-corpus topic.
   - Tests +14 → 149 OK in under 5 seconds. `bash scripts/verify.sh` exited 0; `python3 main.py preflight` reported `warn` / `FATAL: none`.
-  - Cross-novel re-smoke is pending user confirmation `可以跑 persona smoke`. The smoke removes the manually-rewritten outline from iter 015 and the personas.json (if any), then runs bootstrap-personas / apply / debate / plan-chapters / write / review and verifies the outline references the new-novel protagonist instead of the original validation corpus.
+  - Cross-novel re-smoke ran 2026-05-23 on the iter 015 source novel after deleting the manually-rewritten outline and any prior personas binding.
+  - `bootstrap-personas` produced a faithful binding: protagonist matched the entity-graph entity with the highest degree, author was correctly inferred from the corpus, world_setting_brief stayed within the 400-char cap, core_relationships and core_setting_rules each pointed to canonical entities and rules already present in the manual override files.
+  - `apply-bootstrap --name personas --confirm` wrote `data/manual_overrides/personas.json`, stripped `_meta`, and backed up the prior file to `data/proposals/.backup/<ts>/`.
+  - `python3 main.py debate` completed all 6×6 agent rounds + 6 ballots + outline generation in a single uninterrupted process (~32 minutes). Every agent name in `debate_log.jsonl` was persona-rendered; no legacy validation-corpus name appeared.
+  - **Critical acceptance**: the auto-generated `outputs/debate/outline.md` contains 33 hits of new-novel keywords (protagonist / locations / artefacts) and 0 hits of validation-corpus keywords. iter 015 needed a hand-rewritten outline to achieve the same effect; iter 016 reaches it automatically.
+  - Downstream chain ran on the auto-generated outline: `plan-chapters --chapters 3 --force` produced a 3-chapter plan grounded in the new novel (each chapter title matches the outline section titles); `write --chapters 1 --resume-from 1 --force` produced `chapter_01.md` with 3466 Chinese characters, writer meta `verdict=Approve`; `review-chapter 1` returned `Approve` with the same `_fallback_reason=(parse_failed)` reviewer fallback observed in iter 014/015.
+  - Snapshot at `outputs/drafts/snapshots/20260523_181110_iter016/` includes chapter, meta, plan, decisions, both outlines (the iter 016 auto-generated one is the active one), reviews, rolling summary, the five bootstrap proposals, and the applied personas binding.
+  - Legacy validation-corpus workflow is preserved: `load_personas()` returns `None` when the personas file is missing or has a blank protagonist; `render_agent_fields` falls back to legacy `name` / `system_prompt` / `stance` per slot. The 135 unit tests in iter 015 covered the legacy path and still pass.
 - Iteration records are kept under `docs/iterations/`.
 
 ## Validation Commands
@@ -197,7 +204,6 @@ bash scripts/verify.sh
 
 ## Next Candidates
 
-- Finish Iteration 016 cross-novel re-smoke once the user clears the iter 015 outline and confirms `可以跑 persona smoke`.
 - Iteration 017: workspace concept for `workspaces/<book>/` and cleaner per-book runtime isolation; allow multiple books on disk without manual backup-and-clear.
 - Iteration 018: multilingual splitter and English novel support (`Chapter N` / Japanese / etc).
 - Iteration 019: fuller `write_book.sh` automation, chapter failure resume/retry, and optional plan-aware entity advance workflow.

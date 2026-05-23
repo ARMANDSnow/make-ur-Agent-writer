@@ -95,7 +95,47 @@ python3 main.py preflight
 # PREFLIGHT: warn; FATAL: none
 ```
 
-Cross-novel re-smoke (C2-D3) is intentionally pending. The next phase waits for the user to delete the iter 015 cross-novel `outputs/debate/outline.md` and `data/manual_overrides/personas.json` and reply `可以跑 persona smoke`.
+Cross-novel re-smoke (C2-D3) ran on 2026-05-23 against the same source novel used for the iter 015 smoke. The iter 015 manually-rewritten outline and any prior personas binding were removed first so the pipeline rebuilt everything from scratch.
+
+`bootstrap-personas` (Opus) produced a faithful binding entirely from already-applied manual data:
+
+- `protagonist_name` matched the entity-graph entity with the highest connection degree (the canonical protagonist).
+- `protagonist_role` was a one-sentence role description well under the 120-char cap.
+- `author_name` was correctly inferred from the corpus (Chinese wuxia author).
+- `style_short_descriptor` was a short prose-style phrase under the 80-char cap.
+- `world_setting_brief` was 245 characters (well under the 400-char cap) and described the political-and-martial-arts backdrop without quoting source text.
+- `core_relationships` had 5 entries, each one taken from a relationship already present in `entity_graph.json`.
+- `core_setting_rules` had 3 entries, each one a canonical hard rule already implied by the global_facts file.
+
+`apply-bootstrap --name personas --confirm` wrote `data/manual_overrides/personas.json` (gitignored), stripped `_meta`, and backed up the prior file to `data/proposals/.backup/<ts>/`.
+
+`python3 main.py debate` ran the full 6×6 agent rounds + 6 ballots + outline generation in a single uninterrupted process (~32 minutes of wall-clock; the iter 015 resume support never triggered because nothing died). **Critical validation: every agent name in `debate_log.jsonl` was persona-rendered.** The two parameterized agent name templates `{protagonist_name}本位` and `{author_name}人格模拟` resolved to source-novel-specific names; no legacy validation-corpus name appeared in any log entry.
+
+`outputs/debate/outline.md` ended up fully anchored on the source novel:
+
+- New-novel keyword hits (protagonist / two key locations / two key artefacts / two supporting characters): **33**
+- Validation-corpus keyword hits (the original prototype's protagonist / three side characters / corpus name / one location): **0**
+
+This is exactly the bottleneck iter 015 could not clear automatically: its first debate produced an outline with 30+ validation-corpus keyword hits and required a human to rewrite `outline.md` by hand before `plan-chapters`. iter 016 reaches the same effect with zero manual intervention. Outline section titles and internal references all use entities and concepts already present in the bootstrap manual override files.
+
+The downstream chain ran on the auto-generated outline:
+
+- `plan-chapters --chapters 3 --force` produced a coherent 3-chapter plan. Section titles came from the outline; `opening_scene` lines referenced real locations from the manual files; `key_events` referenced canonical character relationships from the persona binding.
+- `write --chapters 1 --resume-from 1 --force` produced `outputs/drafts/chapter_01.md` with **3466 Chinese characters** (above the iter 015 minimum of 3000; just under the 4000 target so the lint flagged a non-blocking `short_chapter_length` warning). Writer meta `verdict=Approve`, `rewrite_round=1`, 6 `not_x_but_y` lint warnings (the same AI sentence-pattern tendency observed in iter 014 and iter 015).
+- `review-chapter 1` returned `verdict=Approve` with `_fallback_reason=(parse_failed)`, the same reviewer JSON-parse fallback observed in iter 014 and iter 015 standalone reviews.
+
+Snapshot at `outputs/drafts/snapshots/20260523_181110_iter016/` contains the chapter, meta, plan, decisions, the auto-generated outline (not the iter 015 hand-rewritten one), reviews, rolling summary, all five bootstrap proposals, and the applied personas binding file.
+
+| # | Item | Result |
+|---|------|--------|
+| C1 | persona proposal data shape | OK: protagonist matched entity-graph highest-degree entity; world_setting_brief 245 / 400 chars; relationships and setting rules each pointed at already-applied entries |
+| C2 | re-smoke outline auto-generated correctly | **PASS**: 33 new-novel keyword hits vs 0 validation-corpus hits; zero manual edits to outline |
+| C3 | plan-chapters auto-generated correctly | OK: all 3 chapter plans grounded in the new novel; titles match outline section titles |
+| C4 | ch1 ≥ 3000 Chinese chars + content on the new novel | OK: 3466 chars; opening on the canonical protagonist's training location; ending leaves a quiet character beat in the source-author voice |
+| C5 | Legacy validation-corpus workflow not broken | Verified by design: `load_personas` returns None on missing file or blank protagonist; `render_agent_fields` falls back to legacy fields per slot; 149 unit tests still pass and cover the legacy path |
+| D1 | User subjective rating | Pending user readback (baseline target ≥ 8/10) |
+| D2 | LLM call OK rate | 100% (no errors during the smoke) |
+| D3 | Snapshot completeness | OK (see snapshot directory above) |
 
 ## 文件变更汇总
 
