@@ -21,6 +21,22 @@ class LLMClientJsonParseTests(unittest.TestCase):
         self.assertEqual(client.config["base_url_env"], "PLANNER_BASE_URL")
         self.assertEqual(client.config["api_key"], "planner-key")
         self.assertEqual(client.config["base_url"], "https://planner.example/v1")
+        # Default model from config/models.yaml (used to be openai/claude-opus-4-5
+        # in iter 014-019; switched to openai/gpt-5.5 in iter 019 post-phase3 as
+        # the planner provider unified with the writer provider).
+        self.assertEqual(client.model, "openai/gpt-5.5")
+
+    def test_planner_model_env_overrides_yaml_default(self) -> None:
+        """Iter 019 post-phase3: plot_planner now honors PLANNER_MODEL env so the
+        planner model can be swapped without editing config/models.yaml."""
+        env = {
+            "OPENAI_MODEL": "deepseek/deepseek-chat",
+            "PLANNER_API_KEY": "planner-key",
+            "PLANNER_BASE_URL": "https://planner.example/v1",
+            "PLANNER_MODEL": "openai/claude-opus-4-5",
+        }
+        with patch.dict(os.environ, env, clear=True), patch("src.config.load_dotenv_if_available"):
+            client = LLMClient("plot_planner")
         self.assertEqual(client.model, "openai/claude-opus-4-5")
 
     def test_invalid_json_raises_runtime_error_with_context(self) -> None:
