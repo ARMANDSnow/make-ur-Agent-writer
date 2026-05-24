@@ -51,6 +51,13 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(report["verdict"], "Approve")
 
     def test_review_text_falls_back_when_outer_json_unparseable(self) -> None:
+        """Iter 019 audit fix: a single agent's malformed JSON used to
+        short-circuit the whole review with a silent Approve. Now the
+        agent abstains, and with only one agent in the panel that means
+        all-abstain → Reject (fail-closed). The json_parse_fallback log
+        event still fires for observability.
+        """
+
         def fake_complete_text(self, messages):
             return "random text without json"
 
@@ -59,10 +66,84 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         ), patch("src.reviewer.log_event") as mock_log:
             report = review_text("干净正文。", "parse_failed.md", precomputed_lint_issues=[])
 
-        self.assertEqual(report["verdict"], "Approve")
-        self.assertEqual(report["_fallback_reason"], "(parse_failed)")
-        self.assertEqual(report["agent_reviews"], [])
+        self.assertEqual(report["verdict"], "Reject")
+        self.assertEqual(report["_fallback_reason"], "(all_agents_parse_failed)")
+        self.assertEqual(len(report["agent_reviews"]), 1)
+        self.assertEqual(report["agent_reviews"][0]["verdict"], "Abstain")
+        self.assertEqual(report["agent_reviews"][0]["_fallback_reason"], "(parse_failed)")
         self.assertTrue(any(call.args[:2] == ("review", "json_parse_fallback") for call in mock_log.call_args_list))
+
+    def test_partial_parse_failure_does_not_short_circuit_remaining_agents(self) -> None:
+        """Iter 019 audit regression: when agent[0] returns malformed JSON,
+        the OLD reviewer returned Approve immediately and never asked
+        agent[1]. The FIX must call all agents and respect their verdicts.
+        Here agent[1] returns Reject; the final verdict must be Reject.
+        """
+
+        call_log = []
+
+        def fake_complete_text(self, messages):
+            agent_marker = next(
+                (m["content"] for m in messages if "agent_name:" in m.get("content", "")),
+                "",
+            )
+            if "agent_a" in agent_marker:
+                call_log.append("a")
+                return "garbage not json"
+            call_log.append("b")
+            return '{"agent_name":"agent_b","verdict":"Reject","score":3,"issues":[{"message":"bad","severity":"major"}],"suggestions":[]}'
+
+        agents = [
+            {"name": "agent_a", "system_prompt": "first agent"},
+            {"name": "agent_b", "system_prompt": "second agent"},
+        ]
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("干净正文。", "partial_fail.md", precomputed_lint_issues=[])
+
+        # Both agents must have been called — short-circuit bug regression guard.
+        self.assertEqual(call_log, ["a", "b"])
+        # Aggregate verdict reflects agent_b's Reject, not the parse-fail Approve fallback.
+        self.assertEqual(report["verdict"], "Reject")
+        # Exactly 2 entries: one Abstain from agent_a, one Reject from agent_b.
+        self.assertEqual(len(report["agent_reviews"]), 2)
+        verdicts = sorted(r["verdict"] for r in report["agent_reviews"])
+        self.assertEqual(verdicts, ["Abstain", "Reject"])
+        # No top-level fallback marker because not ALL agents failed.
+        self.assertNotIn("_fallback_reason", report)
+
+    def test_partial_parse_failure_with_other_agents_approving_still_approves(self) -> None:
+        """Iter 019 audit regression: one agent parse-fails, others approve.
+        The audit fix must still allow Approve in this case (it only blocks
+        the silent-approve when there are NO substantive verdicts at all).
+        """
+
+        def fake_complete_text(self, messages):
+            agent_marker = next(
+                (m["content"] for m in messages if "agent_name:" in m.get("content", "")),
+                "",
+            )
+            if "agent_a" in agent_marker:
+                return "still not json"
+            return '{"agent_name":"agent_b","verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
+
+        agents = [
+            {"name": "agent_a", "system_prompt": "first agent"},
+            {"name": "agent_b", "system_prompt": "second agent"},
+        ]
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("干净正文。", "partial_ok.md", precomputed_lint_issues=[])
+
+        # agent_b's Approve is the only substantive verdict — final is Approve.
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertEqual(len(report["agent_reviews"]), 2)
+        # First entry abstains, second approves.
+        verdicts = [r["verdict"] for r in report["agent_reviews"]]
+        self.assertIn("Abstain", verdicts)
+        self.assertIn("Approve", verdicts)
 
     def test_relationship_consistency_prompt_requires_checklist(self) -> None:
         agents_yaml = Path("config/agents.yaml").read_text(encoding="utf-8")

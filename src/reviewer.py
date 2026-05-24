@@ -63,20 +63,13 @@ def _repair_agent_review_dict(raw: Any, agent_name: str, enforce_relationship_ch
     return repaired
 
 
-def _empty_approve_fallback(
-    target_name: str,
-    lint_issues: List[Dict[str, Any]] | None,
-    reason: str,
-    rewrite_round: int = 0,
-) -> Dict[str, Any]:
-    return {
-        "target": target_name,
-        "rewrite_round": rewrite_round,
-        "verdict": "Approve",
-        "lint_issues": lint_issues or [],
-        "agent_reviews": [],
-        "_fallback_reason": reason,
-    }
+# Iter 019 audit: removed the previous ``_empty_approve_fallback`` helper.
+# It returned ``verdict: "Approve"`` on a per-agent JSON parse failure and
+# short-circuited the whole review, which silently auto-approved chapters
+# whenever one reviewer call had a transient parse error. The fixed code
+# inlines an Abstain vote in the per-agent loop and applies a fail-closed
+# Reject when ALL agents abstain. See tests/test_reviewer.py for the
+# regression coverage.
 
 
 def review_text(
@@ -157,14 +150,20 @@ def review_text(
                 error=str(exc),
                 content_preview=content[:200],
             )
-            report = _empty_approve_fallback(
-                target_name,
-                lint_issues,
-                reason="(parse_failed)",
-                rewrite_round=rewrite_round,
+            # Iter 019 audit fix: a single agent's malformed JSON must NOT
+            # short-circuit the entire review with a silent Approve. Append
+            # an Abstain vote for this agent and let the remaining agents
+            # vote. The post-loop guard forces Reject if EVERY agent
+            # abstains, so an entirely-broken review can't silently approve.
+            reviews.append(
+                {
+                    "agent_name": agent["name"],
+                    "verdict": "Abstain",
+                    "issues": [],
+                    "_fallback_reason": "(parse_failed)",
+                }
             )
-            write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
-            return report
+            continue
         # The relationship checklist enforcement keys off the legacy agent name
         # (a rule-semantic identifier), not the persona-rendered display name.
         repair_name = str(agent.get("_legacy_name") or agent.get("name") or "")
@@ -175,7 +174,16 @@ def review_text(
         data = model_to_dict(result)
         data["agent_name"] = agent["name"]
         reviews.append(data)
-    verdict = "Reject" if any(r.get("verdict") == "Reject" for r in reviews) else "Approve"
+    # Iter 019 audit fix: aggregate over substantive verdicts only. Treat
+    # all-abstain as Reject (fail-closed) so a fully-broken multi-agent
+    # review cannot accidentally approve a chapter.
+    substantive = [r for r in reviews if r.get("verdict") in ("Approve", "Reject")]
+    if not substantive:
+        verdict = "Reject"
+    elif any(r.get("verdict") == "Reject" for r in substantive):
+        verdict = "Reject"
+    else:
+        verdict = "Approve"
     report = {
         "target": target_name,
         "rewrite_round": rewrite_round,
@@ -183,6 +191,8 @@ def review_text(
         "agent_reviews": reviews,
         "verdict": verdict,
     }
+    if reviews and not substantive:
+        report["_fallback_reason"] = "(all_agents_parse_failed)"
     write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
     log_event("review", verdict.lower(), target=target_name)
     return report
