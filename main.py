@@ -163,8 +163,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     apply_advance = sub.add_parser("apply-advance")
     apply_advance.add_argument("--chapter", type=int, required=True)
-    apply_advance.add_argument("--proposal-idx", required=True)
+    # iter 019: --proposal-idx becomes optional when --auto-apply is set.
+    # We do the mutual-exclusivity check at dispatch time so backward-compat
+    # callers (proposal-idx as required) still emit the same error class.
+    apply_advance.add_argument("--proposal-idx", default=None)
     apply_advance.add_argument("--confirm", action="store_true")
+    apply_advance.add_argument(
+        "--auto-apply",
+        action="store_true",
+        help="Iter 019: select proposals whose confidence >= --min-confidence.",
+    )
+    apply_advance.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.7,
+        help="Iter 019: confidence threshold for --auto-apply (default 0.7).",
+    )
+    apply_advance.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Iter 019: exit 0 instead of erroring when no proposals are selected.",
+    )
+
+    # iter 019: chapter-status returns the failure / approval markers for a
+    # chapter as JSON, so write_book.sh can branch on it without grepping.
+    chapter_status_cmd = sub.add_parser("chapter-status")
+    chapter_status_cmd.add_argument("chapter", type=int)
+    chapter_status_cmd.add_argument("--json", action="store_true", default=True)
 
     # iter 017: multi-book workspace management
     sub.add_parser("workspace-list")
@@ -293,8 +318,32 @@ def main() -> None:
         drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
         review_target(drafts_dir / f"chapter_{args.chapter:02d}.md", enforce_relationship_checklist=True)
     elif args.command == "apply-advance":
-        result = apply_advance_cli(args.chapter, args.proposal_idx, confirm=args.confirm)
+        # iter 019: validate flag combinations. --auto-apply and --proposal-idx
+        # are mutually exclusive; one of them must be provided.
+        if args.auto_apply and args.proposal_idx is not None:
+            raise SystemExit("--auto-apply and --proposal-idx are mutually exclusive")
+        if not args.auto_apply and args.proposal_idx is None:
+            raise SystemExit("--proposal-idx is required unless --auto-apply is set")
+        result = apply_advance_cli(
+            args.chapter,
+            args.proposal_idx or "",
+            confirm=args.confirm,
+            auto_apply=args.auto_apply,
+            min_confidence=args.min_confidence,
+            allow_empty=args.allow_empty,
+        )
         print(render_apply_advance_result(result), end="")
+    elif args.command == "chapter-status":
+        # iter 019: thin wrapper around src.chapter_status. Always prints JSON
+        # so write_book.sh can parse it deterministically.
+        import json as _json
+
+        from src.chapter_status import chapter_status
+        from src import paths
+
+        drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
+        status = chapter_status(args.chapter, drafts_dir)
+        print(_json.dumps(status, ensure_ascii=False))
     elif args.command == "run-all":
         normalize_all()
         split_all()

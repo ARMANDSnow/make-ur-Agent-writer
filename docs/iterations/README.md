@@ -27,3 +27,4 @@
 16. [Iteration 016 - Agent Persona Abstraction](./iteration_016_persona_abstraction.md)
 17. [Iteration 017 - Multi-book Workspace Isolation](./iteration_017_multi_workspace.md)
 18. [Iteration 018 - Multilingual Splitter (English first)](./iteration_018_multilingual.md)
+19. [Iteration 019 - Unattended write_book + Chapter Resume/Retry](./iteration_019_unattended_writer.md)

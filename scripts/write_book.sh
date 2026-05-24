@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Iter 019: fully unattended chapter-writing loop. The pre-iter-019 version
+# printed manual "apply-advance" instructions after every chapter and
+# exited 0, requiring a human to re-run the script for each batch. iter
+# 019 auto-applies high-confidence entity-advance proposals between
+# chapters and detects failure markers (failure.json /
+# needs_human_review meta) to retry instead of silently skipping.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -7,6 +13,9 @@ cd "$ROOT"
 CHAPTERS="2"
 REQUIRE_PLAN="1"
 BOOK="${WORKSPACE_NAME:-${BOOK:-}}"
+MAX_RETRIES="2"
+MIN_CONFIDENCE="0.7"
+AUTO_ADVANCE="1"
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -20,6 +29,26 @@ while [ $# -gt 0 ]; do
       ;;
     --book=*)
       BOOK="${1#--book=}"
+      shift
+      ;;
+    --max-retries)
+      MAX_RETRIES="$2"
+      shift 2
+      ;;
+    --max-retries=*)
+      MAX_RETRIES="${1#--max-retries=}"
+      shift
+      ;;
+    --min-confidence)
+      MIN_CONFIDENCE="$2"
+      shift 2
+      ;;
+    --min-confidence=*)
+      MIN_CONFIDENCE="${1#--min-confidence=}"
+      shift
+      ;;
+    --no-auto-advance)
+      AUTO_ADVANCE="0"
       shift
       ;;
     *)
@@ -60,28 +89,84 @@ log_path="$LOGS_DIR/write_book_${ts}.log"
 
 export PYTHONPYCACHEPREFIX="$ROOT/.pycache"
 
+# Iter 019 helpers ------------------------------------------------------------
+# chapter_approved <i> -> 0 if approved, 1 otherwise. Uses the chapter-status
+# subcommand so the criteria stay in one Python place (verdict==Approve AND
+# no failure.json AND no needs_human_review).
+chapter_approved() {
+  local i="$1"
+  local out
+  out="$(python3 main.py ${BOOK:+--book $BOOK} chapter-status "$i" 2>/dev/null || true)"
+  python3 -c '
+import json, sys
+try:
+    data = json.loads(sys.argv[1] or "{}")
+except Exception:
+    sys.exit(1)
+sys.exit(0 if data.get("approved") else 1)
+' "$out"
+}
+
+clear_chapter_state() {
+  local i="$1"
+  local prefix
+  prefix=$(printf "%s/chapter_%02d" "$DRAFTS_DIR" "$i")
+  # Iter 019: drop the .md, .meta.json, and .failure.json so the writer
+  # produces a clean re-run without inheriting stale lint / verdict state.
+  # Keep entity_advance_proposals.json so apply-advance can be re-run if
+  # needed; the writer overwrites it on the next attempt anyway.
+  rm -f "${prefix}.md" "${prefix}.meta.json" "${prefix}.failure.json"
+}
+
 {
   for i in $(seq 1 "$CHAPTERS"); do
-    chapter_path=$(printf "$DRAFTS_DIR/chapter_%02d.md" "$i")
-    if [ -f "$chapter_path" ]; then
-      echo "Chapter $i already exists, skipping: $chapter_path"
+    if chapter_approved "$i"; then
+      echo "Chapter $i already approved, skipping."
       continue
     fi
 
-    python3 main.py ${BOOK:+--book $BOOK} preflight
-    python3 main.py ${BOOK:+--book $BOOK} write --chapters 1 --resume-from "$i" --force
-    python3 main.py ${BOOK:+--book $BOOK} review-chapter "$i"
-    python3 main.py ${BOOK:+--book $BOOK} status
+    attempted=0
+    success=0
+    while [ "$attempted" -le "$MAX_RETRIES" ]; do
+      if [ "$attempted" -gt 0 ]; then
+        echo "=== Retry $attempted/$MAX_RETRIES for chapter $i ==="
+        clear_chapter_state "$i"
+      fi
+      attempted=$((attempted + 1))
 
-    if [ "$i" -lt "$CHAPTERS" ]; then
-      proposal_path=$(printf "$DRAFTS_DIR/chapter_%02d.entity_advance_proposals.json" "$i")
+      python3 main.py ${BOOK:+--book $BOOK} preflight
+      python3 main.py ${BOOK:+--book $BOOK} write --chapters 1 --resume-from "$i" --force
+      python3 main.py ${BOOK:+--book $BOOK} review-chapter "$i"
+      python3 main.py ${BOOK:+--book $BOOK} status
+
+      if chapter_approved "$i"; then
+        success=1
+        break
+      fi
+    done
+
+    if [ "$success" = "0" ]; then
       echo ""
-      echo "=== Chapter $i done. Check $proposal_path ==="
-      echo "=== Dry run: python3 main.py ${BOOK:+--book $BOOK }apply-advance --chapter $i --proposal-idx <comma-list> ==="
-      echo "=== Apply:   python3 main.py ${BOOK:+--book $BOOK }apply-advance --chapter $i --proposal-idx <comma-list> --confirm ==="
-      echo "=== Then re-run: bash scripts/write_book.sh ${BOOK:+--book $BOOK }$CHAPTERS to continue ==="
-      echo "Write book log written: $log_path"
-      exit 0
+      echo "GAVE UP on chapter $i after $attempted attempts."
+      echo "See: $(printf "%s/chapter_%02d.failure.json" "$DRAFTS_DIR" "$i")"
+      echo "And: $(printf "%s/chapter_%02d.meta.json" "$DRAFTS_DIR" "$i")"
+      echo "Re-run with a higher --max-retries or inspect by hand."
+      echo "Write book log: $log_path"
+      exit 2
+    fi
+
+    if [ "$AUTO_ADVANCE" = "1" ]; then
+      # Iter 019: auto-apply high-confidence entity-advance proposals between
+      # chapters. --allow-empty turns "no proposals matched threshold" into a
+      # no-op exit 0 so the loop doesn't break on quiet chapters.
+      python3 main.py ${BOOK:+--book $BOOK} apply-advance \
+        --chapter "$i" \
+        --auto-apply \
+        --min-confidence "$MIN_CONFIDENCE" \
+        --allow-empty \
+        --confirm
+    else
+      echo "=== auto-advance disabled (--no-auto-advance); skipping apply-advance for chapter $i ==="
     fi
   done
 

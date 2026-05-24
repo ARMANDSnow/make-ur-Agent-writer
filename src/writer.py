@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -110,6 +111,17 @@ def write_chapters(
                 feedback=feedback,
             )
             draft = _complete_write_text(client, messages, cache_segments).strip()
+            # Iter 019: mock-only failure injection so the write_book.sh retry
+            # path is testable without burning real-model budget. Gated by
+            # OPENAI_MODEL=mock so production runs cannot trigger this branch
+            # even if WRITER_FORCE_FAIL leaks into the environment.
+            if (
+                os.getenv("WRITER_FORCE_FAIL") == "1"
+                and os.getenv("OPENAI_MODEL") == "mock"
+            ):
+                # Inject content guaranteed to trigger linter "short chapter"
+                # error so the chapter is recorded as a failure.
+                draft = "强制失败注入。" * 5
             lint_issues = linter.lint(draft)
             last_lint_issues = lint_issues
             if any(issue["severity"] == "error" for issue in lint_issues):

@@ -22,6 +22,14 @@ class SmokeScriptTests(unittest.TestCase):
             self.assertIn("--book", text, f"{name} must accept --book flag")
             self.assertIn("WORKSPACE_NAME", text, f"{name} must honor WORKSPACE_NAME env var")
 
+    def test_write_book_sh_dropped_manual_proposal_idx_placeholder(self) -> None:
+        """Iter 019: the human-targeted '--proposal-idx <comma-list>'
+        placeholder string in write_book.sh must be gone — the script now
+        invokes apply-advance with --auto-apply --confirm unattended.
+        """
+        text = Path("scripts/write_book.sh").read_text(encoding="utf-8")
+        self.assertNotIn("--proposal-idx <comma-list>", text)
+
 
 if __name__ == "__main__":
     unittest.main()

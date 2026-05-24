@@ -183,8 +183,23 @@ python3 main.py --book myBook apply-bootstrap --name personas --confirm
 python3 main.py --book myBook debate            # add --topic "..." to override the default
 python3 main.py --book myBook plan-chapters --chapters 3
 # Edit workspaces/myBook/outputs/debate/chapter_plan.json, then:
+
+# Iter 019: write multiple chapters unattended. The script auto-applies
+# high-confidence entity-advance proposals between chapters and retries
+# any chapter whose review verdict isn't Approve.
+bash scripts/write_book.sh --book myBook 3
+# Flags: --max-retries N (default 2), --min-confidence X (default 0.7),
+#        --no-auto-advance (skip apply-advance between chapters).
+# Exit codes: 0 = all chapters approved, 2 = a chapter exhausted retries.
+```
+
+For finer-grained control you can still drive the loop manually:
+
+```bash
 python3 main.py --book myBook write --chapters 1 --resume-from 1 --force
 python3 main.py --book myBook review-chapter 1
+python3 main.py --book myBook chapter-status 1       # iter 019: JSON triage dict
+python3 main.py --book myBook apply-advance --chapter 1 --auto-apply --confirm
 ```
 
 Switching between books is a single flag change (`--book myBook` / `--book otherBook`). You can also export `WORKSPACE_NAME=myBook` once per shell instead of repeating `--book`. `python3 main.py workspace-list` shows existing workspaces; `python3 main.py workspace-show --name myBook` summarizes one. To migrate an in-place legacy setup (repo-root `data/`, `outputs/`, `小说txt/`) into a workspace, run `python3 main.py workspace-import-current --to <name>` (use `--dry-run` first).
