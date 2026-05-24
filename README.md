@@ -32,7 +32,7 @@ Validated on 《龙族》 (Dragon Raja, by 江南) as test corpus — 5 volumes,
 
 | Layer | What it looks like in code |
 |---|---|
-| **Mock-first dev** | 135 unit tests, **runs in 3 seconds** without burning a single token. `tests/__init__.py` force-sets `OPENAI_MODEL=mock` to prevent `.env` leakage. |
+| **Mock-first dev** | 215 unit tests, **runs in 4 seconds** without burning a single token. `tests/__init__.py` force-sets `OPENAI_MODEL=mock` to prevent `.env` leakage. |
 | **Preflight guardrails** | 7 categories of FATAL checks before any real-model call: env / context limit / agents config / rolling state / manifest integrity / **provider routing** / manual facts. |
 | **Cost telemetry** | Every call logs `request_hash`, prompt/response tokens, cache_read/cache_write tokens. `estimate-cost` aggregates with provider-specific pricing. |
 | **Chunked extraction** | Chapters >24k chars split front/middle/end; **all-or-nothing merge** so no half-baked summaries. |
@@ -287,11 +287,12 @@ python3 main.py <command> [options]
 │   ├── linter.py                 # deterministic style lint with thresholds
 │   ├── schemas.py                # Pydantic models, single source of truth for shapes
 │   └── ...
-├── tests/                        # 31 files, 135 tests
+├── tests/                        # 42 files, 215 tests
 ├── docs/
 │   ├── iterations/               # 15 iteration logs, each a working postmortem
 │   ├── stage_01_summary.md       # mock-first foundation
 │   ├── stage_02_summary.md       # first real-model validation
+│   ├── stage_03_summary.md       # multi-workspace + multilingual + unattended + audit
 │   ├── notes/                    # debugging notes
 │   └── AGENT_HANDOFF.md          # session continuity anchor
 ├── config/
@@ -317,14 +318,21 @@ The repo doubles as a **transparent record of how it got built**. Each iteration
 ### Stage 2 — First real-model validation (iter 006-008)
 [stage_02_summary.md](docs/stage_02_summary.md) · Provider routing FATAL, debate structured voting, ballot field repair, first true-model `write` smoke.
 
-### Stage 3 — Writing quality axis (iter 009+)
+### Stage 3 — Writing quality axis (iter 009-013)
 - [009](docs/iterations/iteration_009_writing_quality_surge.md) — Style injection + time anchor + length floor + +1 rewrite
 - [010](docs/iterations/iteration_010_polish_and_linter_thresholds.md) — Linter thresholds + polish pass + reviewer-bypass safety
 - [011](docs/iterations/iteration_011_entity_graph_and_consistency.md) — **Entity graph + consistency reviewer.** User rated chapter 8/10.
 - [012](docs/iterations/iteration_012_reviewer_robustness_and_consistency_strict.md) — Reviewer JSON robustness + debate fallback
 - [013](docs/iterations/iteration_013_multi_chapter_architecture.md) — Multi-chapter architecture
+
+### Stage 4 — Multi-book + multilingual + unattended (iter 014-019)
+[stage_03_summary.md](docs/stage_03_summary.md) · Plot planner, persona abstraction, per-workspace path isolation, English/EPUB support, unattended `write_book.sh`, and audit-fix of reviewer silent-approve + workspace path traversal + snapshot loss.
 - [014](docs/iterations/iteration_014_plot_planner.md) — Claude Opus chapter planner
 - [015](docs/iterations/iteration_015_auto_bootstrap.md) — Auto-bootstrap proposals for new novels
+- [016](docs/iterations/iteration_016_persona_abstraction.md) — Per-workspace persona generation (LLM bootstrapped)
+- [017](docs/iterations/iteration_017_multi_workspace.md) — `workspaces/<name>/` isolation, `--book` CLI
+- [018](docs/iterations/iteration_018_multilingual.md) — English chapter splitter + stdlib EPUB extraction
+- [019](docs/iterations/iteration_019_unattended_writer.md) — Unattended `write_book.sh` + chapter retry/resume + audit fixes
 
 Each entry follows the same 8-section template: Context · Plan · Acceptance criteria · Implementation Notes · Acceptance Result · File Summary · Out-of-scope · Notes. Acceptance Result lists **measured numbers**, not promises.
 
@@ -341,7 +349,7 @@ Each entry follows the same 8-section template: Context · Plan · Acceptance cr
 | Real-model calls per chapter | 60 (compress 1 + debate 47 + write 1 + review 11) | `logs/llm_calls.jsonl` |
 | DeepSeek-V4 success rate | **60/60 = 100%** | latest smoke |
 | Cost per chapter | **~$0.42** | DeepSeek-V4 pricing |
-| Unit tests | **135 passing in 2.2s** (mock-only) | `python3 -m unittest discover -s tests` |
+| Unit tests | **215 passing in ~4s** (mock-only) | `python3 -m unittest discover -s tests` |
 
 ---
 

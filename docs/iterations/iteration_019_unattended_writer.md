@@ -83,7 +83,59 @@ bash scripts/write_book.sh --book iter019smoke --max-retries 1 2
 
 ### Smoke result narrative
 
-(To be filled in by the iter 019 smoke commit. The plan deliberately commits the engineering changes first, then runs the real-model smoke, then commits the recorded acceptance artefacts in a follow-up commit titled `Iteration 019: record unattended writer smoke results`.)
+**Run executed 2026-05-24 16:43 on the `longzu` workspace.** The
+original iter 019 plan called for a separate `iter019smoke` workspace,
+but the audit pass (commits `7a33425` + `81afc5a`) materially changed
+the reviewer's verdict semantics; running against an existing
+`longzu/chapter_01` that was already in `failure=True, rewrite_count=2`
+state was the more honest test because it forced the retry path to
+actually exercise `clear_chapter_state()` and then re-write from scratch
+against a previously failed lint signature.
+
+| Item | Result |
+|---|---|
+| Command | `bash scripts/write_book.sh --book longzu 1` (defaults: `--max-retries 2 --min-confidence 0.7`) |
+| Model | `deepseek/deepseek-v4-pro` (real API, not mock) |
+| ch1 prior state | `approved=false needs_review=true failure=true verdict=Reject rewrite_count=2` (6 `not_x_but_y` lint hits) |
+| ch1 final state | `approved=true needs_review=false failure=false verdict=Approve` |
+| Draft size | 13,818 chars (~8K Chinese characters, normal chapter length) |
+| Lint issues | `[]` (the previously-blocking `not_x_but_y` rule now passes) |
+| Reviewer outcome | 4 Approve (路明非本位 / 情感关系 / 世界观守门人 / 江南人格模拟) + 1 Abstain (伏笔猎人, `_fallback_reason="(parse_failed)"`) — final verdict Approve via the new audit-fixed fail-closed rule ("Reject if any substantive Reject; Approve only if any substantive Approve and zero Reject") |
+| Auto apply-advance | `empty_selection` (no proposals above 0.7 confidence) + `--allow-empty` → exit 0, loop continued normally |
+| Snapshot | `workspaces/longzu/outputs/drafts/snapshots/20260524_164332/` (success path, no `_aborted` suffix) |
+| LLM calls (smoke window) | write × 4, review × 26 = 30 calls, all `ok` status |
+| Tokens | prompt 143,342 (cache_read 83,584 = 58% reuse) + response 36,283 |
+| Estimated cost | ~$0.062 ≈ ¥0.45 (single-chapter retry-and-pass) |
+| xueZhong + asoiaf sha256 baseline | Unchanged (no chapters re-written in those workspaces) |
+
+**Audit fix proven in production.** The 5-agent reviewer panel hit
+exactly the case that motivated commit `7a33425` — one agent's JSON
+output failed to parse and would have silently been counted as an
+Approve in pre-audit code. With the fix, that agent's verdict was
+recorded as Abstain with `_fallback_reason="(parse_failed)"` and the
+final verdict was decided by the other 4 substantive votes (all
+Approve). If those 4 had been Reject instead, the chapter would have
+been rejected as expected — silent approval is no longer possible.
+
+**Draft quality spot-check.** The generated chapter opens with 路明非
+walking into the 3E exam (Extraction Examination of Eminence), matches
+the source novel's pacing and atmosphere, keeps 楚子航's body language
+canon-faithful (鋼笔 placed precisely on the desk, repeated wiping of
+the same spot), and uses the Mendelssohn / 曼施坦因 / 芬格尔 character
+references correctly. No 角色穿越 / 设定违反 / 不存在的能力 issues
+were flagged by any reviewer agent. Excerpt:
+
+> 清晨六点四十分，路明非攥着那沓复印件走进图书馆地下一层。考场外
+> 的走廊里已经站满了人……监考教授走到讲台正中央，拿起一个铜铃摇
+> 了三下。"3E考试，全称Extraction Examination of Eminence。"教授
+> 的声音不带任何感情……
+
+This is the first time iter 014-019 has produced a real-model chapter
+that (a) passes the linter unaided, (b) clears a fail-closed reviewer
+panel with no Reject votes, (c) survives a previously-failed state via
+the iter 019 retry loop, (d) auto-applies (here: no-ops) entity advance
+without manual gate, and (e) snapshots the result through the iter 019
+audit-fixed `take_snapshot` helper — end-to-end unattended.
 
 ## Risks and follow-ups
 

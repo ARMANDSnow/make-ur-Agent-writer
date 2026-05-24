@@ -1,5 +1,8 @@
 # --- secrets ---
 .env
+.env.backup*
+.env.local
+.env.*.local
 
 # --- source material (copyright, do not commit) ---
 小说txt/
