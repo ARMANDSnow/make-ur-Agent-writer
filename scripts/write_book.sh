@@ -118,6 +118,25 @@ clear_chapter_state() {
   rm -f "${prefix}.md" "${prefix}.meta.json" "${prefix}.failure.json"
 }
 
+# Iter 019 audit fix: snapshot helper called by BOTH the success and the
+# retry-exhausted exit paths. Pre-fix the snapshot block lived after the
+# main loop, so an `exit 2` for retry exhaustion skipped it and the user
+# lost diagnostics for the partial run.
+take_snapshot() {
+  local suffix="${1:-}"
+  local snap="$DRAFTS_DIR/snapshots/${ts}${suffix}"
+  mkdir -p "$snap"
+  cp "$DRAFTS_DIR"/chapter_*.md "$snap/" 2>/dev/null || true
+  cp "$DRAFTS_DIR"/chapter_*.meta.json "$snap/" 2>/dev/null || true
+  cp "$DRAFTS_DIR"/chapter_*.failure.json "$snap/" 2>/dev/null || true
+  cp "$DRAFTS_DIR"/chapter_*.entity_advance_proposals.json "$snap/" 2>/dev/null || true
+  cp "$DRAFTS_DIR/rolling_chapter_summary.json" "$snap/" 2>/dev/null || true
+  cp -r "$REVIEWS_DIR" "$snap/" 2>/dev/null || true
+  cp "$DEBATE_DIR/decisions.json" "$snap/debate_decisions.json" 2>/dev/null || true
+  cp "$DEBATE_DIR/outline.md" "$snap/debate_outline.md" 2>/dev/null || true
+  echo "Snapshot saved: $snap"
+}
+
 {
   for i in $(seq 1 "$CHAPTERS"); do
     if chapter_approved "$i"; then
@@ -151,6 +170,9 @@ clear_chapter_state() {
       echo "See: $(printf "%s/chapter_%02d.failure.json" "$DRAFTS_DIR" "$i")"
       echo "And: $(printf "%s/chapter_%02d.meta.json" "$DRAFTS_DIR" "$i")"
       echo "Re-run with a higher --max-retries or inspect by hand."
+      # Iter 019 audit fix: snapshot partial progress BEFORE exit 2 so the
+      # user keeps diagnostics from the failed run.
+      take_snapshot "_aborted_ch$(printf '%02d' "$i")"
       echo "Write book log: $log_path"
       exit 2
     fi
@@ -170,15 +192,9 @@ clear_chapter_state() {
     fi
   done
 
-  snap="$DRAFTS_DIR/snapshots/${ts}"
-  mkdir -p "$snap"
-  cp "$DRAFTS_DIR"/chapter_*.md "$snap/" 2>/dev/null || true
-  cp "$DRAFTS_DIR"/chapter_*.meta.json "$snap/" 2>/dev/null || true
-  cp "$DRAFTS_DIR"/chapter_*.entity_advance_proposals.json "$snap/" 2>/dev/null || true
-  cp "$DRAFTS_DIR/rolling_chapter_summary.json" "$snap/" 2>/dev/null || true
-  cp -r "$REVIEWS_DIR" "$snap/" 2>/dev/null || true
-  cp "$DEBATE_DIR/decisions.json" "$snap/debate_decisions.json" 2>/dev/null || true
-  cp "$DEBATE_DIR/outline.md" "$snap/debate_outline.md" 2>/dev/null || true
-  echo "Snapshot saved: $snap"
+  # Iter 019 audit fix: success-path snapshot delegated to take_snapshot
+  # (no suffix). The retry-exhausted path above takes its own snapshot
+  # with `_aborted_chNN` suffix before exit 2.
+  take_snapshot ""
   echo "Write book log written: $log_path"
 } 2>&1 | tee "$log_path"

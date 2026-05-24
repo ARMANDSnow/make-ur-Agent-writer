@@ -36,19 +36,47 @@ WORKSPACE_DIR = ROOT / "workspaces"
 _LEGACY_SENTINEL = "legacy"
 
 
+def _validate_workspace_name(name: str) -> None:
+    """Iter 019 audit fix: reject workspace names that would escape
+    ``workspaces/`` via path traversal.
+
+    Pre-iter-019, ``WORKSPACE_NAME="../escaped"`` resolved to a path
+    outside the workspaces/ tree, e.g. ``workspaces/../escaped``. Single-
+    user local-dev usage means the threat actor (someone able to set
+    env vars) already has shell access, so the practical impact is low
+    — but a fat-fingered env var would silently scatter chapter drafts
+    into unintended directories. We reject the obvious traversal
+    patterns and accept anything else (Unicode workspace names like
+    ``龙族`` stay supported).
+    """
+
+    if not name:
+        return
+    if "/" in name or "\\" in name:
+        raise ValueError(
+            f"workspace name {name!r} must not contain path separators"
+        )
+    if name.startswith(".") or ".." in name:
+        raise ValueError(
+            f"workspace name {name!r} must not start with '.' or contain '..'"
+        )
+
+
 def workspace_name() -> Optional[str]:
     """Return the active workspace name, or ``None`` for legacy mode.
 
     Reads ``WORKSPACE_NAME`` first, then ``BOOK``. Trims whitespace.
     ``"legacy"`` is reserved: it explicitly resolves to legacy mode the
     same way as an unset variable, so scripts can pass it through as a
-    no-op default.
+    no-op default. Raises ``ValueError`` if the env var contains path
+    separators or ``..`` (iter 019 audit fix).
     """
 
     raw = os.environ.get("WORKSPACE_NAME") or os.environ.get("BOOK") or ""
     name = raw.strip()
     if not name or name == _LEGACY_SENTINEL:
         return None
+    _validate_workspace_name(name)
     return name
 
 
@@ -56,7 +84,9 @@ def workspace_root(name: Optional[str] = None) -> Path:
     """Return the root directory for ``name`` (or the active workspace).
 
     When the resolved name is empty / ``None`` / ``"legacy"`` this returns
-    the repo ``ROOT`` so legacy callers keep working.
+    the repo ``ROOT`` so legacy callers keep working. Raises
+    ``ValueError`` if ``name`` contains path separators or ``..`` (iter
+    019 audit fix).
     """
 
     if name is None:
@@ -64,6 +94,8 @@ def workspace_root(name: Optional[str] = None) -> Path:
     else:
         candidate = name.strip()
         target = candidate if candidate and candidate != _LEGACY_SENTINEL else None
+        if target:
+            _validate_workspace_name(target)
     if not target:
         return ROOT
     return WORKSPACE_DIR / target

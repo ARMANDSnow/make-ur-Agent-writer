@@ -67,6 +67,32 @@ class WriteBookScriptStructureTests(unittest.TestCase):
         # chapter-status query must be used to detect approval, not raw grep.
         self.assertIn("chapter-status", self.text)
 
+    def test_snapshot_runs_on_both_success_and_failure_exit(self) -> None:
+        """Iter 019 audit fix regression: the pre-fix script had its
+        snapshot block AFTER the exit 2 line, so retry-exhausted runs
+        skipped the snapshot and the user lost diagnostics. The fix
+        extracts a ``take_snapshot`` helper called from BOTH paths.
+        Verify the helper exists and is invoked from both code paths.
+        """
+        self.assertIn("take_snapshot()", self.text)
+        # Failure path uses an _aborted_chNN suffix; success path uses "".
+        self.assertIn("take_snapshot \"_aborted_ch", self.text)
+        self.assertIn("take_snapshot \"\"", self.text)
+        # And the call to take_snapshot in the failure path must happen
+        # BEFORE the exit 2 statement, not after. We match the literal
+        # `exit 2` STATEMENT (anchored at start of line, ignoring
+        # whitespace) rather than substring search, which would hit any
+        # comment that mentions "exit 2".
+        import re
+
+        giveup_idx = self.text.find("GAVE UP on chapter")
+        exit2_match = re.search(r"^\s*exit\s+2\b", self.text[giveup_idx:], re.MULTILINE)
+        self.assertIsNotNone(exit2_match, "couldn't find an exit 2 statement after GAVE UP")
+        exit2_idx = giveup_idx + exit2_match.start()
+        snap_idx = self.text.find("take_snapshot \"_aborted_ch", giveup_idx)
+        self.assertGreater(snap_idx, giveup_idx, "snapshot call must follow the GAVE UP message")
+        self.assertLess(snap_idx, exit2_idx, "snapshot must run BEFORE exit 2 or it's never executed")
+
 
 if __name__ == "__main__":
     unittest.main()

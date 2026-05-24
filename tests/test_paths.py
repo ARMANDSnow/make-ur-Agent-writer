@@ -80,6 +80,42 @@ class WorkspaceNameTests(unittest.TestCase):
             os.environ["BOOK"] = "loser"
             self.assertEqual(paths.workspace_name(), "winner")
 
+    def test_path_traversal_with_double_dot_raises(self) -> None:
+        """Iter 019 audit fix: WORKSPACE_NAME='../escaped' used to silently
+        resolve to a path outside workspaces/. Now it raises ValueError.
+        """
+        with _EnvSandbox():
+            os.environ["WORKSPACE_NAME"] = "../escaped"
+            with self.assertRaises(ValueError):
+                paths.workspace_name()
+
+    def test_path_separator_in_name_raises(self) -> None:
+        """Iter 019 audit fix: forward / backward slash in workspace name."""
+        with _EnvSandbox():
+            os.environ["WORKSPACE_NAME"] = "a/b"
+            with self.assertRaises(ValueError):
+                paths.workspace_name()
+        with _EnvSandbox():
+            os.environ["WORKSPACE_NAME"] = "a\\b"
+            with self.assertRaises(ValueError):
+                paths.workspace_name()
+
+    def test_leading_dot_raises(self) -> None:
+        """Iter 019 audit fix: hidden-file style names rejected."""
+        with _EnvSandbox():
+            os.environ["WORKSPACE_NAME"] = ".hidden"
+            with self.assertRaises(ValueError):
+                paths.workspace_name()
+
+    def test_unicode_names_still_allowed(self) -> None:
+        """Iter 019 audit fix sanity: Unicode workspace names (e.g. 龙族)
+        must still pass — the validation only rejects obvious traversal
+        patterns, not non-ASCII identifiers.
+        """
+        with _EnvSandbox():
+            os.environ["WORKSPACE_NAME"] = "龙族"
+            self.assertEqual(paths.workspace_name(), "龙族")
+
 
 class WorkspaceRootTests(unittest.TestCase):
     def test_legacy_root_is_repo_root(self) -> None:
