@@ -1,0 +1,31 @@
+MIT License
+
+Copyright (c) 2026 ARMANDSnow
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+NOTE: The MIT license covers only the original source code, configuration,
+prompts, documentation, and iteration logs in this repository. Published
+novels referenced or processed by this pipeline (e.g. 《龙族》, A Song of Ice
+and Fire) remain the intellectual property of their respective authors and
+publishers, and are NOT redistributed by this repository. Source novel files,
+extracted data, generated drafts, and per-workspace outputs are gitignored.
+Users who run this pipeline against copyrighted novels do so under their own
+responsibility for fair use, personal study, or other applicable exemptions
+in their jurisdiction.
