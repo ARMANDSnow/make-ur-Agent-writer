@@ -102,8 +102,13 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         ):
             report = review_text("干净正文。", "partial_fail.md", precomputed_lint_issues=[])
 
-        # Both agents must have been called — short-circuit bug regression guard.
-        self.assertEqual(call_log, ["a", "b"])
+        # Both agents must have been called — short-circuit bug regression
+        # guard. Note: post-iter-019 debug fix, agent_a's parse failure
+        # triggers ONE additional simplified-prompt retry on the same
+        # agent. With this test's mock returning garbage every time for
+        # agent_a, the simplified retry also fails and we fall through to
+        # the Abstain branch — the final agent set seen is still {a, b}.
+        self.assertEqual(call_log, ["a", "a", "b"])
         # Aggregate verdict reflects agent_b's Reject, not the parse-fail Approve fallback.
         self.assertEqual(report["verdict"], "Reject")
         # Exactly 2 entries: one Abstain from agent_a, one Reject from agent_b.
@@ -158,6 +163,23 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(repaired["verdict"], "Reject")
         self.assertEqual(repaired["issues"][0]["rule_id"], "relationship_checklist_missing")
 
+    def test_relationship_consistency_warn_only_keeps_verdict_appends_suggestion(self) -> None:
+        """Debug fix: when ``enforce_relationship_checklist="warn_only"``,
+        an empty-checklist Approve must NOT be flipped to Reject. The
+        agent's Approve verdict is preserved and a suggestion is appended
+        to surface the missing checklist as a soft diagnostic.
+        """
+        repaired = _repair_agent_review_dict(
+            {"verdict": "Approve", "score": 7, "issues": [], "suggestions": []},
+            "关系一致性",
+            enforce_relationship_checklist="warn_only",
+        )
+        self.assertEqual(repaired["verdict"], "Approve")
+        self.assertEqual(repaired["issues"], [])
+        self.assertEqual(len(repaired["suggestions"]), 1)
+        self.assertIn("warn_only", repaired["suggestions"][0])
+        self.assertIn("relationship_checklist_missing", repaired["suggestions"][0])
+
     def test_relationship_consistency_checklist_approve_is_preserved(self) -> None:
         repaired = _repair_agent_review_dict(
             {"verdict": "Approve", "score": 8, "issues": [], "comparison_checklist": ["甲-乙：匹配"]},
@@ -166,6 +188,92 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(repaired["verdict"], "Approve")
         self.assertEqual(repaired["issues"], [])
         self.assertEqual(repaired["comparison_checklist"], ["甲-乙：匹配"])
+
+    def test_simple_verdict_fallback_recovers_from_initial_parse_failure(self) -> None:
+        """Debug fix: when the main prompt produces invalid JSON, the
+        reviewer must try ONE simplified-prompt retry on the SAME agent
+        before recording Abstain. If the simplified retry succeeds, the
+        agent's verdict counts as substantive (Approve or Reject) in the
+        final aggregate.
+
+        Setup: 2 agents. agent_a's first call returns garbage; its
+        SECOND call (the fallback) returns valid simplified JSON. The
+        agent must end up with verdict=Reject (the recovered value),
+        NOT Abstain.
+        """
+
+        call_log = []
+
+        def fake_complete_text(self, messages):
+            agent_marker = next(
+                (m["content"] for m in messages if "agent_name:" in m.get("content", "")),
+                "",
+            )
+            system_marker = next(
+                (m["content"] for m in messages if m.get("role") == "system"),
+                "",
+            )
+            if "agent_a" in agent_marker:
+                call_log.append(("a_simple" if "最简化" in system_marker else "a_main"))
+                # First call = main prompt = garbage; second call = simple fallback = valid.
+                if "最简化" in system_marker:
+                    return '{"verdict": "Reject", "reason": "继续性问题"}'
+                return "totally not json"
+            call_log.append("b")
+            return '{"agent_name":"agent_b","verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
+
+        agents = [
+            {"name": "agent_a", "system_prompt": "first"},
+            {"name": "agent_b", "system_prompt": "second"},
+        ]
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("正文。", "fallback_recovery.md", precomputed_lint_issues=[])
+
+        # Main prompt + simple fallback + b = 3 calls.
+        self.assertEqual(call_log, ["a_main", "a_simple", "b"])
+        # agent_a's fallback Reject is substantive — final verdict must be Reject.
+        self.assertEqual(report["verdict"], "Reject")
+        verdicts = [r["verdict"] for r in report["agent_reviews"]]
+        self.assertIn("Reject", verdicts)
+        self.assertIn("Approve", verdicts)
+        # No Abstain in the recovered case.
+        self.assertNotIn("Abstain", verdicts)
+        # The recovered review entry must be tagged so the diagnostics path is visible.
+        recovered = next(r for r in report["agent_reviews"] if r["agent_name"] == "agent_a")
+        self.assertEqual(recovered.get("_fallback_reason"), "(simple_prompt_recovery)")
+
+    def test_simple_verdict_fallback_returning_garbage_falls_through_to_abstain(self) -> None:
+        """Debug fix: when BOTH the main prompt AND the simplified
+        fallback fail to parse, we keep the iter 019 Abstain behavior so
+        fail-closed semantics still hold. This is the regression guard
+        against accidentally turning a double-failure into a silent Approve.
+        """
+
+        def fake_complete_text(self, messages):
+            # Always garbage for agent_a (both main + fallback). Approve for b.
+            agent_marker = next(
+                (m["content"] for m in messages if "agent_name:" in m.get("content", "")),
+                "",
+            )
+            if "agent_a" in agent_marker:
+                return "broken json no matter what"
+            return '{"agent_name":"agent_b","verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
+
+        agents = [
+            {"name": "agent_a", "system_prompt": "first"},
+            {"name": "agent_b", "system_prompt": "second"},
+        ]
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("正文。", "double_failure.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["verdict"], "Approve")  # agent_b sole substantive
+        agent_a_entry = next(r for r in report["agent_reviews"] if r["agent_name"] == "agent_a")
+        self.assertEqual(agent_a_entry["verdict"], "Abstain")
+        self.assertEqual(agent_a_entry.get("_fallback_reason"), "(parse_failed)")
 
     def test_enforce_relationship_checklist_rejects_empty_standalone_review(self) -> None:
         def fake_complete_text(self, messages):

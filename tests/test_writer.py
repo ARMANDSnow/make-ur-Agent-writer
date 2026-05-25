@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import patch
 
-from src.writer import _write_prompt, write_chapters
+from src.writer import _enforce_checklist_for_plan, _write_prompt, write_chapters
 
 
 def _write_fixture(tmp: Path) -> tuple[Path, Path, Path, Path]:
@@ -441,6 +441,45 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             self.assertTrue(meta["lint_blocked_reviews"])
             self.assertEqual(meta["lint_blocked_reviews"][0]["review"]["_fallback_reason"], "(parse_failed)")
             self.assertEqual(meta["lint_blocked_reviews"][0]["review"]["verdict"], "Approve")
+
+
+class EnforceChecklistForPlanTests(unittest.TestCase):
+    """Debug fix: ``_enforce_checklist_for_plan`` picks strict vs
+    warn_only for the 关系一致性 reviewer based on plan complexity.
+    """
+
+    def test_no_plan_defaults_to_strict(self) -> None:
+        """No chapter_plan available → keep iter 014-019 strict default."""
+        self.assertIs(_enforce_checklist_for_plan(None), True)
+        self.assertIs(_enforce_checklist_for_plan({}), True)
+
+    def test_small_cast_stays_strict(self) -> None:
+        """≤ 4 relationships_in_play → strict True (full enforcement)."""
+        for n in (0, 1, 2, 3, 4):
+            plan = {"relationships_in_play": [f"A-B-{i}" for i in range(n)]}
+            self.assertIs(
+                _enforce_checklist_for_plan(plan),
+                True,
+                f"chapter with {n} relationships should stay strict",
+            )
+
+    def test_broad_cast_downgrades_to_warn_only(self) -> None:
+        """> 4 relationships_in_play → warn_only (suggest, don't Reject)."""
+        for n in (5, 6, 8, 12):
+            plan = {"relationships_in_play": [f"A-B-{i}" for i in range(n)]}
+            self.assertEqual(
+                _enforce_checklist_for_plan(plan),
+                "warn_only",
+                f"chapter with {n} relationships should downgrade to warn_only",
+            )
+
+    def test_malformed_relationships_field_falls_back_strict(self) -> None:
+        """If the plan field is missing or not a list, default to strict
+        rather than crashing (writer must remain robust to schema drift).
+        """
+        self.assertIs(_enforce_checklist_for_plan({"relationships_in_play": None}), True)
+        self.assertIs(_enforce_checklist_for_plan({"relationships_in_play": "not a list"}), True)
+        self.assertIs(_enforce_checklist_for_plan({"other_field": []}), True)
 
 
 if __name__ == "__main__":
