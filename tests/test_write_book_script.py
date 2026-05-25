@@ -94,5 +94,44 @@ class WriteBookScriptStructureTests(unittest.TestCase):
         self.assertLess(snap_idx, exit2_idx, "snapshot must run BEFORE exit 2 or it's never executed")
 
 
+    def test_clear_chapter_state_preserves_last_failure(self) -> None:
+        """Debug fix: ``clear_chapter_state`` used to ``rm -f`` the meta /
+        md / failure files between retries. After 3 retries all rejected,
+        the user lost the most recent meta.json — so we never knew which
+        reviewer agent flagged the chapter or why. Fix: rename the files
+        to ``chapter_NN.last_failure_attemptN.{ext}`` instead of deleting.
+        """
+        # Helper accepts a second positional argument (the attempt number).
+        self.assertRegex(
+            self.text,
+            r"clear_chapter_state\s*\(\s*\)\s*\{[^}]*local\s+attempt=",
+            "clear_chapter_state must accept an 'attempt' positional arg",
+        )
+        # No more `rm -f` of the per-chapter outputs.
+        self.assertNotRegex(
+            self.text,
+            r'rm\s+-f\s+"\$\{?prefix\}?\.md"',
+            "clear_chapter_state must not rm -f the chapter outputs anymore",
+        )
+        # Files are moved to a last_failure_attemptN.* suffix.
+        self.assertIn("last_failure_attempt", self.text)
+        self.assertIn("mv -f", self.text)
+        # The call site passes the attempt counter.
+        self.assertIn('clear_chapter_state "$i" "$attempted"', self.text)
+
+    def test_take_snapshot_includes_last_failure_files(self) -> None:
+        """Debug fix companion: the snapshot helper must also copy the
+        preserved ``last_failure_attempt*`` files, otherwise the
+        post-mortem diagnostics disappear once the chapter eventually
+        succeeds and the success snapshot overwrites the workspace state.
+        """
+        # take_snapshot must have a line copying last_failure_attempt* files.
+        self.assertIn(
+            'chapter_*.last_failure_attempt*.*',
+            self.text,
+            "take_snapshot must cp the preserved last_failure files into the snapshot",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
