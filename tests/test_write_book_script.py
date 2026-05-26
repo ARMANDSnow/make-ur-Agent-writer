@@ -132,6 +132,41 @@ class WriteBookScriptStructureTests(unittest.TestCase):
             "take_snapshot must cp the preserved last_failure files into the snapshot",
         )
 
+    def test_pipestatus_exit_code_propagation(self) -> None:
+        """Iter 022 B6: write_book.sh must `exit "${PIPESTATUS[0]}"` after the
+        main `{ ... } | tee` pipeline. Bare pipefail does not reliably
+        propagate `exit 2` from inside the brace block on all platforms
+        (iter 020/021 ch10 GAVE UP returned exit 0 to the harness despite
+        the inner exit 2). PIPESTATUS captures the left stage explicitly.
+        """
+        self.assertIn(
+            'exit "${PIPESTATUS[0]}"',
+            self.text,
+            "must capture left-pipe exit code via PIPESTATUS[0]",
+        )
+
+    def test_pipestatus_pattern_works_in_subshell(self) -> None:
+        """Iter 022 B6: end-to-end verification that the PIPESTATUS pattern
+        actually propagates a non-zero exit. Spawns bash with the same
+        idiom write_book.sh uses and checks the returncode.
+        """
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                '{ echo "hi"; exit 7; } 2>&1 | tee /dev/null; exit "${PIPESTATUS[0]}"',
+            ],
+            check=False,
+            capture_output=True,
+        )
+        self.assertEqual(
+            result.returncode,
+            7,
+            f"expected exit 7 propagated via PIPESTATUS; got {result.returncode}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

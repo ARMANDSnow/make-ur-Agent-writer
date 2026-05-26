@@ -103,9 +103,10 @@ logs/                     # 全部 gitignored
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：021（算法根 bug 修复：起点选择 / 原文注入 / KB 注入 / 剧透过滤 + SOP 落地）
-**已完成阶段**：1（输入准备）+ 2（知识抽取）全打通；3（起点判断）iter 021 新打通；4-9 见 SOP 表
-**下一步候选**：iter 022 — writer/reviewer 强化（lint 阈值动态化、reviewer sub-score、reviewer 读 KB+原文、rolling_summary 分层）
+**当前 iter**：022（writer/reviewer 强化 Stage B 6 修：lint 动态阈值 / writer prompt 去 priming / reviewer 3 sub-score / reviewer 读 KB+原文 / rolling 分层 / write_book.sh exit code）
+**已完成阶段**：1-2 全打通；3（起点判断）iter 021 打通；6.4-6.5（writer lint+prompt）+ 7.3-7.4（reviewer sub-score+KB+原文）+ 9.2（rolling 分层）+ I.2（exit code）iter 022 新打通；其余见 SOP 表
+**关键学习**：iter 022 中途发现 anti-pattern prompt 加字面反例会 prime 模型反向偏好（"❌ 不是疼痛，是重量" 让 hits 翻倍），priming-fix 后 hits 减半
+**下一步候选**：iter 023 — Agent 设计精简（8 → 4-5 个 agents，去冗余）+ plot_planner continuation 模式 + 关系冲突检测 + per-章 budget ceiling
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 "iter N+ 改进路线" 段
 
 ## 常用 git 操作

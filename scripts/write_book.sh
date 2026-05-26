@@ -216,3 +216,11 @@ take_snapshot() {
   take_snapshot ""
   echo "Write book log written: $log_path"
 } 2>&1 | tee "$log_path"
+
+# Iter 022 B6: pipefail alone is not enough — `exit 2` from inside the
+# braced block + tee on the right side of the pipe still gave exit code
+# 0 in iter 020/021 tests (depends on bash version + how `exit` interacts
+# with subshell pipe stages). Explicitly capture the left pipe stage exit
+# code via PIPESTATUS[0] and re-exit with it. PIPESTATUS is bash-only, but
+# the shebang on line 1 already forces /usr/bin/env bash.
+exit "${PIPESTATUS[0]}"

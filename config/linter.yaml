@@ -5,8 +5,9 @@
     },
     "not_x_but_y": {
       "enabled": true,
-      "warn_threshold": 2,
-      "error_threshold": 5
+      "warn_threshold": 3,
+      "error_threshold": 10,
+      "dynamic_scaling": true
     },
     "short_sentence_openings": {
       "enabled": true,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
@@ -83,13 +83,50 @@ class ReviewIssue(BaseModel):
     anchor: Optional[str] = None
 
 
+class AgentSubScores(BaseModel):
+    """Iter 022 B3: replace single 0-10 score with 3 sub-scores.
+
+    The 5-8 agent panel before iter 022 all gave 7 because the single
+    score was a coarse "approve probability" proxy. Splitting into
+    plot (情节推进力) / prose (文笔质感) / fidelity (与原作贴合度) lets
+    each agent have meaningful per-axis disagreement and surfaces
+    weakness patterns (e.g. all-7 on plot but 5 on fidelity).
+    """
+
+    plot: int = Field(default=7, ge=0, le=10, description="情节推进力")
+    prose: int = Field(default=7, ge=0, le=10, description="文笔质感")
+    fidelity: int = Field(default=7, ge=0, le=10, description="与原作贴合度")
+
+
 class AgentReview(BaseModel):
     agent_name: str
     verdict: str = Field(description="Approve or Reject")
+    # Iter 022 B3: new 3-axis sub-scores. The legacy `score` field is
+    # kept for backward read of iter 020/021 meta.json files but is now
+    # *derived* from sub-scores via weighted average if not explicitly
+    # supplied. New code should write to `scores`; old meta.json files
+    # parse cleanly because both fields have defaults.
+    scores: AgentSubScores = Field(default_factory=AgentSubScores)
     score: int = Field(default=7, ge=0, le=10)
     issues: List[Union[str, ReviewIssue]] = Field(default_factory=list)
     suggestions: List[str] = Field(default_factory=list)
     comparison_checklist: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _derive_legacy_score(self) -> "AgentReview":
+        """If `scores` was provided but `score` wasn't (or was the default
+        7), derive `score` as weighted avg: plot 0.4 + prose 0.3 + fidelity 0.3.
+        Lets downstream code that still reads `.score` get a meaningful
+        number while sub-score consumers (iter 022+) see the detail.
+        """
+        # Only re-derive when scores looks "explicit" (any non-default) AND
+        # score is still default. This preserves byte-identical legacy
+        # behavior when a caller passes only score.
+        sub = self.scores
+        if (sub.plot, sub.prose, sub.fidelity) != (7, 7, 7) and self.score == 7:
+            weighted = sub.plot * 0.4 + sub.prose * 0.3 + sub.fidelity * 0.3
+            object.__setattr__(self, "score", int(round(weighted)))
+        return self
 
 
 class ChapterSummary(BaseModel):
@@ -102,7 +139,7 @@ class ChapterPlanItem(BaseModel):
     chapter_no: int
     title: str
     opening_scene: str = Field(description="一句话具体开场场景，writer 必须遵守")
-    key_events: List[str] = Field(description="本章必须发生的 2-5 个核心事件", min_items=2, max_items=5)
+    key_events: List[str] = Field(description="本章必须发生的 2-7 个核心事件", min_items=2, max_items=7)
     relationships_in_play: List[str] = Field(default_factory=list, description="本章重点演进的关系")
     ending_hook: str = Field(description="本章结尾留给下章承接的钩子")
     target_chinese_chars: int = Field(default=4000, ge=2500, le=6000)

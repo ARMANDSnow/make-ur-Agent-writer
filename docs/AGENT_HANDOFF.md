@@ -284,13 +284,41 @@ bash scripts/verify.sh
 
 **待办**：P9 longzu 真模型 smoke（设 start=longzu_4 跑 1 章新 ch1 验证 A1+A2 真生效）+ P10 commit。
 
-### Next iter（022）入口
+### Iteration 022 — writer/reviewer 强化（已完成 / 已 commit）
 
-Per iter 020 report Stage B（writer/reviewer 强化）：
+Goal: 把 iter 020 报告 Stage B 6 条一次性收齐，让 iter 021 验证 ch1 写的"高架路火箭筒"草稿能突破 lint cascade 进入真内容审核阶段。
 
-- B1 lint 阈值动态化（随字数缩放）
-- B2 writer prompt 加 `不是X是Y` 反例
-- B3 reviewer 8-agent 改 3 sub-score 替换 0-10 单分
-- B4 reviewer 读 KB + 最近 K 章原文
-- B5 rolling_summary 分层（摘要 + 最近 3 章正文片段）
-- B6 write_book.sh `tee` mask exit code bug
+**6 项修复**:
+
+| ID | Bug / 改进 | Fix | Status |
+|----|-----|-----|--------|
+| B1 | `not_x_but_y` 阈值固定 = 2/5 太严格 | `linter.yaml` base 调 3/10 + `linter.py` 加 `dynamic_scaling` 按字数缩放 | ✅ done |
+| B2 | writer prompt 反例字面 prime 模型 | system_prompt 抽象化（去字面例）+ feedback 改报行号不报违规字面 | ✅ done |
+| B3 | reviewer score 单 0-10 无区分度 | `AgentReview` 加 `scores: AgentSubScores`（plot/prose/fidelity）+ `score` legacy alias 从 sub 加权算出 | ✅ done |
+| B4 | reviewer 不读原文不读 KB | `review_text()` 加 `knowledge` + `source_chapters` 参数；writer.py 调用点传入 | ✅ done |
+| B5 | rolling 只有摘要 信息密度低 | `chapter_summary.append_chapter_summary` 加 `text_snippet`；`render_rolling_context` 输出最近 K 章片段 | ✅ done |
+| B6 | `write_book.sh` exit code 被 tee mask | `exit "${PIPESTATUS[0]}"` 显式传播 | ✅ done |
+
+**测试**: +15 → **257 OK** 全绿。
+
+**P8 真模型 smoke 关键发现**（"切切实实解决问题"）：
+- iter 020 ch10 / iter 021 ch1 都死在 lint cascade（reviewer 都没被调）
+- iter 022 ch1 **首次突破 lint** → 8 agent 真审 → sub-score 真分化（路明非本位 plot=4 → Reject；读者代言人 plot=8/prose=9 → Approve；5 Approve + 3 Reject）
+- 结果 verdict 仍 Reject，但是**因为真实内容判断**，不再是 lint 短路
+- 中途学习：B2 我加的字面反例（"❌ 不是疼痛，是重量"）反 prime 模型让 hits 翻倍，priming-fix 后回落
+
+**Smoke 成本**: ~¥1.5 实测（含 4 次重跑定位 priming bug）。
+
+### Next iter（023）候选入口
+
+用户提出（iter 022 末）：现有 8 个 agent 设计是否合理？候选优化方向：
+- 8 → 4-5 个核心 agents（情感关系 / 关系一致性 / 连续性审阅 职责重叠可合并）
+- 关系一致性可改为 **程序化检测**（entity_graph diff），不调 LLM
+- 加一个 "提建议者"（不只是守门人），输出可执行的 rewrite suggestion
+- 让 personas.json 完全模板化（路明非本位 → 主角本位，江南人格模拟 → 原作风格模拟），跨书复用更自然
+
+其他 iter 020 报告 Stage C 候选：
+- plot_planner `--from-chapter N --append K` continuation（C1）
+- write_book.sh 每 K 章自动 re-plan（C2）
+- entity_advance proposal 与 plan 冲突检测（C3）
+- per-章 cost 实时报告 + budget ceiling（C4）

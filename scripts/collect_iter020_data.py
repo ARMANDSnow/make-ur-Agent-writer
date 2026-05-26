@@ -81,6 +81,16 @@ def _cost_cny(prompt_tokens: int, cache_read: int, response_tokens: int) -> floa
 def _per_chapter_review_stats(meta: dict) -> dict:
     reviews = meta.get("agent_reviews", [])
     scores = [r.get("score") for r in reviews if isinstance(r.get("score"), (int, float))]
+    # Iter 022 B3: also aggregate sub-scores if present.
+    def _sub_avg(key: str) -> float | None:
+        vals = [
+            r.get("scores", {}).get(key)
+            for r in reviews
+            if isinstance(r.get("scores"), dict)
+            and isinstance(r.get("scores", {}).get(key), (int, float))
+        ]
+        return round(sum(vals) / len(vals), 2) if vals else None
+
     verdicts = Counter(r.get("verdict", "?") for r in reviews)
     abstains = [r for r in reviews if r.get("verdict") == "Abstain"]
     return {
@@ -89,6 +99,9 @@ def _per_chapter_review_stats(meta: dict) -> dict:
         "score_avg": round(sum(scores) / len(scores), 2) if scores else None,
         "score_min": min(scores) if scores else None,
         "score_max": max(scores) if scores else None,
+        "plot_avg": _sub_avg("plot"),
+        "prose_avg": _sub_avg("prose"),
+        "fidelity_avg": _sub_avg("fidelity"),
         "verdicts": dict(verdicts),
         "n_abstain_parse_failed": sum(
             1 for r in abstains if r.get("_fallback_reason") == "(parse_failed)"

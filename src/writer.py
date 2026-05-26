@@ -161,12 +161,22 @@ def write_chapters(
                 report = {"verdict": "Reject", "lint_issues": lint_issues, "attempt": attempt}
                 continue
             lint_ok = True
+            # Iter 022 B4: pass KB + start-point source chapters into reviewer
+            # so the 8-agent panel can judge fidelity against actual source
+            # prose, not just persona impressions. Both args are graceful
+            # — start_point.format_chapters_before_start_for_anchor returns
+            # empty string when no start point is configured (iter 020 behavior).
+            review_source = start_point.format_chapters_before_start_for_anchor(
+                k=3, limit_chars=8000
+            )
             report = review_text(
                 draft,
                 out_path.name,
                 precomputed_lint_issues=lint_issues,
                 rewrite_round=attempt - 1,
                 enforce_relationship_checklist=True,
+                knowledge=knowledge[:6000] if knowledge else "",
+                source_chapters=review_source,
             )
             if report["verdict"] == "Approve":
                 last_blocking_reasons = []
@@ -201,11 +211,21 @@ def write_chapters(
                 polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
 
         chapter_summary = _summarize_chapter(client, chapter_no, draft)
+        # Iter 022 B5: store an opening + ending snippet (~500 chars each
+        # tail) alongside the LLM summary so render_rolling_context can
+        # serve raw prose for the most-recent chapters. Empty when
+        # draft itself is short to avoid duplicate / nonsense.
+        text_snippet = ""
+        if draft and len(draft) >= 800:
+            text_snippet = (
+                f"{draft[:300].strip()}\n\n[…省略中段…]\n\n{draft[-300:].strip()}"
+            )
         append_chapter_summary(
             chapter_no,
             chapter_summary.get("summary", ""),
             chapter_summary.get("key_events", []),
             chapter_summary.get("ending_state", ""),
+            text_snippet=text_snippet,
             path=drafts_dir / "rolling_chapter_summary.json",
         )
         proposals = _propose_entity_advance(client, chapter_no, draft, load_entity_graph())
@@ -355,9 +375,25 @@ def _write_prompt(
     feedback: str = "",
 ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
     system_prompt = (
-        "你是长篇小说续写写作者。只输出正文，不要输出章节编号或解释。"
-        "避免反复使用'不是X，是Y'/'不是X而是Y'句式；同章最多出现 2 次。"
-        "如需对比，优先用动作/环境替代说明。"
+        "你是长篇小说续写写作者。只输出正文，不要输出章节编号或解释。\n"
+        "\n"
+        "## 关键风格戒律（违反会被自动 reject）\n"
+        "\n"
+        "**避免 AI 标记性的对比强调句式**。具体来说，"
+        "以否定词开头、紧接转折强调的二段式短句"
+        "（形如否定一个事物 + 立即给出对立替代）—— 原作（江南龙族）"
+        "整本书每 1000 字才出现 1 次以下，AI 模型却容易每段 1-2 次。\n"
+        "\n"
+        "如需表达对比 / 强调 / 转折，**优先**采用以下三种笔法（仅描述，不给字面例子以免污染你的输出）：\n"
+        "1. **动作描述法**：用具体的肢体动作或环境反应替代抽象判断。"
+        "   把'这是 X，不是 Y'类逻辑表达，重写成发生在身体或场景里的动作链。\n"
+        "2. **感官比喻法**：把对比转换成一个新的感官印象。"
+        "   不去否定 X 抬高 Y，而是直接给读者一个能唤起 Y 的画面、声音、温度或质地。\n"
+        "3. **断句重复法**：用极短的独立句和重复词建立强调，"
+        "   通过节奏而非逻辑标记表达递进。\n"
+        "\n"
+        "如果上一稿的 review feedback 显示这类句式被命中，"
+        "**必须**把所有命中位置改写为以上三种笔法之一，再生成本稿。"
     )
     style_context = ""
     if style_examples:
@@ -531,8 +567,33 @@ def _propose_entity_advance(
 
 
 def _format_lint_feedback(lint_issues: List[Dict[str, Any]]) -> str:
+    """Iter 022 B2: lint feedback for writer rewrite loop.
+
+    Groups not_x_but_y hits with explicit per-line line numbers + excerpts
+    so the rewriter sees exactly which sentences to fix, not just an
+    abstract "you hit the rule N times". Other rules keep their original
+    one-line format.
+    """
+    nxy_issues = [i for i in lint_issues if i.get("rule") == "not_x_but_y"]
+    other_issues = [i for i in lint_issues if i.get("rule") != "not_x_but_y"]
     parts: List[str] = []
-    for issue in lint_issues:
+
+    if nxy_issues:
+        total = nxy_issues[0].get("count", len(nxy_issues))
+        parts.append(
+            f"【关键】上一稿命中 AI 对比强调句式 {total} 次，超过阈值。"
+            f"必须把下列每一处都改写为：(a) 动作描述、(b) 感官比喻、或 (c) 断句+重复"
+            f"——任选其一。注意：本反馈不重复违规字面以免污染你的输出，"
+            f"请按行号回到正文定位并改写。"
+        )
+        # Iter 022 fix: list line numbers only (no excerpt content) to avoid
+        # priming the rewriter on the literal "不是X是Y" pattern. Each
+        # violation just gets its line number — the rewriter has the full
+        # draft and can locate the line itself.
+        line_nos = [str(issue.get("line", "?")) for issue in nxy_issues]
+        parts.append(f"  违规行号: {', '.join(line_nos)}")
+
+    for issue in other_issues:
         rule = issue.get("rule", "lint")
         count = issue.get("count")
         count_text = f"，命中 {count} 次" if isinstance(count, int) else ""

@@ -50,21 +50,32 @@ def append_chapter_summary(
     summary: str,
     key_events: List[str],
     ending_state: str = "",
+    text_snippet: str = "",
     path: Path | None = None,
 ) -> None:
-    """Append or replace one chapter summary in rolling state."""
+    """Append or replace one chapter summary in rolling state.
+
+    Iter 022 B5: optional ``text_snippet`` (typically opening 250 chars
+    + ending 250 chars of the actual draft) is stored alongside the
+    LLM-compressed summary. ``render_rolling_context`` then injects the
+    snippet for the most recent K chapters, giving writer prompts a
+    layered context (raw prose for nearby chapters, summaries only for
+    older ones). This addresses the iter 020 report finding that info
+    retention from source → KB → rolling_summary dropped <1%.
+    """
     if path is None:
         path = _rolling_path()
     data = load_rolling_summary(path)
     chapters = [item for item in data["chapters"] if int(item.get("chapter_no", -1)) != int(chapter_no)]
-    chapters.append(
-        {
-            "chapter_no": int(chapter_no),
-            "summary": str(summary or "").strip(),
-            "key_events": [str(event).strip() for event in key_events if str(event).strip()],
-            "ending_state": str(ending_state or "").strip(),
-        }
-    )
+    entry = {
+        "chapter_no": int(chapter_no),
+        "summary": str(summary or "").strip(),
+        "key_events": [str(event).strip() for event in key_events if str(event).strip()],
+        "ending_state": str(ending_state or "").strip(),
+    }
+    if text_snippet:
+        entry["text_snippet"] = str(text_snippet).strip()
+    chapters.append(entry)
     data["chapters"] = sorted(chapters, key=lambda item: int(item.get("chapter_no", 0)))
     save_rolling_summary(data, path)
 
@@ -79,8 +90,20 @@ def latest_ending_state(path: Path | None = None) -> str:
     return str(latest.get("ending_state") or "").strip()
 
 
-def render_rolling_context(max_chapters: int = 5, path: Path | None = None) -> str:
-    """Render recent chapter summaries for writer prompt injection."""
+def render_rolling_context(
+    max_chapters: int = 5,
+    path: Path | None = None,
+    snippet_chapters: int = 3,
+) -> str:
+    """Render recent chapter summaries for writer prompt injection.
+
+    Iter 022 B5: in addition to summaries for the most-recent
+    ``max_chapters`` chapters, the LAST ``snippet_chapters`` chapters
+    get their ``text_snippet`` (raw prose ~500 chars) inlined. This
+    layered context preserves prose detail for what's close to the
+    write head while keeping older chapters at summary level (cost-
+    efficient).
+    """
     if path is None:
         path = _rolling_path()
     data = load_rolling_summary(path)
@@ -89,6 +112,7 @@ def render_rolling_context(max_chapters: int = 5, path: Path | None = None) -> s
         return ""
 
     max_chapters = max(1, int(max_chapters))
+    snippet_chapters = max(0, int(snippet_chapters))
     recent = chapters[-max_chapters:]
     older = chapters[:-max_chapters]
     lines: List[str] = ["## 已写章节回顾"]
@@ -102,11 +126,17 @@ def render_rolling_context(max_chapters: int = 5, path: Path | None = None) -> s
     if compressed_events:
         lines.extend(["", "更早章节关键事件: " + " / ".join(compressed_events[-10:])])
 
+    # Identify which of the recent chapters get a snippet (the last K of them)
+    snippet_chapter_nos = {
+        int(ch.get("chapter_no", 0)) for ch in recent[-snippet_chapters:]
+    } if snippet_chapters else set()
+
     for chapter in recent:
         chapter_no = int(chapter.get("chapter_no", 0))
         summary = str(chapter.get("summary") or "").strip()
         key_events = [str(event).strip() for event in chapter.get("key_events", []) or [] if str(event).strip()]
         ending = str(chapter.get("ending_state") or "").strip()
+        snippet = str(chapter.get("text_snippet") or "").strip()
         lines.extend(["", f"### 第 {chapter_no} 章"])
         if summary:
             lines.append(summary)
@@ -114,5 +144,11 @@ def render_rolling_context(max_chapters: int = 5, path: Path | None = None) -> s
             lines.append("关键事件: " + " / ".join(key_events[:6]))
         if ending:
             lines.append("结尾状态: " + ending)
+        if snippet and chapter_no in snippet_chapter_nos:
+            lines.extend([
+                "",
+                "原文片段（开场 + 结尾节选）:",
+                snippet,
+            ])
 
     return "\n".join(lines).strip() + "\n"

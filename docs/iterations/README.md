@@ -30,3 +30,4 @@
 19. [Iteration 019 - Unattended write_book + Chapter Resume/Retry](./iteration_019_unattended_writer.md)
 20. [Iteration 020 - 延长 smoke 验证 + 失败模式报告](./iteration_020_extended_smoke.md)
 21. [Iteration 021 - 算法根 bug 修复 + SOP 落地](./iteration_021_algorithm_root_fix.md)
+22. [Iteration 022 - writer/reviewer 强化（Stage B 6 修）](./iteration_022_writer_reviewer_strengthening.md)

@@ -53,6 +53,22 @@ def _repair_agent_review_dict(raw: Any, agent_name: str, enforce_relationship_ch
     repaired["agent_name"] = str(repaired.get("agent_name") or agent_name)
     verdict = str(repaired.get("verdict", "Reject")).strip().lower()
     repaired["verdict"] = "Reject" if verdict == "reject" else "Approve"
+    # Iter 022 B3: prefer sub-scores when LLM provides them; legacy score
+    # field stays for backward-compat with iter 020/021 mock data + tests.
+    # If the LLM returned a flat plot/prose/fidelity at the top level
+    # (which is how the new prompt asks for it), nest them under `scores`
+    # so pydantic AgentSubScores can consume.
+    if "scores" not in repaired:
+        top_level_subs = {
+            k: repaired.pop(k)
+            for k in ("plot", "prose", "fidelity")
+            if k in repaired and isinstance(repaired.get(k), (int, float))
+        }
+        if top_level_subs:
+            # Coerce to int, clamp to 0-10 defensively
+            repaired["scores"] = {
+                k: max(0, min(10, int(v))) for k, v in top_level_subs.items()
+            }
     repaired.setdefault("score", 7)
     if not isinstance(repaired.get("issues"), list):
         repaired["issues"] = []
@@ -170,10 +186,13 @@ def _simple_verdict_fallback(
         agent=agent.get("name", "?"),
         recovered_verdict=verdict.capitalize(),
     )
+    # Iter 022 B3: fallback path uses neutral 6 across all sub-scores
+    # (matching the legacy `score=6` default this used to return).
     return {
         "verdict": "Approve" if verdict == "approve" else "Reject",
         "reason": str(raw.get("reason", "")),
         "score": 6,
+        "scores": {"plot": 6, "prose": 6, "fidelity": 6},
     }
 
 
@@ -184,7 +203,19 @@ def review_text(
     rewrite_round: int = 0,
     run_agents_on_lint_error: bool = False,
     enforce_relationship_checklist: Any = False,
+    knowledge: str = "",
+    source_chapters: str = "",
 ) -> Dict[str, Any]:
+    """Iter 022 B4: ``knowledge`` (KB / global_knowledge.md content) and
+    ``source_chapters`` (K original chapters before configured start point)
+    are NEW optional kwargs. Each agent's user prompt gets these as
+    reference blocks so reviewers can judge "is this chapter actually
+    consistent with KB / does it sound like the original author" instead
+    of relying only on agent persona.
+
+    Backward compatible: both default to empty string, in which case the
+    blocks are omitted and prompt content matches iter 021.
+    """
     reviews_dir = _reviews_dir()
     ensure_dir(reviews_dir)
     if precomputed_lint_issues is not None:
@@ -225,6 +256,22 @@ def review_text(
     facts = global_facts_summary()
     entity_state = render_active_state(load_entity_graph())
     entity_block = f"{entity_state}\n" if entity_state else ""
+    # Iter 022 B4: KB + source-chapter blocks if caller supplied them.
+    # These are truncated to keep prompt size sane; the caller is
+    # responsible for sending sensibly-sized chunks (typical: KB 6K
+    # chars, source_chapters 8K chars).
+    knowledge_block = (
+        f"# 全局知识 (KB) — 反映原作世界观\n\n{knowledge[:6000]}\n\n"
+        if knowledge
+        else ""
+    )
+    source_block = (
+        "# 原文风格参考（起点前 K 章节选）— 文笔贴合度判断基准\n\n"
+        f"{source_chapters[:8000]}\n\n"
+        "你的 fidelity 评分应明确对照上述原文风格。\n\n"
+        if source_chapters
+        else ""
+    )
     reviews = []
     for agent in agents:
         content = client.complete_text(
@@ -234,9 +281,18 @@ def review_text(
                     "role": "user",
                     "content": (
                         f"agent_name: {agent['name']}\n"
-                        "请审查下面续写章节。只输出 JSON，verdict 必须是 Approve 或 Reject。"
-                        "issues 可输出字符串，或输出对象 {message, rule_id, severity, anchor}；"
-                        "severity 只能是 block、major、minor。\n\n"
+                        "请审查下面续写章节。只输出 JSON object，包含以下字段：\n"
+                        "  - verdict: 'Approve' 或 'Reject'\n"
+                        "  - plot: 0-10 整数（情节推进力 — 本章是否推进主线/支线、节奏是否合理）\n"
+                        "  - prose: 0-10 整数（文笔质感 — 句式变化、对话自然度、描写密度）\n"
+                        "  - fidelity: 0-10 整数（与原作贴合度 — 人物声音、世界观术语、节奏是否像目标作者）\n"
+                        "  - issues: 数组，可输出字符串，或对象 {message, rule_id, severity, anchor}；"
+                        "severity 只能是 block、major、minor\n"
+                        "  - suggestions: 数组，每条一句话改写建议\n"
+                        "三个 sub-score 必须真实反映你的判断，禁止全部填 7 之类的偷懒值。"
+                        "如果某一维度无法判断，使用 5 作为'不确定'信号，不要默认 7。\n\n"
+                        f"{knowledge_block}"
+                        f"{source_block}"
                         f"人工全局事实:\n{facts}\n\n"
                         f"{entity_block}"
                         f"{text[:18000]}"

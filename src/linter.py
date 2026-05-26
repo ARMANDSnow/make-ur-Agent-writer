@@ -50,8 +50,23 @@ class NovelLinter:
 
     def _not_x_but_y(self, lines: List[str]) -> List[LintIssue]:
         cfg = self.rules.get("not_x_but_y", {})
-        warn_threshold = int(cfg.get("warn_threshold", 2))
-        error_threshold = int(cfg.get("error_threshold", 5))
+        base_warn = int(cfg.get("warn_threshold", 2))
+        base_error = int(cfg.get("error_threshold", 5))
+        # Iter 022 B1: scale thresholds by chapter length. The base
+        # warn_threshold=2 was calibrated against ~4000-char chapters;
+        # at 15000 chars (iter 021 ch1) it triggered on 9 hits which
+        # is normal density for dramatic Chinese prose. Scale linearly
+        # by char_count / 4000, clamped to [1.0, 5.0] so the rule
+        # still bites long AI-generated runs.
+        full_text = "\n".join(lines)
+        chinese_chars = count_chinese_chars(full_text)
+        dynamic_scaling = bool(cfg.get("dynamic_scaling", True))
+        if dynamic_scaling and chinese_chars > 0:
+            scale = max(1.0, min(chinese_chars / 4000.0, 5.0))
+        else:
+            scale = 1.0
+        warn_threshold = int(round(base_warn * scale))
+        error_threshold = int(round(base_error * scale))
         pattern = re.compile(r"不是.{1,28}?[，,、\s]*是")
         matches = [
             (i, line, match)
@@ -66,7 +81,11 @@ class NovelLinter:
             LintIssue(
                 rule="not_x_but_y",
                 severity=severity,
-                message=f"疑似 AI 标记句式：不是 X，是 Y。本章命中 {count} 次，建议控制在 {warn_threshold} 次以内。",
+                message=(
+                    f"疑似 AI 标记句式：不是 X，是 Y。本章命中 {count} 次，"
+                    f"按章节字数 {chinese_chars} 动态阈值 = warn>{warn_threshold} / "
+                    f"error>={error_threshold}（scale={scale:.2f}）。"
+                ),
                 line=i,
                 excerpt=line.strip(),
                 anchor=_anchor_from_line(line, match.start(), match.end()),

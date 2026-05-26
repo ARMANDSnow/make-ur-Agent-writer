@@ -141,7 +141,7 @@ bash scripts/write_book.sh --book myBook 3
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 021（2026-05-25）**。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 022（2026-05-26）** — writer/reviewer 强化，lint cascade 彻底打通，reviewer 评分有真区分度。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -189,15 +189,16 @@ bash scripts/write_book.sh --book myBook 3
 | 6.1 | read KB + facts + entity_state + chapter_plan + rolling_summary + style | ✅ | iter 011-016 |
 | 6.2 | read 起点前 K 章原文 | ✅ | **iter 021**（A2 修复） |
 | 6.3 | lint 自检 × 3 轮 rewrite | ✅ | iter 010 |
-| 6.4 | lint 阈值动态化（按字数缩放）| ❌ | iter 022 B 类 |
+| 6.4 | lint 阈值动态化（按字数缩放）| ✅ | **iter 022 B1**（4000 字 base × dynamic scale）|
+| 6.5 | writer prompt 加 anti-pattern（去字面例避免 priming） | ✅ | **iter 022 B2** |
 
 ### 阶段 7 — 审核
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
 | 7.1 | 8-agent reviewer panel | ✅ | iter 011-016 |
 | 7.2 | fail-closed parse_failed → Abstain | ✅ | iter 019 audit |
-| 7.3 | reviewer sub-score（替换单一 score 0-10）| ❌ | iter 022/023 B 类 |
-| 7.4 | reviewer 读 KB + 起点附近原文 | ❌ | iter 022 B 类 |
+| 7.3 | reviewer sub-score（plot/prose/fidelity 3 维 + 单 score legacy）| ✅ | **iter 022 B3**（真模型实测分化：plot 4-8 区分度首现）|
+| 7.4 | reviewer 读 KB + 起点附近原文 | ✅ | **iter 022 B4** |
 
 ### 阶段 8 — 关系更新
 | # | 节点 | 状态 | 备注 |
@@ -210,14 +211,14 @@ bash scripts/write_book.sh --book myBook 3
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
 | 9.1 | rolling_summary 更新 | ✅ | iter 013 |
-| 9.2 | rolling_summary 分层（摘要 + 最近 K 章原文片段）| ❌ | iter 022 B 类 |
+| 9.2 | rolling_summary 分层（摘要 + 最近 K 章原文片段）| ✅ | **iter 022 B5**（schema 加 text_snippet 字段） |
 | 9.3 | per-章 cost 实时报告 + budget ceiling | ❌ | iter 023 C 类 |
 
 ### infra & UI
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
 | I.1 | `write_book.sh` 无人值守循环 | ✅ | iter 019 |
-| I.2 | `write_book.sh` tee mask exit code bug | ⚠️ | 已知，iter 022 B6 |
+| I.2 | `write_book.sh` tee mask exit code bug | ✅ | **iter 022 B6**（PIPESTATUS 显式传播） |
 | U.1 | WebUI dashboard | ❌ | iter 024 |
 | U.2 | 模型切换 panel + onboarding wizard | ❌ | iter 024 |
 
