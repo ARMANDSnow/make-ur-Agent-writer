@@ -34,8 +34,46 @@ def load_global_facts(path: Path | None = None) -> List[Dict[str, Any]]:
     return facts
 
 
-def global_facts_summary(path: Path | None = None, limit: int = 6000) -> str:
+def _fact_has_spoiler_evidence(fact: Dict[str, Any]) -> bool:
+    """Iter 021: True iff this fact's evidence_spans cite at least one
+    chapter that is strictly AFTER the configured start_point.
+
+    Facts whose ALL evidence comes from chapters at or before the start
+    are considered "established before continuation" and stay visible.
+    Facts with any evidence after the start are filtered as spoilers.
+
+    Defensive: if no evidence_spans or no chapter_id fields, treat as
+    NON-spoiler (keep). The intent is to drop only obvious leaks.
+    """
+    from . import start_point
+
+    if start_point.get_start_chapter_id() is None:
+        return False
+    spans = fact.get("evidence_spans") or []
+    if not spans:
+        return False
+    for span in spans:
+        ch_id = span.get("chapter_id") if isinstance(span, dict) else None
+        if ch_id and start_point.is_after_start(ch_id):
+            return True
+    return False
+
+
+def global_facts_summary(
+    path: Path | None = None,
+    limit: int = 6000,
+    respect_start_point: bool = True,
+) -> str:
+    """Iter 021: when ``respect_start_point=True`` (the default), facts
+    whose evidence cites chapters strictly after the configured start
+    point are filtered out as spoilers.
+
+    Default keeps backward compatibility for workspaces with no
+    start_chapter.json set (filter becomes a no-op).
+    """
     facts = load_global_facts(path)
+    if respect_start_point:
+        facts = [f for f in facts if not _fact_has_spoiler_evidence(f)]
     if not facts:
         return "无人工全局事实。"
     lines = ["人工全局事实优先于模型推断："]

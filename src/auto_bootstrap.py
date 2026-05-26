@@ -107,14 +107,34 @@ def bootstrap_continuation_anchor(force: bool = False, root: Path = None) -> Dic
     if existing.exists() and existing.read_text(encoding="utf-8").strip() and not force:
         return _skip_result("continuation_anchor", path)
 
+    # Iter 021: if user has explicitly set a start point, sample the K
+    # chapters of authentic source text immediately before it. This is
+    # the fix for the iter 020 "anchor locked to book 1 ch001" bug.
+    # Falls back to the iter 020 default (last 3 extracted_jsons) when
+    # no start point is set, so existing workspaces are byte-identical.
+    from . import start_point
+
+    if start_point.get_start_chapter_id() is not None:
+        context = start_point.format_chapters_before_start_for_anchor(
+            k=3, limit_chars=24000
+        )
+        instructions = (
+            "请根据下方'起点前 K 章原文'生成续写起点 proposal。anchor_text 写 3-5 句，"
+            "key_state_points 写当前角色/组织/物品状态。anchor_text 必须明确指出此续写"
+            "是接在 *这些原文之后* 开始的，不要复述原文，但要让起点状态与原文末尾自然衔接。"
+        )
+    else:
+        context = _recent_extractions_context(root, count=3, limit_chars=24000)
+        instructions = (
+            "请根据最后 2-3 个章节抽取结果生成续写起点 proposal。anchor_text 写 3-5 句，"
+            "key_state_points 写当前角色/组织/物品状态。只能概括，不要复制原文。"
+        )
+
     prompt = _build_json_prompt(
         title="continuation_anchor",
         schema=model_to_json_schema(ContinuationAnchorProposal),
-        instructions=(
-            "请根据最后 2-3 个章节抽取结果生成续写起点 proposal。anchor_text 写 3-5 句，"
-            "key_state_points 写当前角色/组织/物品状态。只能概括，不要复制原文。"
-        ),
-        context=_recent_extractions_context(root, count=3, limit_chars=24000),
+        instructions=instructions,
+        context=context,
     )
     proposal = LLMClient("plot_planner").complete_json(_json_messages(prompt), ContinuationAnchorProposal)
     data = _with_meta(

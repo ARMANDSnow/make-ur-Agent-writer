@@ -244,3 +244,53 @@ bash scripts/verify.sh
 - DeepSeek cache follow-up: decide whether to add a preflight/cost-report WARN because cache writes are logged but reads may remain 0.
 - Deferred candidates: B3 rolling summary 升级伏笔表、C2 增量 compress。
 - Add a lightweight terminal UI or dashboard if operator reports become too verbose.
+
+---
+
+## Phase 4 Status（iter 021，2026-05-25）
+
+> Live progress dashboard for Phase 4. Source-of-truth status table is in
+> [README.md「项目阶段 SOP（实时状态）」](../README.md#项目阶段-sop实时状态);
+> this section is the more detailed per-iter rollup.
+
+### Iteration 020 — Extended smoke + failure-mode report（已完成 / 已 commit）
+
+- Ran longzu ch1-10 real-model smoke against deepseek-v3-pro.
+- **ch1-9 all Approve** (9/10 = 90% pass rate); **ch10 GAVE UP** after 3 outer attempts (lint rule `not_x_but_y` cascade — 33 cumulative hits across 10 chapters, ch10 alone hit 11).
+- Total cost ¥12.69, all iter 019 audit fixes validated in production (no silent approves, snapshots saved on the GAVE UP path, failed metas preserved).
+- User code-review identified 2 root-bug categories: (a) start-point hardcoded to book 1 ch001 by `auto_bootstrap._recent_extractions_context`; (b) writer + reviewer never read source-novel text — all "style/detail" came from KB 141 lines + style_examples, an information retention rate of <1% from the original 1M-character source.
+- Iter 020 report `docs/iterations/iteration_020_extended_smoke.md` ships 8-section failure-mode analysis + 11-item iter 21+ improvement roadmap reorganized into 3 stages.
+
+### Iteration 021 — Algorithm root fix + SOP visualization（进行中）
+
+**Goals**: kill the 4 root algorithm bugs iter 020 exposed; promote the 9-stage SOP table to README + AGENTS + AGENT_HANDOFF as a live status dashboard so future agents see at a glance what's wired and what isn't.
+
+**4 root-bug fixes**:
+
+| ID | Bug | Fix | Status |
+|----|-----|-----|--------|
+| A1 | 起点判断硬编码（书 1 ch001 锁死）| `src/start_point.py` 新模块 + CLI `set-start-point chapter_id\|volume_id` + `auto_bootstrap` 闭环 | ✅ done |
+| A2 | writer 不读原文 | `src/writer.py:_write_prompt()` 注入起点前 K=3 章 × 3K chars 原文 | ✅ done |
+| A3 | plot_planner 不读 KB/rolling | `src/plot_planner.py:_build_planner_prompt()` 注入 KB + 最近 3 章 rolling summary | ✅ done |
+| A4 | 起点之后剧透泄漏 | `manual_facts.global_facts_summary` + `entities.render_active_state` 加 `respect_start_point` 参数；过滤 evidence_spans/chapter_id 晚于起点的 fact 和 relationship | ✅ done（KB 过滤推到 iter 022） |
+
+**SOP 落地**：README 新增 60+ 行实时状态表（9 阶段 × 25 节点）；AGENTS.md 「当前阶段」section 改为指向 README SOP + 工程铁律加第 8 条（每 iter 必须同步 SOP 状态）；本文件追加本 Phase 4 Status 段。
+
+**测试**: +14 → 239 OK 全绿（plan 估 +12 → 237，实际超 2）。新文件：
+- `tests/test_start_point.py` (+7)
+- `tests/test_writer_source_injection.py` (+2)
+- `tests/test_plot_planner_kb_rolling.py` (+3)
+- `tests/test_spoiler_filter.py` (+2)
+
+**待办**：P9 longzu 真模型 smoke（设 start=longzu_4 跑 1 章新 ch1 验证 A1+A2 真生效）+ P10 commit。
+
+### Next iter（022）入口
+
+Per iter 020 report Stage B（writer/reviewer 强化）：
+
+- B1 lint 阈值动态化（随字数缩放）
+- B2 writer prompt 加 `不是X是Y` 反例
+- B3 reviewer 8-agent 改 3 sub-score 替换 0-10 单分
+- B4 reviewer 读 KB + 最近 K 章原文
+- B5 rolling_summary 分层（摘要 + 最近 3 章正文片段）
+- B6 write_book.sh `tee` mask exit code bug

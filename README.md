@@ -139,6 +139,90 @@ bash scripts/write_book.sh --book myBook 3
 
 ---
 
+## 项目阶段 SOP（实时状态）
+
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 021（2026-05-25）**。
+
+> 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
+
+### 阶段 1 — 输入准备
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 1.1 | normalize（小说 txt 标准化）| ✅ | iter 001 |
+| 1.2 | split → chapter_manifest.json | ✅ | iter 002，多语言 iter 018 |
+| 1.3 | 原文留 `小说txt/` 供下游读 | ✅ | writer 起 iter 021 开始读 |
+
+### 阶段 2 — 知识抽取
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 2.1 | extract（采样章节抽 entity/fact）| ✅ | iter 003 |
+| 2.2 | compress → global_knowledge.md | ✅ | iter 004 |
+| 2.3 | bootstrap × 5（facts/graph/anchor/style/personas）| ✅ | iter 015-016 |
+| 2.4 | apply-bootstrap × 5 | ✅ | iter 015 |
+
+### 阶段 3 — 起点判断
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 3.1 | 用户指定起点（`set-start-point chapter_id\|volume_id`）| ✅ | **iter 021** |
+| 3.2 | bootstrap_continuation_anchor 按起点采样原文 | ✅ | **iter 021**（A1 闭环） |
+
+### 阶段 4 — 关系/世界观激活
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 4.1 | load entity_graph + active state | ✅ | iter 011 |
+| 4.2 | load global_facts | ✅ | iter 010 |
+| 4.3 | load personas | ✅ | iter 016 |
+| 4.4 | 按起点过滤剧透 — global_facts | ✅ | **iter 021** |
+| 4.5 | 按起点过滤剧透 — entity_graph relationships | ⚠️ | **iter 021** 仅过滤含 chapter_id 的；schema 升级 iter 022 |
+| 4.6 | 按起点过滤剧透 — KB | ❌ | iter 022/023（KB 需 LLM 重写）|
+
+### 阶段 5 — 情节规划
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 5.1 | debate → outline.md | ✅ | iter 005 |
+| 5.2 | plot_planner 读 KB + rolling_summary + entity + outline | ✅ | **iter 021**（A3 修复） |
+| 5.3 | 写完 K 章后自动 re-plan | ❌ | iter 023 C 类 |
+
+### 阶段 6 — 写作（writer）
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 6.1 | read KB + facts + entity_state + chapter_plan + rolling_summary + style | ✅ | iter 011-016 |
+| 6.2 | read 起点前 K 章原文 | ✅ | **iter 021**（A2 修复） |
+| 6.3 | lint 自检 × 3 轮 rewrite | ✅ | iter 010 |
+| 6.4 | lint 阈值动态化（按字数缩放）| ❌ | iter 022 B 类 |
+
+### 阶段 7 — 审核
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 7.1 | 8-agent reviewer panel | ✅ | iter 011-016 |
+| 7.2 | fail-closed parse_failed → Abstain | ✅ | iter 019 audit |
+| 7.3 | reviewer sub-score（替换单一 score 0-10）| ❌ | iter 022/023 B 类 |
+| 7.4 | reviewer 读 KB + 起点附近原文 | ❌ | iter 022 B 类 |
+
+### 阶段 8 — 关系更新
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 8.1 | writer 写完调 propose_entity_advance | ✅ | iter 019 |
+| 8.2 | apply-advance --auto-apply --min-confidence | ✅ | iter 019 |
+| 8.3 | proposal 与 plan 冲突检测 | ❌ | iter 023 C 类 |
+
+### 阶段 9 — 滚动到下一章
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| 9.1 | rolling_summary 更新 | ✅ | iter 013 |
+| 9.2 | rolling_summary 分层（摘要 + 最近 K 章原文片段）| ❌ | iter 022 B 类 |
+| 9.3 | per-章 cost 实时报告 + budget ceiling | ❌ | iter 023 C 类 |
+
+### infra & UI
+| # | 节点 | 状态 | 备注 |
+|---|---|---|---|
+| I.1 | `write_book.sh` 无人值守循环 | ✅ | iter 019 |
+| I.2 | `write_book.sh` tee mask exit code bug | ⚠️ | 已知，iter 022 B6 |
+| U.1 | WebUI dashboard | ❌ | iter 024 |
+| U.2 | 模型切换 panel + onboarding wizard | ❌ | iter 024 |
+
+---
+
 ## 范围 & 声明
 
 - 这是**研究性质的工程练习**，不是产品

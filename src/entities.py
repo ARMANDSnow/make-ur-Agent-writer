@@ -37,13 +37,50 @@ def _build_tag_index(entities: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     return dict(sorted(index.items()))
 
 
-def render_active_state(graph: Dict[str, Any]) -> str:
-    """Render entity list, shared-tag index, and active relationship states."""
+def _relationship_is_spoiler(rel: Dict[str, Any], is_after_start) -> bool:
+    """Iter 021: filter heuristic for entity_graph relationships.
+
+    Drop the relationship only if its **active** timeline entry has a
+    ``chapter_id`` that is strictly after the start point. Keep it
+    otherwise — including all current relationships whose schema lacks
+    ``chapter_id`` (a richer schema is iter 022 work).
+    """
+    timeline = rel.get("timeline", [])
+    if not isinstance(timeline, list):
+        return False
+    for item in timeline:
+        if not isinstance(item, dict) or not item.get("active"):
+            continue
+        ch_id = item.get("chapter_id") or item.get("source_chapter")
+        if ch_id and is_after_start(ch_id):
+            return True
+        return False  # active entry has no chapter_id → no spoiler info → keep
+    return False
+
+
+def render_active_state(
+    graph: Dict[str, Any], respect_start_point: bool = True
+) -> str:
+    """Render entity list, shared-tag index, and active relationship states.
+
+    Iter 021: when ``respect_start_point=True`` and a start point is
+    configured, relationships whose active timeline entry has a
+    ``chapter_id`` strictly after the start are filtered as spoilers.
+    Timeline entries without a ``chapter_id`` are kept (no info to filter
+    on — schema upgrade for richer filtering is iter 022 work).
+    """
     if not graph:
         return ""
 
     entities = [ent for ent in graph.get("entities", []) or [] if isinstance(ent, dict)]
     relationships = [rel for rel in graph.get("relationships", []) or [] if isinstance(rel, dict)]
+    if respect_start_point:
+        from . import start_point
+        if start_point.get_start_chapter_id() is not None:
+            relationships = [
+                rel for rel in relationships
+                if not _relationship_is_spoiler(rel, start_point.is_after_start)
+            ]
     entities_by_id = {str(ent.get("id", "")): ent for ent in entities if ent.get("id")}
     lines: List[str] = ["## 当前续写起点的实体关系状态", "", "### 关键实体"]
 

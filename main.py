@@ -191,6 +191,17 @@ def build_parser() -> argparse.ArgumentParser:
     chapter_status_cmd.add_argument("chapter", type=int)
     chapter_status_cmd.add_argument("--json", action="store_true", default=True)
 
+    # iter 021: start point — let users pick a chapter_id or volume_id from
+    # chapter_manifest as the "continue from here" anchor instead of the
+    # default first-extracted-chapter sampling. See src/start_point.py.
+    set_start_cmd = sub.add_parser("set-start-point")
+    set_start_cmd.add_argument(
+        "name",
+        help="chapter_id (e.g. longzu_3_3_ch020) or volume_id (e.g. longzu_4)",
+    )
+    sub.add_parser("show-start-point")
+    sub.add_parser("clear-start-point")
+
     # iter 017: multi-book workspace management
     sub.add_parser("workspace-list")
     workspace_init_cmd = sub.add_parser("workspace-init")
@@ -344,6 +355,32 @@ def main() -> None:
         drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
         status = chapter_status(args.chapter, drafts_dir)
         print(_json.dumps(status, ensure_ascii=False))
+    elif args.command == "set-start-point":
+        from src import start_point
+
+        try:
+            start_point.set_start_point(args.name)
+            resolved = start_point.get_start_chapter_id()
+            print(f"start point set: {args.name!r} → resolved chapter_id = {resolved!r}")
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            raise SystemExit(1)
+    elif args.command == "show-start-point":
+        from src import start_point
+
+        resolved = start_point.get_start_chapter_id()
+        if resolved is None:
+            print("no start point set (default behavior: iter 020 first-extracted-chapter sampling)")
+        else:
+            print(f"resolved chapter_id: {resolved}")
+            before = start_point.chapters_before_start(3)
+            if before:
+                print(f"  chapters before start (3): {[c.get('chapter_id') for c in before]}")
+    elif args.command == "clear-start-point":
+        from src import start_point
+
+        start_point.clear_start_point()
+        print("start point cleared (now using iter 020 default behavior)")
     elif args.command == "run-all":
         normalize_all()
         split_all()

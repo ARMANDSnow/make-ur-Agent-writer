@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import paths
+from . import paths, start_point
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
@@ -380,6 +380,30 @@ def _write_prompt(
             "严格遵守'当前活跃关系'：任何角色互动、人物对彼此的认知、关系描述必须匹配上面 active 状态；"
             "不要编造未列出的关系；不要让角色行为与已确立关系冲突。"
         )
+    # Iter 021: inject K=3 chapters of authentic source text immediately
+    # before the start point so writer sees real prose for style + detail
+    # anchoring. When no start point is set (iter 020 default behavior),
+    # `chapters_before_start` returns [] and this block stays empty —
+    # prompt remains byte-identical to iter 020.
+    src_chapters = start_point.chapters_before_start(k=3)
+    if src_chapters:
+        pieces = []
+        for ch in src_chapters:
+            body = start_point.load_chapter_text(ch.get("chapter_id", ""))[:3000]
+            if not body:
+                continue
+            pieces.append(
+                f"### {ch.get('chapter_id', '')} — {ch.get('title', '')}\n\n{body}"
+            )
+        if pieces:
+            stable_context = (
+                f"{stable_context}\n\n"
+                f"# 原文片段参考（起点前 {len(pieces)} 章，用于风格 + 细节锚点；不要复述情节）\n\n"
+                + "\n\n---\n\n".join(pieces)
+                + "\n\n"
+                "上述片段是原作者的真实文字，用于参考叙事节奏、用词、人物塑造的细节密度。"
+                "续写不要复述上述情节，但写作风格、人物对话语气、环境刻画密度应向这些片段靠拢。"
+            )
     anchor_context = f"# 续写起点（must-anchor）\n\n{continuation_anchor}\n\n" if continuation_anchor else ""
     rolling_block = f"{rolling_context}\n" if rolling_context else ""
     ending_block = (
