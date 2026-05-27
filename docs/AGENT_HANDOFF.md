@@ -353,3 +353,49 @@ Goal: 把 iter 020 报告 Stage B 6 条一次性收齐，让 iter 021 验证 ch1
 - KB 按起点过滤（iter 023 推后；需 LLM 重写 KB）
 - entity_graph timeline schema 升级（加 chapter_id 让程序化 auditor 检测更密集）
 - iter 025 capstone：完整 longzu ~30-100 章 真模型 smoke（基于 iter 023 sub-score + advisor 信号驱动）
+
+---
+
+## Phase 4 Status（iter 024，2026-05-27）
+
+### Iteration 024 — 长程稳定性 4 项（已完成 / 已 commit）
+
+**Goal**: 为 iter 025 capstone（跑完整 30-100 章）做前置稳定性投资。iter 023 把 advisor 配置就绪却没接消费链路，iter 024 串通；同时补 plot_planner continuation、budget ceiling、proposal vs plan 冲突检测三项 SOP 待办。
+
+**4 项实现**:
+
+| ID | 改动 | 状态 |
+|----|------|------|
+| P1 | reviewer.load_advisor_agents + 调 advisor 产 rewrite_suggestions；writer._review_feedback 加专门 advisor section（cap 5 条）| ✅ |
+| P2 | plot_planner.generate_chapter_plan 加 append_count / from_chapter；main.py 加 --append --from-chapter；write_book.sh 加 --replan-every K 每 K 章 trigger | ✅ |
+| P3 | cost_estimator.estimate_cost_since + cost_cny 共享 pricing；write_book.sh --budget-cny N + exit 3 + per-章 cost 日志 | ✅ |
+| P4 | src/proposal_validator.py（hard-conflict heuristic）+ write_book.sh apply-advance 前 dry-run，BLOCKED 时跳过自动应用 | ✅ |
+
+**测试**: +22 → **296 OK**（plan 估 +15 → 289，超出 7 个）。新文件：
+- `tests/test_cost_per_chapter.py` (+4)
+- `tests/test_proposal_validator.py` (+3)
+- `tests/test_plot_planner_append.py` (+2)
+- `tests/test_reviewer_advisor_consumption.py` (+3)
+- `tests/test_writer_advisor_feedback.py` (+3)
+- `tests/test_write_book_replan_budget.py` (+7)
+
+**P6 真模型 smoke 关键证据**:
+- advisor 实战产 **5 条 actionable suggestions** 落到 chapter_01.meta.json：
+  1. [rewrite 开场段落] 将开场视角改为路明非梦中惊醒，康斯坦丁低语"母亲"...
+  2. [add 诺诺逃往B3停车场段落] 加入路明非视角的割裂叙事...
+  3. [rewrite 神秘男人出场段落] 将"我等了十六年"台词改为朝向路明非...
+  4. [add 文中插入段落] 教授会议室场景，古德里安察觉"尼伯龙根指数飙升"...
+  5. [add 结尾 hook] 路明非接过短刀，刀身龙文与青铜封印阵产生共振...
+- 这是 iter 020-023 reviewer 从未产出的**编辑级具体建议**（含 section + type + guidance）
+- ch1 仍 Reject（同 iter 023：模型仍写诺诺视角而非主角），advisor 准确诊断
+- 其它 3 项（re-plan / budget / validator）单测验证完整，真模型 smoke 未触发其成功路径（ch1 没 Approve 进 success path）
+
+**Smoke 成本**: ¥1.53（预算 ¥3-5，30% 用量）。
+
+### Next iter（025）候选入口
+
+- **WebUI**（iter 020 报告原计划，长程稳定后可启动）
+- **iter 025 capstone**：完整 longzu 30-100 章 真模型 smoke，利用 iter 024 budget ceiling + auto re-plan 跑得动
+- KB 按起点过滤（需 LLM 重写 KB）
+- entity_graph timeline schema 升级（让 deterministic_relations + proposal_validator 更密集）
+- writer 真用 rewrite_suggestions 后效果验证（iter 024 P1 落地但未真模型验证下一稿改进效果）

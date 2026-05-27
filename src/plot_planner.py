@@ -29,13 +29,44 @@ def _outline_path() -> Path:
     return paths.outline_path() if paths.workspace_name() else OUTLINE_PATH
 
 
-def generate_chapter_plan(target_chapters: int = 18, force: bool = False) -> Dict[str, Any]:
+def generate_chapter_plan(
+    target_chapters: int = 18,
+    force: bool = False,
+    *,
+    append_count: int = 0,
+    from_chapter: int = 0,
+) -> Dict[str, Any]:
+    """Iter 024 P2: append mode. When ``append_count > 0``, preserves
+    chapters 1..from_chapter from the existing chapter_plan.json and
+    appends ``append_count`` new chapters numbered
+    ``from_chapter+1 .. from_chapter+append_count``.
+
+    The LLM call now gets the existing plan tail + rolling_summary so
+    the new chapters continue from what has actually been written, not
+    from a fresh outline read. Updates ``target_chapters`` to the new
+    total (existing kept + new appended).
+
+    Default (append_count=0) = iter 023 behavior: write a fresh
+    ``target_chapters``-length plan.
+    """
     chapter_plan_path = _chapter_plan_path()
     outline_path = _outline_path()
-    if chapter_plan_path.exists() and not force:
-        raise FileExistsError("chapter_plan.json already exists; use --force to overwrite")
     if not outline_path.exists():
         raise FileNotFoundError("outline not found; run `python main.py debate` first")
+
+    # Iter 024: append mode pre-reads existing plan, preserves head.
+    existing_chapters: list = []
+    if append_count > 0:
+        if not chapter_plan_path.exists():
+            raise FileNotFoundError(
+                "cannot --append without existing chapter_plan.json; run plan-chapters first"
+            )
+        from .utils import read_json as _read_json
+        existing = _read_json(chapter_plan_path, {})
+        all_existing = existing.get("chapters", []) or []
+        existing_chapters = all_existing[:from_chapter] if from_chapter > 0 else all_existing
+    elif chapter_plan_path.exists() and not force:
+        raise FileExistsError("chapter_plan.json already exists; use --force to overwrite")
 
     outline = outline_path.read_text(encoding="utf-8")
     entity_state = render_active_state(load_entity_graph())
@@ -54,9 +85,22 @@ def generate_chapter_plan(target_chapters: int = 18, force: bool = False) -> Dic
     rolling = _load_rolling_summary()
     anchor = load_continuation_anchor()
 
+    # Iter 024: when in append mode, ask LLM for exactly `append_count`
+    # chapters numbered starting at `from_chapter + 1`. The prompt also
+    # includes a compact summary of the kept chapters so the LLM produces
+    # genuine continuation.
+    if append_count > 0:
+        llm_target = append_count
+        existing_tail_block = _format_existing_tail(existing_chapters)
+        starting_chapter_no = from_chapter + 1
+    else:
+        llm_target = target_chapters
+        existing_tail_block = ""
+        starting_chapter_no = 1
+
     client = LLMClient("plot_planner")
     prompt = _build_planner_prompt(
-        target_chapters=target_chapters,
+        target_chapters=llm_target,
         outline=outline,
         entity_state=entity_state,
         style_examples=style_examples,
@@ -64,6 +108,8 @@ def generate_chapter_plan(target_chapters: int = 18, force: bool = False) -> Dic
         knowledge=knowledge,
         rolling_summary=rolling,
         continuation_anchor=anchor,
+        existing_tail=existing_tail_block,
+        starting_chapter_no=starting_chapter_no,
     )
     result = client.complete_json(
         [
@@ -75,9 +121,48 @@ def generate_chapter_plan(target_chapters: int = 18, force: bool = False) -> Dic
         ],
         ChapterPlan,
     )
-    data = model_to_dict(result)
+    new_data = model_to_dict(result)
+    if append_count > 0:
+        # Merge: existing head + LLM-produced tail. Renumber new chapters
+        # to start at from_chapter + 1 in case the LLM ignored the hint.
+        new_chapters = list(new_data.get("chapters", []) or [])
+        for offset, ch in enumerate(new_chapters):
+            ch["chapter_no"] = from_chapter + 1 + offset
+        merged_chapters = list(existing_chapters) + new_chapters
+        # Preserve overall_arc from existing (don't let LLM rewrite the
+        # global arc just because it's appending a tail).
+        from .utils import read_json as _read_json
+        old = _read_json(chapter_plan_path, {})
+        data: Dict[str, Any] = {
+            "target_chapters": len(merged_chapters),
+            "overall_arc": old.get("overall_arc", new_data.get("overall_arc", "")),
+            "chapters": merged_chapters,
+            "generated_by": (
+                f"plot_planner_v1_append (existing 1..{from_chapter} preserved, "
+                f"ch{from_chapter+1}..{from_chapter+append_count} new)"
+            ),
+        }
+    else:
+        data = new_data
     write_json(chapter_plan_path, data)
     return data
+
+
+def _format_existing_tail(existing_chapters: list, k: int = 5) -> str:
+    """Iter 024: compact summary of the last K existing chapters for the
+    re-plan LLM, so it produces real continuation. Empty when no existing."""
+    if not existing_chapters:
+        return ""
+    tail = existing_chapters[-k:]
+    lines = ["# 已存在 plan 章节末尾（最近 {} 章）— 新规划必须从这之后接续：".format(len(tail))]
+    for ch in tail:
+        if not isinstance(ch, dict):
+            continue
+        no = ch.get("chapter_no", "?")
+        title = str(ch.get("title", ""))[:30]
+        hook = str(ch.get("ending_hook", ""))[:200]
+        lines.append(f"- ch{no} 「{title}」 末钩：{hook}")
+    return "\n".join(lines) + "\n"
 
 
 def _load_knowledge() -> str:
@@ -126,6 +211,8 @@ def _build_planner_prompt(
     knowledge: str = "",
     rolling_summary: str = "",
     continuation_anchor: str = "",
+    existing_tail: str = "",
+    starting_chapter_no: int = 1,
 ) -> str:
     schema = json.dumps(model_to_json_schema(ChapterPlan), ensure_ascii=False, indent=2)
     style_block = (
@@ -162,6 +249,18 @@ def _build_planner_prompt(
         if continuation_anchor
         else ""
     )
+    # Iter 024: append mode adds existing chapter tail summaries so the
+    # LLM-produced new chapters genuinely continue. Also requests
+    # chapter_no to start at starting_chapter_no instead of 1.
+    existing_tail_block = (
+        f"{existing_tail}\n\n"
+        f"新规划的 ch1 实际对应整书第 {starting_chapter_no} 章；ch2 对应"
+        f"第 {starting_chapter_no + 1} 章，依此类推。chapter_no 字段在"
+        f"输出 JSON 中**仍从 1 开始连续编号**（merge 时由后处理重编号），"
+        f"但情节必须从『{starting_chapter_no - 1} 章末状态』承接。\n\n"
+        if existing_tail
+        else ""
+    )
     return (
         f"请基于下列资料制定 {target_chapters} 章续写大纲。你不是写正文，而是给 writer 的执行计划。\n\n"
         "# 硬性要求\n\n"
@@ -174,7 +273,8 @@ def _build_planner_prompt(
         "7. 如实体关系状态与辩论大纲冲突，以实体关系状态和已发生事实优先。\n"
         "8. 如已写章节滚动摘要与辩论大纲冲突，以已写章节为准（已发生 > 计划）。\n"
         "9. 如续写起点 (must-anchor) 与辩论大纲冲突，以起点状态为准 — "
-        "用户配置的起点是新一轮规划的真实出发点。\n\n"
+        "用户配置的起点是新一轮规划的真实出发点。\n"
+        "10. 如已存在 plan 末尾章节给出（append 模式），新规划必须从其 ending_hook 自然承接。\n\n"
         f"# ChapterPlan JSON schema\n\n{schema}\n\n"
         f"{knowledge_block}"
         f"{anchor_block}"
@@ -182,5 +282,6 @@ def _build_planner_prompt(
         f"{facts_block}"
         f"{entity_block}"
         f"{rolling_block}"
+        f"{existing_tail_block}"
         f"# 辩论大纲\n\n{outline[:12000]}\n"
     )

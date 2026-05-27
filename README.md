@@ -141,7 +141,7 @@ bash scripts/write_book.sh --book myBook 3
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 023（2026-05-26）** — agent 精简 8→5+1、scene-matched 经典片段、关系一致性程序化、reviewer 首次给出 actionable 内容反馈。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 024（2026-05-27）** — advisor 消费链路 + 自动 re-plan + budget ceiling + proposal 冲突检测：长程稳定性 4 项全部落地。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -181,7 +181,7 @@ bash scripts/write_book.sh --book myBook 3
 |---|---|---|---|
 | 5.1 | debate → outline.md | ✅ | iter 005 |
 | 5.2 | plot_planner 读 KB + rolling_summary + entity + outline | ✅ | **iter 021**（A3 修复） |
-| 5.3 | 写完 K 章后自动 re-plan | ❌ | iter 024 C 类 |
+| 5.3 | 写完 K 章后自动 re-plan（plot_planner --append --from-chapter）| ✅ | **iter 024 P2**（write_book.sh `--replan-every K` 触发）|
 
 ### 阶段 6 — 写作（writer）
 | # | 节点 | 状态 | 备注 |
@@ -201,21 +201,21 @@ bash scripts/write_book.sh --book myBook 3
 | 7.3 | reviewer sub-score（plot/prose/fidelity 3 维 + 单 score legacy）| ✅ | **iter 022 B3**（真模型实测分化：plot 4-8 区分度首现）|
 | 7.4 | reviewer 读 KB + 起点附近原文 + scene-matched 经典片段 | ✅ | iter 022 B4 + **iter 023 P3** |
 | 7.5 | 程序化关系一致性检测（deterministic_relations）| ✅ | **iter 023 P5**（0 LLM 成本，替代 LLM agent）|
-| 7.6 | 改写顾问 agent（不投票，输出 RewriteSuggestion）| ✅ | **iter 023 P4** |
+| 7.6 | 改写顾问 advisor（不投票，输出 RewriteSuggestion 列表）| ✅ | iter 023 P4（配置）+ **iter 024 P1**（writer rewrite-loop 真消费）|
 
 ### 阶段 8 — 关系更新
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
 | 8.1 | writer 写完调 propose_entity_advance | ✅ | iter 019 |
 | 8.2 | apply-advance --auto-apply --min-confidence | ✅ | iter 019 |
-| 8.3 | proposal 与 plan 冲突检测 | ❌ | iter 024+ |
+| 8.3 | proposal 与 plan 冲突检测（apply-advance 前 dry-run）| ✅ | **iter 024 P4**（hard-conflict 启发式 + write_book.sh BLOCKED 路径）|
 
 ### 阶段 9 — 滚动到下一章
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
 | 9.1 | rolling_summary 更新 | ✅ | iter 013 |
 | 9.2 | rolling_summary 分层（摘要 + 最近 K 章原文片段）| ✅ | **iter 022 B5**（schema 加 text_snippet 字段） |
-| 9.3 | per-章 cost 实时报告 + budget ceiling | ❌ | iter 024+ |
+| 9.3 | per-章 cost 实时报告 + budget ceiling | ✅ | **iter 024 P3**（write_book.sh `--budget-cny N` + exit 3）|
 
 ### infra & UI
 | # | 节点 | 状态 | 备注 |

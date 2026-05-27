@@ -710,6 +710,23 @@ def _review_feedback(report: Dict[str, Any]) -> str:
                     parts.append(f"[{review.get('agent_name', 'reviewer')}] {issue}")
             for suggestion in review.get("suggestions", []):
                 parts.append(f"[{review.get('agent_name', 'reviewer')}] suggestion: {suggestion}")
+    # Iter 024 P1: advisor's structured RewriteSuggestion list gets a
+    # dedicated trailing section so the rewriter prioritizes it. Empty
+    # list (or missing key) → no advisor block → behavior matches iter 023.
+    suggs = report.get("rewrite_suggestions") or []
+    if suggs:
+        parts.append("")
+        parts.append("## 改写顾问建议（按优先级，必须在下一稿处理）")
+        for i, s in enumerate(suggs[:5], 1):
+            if not isinstance(s, dict):
+                continue
+            advisor = s.get("_advisor", "改写顾问")
+            section = str(s.get("section") or "").strip()
+            op = str(s.get("type") or "rewrite").strip()
+            guidance = str(s.get("guidance") or "").strip()
+            parts.append(
+                f"{i}. [{advisor}] [{op}] {section}: {guidance}"
+            )
     return "\n".join(p for p in parts if p)
 
 

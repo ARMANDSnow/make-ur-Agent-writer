@@ -103,10 +103,10 @@ logs/                     # 全部 gitignored
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：023（agent 8→5+1 精简 + scene-matched 经典片段 + 关系一致性程序化 + lint 改 warning-only）
-**已完成阶段**：1-2 全打通；3（起点判断）iter 021 打通；6.4-6.6 / 7.1-7.6 / 9.2 / I.2 见 SOP 表；reviewer 首次给出 actionable 内容反馈（plot=4 配体"主角全章未出场"）
-**关键学习**：iter 023 中途发现 `不是X是Y` 是江南**笔法特征**（原作大量使用），不该被 lint 一刀切 → 改为 warning-only，让 5+1 agent 判断密度是否过度
-**下一步候选**：iter 024 — WebUI / plot_planner continuation / 每 K 章自动 re-plan / per-章 budget ceiling / 改写顾问输出消费链路（writer 真用 RewriteSuggestion）
+**当前 iter**：024（长程稳定 4 项：advisor 消费链路 + plot_planner continuation + budget ceiling + proposal 冲突检测）
+**已完成阶段**：1-2 全打通；3（起点）iter 021；6.4-6.6 / 7.1-7.6 iter 022-024；5.3 / 8.3 / 9.3 iter 024 P1-P4 全 ✅；其余见 SOP 表
+**关键证据**：advisor 真实产 5 条 actionable suggestions（如"将开场视角改为路明非梦中惊醒...神秘男人的'十六年'台词改为朝向路明非"），writer rewrite-loop 现在真消费
+**下一步候选**：iter 025 capstone 完整 ~30-100 章 / WebUI / KB 按起点过滤 / entity_graph timeline schema 升级
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 "iter N+ 改进路线" 段
 
 ## 常用 git 操作

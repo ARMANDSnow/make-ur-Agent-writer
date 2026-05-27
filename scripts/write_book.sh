@@ -16,6 +16,9 @@ BOOK="${WORKSPACE_NAME:-${BOOK:-}}"
 MAX_RETRIES="2"
 MIN_CONFIDENCE="0.7"
 AUTO_ADVANCE="1"
+# Iter 024 P2c/P3c/P4b flags
+REPLAN_EVERY="0"   # 0 = disabled (default backward-compat with iter 023)
+BUDGET_CNY="0"     # 0 = no ceiling (default)
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -49,6 +52,22 @@ while [ $# -gt 0 ]; do
       ;;
     --no-auto-advance)
       AUTO_ADVANCE="0"
+      shift
+      ;;
+    --replan-every)
+      REPLAN_EVERY="$2"
+      shift 2
+      ;;
+    --replan-every=*)
+      REPLAN_EVERY="${1#--replan-every=}"
+      shift
+      ;;
+    --budget-cny)
+      BUDGET_CNY="$2"
+      shift 2
+      ;;
+    --budget-cny=*)
+      BUDGET_CNY="${1#--budget-cny=}"
       shift
       ;;
     *)
@@ -88,6 +107,12 @@ ts="$(date +%Y%m%d_%H%M%S)"
 log_path="$LOGS_DIR/write_book_${ts}.log"
 
 export PYTHONPYCACHEPREFIX="$ROOT/.pycache"
+
+# Iter 024 P3c: record llm_calls.jsonl line count at run start for per-chapter
+# and cumulative budget computation. Tracks delta since this invocation began
+# (independent of all prior runs' history).
+INITIAL_LLM_LINES="$(wc -l < "$LOGS_DIR/llm_calls.jsonl" 2>/dev/null || echo 0)"
+INITIAL_LLM_LINES="${INITIAL_LLM_LINES//[[:space:]]/}"
 
 # Iter 019 helpers ------------------------------------------------------------
 # chapter_approved <i> -> 0 if approved, 1 otherwise. Uses the chapter-status
@@ -196,17 +221,74 @@ take_snapshot() {
     fi
 
     if [ "$AUTO_ADVANCE" = "1" ]; then
-      # Iter 019: auto-apply high-confidence entity-advance proposals between
-      # chapters. --allow-empty turns "no proposals matched threshold" into a
-      # no-op exit 0 so the loop doesn't break on quiet chapters.
-      python3 main.py ${BOOK:+--book $BOOK} apply-advance \
-        --chapter "$i" \
-        --auto-apply \
-        --min-confidence "$MIN_CONFIDENCE" \
-        --allow-empty \
-        --confirm
+      # Iter 024 P4b: dry-run proposal-vs-plan conflict check BEFORE
+      # auto-applying. Hard-conflict proposals (e.g. would set X↔Y as
+      # 已死/敌对 but next chapter plan expects active interaction)
+      # are SKIPPED — operator can apply manually after review.
+      conflict_check=$(python3 -c "
+import json
+from src import paths, proposal_validator
+from src.utils import read_json
+drafts = paths.drafts_dir()
+proposals = read_json(drafts / 'chapter_$(printf '%02d' "$i").entity_advance_proposals.json', {})
+prop_list = proposals.get('proposals', []) if isinstance(proposals, dict) else (proposals if isinstance(proposals, list) else [])
+plan = read_json(paths.chapter_plan_path(), {})
+graph = read_json(paths.entity_graph_path(), {})
+conflicts = proposal_validator.validate_proposals_against_plan(prop_list, $i, plan, graph)
+if conflicts:
+    print('CONFLICT:' + '; '.join(c['reason'][:120] for c in conflicts[:2]))
+else:
+    print('SAFE')
+" 2>/dev/null || echo "SAFE")
+      if [[ "$conflict_check" == CONFLICT:* ]]; then
+        echo "=== [BLOCKED] apply-advance for ch$i conflicts with next chapter plan: ${conflict_check#CONFLICT: } ==="
+        echo "=== [BLOCKED] Skipping auto-apply; review proposals manually in chapter_$(printf '%02d' "$i").entity_advance_proposals.json ==="
+      else
+        # Iter 019: auto-apply high-confidence entity-advance proposals between
+        # chapters. --allow-empty turns "no proposals matched threshold" into a
+        # no-op exit 0 so the loop doesn't break on quiet chapters.
+        python3 main.py ${BOOK:+--book $BOOK} apply-advance \
+          --chapter "$i" \
+          --auto-apply \
+          --min-confidence "$MIN_CONFIDENCE" \
+          --allow-empty \
+          --confirm
+      fi
     else
       echo "=== auto-advance disabled (--no-auto-advance); skipping apply-advance for chapter $i ==="
+    fi
+
+    # Iter 024 P3c: per-chapter cost report + cumulative budget check.
+    # Always print since users want visibility; only enforce ceiling
+    # when --budget-cny was passed.
+    chapter_cost_info=$(python3 -c "
+from src.cost_estimator import estimate_cost_since
+delta = estimate_cost_since($INITIAL_LLM_LINES)
+print(f\"{delta['cost_cny']:.4f}|{delta['calls']}|{delta['prompt_tokens']}|{delta['response_tokens']}\")
+" 2>/dev/null || echo "0.0|0|0|0")
+    IFS='|' read -r cum_cost cum_calls cum_prompt cum_resp <<< "$chapter_cost_info"
+    echo "[cost] after ch$i: cumulative ¥${cum_cost} | calls=${cum_calls} | prompt_tok=${cum_prompt} | resp_tok=${cum_resp}"
+    if [ "$BUDGET_CNY" != "0" ]; then
+      over_budget=$(python3 -c "print(1 if float('$cum_cost') > float('$BUDGET_CNY') else 0)")
+      if [ "$over_budget" = "1" ]; then
+        echo ""
+        echo "[BUDGET] cumulative cost ¥${cum_cost} exceeded ceiling ¥${BUDGET_CNY} after ch$i"
+        echo "[BUDGET] stopping write_book.sh; partial progress preserved (ch1..ch$i written)"
+        take_snapshot "_budget_exit_ch$(printf '%02d' "$i")"
+        echo "Write book log: $log_path"
+        exit 3
+      fi
+    fi
+
+    # Iter 024 P2c: every REPLAN_EVERY chapters, trigger plot_planner
+    # --append to add K fresh chapters that continue from what's been
+    # written. Skip on the very last chapter (no next batch to plan).
+    if [ "$REPLAN_EVERY" != "0" ] && [ "$i" -lt "$CHAPTERS" ] && [ "$((i % REPLAN_EVERY))" -eq 0 ]; then
+      echo ""
+      echo "=== Auto re-plan: appending $REPLAN_EVERY chapters after ch$i ==="
+      python3 main.py ${BOOK:+--book $BOOK} plan-chapters \
+        --append "$REPLAN_EVERY" --from-chapter "$i" --force \
+        || echo "[WARN] auto re-plan failed; continuing with existing plan"
     fi
   done
 

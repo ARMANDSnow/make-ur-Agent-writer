@@ -10,6 +10,29 @@ from .config import ROOT
 from .utils import read_json
 
 
+# Iter 024 P3: shared deepseek-v3-pro pricing (USD per 1M tokens). Was
+# duplicated in scripts/collect_iter020_data.py — now single source of
+# truth. cost_cny() helper consumed by estimate_cost_since() and by the
+# collector script.
+PROMPT_USD_PER_M = 0.27
+CACHE_READ_USD_PER_M = 0.07
+RESPONSE_USD_PER_M = 1.10
+USD_TO_CNY = 7.2
+
+
+def cost_cny(prompt_tokens: int, cache_read_tokens: int, response_tokens: int) -> float:
+    """Convert raw token usage (3 fields) to estimated cost in CNY.
+    Non-cache prompt tokens billed standard; cache_read cheaper; response
+    tokens highest. Negative inputs clamped to 0."""
+    non_cache = max(prompt_tokens - cache_read_tokens, 0)
+    usd = (
+        non_cache * PROMPT_USD_PER_M / 1e6
+        + max(cache_read_tokens, 0) * CACHE_READ_USD_PER_M / 1e6
+        + max(response_tokens, 0) * RESPONSE_USD_PER_M / 1e6
+    )
+    return usd * USD_TO_CNY
+
+
 def _resolve_root(root: Path | None) -> Path:
     if root is not None:
         return root
@@ -66,6 +89,51 @@ def _token_usage_from_logs(path: Path) -> Dict[str, int]:
         usage["cache_read_tokens"] += int(record.get("cache_read_tokens", 0) or 0)
         usage["cache_write_tokens"] += int(record.get("cache_write_tokens", 0) or 0)
     return usage
+
+
+def estimate_cost_since(line_offset: int = 0, root: Path | None = None) -> Dict[str, Any]:
+    """Iter 024 P3: cost delta since `line_offset` of llm_calls.jsonl.
+
+    Used by ``scripts/write_book.sh`` to compute per-chapter cost (set
+    line_offset to wc -l at chapter start, then call again after).
+
+    Returns a dict with token totals, cost_cny, calls count. Empty/missing
+    log file returns zero-filled dict so the caller never crashes."""
+    root = _resolve_root(root)
+    path = root / "logs" / "llm_calls.jsonl"
+    out = {
+        "calls": 0,
+        "prompt_tokens": 0,
+        "response_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_cny": 0.0,
+        "line_offset": line_offset,
+    }
+    if not path.exists():
+        return out
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if line_offset >= len(lines):
+        return out
+    for line in lines[line_offset:]:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        out["calls"] += 1
+        out["prompt_tokens"] += int(record.get("prompt_tokens", 0) or 0)
+        out["response_tokens"] += int(record.get("response_tokens", 0) or 0)
+        out["cache_read_tokens"] += int(record.get("cache_read_tokens", 0) or 0)
+        out["cache_write_tokens"] += int(record.get("cache_write_tokens", 0) or 0)
+    out["cost_cny"] = round(
+        cost_cny(
+            out["prompt_tokens"], out["cache_read_tokens"], out["response_tokens"]
+        ),
+        4,
+    )
+    return out
 
 
 def render_cost_estimate(estimate: Dict[str, Any]) -> str:

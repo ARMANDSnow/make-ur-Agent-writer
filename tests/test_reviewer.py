@@ -33,7 +33,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
 
         with patch("src.reviewer.global_facts_summary", return_value="FACT: 绘梨衣已死亡"), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
-        ), patch("src.reviewer.load_review_agents", return_value=[{"name": "agent", "system_prompt": "review"}]):
+        ), patch("src.reviewer.load_review_agents", return_value=[{"name": "agent", "system_prompt": "review"}]), patch("src.reviewer.load_advisor_agents", return_value=[]):
             report = review_text("干净正文。", "clean.md", precomputed_lint_issues=[])
         self.assertEqual(report["verdict"], "Approve")
         self.assertIn("FACT: 绘梨衣已死亡", captured["prompt"])
@@ -42,7 +42,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         def fake_complete_text(self, messages):
             return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
 
-        with patch("src.reviewer.load_review_agents", return_value=[{"name": "文本守门人", "system_prompt": "review"}]), patch(
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "文本守门人", "system_prompt": "review"}]), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ):
             report = review_text("干净正文。", "missing_agent.md", precomputed_lint_issues=[])
@@ -61,7 +61,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         def fake_complete_text(self, messages):
             return "random text without json"
 
-        with patch("src.reviewer.load_review_agents", return_value=[{"name": "文本守门人", "system_prompt": "review"}]), patch(
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "文本守门人", "system_prompt": "review"}]), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ), patch("src.reviewer.log_event") as mock_log:
             report = review_text("干净正文。", "parse_failed.md", precomputed_lint_issues=[])
@@ -97,7 +97,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             {"name": "agent_a", "system_prompt": "first agent"},
             {"name": "agent_b", "system_prompt": "second agent"},
         ]
-        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ):
             report = review_text("干净正文。", "partial_fail.md", precomputed_lint_issues=[])
@@ -137,7 +137,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             {"name": "agent_a", "system_prompt": "first agent"},
             {"name": "agent_b", "system_prompt": "second agent"},
         ]
-        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ):
             report = review_text("干净正文。", "partial_ok.md", precomputed_lint_issues=[])
@@ -232,7 +232,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             {"name": "agent_a", "system_prompt": "first"},
             {"name": "agent_b", "system_prompt": "second"},
         ]
-        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ):
             report = review_text("正文。", "fallback_recovery.md", precomputed_lint_issues=[])
@@ -271,7 +271,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             {"name": "agent_a", "system_prompt": "first"},
             {"name": "agent_b", "system_prompt": "second"},
         ]
-        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ):
             report = review_text("正文。", "double_failure.md", precomputed_lint_issues=[])
@@ -285,7 +285,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         def fake_complete_text(self, messages):
             return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
 
-        with patch("src.reviewer.load_review_agents", return_value=[{"name": "关系一致性", "system_prompt": "review"}]), patch(
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "关系一致性", "system_prompt": "review"}]), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ):
             report = review_text(
@@ -372,7 +372,7 @@ class ReviewerPersonaRenderingTests(unittest.TestCase):
             "core_relationships": [],
             "core_setting_rules": [],
         }
-        with patch("src.reviewer.load_review_agents", return_value=agents), patch(
+        with patch("src.reviewer.load_review_agents", return_value=agents), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
             "src.reviewer.load_personas", return_value=personas
         ), patch("src.llm_client.LLMClient.complete_text", fake_complete_text):
             report = review_text("干净正文。", "persona_render.md", precomputed_lint_issues=[])

@@ -152,6 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan_chapters = sub.add_parser("plan-chapters")
     plan_chapters.add_argument("--chapters", type=int, default=18)
     plan_chapters.add_argument("--force", action="store_true", help="overwrite existing chapter_plan.json")
+    # Iter 024 P2: append mode — preserve ch1..from_chapter, append append_count new
+    plan_chapters.add_argument("--append", type=int, default=0, dest="append_count",
+                               help="iter 024: append K new chapters instead of overwriting")
+    plan_chapters.add_argument("--from-chapter", type=int, default=0, dest="from_chapter",
+                               help="iter 024: index after which to append (0 = current plan length)")
 
     write = sub.add_parser("write")
     write.add_argument("--chapters", type=int, default=18)
@@ -320,8 +325,23 @@ def main() -> None:
     elif args.command == "plan-chapters":
         from src.plot_planner import generate_chapter_plan
 
-        data = generate_chapter_plan(target_chapters=args.chapters, force=args.force)
-        print(f"chapter_plan.json written: {len(data['chapters'])} chapters")
+        # Iter 024: if --append is set without explicit --from-chapter,
+        # auto-resolve to current plan length so common usage doesn't
+        # need to track the chapter count manually.
+        from_chapter = args.from_chapter
+        if args.append_count > 0 and from_chapter == 0:
+            from src import paths as _paths
+            from src.utils import read_json as _rj
+            _p = _paths.chapter_plan_path() if _paths.workspace_name() else Path("outputs/debate/chapter_plan.json")
+            from_chapter = len((_rj(_p, {}) or {}).get("chapters", []))
+        data = generate_chapter_plan(
+            target_chapters=args.chapters,
+            force=args.force,
+            append_count=args.append_count,
+            from_chapter=from_chapter,
+        )
+        mode = f"append +{args.append_count} from ch{from_chapter}" if args.append_count > 0 else "fresh"
+        print(f"chapter_plan.json written ({mode}): {len(data['chapters'])} chapters")
         print(f"overall_arc: {str(data['overall_arc'])[:200]}")
     elif args.command == "write":
         write_chapters(chapters=args.chapters, force=args.force, resume_from=args.resume_from)

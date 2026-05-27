@@ -53,7 +53,13 @@ class ReviewerKBSourceInjectionTests(unittest.TestCase):
         from src.reviewer import review_text
 
         captured, fake = _capture_prompts()
-        with patch.object(LLMClient, "complete_text", fake):
+        # Iter 024 P1: advisor agents (改写顾问) added after review_agents.
+        # advisor prompts do NOT include KB/source blocks (different
+        # purpose). Patch advisor list to [] so this test only sees
+        # review-agent prompts (matches iter 022/023 behavior).
+        with patch.object(LLMClient, "complete_text", fake), patch(
+            "src.reviewer.load_advisor_agents", return_value=[]
+        ):
             review_text(
                 text="测试章节正文 " * 100,
                 target_name="iter022_with_injection",
@@ -61,7 +67,7 @@ class ReviewerKBSourceInjectionTests(unittest.TestCase):
                 source_chapters="SOURCE-MARKER-TEST-67890",
                 precomputed_lint_issues=[],  # skip lint, force agent calls
             )
-        # All 8 agents should see both blocks
+        # All 5 review agents should see both blocks
         self.assertTrue(captured, "no LLM calls captured")
         for prompt in captured:
             self.assertIn("# 全局知识 (KB)", prompt)

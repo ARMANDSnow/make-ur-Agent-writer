@@ -11,7 +11,7 @@ from .linter import NovelLinter
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .persona_loader import load_personas, render_agent_fields
-from .schemas import AgentReview, model_to_dict
+from .schemas import AgentReview, RewriteSuggestion, model_to_dict
 from .state import log_event
 from .utils import ensure_dir, extract_json_object, write_json
 
@@ -27,6 +27,19 @@ def _reviews_dir() -> Path:
 def load_review_agents() -> List[Dict[str, Any]]:
     cfg = load_config("agents.yaml")
     return cfg.get("review_agents", [])
+
+
+def load_advisor_agents() -> List[Dict[str, Any]]:
+    """Iter 024 P1: advisor agents from config/agents.yaml.
+
+    Mirror of load_review_agents but for the non-voting advisor list
+    (iter 023 introduced ``advisor_agents`` key). When the key is
+    absent (e.g. older agents.yaml or upstream merge wipes it), this
+    returns ``[]`` and the rest of the review pipeline keeps working
+    without any rewrite_suggestions output.
+    """
+    cfg = load_config("agents.yaml")
+    return cfg.get("advisor_agents", []) or []
 
 
 def _relationship_checklist_issue() -> Dict[str, str]:
@@ -420,11 +433,90 @@ def review_text(
         verdict = "Reject"
     else:
         verdict = "Approve"
+    # Iter 024 P1: advisor agents (non-voting). Run after voting agents
+    # so they see lint + review issues as context. Output structured
+    # RewriteSuggestion list joined into report["rewrite_suggestions"].
+    # Failures are logged but never block — advisor degradation must not
+    # affect verdict (which is already computed above).
+    rewrite_suggestions: List[Dict[str, Any]] = []
+    try:
+        advisor_agents = load_advisor_agents()
+    except Exception:
+        advisor_agents = []
+    if advisor_agents:
+        advisor_context = _build_advisor_context_block(
+            lint_issues=lint_issues, reviews=reviews
+        )
+        for advisor in advisor_agents:
+            adv_name = str(advisor.get("name") or "advisor")
+            try:
+                # Render via persona binding so {protagonist_name} etc resolve
+                name, system_prompt, _stance = render_agent_fields(
+                    advisor, personas, log_context="advisor"
+                )
+                rendered_name = name or adv_name
+                content = client.complete_text(
+                    [
+                        {"role": "system", "content": system_prompt or advisor.get("system_prompt", "")},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"advisor_name: {rendered_name}\n"
+                                "请基于下面的 lint 命中 + 其他 reviewer 的 issues + 章节正文，"
+                                "给出 1-5 条结构化 RewriteSuggestion。**只输出 JSON object** "
+                                '形如 {"suggestions": [{"section": "...", "type": "add|rewrite|cut", "guidance": "..."}, ...]}\n'
+                                "字段约束：section ≤ 60 字（如 '第 3 段'/'开场'/'结尾 hook'）；"
+                                "type 三选一；guidance ≤ 300 字，具体到改什么而非泛泛建议。\n\n"
+                                f"{advisor_context}\n"
+                                f"# 章节正文（截前 12000 字）\n\n{text[:12000]}"
+                            ),
+                        },
+                    ],
+                )
+                try:
+                    parsed = json.loads(extract_json_object(content))
+                except (ValueError, json.JSONDecodeError) as exc:
+                    log_event(
+                        "review",
+                        "advisor_parse_failed",
+                        target=target_name,
+                        advisor=rendered_name,
+                        error=str(exc),
+                    )
+                    continue
+                suggs = parsed.get("suggestions", []) if isinstance(parsed, dict) else []
+                for s in (suggs or [])[:5]:
+                    if not isinstance(s, dict):
+                        continue
+                    try:
+                        rs = RewriteSuggestion(**s)
+                        sug_dict = model_to_dict(rs)
+                        sug_dict["_advisor"] = rendered_name
+                        rewrite_suggestions.append(sug_dict)
+                    except Exception as schema_exc:
+                        log_event(
+                            "review",
+                            "advisor_schema_invalid",
+                            target=target_name,
+                            advisor=rendered_name,
+                            error=str(schema_exc),
+                        )
+            except Exception as exc:
+                log_event(
+                    "review",
+                    "advisor_runtime_error",
+                    target=target_name,
+                    advisor=adv_name,
+                    error=str(exc),
+                )
+                continue
+
     report = {
         "target": target_name,
         "rewrite_round": rewrite_round,
         "lint_issues": lint_issues,
         "agent_reviews": reviews,
+        "rewrite_suggestions": rewrite_suggestions,
         "verdict": verdict,
     }
     if reviews and not substantive:
@@ -432,6 +524,38 @@ def review_text(
     write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
     log_event("review", verdict.lower(), target=target_name)
     return report
+
+
+def _build_advisor_context_block(
+    lint_issues: List[Dict[str, Any]], reviews: List[Dict[str, Any]]
+) -> str:
+    """Iter 024 P1: compact context summary for advisor prompts (lint
+    + reviewer issues). Avoids dumping the full review json which is
+    huge — advisor only needs structured signal of what other agents
+    flagged."""
+    parts = []
+    if lint_issues:
+        from collections import Counter as _Counter
+        rule_counts = _Counter(i.get("rule", "?") for i in lint_issues)
+        parts.append("# Lint 命中（不要重复触发同样规则）\n")
+        for rule, n in rule_counts.most_common():
+            parts.append(f"- {rule}: {n} 次")
+    if reviews:
+        parts.append("\n# 其他 agent 反馈摘要")
+        for r in reviews:
+            name = r.get("agent_name", "?")
+            verdict = r.get("verdict", "?")
+            scores = r.get("scores", {}) or {}
+            sub = f"plot={scores.get('plot','?')}/prose={scores.get('prose','?')}/fidelity={scores.get('fidelity','?')}"
+            parts.append(f"- **{name}** [{verdict}] {sub}")
+            for issue in (r.get("issues") or [])[:1]:
+                if isinstance(issue, dict):
+                    msg = str(issue.get("message", ""))[:140]
+                    if msg:
+                        parts.append(f"    · {msg}")
+                elif isinstance(issue, str):
+                    parts.append(f"    · {issue[:140]}")
+    return "\n".join(parts)
 
 
 def review_target(target: Path, enforce_relationship_checklist: Any = False) -> List[Dict[str, Any]]:
