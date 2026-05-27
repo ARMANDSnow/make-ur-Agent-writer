@@ -255,6 +255,80 @@ class StyleExamplesProposal(BaseModel):
     examples: List[StyleExampleRange] = Field(default_factory=list)
 
 
+class SourceExcerptItem(BaseModel):
+    """Iter 023: one tagged excerpt of source novel text.
+
+    Unlike iter 015's StyleExampleRange (which only stores byte ranges
+    and a 100-char preview), this stores the full excerpt text plus
+    scene/character/tag metadata used by `src.source_excerpts.select_for_chapter`
+    to match excerpts to upcoming chapter plans.
+    """
+
+    id: str = Field(default="", description="ex_001 etc.")
+    source_chapter_id: str = Field(default="", max_length=80)
+    start_line: int = Field(default=1, ge=1)
+    end_line: int = Field(default=1, ge=1)
+    scene_type: str = Field(
+        default="",
+        max_length=20,
+        description="战斗 / 心理 / 对话 / 场景描写 / 异能 / 情感 / 其它",
+    )
+    character_focus: List[str] = Field(
+        default_factory=list, description="角色名列表，最多 5 个"
+    )
+    excerpt_text: str = Field(
+        default="", description="实际原文片段（不超过 1500 字符）"
+    )
+    description: str = Field(
+        default="",
+        max_length=200,
+        description="一句话总结片段内容，给 writer/reviewer 看",
+    )
+    tags: List[str] = Field(
+        default_factory=list, description="≤5 个自由标签，如 '对决/觉醒/初遇'"
+    )
+
+
+class SourceExcerptsProposal(BaseModel):
+    """Iter 023 bootstrap output: 15-20 tagged source-text excerpts."""
+
+    meta: ProposalMeta = Field(default_factory=ProposalMeta, alias="_meta")
+    excerpts: List[SourceExcerptItem] = Field(default_factory=list)
+
+
+class RewriteSuggestion(BaseModel):
+    """Iter 023: actionable suggestion from the advisor agent.
+
+    Strictly schema-bound to avoid vague "improve this chapter" output.
+    Writer rewrite-loop optionally consumes these as guidance.
+    """
+
+    section: str = Field(
+        default="", max_length=60, description="如 '第 3 段' / '开场' / '结尾 hook'"
+    )
+    type: str = Field(
+        default="rewrite",
+        description="add | rewrite | cut",
+    )
+    guidance: str = Field(
+        default="", max_length=300, description="具体怎么改的一句话指引"
+    )
+
+
+class RelationshipIssue(BaseModel):
+    """Iter 023 P5: programmatic relationship-conflict report.
+
+    Emitted by `src.relationship_auditor` (no LLM call). Joined into the
+    reviewer report under a synthetic agent named ``deterministic_relations``.
+    """
+
+    src_name: str = Field(default="")
+    dst_name: str = Field(default="")
+    draft_excerpt: str = Field(default="", max_length=200)
+    graph_active_state: str = Field(default="", max_length=200)
+    conflict_reason: str = Field(default="", max_length=200)
+
+
 class PersonasProposal(BaseModel):
     """Iter 016: persona bindings that fill agent prompt templates.
 

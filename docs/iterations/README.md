@@ -31,3 +31,4 @@
 20. [Iteration 020 - 延长 smoke 验证 + 失败模式报告](./iteration_020_extended_smoke.md)
 21. [Iteration 021 - 算法根 bug 修复 + SOP 落地](./iteration_021_algorithm_root_fix.md)
 22. [Iteration 022 - writer/reviewer 强化（Stage B 6 修）](./iteration_022_writer_reviewer_strengthening.md)
+23. [Iteration 023 - agent 8→5+1 精简 + 经典片段场景化 + 关系一致性程序化](./iteration_023_excerpts_and_agent_simplification.md)

@@ -151,9 +151,15 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertIn("Approve", verdicts)
 
     def test_relationship_consistency_prompt_requires_checklist(self) -> None:
+        """Iter 023: '关系一致性' agent merged into '角色关系一致性'. The new
+        prompt no longer demands a full per-pair checklist (program-level
+        relationship_auditor does that deterministically). It still
+        explicitly mentions entity_graph active matching."""
         agents_yaml = Path("config/agents.yaml").read_text(encoding="utf-8")
-        self.assertIn("对照清单", agents_yaml)
-        self.assertIn("禁止输出空 issues 的纯 Approve", agents_yaml)
+        self.assertIn("角色关系一致性", agents_yaml)
+        self.assertIn("entity_graph", agents_yaml)
+        # The advisor agent (iter 023) must be present
+        self.assertIn("改写顾问", agents_yaml)
 
     def test_relationship_consistency_empty_approve_becomes_review_issue(self) -> None:
         repaired = _repair_agent_review_dict(
@@ -313,22 +319,23 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             prompt = "\n".join(m.get("content", "") for m in messages)
             agent_name = prompt.split("agent_name: ", 1)[1].split("\n", 1)[0]
             captured[agent_name] = prompt
-            if agent_name == "关系一致性":
+            if agent_name == "角色关系一致性":
                 return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[],"comparison_checklist":["甲-乙：匹配"]}'
             return '{"verdict":"Approve","score":8,"issues":[],"suggestions":[]}'
 
-        self.assertIn("关系一致性", [agent["name"] for agent in load_review_agents()])
+        # Iter 023: '关系一致性' merged into '角色关系一致性'
+        self.assertIn("角色关系一致性", [agent["name"] for agent in load_review_agents()])
         with patch("src.reviewer.load_entity_graph", return_value=graph), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ):
             report = review_text("干净正文。", "relationship.md", precomputed_lint_issues=[])
 
         self.assertEqual(report["verdict"], "Approve")
-        self.assertIn("关系一致性", [item["agent_name"] for item in report["agent_reviews"]])
-        self.assertIn("tags:", captured["关系一致性"])
-        self.assertIn("tag 反向索引", captured["关系一致性"])
-        self.assertIn("当前必须互相信任", captured["关系一致性"])
-        self.assertIn("人工全局事实", captured["关系一致性"])
+        self.assertIn("角色关系一致性", [item["agent_name"] for item in report["agent_reviews"]])
+        self.assertIn("tags:", captured["角色关系一致性"])
+        self.assertIn("tag 反向索引", captured["角色关系一致性"])
+        self.assertIn("当前必须互相信任", captured["角色关系一致性"])
+        self.assertIn("人工全局事实", captured["角色关系一致性"])
 
 
 class ReviewerPersonaRenderingTests(unittest.TestCase):

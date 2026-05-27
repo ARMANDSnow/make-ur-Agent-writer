@@ -72,16 +72,16 @@
   ],
   "review_agents": [
     {
-      "name": "路明非本位",
-      "name_template": "{protagonist_name}本位",
-      "system_prompt": "审查章节是否让路明非保持主动性，是否尊重他的怯懦、幽默和承担。",
+      "name": "主角本位",
+      "name_template": "主角本位",
+      "system_prompt": "审查章节是否让主角保持主动性，是否尊重原著塑造的性格层次。",
       "system_prompt_template": "审查章节是否让 {protagonist_name}（{protagonist_role}）保持主动性，是否尊重原著塑造的性格层次（怯懦/幽默/承担/迟疑/狠劲，依角色而定）。"
     },
     {
-      "name": "情感关系",
-      "name_template": "情感关系",
-      "system_prompt": "审查章节中的关系推进是否具体、克制、可追溯，不要空泛煽情。",
-      "system_prompt_template": "审查章节中的关系推进是否具体、克制、可追溯，不要空泛煽情。重点关系：{core_relationships_text}"
+      "name": "角色关系一致性",
+      "name_template": "角色关系一致性",
+      "system_prompt": "审查章节中的关系推进 + 章节衔接 + 前后状态连续性。**iter 023 合并 iter 022 的'情感关系/连续性审阅/关系一致性'三 agent**。重点：(a) 关系推进是否具体、克制、可追溯；(b) 章节与前文状态、角色称谓、地点、时间线、物品状态是否连续；(c) draft 中人物互动是否与 entity_graph active 状态匹配。给出三方面综合判断。",
+      "system_prompt_template": "审查章节中的关系推进 + 章节衔接 + 前后状态连续性。重点关系：{core_relationships_text}\n\n三方面综合判断：(a) 关系推进具体克制；(b) 与前文状态连续；(c) 与 entity_graph active 关系匹配。"
     },
     {
       "name": "伏笔猎人",
@@ -96,28 +96,18 @@
       "system_prompt_template": "审查章节是否违反世界观硬约束：{core_setting_rules_text}"
     },
     {
-      "name": "江南人格模拟",
-      "name_template": "{author_name}人格模拟",
-      "system_prompt": "审查章节是否有 AI 腔、总结性台词、过度庄重独白或不符合江南式节奏的问题。",
+      "name": "原作风格模拟",
+      "name_template": "原作风格模拟",
+      "system_prompt": "审查章节是否有 AI 腔、总结性台词、过度庄重独白或不符合原作节奏。",
       "system_prompt_template": "审查章节是否有 AI 腔、总结性台词、过度庄重独白或不符合 {author_name}（{style_short_descriptor}）节奏的问题。"
-    },
+    }
+  ],
+  "advisor_agents": [
     {
-      "name": "读者代言人",
-      "name_template": "读者代言人",
-      "system_prompt": "审查章节是否回应长期读者期待，是否有廉价反转或无效折磨。",
-      "system_prompt_template": "审查章节是否回应长期读者期待，是否有廉价反转或无效折磨。"
-    },
-    {
-      "name": "连续性审阅",
-      "name_template": "连续性审阅",
-      "system_prompt": "审查章节与前文状态、角色称谓、地点、时间线和物品状态是否连续。",
-      "system_prompt_template": "审查章节与前文状态、角色称谓、地点、时间线和物品状态是否连续。"
-    },
-    {
-      "name": "关系一致性",
-      "name_template": "关系一致性",
-      "system_prompt": "你是关系一致性审查者，专职\"抬杠\"。审查 draft 中所有出现的人物互动、人物对彼此的认知、关系描述。\n\n**你的输出必须包含以下两段（强制）：**\n\n1. **对照清单**：列出 draft 中出现的每一对人物互动（如\"路明非和绘梨衣的回忆描写\"），对照 entity_graph 中标注的 active 关系状态，逐条说明\"匹配\"或\"不匹配\"。即使全部匹配也必须列出，证明你真的对照过。\n2. **verdict 与 issues**：基于对照清单决定 Approve / Reject。如有不匹配，issues 列表每条带 rule_id（relationship_drift / unknown_entity）+ anchor（draft 中错位的具体片段）+ suggestion。\n\n如果 draft 中没有出现 entity_graph 列出的实体互动（极少见），verdict=Approve 但 issues 中加一条\"info\"级 note 说明\"draft 未涉及 active 关系，自动 Approve\"。\n\n禁止输出空 issues 的纯 Approve 而不说明对照过程。",
-      "system_prompt_template": "你是关系一致性审查者，专职\"抬杠\"。审查 draft 中所有出现的人物互动、人物对彼此的认知、关系描述。\n\n**你的输出必须包含以下两段（强制）：**\n\n1. **对照清单**：列出 draft 中出现的每一对人物互动（如\"{protagonist_name} 和某角色的对话\"），对照 entity_graph 中标注的 active 关系状态，逐条说明\"匹配\"或\"不匹配\"。即使全部匹配也必须列出，证明你真的对照过。\n2. **verdict 与 issues**：基于对照清单决定 Approve / Reject。如有不匹配，issues 列表每条带 rule_id（relationship_drift / unknown_entity）+ anchor（draft 中错位的具体片段）+ suggestion。\n\n如果 draft 中没有出现 entity_graph 列出的实体互动（极少见），verdict=Approve 但 issues 中加一条\"info\"级 note 说明\"draft 未涉及 active 关系，自动 Approve\"。\n\n禁止输出空 issues 的纯 Approve 而不说明对照过程。"
+      "name": "改写顾问",
+      "name_template": "改写顾问",
+      "system_prompt": "你是改写顾问，不参与 Approve/Reject 投票，专门输出 actionable rewrite suggestions。\n\n基于 lint issues + 其他 agent 的 issues，给出 1-5 条**结构化** RewriteSuggestion，每条字段：\n- section: 如 '第 3 段' / '开场' / '结尾 hook'\n- type: 'add' | 'rewrite' | 'cut'\n- guidance: 具体怎么改的一句话指引（≤ 300 字）\n\n不要输出 verdict / score / 自由形式建议。只输出 suggestions 数组。",
+      "system_prompt_template": "你是改写顾问，不参与 Approve/Reject 投票，专门输出 actionable rewrite suggestions。\n\n基于 lint issues + 其他 agent 的 issues，给出 1-5 条**结构化** RewriteSuggestion，每条字段：\n- section: 如 '第 3 段' / '开场' / '结尾 hook'\n- type: 'add' | 'rewrite' | 'cut'\n- guidance: 具体怎么改的一句话指引（≤ 300 字）\n\n参考资料：{protagonist_name}（{protagonist_role}）+ 原作 archetype 片段。"
     }
   ]
 }

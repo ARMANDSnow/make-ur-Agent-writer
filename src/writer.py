@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import paths, start_point
+from . import paths, source_excerpts, start_point
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
@@ -169,6 +169,20 @@ def write_chapters(
             review_source = start_point.format_chapters_before_start_for_anchor(
                 k=3, limit_chars=8000
             )
+            # Iter 023 P3: pass scene-matched excerpts so reviewer fidelity
+            # scoring has the same archetype anchor as the writer prompt.
+            scene_matches_for_review = (
+                source_excerpts.select_for_chapter(chapter_plan_item, k=3)
+                if chapter_plan_item
+                else []
+            )
+            scene_excerpts_text = (
+                source_excerpts.format_excerpts_for_prompt(
+                    scene_matches_for_review, limit_chars=8000
+                )
+                if scene_matches_for_review
+                else ""
+            )
             report = review_text(
                 draft,
                 out_path.name,
@@ -177,6 +191,7 @@ def write_chapters(
                 enforce_relationship_checklist=True,
                 knowledge=knowledge[:6000] if knowledge else "",
                 source_chapters=review_source,
+                scene_excerpts=scene_excerpts_text,
             )
             if report["verdict"] == "Approve":
                 last_blocking_reasons = []
@@ -416,6 +431,26 @@ def _write_prompt(
             "严格遵守'当前活跃关系'：任何角色互动、人物对彼此的认知、关系描述必须匹配上面 active 状态；"
             "不要编造未列出的关系；不要让角色行为与已确立关系冲突。"
         )
+    # Iter 023: inject scene-matched source excerpts (archetype-specific
+    # original text picked by `source_excerpts.select_for_chapter` based on
+    # chapter_plan_item.key_events / opening_scene). Complements iter 021's
+    # time-sliced "起点前 K 章" injection below: that's chronological context,
+    # this is genre/scene context. Empty when no excerpts.json or no plan_item
+    # → byte-identical to iter 022.
+    if chapter_plan_item:
+        scene_matches = source_excerpts.select_for_chapter(chapter_plan_item, k=3)
+        if scene_matches:
+            scene_block = source_excerpts.format_excerpts_for_prompt(
+                scene_matches, limit_chars=8000
+            )
+            if scene_block:
+                stable_context = (
+                    f"{stable_context}\n\n"
+                    "# 原作 archetype 参考（按本章 scene_type 匹配的原文片段；"
+                    "仅参考笔法/节奏/细节密度，不复述情节）\n\n"
+                    f"{scene_block}\n"
+                )
+
     # Iter 021: inject K=3 chapters of authentic source text immediately
     # before the start point so writer sees real prose for style + detail
     # anchoring. When no start point is set (iter 020 default behavior),

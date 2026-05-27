@@ -141,7 +141,7 @@ bash scripts/write_book.sh --book myBook 3
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 022（2026-05-26）** — writer/reviewer 强化，lint cascade 彻底打通，reviewer 评分有真区分度。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 023（2026-05-26）** — agent 精简 8→5+1、scene-matched 经典片段、关系一致性程序化、reviewer 首次给出 actionable 内容反馈。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -181,7 +181,7 @@ bash scripts/write_book.sh --book myBook 3
 |---|---|---|---|
 | 5.1 | debate → outline.md | ✅ | iter 005 |
 | 5.2 | plot_planner 读 KB + rolling_summary + entity + outline | ✅ | **iter 021**（A3 修复） |
-| 5.3 | 写完 K 章后自动 re-plan | ❌ | iter 023 C 类 |
+| 5.3 | 写完 K 章后自动 re-plan | ❌ | iter 024 C 类 |
 
 ### 阶段 6 — 写作（writer）
 | # | 节点 | 状态 | 备注 |
@@ -191,14 +191,17 @@ bash scripts/write_book.sh --book myBook 3
 | 6.3 | lint 自检 × 3 轮 rewrite | ✅ | iter 010 |
 | 6.4 | lint 阈值动态化（按字数缩放）| ✅ | **iter 022 B1**（4000 字 base × dynamic scale）|
 | 6.5 | writer prompt 加 anti-pattern（去字面例避免 priming） | ✅ | **iter 022 B2** |
+| 6.6 | writer 读 scene-matched 经典片段（按 chapter_plan 选段）| ✅ | **iter 023 P3**（替代硬切起点前 K 章）|
 
 ### 阶段 7 — 审核
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
-| 7.1 | 8-agent reviewer panel | ✅ | iter 011-016 |
+| 7.1 | 5+1 agent reviewer panel（精简自 iter 022 的 8 agent）| ✅ | **iter 023 P4**（合并情感/连续/关系 3 agent → 1，加 1 advisor）|
 | 7.2 | fail-closed parse_failed → Abstain | ✅ | iter 019 audit |
 | 7.3 | reviewer sub-score（plot/prose/fidelity 3 维 + 单 score legacy）| ✅ | **iter 022 B3**（真模型实测分化：plot 4-8 区分度首现）|
-| 7.4 | reviewer 读 KB + 起点附近原文 | ✅ | **iter 022 B4** |
+| 7.4 | reviewer 读 KB + 起点附近原文 + scene-matched 经典片段 | ✅ | iter 022 B4 + **iter 023 P3** |
+| 7.5 | 程序化关系一致性检测（deterministic_relations）| ✅ | **iter 023 P5**（0 LLM 成本，替代 LLM agent）|
+| 7.6 | 改写顾问 agent（不投票，输出 RewriteSuggestion）| ✅ | **iter 023 P4** |
 
 ### 阶段 8 — 关系更新
 | # | 节点 | 状态 | 备注 |

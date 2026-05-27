@@ -103,10 +103,10 @@ logs/                     # 全部 gitignored
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：022（writer/reviewer 强化 Stage B 6 修：lint 动态阈值 / writer prompt 去 priming / reviewer 3 sub-score / reviewer 读 KB+原文 / rolling 分层 / write_book.sh exit code）
-**已完成阶段**：1-2 全打通；3（起点判断）iter 021 打通；6.4-6.5（writer lint+prompt）+ 7.3-7.4（reviewer sub-score+KB+原文）+ 9.2（rolling 分层）+ I.2（exit code）iter 022 新打通；其余见 SOP 表
-**关键学习**：iter 022 中途发现 anti-pattern prompt 加字面反例会 prime 模型反向偏好（"❌ 不是疼痛，是重量" 让 hits 翻倍），priming-fix 后 hits 减半
-**下一步候选**：iter 023 — Agent 设计精简（8 → 4-5 个 agents，去冗余）+ plot_planner continuation 模式 + 关系冲突检测 + per-章 budget ceiling
+**当前 iter**：023（agent 8→5+1 精简 + scene-matched 经典片段 + 关系一致性程序化 + lint 改 warning-only）
+**已完成阶段**：1-2 全打通；3（起点判断）iter 021 打通；6.4-6.6 / 7.1-7.6 / 9.2 / I.2 见 SOP 表；reviewer 首次给出 actionable 内容反馈（plot=4 配体"主角全章未出场"）
+**关键学习**：iter 023 中途发现 `不是X是Y` 是江南**笔法特征**（原作大量使用），不该被 lint 一刀切 → 改为 warning-only，让 5+1 agent 判断密度是否过度
+**下一步候选**：iter 024 — WebUI / plot_planner continuation / 每 K 章自动 re-plan / per-章 budget ceiling / 改写顾问输出消费链路（writer 真用 RewriteSuggestion）
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 "iter N+ 改进路线" 段
 
 ## 常用 git 操作

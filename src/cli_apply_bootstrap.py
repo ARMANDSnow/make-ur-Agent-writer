@@ -17,7 +17,7 @@ def _resolve_root(root: Path | None) -> Path:
     return paths.workspace_root() if paths.workspace_name() else ROOT
 
 
-BOOTSTRAP_NAMES = {"global_facts", "entity_graph", "continuation_anchor", "style_examples", "personas"}
+BOOTSTRAP_NAMES = {"global_facts", "entity_graph", "continuation_anchor", "style_examples", "personas", "source_excerpts"}
 
 PERSONAS_FIELDS = (
     "protagonist_name",
@@ -71,6 +71,8 @@ def apply_bootstrap(name: str, confirm: bool = False, root: Path | None = None) 
         _write_style_examples(root, proposal)
     elif name == "personas":
         _write_personas(root, proposal)
+    elif name == "source_excerpts":
+        _write_source_excerpts(root, proposal)
     result["status"] = "applied"
     result["backup_dir"] = str(backup_dir) if backup_dir else ""
     return result
@@ -106,10 +108,26 @@ def _target_paths(name: str, root: Path, proposal: Dict[str, Any]) -> List[Path]
         return [root / "data" / "manual_overrides" / "continuation_anchor.txt"]
     if name == "personas":
         return [root / "data" / "manual_overrides" / "personas.json"]
+    if name == "source_excerpts":
+        return [root / "data" / "source_excerpts" / "excerpts.json"]
     targets = []
     for item in proposal.get("examples", []) or []:
         targets.append(_safe_target_path(root, str(item.get("target_file") or "")))
     return targets
+
+
+def _write_source_excerpts(root: Path, proposal: Dict[str, Any]) -> None:
+    """Iter 023: write the tagged-excerpt library produced by
+    ``bootstrap_source_excerpts``. Schema mirrors SourceExcerptsProposal —
+    only `excerpts` and `_meta` are persisted; preview / source_file path
+    sanitization is done in the bootstrap step (LLM-side)."""
+    ensure_dir(root / "data" / "source_excerpts")
+    payload = {
+        "version": 1,
+        "_meta": proposal.get("_meta", {}),
+        "excerpts": proposal.get("excerpts", []),
+    }
+    write_json(root / "data" / "source_excerpts" / "excerpts.json", payload)
 
 
 def _render_diff(name: str, proposal: Dict[str, Any], root: Path) -> str:

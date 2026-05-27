@@ -205,16 +205,20 @@ def review_text(
     enforce_relationship_checklist: Any = False,
     knowledge: str = "",
     source_chapters: str = "",
+    scene_excerpts: str = "",
 ) -> Dict[str, Any]:
-    """Iter 022 B4: ``knowledge`` (KB / global_knowledge.md content) and
-    ``source_chapters`` (K original chapters before configured start point)
-    are NEW optional kwargs. Each agent's user prompt gets these as
-    reference blocks so reviewers can judge "is this chapter actually
-    consistent with KB / does it sound like the original author" instead
-    of relying only on agent persona.
+    """Iter 022 B4 + iter 023 P3/P5:
 
-    Backward compatible: both default to empty string, in which case the
-    blocks are omitted and prompt content matches iter 021.
+    * ``knowledge`` (KB / global_knowledge.md content) — iter 022
+    * ``source_chapters`` (K chapters before start point) — iter 022 (chronological)
+    * ``scene_excerpts`` (archetype-matched original excerpts) — iter 023 (genre-matched)
+    * After per-agent LLM calls, iter 023 also runs the deterministic
+      ``relationship_auditor`` (no LLM) and appends its issues as a
+      synthetic agent ``deterministic_relations`` so fail-closed verdict
+      logic includes structural relationship conflicts.
+
+    Backward compatible: all extra kwargs default to empty / off; when none
+    are set + entity_graph clean, behavior matches iter 022.
     """
     reviews_dir = _reviews_dir()
     ensure_dir(reviews_dir)
@@ -272,6 +276,15 @@ def review_text(
         if source_chapters
         else ""
     )
+    # Iter 023 P3: scene-matched archetype excerpts (genre/scene-specific
+    # rather than chronological). Helps fidelity scoring when the chapter
+    # is e.g. a battle and source_chapters happens to be daily-life.
+    scene_block = (
+        "# 原作 archetype 参考（按本章 scene_type 匹配的原文片段）— 笔法/节奏锚点\n\n"
+        f"{scene_excerpts[:8000]}\n\n"
+        if scene_excerpts
+        else ""
+    )
     reviews = []
     for agent in agents:
         content = client.complete_text(
@@ -293,6 +306,7 @@ def review_text(
                         "如果某一维度无法判断，使用 5 作为'不确定'信号，不要默认 7。\n\n"
                         f"{knowledge_block}"
                         f"{source_block}"
+                        f"{scene_block}"
                         f"人工全局事实:\n{facts}\n\n"
                         f"{entity_block}"
                         f"{text[:18000]}"
@@ -356,6 +370,46 @@ def review_text(
         data = model_to_dict(result)
         data["agent_name"] = agent["name"]
         reviews.append(data)
+    # Iter 023 P5: deterministic relationship auditor. After LLM agents
+    # finish, run a pure-Python check of (entity_graph active state vs
+    # draft co-occurrence). Output a synthetic agent_review so fail-closed
+    # verdict aggregation includes structural conflicts. Zero LLM cost.
+    try:
+        from . import relationship_auditor
+
+        rel_issues = relationship_auditor.audit_relationships(
+            text, load_entity_graph()
+        )
+    except Exception as exc:
+        # Defensive: never let auditor failure crash the review pipeline.
+        log_event(
+            "review",
+            "relationship_auditor_error",
+            target=target_name,
+            error=str(exc),
+        )
+        rel_issues = []
+    if rel_issues:
+        reviews.append(
+            {
+                "agent_name": "deterministic_relations",
+                "verdict": "Reject",
+                "scores": {"plot": 5, "prose": 5, "fidelity": 4},
+                "score": 5,
+                "issues": [
+                    {
+                        "message": iss.get("conflict_reason", ""),
+                        "rule_id": "relationship_hard_conflict",
+                        "severity": "block",
+                        "anchor": iss.get("draft_excerpt", "")[:80],
+                    }
+                    for iss in rel_issues
+                ],
+                "suggestions": [],
+                "_synthetic": True,
+            }
+        )
+
     # Iter 019 audit fix: aggregate over substantive verdicts only. Treat
     # all-abstain as Reject (fail-closed) so a fully-broken multi-agent
     # review cannot accidentally approve a chapter.

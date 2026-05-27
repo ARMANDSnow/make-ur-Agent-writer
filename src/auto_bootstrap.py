@@ -15,6 +15,7 @@ from .schemas import (
     EntityGraphProposal,
     GlobalFactsProposal,
     PersonasProposal,
+    SourceExcerptsProposal,
     StyleExamplesProposal,
     model_to_dict,
     model_to_json_schema,
@@ -176,6 +177,56 @@ def bootstrap_style_examples(force: bool = False, root: Path = None) -> Dict[str
         item["target_file"] = _safe_style_target(str(item.get("category") or "style"), str(item.get("target_file") or ""))
     write_json(path, data)
     return {"name": "style_examples", "status": "written", "path": str(path), "data": data}
+
+
+def bootstrap_source_excerpts(force: bool = False, root: Path = None) -> Dict[str, Any]:
+    """Iter 023: produce 15-20 tagged source-text excerpts covering multiple
+    scene archetypes (战斗 / 心理 / 对话 / 场景描写 / 异能 / 情感).
+
+    Writer/reviewer later use ``src.source_excerpts.select_for_chapter`` to
+    pick K=3 archetype-matched excerpts per chapter — fixing iter 022's "起点前
+    K 章硬切" mismatch (the 3 chapters before start aren't necessarily of
+    the same scene type as the chapter being written).
+
+    LLM is called once. Proposal goes to data/proposals/source_excerpts.proposal.json
+    for review; apply path is data/source_excerpts/excerpts.json.
+    """
+    root = _resolve_root(root)
+    path = _proposal_path("source_excerpts", root)
+    existing = root / "data" / "source_excerpts" / "excerpts.json"
+    if existing.exists() and not force:
+        return _skip_result("source_excerpts", path)
+
+    prompt = _build_json_prompt(
+        title="source_excerpts",
+        schema=model_to_json_schema(SourceExcerptsProposal),
+        instructions=(
+            "从下方章节摘样中挑出 8-12 段最能代表作者风格 + 场景多样性的片段。"
+            "目标覆盖：战斗、心理、对话、场景描写、异能、情感 中至少 4-5 种。\n\n"
+            "每段输出 JSON 含：\n"
+            "- id（ex_001 / ex_002 ...）\n"
+            "- source_chapter_id（输入中出现的章节 id 形如 longzu_1_ch001）\n"
+            "- start_line / end_line（1-indexed）\n"
+            "- scene_type（战斗/心理/对话/场景描写/异能/情感）\n"
+            "- character_focus（≤5 个角色名）\n"
+            "- excerpt_text（**完整原文片段 300-800 字**，从摘样复制）\n"
+            "- description（一句话 ≤ 80 字）\n"
+            "- tags（≤5 个标签）\n\n"
+            "请直接输出合法 JSON，不要添加说明文字。"
+        ),
+        # Iter 023 fix: 30K char context (was 80K) — claude-opus-4-5 was
+        # returning ~70-token responses to 80K-token prompts (refusal or
+        # capped output). 30K leaves plenty of room for the 8-12 excerpts.
+        context=_normalized_context(root, limit_chars=30000),
+    )
+    proposal = LLMClient("plot_planner").complete_json(_json_messages(prompt), SourceExcerptsProposal)
+    data = _with_meta(
+        model_to_dict(proposal),
+        "source_excerpts",
+        "审核 15-20 段是否覆盖 6 类 scene_type、原文是否未改写、tags 是否合理。",
+    )
+    write_json(path, data)
+    return {"name": "source_excerpts", "status": "written", "path": str(path), "data": data}
 
 
 def bootstrap_personas(force: bool = False, root: Path = None) -> Dict[str, Any]:

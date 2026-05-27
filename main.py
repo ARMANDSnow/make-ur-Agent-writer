@@ -137,6 +137,8 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap_style.add_argument("--force", action="store_true")
     bootstrap_personas_cmd = sub.add_parser("bootstrap-personas")
     bootstrap_personas_cmd.add_argument("--force", action="store_true")
+    bootstrap_source_excerpts_cmd = sub.add_parser("bootstrap-source-excerpts")
+    bootstrap_source_excerpts_cmd.add_argument("--force", action="store_true")
 
     apply_bootstrap_cmd = sub.add_parser("apply-bootstrap")
     apply_bootstrap_cmd.add_argument("--name", required=True)
@@ -305,6 +307,10 @@ def main() -> None:
         print(_render_bootstrap_result(result), end="")
     elif args.command == "bootstrap-personas":
         result = bootstrap_personas(force=args.force)
+        print(_render_bootstrap_result(result), end="")
+    elif args.command == "bootstrap-source-excerpts":
+        from src.auto_bootstrap import bootstrap_source_excerpts
+        result = bootstrap_source_excerpts(force=args.force)
         print(_render_bootstrap_result(result), end="")
     elif args.command == "apply-bootstrap":
         print(render_apply_bootstrap_result(apply_bootstrap(args.name, confirm=args.confirm)), end="")

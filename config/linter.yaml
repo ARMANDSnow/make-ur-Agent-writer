@@ -6,8 +6,9 @@
     "not_x_but_y": {
       "enabled": true,
       "warn_threshold": 3,
-      "error_threshold": 10,
-      "dynamic_scaling": true
+      "error_threshold": 999,
+      "dynamic_scaling": true,
+      "_iter023_note": "iter 023 P8 实测：江南龙族原作大量使用 '不是X是Y' 句式（是作者特征），而 deepseek 在写戏剧场景时也合理使用。lint cascade 之前把合法风格当 AI 痕迹打。改为 warning-only（error_threshold 设极高 999），让 reviewer 8-agent + KB+原文对照判断是否真的过度使用。warn_threshold 保留 3 以便 reviewer 看到次数信号。"
     },
     "short_sentence_openings": {
       "enabled": true,

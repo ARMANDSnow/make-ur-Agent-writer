@@ -309,16 +309,47 @@ Goal: 把 iter 020 报告 Stage B 6 条一次性收齐，让 iter 021 验证 ch1
 
 **Smoke 成本**: ~¥1.5 实测（含 4 次重跑定位 priming bug）。
 
-### Next iter（023）候选入口
+---
 
-用户提出（iter 022 末）：现有 8 个 agent 设计是否合理？候选优化方向：
-- 8 → 4-5 个核心 agents（情感关系 / 关系一致性 / 连续性审阅 职责重叠可合并）
-- 关系一致性可改为 **程序化检测**（entity_graph diff），不调 LLM
-- 加一个 "提建议者"（不只是守门人），输出可执行的 rewrite suggestion
-- 让 personas.json 完全模板化（路明非本位 → 主角本位，江南人格模拟 → 原作风格模拟），跨书复用更自然
+## Phase 4 Status（iter 023，2026-05-26）
 
-其他 iter 020 报告 Stage C 候选：
-- plot_planner `--from-chapter N --append K` continuation（C1）
-- write_book.sh 每 K 章自动 re-plan（C2）
-- entity_advance proposal 与 plan 冲突检测（C3）
-- per-章 cost 实时报告 + budget ceiling（C4）
+### Iteration 023 — agent 8→5+1 精简 + 经典片段场景化 + 关系一致性程序化（已完成 / 已 commit）
+
+**Goal**: 解决 iter 022 暴露的 2 个新瓶颈 — 8 agent 中 3 个职责重叠 + 经典片段没被场景化利用。承认 lint cascade 中 `not_x_but_y` 是江南本人笔法（不该一刀切阻断）。
+
+**5 项实现**:
+
+| ID | 改动 | 状态 |
+|----|------|------|
+| P1 | `src/source_excerpts.py` 新模块（select_for_chapter keyword-matching）| ✅ |
+| P2 | `bootstrap_source_excerpts` + 4 个新 schemas | ✅ |
+| P3 | writer + reviewer 注入 scene-matched 片段（按 plan_item.key_events 选段）| ✅ |
+| P4 | 8 agent → 5 reviewer + 1 改写顾问；合并 3 重叠 agent；主角本位 / 原作风格模拟 改名通用化 | ✅ |
+| P5 | `src/relationship_auditor.py` 程序化 + 合成 `deterministic_relations` agent；0 LLM 成本 | ✅ |
+
+**新增临时修复（P8 smoke 中途学习）**:
+- `not_x_but_y` lint 从 `error_threshold=10` 改 `999` = warning-only。原因：deepseek 在"高架路对决"产 12 hits/3.6K 字（密度 3.3/1K），但读起来质量好；江南龙族原作也大量使用此句式。lint 不应当 cascade reject，让 reviewer 判断。
+
+**测试**: +17 → **274 OK**。新文件：test_source_excerpts / test_relationship_auditor / test_agents_5plus1 / test_writer_excerpt_injection / test_reviewer_deterministic_relations。
+
+**P8 真模型 smoke 关键证据（iter 023 critical 成功）**:
+- 5+1 agent panel 实测：3 Approve + 2 Reject → 最终 Reject（fail-closed）
+- **第一次** reviewer 给出 actionable 内容反馈（而非 iter 022 全 7 笼统）：
+  - 主角本位 plot=4 Reject：「主角路明非未在本章中出现或采取任何行动」← 真内容洞察
+  - 世界观守门人 plot=8 Approve + 批评：「奥丁过早直呼其名削弱悬念」
+  - 伏笔猎人 plot=8/prose=9/fidelity=9：「苏小妍昏迷中自主吟唱龙文 ... 需后续与'太子'伏笔关联」
+- sub-score 区分度：plot 4-8（差 4）, prose 6-9, fidelity 5-9 — 5 agent 实现了 iter 022 8 agent 同等区分度
+- bootstrap-source-excerpts 用 deepseek 产 10 段 6 类 scene_type 覆盖
+
+**Smoke 成本**: ¥2.24（预算 ¥4，56% 用量）。
+
+### Next iter（024）候选入口
+
+- **WebUI**（iter 020 报告原计划，现可启动）
+- plot_planner `--from-chapter N --append K` continuation
+- write_book.sh 每 K 章自动 re-plan
+- per-章 cost 实时报告 + budget ceiling
+- 改写顾问输出消费链路（advisor agent 落配置但 writer 尚未消费 RewriteSuggestion）
+- KB 按起点过滤（iter 023 推后；需 LLM 重写 KB）
+- entity_graph timeline schema 升级（加 chapter_id 让程序化 auditor 检测更密集）
+- iter 025 capstone：完整 longzu ~30-100 章 真模型 smoke（基于 iter 023 sub-score + advisor 信号驱动）
