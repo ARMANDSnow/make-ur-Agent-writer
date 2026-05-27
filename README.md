@@ -208,14 +208,14 @@ bash scripts/write_book.sh --book myBook 3
 |---|---|---|---|
 | 8.1 | writer 写完调 propose_entity_advance | ✅ | iter 019 |
 | 8.2 | apply-advance --auto-apply --min-confidence | ✅ | iter 019 |
-| 8.3 | proposal 与 plan 冲突检测 | ❌ | iter 023 C 类 |
+| 8.3 | proposal 与 plan 冲突检测 | ❌ | iter 024+ |
 
 ### 阶段 9 — 滚动到下一章
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
 | 9.1 | rolling_summary 更新 | ✅ | iter 013 |
 | 9.2 | rolling_summary 分层（摘要 + 最近 K 章原文片段）| ✅ | **iter 022 B5**（schema 加 text_snippet 字段） |
-| 9.3 | per-章 cost 实时报告 + budget ceiling | ❌ | iter 023 C 类 |
+| 9.3 | per-章 cost 实时报告 + budget ceiling | ❌ | iter 024+ |
 
 ### infra & UI
 | # | 节点 | 状态 | 备注 |
