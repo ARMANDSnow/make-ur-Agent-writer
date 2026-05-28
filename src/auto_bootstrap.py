@@ -280,6 +280,17 @@ def bootstrap_personas(force: bool = False, root: Path = None) -> Dict[str, Any]
 
 
 def bootstrap_all(force: bool = False, root: Path = None) -> Dict[str, Dict[str, Any]]:
+    """Run all six bootstrap proposals.
+
+    Iter 026 code-review #3: ``source_excerpts`` was historically omitted
+    from this call site even though ``cli_apply_bootstrap.BOOTSTRAP_NAMES``
+    knows about it. That meant the wizard / ``auto-pipeline`` path silently
+    skipped the iter 023 ``K=3 archetype-matched excerpts`` feature, while
+    the standalone CLI ``bootstrap-source-excerpts`` subcommand still
+    worked. Including it here keeps the orchestration aligned with the
+    rest of the pipeline.
+    """
+
     root = _resolve_root(root)
     return {
         "global_facts": bootstrap_global_facts(force=force, root=root),
@@ -287,6 +298,7 @@ def bootstrap_all(force: bool = False, root: Path = None) -> Dict[str, Dict[str,
         "continuation_anchor": bootstrap_continuation_anchor(force=force, root=root),
         "style_examples": bootstrap_style_examples(force=force, root=root),
         "personas": bootstrap_personas(force=force, root=root),
+        "source_excerpts": bootstrap_source_excerpts(force=force, root=root),
     }
 
 

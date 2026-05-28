@@ -32,13 +32,25 @@ RESERVED_NAMES = {"legacy", "", ".", ".."}
 
 
 def list_workspaces() -> List[str]:
-    """Return the sorted names of existing per-book workspaces."""
+    """Return the sorted names of existing per-book workspaces.
+
+    Iter 026 code-review #6: a bare ``startswith('.')`` filter let
+    tooling dirs like ``__pycache__`` / ``.pytest_cache`` show up as
+    workspaces in the WebUI. We now also require at least one of
+    ``data/`` or ``outputs/`` to exist — both are created by
+    ``init_workspace`` so a real workspace always has one, and tooling
+    caches never do.
+    """
     if not paths.WORKSPACE_DIR.exists():
         return []
     names: List[str] = []
     for child in paths.WORKSPACE_DIR.iterdir():
-        if child.is_dir() and not child.name.startswith("."):
-            names.append(child.name)
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        # Filter out dev/tool cache dirs that share the parent.
+        if not ((child / "data").is_dir() or (child / "outputs").is_dir()):
+            continue
+        names.append(child.name)
     return sorted(names)
 
 

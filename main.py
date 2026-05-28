@@ -223,6 +223,29 @@ def build_parser() -> argparse.ArgumentParser:
     run_all.add_argument("--chapters", type=int, default=18)
     run_all.add_argument("--extract-limit", type=int, default=None)
     run_all.add_argument("--force", action="store_true")
+
+    # iter 025: read-only WebUI dashboard. Defaults to localhost binding;
+    # use --host 0.0.0.0 only for LAN access since the dashboard has no
+    # auth.
+    web_cmd = sub.add_parser("web")
+    web_cmd.add_argument("--host", default="127.0.0.1")
+    web_cmd.add_argument("--port", type=int, default=8765)
+
+    # iter 026: end-to-end SOP one-liner. Upgrades ``run-all`` (which
+    # skipped bootstrap-apply + plan-chapters) into a true 9-step
+    # pipeline; the WebUI wizard's worker calls the same function so
+    # GUI / CLI never drift on step ordering.
+    auto_cmd = sub.add_parser("auto-pipeline")
+    auto_cmd.add_argument("--chapters", type=int, default=1)
+    auto_cmd.add_argument("--extract-limit", type=int, default=5)
+    auto_cmd.add_argument("--skip-extract", action="store_true")
+    auto_cmd.add_argument("--force", action="store_true")
+    auto_cmd.add_argument(
+        "--plan-chapters",
+        type=int,
+        default=None,
+        help="Override chapter_plan size. None lets the planner default to max(chapters, 5).",
+    )
     return parser
 
 
@@ -414,6 +437,30 @@ def main() -> None:
         compress_all()
         run_debate()
         write_chapters(chapters=args.chapters, force=args.force)
+    elif args.command == "web":
+        from src.web.server import serve
+
+        serve(host=args.host, port=args.port)
+    elif args.command == "auto-pipeline":
+        from src.auto_pipeline import run_auto_pipeline
+
+        def _cli_progress(step: str, fraction: float) -> None:
+            # 0..1 → 0..100 with a fixed-width label so successive
+            # lines stack readably in a terminal.
+            print(f"[auto-pipeline] {int(fraction * 100):3d}% {step}")
+
+        results = run_auto_pipeline(
+            target_chapters=args.chapters,
+            progress_cb=_cli_progress,
+            skip_extract=args.skip_extract,
+            extract_limit=args.extract_limit,
+            force=args.force,
+            plan_chapters_target=args.plan_chapters,
+        )
+        # Print a one-line summary of the write step so CI / verify.sh
+        # can grep for it without parsing the per-step output.
+        write_summary = results.get("write") or []
+        print(f"[auto-pipeline] done · chapters_written={len(write_summary)}")
 
 
 def init_book_pipeline(skip_extract: bool = False, extract_limit: int | None = 10, force: bool = False):

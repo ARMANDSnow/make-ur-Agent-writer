@@ -25,6 +25,7 @@ Contract:
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,44 @@ from .config import ROOT
 WORKSPACE_DIR = ROOT / "workspaces"
 
 _LEGACY_SENTINEL = "legacy"
+
+
+# Iter 026 code-review #1: per-thread workspace override.
+#
+# Iter 017's design has ``WORKSPACE_NAME`` as the single source of truth.
+# That's fine for the CLI (one workspace per process) but the WebUI
+# wizard runs a worker thread that holds the workspace context for the
+# duration of a multi-minute auto-pipeline job. If we kept "swap env
+# var under a process-wide lock" semantics from iter 025, every other
+# request thread (dashboard reads) would block on that lock for the
+# whole job, freezing the UI.
+#
+# A thread-local override lets each thread carry its own workspace name
+# without touching the process-wide env. ``workspace_name()`` consults
+# the thread-local first, then falls back to env vars so CLI behavior
+# is byte-identical. ``src/web/workspace_ctx.use_workspace`` mutates
+# this; nobody else should.
+_THREAD_OVERRIDE = threading.local()
+
+
+def _set_thread_override(name: Optional[str]) -> None:
+    """Set this thread's workspace override (or clear by passing None).
+
+    Empty string means 'force legacy mode' — i.e. ignore env vars too.
+    This matches the semantics that ``use_workspace(None)`` should mean
+    "show me repo-root-mode regardless of what the operator exported in
+    their shell".
+    """
+    if name is None:
+        if hasattr(_THREAD_OVERRIDE, "name"):
+            del _THREAD_OVERRIDE.name
+    else:
+        _THREAD_OVERRIDE.name = name
+
+
+def _get_thread_override() -> Optional[str]:
+    """Return the thread-local override (possibly ''), or None if unset."""
+    return getattr(_THREAD_OVERRIDE, "name", None)
 
 
 def _validate_workspace_name(name: str) -> None:
@@ -65,14 +104,26 @@ def _validate_workspace_name(name: str) -> None:
 def workspace_name() -> Optional[str]:
     """Return the active workspace name, or ``None`` for legacy mode.
 
-    Reads ``WORKSPACE_NAME`` first, then ``BOOK``. Trims whitespace.
-    ``"legacy"`` is reserved: it explicitly resolves to legacy mode the
-    same way as an unset variable, so scripts can pass it through as a
-    no-op default. Raises ``ValueError`` if the env var contains path
-    separators or ``..`` (iter 019 audit fix).
+    Resolution order (iter 026 code-review #1):
+
+    1. **Thread-local override** set by ``src/web/workspace_ctx.use_workspace``.
+       Lets the WebUI carry a per-request workspace without serializing
+       behind a process-wide lock.
+    2. ``WORKSPACE_NAME`` env var (the iter 017 CLI mechanism — written
+       once by ``main._consume_book_pre_arg``).
+    3. ``BOOK`` env var fallback.
+
+    Whitespace is trimmed. ``"legacy"`` is reserved: explicitly resolves
+    to legacy mode the same way as an unset variable, so scripts can
+    pass it through as a no-op default. Raises ``ValueError`` if the
+    resolved name contains path separators or ``..`` (iter 019 audit fix).
     """
 
-    raw = os.environ.get("WORKSPACE_NAME") or os.environ.get("BOOK") or ""
+    override = _get_thread_override()
+    if override is not None:
+        raw = override
+    else:
+        raw = os.environ.get("WORKSPACE_NAME") or os.environ.get("BOOK") or ""
     name = raw.strip()
     if not name or name == _LEGACY_SENTINEL:
         return None

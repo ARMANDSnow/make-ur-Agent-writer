@@ -399,3 +399,116 @@ Goal: 把 iter 020 报告 Stage B 6 条一次性收齐，让 iter 021 验证 ch1
 - KB 按起点过滤（需 LLM 重写 KB）
 - entity_graph timeline schema 升级（让 deterministic_relations + proposal_validator 更密集）
 - writer 真用 rewrite_suggestions 后效果验证（iter 024 P1 落地但未真模型验证下一稿改进效果）
+
+---
+
+## Phase 4 Status（iter 025，2026-05-28）
+
+### Iteration 025 — WebUI U.1 只读 dashboard（已完成 / 待 commit）
+
+**Goal**: 把 phase 4 SOP 仅剩 ❌ 的 `U.1 WebUI dashboard` 关掉。iter 020 plan 把 WebUI 拆成 iter021-024 P1-P4，但实际 iter 021-024 全用于算法稳定性。iter 025 走「拆 2 iter」路径：iter 025 落 P1（只读 dashboard）+ iter 020 plan P4 的 reviews 端点扩成「全量」（含 iter 024 advisor 的 `rewrite_suggestions`）；iter 026 接 U.2（wizard + 模型切换）。
+
+**落地（4 P 项）**:
+
+| ID | 改动 | 状态 |
+|----|------|------|
+| P1 | `src/web/{__init__,server,routes}.py` 骨架 + `main.py` 注册 `web` 子命令（`--host 127.0.0.1 --port 8765`） | ✅ |
+| P2 | `src/web/workspace_ctx.py`（threading-safe `use_workspace` 上下文管理器）+ `src/web/reviews_aggregator.py`（严格 2 位数字 glob + stats）+ 9 个纯函数 handler | ✅ |
+| P3 | `src/web/templates.py`（`string.Template` 不冲突 JS 模板字面量）+ `src/web/static.py`（内嵌 CSS/JS 字符串，0 外部资源）| ✅ |
+| P4 | 4 个新测试文件 +26 → **322 OK**（baseline 296）；`docs/iterations/iteration_025_webui_dashboard.md`；README SOP U.1 ✅ + "Run the dashboard" 段；本文件本段；iterations README +1 行 | ✅ |
+
+**路由表（GET-only）**：
+
+| Method | Path | 作用 |
+|---|---|---|
+| GET | `/` | workspace 列表 HTML |
+| GET | `/workspace/<name>/` | 4 panel HTML 骨架 |
+| GET | `/static/{app.css,app.js}` | 内嵌字符串响应 |
+| GET | `/api/workspaces` | `{"workspaces":[...]}` |
+| GET | `/api/workspace/<name>/{status,cost,manifest,reviews}` | 4 个数据 panel |
+| GET | `/api/workspace/<name>/logs/tail?n=N` | per-workspace `logs/llm_calls.jsonl` 尾 N 行 |
+
+**测试**: +26 → **322 OK**（plan 估 +20 → 316，实际 +26 → 322）。新文件：
+- `tests/test_web_routes_get.py` (+14)
+- `tests/test_web_reviews_aggregator.py` (+6)
+- `tests/test_web_workspace_ctx.py` (+3)
+- `tests/test_web_server.py` (+3)
+
+**真服务手测**：`/usr/bin/python3 main.py web --port 8765` 后用 urllib 实测 13 个路径状态码与 Content-Type 全部正确（含 4 个 404 路径 + 2 个 static 资源）。`bash scripts/verify.sh` exit 0；xueZhong / asoiaf / longzu sha256 baseline 不变。
+
+**关键设计决定**：
+
+1. **iter 025 全程 GET，0 副作用** —— POST/PUT 整段推到 iter 026，让 iter 025 测试不需要 mock LLM 调用，纯文件 I/O 跑得快。
+2. **handler 是纯函数** —— `routes.dispatch(method, path) -> (status, content_type, body_bytes)` 与 HTTP server 解耦；单元测试不起 socket 就能跑全部 handler。
+3. **reviews 全量保留 + 前端默认折叠** —— `aggregate_reviews` 保留每章完整 `agent_reviews[*]` + `lint_issues` + `rewrite_suggestions`；HTML 默认 collapsed，点行展开。iter 024 advisor 的 5 条 actionable rewrite_suggestions 终于在 UI 上能看到。
+4. **stdlib-only 硬约束** —— `http.server.ThreadingHTTPServer` + `string.Template` + 内嵌 CSS/JS 字符串。`requirements.txt` 未动。
+5. **JSON 默认 `default=str`** —— `collect_status()` / `estimate_cost()` 返回的 dict 嵌 `pathlib.Path`，统一 fallback 转字符串。
+
+### Next iter（026）入口
+
+- **U.2 wizard + 模型切换**：iter 026 在 `src/web/` 加 `do_POST` / `do_PUT` + `jobs.py`（threading worker + 409 同 workspace 并发保护）+ `wizard.py`（手写 multipart epub 上传 + 7 步状态机）+ `settings.py`（白名单 `.env` 编辑 + 原子写 + key 屏蔽）+ `WIZARD_TPL` / `SETTINGS_TPL` / `JS_WIZARD`。预计 +20 测试 → 342。
+- **iter 027+ capstone**：iter 026 wizard 完成后跑完整 longzu 30-100 章真模型 smoke。iter 024 budget ceiling + auto re-plan + advisor 消费链路全部就绪。
+
+---
+
+## Phase 4 Status（iter 026，2026-05-28）
+
+### Iteration 026 — U.2 wizard + 模型切换 + auto-pipeline + 4 hardening（已完成 / 已 commit）
+
+**Goal**：(a) 把 SOP 9 步全编排进 `src/auto_pipeline.run_auto_pipeline`，让 CLI 一行命令 + wizard 后端 worker 共享同一段业务；(b) 浏览器上传 epub/txt → 自动跑出 ch1；(c) `.env` 编辑 panel + key 屏蔽；(d) iter 025 code-review 留尾 4 个 hardening 一并修。
+
+**6 项实现**:
+
+| ID | 改动 | 状态 |
+|----|------|------|
+| P2 | `src/auto_pipeline.py` 串接 9 步业务 + `main.py auto-pipeline` 子命令 + `verify.sh` 升级（`run-all → auto-pipeline`）| ✅ |
+| P1 | `src/web/jobs.py` threading worker + step 白名单 dispatch + 409 同 workspace 保护 + `server.py do_POST/do_PUT` + routes POST 扩展 | ✅ |
+| P3 | `src/web/wizard.py` 手写 multipart 解析（避 `cgi.FieldStorage`）+ 立即 `start_job(step="auto-pipeline")` + 前端 2 状态 JS | ✅ |
+| P4 | `src/web/settings.py` 4 keys 白名单 + key 中段屏蔽 + 原子 `os.replace` 写 + restart banner | ✅ |
+| P5 | #3 `_tail_jsonl` O(1) seek-tail / #6 `list_workspaces` 加 `(data/ or outputs/)` sanity / #7 dispatch catch-all 用 trace_id 不再泄 `str(exc)` / #10 非 loopback host 打 stderr WARNING | ✅ |
+| P6 | +34 测试 → 363；新建 `iteration_026_wizard_settings.md`；README SOP U.2 ✅ + 新增 U.3 auto-pipeline；本段 | ✅ |
+
+**测试**: 329 → **366 OK**（plan 估 +28；P6 落地 +34；P5b 再 +3 = 净 +37）。新文件：
+- `tests/test_auto_pipeline.py` (+5) — 9 步端到端 mock + apply 失败非阻断
+- `tests/test_web_jobs_dispatch.py` (+6) — step 白名单 + 409 + workspace 隔离
+- `tests/test_web_wizard_e2e.py` (+5) — multipart 上传 + 端到端 ch1 落盘
+- `tests/test_web_settings.py` (+5) — key 屏蔽 + 原子写 + 字段保留
+- `tests/test_web_hardening.py` (+8) — 4 个 P5 fix 全覆盖
+- `tests/test_web_routes_post.py` (+5) — POST/PUT/405 method-mismatch
+
+**关键设计决定**:
+- **auto_pipeline 是 CLI / wizard 共享单点**：业务在一个文件，wizard 前端只 2 状态（upload + polling），不可能漂移
+- **per-proposal apply 失败非阻断**：mock 模式 style_examples 必然失败（`mock.txt` 不存在），不让一个 proposal 失败葬送整个 wizard onboarding
+- **不引入新依赖**：`requirements.txt` byte-identical；multipart 解析手写 60 行
+- **stdlib-only 守住**：`http.server` + `string.Template` + `json` + `email`，无新包
+
+**Smoke 成本**: ¥0（mock-only）。
+
+### P5b — code-review 4 blocker 当 iter 内修
+
+iter 026 P6 末尾按 standing instruction（[[feedback-iter-codereview]]）跑 `/code-review high effort`，10 个 finding 中 4 个 blocker 当场修：
+
+- **#1 dashboard 冻结**（HIGH，用户最 visible）：`workspace_ctx` 全 with-body 持 process-wide RLock 让 dashboard read 端点全冻结。改 `paths.py` 加 `_THREAD_OVERRIDE = threading.local()`，`workspace_name()` 优先读 thread-local；`workspace_ctx.use_workspace` 完全重写去 lock。CLI env-var fallback 保留。test_does_not_block_other_threads 实测 < 50ms（修前 ~500ms）
+- **#2 wizard epub 失败 + 409 forever**（HIGH）：`wizard.start_upload` 上传段加 try/except + rollback + 400 友好错误，server-side log 完整 traceback
+- **#3 source_excerpts 漏**（MED-HIGH）：`bootstrap_all` 加第 6 个 proposal，wizard / auto-pipeline 路径与 iter 023 设计对齐
+- **#4 auto_pipeline 异常太宽**（MED）：收窄 `except (FileNotFoundError, ValueError)`，PermissionError / KeyError 传播以 trace_id 指向根因
+
+P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write failure）当场修；2 个 LOW（re-run skip 噪音 / except 太宽吞 MemoryError）写进 iter 027。
+
+### Next iter（027）候选入口
+
+- **capstone 真模型**：iter 024 budget ceiling + auto re-plan + advisor 消费链路全部就绪；iter 026 `auto-pipeline` + wizard 让"零人工干预"成立；可以跑 longzu 30-100 章真模型 smoke 收 phase 4
+- **iter 026 code-review carry-over 待 iter 027 处理**:
+  - **MED**: #5 `_tail_jsonl` partial first line 未丢弃（mid-file seek 落在 JSON 中间产生 `{"raw":"..."}` 行）
+  - **MED**: #6 `.env` 编辑销毁用户注释（PUT 后所有 `#` 行消失，无 undo）
+  - **MED**: #7 workspace name 规则在 3 处复制（routes / wizard / cli_workspace）→ 抽 `src/web/_naming.py`
+  - **LOW**: #8 `start_job` 线程启动失败时 `_WORKSPACE_JOBS` 锁泄漏（仅 OS 线程耗尽时触发）
+  - **LOW**: #9 wizard 未引号 multipart filename 不识别
+  - **LOW**: #10 `api_job_status` 不查 `_workspace_exists`（与其他 API 不一致）
+  - **LOW（P5b 新发）**: re-run wizard 时所有 6 proposal 走 `_skip_result` → apply 全 `apply_failed` 噪音
+  - **LOW（P5b 新发）**: wizard `except Exception` 吞 MemoryError → 进程内存损坏后仍接客
+- KB 按起点过滤（需 LLM 重写 KB）
+- entity_graph timeline schema 升级
+- writer 真用 rewrite_suggestions 后效果验证（iter 024 P1 落地但未真模型验证）
+- WebUI 章节 Markdown 在线编辑器（iter 020 plan 的 P2，整体未做）
+- WebUI 可视化雷达图 / 甘特图（iter 020 plan 的 P3）

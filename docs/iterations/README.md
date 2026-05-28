@@ -33,3 +33,5 @@
 22. [Iteration 022 - writer/reviewer 强化（Stage B 6 修）](./iteration_022_writer_reviewer_strengthening.md)
 23. [Iteration 023 - agent 8→5+1 精简 + 经典片段场景化 + 关系一致性程序化](./iteration_023_excerpts_and_agent_simplification.md)
 24. [Iteration 024 - 长程稳定性（advisor 消费 + 自动 re-plan + budget + proposal 冲突）](./iteration_024_long_horizon_stability.md)
+25. [Iteration 025 - WebUI U.1 只读 dashboard（stdlib http.server）](./iteration_025_webui_dashboard.md)
+26. [Iteration 026 - WebUI U.2 wizard + 模型切换 + auto-pipeline + 4 hardening](./iteration_026_wizard_settings.md)

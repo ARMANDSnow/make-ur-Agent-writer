@@ -102,6 +102,25 @@ bash scripts/write_book.sh --book myBook 3
 
 切换书只改一个 flag（`--book otherBook`），或 `export WORKSPACE_NAME=otherBook` 一次性生效。`workspace-list` / `workspace-show` 看现有 workspace。
 
+### Run the dashboard（iter 025）
+
+CLI 看完状态嫌切来切去？跑一个本地浏览器仪表盘：
+
+```bash
+python3 main.py web              # 默认 127.0.0.1:8765
+# 或自定义端口
+python3 main.py web --port 9999
+```
+
+打开 `http://127.0.0.1:8765/` 看所有 workspace；点进去看 4 panel：
+
+- **Status** —— `collect_status()` 完整 9 阶段进度
+- **Cost** —— 累计 token / cache / 估算 ¥
+- **Manifest** —— `data/chapter_manifest.json` 全表
+- **Reviews** —— 每章 verdict / rewrite_count / agent_reviews 全量 + iter 024 advisor `rewrite_suggestions`（点行展开）
+
+stdlib only（http.server + string.Template，**0 新依赖**）。默认绑 127.0.0.1 不外露；mock-only 验收；iter 026 接 wizard + 模型切换 panel。
+
 ---
 
 ## CLI 速查
@@ -141,7 +160,7 @@ bash scripts/write_book.sh --book myBook 3
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 024（2026-05-27）** — advisor 消费链路 + 自动 re-plan + budget ceiling + proposal 冲突检测：长程稳定性 4 项全部落地。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 026（2026-05-28）** — WebUI U.2 wizard + 模型切换 + `auto-pipeline` CLI 子命令（CLI / wizard 共享 9 步编排）。`verify.sh` 升级为 9 步真 e2e（替换 6 步 `run-all`）。4 个 hardening bug（OOM tail / dev dir filter / 异常 message 脱敏 / `--host 0.0.0.0` warning）一并修。phase 4 9 阶段 + U.1/U.2/U.3 全 ✅。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -222,8 +241,9 @@ bash scripts/write_book.sh --book myBook 3
 |---|---|---|---|
 | I.1 | `write_book.sh` 无人值守循环 | ✅ | iter 019 |
 | I.2 | `write_book.sh` tee mask exit code bug | ✅ | **iter 022 B6**（PIPESTATUS 显式传播） |
-| U.1 | WebUI dashboard | ❌ | iter 024 |
-| U.2 | 模型切换 panel + onboarding wizard | ❌ | iter 024 |
+| U.1 | WebUI dashboard | ✅ | **iter 025**（`python3 main.py web` 起 stdlib http.server；workspace 列表 + 4 panel 全量 reviews） |
+| U.2 | 模型切换 panel + onboarding wizard | ✅ | **iter 026**（`/wizard` 上传 epub/txt → 后端 `auto-pipeline` 9 步 worker → ch1 落盘；`/settings` 读 .env + key 屏蔽 + 原子写）|
+| U.3 | `auto-pipeline` 子命令（CLI + wizard 共享 9 步编排）| ✅ | **iter 026 P2**（`python3 main.py auto-pipeline --chapters 1`；`verify.sh` 升级成 9 步真 e2e）|
 
 ---
 

@@ -194,10 +194,11 @@ class CliIntegrationTests(unittest.TestCase):
             self.run_cli(["debate"])
             run_debate.assert_called_once_with()
 
-    def test_init_book_bootstrap_all_returns_five_proposal_keys(self) -> None:
-        """Iter 016: bootstrap_all() must produce all five proposals
-        (global_facts/entity_graph/continuation_anchor/style_examples/personas)
-        so `init-book` covers persona binding too.
+    def test_init_book_bootstrap_all_returns_six_proposal_keys(self) -> None:
+        """Iter 016 + iter 026 code-review #3: bootstrap_all() must
+        produce all six proposals so the wizard / auto-pipeline path
+        gets source_excerpts too (it was previously only reachable via
+        the standalone ``bootstrap-source-excerpts`` CLI subcommand).
         """
 
         from src.auto_bootstrap import bootstrap_all
@@ -210,7 +211,14 @@ class CliIntegrationTests(unittest.TestCase):
             results = bootstrap_all(root=root)
             self.assertEqual(
                 set(results.keys()),
-                {"global_facts", "entity_graph", "continuation_anchor", "style_examples", "personas"},
+                {
+                    "global_facts",
+                    "entity_graph",
+                    "continuation_anchor",
+                    "style_examples",
+                    "personas",
+                    "source_excerpts",
+                },
             )
             # The personas proposal must hit "written" status (mock LLM) and
             # the proposal file must exist on disk (assert inside the tmpdir
@@ -218,6 +226,9 @@ class CliIntegrationTests(unittest.TestCase):
             personas = results["personas"]
             self.assertEqual(personas["status"], "written")
             self.assertTrue(Path(personas["path"]).exists())
+            # Iter 026 code-review #3: source_excerpts also lands on disk.
+            self.assertEqual(results["source_excerpts"]["status"], "written")
+            self.assertTrue(Path(results["source_excerpts"]["path"]).exists())
 
     def test_book_flag_sets_workspace_name_env(self) -> None:
         """Iter 017: ``--book <name>`` is stripped from argv and exported as

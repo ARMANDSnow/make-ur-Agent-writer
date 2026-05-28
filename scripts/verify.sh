@@ -28,11 +28,16 @@ if [ -n "$BOOK" ]; then
   BOOK_ARG="--book $BOOK"
 fi
 
-python3 -m py_compile main.py src/*.py tests/*.py
+python3 -m py_compile main.py src/*.py src/web/*.py tests/*.py
 python3 -m unittest discover -s tests -v
 python3 main.py $BOOK_ARG normalize
 python3 main.py $BOOK_ARG split
-python3 main.py $BOOK_ARG run-all --extract-limit 2 --chapters 1 --force
+# Iter 026: auto-pipeline replaces run-all here. run-all only ran
+# 6 steps (normalize→split→extract→compress→debate→write), skipping
+# bootstrap-apply and plan-chapters. auto-pipeline runs all 9 SOP
+# steps and is the same function the WebUI wizard's worker invokes,
+# keeping CLI / GUI on one orchestration code path.
+python3 main.py $BOOK_ARG auto-pipeline --extract-limit 2 --chapters 1 --force
 python3 main.py $BOOK_ARG status
 python3 main.py $BOOK_ARG check-manifest
 python3 main.py $BOOK_ARG manifest-report
