@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import math
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,10 @@ class LLMClient:
         self.task = task
         self.config = get_model_config(task)
         self.model = self.config["model"]
+        # Iter 027 capstone: OPENAI_STREAM=1 makes complete_text default to
+        # streaming so long generations bypass Cloudflare's 524 / 100s edge
+        # timeout. Non-streaming callers stay byte-identical when unset.
+        self.stream_default = _truthy_env(os.environ.get("OPENAI_STREAM"))
 
     @property
     def is_mock(self) -> bool:
@@ -34,6 +39,7 @@ class LLMClient:
         *,
         temperature: Optional[float] = None,
         cache_segments: Optional[List[Dict[str, Any]]] = None,
+        stream: Optional[bool] = None,
     ) -> str:
         started = time.monotonic()
         prepared_messages = self._prepare_messages(messages, cache_segments)
@@ -41,6 +47,7 @@ class LLMClient:
         max_tokens = int(self.config.get("max_tokens", 2000))
         self._check_context(request_meta["prompt_tokens"], max_tokens)
         if self.is_mock:
+            # OPENAI_MODEL=mock must NOT stream (existing behavior, no SSE involved).
             text = self._mock_text(prepared_messages)
             self._log_call("complete_text", "ok", started, request_meta=request_meta, response_text=text)
             return text
@@ -49,6 +56,8 @@ class LLMClient:
         except Exception as exc:
             self._log_call("complete_text", "error", started, exc, request_meta=request_meta)
             raise RuntimeError("litellm is required for real model calls") from exc
+
+        use_stream = self.stream_default if stream is None else bool(stream)
 
         last_exc: Exception | None = None
         attempts = max(1, int(self.config.get("retry_attempts", 1)))
@@ -67,8 +76,16 @@ class LLMClient:
                     kwargs["api_key"] = self.config["api_key"]
                 if self.config.get("base_url"):
                     kwargs["api_base"] = self.config["base_url"]
-                response = completion(**kwargs)
-                content = response["choices"][0]["message"]["content"]
+                if use_stream:
+                    kwargs["stream"] = True
+                    # include_usage asks the upstream to emit a final SSE chunk
+                    # with usage tallies; supported by litellm >= 1.40-ish.
+                    kwargs["stream_options"] = {"include_usage": True}
+                    stream_iter = completion(**kwargs)
+                    content, response = self._consume_stream(stream_iter)
+                else:
+                    response = completion(**kwargs)
+                    content = response["choices"][0]["message"]["content"]
                 self._log_call(
                     "complete_text",
                     "ok",
@@ -81,6 +98,8 @@ class LLMClient:
                 return content
             except Exception as exc:
                 last_exc = exc
+                # Mid-stream failures discard partial output (handled inside
+                # _consume_stream — it raises before returning any content).
                 if cache_segments and not cache_downgraded and any("cache_control" in msg for msg in prepared_messages):
                     prepared_messages = self._prepare_messages(messages, None)
                     request_meta = self._request_meta(prepared_messages)
@@ -89,7 +108,47 @@ class LLMClient:
                 if attempt < attempts:
                     time.sleep(float(self.config.get("retry_backoff_seconds", 0.5)) * attempt)
         self._log_call("complete_text", "error", started, last_exc, request_meta=request_meta)
-        raise RuntimeError(f"LLM text completion failed after {attempts} attempt(s): {last_exc}") from last_exc
+        suffix = "stream attempts" if use_stream else "attempt(s)"
+        raise RuntimeError(f"LLM text completion failed after {attempts} {suffix}: {last_exc}") from last_exc
+
+    def _consume_stream(self, stream_iter: Any) -> tuple[str, Dict[str, Any]]:
+        """Consume an SSE iterator from litellm.completion(stream=True).
+
+        Returns (joined_content, synthetic_response_dict). The synthetic dict
+        mirrors the non-streaming response shape expected by _log_call so the
+        per-call log record stays identical for dashboards / cost_estimator.
+        Any exception mid-stream propagates so the outer retry loop can throw
+        away partial output and start over.
+        """
+        chunks: List[str] = []
+        usage: Optional[Dict[str, Any]] = None
+        for chunk in stream_iter:
+            # chunk may be dict or pydantic-like object depending on litellm
+            # version; normalize via __getitem__ / getattr.
+            try:
+                choices = chunk["choices"] if isinstance(chunk, dict) else getattr(chunk, "choices", None)
+            except (KeyError, TypeError):
+                choices = None
+            if choices:
+                first = choices[0]
+                delta = first["delta"] if isinstance(first, dict) else getattr(first, "delta", None)
+                if delta is not None:
+                    if isinstance(delta, dict):
+                        piece = delta.get("content") or ""
+                    else:
+                        piece = getattr(delta, "content", None) or ""
+                    if piece:
+                        chunks.append(piece)
+            chunk_usage = chunk.get("usage") if isinstance(chunk, dict) else getattr(chunk, "usage", None)
+            if chunk_usage:
+                usage = self._usage_dict({"usage": chunk_usage})
+        content = "".join(chunks)
+        response: Dict[str, Any] = {
+            "choices": [{"message": {"content": content}}],
+        }
+        if usage:
+            response["usage"] = usage
+        return content, response
 
     def complete_json(self, messages: List[Dict[str, str]], response_model: type[BaseModel]) -> BaseModel:
         started = time.monotonic()
@@ -393,6 +452,12 @@ class LLMClient:
             }
             return response_model(**payload)
         return response_model(**{})
+
+
+def _truthy_env(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _field_from_prompt(text: str, key: str) -> Optional[str]:
