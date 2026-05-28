@@ -48,6 +48,33 @@ class TailJsonlPerformanceTests(unittest.TestCase):
         finally:
             path.unlink()
 
+    def test_tail_drops_partial_first_line_on_midfile_seek(self) -> None:
+        """Iter 027 P2 (review #5 fix): when the seek lands mid-record
+        the first element of raw_tail.splitlines() is a half-line. The
+        tail must drop it instead of surfacing ``{"raw": "...partial"}``
+        rows to the dashboard.
+
+        We force this by writing lines longer than the 8 KB read chunk
+        so a single block read in _tail_jsonl can't span all of them
+        starting at byte 0."""
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as fh:
+            big_field = "x" * 2000
+            for i in range(20):
+                fh.write(f'{{"i": {i}, "filler": "{big_field}"}}\n'.encode("utf-8"))
+            path = Path(fh.name)
+        try:
+            out = routes._tail_jsonl(path, 3)
+            # Every entry must parse as a complete JSON object — no
+            # ``{"raw": "..."}`` fallback rows allowed.
+            self.assertEqual(len(out), 3)
+            for row in out:
+                self.assertNotIn("raw", row)
+                self.assertIn("i", row)
+            # And the tail must be the actual last 3 records.
+            self.assertEqual([row["i"] for row in out], [17, 18, 19])
+        finally:
+            path.unlink()
+
     def test_tail_n_zero_returns_empty(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as fh:
             fh.write(b'{"x":1}\n{"x":2}\n')

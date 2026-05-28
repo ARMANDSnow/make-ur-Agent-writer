@@ -28,6 +28,13 @@ from ..cost_estimator import estimate_cost
 from ..observability import collect_status
 from ..utils import read_json
 from . import jobs, settings as settings_mod, static, templates, wizard
+from ._naming import RESERVED_NAMES as _RESERVED_WORKSPACE_NAMES_SHARED  # noqa: F401
+from ._naming import (
+    WORKSPACE_NAME_RE as _WORKSPACE_NAME_RE_SHARED,  # noqa: F401
+)
+from ._naming import (
+    validate_workspace_name as _shared_validate_workspace_name,
+)
 from .reviews_aggregator import aggregate_reviews
 from .workspace_ctx import use_workspace
 
@@ -39,25 +46,12 @@ Handler = Callable[..., Tuple[int, str, bytes]]
 # ---- helpers ----------------------------------------------------------------
 
 
-# Iter 025 code-review #9: an inner ``[a-zA-Z0-9_一-鿿-]`` plus
-# the head/tail anchors that require an identifier-style character at
-# both ends. This rejects leading / trailing / only-hyphen names that
-# would collide with shell-flag parsing downstream (e.g. argparse on
-# ``--book -foo``). 一-鿿 is the CJK Unified Ideographs block,
-# spelled out to avoid the previous ``一-鿿`` literal which was hard to
-# diff-review.
-_WORKSPACE_NAME_RE = re.compile(
-    r"^[a-zA-Z0-9_一-鿿]"
-    r"(?:[a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿])?$"
-)
-
-# Iter 025 code-review #5: ``legacy`` is a reserved sentinel in
-# ``src/paths.py`` (see ``_LEGACY_SENTINEL``). Setting
-# ``WORKSPACE_NAME=legacy`` makes ``paths.workspace_name()`` return None,
-# which silently falls back to the repo root. A user who manually
-# mkdirs ``workspaces/legacy/`` would otherwise see the dashboard render
-# repo-root data while claiming to show the ``legacy`` workspace.
-_RESERVED_WORKSPACE_NAMES = frozenset({"legacy"})
+# Iter 027 P2 (review #7): regex + reserved set now live in
+# ``src/web/_naming.py`` so routes.py and wizard.py share one source.
+# The module-level aliases below are kept for any test / external code
+# that imported the old names from this module.
+_WORKSPACE_NAME_RE = _WORKSPACE_NAME_RE_SHARED
+_RESERVED_WORKSPACE_NAMES = _RESERVED_WORKSPACE_NAMES_SHARED
 
 
 def _json(status: int, payload: Dict[str, Any]) -> Tuple[int, str, bytes]:
@@ -74,13 +68,8 @@ def _html(status: int, html: str) -> Tuple[int, str, bytes]:
 
 
 def _validate_workspace_name(name: str) -> bool:
-    """Allow ASCII identifiers and Chinese characters; reject path
-    traversal, overly long names, leading / trailing hyphens, and the
-    ``legacy`` sentinel reserved by ``src/paths.py``."""
-
-    if name in _RESERVED_WORKSPACE_NAMES:
-        return False
-    return bool(_WORKSPACE_NAME_RE.match(name))
+    """Thin wrapper around the shared validator (iter 027 P2 #7)."""
+    return _shared_validate_workspace_name(name)
 
 
 def _workspace_exists(name: str) -> bool:
@@ -199,11 +188,15 @@ def _tail_jsonl(path: Path, n: int) -> List[Dict[str, Any]]:
     except OSError:
         return []
     lines = raw_tail.splitlines()
-    # Drop the head fragment unless we read from byte 0 — otherwise
-    # it might be a half-line from a mid-file seek.
-    if position > 0 and len(lines) > n:
-        lines = lines[-n:]
-    elif len(lines) > n:
+    # Iter 027 P2 (review #5 fix): when ``position > 0`` the first byte
+    # of ``raw_tail`` is mid-record — the read started inside a JSON
+    # line because the file is bigger than our backward read. Drop that
+    # half-line so we never surface ``{"raw": "...partial json..."}``
+    # rows to the dashboard. When ``position == 0`` we read from byte 0
+    # and the first line IS complete.
+    if position > 0 and lines:
+        lines = lines[1:]
+    if len(lines) > n:
         lines = lines[-n:]
     out: List[Dict[str, Any]] = []
     for raw in lines:

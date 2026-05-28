@@ -29,6 +29,9 @@ from .. import paths
 from ..cli_workspace import init_workspace
 from ..epub_to_txt import extract_epub
 from . import jobs
+# Iter 027 P2 (review #7): name validation lives in src/web/_naming.py
+# so routes.py and wizard.py share one source of truth.
+from ._naming import validate_workspace_name as _validate_name
 
 # 50 MB hard cap on upload payload. server.py imposes a wider 64 MB
 # safety cap; this is the wizard-specific cap that returns a friendly
@@ -176,17 +179,6 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
 # ---- helpers ---------------------------------------------------------------
 
 
-_VALID_NAME_RE = re.compile(
-    r"^[a-zA-Z0-9_一-鿿]"
-    r"(?:[a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿])?$"
-)
-_RESERVED_NAMES = frozenset({"legacy"})
-
-
-def _validate_name(name: str) -> bool:
-    if name in _RESERVED_NAMES:
-        return False
-    return bool(_VALID_NAME_RE.match(name))
 
 
 def _json(status: int, payload: Dict[str, Any]) -> Tuple[int, str, bytes]:

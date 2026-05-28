@@ -282,10 +282,24 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
     with _JOBS_LOCK:
         _JOBS[record["job_id"]] = record
 
+    # Iter 027 P2 (review #8 fix): if thread.start() fails (OS thread
+    # limit reached, fork restrictions, etc.), the _WORKSPACE_JOBS entry
+    # would otherwise dangle forever — the worker never runs, so the
+    # ``finally`` cleanup inside _worker never fires, and every future
+    # POST to this workspace returns 409 pointing at a dead job_id.
+    # Roll back both tables on failure and re-raise so the caller
+    # surfaces the underlying error.
     thread = threading.Thread(
         target=_worker, args=(record["job_id"],), daemon=True, name=f"job-{record['job_id'][:8]}"
     )
-    thread.start()
+    try:
+        thread.start()
+    except RuntimeError:
+        with _WORKSPACE_LOCK:
+            _WORKSPACE_JOBS.pop(workspace, None)
+        with _JOBS_LOCK:
+            _JOBS.pop(record["job_id"], None)
+        raise
     return dict(record)
 
 

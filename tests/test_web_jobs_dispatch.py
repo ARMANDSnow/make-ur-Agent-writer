@@ -100,6 +100,39 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(json.loads(body)["error"], "job not found")
 
+    def test_start_job_thread_failure_rolls_back_workspace_slot(self) -> None:
+        """Iter 027 P2 (review #8 fix): if threading.Thread.start raises
+        (OS thread limit, fork restrictions), the _WORKSPACE_JOBS slot
+        must be cleared. Otherwise every subsequent POST returns 409
+        pointing at a job whose worker never ran."""
+        import threading
+
+        original_start = threading.Thread.start
+        call_count = {"n": 0}
+
+        def faulty_start(self):
+            call_count["n"] += 1
+            raise RuntimeError("can't start new thread")
+
+        threading.Thread.start = faulty_start
+        try:
+            with self.assertRaises(RuntimeError):
+                jobs.start_job("alpha", "normalize", {})
+            # Workspace slot must be empty — otherwise a retry would
+            # see 409 forever.
+            self.assertIsNone(jobs.workspace_busy("alpha"))
+            # Job record cleaned too.
+            self.assertEqual(jobs._JOBS, {})
+        finally:
+            threading.Thread.start = original_start
+
+        # After restore, a normal start_job should succeed and slot up
+        # for a real workspace_busy reading.
+        record = jobs.start_job("alpha", "normalize", {})
+        self.assertEqual(jobs.workspace_busy("alpha"), record["job_id"])
+        self._wait_for_done("alpha", record["job_id"], timeout=10.0)
+        self.assertIsNone(jobs.workspace_busy("alpha"))
+
     def test_job_404_when_workspace_mismatch(self) -> None:
         """Jobs are namespaced by workspace; asking for a job under the
         wrong workspace returns 404, not the job."""
