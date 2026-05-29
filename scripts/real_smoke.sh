@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Iter 027: adapt HTTP(S)_PROXY for the aetherheartpool tunnel.
+# shellcheck source=with_proxy.sh
+source "$ROOT/scripts/with_proxy.sh"
+
 # iter 017: accept --book / $WORKSPACE_NAME so smoke can target a per-book workspace.
 BOOK="${WORKSPACE_NAME:-${BOOK:-}}"
 VOLUME="longzu_1"

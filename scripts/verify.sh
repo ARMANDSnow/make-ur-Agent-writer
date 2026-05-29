@@ -8,6 +8,13 @@ unset OPENAI_API_KEY OPENAI_BASE_URL
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Iter 027: keep entry-point shape consistent with the real-model
+# scripts. verify.sh is mock-only (no network), so this is a no-op for
+# correctness — just guarantees the future-self who ports verify.sh to a
+# non-mock smoke doesn't have to remember the proxy dance again.
+# shellcheck source=with_proxy.sh
+source "$ROOT/scripts/with_proxy.sh"
+
 export PYTHONPYCACHEPREFIX="$ROOT/.pycache"
 
 # iter 017: accept --book / $WORKSPACE_NAME so verify can target a per-book

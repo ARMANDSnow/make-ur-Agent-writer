@@ -10,6 +10,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Iter 027: adapt HTTP(S)_PROXY for the aetherheartpool tunnel
+# (sandbox → localhost:63501, local terminal → direct).
+# shellcheck source=with_proxy.sh
+source "$ROOT/scripts/with_proxy.sh"
+
 CHAPTERS="2"
 REQUIRE_PLAN="1"
 BOOK="${WORKSPACE_NAME:-${BOOK:-}}"

@@ -14,6 +14,50 @@ from .config import get_model_config
 from .schemas import model_to_dict
 from .utils import append_jsonl, extract_json_object
 
+# Iter 027: adapt HTTP(S)_PROXY for the aetherheartpool tunnel.
+# The Claude Code sandbox forces all egress through localhost:63501 (no
+# DNS / direct egress otherwise); the user's own terminal can reach the
+# tunnel directly, but ships a stale ``HTTP_PROXY=http://127.0.0.1:7897``
+# pointing at a not-always-running Clash. Mirror scripts/with_proxy.sh so
+# direct-python entrypoints (scripts/iter027_*.py, scripts/collect_*.py)
+# self-adapt without per-run env tweaks. Runs at import time so litellm
+# sees the corrected env before its first network call.
+def _setup_proxy() -> None:
+    import socket
+
+    proxies = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+    sandbox_proxy = "http://localhost:63501"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.5)
+    try:
+        sock.connect(("localhost", 63501))
+        in_sandbox = True
+    except OSError:
+        in_sandbox = False
+    finally:
+        sock.close()
+
+    if in_sandbox:
+        if all(os.environ.get(k) == sandbox_proxy for k in proxies) and not any(
+            k in os.environ for k in ("ALL_PROXY", "all_proxy")
+        ):
+            return
+        for k in proxies:
+            os.environ[k] = sandbox_proxy
+        # ALL_PROXY outranks HTTP(S)_PROXY in some HTTP clients — clear it
+        # so the 63501 tunnel actually wins. Mirrors scripts/with_proxy.sh.
+        for k in ("ALL_PROXY", "all_proxy"):
+            os.environ.pop(k, None)
+    else:
+        if all(k not in os.environ for k in (*proxies, "ALL_PROXY", "all_proxy")):
+            return
+        for k in (*proxies, "ALL_PROXY", "all_proxy"):
+            os.environ.pop(k, None)
+
+
+_setup_proxy()
+
+
 # Iter 027: GPT-5 family rejects ``temperature != 1`` (and a handful of
 # other params) with ``UnsupportedParamsError``. The pipeline's tasks
 # set custom temperatures per-step (write 0.65, review 0.1, etc.) which

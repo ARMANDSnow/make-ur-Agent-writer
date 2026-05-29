@@ -59,6 +59,11 @@ if [ -z "$BOOK" ]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Iter 027: watchdog itself does not call LLMs, but we source the proxy
+# adapter so the stderr "[with_proxy] mode=…" line lands in the same log
+# as the writer — makes post-mortem easy when something does go wrong.
+# shellcheck source=with_proxy.sh
+source "$ROOT/scripts/with_proxy.sh"
 LOG_PATH="$ROOT/workspaces/$BOOK/logs/llm_calls.jsonl"
 
 # Portable mtime: stat -f %m on macOS, stat -c %Y on linux.
