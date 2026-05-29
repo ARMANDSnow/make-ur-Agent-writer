@@ -14,6 +14,20 @@ from .config import get_model_config
 from .schemas import model_to_dict
 from .utils import append_jsonl, extract_json_object
 
+# Iter 027: GPT-5 family rejects ``temperature != 1`` (and a handful of
+# other params) with ``UnsupportedParamsError``. The pipeline's tasks
+# set custom temperatures per-step (write 0.65, review 0.1, etc.) which
+# matter for non-GPT-5 models. Telling litellm to silently drop the
+# unsupported params lets us keep the same task config for both model
+# families — GPT-5 callers fall back to its single supported
+# temperature, everyone else honors the task value.
+try:
+    import litellm as _litellm
+
+    _litellm.drop_params = True
+except Exception:
+    pass
+
 
 class LLMContextOverflowError(RuntimeError):
     pass
@@ -27,7 +41,23 @@ class LLMClient:
         # Iter 027 capstone: OPENAI_STREAM=1 makes complete_text default to
         # streaming so long generations bypass Cloudflare's 524 / 100s edge
         # timeout. Non-streaming callers stay byte-identical when unset.
-        self.stream_default = _truthy_env(os.environ.get("OPENAI_STREAM"))
+        #
+        # iter 027 P2b-fix (v2): allow streaming when this client's
+        # resolved base_url matches the MAIN OPENAI_BASE_URL value.
+        # Earlier the gate was env-name-based (base_url_env ==
+        # "OPENAI_BASE_URL"), but with the user unifying PLANNER and
+        # main on the same keep-alive-capable 中转站, env-name
+        # comparison wrongly excludes PLANNER. Comparing values lets
+        # a single proxy serve both task families safely while still
+        # blocking streaming to a separately-configured proxy that may
+        # not have keep-alive yet. Per-call stream=True/False overrides.
+        main_url = os.environ.get("OPENAI_BASE_URL")
+        this_url = self.config.get("base_url")
+        endpoint_streams = this_url is None or this_url == main_url
+        self.stream_default = (
+            _truthy_env(os.environ.get("OPENAI_STREAM"))
+            and endpoint_streams
+        )
 
     @property
     def is_mock(self) -> bool:
@@ -247,7 +277,8 @@ class LLMClient:
     def _prepare_messages(
         self, messages: List[Dict[str, str]], cache_segments: Optional[List[Dict[str, Any]]]
     ) -> List[Dict[str, Any]]:
-        if not cache_segments:
+        cache_disabled = _truthy_env(os.environ.get("DISABLE_PROMPT_CACHE"))
+        if not cache_segments or cache_disabled:
             return [dict(message) for message in messages]
         prepared: List[Dict[str, Any]] = []
         cache_enabled = bool(self.config.get("cache_enabled", False))

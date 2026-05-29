@@ -157,6 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
                                help="iter 024: append K new chapters instead of overwriting")
     plan_chapters.add_argument("--from-chapter", type=int, default=0, dest="from_chapter",
                                help="iter 024: index after which to append (0 = current plan length)")
+    plan_chapters.add_argument(
+        "--require-start-point",
+        action="store_true",
+        help="iter 027: fail if start_chapter.json is missing before planning",
+    )
 
     write = sub.add_parser("write")
     write.add_argument("--chapters", type=int, default=18)
@@ -245,6 +250,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Override chapter_plan size. None lets the planner default to max(chapters, 5).",
+    )
+    # Iter 027 bug-sweep F1: opt-in start-point gate for CLI auto-pipeline.
+    # Power users resuming an existing book should pass --require-start-point
+    # so the planner refuses to silently regenerate plans rooted at Book 1.
+    auto_cmd.add_argument(
+        "--require-start-point",
+        action="store_true",
+        help=(
+            "Refuse to plan/write if no start_chapter.json is set. Recommended"
+            " when resuming an existing book; not needed for greenfield first runs."
+        ),
+    )
+    auto_cmd.add_argument(
+        "--allow-missing-start-point",
+        action="store_true",
+        help="Explicitly opt out of the start-point gate (default behavior).",
     )
     return parser
 
@@ -362,6 +383,7 @@ def main() -> None:
             force=args.force,
             append_count=args.append_count,
             from_chapter=from_chapter,
+            require_start_point=args.require_start_point,
         )
         mode = f"append +{args.append_count} from ch{from_chapter}" if args.append_count > 0 else "fresh"
         print(f"chapter_plan.json written ({mode}): {len(data['chapters'])} chapters")
@@ -456,6 +478,7 @@ def main() -> None:
             extract_limit=args.extract_limit,
             force=args.force,
             plan_chapters_target=args.plan_chapters,
+            require_start_point=bool(args.require_start_point),
         )
         # Print a one-line summary of the write step so CI / verify.sh
         # can grep for it without parsing the per-step output.

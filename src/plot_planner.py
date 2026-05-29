@@ -11,6 +11,7 @@ from .entities import load_entity_graph, render_active_state
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .schemas import ChapterPlan, model_to_dict, model_to_json_schema
+from . import start_point
 from .style import load_style_examples
 from .utils import write_json
 
@@ -35,6 +36,7 @@ def generate_chapter_plan(
     *,
     append_count: int = 0,
     from_chapter: int = 0,
+    require_start_point: bool = False,
 ) -> Dict[str, Any]:
     """Iter 024 P2: append mode. When ``append_count > 0``, preserves
     chapters 1..from_chapter from the existing chapter_plan.json and
@@ -56,6 +58,7 @@ def generate_chapter_plan(
 
     # Iter 024: append mode pre-reads existing plan, preserves head.
     existing_chapters: list = []
+    existing_start_chapter_id = ""
     if append_count > 0:
         if not chapter_plan_path.exists():
             raise FileNotFoundError(
@@ -63,6 +66,7 @@ def generate_chapter_plan(
             )
         from .utils import read_json as _read_json
         existing = _read_json(chapter_plan_path, {})
+        existing_start_chapter_id = str(existing.get("start_chapter_id") or "")
         all_existing = existing.get("chapters", []) or []
         existing_chapters = all_existing[:from_chapter] if from_chapter > 0 else all_existing
     elif chapter_plan_path.exists() and not force:
@@ -84,6 +88,23 @@ def generate_chapter_plan(
     knowledge = _load_knowledge()
     rolling = _load_rolling_summary()
     anchor = load_continuation_anchor()
+    start_chapter_id = start_point.get_start_chapter_id()
+    if require_start_point and not start_chapter_id:
+        raise ValueError(
+            "start point is required before plan-chapters; run `set-start-point` first"
+        )
+    if append_count > 0 and require_start_point:
+        if not existing_start_chapter_id:
+            raise ValueError(
+                "existing chapter_plan.json has no start_chapter_id; regenerate it "
+                "with --force --require-start-point before appending"
+            )
+        if start_chapter_id and existing_start_chapter_id != start_chapter_id:
+            raise ValueError(
+                "existing chapter_plan.json start_chapter_id does not match the "
+                "current start point; regenerate the plan before appending"
+            )
+    start_point_context = _format_start_point_context(start_chapter_id)
 
     # Iter 024: when in append mode, ask LLM for exactly `append_count`
     # chapters numbered starting at `from_chapter + 1`. The prompt also
@@ -108,6 +129,7 @@ def generate_chapter_plan(
         knowledge=knowledge,
         rolling_summary=rolling,
         continuation_anchor=anchor,
+        start_point_context=start_point_context,
         existing_tail=existing_tail_block,
         starting_chapter_no=starting_chapter_no,
     )
@@ -137,6 +159,7 @@ def generate_chapter_plan(
             "target_chapters": len(merged_chapters),
             "overall_arc": old.get("overall_arc", new_data.get("overall_arc", "")),
             "chapters": merged_chapters,
+            "start_chapter_id": old.get("start_chapter_id", start_chapter_id),
             "generated_by": (
                 f"plot_planner_v1_append (existing 1..{from_chapter} preserved, "
                 f"ch{from_chapter+1}..{from_chapter+append_count} new)"
@@ -144,6 +167,7 @@ def generate_chapter_plan(
         }
     else:
         data = new_data
+        data["start_chapter_id"] = start_chapter_id or ""
     write_json(chapter_plan_path, data)
     return data
 
@@ -163,6 +187,34 @@ def _format_existing_tail(existing_chapters: list, k: int = 5) -> str:
         hook = str(ch.get("ending_hook", ""))[:200]
         lines.append(f"- ch{no} 「{title}」 末钩：{hook}")
     return "\n".join(lines) + "\n"
+
+
+def _format_start_point_context(start_chapter_id: str | None) -> str:
+    """Render explicit start metadata for the planner prompt.
+
+    The human-readable continuation anchor can be stale; the persisted
+    start_chapter.json is the operator's actual selection. This compact block
+    gives the planner a second, machine-derived guardrail and prevents long
+    capstone plans from silently drifting back to the beginning of the book.
+    """
+    if not start_chapter_id:
+        return ""
+    before = start_point.chapters_before_start(k=3)
+    lines = [
+        "# 显式续写起点（来自 start_chapter.json，最高优先级）",
+        "",
+        f"- resolved_start_chapter_id: {start_chapter_id}",
+        "- 续写第 1 章必须发生在该章节/卷结束之后。",
+        "- 不得重新规划该起点之前已经发生的入学、考试、训练、相遇、旅行或揭示事件。",
+    ]
+    if before:
+        lines.append("- 起点前最近章节（只作方位校验，不要复述）：")
+        for ch in before:
+            lines.append(
+                f"  - {ch.get('chapter_id', '')}: {ch.get('title', '')} "
+                f"(volume={ch.get('volume_id', '')})"
+            )
+    return "\n".join(lines)
 
 
 def _load_knowledge() -> str:
@@ -211,6 +263,7 @@ def _build_planner_prompt(
     knowledge: str = "",
     rolling_summary: str = "",
     continuation_anchor: str = "",
+    start_point_context: str = "",
     existing_tail: str = "",
     starting_chapter_no: int = 1,
 ) -> str:
@@ -249,6 +302,7 @@ def _build_planner_prompt(
         if continuation_anchor
         else ""
     )
+    start_point_block = f"{start_point_context}\n\n" if start_point_context else ""
     # Iter 024: append mode adds existing chapter tail summaries so the
     # LLM-produced new chapters genuinely continue. Also requests
     # chapter_no to start at starting_chapter_no instead of 1.
@@ -277,6 +331,7 @@ def _build_planner_prompt(
         "10. 如已存在 plan 末尾章节给出（append 模式），新规划必须从其 ending_hook 自然承接。\n\n"
         f"# ChapterPlan JSON schema\n\n{schema}\n\n"
         f"{knowledge_block}"
+        f"{start_point_block}"
         f"{anchor_block}"
         f"{style_block}"
         f"{facts_block}"

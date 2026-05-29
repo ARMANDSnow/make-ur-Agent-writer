@@ -80,6 +80,10 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
     context_limit = task_cfg.get("context_limit", default.get("context_limit"))
     if context_limit is None:
         context_limit = _default_context_limit(str(model))
+    max_tokens = default.get("max_tokens", 2000)
+    max_tokens_env = task_cfg.get("max_tokens_env")
+    if max_tokens_env and os.getenv(str(max_tokens_env)):
+        max_tokens = int(os.getenv(str(max_tokens_env)) or max_tokens)
     return {
         "model": model,
         "api_key_env": api_key_env,
@@ -87,13 +91,17 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
         "api_key": os.getenv(api_key_env) or default.get("api_key"),
         "base_url": (os.getenv(base_url_env_name) if base_url_env_name else None) or default.get("base_url"),
         "temperature": default.get("temperature", 0.2),
-        "max_tokens": default.get("max_tokens", 2000),
+        "max_tokens": max_tokens,
         "retry_attempts": int(default.get("retry_attempts", 1)),
         "retry_backoff_seconds": float(default.get("retry_backoff_seconds", 0.5)),
         "json_repair": bool(default.get("json_repair", True)),
         "context_limit": int(context_limit),
         "cache_enabled": bool(default.get("cache_enabled", False)),
-        **{key: value for key, value in task_cfg.items() if key not in {"api_key", "base_url", "model"}},
+        **{
+            key: value
+            for key, value in task_cfg.items()
+            if key not in {"api_key", "base_url", "model", "max_tokens"}
+        },
     }
 
 

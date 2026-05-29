@@ -80,6 +80,26 @@ def append_chapter_summary(
     save_rolling_summary(data, path)
 
 
+def prune_from_chapter(chapter_no: int, path: Path | None = None) -> None:
+    """Drop rolling summaries for ``chapter_no`` and anything after it.
+
+    ``write_book.sh`` retries rejected chapters by moving their draft/meta
+    files aside before re-running the writer. The rolling summary must be
+    rewound at the same boundary; otherwise a rejected draft can poison the
+    retry prompt and every later chapter.
+    """
+    if path is None:
+        path = _rolling_path()
+    data = load_rolling_summary(path)
+    cutoff = int(chapter_no)
+    data["chapters"] = [
+        item
+        for item in data.get("chapters", [])
+        if int(item.get("chapter_no", 0)) < cutoff
+    ]
+    save_rolling_summary(data, path)
+
+
 def latest_ending_state(path: Path | None = None) -> str:
     if path is None:
         path = _rolling_path()

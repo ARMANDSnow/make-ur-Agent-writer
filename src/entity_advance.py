@@ -93,6 +93,14 @@ def select_auto_indexes(
     return chosen
 
 
+def _is_applyable_proposal(proposal: Dict[str, Any]) -> bool:
+    return bool(
+        str(proposal.get("src_id") or "").strip()
+        and str(proposal.get("dst_id") or "").strip()
+        and str(proposal.get("new_state") or "").strip()
+    )
+
+
 def apply_advance_proposals(
     *,
     chapter_no: int,
@@ -144,12 +152,30 @@ def apply_advance_proposals(
         # see an explicit FileNotFoundError when the graph is missing.
 
     selected: List[Dict[str, Any]] = []
+    selected_indexes: List[int] = []
     for idx in indexes:
         if idx < 0 or idx >= len(proposals):
             raise IndexError(f"proposal index out of range: {idx}")
         proposal = proposals[idx]
         if isinstance(proposal, dict):
+            if auto_apply and not _is_applyable_proposal(proposal):
+                continue
             selected.append(proposal)
+            selected_indexes.append(idx)
+
+    if auto_apply and not selected:
+        if allow_empty:
+            return {
+                "chapter_no": chapter_no,
+                "selected": [],
+                "confirm": confirm,
+                "diff": "",
+                "applied_count": 0,
+                "auto_apply": auto_apply,
+                "min_confidence": min_confidence,
+                "no_op_reason": "no_applyable_proposals",
+            }
+        raise ValueError("no applyable entity advance proposals selected")
 
     graph = read_json(graph_path, {})
     if not graph:
@@ -170,7 +196,7 @@ def apply_advance_proposals(
         write_json(graph_path, updated)
     return {
         "chapter_no": chapter_no,
-        "selected": indexes,
+        "selected": selected_indexes if auto_apply else indexes,
         "confirm": confirm,
         "diff": diff,
         "applied_count": len(selected),

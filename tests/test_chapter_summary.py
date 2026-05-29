@@ -3,7 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.chapter_summary import append_chapter_summary, load_rolling_summary, render_rolling_context, save_rolling_summary
+from src.chapter_summary import (
+    append_chapter_summary,
+    load_rolling_summary,
+    prune_from_chapter,
+    render_rolling_context,
+    save_rolling_summary,
+)
 
 
 class ChapterSummaryTests(unittest.TestCase):
@@ -33,6 +39,17 @@ class ChapterSummaryTests(unittest.TestCase):
             path = Path(tmp) / "missing.json"
             self.assertEqual(load_rolling_summary(path), {"chapters": [], "compressed_older": []})
             self.assertEqual(render_rolling_context(path=path), "")
+
+    def test_prune_from_chapter_drops_failed_retry_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rolling.json"
+            for idx in range(1, 5):
+                append_chapter_summary(idx, f"第{idx}章摘要", [f"事件{idx}"], f"结尾{idx}", path=path)
+
+            prune_from_chapter(3, path=path)
+            data = load_rolling_summary(path)
+
+        self.assertEqual([item["chapter_no"] for item in data["chapters"]], [1, 2])
 
 
 if __name__ == "__main__":

@@ -79,12 +79,19 @@ def write_chapters(
     shadow_review_enabled = bool(agent_cfg.get("review_during_lint_block", True))
     linter = NovelLinter()
     reports: List[Dict[str, Any]] = []
+    light_prompt = _write_prompt_profile() == "light"
+    rolling_max_chapters = 1 if light_prompt else 5
+    rolling_snippet_chapters = 0 if light_prompt else 3
     for chapter_no in range(int(resume_from), int(resume_from) + int(chapters)):
         out_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
         if out_path.exists() and not force:
             continue
         rolling_path = drafts_dir / "rolling_chapter_summary.json"
-        rolling_context = render_rolling_context(max_chapters=5, path=rolling_path)
+        rolling_context = render_rolling_context(
+            max_chapters=rolling_max_chapters,
+            path=rolling_path,
+            snippet_chapters=rolling_snippet_chapters,
+        )
         previous_chapter_ending = latest_ending_state(path=rolling_path)
         chapter_plan_item = _chapter_plan_item(chapter_plan, chapter_no)
         # Debug fix: derive enforce_relationship_checklist from the plan.
@@ -375,6 +382,11 @@ def _complete_write_text(client: LLMClient, messages: List[Dict[str, str]], cach
         return client.complete_text(messages, temperature=0.6)
 
 
+def _write_prompt_profile() -> str:
+    profile = os.getenv("WRITE_PROMPT_PROFILE", "").strip().lower()
+    return "light" if profile in {"light", "compact"} else "default"
+
+
 def _write_prompt(
     *,
     chapter_no: int,
@@ -389,6 +401,13 @@ def _write_prompt(
     previous_chapter_ending: str = "",
     feedback: str = "",
 ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
+    light_prompt = _write_prompt_profile() == "light"
+    knowledge_limit = 2500 if light_prompt else 9000
+    outline_limit = 1500 if light_prompt else 6000
+    scene_excerpt_limit = 0 if light_prompt else 8000
+    scene_excerpt_count = 0 if light_prompt else 3
+    source_chapter_limit = 0 if light_prompt else 3000
+    source_chapter_count = 0 if light_prompt else 3
     system_prompt = (
         "你是长篇小说续写写作者。只输出正文，不要输出章节编号或解释。\n"
         "\n"
@@ -411,7 +430,7 @@ def _write_prompt(
         "**必须**把所有命中位置改写为以上三种笔法之一，再生成本稿。"
     )
     style_context = ""
-    if style_examples:
+    if style_examples and not light_prompt:
         style_context = (
             "# 作者风格参考（重点匹配此节奏与含蓄度，不要复制具体情节/人名/场景）\n\n"
             f"{style_examples}\n\n"
@@ -419,9 +438,9 @@ def _write_prompt(
         )
     stable_context = (
         f"{style_context}"
-        f"全局知识:\n{knowledge[:9000]}\n\n"
+        f"全局知识:\n{knowledge[:knowledge_limit]}\n\n"
         f"机器索引统计:\n{_index_stats(index)}\n\n"
-        f"辩论大纲:\n{outline[:6000]}"
+        f"辩论大纲:\n{outline[:outline_limit]}"
     )
     entity_state = render_active_state(load_entity_graph())
     if entity_state:
@@ -438,10 +457,10 @@ def _write_prompt(
     # this is genre/scene context. Empty when no excerpts.json or no plan_item
     # → byte-identical to iter 022.
     if chapter_plan_item:
-        scene_matches = source_excerpts.select_for_chapter(chapter_plan_item, k=3)
+        scene_matches = source_excerpts.select_for_chapter(chapter_plan_item, k=scene_excerpt_count)
         if scene_matches:
             scene_block = source_excerpts.format_excerpts_for_prompt(
-                scene_matches, limit_chars=8000
+                scene_matches, limit_chars=scene_excerpt_limit
             )
             if scene_block:
                 stable_context = (
@@ -456,11 +475,11 @@ def _write_prompt(
     # anchoring. When no start point is set (iter 020 default behavior),
     # `chapters_before_start` returns [] and this block stays empty —
     # prompt remains byte-identical to iter 020.
-    src_chapters = start_point.chapters_before_start(k=3)
+    src_chapters = start_point.chapters_before_start(k=source_chapter_count)
     if src_chapters:
         pieces = []
         for ch in src_chapters:
-            body = start_point.load_chapter_text(ch.get("chapter_id", ""))[:3000]
+            body = start_point.load_chapter_text(ch.get("chapter_id", ""))[:source_chapter_limit]
             if not body:
                 continue
             pieces.append(
@@ -475,7 +494,12 @@ def _write_prompt(
                 "上述片段是原作者的真实文字，用于参考叙事节奏、用词、人物塑造的细节密度。"
                 "续写不要复述上述情节，但写作风格、人物对话语气、环境刻画密度应向这些片段靠拢。"
             )
-    anchor_context = f"# 续写起点（must-anchor）\n\n{continuation_anchor}\n\n" if continuation_anchor else ""
+    anchor_context = (
+        f"# 续写起点（must-anchor）\n\n{continuation_anchor}\n\n"
+        if continuation_anchor and not light_prompt
+        else ""
+    )
+    facts_for_prompt = "" if light_prompt else facts
     rolling_block = f"{rolling_context}\n" if rolling_context else ""
     ending_block = (
         "## 上一章结尾状态\n\n"
@@ -493,6 +517,21 @@ def _write_prompt(
         )
         if not relationships:
             relationships = "- 无特别指定"
+        opening_instruction = (
+            "严格按上述本章计划写。开场必须是 opening_scene 指定的场景；"
+            "必须发生所有 key_events；不要引入计划之外的主要剧情节点。\n\n"
+        )
+        if previous_chapter_ending:
+            opening_instruction = (
+                "严格按上述本章计划写，但上一章结尾状态优先级更高。"
+                "如果 opening_scene 发生在上一章结尾之前，不能把它当作本章主时间线开场；"
+                "必须先从上一章结尾后的当前状态开场，并让当前时间线占正文 70% 以上。"
+                "opening_scene 只能作为短回忆/插叙素材，总量不得超过正文 25%，"
+                "不能连续铺成完整回忆章，不能复述交通流程、入学背景、社团设定或上一章已经交代的信息。"
+                "每段回忆都必须被当前时间线的动作、对话或倒计时打断，并直接推动当前人物做出一个决定。"
+                "本章结尾必须回到当前时间线并推进上一章留下的即时危机。"
+                "必须发生所有 key_events；不要引入计划之外的主要剧情节点。\n\n"
+            )
         chapter_plan_block = (
             "## 本章计划（必须严格遵守）\n\n"
             "优先级：已写章节回顾/上一章结尾状态 > 本章计划 > 辩论大纲。"
@@ -506,18 +545,26 @@ def _write_prompt(
             f"{key_events}\n\n"
             "relationships_in_play：\n"
             f"{relationships}\n\n"
-            "严格按上述本章计划写。开场必须是 opening_scene 指定的场景；"
-            "必须发生所有 key_events；不要引入计划之外的主要剧情节点。\n\n"
+            f"{opening_instruction}"
         )
+    light_style_block = (
+        "## light prompt 写作约束\n\n"
+        "- 本章按过渡章写：少解释机制，少回忆讲解，少系统日志，避免把设定一次讲透。\n"
+        "- 每个比喻必须克制，连续比喻不要堆叠；优先用动作、停顿、对话和场景反应推进。\n"
+        "- 神秘信息只给碎片和刺痛感，不给结论；不要用总结性金句收束人物处境。\n\n"
+        if light_prompt
+        else ""
+    )
     dynamic_context = (
         f"{anchor_context}"
         "# 本章目标长度\n\n"
         "中文正文 3500-5500 字之间，过短会被自动重写。\n\n"
         f"续写第 {chapter_no} 章。\n\n"
-        f"人工全局事实:\n{facts}\n\n"
+        f"人工全局事实:\n{facts_for_prompt}\n\n"
         f"{rolling_block}"
         f"{ending_block}"
         f"{chapter_plan_block}"
+        f"{light_style_block}"
         f"previous_review_feedback:\n{feedback}"
     )
     messages = [
@@ -587,7 +634,9 @@ def _propose_entity_advance(
                     "role": "user",
                     "content": (
                         f"续写第 {chapter_no} 章已完成。请根据正文判断哪些 active relationship 需要提出演进建议。"
-                        "只提出正文中有明确触发事件的变化；不确定则返回空 proposed_advances。\n\n"
+                        "只提出正文中有明确触发事件的变化；不确定则返回空 proposed_advances。"
+                        "每条必须使用当前 relationship 的 src_id、dst_id；不要只写 relationship_id。"
+                        "confidence 必须是 0.0-1.0 数字，不要写 high/medium/low。\n\n"
                         f"# 当前 active relationships\n{relationships}\n\n"
                         f"# 本章正文\n{draft[:20000]}"
                     ),

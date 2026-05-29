@@ -160,7 +160,7 @@ stdlib only（http.server + string.Template，**0 新依赖**）。默认绑 127
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 026（2026-05-28）** — WebUI U.2 wizard + 模型切换 + `auto-pipeline` CLI 子命令（CLI / wizard 共享 9 步编排）。`verify.sh` 升级为 9 步真 e2e（替换 6 步 `run-all`）。4 个 hardening bug（OOM tail / dev dir filter / 异常 message 脱敏 / `--host 0.0.0.0` warning）一并修。phase 4 9 阶段 + U.1/U.2/U.3 全 ✅。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 027（2026-05-29）** — capstone 真模型中途暂停后修复起点硬门与长生成卡顿：`write_book.sh` 默认要求 start point，`chapter_plan.json` 记录并校验 `start_chapter_id`，`plan-chapters --require-start-point` 防止旧 Book 1/3E plan 误用；同时落地 prompt-cache disable、`WRITE_MAX_TOKENS`、light writer profile、entity_advance alias repair。续写生成保持暂停，等待用户确认后从第三部后面重跑。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -182,7 +182,7 @@ stdlib only（http.server + string.Template，**0 新依赖**）。默认绑 127
 ### 阶段 3 — 起点判断
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
-| 3.1 | 用户指定起点（`set-start-point chapter_id\|volume_id`）| ✅ | **iter 021** |
+| 3.1 | 用户指定起点（`set-start-point chapter_id\|volume_id`）| ✅ | **iter 021**；iter 027 起 `write_book.sh` 默认强制要求 |
 | 3.2 | bootstrap_continuation_anchor 按起点采样原文 | ✅ | **iter 021**（A1 闭环） |
 
 ### 阶段 4 — 关系/世界观激活
@@ -241,6 +241,7 @@ stdlib only（http.server + string.Template，**0 新依赖**）。默认绑 127
 |---|---|---|---|
 | I.1 | `write_book.sh` 无人值守循环 | ✅ | iter 019 |
 | I.2 | `write_book.sh` tee mask exit code bug | ✅ | **iter 022 B6**（PIPESTATUS 显式传播） |
+| I.3 | 长程续写起点/plan 一致性硬门 | ✅ | **iter 027**（缺 start point / plan 无 `start_chapter_id` / plan 与当前 start 不一致均失败） |
 | U.1 | WebUI dashboard | ✅ | **iter 025**（`python3 main.py web` 起 stdlib http.server；workspace 列表 + 4 panel 全量 reviews） |
 | U.2 | 模型切换 panel + onboarding wizard | ✅ | **iter 026**（`/wizard` 上传 epub/txt → 后端 `auto-pipeline` 9 步 worker → ch1 落盘；`/settings` 读 .env + key 屏蔽 + 原子写）|
 | U.3 | `auto-pipeline` 子命令（CLI + wizard 共享 9 步编排）| ✅ | **iter 026 P2**（`python3 main.py auto-pipeline --chapters 1`；`verify.sh` 升级成 9 步真 e2e）|

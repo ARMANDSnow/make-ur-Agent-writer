@@ -35,3 +35,4 @@
 24. [Iteration 024 - 长程稳定性（advisor 消费 + 自动 re-plan + budget + proposal 冲突）](./iteration_024_long_horizon_stability.md)
 25. [Iteration 025 - WebUI U.1 只读 dashboard（stdlib http.server）](./iteration_025_webui_dashboard.md)
 26. [Iteration 026 - WebUI U.2 wizard + 模型切换 + auto-pipeline + 4 hardening](./iteration_026_wizard_settings.md)
+27. [Iteration 027 - Capstone 30 章真模型暂停 + 起点/长生成 hardening](./iteration_027_capstone_30.md)

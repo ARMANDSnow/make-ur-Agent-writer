@@ -30,6 +30,29 @@ class SmokeScriptTests(unittest.TestCase):
         text = Path("scripts/write_book.sh").read_text(encoding="utf-8")
         self.assertNotIn("--proposal-idx <comma-list>", text)
 
+    def test_write_book_retry_prunes_rolling_summary(self) -> None:
+        """Iter 027: rejected chapter retries must not keep failed rolling state."""
+        text = Path("scripts/write_book.sh").read_text(encoding="utf-8")
+        self.assertIn("prune_from_chapter", text)
+        self.assertIn("failed to prune rolling summary", text)
+
+    def test_write_book_prune_failure_aborts_instead_of_warning(self) -> None:
+        """Iter 027 bug-sweep F2: a prune crash must abort the retry rather than
+        be swallowed with a WARN — silent failure leaves the rejected draft's
+        rolling summary in place and the retry inherits its polluted context."""
+        text = Path("scripts/write_book.sh").read_text(encoding="utf-8")
+        self.assertNotIn("[WARN] failed to prune rolling summary", text)
+        self.assertIn("Aborting to avoid polluting the next retry", text)
+
+    def test_write_book_requires_explicit_start_point_by_default(self) -> None:
+        """Iter 027: long generation must not silently fall back to old anchors."""
+        text = Path("scripts/write_book.sh").read_text(encoding="utf-8")
+        self.assertIn('REQUIRE_START_POINT="1"', text)
+        self.assertIn("--start-point", text)
+        self.assertIn("--allow-missing-start-point", text)
+        self.assertIn("chapter_plan.json has no start_chapter_id metadata", text)
+        self.assertIn("Plan start point:", text)
+
 
 if __name__ == "__main__":
     unittest.main()

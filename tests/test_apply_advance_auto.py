@@ -127,6 +127,36 @@ class ApplyAdvanceAutoCliTests(unittest.TestCase):
             data = json.loads(graph_path.read_text(encoding="utf-8"))
             self.assertEqual(len(data["relationships"][0]["timeline"]), 1)
 
+    def test_auto_apply_skips_high_confidence_but_incomplete_proposals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts = root / "drafts"
+            graph_path = root / "entity_graph.json"
+            _seed_graph(graph_path)
+            save_entity_advance_proposals(
+                1,
+                [
+                    {
+                        "relationship_id": "rel_001",
+                        "new_state": "无法定位关系两端",
+                        "confidence": 0.99,
+                    }
+                ],
+                drafts_dir=drafts,
+            )
+            result = apply_advance_proposals(
+                chapter_no=1,
+                confirm=True,
+                graph_path=graph_path,
+                drafts_dir=drafts,
+                auto_apply=True,
+                min_confidence=0.7,
+                allow_empty=True,
+            )
+
+        self.assertEqual(result["applied_count"], 0)
+        self.assertEqual(result.get("no_op_reason"), "no_applyable_proposals")
+
     def test_min_confidence_strict_filters_out_borderline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

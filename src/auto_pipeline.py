@@ -63,6 +63,7 @@ def run_auto_pipeline(
     extract_limit: Optional[int] = 5,
     force: bool = False,
     plan_chapters_target: Optional[int] = None,
+    require_start_point: bool = False,
 ) -> Dict[str, Any]:
     """Run the 9-step SOP end-to-end against the active workspace.
 
@@ -171,8 +172,14 @@ def run_auto_pipeline(
         # Ensure the plan is at least as long as what we're about to
         # write — writer needs chapter_plan[i] for chapter i.
         plan_target = max(target_chapters, 5)
+    # Iter 027 bug-sweep F1: plumb require_start_point through so CLI callers
+    # resuming an existing book enforce the same gate as scripts/write_book.sh.
+    # Default False to preserve greenfield WebUI wizard onboarding (no prior
+    # start point exists when a new book is first uploaded).
     results["plan-chapters"] = generate_chapter_plan(
-        target_chapters=plan_target, force=force
+        target_chapters=plan_target,
+        force=force,
+        require_start_point=require_start_point,
     )
 
     _notify("write", 8)

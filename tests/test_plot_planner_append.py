@@ -43,6 +43,18 @@ class PlotPlannerAppendTests(unittest.TestCase):
         self.ws_root = repo_root / "workspaces" / "iter024append"
         (self.ws_root / "outputs" / "debate").mkdir(parents=True, exist_ok=True)
         (self.ws_root / "data" / "knowledge_base").mkdir(parents=True, exist_ok=True)
+        (self.ws_root / "data" / "manual_overrides").mkdir(parents=True, exist_ok=True)
+        (self.ws_root / "data" / "chapter_manifest.json").write_text(
+            json.dumps(
+                [
+                    {"chapter_id": "v1_ch001", "volume_id": "v1", "title": "一"},
+                    {"chapter_id": "v1_ch002", "volume_id": "v1", "title": "二"},
+                    {"chapter_id": "v1_ch003", "volume_id": "v1", "title": "三"},
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         # Stub outline so generate_chapter_plan precondition is met
         (self.ws_root / "outputs" / "debate" / "outline.md").write_text(
             "stub outline", encoding="utf-8"
@@ -68,6 +80,12 @@ class PlotPlannerAppendTests(unittest.TestCase):
         from src import plot_planner
 
         self._seed_plan(10)
+        from src import start_point
+        start_point.set_start_point("v1_ch003")
+        plan_path = self.ws_root / "outputs" / "debate" / "chapter_plan.json"
+        seeded = json.loads(plan_path.read_text(encoding="utf-8"))
+        seeded["start_chapter_id"] = "v1_ch003"
+        plan_path.write_text(json.dumps(seeded, ensure_ascii=False), encoding="utf-8")
         # Mock LLM to return 5 new chapters numbered 1-5 (renumbering test)
         fake_new = {
             "target_chapters": 5,
@@ -111,6 +129,7 @@ class PlotPlannerAppendTests(unittest.TestCase):
             self.assertEqual(result["chapters"][10 + i]["title"], f"新章 {i + 1}")
         # overall_arc preserved from existing, not from LLM
         self.assertEqual(result["overall_arc"], "原始 arc")
+        self.assertEqual(result["start_chapter_id"], "v1_ch003")
 
     def test_no_append_mode_unchanged(self) -> None:
         """Default mode (append_count=0) requires force when plan exists."""
@@ -119,6 +138,53 @@ class PlotPlannerAppendTests(unittest.TestCase):
         self._seed_plan(8)
         with self.assertRaises(FileExistsError):
             plot_planner.generate_chapter_plan(target_chapters=5, force=False)
+
+    def test_require_start_point_fails_before_llm(self) -> None:
+        from src import plot_planner
+
+        with self.assertRaises(ValueError):
+            plot_planner.generate_chapter_plan(
+                target_chapters=2,
+                force=True,
+                require_start_point=True,
+            )
+
+    def test_fresh_plan_records_start_chapter_id(self) -> None:
+        from src import plot_planner, start_point
+        from src.schemas import ChapterPlan
+
+        start_point.set_start_point("v1_ch003")
+        fake_plan = {
+            "target_chapters": 1,
+            "overall_arc": "从第三部之后继续",
+            "chapters": [
+                {
+                    "chapter_no": 1,
+                    "title": "新起点",
+                    "opening_scene": "起点之后的夜晚。",
+                    "key_events": ["承接上一卷结尾", "引出新危机"],
+                    "relationships_in_play": [],
+                    "ending_hook": "门后传来新的声音。",
+                    "target_chinese_chars": 4000,
+                    "plot_purpose": "确认新起点。",
+                }
+            ],
+            "generated_by": "test_mock",
+        }
+        with patch.object(
+            plot_planner.LLMClient,
+            "complete_json",
+            lambda self, msgs, model: ChapterPlan(**fake_plan),
+        ):
+            result = plot_planner.generate_chapter_plan(
+                target_chapters=1,
+                force=True,
+                require_start_point=True,
+            )
+
+        self.assertEqual(result["start_chapter_id"], "v1_ch003")
+        saved = json.loads((self.ws_root / "outputs" / "debate" / "chapter_plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["start_chapter_id"], "v1_ch003")
 
 
 if __name__ == "__main__":

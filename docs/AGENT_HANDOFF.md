@@ -512,3 +512,50 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 - writer 真用 rewrite_suggestions 后效果验证（iter 024 P1 落地但未真模型验证）
 - WebUI 章节 Markdown 在线编辑器（iter 020 plan 的 P2，整体未做）
 - WebUI 可视化雷达图 / 甘特图（iter 020 plan 的 P3）
+
+---
+
+## Phase 4 Status（iter 027，2026-05-29）
+
+### Iteration 027 — capstone 真模型暂停 + 起点/长生成 hardening（修复完成，续写仍暂停）
+
+**用户指令**：暂停继续生成续写；先修复 iter27 过程中发现的 bug / 卡顿 / 守门缺口。用户确认后再从第三部后面重跑。用户提供的外部中转站/key 视为可信，看到明文 key/endpoint 时提醒即可，不再作为阻断条件。
+
+**事故根因**：longzu workspace 缺 `data/manual_overrides/start_chapter.json`，旧 `continuation_anchor.txt` 和 `outputs/debate/chapter_plan.json` 仍锚在 Book 1 early admission arc，所以错误 run 继续写出了 3E 考试相关章节。错误起点产物只作证据，不作为目标续写。
+
+**已确认的 debate 状态**：iter27 debate 已完成 6 轮自由辩论 + 第 7 轮裁决投票；`decisions.json` 中 3 个问题均 6:0 通过。
+
+**本轮修复**：
+- `scripts/write_book.sh` 默认 `REQUIRE_START_POINT=1`，支持 `--start-point <id>`；只有 intentional from-beginning 测试用 `--allow-missing-start-point`。
+- `main.py plan-chapters --require-start-point` + `src/plot_planner.py`：缺起点直接失败；生成的 `chapter_plan.json` 写入 `start_chapter_id`；append 模式要求旧 plan metadata 与当前 start 一致。
+- `write_book.sh` 在写作前校验 plan 的 `start_chapter_id` 与当前 start point 一致，旧无 metadata plan 会失败并要求重跑 `plan-chapters --force --require-start-point`。
+- `plot_planner` prompt 注入 `resolved_start_chapter_id` 与起点前最近章节标题，明确禁止重新规划起点前入学/考试/训练/旅行/揭示事件。
+- `chapter_summary.prune_from_chapter` + `write_book.sh` retry 清理，避免 rejected draft summary 污染 retry。
+- `llm_client/config/models`：`litellm.drop_params=True` 兼容 GPT-5 temperature 限制；streaming gate 改为 base_url value；`DISABLE_PROMPT_CACHE=1` 真绕过 cache_segments；`WRITE_MAX_TOKENS` 支持运行时下调。
+- `writer.py`：`WRITE_PROMPT_PROFILE=light` 轻量 prompt；已有上一章结尾时将过时 `opening_scene` 降级为短插叙，强制当前时间线为主体。
+- `schemas/entity_advance.py`：容忍 `relationship_id` / `source_id,target_id` / `proposed_state` / `confidence=high|medium|low`；无法定位 src/dst 的高置信 proposal 在 auto-apply 下 no-op 跳过。
+
+**验证**：
+- `PATH="$PWD/.venv/bin:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" python3 -m unittest discover -s tests` → 394 OK（socket tests 需提权；普通沙箱 bind 127.0.0.1:0 会 PermissionError）。
+- `PATH="$PWD/.venv/bin:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" bash scripts/verify.sh` → OK，mock-only，394 tests OK + auto-pipeline OK。
+- `PATH="$PWD/.venv/bin:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock python3 main.py preflight` → PREFLIGHT ok，FATAL none，WARN none。
+- 进程检查：无残留 `write_book.sh` / `main.py write` / `plan-chapters` / `debate` 进程。
+
+**下次从第三部后面重跑的注意点**：当前 `python3 main.py --book longzu show-start-point` 仍显示 no start point set。manifest volumes 包含 `longzu_1`, `longzu_2`, `longzu_3_1`, `longzu_3_2`, `longzu_3_3`, `longzu_4`, `龙族前传哀悼之翼`。如果用户说"第三部全部结束后"，候选命令是 `python3 main.py --book longzu set-start-point longzu_3_3`，然后重新生成 anchor / debate 或至少 `plan-chapters --force --require-start-point`，再 `write_book.sh --book longzu ...`。
+
+### Iteration 027 P7 — bug-sweep code-review + 2 blocker 修复（2026-05-29 续）
+
+对暂停后 bug-sweep diff(+713/-48, 21 改 + 2 新)按 standing instruction 跑 `/code-review high effort`(7 finder angles)。Dedup 后 8 项 finding,本轮闭环 2 个 blocker:
+
+- **F1**(`src/auto_pipeline.py:174`)— `run_auto_pipeline()` 没把 `require_start_point` 传给 `generate_chapter_plan`,WebUI wizard + CLI auto-pipeline 都绕过 write_book.sh 起点门。修复:加 `require_start_point: bool = False` 参数(wizard 绿地启动保持 False);CLI `main.py auto-pipeline` 加 `--require-start-point` / `--allow-missing-start-point` 开关,power user 显式打开。
+- **F2**(`scripts/write_book.sh:221`)— prune 失败被 `|| echo "[WARN]..."` 吞,retry 继续跑;改为 `if !; then exit 1; fi`,prune 失败即时退出。
+
+**iter 028 待办(non-blocker)**:F3 config `int(WRITE_MAX_TOKENS)` 非数字崩 + try/except;F4 streaming gate base_url 规范化(trailing slash / scheme);F5 entity_advance invalid 高置信 proposal 静默跳过加日志;F6 起点一致性集中到 `src/start_point.py::enforce_consistency`;F7 一旦 F1/F6 落地,淘汰 writer.py opening scene 降级 prompt 这一 runtime 补丁;F8 抽 `_env_int` / `_env_bool` / `_env_choice` 到 config.py。
+
+**测试**:395 tests 全跑(新增 1 个 F2 结构测试),5 个 socket sandbox 失败(无关,iter027 文档已记)。`tests.test_auto_pipeline` + `tests.test_smoke_scripts` 全绿。
+
+**当前接力点**:longzu 仍 `no start point set`。等用户最终批准后,下一个 agent 的动作:
+1. `python3 main.py --book longzu set-start-point longzu_3_3`
+2. `python3 main.py --book longzu plan-chapters --chapters 30 --force --require-start-point`(真模型 gpt-5.5-high,~¥1-2)
+3. 校验新 `chapter_plan.json` 的 `start_chapter_id` + 前 3 章 plot_purpose,确认起点正确
+4. **不要**自己启动 `write_book.sh` 或 `auto-pipeline write` — 进真模型 30 章 write 前必须再向用户确认 budget / watchdog / dashboard 配置

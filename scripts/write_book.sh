@@ -19,6 +19,8 @@ AUTO_ADVANCE="1"
 # Iter 024 P2c/P3c/P4b flags
 REPLAN_EVERY="0"   # 0 = disabled (default backward-compat with iter 023)
 BUDGET_CNY="0"     # 0 = no ceiling (default)
+REQUIRE_START_POINT="1"
+START_POINT=""
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -70,6 +72,22 @@ while [ $# -gt 0 ]; do
       BUDGET_CNY="${1#--budget-cny=}"
       shift
       ;;
+    --start-point)
+      START_POINT="$2"
+      shift 2
+      ;;
+    --start-point=*)
+      START_POINT="${1#--start-point=}"
+      shift
+      ;;
+    --require-start-point)
+      REQUIRE_START_POINT="1"
+      shift
+      ;;
+    --allow-missing-start-point)
+      REQUIRE_START_POINT="0"
+      shift
+      ;;
     *)
       ARGS+=("$1")
       shift
@@ -86,6 +104,14 @@ if [ -n "$BOOK" ]; then
   export WORKSPACE_NAME="$BOOK"
 fi
 
+if [ -n "$START_POINT" ]; then
+  if [ -n "$BOOK" ]; then
+    python3 main.py --book "$BOOK" set-start-point "$START_POINT"
+  else
+    python3 main.py set-start-point "$START_POINT"
+  fi
+fi
+
 # Resolve per-workspace output paths via paths.py (legacy mode returns repo
 # root). All file system operations below go through these vars.
 PATH_QUERY='import sys; from src import paths; sys.stdout.write(str(getattr(paths, sys.argv[1])()))'
@@ -95,11 +121,44 @@ REVIEWS_DIR="$(python3 -c "$PATH_QUERY" reviews_dir)"
 LOGS_DIR="$(python3 -c "$PATH_QUERY" logs_dir)"
 CHAPTER_PLAN="$DEBATE_DIR/chapter_plan.json"
 
+START_CHAPTER_ID="$(python3 -c 'from src import start_point; print(start_point.get_start_chapter_id() or "")')"
+if [ "$REQUIRE_START_POINT" = "1" ] && [ -z "$START_CHAPTER_ID" ]; then
+  echo "ERROR: no start point set for write_book.sh."
+  echo "Set one explicitly before long generation:"
+  echo "  python3 main.py ${BOOK:+--book $BOOK }set-start-point <chapter_id_or_volume_id>"
+  echo "or pass it in this run:"
+  echo "  bash scripts/write_book.sh ${BOOK:+--book $BOOK }$CHAPTERS --start-point <chapter_id_or_volume_id>"
+  echo "For intentional from-beginning tests only, use: --allow-missing-start-point"
+  exit 1
+fi
+
 if [ "$REQUIRE_PLAN" = "1" ] && [ ! -f "$CHAPTER_PLAN" ]; then
   echo "ERROR: chapter_plan.json not found at: $CHAPTER_PLAN"
-  echo "Run: python3 main.py ${BOOK:+--book $BOOK }plan-chapters --chapters $CHAPTERS"
+  echo "Run: python3 main.py ${BOOK:+--book $BOOK }plan-chapters --chapters $CHAPTERS --require-start-point"
   echo "Or bypass intentionally with: bash scripts/write_book.sh ${BOOK:+--book $BOOK }$CHAPTERS --no-plan"
   exit 1
+fi
+
+if [ "$REQUIRE_PLAN" = "1" ] && [ "$REQUIRE_START_POINT" = "1" ]; then
+  PLAN_START_CHAPTER_ID="$(python3 -c "
+from src.utils import read_json
+from pathlib import Path
+data = read_json(Path('$CHAPTER_PLAN'), {})
+print(data.get('start_chapter_id') or '')
+" 2>/dev/null || true)"
+  if [ -z "$PLAN_START_CHAPTER_ID" ]; then
+    echo "ERROR: chapter_plan.json has no start_chapter_id metadata."
+    echo "This plan may have been generated from the wrong beginning anchor."
+    echo "Re-run: python3 main.py ${BOOK:+--book $BOOK }plan-chapters --chapters $CHAPTERS --force --require-start-point"
+    exit 1
+  fi
+  if [ "$PLAN_START_CHAPTER_ID" != "$START_CHAPTER_ID" ]; then
+    echo "ERROR: chapter_plan.json start point mismatch."
+    echo "Current start point: $START_CHAPTER_ID"
+    echo "Plan start point:    $PLAN_START_CHAPTER_ID"
+    echo "Re-run plan-chapters with --force after setting the desired start point."
+    exit 1
+  fi
 fi
 
 mkdir -p "$LOGS_DIR" "$DRAFTS_DIR/snapshots"
@@ -155,6 +214,19 @@ clear_chapter_state() {
       mv -f "${prefix}.${ext}" "${prefix}.${suffix}.${ext}"
     fi
   done
+  # Iter 027 capstone hardening: rejected drafts can already have appended a
+  # rolling summary before the outer retry loop runs. Rewind the rolling
+  # context at the same chapter boundary so the retry is not prompted with
+  # its own failed attempt, and later chapters do not inherit rejected state.
+  # Iter 027 bug-sweep F2: prune failure must abort the retry. Silently
+  # warning and continuing leaves the failed draft's rolling summary in
+  # place, so the retry inherits the polluted context — exactly the
+  # regression prune_from_chapter was added to prevent.
+  if ! python3 -c "from src.chapter_summary import prune_from_chapter; prune_from_chapter($i)"; then
+    echo "ERROR: failed to prune rolling summary for retry of chapter $i" >&2
+    echo "Aborting to avoid polluting the next retry with the failed draft's context." >&2
+    exit 1
+  fi
 }
 
 # Iter 019 audit fix: snapshot helper called by BOTH the success and the

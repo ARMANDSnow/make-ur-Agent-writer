@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -185,6 +186,58 @@ class WriterRejectLintCleanTests(unittest.TestCase):
         self.assertIn("路明非在芝加哥车站醒来", prompt)
         self.assertIn("发现列车票背面的暗号", prompt)
         self.assertIn("已写章节回顾/上一章结尾状态 > 本章计划 > 辩论大纲", prompt)
+
+    def test_writer_prompt_demotes_stale_opening_scene_after_prior_ending(self) -> None:
+        messages, _cache_segments = _write_prompt(
+            chapter_no=3,
+            knowledge="knowledge",
+            facts="facts",
+            style_examples="",
+            continuation_anchor="",
+            index={},
+            outline="outline",
+            chapter_plan_item={
+                "chapter_no": 3,
+                "title": "旧开场计划",
+                "opening_scene": "路明非拖着行李箱站在芝加哥火车站。",
+                "key_events": ["回忆列车上的黄金瞳男孩"],
+                "relationships_in_play": ["路明非/神秘男孩"],
+                "ending_hook": "3E 考试倒计时归零。",
+                "target_chinese_chars": 4200,
+                "plot_purpose": "承接当前 3E 考试压力。",
+            },
+            previous_chapter_ending="路明非已经在卡塞尔宿舍等待 3E 考试。",
+            feedback="",
+        )
+        prompt = "\n".join(item["content"] for item in messages)
+        self.assertIn("如果 opening_scene 发生在上一章结尾之前", prompt)
+        self.assertIn("必须先从上一章结尾后的当前状态开场", prompt)
+        self.assertIn("作为短回忆/插叙素材", prompt)
+        self.assertIn("当前时间线占正文 70% 以上", prompt)
+        self.assertIn("总量不得超过正文 25%", prompt)
+        self.assertIn("不能连续铺成完整回忆章", prompt)
+
+    def test_writer_light_prompt_trims_heavy_context(self) -> None:
+        with patch.dict(os.environ, {"WRITE_PROMPT_PROFILE": "light"}, clear=False):
+            messages, _cache_segments = _write_prompt(
+                chapter_no=1,
+                knowledge="K" * 3000,
+                facts="人工事实不应进入 light prompt",
+                style_examples="风格样本不应进入 light prompt",
+                continuation_anchor="旧 anchor 不应进入 light prompt",
+                index={},
+                outline="O" * 2000,
+                chapter_plan_item=None,
+                previous_chapter_ending="",
+                feedback="",
+            )
+        prompt = "\n".join(item["content"] for item in messages)
+        self.assertIn("light prompt 写作约束", prompt)
+        self.assertNotIn("风格样本不应进入 light prompt", prompt)
+        self.assertNotIn("旧 anchor 不应进入 light prompt", prompt)
+        self.assertNotIn("人工事实不应进入 light prompt", prompt)
+        self.assertLess(prompt.count("K"), 3000)
+        self.assertLess(prompt.count("O"), 2000)
 
     def test_writer_prompt_includes_entity_state_when_present(self) -> None:
         graph = {

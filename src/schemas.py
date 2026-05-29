@@ -153,13 +153,67 @@ class ChapterPlan(BaseModel):
     generated_by: str = "plot_planner_v1"
 
 
+def _coerce_confidence(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip().lower()
+    mapping = {
+        "high": 0.85,
+        "medium": 0.6,
+        "mid": 0.6,
+        "low": 0.3,
+        "高": 0.85,
+        "中": 0.6,
+        "低": 0.3,
+        "高置信": 0.85,
+        "中置信": 0.6,
+        "低置信": 0.3,
+    }
+    return mapping.get(normalized, value)
+
+
+def _split_relationship_id(value: Any) -> tuple[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return "", ""
+    for sep in ("<->", "↔", "->", "→", "/", "|", ",", "，"):
+        if sep in text:
+            left, right = text.split(sep, 1)
+            return left.strip(), right.strip()
+    return "", ""
+
+
 class EntityAdvanceProposal(BaseModel):
-    src_id: str
-    dst_id: str
+    src_id: str = ""
+    dst_id: str = ""
     old_active_state: str = ""
     new_state: str
     trigger_event: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def repair_common_llm_aliases(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        repaired = dict(data)
+        if not repaired.get("src_id"):
+            repaired["src_id"] = repaired.get("source_id") or repaired.get("source") or ""
+        if not repaired.get("dst_id"):
+            repaired["dst_id"] = repaired.get("target_id") or repaired.get("target") or ""
+        if (not repaired.get("src_id") or not repaired.get("dst_id")) and repaired.get("relationship_id"):
+            src_id, dst_id = _split_relationship_id(repaired.get("relationship_id"))
+            repaired["src_id"] = repaired.get("src_id") or src_id
+            repaired["dst_id"] = repaired.get("dst_id") or dst_id
+        if not repaired.get("new_state"):
+            repaired["new_state"] = (
+                repaired.get("state_after")
+                or repaired.get("after")
+                or repaired.get("proposed_state")
+                or ""
+            )
+        repaired["confidence"] = _coerce_confidence(repaired.get("confidence", 0.0))
+        return repaired
 
 
 class EntityAdvanceProposalSet(BaseModel):

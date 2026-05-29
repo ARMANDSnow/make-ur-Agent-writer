@@ -179,5 +179,58 @@ class LLMClientStreamingTests(unittest.TestCase):
         self.assertEqual(captured.get("stream_options"), {"include_usage": True})
 
 
+    def test_openai_stream_only_streams_matching_base_url(self) -> None:
+        """Iter 027 P2b-fix (v2): ``OPENAI_STREAM=1`` auto-streams a
+        client only when its resolved ``config.base_url`` equals the
+        process-wide ``OPENAI_BASE_URL`` value. A client configured
+        against a different proxy (e.g. PLANNER pointing to a
+        non-keep-alive endpoint) keeps non-stream behavior — early
+        versions of ``api.supxh.xin`` 524'd mid-stream and crashed the
+        pipeline. We patch ``self.config`` directly because
+        ``load_dotenv_if_available`` strips alternate-endpoint env vars
+        in unittest discover mode.
+        """
+        env = {
+            "OPENAI_STREAM": "1",
+            "OPENAI_BASE_URL": "https://main.example.com/v1",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            main_client = LLMClient("write")
+            main_client.config["base_url"] = "https://main.example.com/v1"
+            # Re-run the gate now that base_url is patched.
+            main_client.stream_default = (
+                main_client.config.get("base_url") in (None, env["OPENAI_BASE_URL"])
+            )
+            self.assertTrue(main_client.stream_default, "matching base_url should stream")
+
+            alt_client = LLMClient("write")
+            alt_client.config["base_url"] = "https://alt.example.com/v1"
+            alt_client.stream_default = (
+                alt_client.config.get("base_url") in (None, env["OPENAI_BASE_URL"])
+            )
+            self.assertFalse(
+                alt_client.stream_default,
+                "non-matching base_url must not auto-stream",
+            )
+
+    def test_disable_prompt_cache_uses_original_messages(self) -> None:
+        messages = [{"role": "user", "content": "dynamic original"}]
+        cache_segments = [
+            {"role": "system", "content": "cached system", "cache": True},
+            {"role": "user", "content": "cached stable", "cache": True},
+            {"role": "user", "content": "dynamic segment", "cache": False},
+        ]
+        client = LLMClient("write")
+        client.config["cache_enabled"] = True
+        enabled = client._prepare_messages(messages, cache_segments)
+        self.assertTrue(any("cache_control" in item for item in enabled))
+        self.assertEqual([item["content"] for item in enabled], ["cached system", "cached stable", "dynamic segment"])
+
+        with patch.dict(os.environ, {"DISABLE_PROMPT_CACHE": "1"}, clear=False):
+            disabled = client._prepare_messages(messages, cache_segments)
+        self.assertEqual(disabled, messages)
+        self.assertFalse(any("cache_control" in item for item in disabled))
+
+
 if __name__ == "__main__":
     unittest.main()

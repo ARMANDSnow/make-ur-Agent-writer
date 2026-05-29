@@ -4,9 +4,37 @@ import unittest
 from pathlib import Path
 
 from src.entity_advance import active_relationships, apply_advance_proposals, save_entity_advance_proposals
+from src.schemas import EntityAdvanceProposal, EntityAdvanceProposalSet
 
 
 class EntityAdvanceTests(unittest.TestCase):
+    def test_schema_repairs_common_llm_aliases(self) -> None:
+        proposal = EntityAdvanceProposal(
+            relationship_id="a<->b",
+            proposed_state="互相试探但开始合作",
+            confidence="high",
+        )
+
+        self.assertEqual(proposal.src_id, "a")
+        self.assertEqual(proposal.dst_id, "b")
+        self.assertEqual(proposal.new_state, "互相试探但开始合作")
+        self.assertEqual(proposal.confidence, 0.85)
+
+    def test_schema_accepts_unparseable_relationship_id_as_non_applyable(self) -> None:
+        data = EntityAdvanceProposalSet(
+            proposed_advances=[
+                {
+                    "relationship_id": "rel_001",
+                    "new_state": "新状态",
+                    "confidence": "medium",
+                }
+            ]
+        )
+
+        self.assertEqual(data.proposed_advances[0].src_id, "")
+        self.assertEqual(data.proposed_advances[0].dst_id, "")
+        self.assertEqual(data.proposed_advances[0].confidence, 0.6)
+
     def test_active_relationships_include_old_active_state(self) -> None:
         graph = {
             "relationships": [
