@@ -61,6 +61,46 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(exc.code, 404)
             self.assertIn("json", exc.headers.get("Content-Type", ""))
 
+    def test_legacy_workspace_url_emits_location_header(self) -> None:
+        """Iter 032: ``/workspace/<name>/`` returns 301 with a Location
+        header pointing at the new ``/w/<name>/`` IA. urllib follows
+        redirects automatically, so we use a no-redirect opener and
+        check the status + header directly."""
+
+        import tempfile
+        from pathlib import Path
+        from src import paths
+        from src.web import routes as _routes
+
+        # Stand up a workspace dir so the dispatcher doesn't 404 the
+        # legacy URL before getting to the redirect path.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            saved = paths.WORKSPACE_DIR
+            paths.WORKSPACE_DIR = root
+            (root / "alpha" / "data").mkdir(parents=True)
+            try:
+                _routes._clear_overview_cache()
+                opener = urllib.request.build_opener(_NoRedirect())
+                try:
+                    resp = opener.open(
+                        f"http://127.0.0.1:{self.port}/workspace/alpha/", timeout=2.0
+                    )
+                    self.fail(f"expected 301, got {resp.status}")
+                except urllib.error.HTTPError as exc:
+                    self.assertEqual(exc.code, 301)
+                    self.assertEqual(exc.headers.get("Location"), "/w/alpha/")
+            finally:
+                paths.WORKSPACE_DIR = saved
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def http_error_301(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
 
 if __name__ == "__main__":
     unittest.main()

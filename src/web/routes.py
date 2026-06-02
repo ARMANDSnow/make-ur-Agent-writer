@@ -98,12 +98,104 @@ def render_index() -> Tuple[int, str, bytes]:
     return _html(200, templates.render_index(list_workspaces()))
 
 
-def render_workspace(name: str) -> Tuple[int, str, bytes]:
+def _redirect(location: str, status: int = 301) -> Tuple[int, str, bytes]:
+    """Iter 032: 301 to the new IA. We synthesize the response as a
+    text/html body so the unit tests can still introspect the status
+    code; the WebHandler sets the Location header separately via the
+    ``redirect_to`` field embedded in the body. To keep the dispatcher
+    contract (status, content_type, body), we return a tiny HTML body
+    with a meta-refresh and a clickable link; ``server.py`` looks at the
+    status and the body's ``data-redirect-to`` to forward as Location."""
+
+    href = escape_html(location)
+    body = (
+        f'<!doctype html><meta charset="utf-8">'
+        f'<meta http-equiv="refresh" content="0;url={href}">'
+        f'<title>301 Moved</title>'
+        f'<link rel="canonical" href="{href}">'
+        f'<p data-redirect-to="{href}">Moved to <a href="{href}">{href}</a></p>'
+    )
+    return status, "text/html; charset=utf-8", body.encode("utf-8")
+
+
+def escape_html(s: str) -> str:
+    """Local minimal escaping for the Location URL embedded in 301 body."""
+
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def render_workspace_redirect(name: str) -> Tuple[int, str, bytes]:
+    """iter 032: ``/workspace/<name>`` is the legacy URL. We 301 it to
+    the new ``/w/<name>/`` overview so old bookmarks survive but the new
+    IA shows everywhere."""
+
     if not _validate_workspace_name(name):
         return _html(400, "<h1>400</h1><p>invalid workspace name</p>")
     if not _workspace_exists(name):
         return _html(404, f"<h1>404</h1><p>workspace not found: {name}</p>")
-    return _html(200, templates.render_workspace(name))
+    return _redirect(f"/w/{name}/")
+
+
+def _workspace_html_guard(name: str) -> Optional[Tuple[int, str, bytes]]:
+    if not _validate_workspace_name(name):
+        return _html(400, "<h1>400</h1><p>invalid workspace name</p>")
+    if not _workspace_exists(name):
+        return _html(404, f"<h1>404</h1><p>workspace not found: {name}</p>")
+    return None
+
+
+def render_workspace_overview(name: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_overview(name, list_workspaces()))
+
+
+def render_workspace_continue(name: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_continue(name, list_workspaces()))
+
+
+def render_workspace_chapters(name: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_chapters(name, list_workspaces()))
+
+
+def render_workspace_chapter_detail(name: str, chapter: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    try:
+        chapter_no = int(chapter)
+    except ValueError:
+        return _html(400, "<h1>400</h1><p>chapter must be an integer</p>")
+    if chapter_no < 1 or chapter_no > 9999:
+        return _html(400, "<h1>400</h1><p>chapter out of range</p>")
+    return _html(200, templates.render_workspace_chapter_detail(name, chapter_no, list_workspaces()))
+
+
+def render_workspace_reviews_page(name: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_reviews(name, list_workspaces()))
+
+
+def render_workspace_jobs_page(name: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_jobs(name, list_workspaces()))
 
 
 def render_static_css() -> Tuple[int, str, bytes]:
@@ -664,7 +756,19 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/static/app\.css$"), lambda **_: render_static_css()),
     ("GET", re.compile(r"^/static/app\.js$"), lambda **_: render_static_js()),
     ("GET", re.compile(r"^/static/wizard\.js$"), lambda **_: render_static_wizard_js()),
-    ("GET", re.compile(r"^/workspace/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace(name)),
+    # iter 032: legacy /workspace/<name> → 301 to /w/<name>/
+    ("GET", re.compile(r"^/workspace/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_redirect(name)),
+    # iter 032: new workspace-scoped IA
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_overview(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/continue/?$"), lambda name, **_: render_workspace_continue(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/chapters/?$"), lambda name, **_: render_workspace_chapters(name)),
+    (
+        "GET",
+        re.compile(r"^/w/(?P<name>[^/]+)/chapter/(?P<chapter>\d+)/?$"),
+        lambda name, chapter, **_: render_workspace_chapter_detail(name, chapter),
+    ),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: render_workspace_reviews_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/jobs/?$"), lambda name, **_: render_workspace_jobs_page(name)),
     ("GET", re.compile(r"^/api/workspaces/overview/?$"), lambda **_: api_workspaces_overview()),
     ("GET", re.compile(r"^/api/workspaces/?$"), lambda **_: api_workspaces()),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/status/?$"), lambda name, **_: api_workspace_status(name)),

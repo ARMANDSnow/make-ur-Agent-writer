@@ -141,17 +141,92 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("/api/workspaces/overview", routes.static.JS_DASHBOARD)
         self.assertNotIn("iter 026", html)
 
-    def test_workspace_page_renders(self) -> None:
+    def test_workspace_legacy_url_301s_to_new_ia(self) -> None:
+        """Iter 032: the iter 025 ``/workspace/<name>/`` URL still
+        resolves but now 301-redirects to the new ``/w/<name>/``
+        information architecture."""
+
         status, _ct, body = routes.dispatch("GET", "/workspace/alpha/")
+        self.assertEqual(status, 301)
+        # body carries the Location URL for the server's header sniffer.
+        self.assertIn(b'data-redirect-to="/w/alpha/"', body)
+
+    def test_workspace_overview_renders(self) -> None:
+        """Iter 032: ``/w/<name>/`` is the new overview page — replaces
+        the old all-in-one workspace page."""
+
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn("alpha", html)
+        # sidebar lists the workspace and the new sections
+        self.assertIn("续写", html)
+        self.assertIn("章节", html)
+        self.assertIn("评审", html)
+        self.assertIn("任务", html)
+        # overview shows status + next-action shell
+        self.assertIn("overview-summary", html)
+        self.assertIn("overview-next-action", html)
+        self.assertIn("overview-blockers", html)
+
+    def test_workspace_continue_renders_cockpit_forms(self) -> None:
+        """Iter 032: the continue page preserves the iter 026 cockpit
+        forms (start-point-form, plan-form, write-book-form) so the
+        end-to-end smoke flow keeps working."""
+
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/continue")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
         self.assertIn("准备续写", html)
         self.assertIn("继续写书", html)
         self.assertIn("重生成并覆盖计划", html)
         self.assertIn("start-point-form", html)
-        self.assertIn('data-source="reviews"', html)
+        self.assertIn("write-book-form", html)
+        self.assertIn("plan-form", html)
         self.assertNotIn("draft-once-dev", html)
+
+    def test_workspace_chapters_renders(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/chapters")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn("chapters-table", html)
+        self.assertIn("chapter-search", html)
+
+    def test_workspace_chapter_detail_renders(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/chapter/1")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn("chapter_01", html)
+        # 5 tabs
+        for tab in ("body", "review", "lint", "advisor", "history"):
+            self.assertIn(f'data-tab="{tab}"', html)
+        # JS gets the chapter number via window.CHAPTER_NO
+        self.assertIn("window.CHAPTER_NO = 1", html)
+
+    def test_workspace_chapter_detail_bad_chapter(self) -> None:
+        status, _ct, _body = routes.dispatch("GET", "/w/alpha/chapter/99999")
+        self.assertEqual(status, 400)
+
+    def test_workspace_reviews_page(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/reviews")
+        self.assertEqual(status, 200)
+        self.assertIn(b"reviews-panel", body)
+
+    def test_workspace_jobs_page(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/jobs")
+        self.assertEqual(status, 200)
+        self.assertIn(b"jobs-recent", body)
+        self.assertIn(b"jobs-logs", body)
+
+    def test_workspace_new_ia_404(self) -> None:
+        for path in (
+            "/w/__missing__/",
+            "/w/__missing__/continue",
+            "/w/__missing__/chapters",
+            "/w/__missing__/chapter/1",
+        ):
+            status, _ct, _body = routes.dispatch("GET", path)
+            self.assertEqual(status, 404, f"path {path} should 404")
 
     def test_workspace_page_404(self) -> None:
         status, _ct, _body = routes.dispatch("GET", "/workspace/__missing__/")

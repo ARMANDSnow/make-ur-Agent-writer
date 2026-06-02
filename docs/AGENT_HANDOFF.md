@@ -683,3 +683,30 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. 用户体验入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`。
 2. 真模型长跑仍先跑 CLI/Web readiness，确认 `ready` 或只剩可接受 WARN 后，再由用户明确授权 budget 进入 `write-book`。
 3. 后续候选：真模型 capstone、KB 起点安全视图、entity timeline schema、Web 在线编辑/复审、LiteLLM lazy-import + cost 增量索引。
+
+
+---
+
+## Phase 4 Status（iter 032，2026-06-02）
+
+### Iteration 032 — WebUI 信息架构与视觉重做（mock-only）
+
+**目标**：以产品经理视角审视 iter 025-031 累积的 WebUI 形态，把"所有功能堆在 `/workspace/{name}` 单页 + 5 个 tab"的混乱 IA 拆成结构清晰的多页 + 侧栏导航；同时引入一套统一的文学化暖色调设计系统，并新增 Chapter 详情页曝光已落盘但从未呈现的 reviewer 子分数 / lint anchor / advisor / rewrite 元数据。新功能页（Insights / Plan viewer / World viewer / 章节 diff）留给 iter 033。
+
+**主要落地**：
+- 新增 6 个工作区子路由：`/w/{name}/`、`/w/{name}/continue`、`/w/{name}/chapters`、`/w/{name}/chapter/{n}`、`/w/{name}/reviews`、`/w/{name}/jobs`。
+- 旧 `/workspace/{name}` 保留为 **301 重定向**到 `/w/{name}/`；`server.py` sniff body 的 `data-redirect-to` 属性写出 `Location` header。
+- `src/web/static.py` 完全重写：设计 tokens（米白纸面 + 墨色文字 + 翠青/赭橙 + 衬线标题）+ 统一组件库（btn / badge / card / tabs / breadcrumb / sidebar / kv-list / skeleton / empty-state / alert / toast）+ 9 个页面渲染器。保留 iter 026 / 030 测试要求的 6 个 JS 标识符（`loadTabPanel` / `scheduleReadiness` / `readinessRequestSeq` / `writeBookJobRunning` / `readinessTimer` / `submit.disabled = writeBookJobRunning || data.status === 'blocked'`）以减少改测试面积。
+- `src/web/templates.py` 完全重写：引入 `_BASE_TPL` 基础壳（侧栏 + 顶部条 + main slot）+ 8 个页面模板 + `render_workspace(name)` 旧 API 别名转发到新 continue 页。
+- 新增 **Chapter 详情页**（`/w/{name}/chapter/{n}`）：5 个 tab（正文 / 评审 / Lint / Advisor / 历史），把 `chapter_NN.meta.json` 全字段排版出来；reviewer 子分数横条（plot / prose / fidelity）、lint `rule_id` 分组、advisor type/section/guidance 卡片、rewrite_count 历史。支持 hash deep-link。
+- `tests/test_web_routes_get.py`：改 1 用例（`/workspace` 现在 301）+ 新增 8 个 IA 覆盖用例；`tests/test_web_server.py` 新增 Location header 端到端测试。
+
+**验证进度**：
+- Targeted Web tests（沙箱安全集）→ 92 OK。
+- Full `unittest discover -s tests` → 430 tests，**424 OK + 6 ERROR**（全部是沙箱 `socket.bind` `PermissionError`，影响 `test_web_server.*` 4 个 + `test_web_hardening.ServeHostWarningTests.*` 2 个，与本迭代改动无关；离开沙箱跑全绿）。
+- dispatcher 级冒烟：9 个新页面路径全部返回 200；`/workspace/longzu/` → 301 且 `data-redirect-to` 正确。
+
+**当前接力点**：
+1. 用户体验入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`；老书签 `/workspace/{name}` 会自动 301 到 `/w/{name}/`。
+2. 真模型长跑仍先跑 CLI/Web readiness。
+3. 后续候选（iter 033）：Insights 仪表盘（cost burn + cache 命中率 + 子分数热力图）、Plan viewer、World viewer、章节 diff、lint anchor → 正文跳转、Toast 通知接事件总线、暗色模式、章节全文搜索。

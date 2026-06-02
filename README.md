@@ -36,7 +36,7 @@
 | **Preflight 守门** | 真模型跑之前 7 类 FATAL 检查 + N 条 WARN：env / context limit / agents 配置 / rolling state / manifest 完整性 / **provider routing** / 人工事实 / cache 提供商提示。 |
 | **多 workspace 隔离** | iter 017：每本书一个 `workspaces/<name>/{data,outputs,小说txt,logs}/`。`--book myBook` 切换；sha256 baseline 4/4 互不污染。 |
 | **多语言切章 + EPUB 提取** | iter 018：CJK 字符比率自动判中英；中文 `第N章` / 英文 `CHAPTER / POV / 全大写` 两套 regex。`.epub` 用 stdlib `zipfile + xml.etree + html.parser` 直接转 txt，**零新依赖**。 |
-| **本地 Beta 写作入口** | iter 029-030：CLI 用 `write-readiness -> write-book`；Web 首页显示每本书 readiness，workspace 工作台支持设置起点、生成计划、继续写书、查看草稿/阻塞原因。 |
+| **本地 Beta 写作入口** | iter 029-032：CLI 用 `write-readiness -> write-book`；Web 走 `/` 书架 → `/w/{name}/` 概览 → 侧栏切换续写 / 章节 / 评审 / 任务；章节详情页 `/w/{name}/chapter/{n}` 展示 reviewer 子分数、lint anchor、advisor 改写建议。 |
 | **Reviewer fail-closed** | iter 019 audit：5-agent 中任一 JSON 解析失败，记 `Abstain + _fallback_reason="(parse_failed)"`，不当 Approve；最终 verdict 任一 substantive Reject → Reject，零 substantive Approve → Reject。 |
 | **带 timeline 的 Entity graph** | 角色/地点/概念作为 entity；关系携带 `timeline[]`，`active=true` 标记当前续写起点状态。**writer 只看 active state**；"关系一致性" reviewer 对照核验。 |
 | **成本遥测** | 每次 LLM 调用记 `request_hash`、prompt/response tokens、cache_read/cache_write tokens。`estimate-cost` 按 provider 单价聚合。龙族 ch1 真模型实测：30 calls / 143K prompt（cache 命中 58%）/ 36K response / **~¥0.45**。 |
@@ -252,7 +252,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 031（2026-06-02）** — WebUI 写作工作台完成 post-iter030 hardening：首页坏 plan 单本 blocked 不拖垮全局、recent job 恢复尊重 workspace root、隐藏 tab 懒加载、readiness 输入 debounce、overview 短 TTL cache；真模型长跑仍待用户授权。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 032（2026-06-02）** — WebUI 信息架构重组与视觉重做：把 iter 025-031 累积的"单页 5 tab"拆成 `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}` 多个子页面 + 持久左侧栏；新增 Chapter 详情页（reviewer 子分数 + lint anchor + advisor + rewrite 历史）；统一文学化暖色调设计 tokens；旧 `/workspace/{name}` 301 兼容。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -342,6 +342,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.4 | Web job 状态持久化 + fail-closed summary | ✅ | **iter 028**（`succeeded/blocked/failed/aborted/lost`，Reject/needs_human_review 不算 success） |
 | U.5 | Web “继续写书”本地 Beta 入口 | ✅ | **iter 029**（dashboard 显示 readiness、阻塞原因、推荐命令；普通区不展示 `draft-once-dev`） |
 | U.6 | Web 写作工作台 | ✅ | **iter 030-031**（首页 workspace overview；详情页设置起点/覆盖式重生成计划/继续写书/只读 draft 预览/最近 job 恢复；iter 031 加坏 plan 容错、懒加载、debounce、短 TTL cache） |
+| U.7 | Web 信息架构 + 视觉系统 | ✅ | **iter 032**（侧栏 + 工作区子页面 `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}`；旧 `/workspace/{name}` → 301；文学化暖色调 design tokens；统一组件库；新 Chapter 详情页曝光 reviewer 子分数 / lint anchor / advisor / rewrite 历史） |
 
 ---
 

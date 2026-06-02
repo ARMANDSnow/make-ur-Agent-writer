@@ -76,6 +76,19 @@ class WebHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         # No cache: dashboard data is read fresh on every load.
         self.send_header("Cache-Control", "no-store")
+        # iter 032: ``routes.render_workspace_redirect`` emits a 301 body
+        # whose ``<p data-redirect-to="...">`` carries the target URL.
+        # The dispatcher contract is (status, content_type, body) — no
+        # header dict — so we sniff the body here to add a Location.
+        # Cheaper than restructuring every handler to return a header
+        # bag for the one redirect endpoint.
+        if 300 <= status < 400 and b"data-redirect-to=" in body:
+            try:
+                start = body.index(b'data-redirect-to="') + len(b'data-redirect-to="')
+                end = body.index(b'"', start)
+                self.send_header("Location", body[start:end].decode("utf-8", errors="replace"))
+            except ValueError:
+                pass
         self.end_headers()
         self.wfile.write(body)
 

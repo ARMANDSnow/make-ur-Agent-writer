@@ -1,219 +1,610 @@
-"""iter 025: HTML page templates.
+"""iter 032: HTML page templates with shared sidebar + topbar shell.
 
-We use ``string.Template`` instead of f-strings so the templates can
-contain ``${name}`` placeholders without conflicting with JavaScript's
-``${...}`` template literals — embedded JS gets escaped via ``$$``.
+Information architecture:
 
-The HTML is intentionally a thin skeleton: panels load their data via
-``fetch('/api/...')`` from ``static.JS_DASHBOARD``. This keeps the server
-side stupid and lets unit tests verify the JSON API independently of any
-rendering.
+* ``/`` — workspace shelf (no workspace context).
+* ``/wizard`` — onboarding (no workspace context).
+* ``/settings`` — global .env editor (no workspace context).
+* ``/w/<name>`` — workspace overview (sidebar shows section list).
+* ``/w/<name>/continue`` — start-point + plan + write-book cockpit.
+* ``/w/<name>/chapters`` — manifest + drafts list.
+* ``/w/<name>/chapter/<n>`` — single-chapter detail (text / review /
+  lint / advisor / history tabs).
+* ``/w/<name>/reviews`` — aggregated reviews.
+* ``/w/<name>/jobs`` — task history + log tail.
+
+Templates compose three pieces: ``_render_shell`` writes the
+``<!doctype>`` + sidebar + topbar wrapper; each page builds its main
+HTML and hands it to the shell. We keep ``string.Template`` semantics
+for the outermost shell so ``${...}`` JS literals in iter 025-style
+embedded scripts continue to escape via ``$$``.
 """
 
 from __future__ import annotations
 
 from html import escape
 from string import Template
-from typing import Iterable
+from typing import Iterable, List, Optional, Sequence
 
 
-_INDEX_TPL = Template(
+# ---------------------------------------------------------------------------
+# Shell
+# ---------------------------------------------------------------------------
+
+_BASE_TPL = Template(
     """<!doctype html>
 <html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>本地写作工作台</title>
+<title>$TITLE</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<header class="app-header">
-  <div>
-    <h1>本地写作工作台</h1>
-    <p class="muted">127.0.0.1 · mock-first · 单用户 Beta</p>
+<div class="app $APP_CLASS">
+  $SIDEBAR
+  <div class="main">
+    <header class="topbar">
+      <nav class="breadcrumb">$BREADCRUMB</nav>
+      <div class="topbar-actions">$TOPBAR_ACTIONS</div>
+    </header>
+    <main class="page">
+      $MAIN
+    </main>
   </div>
-  <nav><a class="button secondary" href="/wizard">新建作品</a><a class="button secondary" href="/settings">模型设置</a></nav>
-</header>
-<main class="page-shell">
-  <section class="hero-band">
-    <div>
-      <p class="eyebrow">书架</p>
-      <h2>选择一本书，继续安全写下去</h2>
-    </div>
-    <div class="hero-stats" id="shelf-stats"></div>
-  </section>
-  <section class="section-flat">
-    <div id="workspace-shelf" class="workspace-grid" data-empty="$EMPTY_HINT">loading...</div>
-  </section>
-</main>
-<script>window.PAGE_KIND = "index";</script>
+</div>
+<script>
+window.PAGE_KIND = "$PAGE_KIND";
+window.WORKSPACE_NAME = "$WORKSPACE";
+window.CHAPTER_NO = $CHAPTER_NO;
+</script>
 <script src="/static/app.js"></script>
+$EXTRA_SCRIPTS
 </body>
 </html>
 """
 )
 
 
-_WORKSPACE_TPL = Template(
-    """<!doctype html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>$NAME · 写作工作台</title>
-<link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<header class="app-header">
-  <div>
-    <h1><a href="/">←</a> $NAME</h1>
-    <p class="muted">写作工作台 · 设置起点、生成计划、检查就绪、继续写书</p>
-  </div>
-  <nav><a class="button secondary" href="/wizard">新建作品</a><a class="button secondary" href="/settings">模型设置</a></nav>
-</header>
-<main class="page-shell">
-  <section class="workspace-hero">
-    <div>
-      <p class="eyebrow">当前作品</p>
-      <h2>$NAME</h2>
-    </div>
-    <div id="workspace-summary" class="summary-strip"></div>
-  </section>
+def _render_shell(
+    *,
+    title: str,
+    page_kind: str,
+    main_html: str,
+    breadcrumb_html: str,
+    topbar_actions_html: str = "",
+    sidebar_html: str = "",
+    workspace: str = "",
+    chapter_no: Optional[int] = None,
+    extra_scripts: str = "",
+) -> str:
+    return _BASE_TPL.substitute(
+        TITLE=escape(title),
+        APP_CLASS="" if sidebar_html else "no-context",
+        SIDEBAR=sidebar_html,
+        BREADCRUMB=breadcrumb_html,
+        TOPBAR_ACTIONS=topbar_actions_html,
+        MAIN=main_html,
+        PAGE_KIND=escape(page_kind),
+        WORKSPACE=escape(workspace),
+        CHAPTER_NO=str(chapter_no) if chapter_no is not None else "null",
+        EXTRA_SCRIPTS=extra_scripts,
+    )
 
-  <section class="cockpit-grid">
-    <div class="panel action-panel">
-      <div class="panel-title">
-        <h2>准备续写</h2>
-        <span id="readiness-pill" class="pill">loading</span>
-      </div>
-      <form id="start-point-form" class="control-grid">
-        <label>续写起点<select name="start_point" id="start-point-select"></select></label>
-        <button type="submit" class="button secondary">保存起点</button>
-      </form>
-      <form id="plan-form" class="control-grid">
-        <label>计划章节数<input name="target_chapters" type="number" min="1" max="200" value="5"></label>
-        <button type="submit" class="button secondary" id="plan-submit">重生成并覆盖计划</button>
-      </form>
-      <form id="write-book-form" class="write-grid">
-        <label>写几章<input name="chapters" type="number" min="1" value="1"></label>
-        <label>从第几章<input name="resume_from" type="number" min="1" value="1"></label>
-        <label>预算 CNY<input name="budget_cny" type="number" min="0" step="0.1" value="0"></label>
-        <label>每几章重规划<input name="replan_every" type="number" min="0" value="0"></label>
-        <label>最大重试<input name="max_retries" type="number" min="0" value="2"></label>
-        <label>推进置信度<input name="min_confidence" type="number" min="0" max="1" step="0.05" value="0.7"></label>
-        <label class="check-row"><input name="auto_advance" type="checkbox" checked> 自动推进实体状态</label>
-        <button type="submit" class="button primary" id="write-book-submit">继续写书</button>
-      </form>
-    </div>
-    <div class="panel">
-      <div class="panel-title"><h2>就绪检查</h2><button class="icon-button" id="refresh-readiness" title="刷新">↻</button></div>
-      <div id="readiness-panel" class="panel-body">loading...</div>
-      <div id="job-status" class="panel-body"></div>
-      <div id="recent-jobs" class="panel-body"></div>
-    </div>
-  </section>
 
-  <section class="tabs">
-    <div class="tab-list">
-      <button class="tab active" data-tab="drafts">产出</button>
-      <button class="tab" data-tab="reviews">评审</button>
-      <button class="tab" data-tab="manifest">原文章节</button>
-      <button class="tab" data-tab="status">流水线</button>
-      <button class="tab" data-tab="cost">成本</button>
-    </div>
-    <div class="tab-panel active" id="tab-drafts"><div id="drafts-panel" class="panel-body">loading...</div></div>
-    <div class="tab-panel" id="tab-reviews"><div class="panel-body" data-source="reviews">loading...</div></div>
-    <div class="tab-panel" id="tab-manifest"><div class="panel-body" data-source="manifest">loading...</div></div>
-    <div class="tab-panel" id="tab-status"><div class="panel-body" data-source="status">loading...</div></div>
-    <div class="tab-panel" id="tab-cost"><div class="panel-body" data-source="cost">loading...</div></div>
-  </section>
-</main>
-<script>window.WORKSPACE_NAME = "$NAME";</script>
-<script>window.PAGE_KIND = "workspace";</script>
-<script src="/static/app.js"></script>
-</body>
-</html>
-"""
+# ---------------------------------------------------------------------------
+# Reused fragments
+# ---------------------------------------------------------------------------
+
+
+_WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
+    ("overview", "概览", ""),
+    ("continue", "续写", "continue"),
+    ("chapters", "章节", "chapters"),
+    ("reviews", "评审", "reviews"),
+    ("jobs", "任务", "jobs"),
 )
+
+
+def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_section: str = "") -> str:
+    items = []
+    for name in workspaces:
+        is_active = name == active_workspace
+        cls = "sidebar-item active" if is_active else "sidebar-item"
+        items.append(
+            f'<a class="{cls}" href="/w/{escape(name)}/">'
+            f'<span><span class="dot"></span> {escape(name)}</span>'
+            f'</a>'
+        )
+    work_html = "\n".join(items) if items else '<p class="muted" style="padding:0 8px">尚无作品</p>'
+    sections_html = ""
+    if active_workspace:
+        section_items = []
+        for key, label, suffix in _WORKSPACE_SECTIONS:
+            href = f"/w/{escape(active_workspace)}/{suffix}" if suffix else f"/w/{escape(active_workspace)}/"
+            cls = "sidebar-item active" if key == active_section else "sidebar-item"
+            section_items.append(
+                f'<a class="{cls}" href="{href}">'
+                f'<span><span class="dot"></span> {escape(label)}</span>'
+                f'</a>'
+            )
+        sections_html = (
+            '<div class="sidebar-section">'
+            f'<h4>《{escape(active_workspace)}》</h4>'
+            + "\n".join(section_items)
+            + "</div>"
+        )
+    return (
+        '<aside class="sidebar">'
+        '<a class="brand" href="/"><span>✦</span> 续写工作台</a>'
+        '<div class="sidebar-section">'
+        '<h4>书架</h4>'
+        f'{work_html}'
+        '</div>'
+        f'{sections_html}'
+        '<div class="sidebar-footer">'
+        '<span>127.0.0.1 · 单用户 Beta</span>'
+        '<span>iter 032</span>'
+        '</div>'
+        '</aside>'
+    )
+
+
+def _topbar_actions(extra: str = "") -> str:
+    base = (
+        '<a class="btn btn-ghost" href="/settings">⚙ 设置</a>'
+        '<a class="btn btn-primary" href="/wizard">＋ 新建</a>'
+    )
+    return extra + base
+
+
+def _crumbs(parts: Sequence[tuple[str, Optional[str]]]) -> str:
+    """Render breadcrumbs. Each part is (label, href or None for current)."""
+    pieces = []
+    for i, (label, href) in enumerate(parts):
+        if i:
+            pieces.append('<span class="sep">/</span>')
+        if href is None:
+            pieces.append(f'<span class="here">{escape(label)}</span>')
+        else:
+            pieces.append(f'<a href="{href}">{escape(label)}</a>')
+    return "".join(pieces)
+
+
+# ---------------------------------------------------------------------------
+# Page: shelf (index)
+# ---------------------------------------------------------------------------
 
 
 def render_index(workspaces: Iterable[str]) -> str:
-    names = list(workspaces)
-    empty_hint = "" if names else "还没有作品。点击“新建作品”上传 epub/txt。"
-    return _INDEX_TPL.substitute(EMPTY_HINT=escape(empty_hint))
+    names: List[str] = list(workspaces)
+    empty_hint = "" if names else "还没有作品。点击右上角「＋ 新建」上传 epub/txt。"
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">书架</p>'
+        '<h1>本地写作工作台</h1>'
+        '<p class="muted">选择一本书，继续安全写下去。所有数据保留在 127.0.0.1。</p>'
+        '</div>'
+        '<div class="shelf-stats" id="shelf-stats"></div>'
+        '</header>'
+        '<section class="section">'
+        f'<div id="workspace-shelf" class="workspace-grid" data-empty="{escape(empty_hint)}">'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title="本地写作工作台",
+        page_kind="index",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(names),
+    )
 
 
-def render_workspace(name: str) -> str:
-    return _WORKSPACE_TPL.substitute(NAME=escape(name))
+# ---------------------------------------------------------------------------
+# Page: workspace overview
+# ---------------------------------------------------------------------------
 
 
-_WIZARD_TPL = Template(
-    """<!doctype html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<title>新建 workspace · WebUI</title>
-<link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<header>
-  <h1><a href="/">←</a> 新建 workspace</h1>
-  <p class="muted">上传小说 epub / txt，自动跑完 9 步 SOP 写出第 1 章</p>
-</header>
-<main>
-  <section id="panel-upload">
-    <h2>第 1 步 · 上传</h2>
-    <form id="wizard-form" enctype="multipart/form-data">
-      <p><label>workspace 名 <input name="workspace" required pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符"></label></p>
-      <p><label>小说文件 <input name="upload" type="file" accept=".epub,.txt" required></label></p>
-      <p><button type="submit">开始</button></p>
-    </form>
-    <div id="upload-error" class="error"></div>
-  </section>
-  <section id="panel-progress" hidden>
-    <h2>第 2 步 · 流水线进度</h2>
-    <div class="panel-body" id="progress-body">等待 worker…</div>
-  </section>
-</main>
-<script src="/static/wizard.js"></script>
-</body>
-</html>
-"""
-)
+def render_workspace_overview(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">作品</p>'
+        f'<h1>{escape(name)}</h1>'
+        '<p class="muted">这一本书的全景：状态、下一步、最近活动。</p>'
+        '</div>'
+        '<div id="overview-status-badge"></div>'
+        '</header>'
+        '<section class="overview-hero">'
+        '<div class="next-action" id="overview-next-action"></div>'
+        '<div class="metric-pair" id="overview-summary"></div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">就绪状态</h2></div>'
+        '<div id="overview-blockers"></div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">细节</h2><span class="hint">流水线状态 + 成本聚合</span></div>'
+        '<div class="grid cols-2">'
+        '<details class="details-fold card"><summary class="card-header">流水线状态</summary>'
+        '<div class="card-body" id="overview-detail-status"></div></details>'
+        '<details class="details-fold card"><summary class="card-header">成本估算</summary>'
+        '<div class="card-body" id="overview-detail-cost"></div></details>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 概览",
+        page_kind="workspace_overview",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="overview"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: continue (cockpit)
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_continue(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">续写</p>'
+        '<h1>准备续写</h1>'
+        '<p class="muted">三步走：设置起点 → 生成计划 → 继续写书。</p>'
+        '</div>'
+        '<div id="readiness-pill"></div>'
+        '</header>'
+
+        '<section class="continue-flow">'
+        # step 1 — start point
+        '<div class="flow-step">'
+        '<div class="step-mark">1</div>'
+        '<div class="card">'
+        '<div class="card-header"><h3 class="ornament">续写起点</h3>'
+        '<span class="muted">从原文哪一卷/章之后开始写</span></div>'
+        '<div class="card-body">'
+        '<form id="start-point-form" class="form-grid-2">'
+        '<div class="field"><label>起点</label>'
+        '<select name="start_point" id="start-point-select"><option>载入中…</option></select></div>'
+        '<div class="form-actions" style="align-items:flex-end">'
+        '<button type="submit" class="btn btn-secondary">保存起点</button>'
+        '</div>'
+        '</form>'
+        '<div id="start-point-status"></div>'
+        '</div></div></div>'
+
+        # step 2 — plan
+        '<div class="flow-step">'
+        '<div class="step-mark">2</div>'
+        '<div class="card">'
+        '<div class="card-header"><h3 class="ornament">章节计划</h3>'
+        '<span class="muted">生成 / 覆盖未来 N 章的剧情大纲</span></div>'
+        '<div class="card-body">'
+        '<form id="plan-form" class="form-grid-2">'
+        '<div class="field"><label>计划章节数</label>'
+        '<input name="target_chapters" type="number" min="1" max="200" value="5"></div>'
+        '<div class="form-actions" style="align-items:flex-end">'
+        '<button type="submit" id="plan-submit" class="btn btn-secondary">重生成并覆盖计划</button>'
+        '</div>'
+        '</form>'
+        '<div id="plan-status"></div>'
+        '</div></div></div>'
+
+        # step 3 — write book
+        '<div class="flow-step">'
+        '<div class="step-mark">3</div>'
+        '<div class="card">'
+        '<div class="card-header"><h3 class="ornament">继续写书</h3>'
+        '<span class="muted">严格运行 write-book，自动重写 + 评审</span></div>'
+        '<div class="card-body">'
+        '<form id="write-book-form">'
+        '<div class="form-grid">'
+        '<div class="field"><label>写几章</label><input name="chapters" type="number" min="1" value="1"></div>'
+        '<div class="field"><label>从第几章</label><input name="resume_from" type="number" min="1" value="1"></div>'
+        '<div class="field"><label>预算 CNY</label><input name="budget_cny" type="number" min="0" step="0.1" value="0"></div>'
+        '<div class="field"><label>每几章重规划</label><input name="replan_every" type="number" min="0" value="0"></div>'
+        '<div class="field"><label>最大重试</label><input name="max_retries" type="number" min="0" value="2"></div>'
+        '<div class="field"><label>推进置信度</label><input name="min_confidence" type="number" min="0" max="1" step="0.05" value="0.7"></div>'
+        '</div>'
+        '<div class="form-actions" style="justify-content:space-between;margin-top:16px">'
+        '<label class="field-check"><input name="auto_advance" type="checkbox" checked> 自动推进实体状态</label>'
+        '<button type="submit" id="write-book-submit" class="btn btn-primary">继续写书</button>'
+        '</div>'
+        '</form>'
+        '<div id="write-book-status"></div>'
+        '</div>'
+        '<div class="card-footer">'
+        '<a class="btn btn-ghost btn-sm" href="/w/' + escape(name) + '/jobs">查看任务历史 →</a>'
+        '</div>'
+        '</div></div>'
+        '</section>'
+
+        # sidebar: readiness + recent jobs
+        '<section class="section">'
+        '<div class="grid cols-2">'
+        '<div class="card">'
+        '<div class="card-header"><h3 class="ornament">就绪检查</h3></div>'
+        '<div class="card-body" id="readiness-panel"></div>'
+        '</div>'
+        '<div class="card">'
+        '<div class="card-header"><h3 class="ornament">最近任务</h3></div>'
+        '<div class="card-body" id="recent-jobs"></div>'
+        '</div>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 续写",
+        page_kind="continue",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="continue"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: chapters list
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_chapters(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">章节</p>'
+        '<h1>章节</h1>'
+        '<p class="muted">原文章次 + 已生成续写草稿。点击任意一行查看详情。</p>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="chapters-filter">'
+        '<input type="search" id="chapter-search" placeholder="按章节 ID 或标题搜索…">'
+        '<div class="filter-toggle cluster">'
+        '<button class="btn btn-ghost btn-sm active" data-mode="all">全部</button>'
+        '<button class="btn btn-ghost btn-sm" data-mode="drafts">续写</button>'
+        '<button class="btn btn-ghost btn-sm" data-mode="source">原文</button>'
+        '</div>'
+        '</div>'
+        '<div class="card flush"><div class="card-body" id="chapters-table"></div></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 章节",
+        page_kind="chapters",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("章节", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="chapters"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: chapter detail
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_chapter_detail(name: str, chapter_no: int, workspaces: Iterable[str]) -> str:
+    chapter_id = f"chapter_{chapter_no:02d}"
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        f'<p class="eyebrow ornament">第 {chapter_no} 章</p>'
+        f'<h1>{escape(chapter_id)}</h1>'
+        '<div class="chapter-meta-bar" id="chapter-meta-bar"></div>'
+        '</div>'
+        '<div class="topbar-actions">'
+        f'<a class="btn btn-ghost btn-sm" href="/w/{escape(name)}/chapters">← 返回章节列表</a>'
+        '</div>'
+        '</header>'
+        '<section class="tabs">'
+        '<div class="tab-list">'
+        '<button class="tab active" data-tab="body">正文</button>'
+        '<button class="tab" data-tab="review">评审</button>'
+        '<button class="tab" data-tab="lint">Lint</button>'
+        '<button class="tab" data-tab="advisor">Advisor</button>'
+        '<button class="tab" data-tab="history">历史</button>'
+        '</div>'
+        '<div class="tab-panel active" id="tab-body">'
+        '<div id="chapter-body" class="card"><div class="card-body">载入中…</div></div>'
+        '</div>'
+        '<div class="tab-panel" id="tab-review"><p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-lint"><p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-advisor"><p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-history"><p class="muted">载入中…</p></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 第 {chapter_no} 章",
+        page_kind="chapter_detail",
+        main_html=main,
+        breadcrumb_html=_crumbs([
+            ("书架", "/"),
+            (name, f"/w/{escape(name)}/"),
+            ("章节", f"/w/{escape(name)}/chapters"),
+            (f"第 {chapter_no} 章", None),
+        ]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="chapters"),
+        workspace=name,
+        chapter_no=chapter_no,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: reviews aggregate
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_reviews(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">评审</p>'
+        '<h1>评审聚合</h1>'
+        '<p class="muted">每章的 verdict、子分数、lint 与 advisor 改写建议汇总。</p>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="card flush"><div class="card-body" id="reviews-panel"></div></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 评审",
+        page_kind="reviews",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("评审", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="reviews"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: jobs history + log tail
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">任务</p>'
+        '<h1>任务历史</h1>'
+        '<p class="muted">最近 20 个 web 任务、trace_id（可复制）、以及 llm_calls 日志尾部。</p>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="card flush"><div class="card-body" id="jobs-recent"></div></div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">最近 LLM 调用</h2>'
+        '<span class="hint">logs/llm_calls.jsonl 尾部 30 行</span></div>'
+        '<div id="jobs-logs"></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 任务",
+        page_kind="jobs",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("任务", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="jobs"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: wizard (onboarding upload)
+# ---------------------------------------------------------------------------
 
 
 def render_wizard() -> str:
-    return _WIZARD_TPL.substitute()
+    main = (
+        '<div class="slim-shell">'
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">新建作品</p>'
+        '<h1>导入小说</h1>'
+        '<p class="muted">上传 epub / txt，自动跑完 9 步 SOP，写出第 1 章。</p>'
+        '</div>'
+        '</header>'
+        '<section class="card" id="panel-upload">'
+        '<div class="card-header"><h3 class="ornament">第 1 步 · 上传</h3></div>'
+        '<div class="card-body">'
+        '<form id="wizard-form" enctype="multipart/form-data" class="stack">'
+        '<div class="field">'
+        '<label>workspace 名</label>'
+        '<input name="workspace" required '
+        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
+        '</div>'
+        '<div class="field">'
+        '<label>小说文件</label>'
+        '<input name="upload" type="file" accept=".epub,.txt" required>'
+        '</div>'
+        '<div class="form-actions">'
+        '<a class="btn btn-ghost" href="/">取消</a>'
+        '<button type="submit" class="btn btn-primary">开始</button>'
+        '</div>'
+        '</form>'
+        '<div id="upload-error"></div>'
+        '</div>'
+        '</section>'
+        '<section class="card" id="panel-progress" hidden>'
+        '<div class="card-header"><h3 class="ornament">第 2 步 · 流水线进度</h3></div>'
+        '<div class="card-body" id="progress-body"><p class="muted">等待 worker…</p></div>'
+        '</section>'
+        '</div>'
+    )
+    return _render_shell(
+        title="新建作品 · 写作工作台",
+        page_kind="wizard",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), ("新建作品", None)]),
+        topbar_actions_html='<a class="btn btn-ghost" href="/settings">⚙ 设置</a>',
+        sidebar_html="",
+        extra_scripts='<script src="/static/wizard.js"></script>',
+    )
 
 
-_SETTINGS_TPL = Template(
-    """<!doctype html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<title>模型设置 · WebUI</title>
-<link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<header>
-  <h1><a href="/">←</a> 模型设置</h1>
-  <p class="muted">.env 编辑器 · 保存后需重启 web 服务才生效</p>
-</header>
-<main>
-  <section>
-    <h2>当前配置</h2>
-    <div id="restart-banner" class="error" hidden></div>
-    <form id="settings-form" class="kv-form"></form>
-    <p><button type="submit" form="settings-form">保存</button></p>
-    <div id="settings-error" class="error"></div>
-  </section>
-</main>
-<script src="/static/settings.js"></script>
-</body>
-</html>
-"""
-)
+# ---------------------------------------------------------------------------
+# Page: settings
+# ---------------------------------------------------------------------------
 
 
 def render_settings() -> str:
-    return _SETTINGS_TPL.substitute()
+    main = (
+        '<div class="slim-shell">'
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">设置</p>'
+        '<h1>模型与环境变量</h1>'
+        '<p class="muted">.env 编辑器 · 保存后需重启 web 服务才生效。API key 默认掩码显示。</p>'
+        '</div>'
+        '</header>'
+        '<section class="card">'
+        '<div class="card-header"><h3 class="ornament">当前配置</h3></div>'
+        '<div class="card-body">'
+        '<div id="restart-banner" hidden></div>'
+        '<form id="settings-form" class="stack"></form>'
+        '<div id="settings-error"></div>'
+        '</div>'
+        '<div class="card-footer">'
+        '<button type="submit" form="settings-form" class="btn btn-primary">保存</button>'
+        '</div>'
+        '</section>'
+        '</div>'
+    )
+    return _render_shell(
+        title="模型设置 · 写作工作台",
+        page_kind="settings",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), ("设置", None)]),
+        topbar_actions_html='<a class="btn btn-primary" href="/wizard">＋ 新建</a>',
+        sidebar_html="",
+        extra_scripts='<script src="/static/settings.js"></script>',
+    )
+
+
+# ---------------------------------------------------------------------------
+# Legacy compatibility shim — older tests/external links still call
+# ``templates.render_workspace(name)``. We keep that as an alias for the
+# new "continue" page since that's where the original cockpit content
+# lived (start-point form / plan form / write-book form). The dispatcher
+# uses ``render_workspace_*`` directly.
+# ---------------------------------------------------------------------------
+
+
+def render_workspace(name: str, workspaces: Optional[Iterable[str]] = None) -> str:
+    return render_workspace_continue(name, workspaces or [name])
