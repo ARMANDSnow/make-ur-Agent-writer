@@ -69,6 +69,21 @@ class LLMClientJsonParseTests(unittest.TestCase):
                 result = client.complete_json([{"role": "user", "content": "test"}], AgentReview)
         self.assertEqual(result.verdict, "Approve")
 
+    def test_schema_invalid_json_can_be_repaired(self) -> None:
+        client = LLMClient("review")
+        with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = False
+            with patch.object(
+                client,
+                "complete_text",
+                side_effect=[
+                    '{"agent_name":"agent","verdict":"Maybe","score":8,"issues":[],"suggestions":[]}',
+                    '{"agent_name":"agent","verdict":"Reject","score":5,"issues":[],"suggestions":[]}',
+                ],
+            ):
+                result = client.complete_json([{"role": "user", "content": "test"}], AgentReview)
+        self.assertEqual(result.verdict, "Reject")
+
     def test_llm_call_log_does_not_include_prompt_body(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with patch("src.llm_client.ROOT", Path(tmp)):

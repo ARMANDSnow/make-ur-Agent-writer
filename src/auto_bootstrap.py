@@ -101,11 +101,47 @@ def bootstrap_entity_graph(force: bool = False, root: Path = None) -> Dict[str, 
     return {"name": "entity_graph", "status": "written", "path": str(path), "data": data}
 
 
+def _anchor_state_sidecar(root: Path) -> Path:
+    return root / "data" / "manual_overrides" / ".continuation_anchor.meta.json"
+
+
+def _anchor_matches_current_start(root: Path) -> bool:
+    """Iter 027 bugfix: return True iff the on-disk continuation_anchor.txt
+    is fresh relative to the currently-set start_chapter.json.
+
+    Sidecar missing → treat as fresh (legacy / hand-written anchors don't
+    have the sidecar yet; user can pass --force if they suspect stale).
+    Sidecar present with mismatching start_chapter_id → STALE; caller must
+    regenerate even when ``force=False``. This is the entire point of the
+    fix: set-start-point changing the anchor's intended start chapter
+    should invalidate any auto-generated anchor that referenced a different
+    start.
+    """
+    from . import start_point as _start_point
+
+    sidecar = _anchor_state_sidecar(root)
+    if not sidecar.exists():
+        return True
+    meta = read_json(sidecar, {}) or {}
+    recorded = meta.get("start_chapter_id")
+    current = _start_point.get_start_chapter_id() or ""
+    return recorded == current
+
+
 def bootstrap_continuation_anchor(force: bool = False, root: Path = None) -> Dict[str, Any]:
     root = _resolve_root(root)
     path = _proposal_path("continuation_anchor", root)
     existing = root / "data" / "manual_overrides" / "continuation_anchor.txt"
-    if existing.exists() and existing.read_text(encoding="utf-8").strip() and not force:
+    # Iter 027 bugfix: also require sidecar metadata to match the current
+    # start_chapter_id. Without this, set-start-point changing the start
+    # to e.g. "longzu_3_3_ch024" silently leaves a龙族 I 开头 anchor in
+    # place (the exact race condition that broke capstone trials).
+    if (
+        existing.exists()
+        and existing.read_text(encoding="utf-8").strip()
+        and not force
+        and _anchor_matches_current_start(root)
+    ):
         return _skip_result("continuation_anchor", path)
 
     # Iter 021: if user has explicitly set a start point, sample the K

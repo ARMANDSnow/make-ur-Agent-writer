@@ -50,6 +50,11 @@ echo "[with_proxy] mode=${_WITH_PROXY_MODE}" >&2
 
 unset -f _with_proxy_sandbox_alive
 
-if [ "$#" -gt 0 ]; then
+# Only act as a wrapper (exec the rest of argv) when invoked DIRECTLY as
+# an executable — never when sourced into a parent script. When sourced,
+# $@ is the parent's argv, and exec'ing it would treat the parent's
+# first arg (e.g. "--book") as a command. The classic shell check:
+# BASH_SOURCE[0] == $0 only when this file is the entry point.
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ] && [ "$#" -gt 0 ]; then
   exec "$@"
 fi

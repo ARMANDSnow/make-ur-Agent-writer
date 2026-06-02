@@ -8,7 +8,7 @@ This iteration adds a chapter-level plot planner: a stronger planner model produ
 
 ## Plan
 
-P1. Add task-level LLM routing fields so `plot_planner` can use `PLANNER_API_KEY` and `PLANNER_BASE_URL` while existing writing tasks keep their `OPENAI_*` route.
+P1. Add per-task LLM routing fields so `plot_planner` can use `PLANNER_API_KEY` and `PLANNER_BASE_URL` while existing writing tasks keep their `OPENAI_*` route.
 
 P2. Add `src/plot_planner.py` and `ChapterPlan` / `ChapterPlanItem` schemas.
 
@@ -29,7 +29,7 @@ P8. Add this iteration record, update the iteration index, and append the handof
 | A1 | Unit tests | `python3 -m unittest discover -s tests` passes with 126 tests, under 5 seconds |
 | A2 | Verify | `bash scripts/verify.sh` exits 0 and new LLM log rows remain mock-only |
 | A3 | Preflight | `python3 main.py preflight` reports warn / FATAL none |
-| B1 | LLMClient routing | task-level `api_key_env` / `base_url_env` are honored |
+| B1 | LLMClient routing | per-task `api_key_env` / `base_url_env` are honored |
 | B2 | Plot planner mock | mock planner writes a complete five-chapter `chapter_plan.json` |
 | B3 | Writer plan injection | prompt contains `本章计划（必须严格遵守）`, `opening_scene`, and `key_events` |
 | B4 | Writer fallback | missing chapter plan keeps outline-only write compatibility |
@@ -109,7 +109,7 @@ Smoke caveats:
 | File | Change |
 |------|--------|
 | [src/plot_planner.py](../../src/plot_planner.py) | New chapter-level plot planner |
-| [src/config.py](../../src/config.py) | Add task-level env routing and preserve mock test isolation |
+| [src/config.py](../../src/config.py) | Add per-task env routing and preserve mock test isolation |
 | [src/llm_client.py](../../src/llm_client.py) | Add mock `ChapterPlan` JSON response |
 | [src/preflight.py](../../src/preflight.py) | Validate env and provider routing across all tasks |
 | [src/writer.py](../../src/writer.py) | Load and inject chapter plans as writer constraints |

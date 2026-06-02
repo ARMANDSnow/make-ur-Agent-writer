@@ -13,7 +13,7 @@ from .manual_facts import global_facts_summary
 from .schemas import ChapterPlan, model_to_dict, model_to_json_schema
 from . import start_point
 from .style import load_style_examples
-from .utils import write_json
+from .utils import sha256_data, write_json
 
 
 # Legacy constants — kept for iter 014-016 test backward compat
@@ -168,8 +168,59 @@ def generate_chapter_plan(
     else:
         data = new_data
         data["start_chapter_id"] = start_chapter_id or ""
+    _attach_plan_fingerprints(data, start_chapter_id=start_chapter_id)
     write_json(chapter_plan_path, data)
     return data
+
+
+def chapter_plan_item_fingerprint(item: Dict[str, Any]) -> str:
+    """Stable fingerprint for a single chapter plan item."""
+
+    stable = {
+        key: value
+        for key, value in dict(item).items()
+        if key
+        not in {
+            "chapter_plan_item_fingerprint",
+            "plan_fingerprint",
+            "start_point_fingerprint",
+        }
+    }
+    return sha256_data(stable)
+
+
+def plan_fingerprint(data: Dict[str, Any]) -> str:
+    """Stable fingerprint for the plan context consumed by writer/reviewer."""
+
+    chapters = []
+    for item in data.get("chapters", []) or []:
+        if isinstance(item, dict):
+            chapters.append(
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"chapter_plan_item_fingerprint"}
+                }
+            )
+    payload = {
+        "schema_version": 1,
+        "target_chapters": data.get("target_chapters"),
+        "overall_arc": data.get("overall_arc", ""),
+        "start_chapter_id": data.get("start_chapter_id", ""),
+        "start_point_fingerprint": data.get("start_point_fingerprint", ""),
+        "chapters": chapters,
+    }
+    return sha256_data(payload)
+
+
+def _attach_plan_fingerprints(data: Dict[str, Any], *, start_chapter_id: str | None) -> None:
+    data["start_chapter_id"] = start_chapter_id or data.get("start_chapter_id") or ""
+    data["start_point_fingerprint"] = start_point.start_point_fingerprint()
+    data["schema_version"] = int(data.get("schema_version") or 1)
+    for item in data.get("chapters", []) or []:
+        if isinstance(item, dict):
+            item["chapter_plan_item_fingerprint"] = chapter_plan_item_fingerprint(item)
+    data["plan_fingerprint"] = plan_fingerprint(data)
 
 
 def _format_existing_tail(existing_chapters: list, k: int = 5) -> str:
@@ -292,13 +343,20 @@ def _build_planner_prompt(
         if rolling_summary
         else ""
     )
+    # Iter 027 bugfix: anchor was previously also labeled "最高优先级",
+    # creating a head-on conflict with start_point_block (which is also
+    # the highest priority). When anchor was stale (the iter 027 capstone
+    # trial drift), the planner couldn't tell which to trust. Demote
+    # anchor to "narrative supplement" — start_chapter.json (operator
+    # selection) is the single source of truth; anchor only fills in
+    # narrative color (recent events, key state points).
     anchor_block = (
-        "# 续写起点 (must-anchor — 最高优先级)\n\n"
+        "# 续写起点叙事 (anchor — 背景补充)\n\n"
         f"{continuation_anchor}\n\n"
-        "本次规划必须从上述起点状态继续。如果辩论大纲与起点状态描述不同的"
-        "时空 / 角色状态，**以起点状态为准** — 大纲在起点之前的内容不要"
-        "重新规划。第 1 章的 opening_scene 必须明确发生在起点状态之后的"
-        "时空。\n\n"
+        "本节是续写起点的叙事补充（最近发生的事件、关键状态点）。如果本节"
+        "描述的时空 / 角色状态与上面【显式续写起点】(start_chapter.json) "
+        "不一致，**以显式起点 chapter_id 为准** — anchor 可能是过期的旧版本。"
+        "第 1 章的 opening_scene 必须发生在显式起点 chapter_id 之后的时空。\n\n"
         if continuation_anchor
         else ""
     )
@@ -326,8 +384,9 @@ def _build_planner_prompt(
         "6. 不要安排计划外的大转向；每章 plot_purpose 说明它在全书节奏中的作用。\n"
         "7. 如实体关系状态与辩论大纲冲突，以实体关系状态和已发生事实优先。\n"
         "8. 如已写章节滚动摘要与辩论大纲冲突，以已写章节为准（已发生 > 计划）。\n"
-        "9. 如续写起点 (must-anchor) 与辩论大纲冲突，以起点状态为准 — "
-        "用户配置的起点是新一轮规划的真实出发点。\n"
+        "9. 起点优先级：显式起点 (start_chapter.json 解析的 chapter_id) > "
+        "anchor 叙事补充 > 辩论大纲 > 其它。若 anchor 与 显式起点 不一致，"
+        "anchor 视为过期，按显式起点 chapter_id 之后的时空规划。\n"
         "10. 如已存在 plan 末尾章节给出（append 模式），新规划必须从其 ending_hook 自然承接。\n\n"
         f"# ChapterPlan JSON schema\n\n{schema}\n\n"
         f"{knowledge_block}"

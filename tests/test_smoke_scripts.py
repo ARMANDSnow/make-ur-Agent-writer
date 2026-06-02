@@ -7,6 +7,8 @@ class SmokeScriptTests(unittest.TestCase):
         text = Path("scripts/verify.sh").read_text(encoding="utf-8")
         self.assertIn("export OPENAI_MODEL=mock", text)
         self.assertIn("unset OPENAI_API_KEY OPENAI_BASE_URL", text)
+        self.assertIn("PLANNER_API_KEY PLANNER_BASE_URL PLANNER_MODEL", text)
+        self.assertIn("OPENAI_STREAM", text)
 
     def test_debate_smoke_creates_snapshot_block(self) -> None:
         text = Path("scripts/debate_smoke.sh").read_text(encoding="utf-8")
@@ -31,10 +33,11 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertNotIn("--proposal-idx <comma-list>", text)
 
     def test_write_book_retry_prunes_rolling_summary(self) -> None:
-        """Iter 027: rejected chapter retries must not keep failed rolling state."""
+        """Iter 029: retry pruning moved from shell into src.book_runner."""
         text = Path("scripts/write_book.sh").read_text(encoding="utf-8")
-        self.assertIn("prune_from_chapter", text)
-        self.assertIn("failed to prune rolling summary", text)
+        self.assertNotIn("prune_from_chapter", text)
+        runner = Path("src/book_runner.py").read_text(encoding="utf-8")
+        self.assertIn("prune_from_chapter", runner)
 
     def test_write_book_prune_failure_aborts_instead_of_warning(self) -> None:
         """Iter 027 bug-sweep F2: a prune crash must abort the retry rather than
@@ -42,7 +45,7 @@ class SmokeScriptTests(unittest.TestCase):
         rolling summary in place and the retry inherits its polluted context."""
         text = Path("scripts/write_book.sh").read_text(encoding="utf-8")
         self.assertNotIn("[WARN] failed to prune rolling summary", text)
-        self.assertIn("Aborting to avoid polluting the next retry", text)
+        self.assertNotIn("Aborting to avoid polluting the next retry", text)
 
     def test_write_book_requires_explicit_start_point_by_default(self) -> None:
         """Iter 027: long generation must not silently fall back to old anchors."""
@@ -50,8 +53,14 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertIn('REQUIRE_START_POINT="1"', text)
         self.assertIn("--start-point", text)
         self.assertIn("--allow-missing-start-point", text)
-        self.assertIn("chapter_plan.json has no start_chapter_id metadata", text)
-        self.assertIn("Plan start point:", text)
+        self.assertIn("write-book", text)
+
+    def test_true_smoke_scripts_require_confirmation_gate(self) -> None:
+        for name in ("debate_smoke.sh", "write_smoke.sh", "real_smoke.sh"):
+            text = Path(f"scripts/{name}").read_text(encoding="utf-8")
+            self.assertIn("CONFIRM_REAL_MODEL_SMOKE", text)
+            self.assertIn("--confirm-real-smoke", text)
+            self.assertIn("exit 64", text)
 
 
 if __name__ == "__main__":

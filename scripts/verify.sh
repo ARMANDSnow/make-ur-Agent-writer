@@ -3,7 +3,9 @@ set -euo pipefail
 
 # verify.sh is mock-only sanity. Drop real-model env so it never burns tokens.
 export OPENAI_MODEL=mock
-unset OPENAI_API_KEY OPENAI_BASE_URL
+unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_STREAM
+unset PLANNER_API_KEY PLANNER_BASE_URL PLANNER_MODEL
+unset DISABLE_PROMPT_CACHE WRITE_MAX_TOKENS WRITE_PROMPT_PROFILE
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

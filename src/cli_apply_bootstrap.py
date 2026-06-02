@@ -216,6 +216,8 @@ def _backup_existing(name: str, target_paths: List[Path], root: Path) -> Path | 
 
 
 def _write_anchor(root: Path, proposal: Dict[str, Any]) -> None:
+    from .start_point import get_start_chapter_id  # avoid module-import cycle
+
     path = root / "data" / "manual_overrides" / "continuation_anchor.txt"
     ensure_dir(path.parent)
     lines = [str(proposal.get("anchor_text", "")).strip(), ""]
@@ -224,6 +226,19 @@ def _write_anchor(root: Path, proposal: Dict[str, Any]) -> None:
         lines.append("关键状态点：")
         lines.extend(f"- {item}" for item in points)
     path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    # Iter 027 bugfix: stamp sidecar metadata so a future bootstrap can
+    # detect when the anchor is stale relative to a re-set
+    # start_chapter.json. Without this, the iter 020 race that produced
+    # the龙族 I 开头 anchor (set-start-point ran AFTER bootstrap) silently
+    # re-pollutes every downstream debate/plan/write.
+    sidecar = path.parent / ".continuation_anchor.meta.json"
+    write_json(
+        sidecar,
+        {
+            "start_chapter_id": get_start_chapter_id() or "",
+            "anchor_source": (proposal.get("_meta") or {}).get("generated_by", "manual"),
+        },
+    )
 
 
 def _write_style_examples(root: Path, proposal: Dict[str, Any]) -> None:

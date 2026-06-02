@@ -48,11 +48,15 @@ table.reviews td.verdict-abstain { color: #e0af68; }
 .review-detail pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0; color: #c0caf5; }
 .error { color: #f7768e; }
 form p { margin: 8px 0; }
-form input[type=text], form input[type=file], form input[name=workspace] { background: #11141c; color: #e6e6e6; border: 1px solid #2a2d35; padding: 6px 8px; border-radius: 4px; width: 260px; }
+form input[type=text], form input[type=file], form input[type=number], form input[name=workspace] { background: #11141c; color: #e6e6e6; border: 1px solid #2a2d35; padding: 6px 8px; border-radius: 4px; width: 260px; }
 form button { background: #7aa2f7; color: #11141c; border: 0; padding: 8px 16px; border-radius: 4px; font-weight: 600; cursor: pointer; }
 form button:disabled { opacity: 0.5; cursor: not-allowed; }
 .progress-bar { margin-top: 12px; height: 10px; background: #11141c; border: 1px solid #2a2d35; border-radius: 4px; overflow: hidden; }
 .progress-fill { height: 100%; background: #9ece6a; transition: width 0.3s ease; }
+.status-ready { color: #9ece6a; }
+.status-warn { color: #e0af68; }
+.status-blocked { color: #f7768e; }
+.command-list code { display: block; margin: 4px 0; padding: 6px 8px; background: #11141c; border: 1px solid #2a2d35; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
 """
 
 
@@ -86,7 +90,7 @@ JS_SETTINGS = """\
     const payload = {};
     for (const input of form.querySelectorAll('input')) {
       // Skip masked API key fields the user didn't actually edit
-      // (they'd otherwise overwrite the real key with "sk-***xxxx").
+      // (they'd otherwise overwrite the real key with a masked placeholder).
       if (input.value === initial[input.name]) continue;
       payload[input.name] = input.value;
     }
@@ -154,11 +158,11 @@ JS_WIZARD = """\
         const res = await fetch(`/api/workspace/${encodeURIComponent(name)}/job/${jobId}`);
         const job = await res.json();
         renderProgress(job);
-        if (job.status === 'done') {
+        if (job.status === 'succeeded') {
           progressBody.innerHTML += `<p><a href="/workspace/${encodeURIComponent(name)}/">→ 进入 dashboard</a></p>`;
           return;
         }
-        if (job.status === 'error') {
+        if (['blocked', 'failed', 'aborted', 'lost'].includes(job.status)) {
           progressBody.innerHTML += `<p class="error">失败: ${escapeHtml(job.error || '')} (trace_id=${job.trace_id || '?'})</p>`;
           return;
         }
@@ -193,24 +197,36 @@ JS_DASHBOARD = """\
 (async function () {
   const ws = window.WORKSPACE_NAME;
   if (!ws) return;
-  const panels = document.querySelectorAll('.panel-body');
+  const panels = document.querySelectorAll('.panel-body[data-source]');
   for (const panel of panels) {
     const source = panel.dataset.source;
     try {
-      const res = await fetch(`/api/workspace/${encodeURIComponent(ws)}/${source}`);
+      const res = await fetch(sourceUrl(source));
       const data = await res.json();
       panel.innerHTML = render(source, data);
     } catch (err) {
       panel.innerHTML = `<span class="error">load failed: ${err}</span>`;
     }
   }
+  bindWriteBook();
 
   function render(kind, data) {
     if (kind === 'status') return renderKV(data);
     if (kind === 'cost') return renderKV(data);
     if (kind === 'manifest') return renderManifest(data);
     if (kind === 'reviews') return renderReviews(data);
+    if (kind === 'readiness') return renderReadiness(data);
     return `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+  }
+
+  function sourceUrl(source) {
+    if (source === 'readiness') {
+      const form = document.getElementById('write-book-form');
+      const chapters = form?.elements?.chapters?.value || '1';
+      const resumeFrom = form?.elements?.resume_from?.value || '1';
+      return `/api/workspace/${encodeURIComponent(ws)}/readiness?chapters=${encodeURIComponent(chapters)}&resume_from=${encodeURIComponent(resumeFrom)}`;
+    }
+    return `/api/workspace/${encodeURIComponent(ws)}/${source}`;
   }
 
   function renderKV(obj) {
@@ -229,6 +245,23 @@ JS_DASHBOARD = """\
     const rows = chs.slice(0, 200).map((c, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(c.chapter_id || '')}</td><td>${escapeHtml(c.title || '')}</td><td>${escapeHtml(String(c.char_count ?? ''))}</td></tr>`).join('');
     const more = chs.length > 200 ? `<p class="muted">(${chs.length - 200} more rows hidden)</p>` : '';
     return `<table class="reviews">${head}${rows}</table>${more}`;
+  }
+
+  function renderReadiness(data) {
+    const status = data.status || 'unknown';
+    const blockers = data.blockers || [];
+    const warnings = data.warnings || [];
+    const commands = data.recommended_commands || [];
+    const rows = [
+      `<div class="k">status</div><div class="status-${escapeHtml(status)}">${escapeHtml(status)}</div>`,
+      `<div class="k">chapters</div><div>${escapeHtml(String(data.chapters || '?'))}</div>`,
+      `<div class="k">resume_from</div><div>${escapeHtml(String(data.resume_from || '?'))}</div>`,
+    ];
+    let html = `<div class="kv">${rows.join('')}</div>`;
+    if (blockers.length) html += `<p class="error">${blockers.map(escapeHtml).join('<br>')}</p>`;
+    if (warnings.length) html += `<p class="muted">${warnings.map(escapeHtml).join('<br>')}</p>`;
+    if (commands.length) html += `<div class="command-list">${commands.map((c) => `<code>${escapeHtml(c)}</code>`).join('')}</div>`;
+    return html;
   }
 
   function renderReviews(data) {
@@ -275,5 +308,95 @@ JS_DASHBOARD = """\
     const detail = document.getElementById(`detail-${row.dataset.ch}`);
     if (detail) detail.hidden = !detail.hidden;
   });
+
+  function bindWriteBook() {
+    const form = document.getElementById('write-book-form');
+    const submit = document.getElementById('write-book-submit');
+    const jobBox = document.getElementById('write-job-status');
+    const readyPanel = document.querySelector('.panel-body[data-source="readiness"]');
+    if (!form || !submit || !jobBox) return;
+    const refreshReadiness = async () => {
+      try {
+        const res = await fetch(sourceUrl('readiness'));
+        const data = await res.json();
+        readyPanel.innerHTML = renderReadiness(data);
+        submit.disabled = data.status === 'blocked';
+      } catch (err) {
+        readyPanel.innerHTML = `<span class="error">load failed: ${err}</span>`;
+        submit.disabled = true;
+      }
+    };
+    form.addEventListener('input', refreshReadiness);
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      submit.disabled = true;
+      jobBox.innerHTML = '<span class="muted">starting…</span>';
+      const params = {
+        chapters: Number(form.elements.chapters.value || 1),
+        resume_from: Number(form.elements.resume_from.value || 1),
+        max_retries: 2,
+        replan_every: 0,
+        budget_cny: 0,
+        min_confidence: 0.7,
+        auto_advance: true,
+        require_start_point: true,
+        require_plan: true,
+        require_external_review: true,
+      };
+      try {
+        const res = await fetch(`/api/workspace/${encodeURIComponent(ws)}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step: 'write-book', params }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          jobBox.innerHTML = `<span class="error">${escapeHtml(data.error || 'start failed')}</span>`;
+          submit.disabled = false;
+          return;
+        }
+        await pollJob(data.job_id, jobBox, submit, refreshReadiness);
+      } catch (err) {
+        jobBox.innerHTML = `<span class="error">network error: ${escapeHtml(err)}</span>`;
+        submit.disabled = false;
+      }
+    });
+    refreshReadiness();
+  }
+
+  async function pollJob(jobId, box, submit, refreshReadiness) {
+    while (true) {
+      const res = await fetch(`/api/workspace/${encodeURIComponent(ws)}/job/${jobId}`);
+      const job = await res.json();
+      const pct = Math.round((job.progress || 0) * 100);
+      box.innerHTML = `
+        <div class="kv">
+          <div class="k">job</div><div><code>${escapeHtml(jobId)}</code></div>
+          <div class="k">status</div><div>${escapeHtml(job.status || '?')}</div>
+          <div class="k">step</div><div>${escapeHtml(job.current_step || '?')}</div>
+          <div class="k">progress</div><div>${pct}%</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        ${renderJobSummary(job.result_summary)}
+        ${job.error ? `<p class="error">${escapeHtml(job.error)}</p>` : ''}`;
+      if (['succeeded', 'blocked', 'failed', 'aborted', 'lost', 'budget_exceeded'].includes(job.status)) {
+        submit.disabled = false;
+        await refreshReadiness();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  function renderJobSummary(summary) {
+    if (!summary || typeof summary !== 'object') return '';
+    const rows = [];
+    for (const [k, v] of Object.entries(summary)) {
+      if (v === undefined || v === null) continue;
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      rows.push(`<div class="k">${escapeHtml(k)}</div><div>${escapeHtml(val)}</div>`);
+    }
+    return rows.length ? `<div class="kv">${rows.join('')}</div>` : '';
+  }
 })();
 """

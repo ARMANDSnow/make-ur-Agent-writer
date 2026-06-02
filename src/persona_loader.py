@@ -30,7 +30,7 @@ from typing import Any, Dict, Optional, Tuple
 from . import paths
 from .config import ROOT
 from .state import log_event
-from .utils import read_json
+from .utils import read_json_optional
 
 
 # Legacy constant — kept for iter 014-016 test backward compat
@@ -74,7 +74,7 @@ def load_personas(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
 
     if path is None:
         path = _personas_path()
-    data = read_json(path, None)
+    data = read_json_optional(path, None)
     if not isinstance(data, dict):
         return None
     if not str(data.get("protagonist_name") or "").strip():

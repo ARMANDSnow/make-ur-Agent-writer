@@ -68,7 +68,7 @@ bash scripts/debate_smoke.sh  # 下一轮 debate 真模型联调入口（当前 
 | `python3 main.py preflight`（mock） | ✅ warn，0 FATAL |
 | `bash scripts/real_smoke.sh`（DeepSeek-V3） | ✅ 2 章 extract 0 failure，前后两次 preflight 均 warn 0 FATAL |
 | 日志干净度 | ✅ 清理 4 条早期 litellm 本地拒错残留 |
-| 全仓 `grep "sk-"` | ✅ 无命中 |
+| 全仓 secret-like key 扫描 | ✅ 无命中 |
 
 ## 关键数字
 

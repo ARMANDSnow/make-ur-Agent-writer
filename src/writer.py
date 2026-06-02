@@ -17,7 +17,7 @@ from .reviewer import review_text
 from .schemas import ChapterPlan, ChapterSummary, EntityAdvanceProposalSet, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
-from .utils import ensure_dir, read_json, write_json
+from .utils import ensure_dir, read_json, sha256_text, write_json
 
 
 # Legacy constants — kept so iter 014-016 tests that ``patch("src.writer.DRAFTS_DIR", ...)``
@@ -84,8 +84,6 @@ def write_chapters(
     rolling_snippet_chapters = 0 if light_prompt else 3
     for chapter_no in range(int(resume_from), int(resume_from) + int(chapters)):
         out_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
-        if out_path.exists() and not force:
-            continue
         rolling_path = drafts_dir / "rolling_chapter_summary.json"
         rolling_context = render_rolling_context(
             max_chapters=rolling_max_chapters,
@@ -94,6 +92,23 @@ def write_chapters(
         )
         previous_chapter_ending = latest_ending_state(path=rolling_path)
         chapter_plan_item = _chapter_plan_item(chapter_plan, chapter_no)
+        run_context = _run_context(chapter_plan_item, chapter_no=chapter_no)
+        if out_path.exists() and not force:
+            if run_context.get("start_point_fingerprint") or run_context.get("chapter_plan_item_fingerprint"):
+                from .chapter_status import chapter_status
+
+                status = chapter_status(
+                    chapter_no,
+                    drafts_dir,
+                    validate_context=True,
+                    require_start_point=bool(run_context.get("start_point_fingerprint")),
+                    require_plan=bool(run_context.get("chapter_plan_item_fingerprint")),
+                    expected_context=run_context,
+                )
+                if status.get("approved"):
+                    continue
+            else:
+                continue
         # Debug fix: derive enforce_relationship_checklist from the plan.
         # The relationship-consistency agent's strict checklist mode is
         # right for chapters with a small, tight cast (≤ 4 relationships
@@ -150,6 +165,8 @@ def write_chapters(
                             rewrite_round=attempt - 1,
                             run_agents_on_lint_error=True,
                             enforce_relationship_checklist=enforce_checklist_mode,
+                            run_context=run_context,
+                            draft_sha256=_draft_file_sha256(draft),
                         )
                         lint_blocked_reviews.append({"attempt": attempt, "review": shadow_review})
                     except Exception as exc:
@@ -199,6 +216,8 @@ def write_chapters(
                 knowledge=knowledge[:6000] if knowledge else "",
                 source_chapters=review_source,
                 scene_excerpts=scene_excerpts_text,
+                run_context=run_context,
+                draft_sha256=_draft_file_sha256(draft),
             )
             if report["verdict"] == "Approve":
                 last_blocking_reasons = []
@@ -217,20 +236,23 @@ def write_chapters(
             )
         )
         if needs_polish:
-            polished = _polish_draft(
-                client=client,
-                draft=draft,
-                lint_issues=last_lint_issues,
-                review_report=report,
-                style_examples=style_examples,
-                continuation_anchor=continuation_anchor,
-                chinese_chars=chinese_chars,
-            )
-            if polished:
-                pre_chars = len(draft)
-                draft = polished.strip()
-                polish_applied = True
-                polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
+            try:
+                polished = _polish_draft(
+                    client=client,
+                    draft=draft,
+                    lint_issues=last_lint_issues,
+                    review_report=report,
+                    style_examples=style_examples,
+                    continuation_anchor=continuation_anchor,
+                    chinese_chars=chinese_chars,
+                )
+                if polished:
+                    pre_chars = len(draft)
+                    draft = polished.strip()
+                    polish_applied = True
+                    polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
+            except Exception as exc:
+                report["polish_error"] = f"{type(exc).__name__}: {exc}"
 
         chapter_summary = _summarize_chapter(client, chapter_no, draft)
         # Iter 022 B5: store an opening + ending snippet (~500 chars each
@@ -264,9 +286,12 @@ def write_chapters(
                 "chinese_char_count": count_chinese_chars(draft),
                 "polish_applied": polish_applied,
                 "polish_diff_stats": polish_diff_stats,
+                "polish_error": report.get("polish_error", ""),
                 "lint_blocked_reviews": lint_blocked_reviews,
                 "last_blocking_reasons": last_blocking_reasons,
                 "draft_preview": draft[:2000],
+                "run_context": run_context,
+                "draft_sha256": _draft_file_sha256(draft),
             }
             write_json(failure_path, failure_report)
             meta = {
@@ -280,9 +305,12 @@ def write_chapters(
                 "needs_human_review": True,
                 "polish_applied": polish_applied,
                 "polish_diff_stats": polish_diff_stats,
+                "polish_error": report.get("polish_error", ""),
                 "lint_blocked_reviews": lint_blocked_reviews,
                 "last_blocking_reasons": last_blocking_reasons,
                 "failure_path": str(failure_path),
+                "run_context": run_context,
+                "draft_sha256": _draft_file_sha256(draft),
             }
             write_text_atomic(out_path, draft + "\n")
             write_json(meta_path, meta)
@@ -304,7 +332,10 @@ def write_chapters(
             meta["needs_human_review"] = report.get("verdict") != "Approve"
             meta["polish_applied"] = polish_applied
             meta["polish_diff_stats"] = polish_diff_stats
+            meta["polish_error"] = report.get("polish_error", "")
             meta["lint_blocked_reviews"] = lint_blocked_reviews
+            meta["run_context"] = run_context
+            meta["draft_sha256"] = _draft_file_sha256(draft)
             if report.get("verdict") != "Approve":
                 meta["last_blocking_reasons"] = last_blocking_reasons
             write_text_atomic(out_path, draft + "\n")
@@ -371,6 +402,41 @@ def _chapter_plan_item(chapter_plan: Optional[Dict[int, Dict[str, Any]]], chapte
     if item is None:
         raise ValueError(f"chapter_plan.json exists but has no plan for chapter {chapter_no}")
     return item
+
+
+def _run_context(chapter_plan_item: Optional[Dict[str, Any]], *, chapter_no: int) -> Dict[str, Any]:
+    from .plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
+
+    start_chapter_id = start_point.get_start_chapter_id() or ""
+    start_fp = start_point.start_point_fingerprint()
+    plan_data: Dict[str, Any] = {}
+    plan_path = _chapter_plan_path()
+    if plan_path.exists():
+        raw = read_json(plan_path, {})
+        if isinstance(raw, dict):
+            plan_data = raw
+    item_fp = ""
+    if chapter_plan_item:
+        item_fp = str(
+            chapter_plan_item.get("chapter_plan_item_fingerprint")
+            or chapter_plan_item_fingerprint(chapter_plan_item)
+        )
+    return {
+        "schema_version": 1,
+        "chapter_no": int(chapter_no),
+        "start_chapter_id": str(plan_data.get("start_chapter_id") or start_chapter_id),
+        "start_point_fingerprint": str(
+            plan_data.get("start_point_fingerprint") or start_fp
+        ),
+        "chapter_plan_item_fingerprint": item_fp,
+        "plan_fingerprint": str(plan_data.get("plan_fingerprint") or (plan_fingerprint(plan_data) if plan_data else "")),
+    }
+
+
+def _draft_file_sha256(draft: str) -> str:
+    """Hash the exact text writer persists to chapter_NN.md."""
+
+    return sha256_text(draft + "\n")
 
 
 def _complete_write_text(client: LLMClient, messages: List[Dict[str, str]], cache_segments: List[Dict[str, Any]]) -> str:

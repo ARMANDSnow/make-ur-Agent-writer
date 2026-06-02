@@ -17,7 +17,10 @@ def load_style_examples(root: Path | None = None) -> str:
     for path in sorted(examples_dir.glob("*.md")):
         if path.name.lower() == "readme.md":
             continue
-        text = path.read_text(encoding="utf-8").strip()
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            continue
         if text:
             parts.append(f"### {path.stem}\n\n{text}")
     return "\n\n---\n\n".join(parts)

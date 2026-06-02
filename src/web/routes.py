@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .. import paths
+from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
@@ -142,6 +143,21 @@ def api_workspace_reviews(name: str) -> Tuple[int, str, bytes]:
         return _json(404, {"error": f"workspace not found: {name}"})
     with use_workspace(name):
         return _json(200, aggregate_reviews(paths.drafts_dir()))
+
+
+def api_workspace_readiness(
+    name: str,
+    chapters: int = 1,
+    resume_from: int = 1,
+    replan_every: int = 0,
+) -> Tuple[int, str, bytes]:
+    if not _validate_workspace_name(name):
+        return _json(400, {"error": "invalid workspace name"})
+    if not _workspace_exists(name):
+        return _json(404, {"error": f"workspace not found: {name}"})
+    with use_workspace(name):
+        result = check_write_readiness(chapters=chapters, resume_from=resume_from, replan_every=replan_every)
+    return _json(200, result)
 
 
 def api_workspace_logs_tail(name: str, n: int = 50) -> Tuple[int, str, bytes]:
@@ -314,6 +330,16 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: api_workspace_reviews(name)),
     (
         "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/readiness/?$"),
+        lambda name, _query=None, **_: api_workspace_readiness(
+            name,
+            chapters=_parse_int(_query, "chapters", 1),
+            resume_from=_parse_int(_query, "resume_from", 1),
+            replan_every=_parse_int(_query, "replan_every", 0),
+        ),
+    ),
+    (
+        "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/logs/tail/?$"),
         lambda name, _query=None, **_: api_workspace_logs_tail(name, n=_parse_n(_query)),
     ),
@@ -352,6 +378,16 @@ def _parse_n(query: Dict[str, List[str]] | None) -> int:
         return int(raw[0])
     except (TypeError, ValueError):
         return 50
+
+
+def _parse_int(query: Dict[str, List[str]] | None, key: str, default: int) -> int:
+    if not query:
+        return default
+    raw = query.get(key, [str(default)])
+    try:
+        return int(raw[0])
+    except (TypeError, ValueError):
+        return default
 
 
 def dispatch(

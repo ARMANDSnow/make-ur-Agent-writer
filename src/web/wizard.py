@@ -163,8 +163,8 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     try:
         job = jobs.start_job(
             name,
-            "auto-pipeline",
-            {"chapters": 1, "extract_limit": 5, "force": True},
+            "auto-pipeline-greenfield",
+            {"chapters": 1, "extract_limit": 5, "force": True, "require_start_point": False},
         )
     except (ValueError, RuntimeError) as exc:
         # Roll back the half-created workspace so the user can retry

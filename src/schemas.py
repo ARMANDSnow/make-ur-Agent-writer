@@ -100,7 +100,7 @@ class AgentSubScores(BaseModel):
 
 class AgentReview(BaseModel):
     agent_name: str
-    verdict: str = Field(description="Approve or Reject")
+    verdict: Literal["Approve", "Reject"] = Field(description="Approve or Reject")
     # Iter 022 B3: new 3-axis sub-scores. The legacy `score` field is
     # kept for backward read of iter 020/021 meta.json files but is now
     # *derived* from sub-scores via weighted average if not explicitly
@@ -144,6 +144,7 @@ class ChapterPlanItem(BaseModel):
     ending_hook: str = Field(description="本章结尾留给下章承接的钩子")
     target_chinese_chars: int = Field(default=4000, ge=2500, le=6000)
     plot_purpose: str = Field(description="本章在整本书情节弧线中的作用")
+    chapter_plan_item_fingerprint: str = ""
 
 
 class ChapterPlan(BaseModel):
@@ -151,6 +152,10 @@ class ChapterPlan(BaseModel):
     overall_arc: str = Field(description="整本书的情节弧线")
     chapters: List[ChapterPlanItem]
     generated_by: str = "plot_planner_v1"
+    schema_version: int = 1
+    start_chapter_id: str = ""
+    start_point_fingerprint: str = ""
+    plan_fingerprint: str = ""
 
 
 def _coerce_confidence(value: Any) -> Any:

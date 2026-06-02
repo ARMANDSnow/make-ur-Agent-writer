@@ -185,6 +185,9 @@ class PlotPlannerAppendTests(unittest.TestCase):
         self.assertEqual(result["start_chapter_id"], "v1_ch003")
         saved = json.loads((self.ws_root / "outputs" / "debate" / "chapter_plan.json").read_text(encoding="utf-8"))
         self.assertEqual(saved["start_chapter_id"], "v1_ch003")
+        self.assertTrue(saved["start_point_fingerprint"])
+        self.assertTrue(saved["plan_fingerprint"])
+        self.assertTrue(saved["chapters"][0]["chapter_plan_item_fingerprint"])
 
 
 if __name__ == "__main__":

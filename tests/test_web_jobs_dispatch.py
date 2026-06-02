@@ -52,13 +52,18 @@ class JobsDispatchTests(unittest.TestCase):
                 "GET", f"/api/workspace/{workspace}/job/{job_id}"
             )
             rec = json.loads(body)
-            if rec.get("status") in ("done", "error"):
+            if rec.get("status") in ("succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"):
                 return rec
             time.sleep(0.05)
         self.fail(f"job {job_id} did not finish in {timeout}s")
 
     def test_unknown_step_400(self) -> None:
         status, data = self._post_run("alpha", {"step": "no-such-step"})
+        self.assertEqual(status, 400)
+        self.assertIn("unknown step", data["error"])
+
+    def test_generic_auto_pipeline_not_in_web_production_whitelist(self) -> None:
+        status, data = self._post_run("alpha", {"step": "auto-pipeline"})
         self.assertEqual(status, 400)
         self.assertIn("unknown step", data["error"])
 
@@ -76,7 +81,7 @@ class JobsDispatchTests(unittest.TestCase):
 
     def test_concurrent_same_workspace_409(self) -> None:
         # The first job must remain in flight when we fire the second
-        # call, so we use a long-ish step. ``auto-pipeline`` needs a
+        # call, so we use a long-ish step. ``auto-pipeline-greenfield`` needs a
         # seeded raw txt to make progress; we don't care about its
         # outcome, only that it occupies the slot.
         (paths.WORKSPACE_DIR / "alpha" / "小说txt" / "sample.txt").write_text(
@@ -84,7 +89,7 @@ class JobsDispatchTests(unittest.TestCase):
         )
         s1, d1 = self._post_run(
             "alpha",
-            {"step": "auto-pipeline", "params": {"chapters": 1, "extract_limit": 1, "force": True}},
+            {"step": "auto-pipeline-greenfield", "params": {"chapters": 1, "extract_limit": 1, "force": True}},
         )
         self.assertEqual(s1, 202)
         s2, d2 = self._post_run("alpha", {"step": "normalize"})
@@ -147,6 +152,53 @@ class JobsDispatchTests(unittest.TestCase):
             "GET", f"/api/workspace/beta/job/{d1['job_id']}"
         )
         self.assertEqual(status, 404)
+
+    def test_write_book_job_surfaces_blocked_summary(self) -> None:
+        with unittest.mock.patch(
+            "src.web.jobs.run_write_book",
+            return_value={
+                "status": "blocked",
+                "chapters": [{"chapter": 1}],
+                "blocked": [{"chapter": 1, "reason": "retry_exhausted"}],
+                "snapshot_path": "outputs/drafts/snapshots/write_book_blocked.json",
+            },
+        ):
+            status, data = self._post_run("alpha", {"step": "write-book", "params": {"chapters": 1}})
+            self.assertEqual(status, 202)
+            job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(job["status"], "blocked")
+        self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "retry_exhausted")
+        self.assertIn("snapshot_path", job["result_summary"])
+
+    def test_write_book_job_preserves_zero_min_confidence(self) -> None:
+        with unittest.mock.patch(
+            "src.web.jobs.run_write_book",
+            return_value={"status": "succeeded", "chapters": [], "blocked": []},
+        ) as run:
+            status, data = self._post_run(
+                "alpha",
+                {"step": "write-book", "params": {"chapters": 1, "min_confidence": 0}},
+            )
+            self.assertEqual(status, 202)
+            self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(run.call_args.kwargs["min_confidence"], 0.0)
+
+    def test_write_book_budget_exceeded_terminal_status(self) -> None:
+        with unittest.mock.patch(
+            "src.web.jobs.run_write_book",
+            return_value={
+                "status": "budget_exceeded",
+                "chapters": [{"chapter": 1}],
+                "blocked": [],
+                "budget_cny": 1.0,
+                "cost_cny": 1.2,
+            },
+        ):
+            status, data = self._post_run("alpha", {"step": "write-book", "params": {"chapters": 1}})
+            self.assertEqual(status, 202)
+            job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(job["status"], "budget_exceeded")
+        self.assertEqual(job["result_summary"]["cost_cny"], 1.2)
 
 
 if __name__ == "__main__":

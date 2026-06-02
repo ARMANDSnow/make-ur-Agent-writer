@@ -127,6 +127,16 @@ class StartPointTests(unittest.TestCase):
         # idempotent — second clear doesn't raise
         self.start_point.clear_start_point()
 
+    def test_start_point_fingerprint_is_stable_and_manifest_sensitive(self) -> None:
+        self.start_point.set_start_point("v1_ch003")
+        first = self.start_point.start_point_fingerprint()
+        self.assertEqual(first, self.start_point.start_point_fingerprint())
+        manifest_path = self.ws_root / "data" / "chapter_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest[2]["title"] = "third revised"
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        self.assertNotEqual(first, self.start_point.start_point_fingerprint())
+
 
 if __name__ == "__main__":
     unittest.main()

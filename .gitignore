@@ -1,5 +1,7 @@
 # --- secrets ---
 .env
+.env.*
+!.env.example
 .env.backup*
 .env.local
 .env.*.local

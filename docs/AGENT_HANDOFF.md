@@ -147,7 +147,7 @@
   - DeepSeek approved block after the initial sandbox error was 38/38 ok (`write=6`, `review=32`), with logged prompt 375,949 / response 43,155 / cache_read 273,920 / cache_write 102,029 tokens.
   - Caveats for follow-up: chapter 1 entity proposal output was malformed and fell back to `proposed_advances=[]`, so C2/D3 relationship-advance workflow was not truly exercised; chapter 2 summary used local fallback because `ending_state` came back as an object instead of string.
 - Iteration 014 plot planner + multi-provider LLM support:
-  - Added task-level `api_key_env` / `base_url_env` support in model config and LLM client configuration. Existing write/extract/review tasks still inherit the current `OPENAI_*` route, while the new planner task uses `PLANNER_API_KEY` and `PLANNER_BASE_URL`.
+  - Added per-task `api_key_env` / `base_url_env` support in model config and LLM client configuration. Existing write/extract/review tasks still inherit the current `OPENAI_*` route, while the new planner task uses `PLANNER_API_KEY` and `PLANNER_BASE_URL`.
   - Added `plot_planner` task in `config/models.yaml` with an OpenAI-compatible planner model route, 0.4 temperature, 16k max tokens, and 200k context limit.
   - Added `src/plot_planner.py` and `python3 main.py plan-chapters --chapters N [--force]`, writing `outputs/debate/chapter_plan.json`.
   - Added `ChapterPlanItem` / `ChapterPlan` schemas. Each chapter carries `title`, `opening_scene`, `key_events`, `relationships_in_play`, `ending_hook`, `target_chinese_chars`, and `plot_purpose`.
@@ -559,3 +559,69 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 2. `python3 main.py --book longzu plan-chapters --chapters 30 --force --require-start-point`(真模型 gpt-5.5-high,~¥1-2)
 3. 校验新 `chapter_plan.json` 的 `start_chapter_id` + 前 3 章 plot_purpose,确认起点正确
 4. **不要**自己启动 `write_book.sh` 或 `auto-pipeline write` — 进真模型 30 章 write 前必须再向用户确认 budget / watchdog / dashboard 配置
+
+---
+
+## Phase 4 Status（iter 028，2026-05-30）
+
+### Iteration 028 — 系统性 hardening（已完成，mock-only）
+
+**目标**：把长程生产写作入口从 shell / WebUI / auto-pipeline 分叉收敛成可恢复、可审计、fail-closed 的稳定链路，避免 iter27 wrong-start、旧章节跳过、Reject 被当 done、真模型误跑和 reviewer fail-open。
+
+**主要落地**：
+- 新增 start point / plan / chapter item / draft / external review 指纹链：`start_point_fingerprint`、`plan_fingerprint`、`chapter_plan_item_fingerprint`、`draft_sha256`。
+- `chapter_status()` 增加 strict mode：legacy meta、start/plan mismatch、draft hash mismatch、external review missing/reject/stale 都不算 approved。
+- 新增 `src/book_runner.py::run_write_book()`：生产入口统一到 `write-book` 语义，做 start/plan/preflight gate、stale artifact archive、existing review recheck、blocked/succeeded/failed snapshot。
+- Web 普通生产入口改为 `write-book`；raw writer 仅保留 `draft-once-dev`；wizard 绿地 onboarding 改为 `auto-pipeline-greenfield`；job 状态改为 `succeeded/blocked/failed/aborted/lost` 并落 `logs/web_jobs.jsonl`。
+- reviewer fail-closed：`AgentReview.verdict` 收紧为 `Literal["Approve","Reject"]`；未知 verdict 不再默认 Approve；schema-invalid agent 走 simple fallback，否则 Abstain；全 Abstain 顶层 Reject。
+- `LLMClient.complete_json()` 增加 schema-invalid repair；streaming base_url 做 URL normalization；polish 失败不阻断 draft/meta 落盘。
+- 安全护栏：`.env.*` ignore（保留 `.env.example`）、tracked provider-key literal 清零、真实 smoke 需 `CONFIRM_REAL_MODEL_SMOKE=可以跑了` 或 `--confirm-real-smoke`、verify/test env scrub planner/runtime vars。
+- optional data graceful degrade：坏 `entity_graph.json` → `{}`，坏 `global_facts.json` → `[]`，坏 personas → `None`，坏 style example 单文件跳过。
+- KB 起点过滤只落 preflight WARN；未标成完全解决。
+
+**验证**：
+- `PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock <bundled-python> -m unittest discover -s tests` → **404 OK**（本机 socket 权限；沙箱内 Web server bind 会 PermissionError）。
+- `PATH="<bundled-python-dir>:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock bash scripts/verify.sh` → **OK**，404 tests OK + mock auto-pipeline OK。
+- `PATH="<bundled-python-dir>:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock python3 main.py preflight` → **PREFLIGHT ok**，FATAL none，WARN none。
+
+**当前接力点**：
+1. 真模型仍未跑；不要自动执行 `real_smoke.sh` / `debate_smoke.sh` / `write_smoke.sh`。
+2. longzu 真长跑建议入口改为 `python3 main.py --book longzu write-book --chapters N` 或 Web `write-book`，而不是 raw `write` / generic `auto-pipeline`。
+3. 如果继续从第三部后面重跑：先设置 start point、重生成/校验 plan fingerprints，再向用户确认 budget 后进 `write-book`。
+4. 后续 P2：实现真正 `knowledge_for_start_point()` 安全 KB view + entity_graph timeline chapter marker schema WARN/升级。
+
+---
+
+## Phase 4 Status（iter 029，2026-06-02）
+
+### Iteration 029 — 本地 Beta 上线入口：可靠“继续写书”按钮（mock-only）
+
+**目标**：把 iter 028 的严格生产 runner 进一步产品化。本地单用户 Beta 不再要求用户理解 shell loop / Web step / strict status 的差异；入口统一为 `write-readiness → write-book`，先暴露阻塞原因与推荐命令，再启动续写。
+
+**主要落地**：
+- 新增 `python3 main.py write-readiness --chapters N [--resume-from M] [--replan-every K]`，输出 JSON：`status=ready|warn|blocked`、`blockers[]`、`warnings[]`、workspace-aware `recommended_commands[]`。
+- `src/book_runner.py` 接管原 shell 生产语义：`max_retries`、budget ceiling、auto re-plan append、proposal-vs-plan 冲突检测、auto-advance、retry 归档与 rolling summary prune。iter029 code-review 后修复 replan window：readiness 只要求首个 replan window，runner 按 run offset 触发 append，append 成功后 reload plan，append 失败落 blocked snapshot。
+- `scripts/write_book.sh` 改为薄 wrapper：兼容 `--book`、`--chapters`、`--max-retries`、`--budget-cny`、`--replan-every`、`--min-confidence`、`--no-auto-advance` 等参数，但不再包含 raw `main.py write` / `review-chapter` / `chapter-status` 循环。
+- `write-book` CLI 扩展同一组参数；`budget_exceeded` 返回 exit 3，blocked 返回 exit 4。
+- Web dashboard 增加“继续写书”主操作区：章节数、起始章、readiness 展示、阻塞原因、推荐命令、启动后 job polling。`draft-once-dev` 保留为开发 step，但不在普通 dashboard 主操作区展示。
+- 既有 Reject / needs_human_review / stale external review 旧产物会让 readiness / write-book blocked；用户检查后可显式 `--force`，由 runner 归档后重写。
+
+**验证进度**：
+- Targeted Iter029 tests：`tests.test_book_runner tests.test_write_book_script tests.test_write_book_replan_budget tests.test_smoke_scripts tests.test_web_routes_get tests.test_web_jobs_dispatch` → 56 OK。
+- `py_compile main.py src/*.py src/web/*.py tests/*.py` → OK。
+- Full `unittest discover -s tests` → 412 OK（普通沙箱 5 个 Web socket bind 测试 PermissionError；提权后 OK）。
+- `scripts/verify.sh` → OK，412 tests OK + mock auto-pipeline OK（普通沙箱 socket bind 失败；提权后 OK）。
+- `python3 main.py preflight` → PREFLIGHT ok；FATAL none；WARN none。
+- 本轮不跑真模型 smoke，不改 `.env`。
+
+**当前推荐真模型长跑入口**：
+1. `python3 main.py --book <name> write-readiness --chapters N`
+2. 如 blocked 且原因是旧 plan / 指纹缺失：`python3 main.py --book <name> plan-chapters --chapters N --force --require-start-point`
+3. 再跑 readiness，确认 `ready` 或只剩可接受 WARN。
+4. 用户明确授权真模型与 budget 后：`python3 main.py --book <name> write-book --chapters N --budget-cny <ceiling> --replan-every K`
+
+**后续候选**：
+- 真模型 capstone（30-100 章）应从上述入口启动。
+- 实现真正 `knowledge_for_start_point()` / KB 安全视图。
+- entity_graph timeline schema 增加 chapter marker 并提供 preflight 升级提示。
+- WebUI 下一步可做 draft review/edit、安全 KB view、长跑监控与成本仪表。

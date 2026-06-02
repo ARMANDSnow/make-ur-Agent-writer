@@ -47,7 +47,7 @@ class WizardE2ETests(unittest.TestCase):
         while time.time() < deadline:
             _, _, body = routes.dispatch("GET", f"/api/workspace/{ws}/job/{job_id}")
             rec = json.loads(body)
-            if rec.get("status") in ("done", "error"):
+            if rec.get("status") in ("succeeded", "blocked", "failed", "aborted", "lost"):
                 return rec
             time.sleep(0.05)
         self.fail("job did not finish")
@@ -66,7 +66,7 @@ class WizardE2ETests(unittest.TestCase):
         data = json.loads(resp)
         self.assertEqual(data["name"], "newbook")
         rec = self._wait_for_done("newbook", data["job_id"])
-        self.assertEqual(rec["status"], "done", f"job error: {rec.get('error')}")
+        self.assertEqual(rec["status"], "succeeded", f"job error: {rec.get('error')}")
         ch1 = paths.WORKSPACE_DIR / "newbook" / "outputs" / "drafts" / "chapter_01.md"
         self.assertTrue(ch1.exists(), f"missing {ch1}")
 

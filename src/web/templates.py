@@ -56,6 +56,16 @@ _WORKSPACE_TPL = Template(
   <p class="muted">workspace dashboard</p>
 </header>
 <main>
+  <section id="panel-readiness">
+    <h2>继续写书</h2>
+    <form id="write-book-form">
+      <p><label>章节数 <input name="chapters" type="number" min="1" value="1"></label></p>
+      <p><label>从第几章 <input name="resume_from" type="number" min="1" value="1"></label></p>
+      <p><button type="submit" id="write-book-submit">开始续写</button></p>
+    </form>
+    <div class="panel-body" data-source="readiness">loading…</div>
+    <div id="write-job-status" class="panel-body"></div>
+  </section>
   <section id="panel-status"><h2>Status</h2><div class="panel-body" data-source="status">loading…</div></section>
   <section id="panel-cost"><h2>Cost</h2><div class="panel-body" data-source="cost">loading…</div></section>
   <section id="panel-manifest"><h2>Manifest</h2><div class="panel-body" data-source="manifest">loading…</div></section>

@@ -174,7 +174,7 @@ Snapshot at `outputs/drafts/snapshots/20260523_181110_iter016/` contains the cha
 
 ## Notes
 
-- `.env` is not modified. No `sk-` ever appears in tracked files or commit messages.
+- `.env` is not modified. No secret-like API key ever appears in tracked files or commit messages.
 - Persona proposal stores only short binding strings — protagonist name, author name, world brief, relationships, rules. It never quotes source text.
 - The 关系一致性 reviewer's long system prompt still includes the relationship-checklist contract; the template version only swaps an example line so the rule-semantic identifier stays stable.
 - Commit message for the engineering step is `Iteration 016: agent persona abstraction`; the smoke commit (after user confirmation) will be `Iteration 016: record persona re-smoke results`. Neither references a specific novel name.

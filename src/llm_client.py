@@ -4,6 +4,8 @@ import json
 import hashlib
 import math
 import os
+import sys as _sys
+import types
 import time
 from typing import Any, Dict, List, Optional
 
@@ -70,11 +72,43 @@ try:
 
     _litellm.drop_params = True
 except Exception:
-    pass
+    def _missing_litellm_completion(**_kwargs: Any) -> Any:
+        raise RuntimeError("litellm is required for real model calls")
+
+    _litellm = types.ModuleType("litellm")
+    _litellm.drop_params = True
+    _litellm.completion = _missing_litellm_completion
+    _sys.modules.setdefault("litellm", _litellm)
+
+
+# Iter 027 bugfix: litellm/__init__.py:20 calls dotenv.load_dotenv() on
+# import, which leaks `OPENAI_STREAM=1` from .env into os.environ EVEN
+# under unittest. tests/__init__.py also pops it, but `python -m unittest
+# discover` does NOT reliably import the tests package — so we also pop
+# here, scoped to unittest runs (sys.argv detection mirrors
+# src/config.py:_running_under_unittest_discover). Per-test patch.dict()
+# of OPENAI_STREAM=1 still wins because LLMClient.__init__ re-reads env.
+from urllib.parse import urlparse
+
+if "unittest" in _sys.modules or any("unittest" in str(a) for a in _sys.argv):
+    os.environ.pop("OPENAI_STREAM", None)
 
 
 class LLMContextOverflowError(RuntimeError):
     pass
+
+
+def _normalize_url(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    parsed = urlparse(text)
+    if not parsed.scheme or not parsed.netloc:
+        return text.rstrip("/")
+    path = parsed.path.rstrip("/")
+    return parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), path=path).geturl()
 
 
 class LLMClient:
@@ -95,8 +129,8 @@ class LLMClient:
         # a single proxy serve both task families safely while still
         # blocking streaming to a separately-configured proxy that may
         # not have keep-alive yet. Per-call stream=True/False overrides.
-        main_url = os.environ.get("OPENAI_BASE_URL")
-        this_url = self.config.get("base_url")
+        main_url = _normalize_url(os.environ.get("OPENAI_BASE_URL"))
+        this_url = _normalize_url(self.config.get("base_url"))
         endpoint_streams = this_url is None or this_url == main_url
         self.stream_default = (
             _truthy_env(os.environ.get("OPENAI_STREAM"))
@@ -233,6 +267,7 @@ class LLMClient:
             self._log_call("complete_json", "ok", started, request_meta=request_meta, response_text=response_text)
             return result
         content = self.complete_text(messages)
+        data: Dict[str, Any]
         try:
             data = json.loads(extract_json_object(content))
         except (json.JSONDecodeError, ValueError) as exc:
@@ -257,7 +292,7 @@ class LLMClient:
                         temperature=0,
                     )
                     data = json.loads(extract_json_object(repaired))
-                    return response_model(**data)
+                    return self._validate_json_response(data, response_model, original_content=content)
                 except Exception as repair_exc:
                     raise RuntimeError(
                         f"Failed to parse {response_model.__name__} from LLM response after repair. "
@@ -270,7 +305,54 @@ class LLMClient:
                 f"Error: {type(exc).__name__}: {exc}. "
                 f"First 500 chars: {content[:500]}"
             ) from exc
-        return response_model(**data)
+        return self._validate_json_response(data, response_model, original_content=content)
+
+    def _validate_json_response(
+        self,
+        data: Dict[str, Any],
+        response_model: type[BaseModel],
+        *,
+        original_content: str,
+    ) -> BaseModel:
+        try:
+            return response_model(**data)
+        except Exception as exc:
+            if self.config.get("json_repair", True):
+                try:
+                    repaired = self.complete_text(
+                        [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You repair JSON that is syntactically valid but fails schema validation. "
+                                    "Output only one JSON object matching the requested response model."
+                                ),
+                            },
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"Response model: {response_model.__name__}\n"
+                                    f"Validation error:\n{type(exc).__name__}: {exc}\n\n"
+                                    f"Invalid JSON object:\n{json.dumps(data, ensure_ascii=False)[:4000]}"
+                                ),
+                            },
+                        ],
+                        temperature=0,
+                    )
+                    repaired_data = json.loads(extract_json_object(repaired))
+                    return response_model(**repaired_data)
+                except Exception as repair_exc:
+                    raise RuntimeError(
+                        f"Failed to validate {response_model.__name__} from LLM response after schema repair. "
+                        f"Validation error: {type(exc).__name__}: {exc}. "
+                        f"Repair error: {type(repair_exc).__name__}: {repair_exc}. "
+                        f"First 500 chars: {original_content[:500]}"
+                    ) from repair_exc
+            raise RuntimeError(
+                f"Failed to validate {response_model.__name__} from LLM response. "
+                f"Validation error: {type(exc).__name__}: {exc}. "
+                f"First 500 chars: {original_content[:500]}"
+            ) from exc
 
     def _log_call(
         self,

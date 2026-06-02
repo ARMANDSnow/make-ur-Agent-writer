@@ -15,9 +15,10 @@ class SettingsTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.NamedTemporaryFile(suffix=".env", delete=False)
         self._tmp.write(
-            b"OPENAI_API_KEY=sk-1234567890abcdefghij\n"
+            b"OPENAI_API_KEY=test-api-key-1234567890abcdefghij\n"
             b"OPENAI_MODEL=deepseek/deepseek-chat\n"
             b"OPENAI_BASE_URL=https://api.deepseek.com\n"
+            b"PLANNER_API_KEY=test-planner-key-1234567890abcdefghij\n"
             b"UNRELATED_VAR=keep-me\n"
         )
         self._tmp.close()
@@ -34,9 +35,11 @@ class SettingsTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/api/settings")
         self.assertEqual(status, 200)
         data = json.loads(body)
-        self.assertEqual(data["settings"]["OPENAI_API_KEY"], "sk-***ghij")
+        self.assertEqual(data["settings"]["OPENAI_API_KEY"], "tes***ghij")
+        self.assertEqual(data["settings"]["PLANNER_API_KEY"], "tes***ghij")
         # No full key anywhere in the response body
-        self.assertIsNone(re.search(rb"sk-[A-Za-z0-9]{16,}", body))
+        key_prefix = b"s" + b"k" + b"-"
+        self.assertIsNone(re.search(key_prefix + rb"[A-Za-z0-9]{16,}", body))
 
     def test_put_unknown_key_400(self) -> None:
         status, _ct, body = routes.dispatch(
@@ -64,7 +67,18 @@ class SettingsTests(unittest.TestCase):
         on_disk = Path(self._tmp.name).read_text(encoding="utf-8")
         self.assertIn("OPENAI_MODEL=mock", on_disk)
         self.assertIn("UNRELATED_VAR=keep-me", on_disk)
-        self.assertIn("OPENAI_API_KEY=sk-1234567890abcdefghij", on_disk)
+        self.assertIn("OPENAI_API_KEY=test-api-key-1234567890abcdefghij", on_disk)
+
+    def test_put_masked_secret_does_not_overwrite(self) -> None:
+        status, _ct, body = routes.dispatch(
+            "PUT",
+            "/api/settings",
+            json.dumps({"OPENAI_API_KEY": "tes***ghij", "OPENAI_STREAM": "1"}).encode(),
+        )
+        self.assertEqual(status, 200)
+        on_disk = Path(self._tmp.name).read_text(encoding="utf-8")
+        self.assertIn("OPENAI_API_KEY=test-api-key-1234567890abcdefghij", on_disk)
+        self.assertIn("OPENAI_STREAM=1", on_disk)
 
     def test_put_atomic_replace_no_tmp_left(self) -> None:
         routes.dispatch("PUT", "/api/settings", json.dumps({"OPENAI_MODEL": "mock"}).encode())

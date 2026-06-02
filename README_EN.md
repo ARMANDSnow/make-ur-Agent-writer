@@ -138,7 +138,7 @@ All in mock mode, ~30 seconds. Exit code 0 means the entire pipeline is wired co
 ```bash
 cp .env.example .env
 # Edit .env:
-#   OPENAI_API_KEY=sk-...
+#   OPENAI_API_KEY=<OPENAI_API_KEY>
 #   OPENAI_BASE_URL=https://api.deepseek.com
 #   OPENAI_MODEL=deepseek/deepseek-v4-pro
 #

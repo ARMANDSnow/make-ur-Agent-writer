@@ -65,7 +65,18 @@ def _repair_agent_review_dict(raw: Any, agent_name: str, enforce_relationship_ch
     repaired = dict(raw)
     repaired["agent_name"] = str(repaired.get("agent_name") or agent_name)
     verdict = str(repaired.get("verdict", "Reject")).strip().lower()
-    repaired["verdict"] = "Reject" if verdict == "reject" else "Approve"
+    verdict_aliases = {
+        "approve": "Approve",
+        "approved": "Approve",
+        "pass": "Approve",
+        "accept": "Approve",
+        "reject": "Reject",
+        "rejected": "Reject",
+        "fail": "Reject",
+        "needs_revision": "Reject",
+        "needs revision": "Reject",
+    }
+    repaired["verdict"] = verdict_aliases.get(verdict, "Abstain")
     # Iter 022 B3: prefer sub-scores when LLM provides them; legacy score
     # field stays for backward-compat with iter 020/021 mock data + tests.
     # If the LLM returned a flat plot/prose/fidelity at the top level
@@ -219,6 +230,8 @@ def review_text(
     knowledge: str = "",
     source_chapters: str = "",
     scene_excerpts: str = "",
+    run_context: Dict[str, Any] | None = None,
+    draft_sha256: str = "",
 ) -> Dict[str, Any]:
     """Iter 022 B4 + iter 023 P3/P5:
 
@@ -247,6 +260,8 @@ def review_text(
             "lint_issues": lint_issues,
             "agent_reviews": [],
             "verdict": "Reject",
+            "run_context": run_context or {},
+            "draft_sha256": draft_sha256,
         }
         write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
         return report
@@ -379,7 +394,55 @@ def review_text(
         repaired = _repair_agent_review_dict(raw, repair_name, enforce_relationship_checklist)
         # Display the rendered name in the final review report.
         repaired["agent_name"] = agent["name"]
-        result = AgentReview(**repaired)
+        if repaired.get("verdict") not in ("Approve", "Reject"):
+            log_event(
+                "review",
+                "bad_verdict_abstain",
+                target=target_name,
+                agent=agent["name"],
+                raw_verdict=str(raw.get("verdict", ""))[:80] if isinstance(raw, dict) else "",
+            )
+            reviews.append(
+                {
+                    "agent_name": agent["name"],
+                    "verdict": "Abstain",
+                    "issues": [],
+                    "_fallback_reason": "(bad_verdict)",
+                }
+            )
+            continue
+        try:
+            result = AgentReview(**repaired)
+        except Exception as exc:
+            log_event(
+                "review",
+                "schema_invalid_fallback",
+                target=target_name,
+                agent=agent["name"],
+                error=str(exc),
+            )
+            simple_raw = _simple_verdict_fallback(
+                client=client,
+                agent=agent,
+                draft=text[:18000],
+                last_response_preview=content[:500],
+                target_name=target_name,
+            )
+            if simple_raw is not None:
+                simple_raw["agent_name"] = agent["name"]
+                simple_raw.setdefault("issues", [])
+                simple_raw["_fallback_reason"] = "(schema_invalid_simple_prompt_recovery)"
+                reviews.append(simple_raw)
+                continue
+            reviews.append(
+                {
+                    "agent_name": agent["name"],
+                    "verdict": "Abstain",
+                    "issues": [],
+                    "_fallback_reason": "(schema_invalid)",
+                }
+            )
+            continue
         data = model_to_dict(result)
         data["agent_name"] = agent["name"]
         reviews.append(data)
@@ -518,6 +581,8 @@ def review_text(
         "agent_reviews": reviews,
         "rewrite_suggestions": rewrite_suggestions,
         "verdict": verdict,
+        "run_context": run_context or {},
+        "draft_sha256": draft_sha256,
     }
     if reviews and not substantive:
         report["_fallback_reason"] = "(all_agents_parse_failed)"
@@ -559,23 +624,33 @@ def _build_advisor_context_block(
 
 
 def review_target(target: Path, enforce_relationship_checklist: Any = False) -> List[Dict[str, Any]]:
+    def _review_file(path: Path) -> Dict[str, Any]:
+        meta_path = path.with_suffix(".meta.json")
+        run_context: Dict[str, Any] = {}
+        draft_sha256 = ""
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                meta = {}
+            if isinstance(meta, dict):
+                ctx = meta.get("run_context")
+                if isinstance(ctx, dict):
+                    run_context = ctx
+                draft_sha256 = str(meta.get("draft_sha256") or "")
+        return review_text(
+            path.read_text(encoding="utf-8"),
+            path.name,
+            enforce_relationship_checklist=enforce_relationship_checklist,
+            run_context=run_context,
+            draft_sha256=draft_sha256,
+        )
+
     if target.is_file():
-        return [
-            review_text(
-                target.read_text(encoding="utf-8"),
-                target.name,
-                enforce_relationship_checklist=enforce_relationship_checklist,
-            )
-        ]
+        return [_review_file(target)]
     if target.is_dir():
         reports = []
         for path in sorted(target.glob("*.md")):
-            reports.append(
-                review_text(
-                    path.read_text(encoding="utf-8"),
-                    path.name,
-                    enforce_relationship_checklist=enforce_relationship_checklist,
-                )
-            )
+            reports.append(_review_file(path))
         return reports
     raise FileNotFoundError(f"review target not found: {target}")

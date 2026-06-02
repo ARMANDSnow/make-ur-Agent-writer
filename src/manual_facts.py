@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 from . import paths
 from .config import ROOT
 from .schemas import GlobalFact, model_to_dict
-from .utils import read_json
+from .utils import read_json_optional
 
 
 # Legacy constant — kept for iter 014-016 test backward compat.
@@ -19,7 +19,7 @@ def _global_facts_path() -> Path:
 
 def load_global_facts(path: Path | None = None) -> List[Dict[str, Any]]:
     path = path or _global_facts_path()
-    data = read_json(path, [])
+    data = read_json_optional(path, [])
     if isinstance(data, dict):
         items = data.get("facts", [data])
     elif isinstance(data, list):
@@ -30,7 +30,10 @@ def load_global_facts(path: Path | None = None) -> List[Dict[str, Any]]:
     for item in items:
         if not isinstance(item, dict):
             continue
-        facts.append(model_to_dict(GlobalFact(**item)))
+        try:
+            facts.append(model_to_dict(GlobalFact(**item)))
+        except Exception:
+            continue
     return facts
 
 

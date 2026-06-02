@@ -18,6 +18,14 @@ def read_json(path: Path, default: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def read_json_optional(path: Path, default: Any = None) -> Any:
+    """Read optional local JSON, degrading to default on missing/corrupt data."""
+    try:
+        return read_json(path, default)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return default
+
+
 def write_json(path: Path, data: Any) -> None:
     ensure_dir(path.parent)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -31,6 +39,18 @@ def append_jsonl(path: Path, record: Dict[str, Any]) -> None:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def canonical_json(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def sha256_data(data: Any) -> str:
+    return sha256_text(canonical_json(data))
 
 
 def extract_json_object(text: str) -> str:
@@ -59,4 +79,3 @@ def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]
 
 def iter_text_files(path: Path) -> Iterable[Path]:
     return sorted(p for p in path.glob("*.txt") if p.is_file() and p.stat().st_size > 0)
-

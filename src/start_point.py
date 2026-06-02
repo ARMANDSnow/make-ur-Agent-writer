@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import paths
-from .utils import read_json, write_json
+from .utils import read_json, sha256_data, write_json
 
 
 _START_FILE = "start_chapter.json"
@@ -130,6 +130,58 @@ def get_start_chapter_id() -> Optional[str]:
     if "start_volume_id" in data and data["start_volume_id"]:
         return _resolve_chapter_id_from_volume(data["start_volume_id"])
     return None
+
+
+def get_start_point_metadata() -> Dict[str, Any]:
+    """Return stable metadata for the current continuation start point.
+
+    This intentionally includes only fields that identify the operator's
+    selected source position. Volatile manifest fields are left out so the
+    fingerprint changes on meaningful start/source changes, not on unrelated
+    manifest decoration.
+    """
+
+    start = get_start_chapter_id()
+    if not start:
+        return {
+            "schema_version": 1,
+            "has_start_point": False,
+            "start_chapter_id": "",
+        }
+    manifest_item: Dict[str, Any] = {}
+    for entry in _load_manifest():
+        if entry.get("chapter_id") == start:
+            manifest_item = entry
+            break
+    source_file = str(manifest_item.get("source_file", ""))
+    source_name = Path(source_file).name if source_file else ""
+    return {
+        "schema_version": 1,
+        "has_start_point": True,
+        "start_chapter_id": start,
+        "manifest": {
+            "chapter_id": manifest_item.get("chapter_id", start),
+            "volume_id": manifest_item.get("volume_id", ""),
+            "title": manifest_item.get("title", ""),
+            "index": manifest_item.get("index", manifest_item.get("chapter_index", "")),
+            "source_file": source_name,
+            "start_line": manifest_item.get("start_line", ""),
+            "end_line": manifest_item.get("end_line", ""),
+        },
+    }
+
+
+def start_point_fingerprint() -> str:
+    """Stable sha256 over :func:`get_start_point_metadata`.
+
+    Empty string means no start point is configured, preserving legacy callers
+    while letting strict production runners require the value.
+    """
+
+    metadata = get_start_point_metadata()
+    if not metadata.get("has_start_point"):
+        return ""
+    return sha256_data(metadata)
 
 
 def _index_of(chapter_id: str) -> Optional[int]:

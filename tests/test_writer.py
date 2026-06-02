@@ -7,6 +7,7 @@ from typing import Any, Dict
 from unittest.mock import patch
 
 from src.writer import _enforce_checklist_for_plan, _write_prompt, write_chapters
+from src.utils import sha256_file
 
 
 def _write_fixture(tmp: Path) -> tuple[Path, Path, Path, Path]:
@@ -423,6 +424,40 @@ class WriterRejectLintCleanTests(unittest.TestCase):
         propose.assert_called_once()
         self.assertEqual(rolling["chapters"][0]["ending_state"], "结尾状态")
         self.assertEqual(proposals["proposed_advances"][0]["new_state"], "新")
+
+    def test_persisted_draft_hash_matches_chapter_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            drafts, outline, kb, idx = _write_fixture(tmp)
+
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return _agent_config(polish_pass=False)
+                raise AssertionError(name)
+
+            with patch("src.writer.DRAFTS_DIR", drafts), patch("src.writer.OUTLINE_PATH", outline), patch(
+                "src.writer.KB_PATH", kb
+            ), patch("src.writer.INDEX_PATH", idx), patch("src.writer.load_config", side_effect=fake_load_config), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.writer.review_text",
+                return_value={"verdict": "Approve", "lint_issues": [], "agent_reviews": []},
+            ) as mock_review, patch(
+                "src.writer._complete_write_text", return_value="正文无尾随换行"
+            ), patch(
+                "src.writer._summarize_chapter",
+                return_value={"summary": "摘要", "key_events": ["事件"], "ending_state": "结尾"},
+            ), patch(
+                "src.writer._propose_entity_advance", return_value=[]
+            ):
+                linter_cls.return_value.lint.return_value = []
+                write_chapters(chapters=1, force=True, max_attempts=1)
+
+            md_path = drafts / "chapter_01.md"
+            meta = json.loads((drafts / "chapter_01.meta.json").read_text(encoding="utf-8"))
+            expected = sha256_file(md_path)
+            self.assertEqual(meta["draft_sha256"], expected)
+            self.assertEqual(mock_review.call_args.kwargs["draft_sha256"], expected)
 
     def test_write_chapters_falls_back_when_chapter_plan_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

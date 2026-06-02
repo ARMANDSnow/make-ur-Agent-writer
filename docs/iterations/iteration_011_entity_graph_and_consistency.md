@@ -43,7 +43,7 @@ python3 main.py preflight
 # WARN: tokenizer fallback and longest-chapter context warning
 ```
 
-The most recent 200 LLM log rows after `verify.sh` were mock-only. A secret-like token scan for `sk-` followed by 20 or more token characters returned no hits.
+The most recent 200 LLM log rows after `verify.sh` were mock-only. A secret-like token scan for provider API key prefixes returned no hits.
 
 The DeepSeek v4-pro switch is intentionally user-owned and was not applied by Codex in this iteration. Current preflight still sees `deepseek/deepseek-chat` from the existing environment and reports warn / FATAL none. Routing validation for `deepseek/deepseek-v4-pro` will happen after the user edits `.env`; if LiteLLM does not recognize it, the fallback note should be recorded separately before any true-model write smoke.
 

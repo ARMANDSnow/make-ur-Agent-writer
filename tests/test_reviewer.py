@@ -73,6 +73,37 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(report["agent_reviews"][0]["_fallback_reason"], "(parse_failed)")
         self.assertTrue(any(call.args[:2] == ("review", "json_parse_fallback") for call in mock_log.call_args_list))
 
+    def test_unknown_verdict_does_not_become_approve(self) -> None:
+        def fake_complete_text(self, messages):
+            return '{"agent_name":"agent","verdict":"Maybe","score":8,"issues":[],"suggestions":[]}'
+
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "agent", "system_prompt": "review"}]), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("干净正文。", "bad_verdict.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["verdict"], "Reject")
+        self.assertEqual(report["agent_reviews"][0]["verdict"], "Abstain")
+        self.assertEqual(report["agent_reviews"][0]["_fallback_reason"], "(bad_verdict)")
+
+    def test_schema_invalid_review_abstains_without_crashing(self) -> None:
+        calls = {"n": 0}
+
+        def fake_complete_text(self, messages):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return '{"agent_name":"agent","verdict":"Approve","score":8,"issues":[{"rule_id":"x"}],"suggestions":[]}'
+            return '{"verdict":"Maybe","reason":"still bad"}'
+
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "agent", "system_prompt": "review"}]), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
+            "src.llm_client.LLMClient.complete_text", fake_complete_text
+        ):
+            report = review_text("干净正文。", "schema_invalid.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["verdict"], "Reject")
+        self.assertEqual(report["agent_reviews"][0]["verdict"], "Abstain")
+        self.assertEqual(report["agent_reviews"][0]["_fallback_reason"], "(schema_invalid)")
+
     def test_partial_parse_failure_does_not_short_circuit_remaining_agents(self) -> None:
         """Iter 019 audit regression: when agent[0] returns malformed JSON,
         the OLD reviewer returned Approve immediately and never asked

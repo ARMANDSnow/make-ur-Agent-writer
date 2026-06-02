@@ -27,6 +27,8 @@ import threading
 import time
 import traceback
 import uuid
+import json
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .. import auto_pipeline
@@ -34,6 +36,8 @@ from ..auto_bootstrap import bootstrap_all
 from ..chapter_splitter import split_all
 from ..cli_apply_bootstrap import apply_bootstrap
 from ..compressor import compress_all
+from ..book_runner import BookRunBlocked, run_write_book
+from ..config import ROOT
 from ..debater import run_debate
 from ..extractor import extract_all
 from ..plot_planner import generate_chapter_plan
@@ -75,19 +79,60 @@ def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[s
     }
 
 
+def _job_log_path(workspace: str) -> Path:
+    return ROOT / "workspaces" / workspace / "logs" / "web_jobs.jsonl"
+
+
+def _persist_job(job: Dict[str, Any]) -> None:
+    try:
+        path = _job_log_path(str(job.get("workspace") or ""))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(job, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
+    latest: Optional[Dict[str, Any]] = None
+    for path in (ROOT / "workspaces").glob("*/logs/web_jobs.jsonl"):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("job_id") == job_id:
+                latest = row
+    return latest
+
+
 def _update(job_id: str, **fields: Any) -> None:
+    snapshot: Optional[Dict[str, Any]] = None
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
         if job is None:
             return
         job.update(fields)
+        snapshot = dict(job)
+    _persist_job(snapshot)
 
 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     """Return a snapshot of the job record, or None if unknown."""
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
-        return dict(job) if job is not None else None
+        if job is not None:
+            return dict(job)
+    persisted = _load_persisted_job(job_id)
+    if persisted and persisted.get("status") in {"pending", "running"}:
+        persisted = dict(persisted)
+        persisted["status"] = "lost"
+        persisted["error"] = "worker process restarted before this job reached a terminal state"
+    return persisted
 
 
 def workspace_busy(workspace: str) -> Optional[str]:
@@ -147,14 +192,32 @@ def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, floa
         force=bool(params.get("force", False)),
         append_count=int(params.get("append_count", 0)),
         from_chapter=int(params.get("from_chapter", 0)),
+        require_start_point=bool(params.get("require_start_point", True)),
     )
 
 
-def _step_write(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+def _step_draft_once_dev(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     return write_chapters(
         chapters=int(params.get("chapters", 1)),
         force=bool(params.get("force", False)),
         resume_from=int(params.get("resume_from", 1)),
+    )
+
+
+def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    return run_write_book(
+        chapters=int(params.get("chapters", 1)),
+        resume_from=int(params.get("resume_from", 1)),
+        force=bool(params.get("force", False)),
+        max_retries=int(params.get("max_retries", 2)),
+        budget_cny=_float_param(params, "budget_cny", 0.0),
+        replan_every=int(params.get("replan_every", 0)),
+        min_confidence=_float_param(params, "min_confidence", 0.7),
+        auto_advance=bool(params.get("auto_advance", True)),
+        require_start_point=bool(params.get("require_start_point", True)),
+        require_plan=bool(params.get("require_plan", True)),
+        require_external_review=bool(params.get("require_external_review", True)),
+        progress_cb=progress_cb,
     )
 
 
@@ -166,7 +229,14 @@ def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, floa
         extract_limit=params.get("extract_limit", 5),
         force=bool(params.get("force", False)),
         plan_chapters_target=params.get("plan_chapters_target"),
+        require_start_point=bool(params.get("require_start_point", True)),
     )
+
+
+def _step_auto_pipeline_greenfield(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    merged = dict(params)
+    merged["require_start_point"] = False
+    return _step_auto_pipeline(merged, progress_cb)
 
 
 # Hard-coded whitelist. Adding a step here = a code review event.
@@ -179,8 +249,9 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "apply-bootstrap": _step_apply_bootstrap,
     "debate": _step_debate,
     "plan-chapters": _step_plan_chapters,
-    "write": _step_write,
-    "auto-pipeline": _step_auto_pipeline,
+    "write-book": _step_write_book,
+    "draft-once-dev": _step_draft_once_dev,
+    "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
 }
 
 
@@ -205,7 +276,7 @@ def _worker(job_id: str) -> None:
     if handler is None:
         _update(
             job_id,
-            status="error",
+            status="failed",
             error=f"unknown step: {step}",
             finished_at=_now(),
         )
@@ -220,11 +291,18 @@ def _worker(job_id: str) -> None:
     try:
         with use_workspace(workspace):
             result = handler(params, _progress)
+    except BookRunBlocked as exc:
+        _update(
+            job_id,
+            status="blocked",
+            error=str(exc),
+            finished_at=_now(),
+        )
     except Exception as exc:
         trace_id = uuid.uuid4().hex
         _update(
             job_id,
-            status="error",
+            status="failed",
             error=f"{type(exc).__name__}: {exc}",
             trace_id=trace_id,
             finished_at=_now(),
@@ -236,10 +314,13 @@ def _worker(job_id: str) -> None:
         sys.stderr.write(f"[jobs] job_id={job_id} trace_id={trace_id}\n")
         traceback.print_exc(file=sys.stderr)
     else:
+        terminal = "succeeded"
+        if isinstance(result, dict) and result.get("status") in {"blocked", "failed", "succeeded", "aborted", "budget_exceeded"}:
+            terminal = str(result.get("status"))
         _update(
             job_id,
-            status="done",
-            current_step="done",
+            status=terminal,
+            current_step=terminal,
             progress=1.0,
             finished_at=_now(),
             result_summary=_summarize_result(step, result),
@@ -252,9 +333,21 @@ def _worker(job_id: str) -> None:
 def _summarize_result(step: str, result: Any) -> Any:
     """Coerce step-native return types into a JSON-safe summary the
     client can render without needing the full payload."""
-    if step == "auto-pipeline" and isinstance(result, dict):
+    if step in {"auto-pipeline-greenfield", "auto-pipeline"} and isinstance(result, dict):
         write_part = result.get("write") or []
         return {"chapters_written": len(write_part)}
+    if step == "write-book" and isinstance(result, dict):
+        blocked = result.get("blocked") or []
+        first_blocked = blocked[0] if blocked and isinstance(blocked[0], dict) else None
+        return {
+            "status": result.get("status"),
+            "chapters": len(result.get("chapters") or []),
+            "blocked": len(blocked),
+            "first_blocked": first_blocked,
+            "cost_cny": result.get("cost_cny"),
+            "budget_cny": result.get("budget_cny"),
+            "snapshot_path": result.get("snapshot_path"),
+        }
     if isinstance(result, list):
         return {"count": len(result)}
     if isinstance(result, dict):
@@ -281,6 +374,7 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
 
     with _JOBS_LOCK:
         _JOBS[record["job_id"]] = record
+    _persist_job(record)
 
     # Iter 027 P2 (review #8 fix): if thread.start() fails (OS thread
     # limit reached, fork restrictions, etc.), the _WORKSPACE_JOBS entry
@@ -311,3 +405,10 @@ def reset_for_tests() -> None:
         _WORKSPACE_JOBS.clear()
     with _JOBS_LOCK:
         _JOBS.clear()
+
+
+def _float_param(params: Dict[str, Any], key: str, default: float) -> float:
+    value = params.get(key, default)
+    if value is None or value == "":
+        return float(default)
+    return float(value)

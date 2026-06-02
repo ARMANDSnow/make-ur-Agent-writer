@@ -35,8 +35,15 @@ ALLOWED_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "MODEL_PROFILE",
+    "PLANNER_MODEL",
+    "PLANNER_API_KEY",
+    "PLANNER_BASE_URL",
+    "OPENAI_STREAM",
+    "DISABLE_PROMPT_CACHE",
+    "WRITE_MAX_TOKENS",
+    "WRITE_PROMPT_PROFILE",
 )
-SECRET_KEYS = frozenset({"OPENAI_API_KEY"})
+SECRET_KEYS = frozenset({"OPENAI_API_KEY", "PLANNER_API_KEY"})
 
 MAX_VALUE_LEN = 512
 
@@ -79,6 +86,8 @@ def put_settings(body: bytes) -> Tuple[int, str, bytes]:
             return _json(400, {"error": f"value for {key} exceeds {MAX_VALUE_LEN} chars"})
         if re.search(r"[\n\r\x00]", val):
             return _json(400, {"error": f"value for {key} contains control characters"})
+        if key in SECRET_KEYS and _is_masked(val):
+            continue
         updates[key] = val
 
     # Merge: keep existing keys we didn't touch, replace the ones in
@@ -105,6 +114,10 @@ def _mask(secret: str) -> str:
     if len(secret) <= 7:
         return "***"
     return f"{secret[:3]}***{secret[-4:]}"
+
+
+def _is_masked(value: str) -> bool:
+    return "***" in value
 
 
 def _read_env(path: Path) -> Dict[str, str]:

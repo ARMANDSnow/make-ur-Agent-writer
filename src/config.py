@@ -20,10 +20,8 @@ DEFAULT_CONTEXT_LIMITS = {
 def load_dotenv_if_available() -> None:
     if _running_under_unittest_discover():
         os.environ["OPENAI_MODEL"] = "mock"
-        os.environ.pop("OPENAI_API_KEY", None)
-        os.environ.pop("OPENAI_BASE_URL", None)
-        os.environ.pop("PLANNER_API_KEY", None)
-        os.environ.pop("PLANNER_BASE_URL", None)
+        for key in RUNTIME_ENV_KEYS:
+            os.environ.pop(key, None)
         return
     try:
         from dotenv import load_dotenv
@@ -39,12 +37,46 @@ def load_structured_config(path: Path) -> Dict[str, Any]:
         return json.loads(text)
     except json.JSONDecodeError:
         try:
+            return json.loads(_escape_control_chars_in_json_strings(text))
+        except json.JSONDecodeError:
+            pass
+        try:
             import yaml  # type: ignore
 
             loaded = yaml.safe_load(text)
             return loaded or {}
         except Exception as exc:
             raise ValueError(f"Cannot parse config file {path}: {exc}") from exc
+
+
+def _escape_control_chars_in_json_strings(text: str) -> str:
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                out.append(ch)
+                escaped = False
+            elif ch == "\\":
+                out.append(ch)
+                escaped = True
+            elif ch == '"':
+                out.append(ch)
+                in_string = False
+            elif ch == "\n":
+                out.append("\\n")
+            elif ch == "\r":
+                out.append("\\r")
+            elif ch == "\t":
+                out.append("\\t")
+            else:
+                out.append(ch)
+        else:
+            out.append(ch)
+            if ch == '"':
+                in_string = True
+    return "".join(out)
 
 
 def load_config(name: str) -> Dict[str, Any]:
@@ -83,7 +115,7 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
     max_tokens = default.get("max_tokens", 2000)
     max_tokens_env = task_cfg.get("max_tokens_env")
     if max_tokens_env and os.getenv(str(max_tokens_env)):
-        max_tokens = int(os.getenv(str(max_tokens_env)) or max_tokens)
+        max_tokens = _env_int(str(max_tokens_env), int(max_tokens))
     return {
         "model": model,
         "api_key_env": api_key_env,
@@ -94,9 +126,10 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
         "max_tokens": max_tokens,
         "retry_attempts": int(default.get("retry_attempts", 1)),
         "retry_backoff_seconds": float(default.get("retry_backoff_seconds", 0.5)),
-        "json_repair": bool(default.get("json_repair", True)),
+        "json_repair": _env_bool("JSON_REPAIR", bool(default.get("json_repair", True))),
         "context_limit": int(context_limit),
-        "cache_enabled": bool(default.get("cache_enabled", False)),
+        "cache_enabled": _env_bool("DISABLE_PROMPT_CACHE", False) is False
+        and bool(default.get("cache_enabled", False)),
         **{
             key: value
             for key, value in task_cfg.items()
@@ -111,6 +144,37 @@ def _default_context_limit(model: str) -> int:
         if lower.startswith(prefix) or prefix in lower:
             return limit
     return 128000
+
+
+RUNTIME_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "PLANNER_API_KEY",
+    "PLANNER_BASE_URL",
+    "PLANNER_MODEL",
+)
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or str(value).strip() == "":
+        return default
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_choice(name: str, choices: set[str], default: str) -> str:
+    value = str(os.getenv(name) or "").strip().lower()
+    return value if value in choices else default
 
 
 def _running_under_unittest_discover() -> bool:

@@ -24,7 +24,21 @@ def _stub_workspace(root: Path, name: str) -> Path:
     (ws / "小说txt").mkdir(parents=True)
     # chapter_manifest is enough to make collect_status report "split done"
     (ws / "data" / "chapter_manifest.json").write_text(
-        json.dumps([{"chapter_id": f"{name}_ch001", "title": "t", "char_count": 100}], ensure_ascii=False),
+        json.dumps(
+            [
+                {
+                    "chapter_id": f"{name}_ch001",
+                    "volume_id": f"{name}_v1",
+                    "chapter_index": 1,
+                    "title": "t",
+                    "source_file": "sample.txt",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "char_count": 100,
+                }
+            ],
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     meta = {
@@ -87,6 +101,8 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn("alpha", html)
+        self.assertIn("继续写书", html)
+        self.assertIn('data-source="readiness"', html)
         self.assertIn('data-source="reviews"', html)
 
     def test_workspace_page_404(self) -> None:
@@ -127,6 +143,16 @@ class RoutesGetTests(unittest.TestCase):
         status, data = self._get_json("/api/workspace/alpha/cost")
         self.assertEqual(status, 200)
         self.assertIn("chapters", data)
+
+    def test_api_readiness_returns_json(self) -> None:
+        status, data = self._get_json("/api/workspace/alpha/readiness?chapters=1&resume_from=1")
+        self.assertEqual(status, 200)
+        self.assertIn(data["status"], {"ready", "warn", "blocked"})
+        self.assertIn("recommended_commands", data)
+        self.assertTrue(
+            any("--book alpha" in command for command in data["recommended_commands"]),
+            data["recommended_commands"],
+        )
 
     def test_invalid_workspace_name_400(self) -> None:
         status, data = self._get_json("/api/workspace/..%2Fescape/status")

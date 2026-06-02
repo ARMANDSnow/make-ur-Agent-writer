@@ -205,7 +205,7 @@ Cross-workspace smoke (C2-D3) is intentionally pending. The next phase waits for
 
 ## Notes
 
-- ``.env`` is not modified. No ``sk-`` value ever appears in tracked files or commit messages.
+- ``.env`` is not modified. No secret-like API key value ever appears in tracked files or commit messages.
 - Tracked files reference workspaces only by abstract role (``workspace1`` / ``workspace2``). Specific novel names, character names, and source excerpts stay out of git.
 - ``workspaces/<book>/data/``, ``workspaces/<book>/小说txt/``, and the in-tree legacy ``小说txt/`` are all gitignored — same rationale.
 - ``workspace-import-current`` uses ``shutil.move`` so the source novel exists in exactly one canonical location on disk after migration.

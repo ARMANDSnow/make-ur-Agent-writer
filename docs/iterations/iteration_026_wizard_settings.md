@@ -45,7 +45,7 @@ main.py 注册 `auto-pipeline` 子命令；verify.sh 把 `run-all --chapters 1` 
 
 ### P4 · `src/web/settings.py`
 
-- GET `/api/settings`：读项目根 `.env`，4 个白名单 key（`OPENAI_MODEL` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `MODEL_PROFILE`）。API key 屏蔽中段（`sk-***xxxx`）
+- GET `/api/settings`：读项目根 `.env`，4 个白名单 key（`OPENAI_MODEL` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `MODEL_PROFILE`）。API key 屏蔽中段（`***` mask）
 - PUT `/api/settings`：白名单 + 值字符过滤 + 原子写（`os.replace`）。返回 `{"restart_required": true}`
 - 前端 banner 提示重启
 

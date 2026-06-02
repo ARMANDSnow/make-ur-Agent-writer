@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 from . import paths
 from .config import ROOT
-from .utils import read_json
+from .utils import read_json_optional
 
 
 def load_entity_graph(root: Path | None = None) -> Dict[str, Any]:
@@ -23,7 +23,8 @@ def load_entity_graph(root: Path | None = None) -> Dict[str, Any]:
         path = paths.entity_graph_path() if paths.workspace_name() else (ROOT / "data" / "entity_graph.json")
     else:
         path = root / "data" / "entity_graph.json"
-    return read_json(path, {}) or {}
+    data = read_json_optional(path, {})
+    return data if isinstance(data, dict) else {}
 
 
 def _build_tag_index(entities: List[Dict[str, Any]]) -> Dict[str, List[str]]:

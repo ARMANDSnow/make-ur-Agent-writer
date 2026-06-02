@@ -12,7 +12,7 @@ from .chapter_splitter import load_manifest
 from .config import ROOT, get_model_config, load_config, load_dotenv_if_available
 from .extractor import _extract_settings, build_extraction_prompt
 from .llm_client import LLMClient
-from .utils import read_json
+from .utils import read_json, read_json_optional
 
 
 TASKS = ("extract", "compress", "debate", "write", "review", "plot_planner")
@@ -49,6 +49,8 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     _check_longest_chapter(warn, info, root)
     _check_cache_provider(warn)
     _check_global_facts(warn, root)
+    _check_runtime_env(warn)
+    _check_start_safe_knowledge(warn, root)
     _summarize_llm_logs(info, root)
 
     status = "fail" if fatal else "warn" if warn else "ok"
@@ -168,7 +170,10 @@ def _check_extraction_failures(fatal: List[str], root: Path) -> None:
 def _check_rolling_state(fatal: List[str], warn: List[str], root: Path) -> None:
     extracted_ids = {path.stem for path in (root / "data" / "extracted_jsons").glob("*.json")}
     for path in sorted((root / "data" / "rolling_summaries").glob("*.json")):
-        data = read_json(path, {})
+        data = read_json_optional(path, {})
+        if not isinstance(data, dict):
+            warn.append(f"{path.relative_to(root)} is not valid JSON; rolling context will be skipped.")
+            continue
         chapter_ids = list(data.get("previous_chapter_ids", []))
         summaries = list(data.get("previous_summaries", []))
         if summaries and not chapter_ids:
@@ -202,7 +207,7 @@ def _check_tiktoken(warn: List[str], is_global_mock: bool) -> None:
 
 
 def _check_longest_chapter(warn: List[str], info: List[str], root: Path) -> None:
-    manifest = read_json(root / "data" / "chapter_manifest.json", [])
+    manifest = read_json_optional(root / "data" / "chapter_manifest.json", [])
     if not manifest:
         warn.append("data/chapter_manifest.json is missing or empty; run normalize and split before real smoke.")
         return
@@ -247,9 +252,27 @@ def _check_cache_provider(warn: List[str]) -> None:
 
 def _check_global_facts(warn: List[str], root: Path) -> None:
     path = root / "data" / "manual_overrides" / "global_facts.json"
-    data = read_json(path, None)
+    data = read_json_optional(path, None)
     if not data:
         warn.append("data/manual_overrides/global_facts.json is missing or empty; key manual facts may not be injected.")
+
+
+def _check_runtime_env(warn: List[str]) -> None:
+    value = os.getenv("WRITE_MAX_TOKENS")
+    if value:
+        try:
+            int(value)
+        except ValueError:
+            warn.append("WRITE_MAX_TOKENS is not an integer; model config will use its default max_tokens.")
+
+
+def _check_start_safe_knowledge(warn: List[str], root: Path) -> None:
+    kb = root / "data" / "knowledge_base" / "global_knowledge.md"
+    start = root / "data" / "manual_overrides" / "start_chapter.json"
+    if kb.exists() and start.exists():
+        warn.append(
+            "global_knowledge.md is not yet filtered by start point; planner/writer should treat it as potentially spoiler-prone."
+        )
 
 
 def _summarize_llm_logs(info: List[str], root: Path) -> None:
@@ -275,6 +298,6 @@ def _next_steps(status: str) -> List[str]:
     if status == "fail":
         return ["Fix FATAL items above, then rerun: python3 main.py preflight"]
     return [
-        "Run mock smoke: bash scripts/real_smoke.sh",
-        "For real sample, configure .env then run: python3 main.py extract --volume longzu_1 --limit 2 --force",
+        "Run mock smoke: bash scripts/verify.sh",
+        "Real smoke requires explicit user authorization: CONFIRM_REAL_MODEL_SMOKE=可以跑了 bash scripts/real_smoke.sh",
     ]

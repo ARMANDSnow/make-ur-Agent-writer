@@ -1,0 +1,376 @@
+import unittest
+import tempfile
+from unittest.mock import patch
+
+from pathlib import Path
+
+from src.book_runner import (
+    BookRunBlocked,
+    _archive_chapter_artifacts,
+    _plan_metadata_failures,
+    check_write_readiness,
+    run_write_book,
+)
+from src.plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
+
+
+def _strict_plan(chapters: int = 2) -> dict:
+    data = {
+        "target_chapters": chapters,
+        "overall_arc": "arc",
+        "start_chapter_id": "v1_ch003",
+        "start_point_fingerprint": "start-fp",
+        "chapters": [
+            {
+                "chapter_no": i,
+                "title": f"第 {i} 章",
+                "opening_scene": "开场",
+                "key_events": ["事件"],
+                "relationships_in_play": [],
+                "ending_hook": "钩子",
+                "target_chinese_chars": 4000,
+                "plot_purpose": "用途",
+            }
+            for i in range(1, chapters + 1)
+        ],
+        "schema_version": 1,
+    }
+    for item in data["chapters"]:
+        item["chapter_plan_item_fingerprint"] = chapter_plan_item_fingerprint(item)
+    data["plan_fingerprint"] = plan_fingerprint(data)
+    return data
+
+
+class BookRunnerPlanMetadataTests(unittest.TestCase):
+    def test_strict_plan_metadata_passes(self) -> None:
+        with patch("src.book_runner.start_point.get_start_chapter_id", return_value="v1_ch003"), patch(
+            "src.book_runner.start_point.start_point_fingerprint", return_value="start-fp"
+        ):
+            failures = _plan_metadata_failures(
+                _strict_plan(),
+                chapter_numbers=[1, 2],
+                require_start_point=True,
+            )
+        self.assertEqual(failures, [])
+
+    def test_legacy_plan_without_fingerprints_blocks(self) -> None:
+        data = _strict_plan()
+        data.pop("plan_fingerprint")
+        data.pop("start_point_fingerprint")
+        data["chapters"][0].pop("chapter_plan_item_fingerprint")
+        with patch("src.book_runner.start_point.get_start_chapter_id", return_value="v1_ch003"), patch(
+            "src.book_runner.start_point.start_point_fingerprint", return_value="start-fp"
+        ):
+            failures = _plan_metadata_failures(
+                data,
+                chapter_numbers=[1],
+                require_start_point=True,
+            )
+        self.assertIn("plan_fingerprint_missing", failures)
+        self.assertIn("start_point_fingerprint_missing", failures)
+        self.assertIn("chapter_01_plan_item_fingerprint_missing", failures)
+
+    def test_start_point_fingerprint_mismatch_blocks(self) -> None:
+        with patch("src.book_runner.start_point.get_start_chapter_id", return_value="v1_ch003"), patch(
+            "src.book_runner.start_point.start_point_fingerprint", return_value="new-start-fp"
+        ):
+            failures = _plan_metadata_failures(
+                _strict_plan(),
+                chapter_numbers=[1],
+                require_start_point=True,
+            )
+        self.assertIn("start_point_fingerprint_mismatch", failures)
+
+
+class BookRunnerReadinessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        (self.root / "outputs" / "drafts").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _common_patches(self, raw_plan: dict, parsed_plan: dict | None = None):
+        parsed = parsed_plan
+        if parsed is None:
+            parsed = {
+                int(item["chapter_no"]): dict(item)
+                for item in raw_plan.get("chapters", [])
+                if isinstance(item, dict) and item.get("chapter_no") is not None
+            }
+        return [
+            patch("src.book_runner.start_point.get_start_chapter_id", return_value="v1_ch003"),
+            patch("src.book_runner.start_point.start_point_fingerprint", return_value="start-fp"),
+            patch("src.book_runner._load_raw_chapter_plan", return_value=raw_plan),
+            patch("src.book_runner._load_chapter_plan", return_value=parsed),
+            patch("src.book_runner.paths.workspace_name", return_value="unit"),
+            patch("src.book_runner.paths.workspace_root", return_value=self.root),
+            patch("src.book_runner.paths.drafts_dir", return_value=self.root / "outputs" / "drafts"),
+            patch("src.book_runner.paths.entity_graph_path", return_value=self.root / "data" / "entity_graph.json"),
+            patch("src.book_runner.paths.llm_calls_log_path", return_value=self.root / "logs" / "llm_calls.jsonl"),
+            patch("src.book_runner.run_preflight", return_value={"status": "ok", "fatal": [], "warn": [], "info": []}),
+            patch(
+                "src.book_runner.chapter_status",
+                return_value={
+                    "chapter_no": 1,
+                    "exists": False,
+                    "approved": False,
+                    "needs_review": False,
+                    "failure": False,
+                    "verdict": None,
+                    "rewrite_count": 0,
+                    "strict_failures": [],
+                },
+            ),
+        ]
+
+    def test_legacy_plan_blocks_readiness_and_write_book(self) -> None:
+        data = _strict_plan()
+        data.pop("plan_fingerprint")
+        data["chapters"][0].pop("chapter_plan_item_fingerprint")
+        managers = self._common_patches(data)
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], managers[10]:
+            readiness = check_write_readiness(chapters=1)
+            self.assertEqual(readiness["status"], "blocked")
+            self.assertTrue(any("plan_fingerprint_missing" in item for item in readiness["blockers"]))
+            with self.assertRaises(BookRunBlocked):
+                run_write_book(chapters=1)
+
+    def test_strict_plan_ready(self) -> None:
+        managers = self._common_patches(_strict_plan())
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], managers[10]:
+            readiness = check_write_readiness(chapters=1)
+        self.assertEqual(readiness["status"], "ready")
+        self.assertEqual(readiness["blockers"], [])
+
+    def test_replan_readiness_only_requires_first_window(self) -> None:
+        data = _strict_plan(chapters=1)
+        managers = self._common_patches(data)
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], managers[10]:
+            readiness = check_write_readiness(chapters=3, replan_every=1)
+        self.assertNotIn("chapter_plan:chapter_02_plan_missing", readiness["blockers"])
+        self.assertEqual(readiness["plan_window"], 1)
+
+    def test_existing_reject_blocks_entry(self) -> None:
+        reject_status = {
+            "chapter_no": 1,
+            "exists": True,
+            "approved": False,
+            "needs_review": False,
+            "failure": False,
+            "verdict": "Reject",
+            "rewrite_count": 1,
+            "strict_failures": ["external_review_reject"],
+        }
+        managers = self._common_patches(_strict_plan())
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], patch(
+            "src.book_runner.chapter_status", return_value=reject_status
+        ):
+            readiness = check_write_readiness(chapters=1)
+            self.assertEqual(readiness["status"], "blocked")
+            with self.assertRaises(BookRunBlocked):
+                run_write_book(chapters=1)
+
+    def test_budget_exceeded_has_distinct_status(self) -> None:
+        managers = self._common_patches(_strict_plan())
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], managers[10], patch(
+            "src.book_runner.estimate_cost_since", return_value={"cost_cny": 9.9}
+        ), patch("src.book_runner._llm_log_line_count", return_value=0), patch(
+            "src.book_runner._snapshot", side_effect=lambda status, payload: {"status": status, **payload}
+        ):
+            result = run_write_book(chapters=1, budget_cny=1.0)
+        self.assertEqual(result["status"], "budget_exceeded")
+
+    def test_retry_archives_failed_attempt_before_rewrite(self) -> None:
+        statuses = [
+            {
+                "chapter_no": 1,
+                "exists": False,
+                "approved": False,
+                "needs_review": False,
+                "failure": False,
+                "verdict": None,
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 1,
+                "exists": True,
+                "approved": False,
+                "needs_review": True,
+                "failure": False,
+                "verdict": "Reject",
+                "rewrite_count": 1,
+                "strict_failures": ["external_review_needs_human"],
+            },
+            {
+                "chapter_no": 1,
+                "exists": True,
+                "approved": False,
+                "needs_review": True,
+                "failure": False,
+                "verdict": "Reject",
+                "rewrite_count": 1,
+                "strict_failures": ["external_review_needs_human"],
+            },
+            {
+                "chapter_no": 1,
+                "exists": True,
+                "approved": True,
+                "needs_review": False,
+                "failure": False,
+                "verdict": "Approve",
+                "rewrite_count": 1,
+                "strict_failures": [],
+            },
+        ]
+        managers = self._common_patches(_strict_plan())
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], patch(
+            "src.book_runner.chapter_status", side_effect=statuses
+        ), patch("src.book_runner.write_chapters", return_value=[]), patch(
+            "src.book_runner.review_target", return_value=None
+        ), patch("src.book_runner._archive_chapter_artifacts", return_value=Path("archive")) as archive, patch(
+            "src.book_runner.prune_from_chapter", return_value=None
+        ), patch(
+            "src.book_runner._auto_apply_advances", return_value={"applied_count": 0}
+        ), patch(
+            "src.book_runner._snapshot", side_effect=lambda status, payload: {"status": status, **payload}
+        ):
+            result = run_write_book(chapters=1, max_retries=1)
+        self.assertEqual(result["status"], "succeeded")
+        archive.assert_called_once()
+
+    def test_replan_uses_run_offset_and_reloads_plan(self) -> None:
+        data = _strict_plan(chapters=3)
+        data_after_replan = _strict_plan(chapters=4)
+        parsed = {
+            int(item["chapter_no"]): dict(item)
+            for item in data.get("chapters", [])
+            if isinstance(item, dict) and item.get("chapter_no") is not None
+        }
+        parsed_after_replan = {
+            int(item["chapter_no"]): dict(item)
+            for item in data_after_replan.get("chapters", [])
+            if isinstance(item, dict) and item.get("chapter_no") is not None
+        }
+        statuses = [
+            {
+                "chapter_no": 2,
+                "exists": False,
+                "approved": False,
+                "needs_review": False,
+                "failure": False,
+                "verdict": None,
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 3,
+                "exists": False,
+                "approved": False,
+                "needs_review": False,
+                "failure": False,
+                "verdict": None,
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 2,
+                "exists": False,
+                "approved": False,
+                "needs_review": False,
+                "failure": False,
+                "verdict": None,
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 2,
+                "exists": True,
+                "approved": True,
+                "needs_review": False,
+                "failure": False,
+                "verdict": "Approve",
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 3,
+                "exists": False,
+                "approved": False,
+                "needs_review": False,
+                "failure": False,
+                "verdict": None,
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 3,
+                "exists": True,
+                "approved": True,
+                "needs_review": False,
+                "failure": False,
+                "verdict": "Approve",
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 4,
+                "exists": False,
+                "approved": False,
+                "needs_review": False,
+                "failure": False,
+                "verdict": None,
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+            {
+                "chapter_no": 4,
+                "exists": True,
+                "approved": True,
+                "needs_review": False,
+                "failure": False,
+                "verdict": "Approve",
+                "rewrite_count": 0,
+                "strict_failures": [],
+            },
+        ]
+        managers = self._common_patches(data)
+        with managers[0], managers[1], managers[2], patch(
+            "src.book_runner._load_chapter_plan",
+            side_effect=[parsed, parsed, parsed_after_replan],
+        ) as load_plan, managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], patch(
+            "src.book_runner.chapter_status", side_effect=statuses
+        ), patch("src.book_runner.write_chapters", return_value=[]), patch(
+            "src.book_runner.review_target", return_value=None
+        ), patch(
+            "src.book_runner._auto_apply_advances", return_value={"applied_count": 0}
+        ), patch(
+            "src.book_runner._snapshot", side_effect=lambda status, payload: {"status": status, **payload}
+        ), patch(
+            "src.plot_planner.generate_chapter_plan", return_value=data
+        ) as replan:
+            result = run_write_book(chapters=3, resume_from=2, replan_every=2)
+        self.assertEqual(result["status"], "succeeded")
+        replan.assert_called_once()
+        self.assertEqual(replan.call_args.kwargs["from_chapter"], 3)
+        self.assertGreaterEqual(load_plan.call_count, 2)
+
+    def test_archive_moves_entity_advance_proposals_file(self) -> None:
+        drafts = self.root / "outputs" / "drafts"
+        reviews = self.root / "outputs" / "reviews"
+        reviews.mkdir(parents=True, exist_ok=True)
+        for suffix in (".md", ".meta.json", ".failure.json", ".entity_advance_proposals.json"):
+            (drafts / f"chapter_01{suffix}").write_text("x", encoding="utf-8")
+        (reviews / "chapter_01.review.json").write_text("{}", encoding="utf-8")
+
+        archive = _archive_chapter_artifacts(drafts, 1, reason="unit")
+
+        self.assertFalse((drafts / "chapter_01.entity_advance_proposals.json").exists())
+        self.assertTrue((archive / "chapter_01.entity_advance_proposals.json").exists())
+        self.assertTrue((archive / "chapter_01.review.json").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -168,6 +168,27 @@ def build_parser() -> argparse.ArgumentParser:
     write.add_argument("--resume-from", type=int, default=1)
     write.add_argument("--force", action="store_true")
 
+    write_book = sub.add_parser("write-book")
+    write_book.add_argument("--chapters", type=int, default=1)
+    write_book.add_argument("--resume-from", type=int, default=1)
+    write_book.add_argument("--force", action="store_true")
+    write_book.add_argument("--max-retries", type=int, default=2)
+    write_book.add_argument("--budget-cny", type=float, default=0.0)
+    write_book.add_argument("--replan-every", type=int, default=0)
+    write_book.add_argument("--min-confidence", type=float, default=0.7)
+    write_book.add_argument("--no-auto-advance", action="store_true")
+    write_book.add_argument("--allow-missing-start-point", action="store_true")
+    write_book.add_argument("--allow-missing-plan", action="store_true")
+    write_book.add_argument("--skip-external-review", action="store_true")
+
+    write_readiness = sub.add_parser("write-readiness")
+    write_readiness.add_argument("--chapters", type=int, required=True)
+    write_readiness.add_argument("--resume-from", type=int, default=1)
+    write_readiness.add_argument("--replan-every", type=int, default=0)
+    write_readiness.add_argument("--allow-missing-start-point", action="store_true")
+    write_readiness.add_argument("--allow-missing-plan", action="store_true")
+    write_readiness.add_argument("--skip-external-review", action="store_true")
+
     review = sub.add_parser("review")
     review.add_argument("--target", default="outputs/drafts")
     review_chapter = sub.add_parser("review-chapter")
@@ -202,6 +223,10 @@ def build_parser() -> argparse.ArgumentParser:
     chapter_status_cmd = sub.add_parser("chapter-status")
     chapter_status_cmd.add_argument("chapter", type=int)
     chapter_status_cmd.add_argument("--json", action="store_true", default=True)
+    chapter_status_cmd.add_argument("--validate-context", action="store_true")
+    chapter_status_cmd.add_argument("--require-start-point", action="store_true")
+    chapter_status_cmd.add_argument("--require-plan", action="store_true")
+    chapter_status_cmd.add_argument("--require-external-review", action="store_true")
 
     # iter 021: start point — let users pick a chapter_id or volume_id from
     # chapter_manifest as the "continue from here" anchor instead of the
@@ -390,6 +415,49 @@ def main() -> None:
         print(f"overall_arc: {str(data['overall_arc'])[:200]}")
     elif args.command == "write":
         write_chapters(chapters=args.chapters, force=args.force, resume_from=args.resume_from)
+    elif args.command == "write-book":
+        from src.book_runner import BookRunBlocked, run_write_book
+        import json as _json
+
+        try:
+            result = run_write_book(
+                chapters=args.chapters,
+                resume_from=args.resume_from,
+                force=args.force,
+                max_retries=args.max_retries,
+                budget_cny=args.budget_cny,
+                replan_every=args.replan_every,
+                min_confidence=args.min_confidence,
+                auto_advance=not args.no_auto_advance,
+                require_start_point=not args.allow_missing_start_point,
+                require_plan=not args.allow_missing_plan,
+                require_external_review=not args.skip_external_review,
+            )
+        except BookRunBlocked as exc:
+            print(_json.dumps({"status": "blocked", "error": str(exc)}, ensure_ascii=False))
+            raise SystemExit(4)
+        print(_json.dumps(result, ensure_ascii=False))
+        if result.get("status") == "blocked":
+            raise SystemExit(4)
+        if result.get("status") == "budget_exceeded":
+            raise SystemExit(3)
+        if result.get("status") == "failed":
+            raise SystemExit(1)
+    elif args.command == "write-readiness":
+        from src.book_runner import check_write_readiness
+        import json as _json
+
+        result = check_write_readiness(
+            chapters=args.chapters,
+            resume_from=args.resume_from,
+            replan_every=args.replan_every,
+            require_start_point=not args.allow_missing_start_point,
+            require_plan=not args.allow_missing_plan,
+            require_external_review=not args.skip_external_review,
+        )
+        print(_json.dumps(result, ensure_ascii=False))
+        if result.get("status") == "blocked":
+            raise SystemExit(4)
     elif args.command == "review":
         review_target(Path(args.target), enforce_relationship_checklist=True)
     elif args.command == "review-chapter":
@@ -424,7 +492,14 @@ def main() -> None:
         from src import paths
 
         drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
-        status = chapter_status(args.chapter, drafts_dir)
+        status = chapter_status(
+            args.chapter,
+            drafts_dir,
+            validate_context=args.validate_context,
+            require_start_point=args.require_start_point,
+            require_plan=args.require_plan,
+            require_external_review=args.require_external_review,
+        )
         print(_json.dumps(status, ensure_ascii=False))
     elif args.command == "set-start-point":
         from src import start_point
