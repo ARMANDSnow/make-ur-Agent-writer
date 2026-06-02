@@ -398,12 +398,14 @@ JS_DASHBOARD = """\
       </a>`;
   }
 
+  let readinessTimer = null;
+  const loadedPanelSources = new Set();
+
   async function initWorkspace() {
   const ws = window.WORKSPACE_NAME;
   if (!ws) return;
     bindTabs();
     await loadWorkspaceShell();
-    await loadSecondaryPanels();
     bindStartPoint();
     bindPlan();
     bindWriteBook();
@@ -433,18 +435,20 @@ JS_DASHBOARD = """\
     ].join('');
   }
 
-  async function loadSecondaryPanels() {
-  const panels = document.querySelectorAll('.panel-body[data-source]');
-  for (const panel of panels) {
+  async function loadTabPanel(tabName) {
+  const container = document.getElementById(`tab-${tabName}`);
+  const panel = container?.querySelector('.panel-body[data-source]');
+  if (!panel) return;
     const source = panel.dataset.source;
+    if (loadedPanelSources.has(source)) return;
     try {
       const res = await fetch(sourceUrl(source));
       const data = await res.json();
       panel.innerHTML = render(source, data);
+      loadedPanelSources.add(source);
     } catch (err) {
       panel.innerHTML = `<span class="error">load failed: ${err}</span>`;
     }
-  }
   }
 
   function render(kind, data) {
@@ -621,7 +625,7 @@ JS_DASHBOARD = """\
     const submit = document.getElementById('write-book-submit');
     const jobBox = document.getElementById('job-status');
     if (!form || !submit || !jobBox) return;
-    form.addEventListener('input', refreshReadiness);
+    form.addEventListener('input', scheduleReadiness);
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       submit.disabled = true;
@@ -673,6 +677,11 @@ JS_DASHBOARD = """\
       panel.innerHTML = `<span class="error">load failed: ${escapeHtml(err)}</span>`;
       if (submit) submit.disabled = true;
     }
+  }
+
+  function scheduleReadiness() {
+    if (readinessTimer) clearTimeout(readinessTimer);
+    readinessTimer = setTimeout(refreshReadiness, 500);
   }
 
   async function refreshRecentJobs() {
@@ -777,6 +786,7 @@ JS_DASHBOARD = """\
       for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.remove('active');
       tab.classList.add('active');
       document.getElementById(`tab-${tab.dataset.tab}`)?.classList.add('active');
+      loadTabPanel(tab.dataset.tab);
     });
   }
 

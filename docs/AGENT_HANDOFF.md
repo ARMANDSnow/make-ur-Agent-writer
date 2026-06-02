@@ -653,3 +653,33 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 2. 从 workspace 页面设置起点后，可直接点“生成/重生成计划”；真模型配置下这一步可能产生费用，仍需用户自行确认 `.env` 与预算。
 3. 真模型长跑仍建议先 CLI/Web readiness，确认只剩可接受 WARN 后再 `write-book --budget-cny <ceiling> --replan-every K`。
 4. 后续候选：真模型 capstone、KB 安全视图、entity timeline schema、在线编辑/复审入口。
+
+---
+
+## Phase 4 Status（iter 031，2026-06-02）
+
+### Iteration 031 — Web Cockpit hardening + handoff refresh（mock-only）
+
+**目标**：按 post-iter030 subagent review 修复 Web cockpit 的两个结构性 bug，并降低本地 WebUI 打开/刷新时的 CPU/IO 峰值；同时校准 `AGENTS.md` 过期的当前迭代锚点。
+
+**主要落地**：
+- `/api/workspaces/overview` 现在做 per-workspace fault isolation：单本坏 `chapter_plan.json` / overview 采集异常只让该 workspace blocked，不拖垮首页。
+- overview 增加 3 秒短 TTL cache，cache key 包含 workspace root、workspace 列表和关键文件/目录 mtime；设置起点后主动清 cache。
+- `_load_persisted_job()` 改用 `paths.WORKSPACE_DIR`，与 `_job_log_path()` / `recent_jobs()` 保持 workspace isolation 一致。
+- workspace 页面不再初始化时加载隐藏 tabs；reviews/manifest/status/cost 点击 tab 首次懒加载。write-book 参数输入改为 500ms debounce 后刷新 readiness。
+- plan 按钮文案改为“重生成并覆盖计划”，避免误以为是 append/replan。
+- `AGENTS.md` 当前阶段从 iter024 校准到 iter031；README badge / SOP、iteration index、iter031 文档同步。
+
+**验证进度**：
+- Targeted Web tests：`tests.test_web_routes_get tests.test_web_jobs_dispatch` → 38 OK。
+- `py_compile` for touched Web/test modules → OK。
+- `node --check /private/tmp/iter031_dashboard.js` → OK。
+- Full `unittest discover -s tests` → 普通沙箱 5 个 Web socket bind `PermissionError`；提权后 421 OK。
+- `scripts/verify.sh` → 普通沙箱同样 5 个 Web socket bind `PermissionError`；提权后 OK，421 tests OK + mock auto-pipeline OK。
+- `python3 main.py preflight` → PREFLIGHT ok；FATAL none；WARN none。
+- 非真模型计时样本：overview 首次约 145ms，TTL 内二次约 1.4ms；`xueZhong` cost 约 14.8ms，readiness 约 10.0ms。LiteLLM import 仍会尝试远程 cost map 后 fallback，是后续 lazy-import 候选。
+
+**当前接力点**：
+1. 用户体验入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`。
+2. 真模型长跑仍先跑 CLI/Web readiness，确认 `ready` 或只剩可接受 WARN 后，再由用户明确授权 budget 进入 `write-book`。
+3. 后续候选：真模型 capstone、KB 起点安全视图、entity timeline schema、Web 在线编辑/复审、LiteLLM lazy-import + cost 增量索引。

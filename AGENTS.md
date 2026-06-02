@@ -103,11 +103,11 @@ logs/                     # 全部 gitignored
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：024（长程稳定 4 项：advisor 消费链路 + plot_planner continuation + budget ceiling + proposal 冲突检测）
-**已完成阶段**：1-2 全打通；3（起点）iter 021；6.4-6.6 / 7.1-7.6 iter 022-024；5.3 / 8.3 / 9.3 iter 024 P1-P4 全 ✅；其余见 SOP 表
-**关键证据**：advisor 真实产 5 条 actionable suggestions（如"将开场视角改为路明非梦中惊醒...神秘男人的'十六年'台词改为朝向路明非"），writer rewrite-loop 现在真消费
-**下一步候选**：iter 025 capstone 完整 ~30-100 章 / WebUI / KB 按起点过滤 / entity_graph timeline schema 升级
-**详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 "iter N+ 改进路线" 段
+**当前 iter**：031（Web Cockpit hardening + handoff refresh，mock-only）
+**已完成阶段**：1-4 主链路全打通；5.3 / 8.3 / 9.3 已进入 `write-book` 生产 runner；Web 本地 Beta 入口 iter 029-031 已打通并完成 post-iter030 hardening。实时细节以 README SOP + `docs/AGENT_HANDOFF.md` 末尾为准。
+**关键证据**：`write-readiness -> write-book` 是当前推荐生产入口；Web cockpit 支持设置起点、覆盖式重生成计划、继续写书、只读 draft/review 查看、recent job 恢复；iter 031 修复坏 plan 单本容错、persisted job workspace root、隐藏 tab 懒加载、readiness debounce、overview 短 TTL cache。
+**下一步候选**：真模型 capstone 完整 ~30-100 章 / KB 按起点过滤安全视图 / entity_graph timeline schema 升级 / Web 在线编辑与复审入口 / LiteLLM lazy-import 与 cost 增量索引。
+**详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
 
 ## 常用 git 操作
 

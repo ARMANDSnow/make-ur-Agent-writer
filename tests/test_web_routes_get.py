@@ -148,6 +148,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("alpha", html)
         self.assertIn("准备续写", html)
         self.assertIn("继续写书", html)
+        self.assertIn("重生成并覆盖计划", html)
         self.assertIn("start-point-form", html)
         self.assertIn('data-source="reviews"', html)
         self.assertNotIn("draft-once-dev", html)
@@ -173,6 +174,22 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("recent_job", by_name["alpha"])
         self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
         self.assertIn("start_point_missing", by_name["beta"]["readiness"]["blockers"])
+
+    def test_api_workspaces_overview_bad_plan_blocks_only_that_workspace(self) -> None:
+        _write_strict_plan(Path(self._tmp.name), "alpha", chapters=1)
+        (Path(self._tmp.name) / "beta" / "outputs" / "debate" / "chapter_plan.json").write_text(
+            "{not-json", encoding="utf-8"
+        )
+        status, data = self._get_json("/api/workspaces/overview")
+        self.assertEqual(status, 200)
+        by_name = {item["name"]: item for item in data["workspaces"]}
+        self.assertIn(by_name["alpha"]["readiness"]["status"], {"ready", "warn", "blocked"})
+        self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
+        self.assertIn("error", by_name["beta"]["plan"])
+        self.assertTrue(
+            any("readiness_error" in item for item in by_name["beta"]["readiness"]["blockers"]),
+            by_name["beta"]["readiness"]["blockers"],
+        )
 
     def test_api_status_404_for_unknown(self) -> None:
         status, data = self._get_json("/api/workspace/nope/status")
@@ -293,6 +310,11 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("javascript", ct)
         self.assertIn(b"fetch", body)
+        js = body.decode("utf-8")
+        self.assertIn("loadTabPanel", js)
+        self.assertNotIn("loadSecondaryPanels", js)
+        self.assertIn("scheduleReadiness", js)
+        self.assertIn("setTimeout(refreshReadiness, 500)", js)
 
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must

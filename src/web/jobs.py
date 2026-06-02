@@ -37,7 +37,6 @@ from ..chapter_splitter import split_all
 from ..cli_apply_bootstrap import apply_bootstrap
 from ..compressor import compress_all
 from ..book_runner import BookRunBlocked, run_write_book
-from ..config import ROOT
 from ..debater import run_debate
 from ..extractor import extract_all
 from ..plot_planner import generate_chapter_plan
@@ -95,7 +94,7 @@ def _persist_job(job: Dict[str, Any]) -> None:
 
 def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
     latest: Optional[Dict[str, Any]] = None
-    for path in (ROOT / "workspaces").glob("*/logs/web_jobs.jsonl"):
+    for path in paths.WORKSPACE_DIR.glob("*/logs/web_jobs.jsonl"):
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except OSError:

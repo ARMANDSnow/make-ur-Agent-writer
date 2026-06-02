@@ -149,6 +149,30 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(json.loads(body)["error"], "job not found")
 
+    def test_job_status_restores_persisted_jsonl_under_patched_workspace_dir(self) -> None:
+        job = {
+            "job_id": "b" * 32,
+            "workspace": "alpha",
+            "step": "write-book",
+            "params": {"chapters": 1},
+            "status": "succeeded",
+            "started_at": 10.0,
+            "finished_at": 11.0,
+            "error": None,
+        }
+        (paths.WORKSPACE_DIR / "alpha" / "logs" / "web_jobs.jsonl").write_text(
+            json.dumps(job, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        jobs.reset_for_tests()
+
+        status, _ct, body = routes.dispatch(
+            "GET", f"/api/workspace/alpha/job/{job['job_id']}"
+        )
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        data = json.loads(body)
+        self.assertEqual(data["job_id"], job["job_id"])
+        self.assertEqual(data["status"], "succeeded")
+
     def test_start_job_thread_failure_rolls_back_workspace_slot(self) -> None:
         """Iter 027 P2 (review #8 fix): if threading.Thread.start raises
         (OS thread limit, fork restrictions), the _WORKSPACE_JOBS slot

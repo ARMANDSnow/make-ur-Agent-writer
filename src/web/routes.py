@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -27,7 +29,7 @@ from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
-from ..utils import read_json
+from ..utils import read_json, read_json_optional
 from . import jobs, settings as settings_mod, static, templates, wizard
 from ._naming import RESERVED_NAMES as _RESERVED_WORKSPACE_NAMES_SHARED  # noqa: F401
 from ._naming import (
@@ -42,6 +44,10 @@ from .workspace_ctx import use_workspace
 # A handler returns (status_code, content_type, body_bytes). Routes whose
 # pattern captures named groups receive them as kwargs.
 Handler = Callable[..., Tuple[int, str, bytes]]
+
+_OVERVIEW_CACHE_TTL_SECONDS = 3.0
+_OVERVIEW_CACHE_LOCK = threading.Lock()
+_OVERVIEW_CACHE: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
 
 
 # ---- helpers ----------------------------------------------------------------
@@ -117,7 +123,51 @@ def api_workspaces() -> Tuple[int, str, bytes]:
 
 
 def api_workspaces_overview() -> Tuple[int, str, bytes]:
-    return _json(200, {"workspaces": [_workspace_overview(name) for name in list_workspaces()]})
+    names = list_workspaces()
+    key = _overview_cache_key(names)
+    now = time.monotonic()
+    with _OVERVIEW_CACHE_LOCK:
+        cached = _OVERVIEW_CACHE.get(key)
+        if cached and cached[0] > now:
+            return _json(200, cached[1])
+
+    payload = {"workspaces": [_workspace_overview(name) for name in names]}
+    with _OVERVIEW_CACHE_LOCK:
+        _OVERVIEW_CACHE.clear()
+        _OVERVIEW_CACHE[key] = (now + _OVERVIEW_CACHE_TTL_SECONDS, payload)
+    return _json(200, payload)
+
+
+def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
+    root = paths.WORKSPACE_DIR
+    stamps = []
+    for name in names:
+        ws = root / name
+        stamps.append(
+            (
+                name,
+                _mtime_ns(ws / "data" / "chapter_manifest.json"),
+                _mtime_ns(ws / "outputs" / "debate" / "chapter_plan.json"),
+                _mtime_ns(ws / "data" / "manual_overrides" / "start_chapter.json"),
+                _mtime_ns(ws / "outputs" / "drafts"),
+                _mtime_ns(ws / "outputs" / "reviews"),
+                _mtime_ns(ws / "logs" / "web_jobs.jsonl"),
+                _mtime_ns(ws / "logs" / "llm_calls.jsonl"),
+            )
+        )
+    return (str(root), tuple(stamps))
+
+
+def _mtime_ns(path: Path) -> int:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+def _clear_overview_cache() -> None:
+    with _OVERVIEW_CACHE_LOCK:
+        _OVERVIEW_CACHE.clear()
 
 
 def _workspace_overview(name: str) -> Dict[str, Any]:
@@ -139,30 +189,47 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
     if not root.is_dir():
         return overview
     with use_workspace(name):
-        manifest = read_json(paths.chapter_manifest_path(), [])
-        if isinstance(manifest, dict):
-            manifest = manifest.get("chapters", manifest.get("entries", []))
-        overview["chapter_count"] = len(manifest) if isinstance(manifest, list) else 0
-        overview["draft_count"] = len(list(paths.drafts_dir().glob("chapter_*.md")))
-        overview["start_point"] = start_point.get_start_point_metadata()
-        plan = read_json(paths.chapter_plan_path(), {})
-        if isinstance(plan, dict):
-            overview["plan"] = {
-                "exists": bool(plan),
-                "chapters": len(plan.get("chapters") or []),
-                "has_fingerprint": bool(plan.get("plan_fingerprint")),
-                "start_chapter_id": plan.get("start_chapter_id", ""),
+        try:
+            manifest = read_json_optional(paths.chapter_manifest_path(), [])
+            if isinstance(manifest, dict):
+                manifest = manifest.get("chapters", manifest.get("entries", []))
+            overview["chapter_count"] = len(manifest) if isinstance(manifest, list) else 0
+            overview["draft_count"] = len(list(paths.drafts_dir().glob("chapter_*.md")))
+            overview["start_point"] = start_point.get_start_point_metadata()
+            plan_path = paths.chapter_plan_path()
+            plan_error = ""
+            try:
+                plan = read_json(plan_path, {})
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                plan = {}
+                plan_error = f"{type(exc).__name__}: {exc}"
+            if isinstance(plan, dict):
+                overview["plan"] = {
+                    "exists": bool(plan) or bool(plan_error),
+                    "chapters": len(plan.get("chapters") or []),
+                    "has_fingerprint": bool(plan.get("plan_fingerprint")),
+                    "start_chapter_id": plan.get("start_chapter_id", ""),
+                }
+                if plan_error:
+                    overview["plan"]["error"] = plan_error
+            reviews = aggregate_reviews(paths.drafts_dir())
+            stats = reviews.get("stats", {}) if isinstance(reviews, dict) else {}
+            total = int(stats.get("total") or 0)
+            accepted = int(stats.get("accepted") or 0)
+            overview["review_total"] = total
+            overview["review_accepted"] = accepted
+            overview["review_blocked"] = max(total - accepted, 0)
+            overview["readiness"] = _safe_readiness(chapters=1, resume_from=1)
+            recent = jobs.recent_jobs(name, limit=1)
+            overview["recent_job"] = recent[0] if recent else None
+        except Exception as exc:
+            overview["error"] = f"{type(exc).__name__}: {exc}"
+            overview["readiness"] = {
+                "status": "blocked",
+                "blockers": [f"overview_error:{type(exc).__name__}: {exc}"],
+                "warnings": [],
+                "recommended_commands": ["inspect workspace data and rerun the failing preparation step"],
             }
-        reviews = aggregate_reviews(paths.drafts_dir())
-        stats = reviews.get("stats", {}) if isinstance(reviews, dict) else {}
-        total = int(stats.get("total") or 0)
-        accepted = int(stats.get("accepted") or 0)
-        overview["review_total"] = total
-        overview["review_accepted"] = accepted
-        overview["review_blocked"] = max(total - accepted, 0)
-        overview["readiness"] = _safe_readiness(chapters=1, resume_from=1)
-        recent = jobs.recent_jobs(name, limit=1)
-        overview["recent_job"] = recent[0] if recent else None
     return overview
 
 
@@ -217,6 +284,7 @@ def api_workspace_set_start_point(name: str, body: bytes) -> Tuple[int, str, byt
         return _json(400, {"error": "missing or invalid start_point"})
     with use_workspace(name):
         start_point.set_start_point(value)
+        _clear_overview_cache()
         readiness = _safe_readiness(chapters=1, resume_from=1)
         return _json(
             200,

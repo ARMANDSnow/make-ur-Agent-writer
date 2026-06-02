@@ -39,3 +39,4 @@
 28. [Iteration 028 - Systemic Hardening for Production Write Entry](./iteration_028_system_hardening.md)
 29. [Iteration 029 - Local Beta Launch Entry](./iteration_029_launch_entry.md)
 30. [Iteration 030 - Web Beta Writing Cockpit](./iteration_030_web_beta_cockpit.md)
+31. [Iteration 031 - Web Cockpit Hardening + Handoff Refresh](./iteration_031_web_cockpit_hardening.md)

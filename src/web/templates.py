@@ -92,7 +92,7 @@ _WORKSPACE_TPL = Template(
       </form>
       <form id="plan-form" class="control-grid">
         <label>计划章节数<input name="target_chapters" type="number" min="1" max="200" value="5"></label>
-        <button type="submit" class="button secondary" id="plan-submit">生成/重生成计划</button>
+        <button type="submit" class="button secondary" id="plan-submit">重生成并覆盖计划</button>
       </form>
       <form id="write-book-form" class="write-grid">
         <label>写几章<input name="chapters" type="number" min="1" value="1"></label>
