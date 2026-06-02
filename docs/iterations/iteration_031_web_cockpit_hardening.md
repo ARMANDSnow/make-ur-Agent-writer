@@ -40,6 +40,9 @@ This iteration treats those findings as a new hardening pass instead of rewritin
 - `PATH="$PWD/.venv/bin:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock bash scripts/verify.sh` -> normal sandbox hit the same 5 Web socket `PermissionError`; approved rerun passed 421 tests OK + mock auto-pipeline OK.
 - `PATH="$PWD/.venv/bin:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` -> PREFLIGHT ok; FATAL none; WARN none.
 - Non-true-model route timing sample: `/api/workspaces/overview` first call about 145 ms, TTL second call about 1.4 ms; `xueZhong` cost about 14.8 ms; `xueZhong` readiness about 10.0 ms. LiteLLM import still attempts/falls back from remote cost-map loading, so deeper lazy-import work remains a future optimization.
+- Post-commit subagent backend audit -> no findings on overview fault isolation, cache key/thread-safety, `_safe_readiness`, or persisted job workspace isolation.
+- Post-commit subagent frontend/docs audit -> found a P2 readiness debounce race where `write-book` submit could be re-enabled during polling; fixed by clearing pending debounce on submit, tracking `writeBookJobRunning`, and ignoring stale readiness responses with `readinessRequestSeq`.
+- Subagent docs drift findings fixed: `AGENTS.md` now includes `stage_03_summary.md` in the required reading list and adds the iter-end subagent audit rule; README iteration counts now match 31.
 
 ## 文件变更汇总
 
@@ -47,7 +50,7 @@ This iteration treats those findings as a new hardening pass instead of rewritin
 |------|--------|
 | `src/web/routes.py` | overview per-workspace fault isolation + short TTL cache |
 | `src/web/jobs.py` | persisted job lookup respects `paths.WORKSPACE_DIR` |
-| `src/web/static.py`, `src/web/templates.py` | lazy tabs, debounced readiness, overwrite-plan wording |
+| `src/web/static.py`, `src/web/templates.py` | lazy tabs, debounced readiness with job-running guard, overwrite-plan wording |
 | `tests/test_web_routes_get.py`, `tests/test_web_jobs_dispatch.py` | corrupt plan, persisted job, JS regression coverage |
 | `README.md`, `AGENTS.md`, `docs/AGENT_HANDOFF.md`, `docs/iterations/README.md` | iter 031 status and handoff refresh |
 
@@ -62,3 +65,4 @@ This iteration treats those findings as a new hardening pass instead of rewritin
 
 - The project handoff structure is still basically sound for multi-session agents: `AGENTS.md -> docs/AGENT_HANDOFF.md -> docs/iterations/README.md -> latest iteration -> README SOP`. The main problem was drift in `AGENTS.md`, which this iteration corrects.
 - Recommended next Web performance candidates: lazy-import LiteLLM/preflight for `main.py web`, incremental cost summaries, and a small visible "server already running" helper for port/process hygiene.
+- Recommended subagent follow-ups: behavior-level JS/browser tests for lazy tab fetches and write-book submit disabling, overview cache TTL/invalidation tests, and a small concurrent overview smoke.

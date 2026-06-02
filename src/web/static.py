@@ -399,6 +399,8 @@ JS_DASHBOARD = """\
   }
 
   let readinessTimer = null;
+  let readinessRequestSeq = 0;
+  let writeBookJobRunning = false;
   const loadedPanelSources = new Set();
 
   async function initWorkspace() {
@@ -628,6 +630,11 @@ JS_DASHBOARD = """\
     form.addEventListener('input', scheduleReadiness);
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
+      if (readinessTimer) {
+        clearTimeout(readinessTimer);
+        readinessTimer = null;
+      }
+      writeBookJobRunning = true;
       submit.disabled = true;
       jobBox.innerHTML = '<span class="muted">starting…</span>';
       const params = {
@@ -645,11 +652,13 @@ JS_DASHBOARD = """\
       try {
         const data = await postJson(`/api/workspace/${encodeURIComponent(window.WORKSPACE_NAME)}/run`, { step: 'write-book', params });
         await pollJob(data.job_id, jobBox, submit, async () => {
+          writeBookJobRunning = false;
           await refreshReadiness();
           await refreshRecentJobs();
           await loadDrafts();
         });
       } catch (err) {
+        writeBookJobRunning = false;
         jobBox.innerHTML = `<span class="error">network error: ${escapeHtml(err)}</span>`;
         submit.disabled = false;
       }
@@ -665,15 +674,18 @@ JS_DASHBOARD = """\
     const chapters = form.elements.chapters?.value || '1';
     const resumeFrom = form.elements.resume_from?.value || '1';
     const replanEvery = form.elements.replan_every?.value || '0';
+    const requestSeq = ++readinessRequestSeq;
     try {
       const data = await fetchJson(`/api/workspace/${encodeURIComponent(window.WORKSPACE_NAME)}/readiness?chapters=${encodeURIComponent(chapters)}&resume_from=${encodeURIComponent(resumeFrom)}&replan_every=${encodeURIComponent(replanEvery)}`);
+      if (requestSeq !== readinessRequestSeq) return;
       panel.innerHTML = renderReadiness(data);
       if (pill) {
         pill.className = `pill ${data.status || 'blocked'}`;
         pill.textContent = data.status || 'blocked';
       }
-      if (submit) submit.disabled = data.status === 'blocked';
+      if (submit) submit.disabled = writeBookJobRunning || data.status === 'blocked';
     } catch (err) {
+      if (requestSeq !== readinessRequestSeq) return;
       panel.innerHTML = `<span class="error">load failed: ${escapeHtml(err)}</span>`;
       if (submit) submit.disabled = true;
     }
@@ -681,7 +693,10 @@ JS_DASHBOARD = """\
 
   function scheduleReadiness() {
     if (readinessTimer) clearTimeout(readinessTimer);
-    readinessTimer = setTimeout(refreshReadiness, 500);
+    readinessTimer = setTimeout(() => {
+      readinessTimer = null;
+      refreshReadiness();
+    }, 500);
   }
 
   async function refreshRecentJobs() {

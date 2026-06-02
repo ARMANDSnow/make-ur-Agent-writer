@@ -314,7 +314,10 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("loadTabPanel", js)
         self.assertNotIn("loadSecondaryPanels", js)
         self.assertIn("scheduleReadiness", js)
-        self.assertIn("setTimeout(refreshReadiness, 500)", js)
+        self.assertIn("writeBookJobRunning", js)
+        self.assertIn("readinessRequestSeq", js)
+        self.assertIn("submit.disabled = writeBookJobRunning || data.status === 'blocked'", js)
+        self.assertIn("readinessTimer = null", js)
 
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must
