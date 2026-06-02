@@ -38,3 +38,4 @@
 27. [Iteration 027 - Capstone 30 章真模型暂停 + 起点/长生成 hardening](./iteration_027_capstone_30.md)
 28. [Iteration 028 - Systemic Hardening for Production Write Entry](./iteration_028_system_hardening.md)
 29. [Iteration 029 - Local Beta Launch Entry](./iteration_029_launch_entry.md)
+30. [Iteration 030 - Web Beta Writing Cockpit](./iteration_030_web_beta_cockpit.md)

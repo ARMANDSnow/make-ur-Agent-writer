@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .. import paths
+from .. import paths, start_point
 from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
 from ..cost_estimator import estimate_cost
@@ -77,6 +77,14 @@ def _workspace_exists(name: str) -> bool:
     return (paths.WORKSPACE_DIR / name).is_dir()
 
 
+def _workspace_error(name: str) -> Optional[Tuple[int, str, bytes]]:
+    if not _validate_workspace_name(name):
+        return _json(400, {"error": "invalid workspace name"})
+    if not _workspace_exists(name):
+        return _json(404, {"error": f"workspace not found: {name}"})
+    return None
+
+
 # ---- handlers ---------------------------------------------------------------
 
 
@@ -108,6 +116,56 @@ def api_workspaces() -> Tuple[int, str, bytes]:
     return _json(200, {"workspaces": list_workspaces()})
 
 
+def api_workspaces_overview() -> Tuple[int, str, bytes]:
+    return _json(200, {"workspaces": [_workspace_overview(name) for name in list_workspaces()]})
+
+
+def _workspace_overview(name: str) -> Dict[str, Any]:
+    root = paths.WORKSPACE_DIR / name
+    overview: Dict[str, Any] = {
+        "name": name,
+        "path": str(root),
+        "exists": root.is_dir(),
+        "chapter_count": 0,
+        "draft_count": 0,
+        "review_total": 0,
+        "review_accepted": 0,
+        "review_blocked": 0,
+        "start_point": {"has_start_point": False, "start_chapter_id": ""},
+        "plan": {"exists": False, "chapters": 0, "has_fingerprint": False},
+        "readiness": {"status": "blocked", "blockers": ["workspace_missing"], "warnings": [], "recommended_commands": []},
+        "recent_job": None,
+    }
+    if not root.is_dir():
+        return overview
+    with use_workspace(name):
+        manifest = read_json(paths.chapter_manifest_path(), [])
+        if isinstance(manifest, dict):
+            manifest = manifest.get("chapters", manifest.get("entries", []))
+        overview["chapter_count"] = len(manifest) if isinstance(manifest, list) else 0
+        overview["draft_count"] = len(list(paths.drafts_dir().glob("chapter_*.md")))
+        overview["start_point"] = start_point.get_start_point_metadata()
+        plan = read_json(paths.chapter_plan_path(), {})
+        if isinstance(plan, dict):
+            overview["plan"] = {
+                "exists": bool(plan),
+                "chapters": len(plan.get("chapters") or []),
+                "has_fingerprint": bool(plan.get("plan_fingerprint")),
+                "start_chapter_id": plan.get("start_chapter_id", ""),
+            }
+        reviews = aggregate_reviews(paths.drafts_dir())
+        stats = reviews.get("stats", {}) if isinstance(reviews, dict) else {}
+        total = int(stats.get("total") or 0)
+        accepted = int(stats.get("accepted") or 0)
+        overview["review_total"] = total
+        overview["review_accepted"] = accepted
+        overview["review_blocked"] = max(total - accepted, 0)
+        overview["readiness"] = _safe_readiness(chapters=1, resume_from=1)
+        recent = jobs.recent_jobs(name, limit=1)
+        overview["recent_job"] = recent[0] if recent else None
+    return overview
+
+
 def api_workspace_status(name: str) -> Tuple[int, str, bytes]:
     if not _validate_workspace_name(name):
         return _json(400, {"error": "invalid workspace name"})
@@ -136,6 +194,39 @@ def api_workspace_manifest(name: str) -> Tuple[int, str, bytes]:
     return _json(200, {"chapters": manifest if isinstance(manifest, list) else []})
 
 
+def api_workspace_start_point(name: str) -> Tuple[int, str, bytes]:
+    error = _workspace_error(name)
+    if error:
+        return error
+    with use_workspace(name):
+        return _json(200, {"start_point": start_point.get_start_point_metadata()})
+
+
+def api_workspace_set_start_point(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    value = payload.get("start_point") or payload.get("name")
+    if not isinstance(value, str) or not value.strip():
+        return _json(400, {"error": "missing or invalid start_point"})
+    with use_workspace(name):
+        start_point.set_start_point(value)
+        readiness = _safe_readiness(chapters=1, resume_from=1)
+        return _json(
+            200,
+            {
+                "start_point": start_point.get_start_point_metadata(),
+                "readiness": readiness,
+            },
+        )
+
+
 def api_workspace_reviews(name: str) -> Tuple[int, str, bytes]:
     if not _validate_workspace_name(name):
         return _json(400, {"error": "invalid workspace name"})
@@ -156,8 +247,25 @@ def api_workspace_readiness(
     if not _workspace_exists(name):
         return _json(404, {"error": f"workspace not found: {name}"})
     with use_workspace(name):
-        result = check_write_readiness(chapters=chapters, resume_from=resume_from, replan_every=replan_every)
+        result = _safe_readiness(chapters=chapters, resume_from=resume_from, replan_every=replan_every)
     return _json(200, result)
+
+
+def _safe_readiness(**kwargs: Any) -> Dict[str, Any]:
+    try:
+        return check_write_readiness(**kwargs)
+    except Exception as exc:
+        chapters = int(kwargs.get("chapters", 1) or 1)
+        resume_from = int(kwargs.get("resume_from", 1) or 1)
+        return {
+            "status": "blocked",
+            "chapters": chapters,
+            "resume_from": resume_from,
+            "plan_window": chapters,
+            "blockers": [f"readiness_error:{type(exc).__name__}: {exc}"],
+            "warnings": [],
+            "recommended_commands": ["inspect chapter_plan.json and rerun plan-chapters --force --require-start-point"],
+        }
 
 
 def api_workspace_logs_tail(name: str, n: int = 50) -> Tuple[int, str, bytes]:
@@ -170,6 +278,70 @@ def api_workspace_logs_tail(name: str, n: int = 50) -> Tuple[int, str, bytes]:
         log_path = paths.llm_calls_log_path()
         lines = _tail_jsonl(log_path, n)
     return _json(200, {"lines": lines})
+
+
+def api_workspace_recent_jobs(name: str, limit: int = 5) -> Tuple[int, str, bytes]:
+    error = _workspace_error(name)
+    if error:
+        return error
+    return _json(200, {"jobs": jobs.recent_jobs(name, limit=limit)})
+
+
+def api_workspace_drafts(name: str) -> Tuple[int, str, bytes]:
+    error = _workspace_error(name)
+    if error:
+        return error
+    with use_workspace(name):
+        drafts = [_draft_summary(path) for path in sorted(paths.drafts_dir().glob("chapter_*.md"))]
+    return _json(200, {"drafts": [item for item in drafts if item]})
+
+
+def api_workspace_draft(name: str, chapter: str) -> Tuple[int, str, bytes]:
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        chapter_no = int(chapter)
+    except ValueError:
+        return _json(400, {"error": "chapter must be an integer"})
+    if chapter_no < 1 or chapter_no > 9999:
+        return _json(400, {"error": "chapter out of range"})
+    with use_workspace(name):
+        md_path = paths.drafts_dir() / f"chapter_{chapter_no:02d}.md"
+        if not md_path.exists():
+            return _json(404, {"error": f"draft not found: chapter_{chapter_no:02d}"})
+        text = md_path.read_text(encoding="utf-8", errors="replace")
+        meta = read_json(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
+        review = read_json(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
+    return _json(
+        200,
+        {
+            "chapter": chapter_no,
+            "path": str(md_path),
+            "content": text,
+            "meta": meta if isinstance(meta, dict) else {},
+            "review": review if isinstance(review, dict) else {},
+        },
+    )
+
+
+def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
+    match = re.match(r"chapter_(\d+)\.md$", path.name)
+    if not match:
+        return None
+    chapter_no = int(match.group(1))
+    meta = read_json(path.with_suffix(".meta.json"), {})
+    review = read_json(path.parent.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", {})
+    return {
+        "chapter": chapter_no,
+        "path": str(path),
+        "chars": len(path.read_text(encoding="utf-8", errors="replace")),
+        "verdict": meta.get("verdict") if isinstance(meta, dict) else None,
+        "needs_human_review": bool(meta.get("needs_human_review")) if isinstance(meta, dict) else False,
+        "rewrite_count": meta.get("rewrite_count") if isinstance(meta, dict) else None,
+        "review_verdict": review.get("verdict") if isinstance(review, dict) else None,
+        "snapshot_path": meta.get("snapshot_path") if isinstance(meta, dict) else None,
+    }
 
 
 def _tail_jsonl(path: Path, n: int) -> List[Dict[str, Any]]:
@@ -280,6 +452,9 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
     params = payload.get("params") or {}
     if not isinstance(params, dict):
         return _json(400, {"error": "'params' must be an object"})
+    params_error, params = _validated_run_params(step, params)
+    if params_error:
+        return _json(400, {"error": params_error})
     try:
         job = jobs.start_job(name, step, params)
     except ValueError as exc:
@@ -296,6 +471,105 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
             )
         raise
     return _json(202, {"job_id": job["job_id"], "status": job["status"], "step": step})
+
+
+def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    if step == "write-book":
+        error, out = _validate_write_book_params(params)
+        return error, out
+    if step == "plan-chapters":
+        error, out = _validate_plan_chapters_params(params)
+        return error, out
+    return None, params
+
+
+def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    out: Dict[str, Any] = {}
+    for key, default, minimum in (
+        ("chapters", 1, 1),
+        ("resume_from", 1, 1),
+        ("max_retries", 2, 0),
+        ("replan_every", 0, 0),
+    ):
+        error, value = _int_param(params, key, default, minimum=minimum)
+        if error:
+            return error, {}
+        out[key] = value
+    error, budget = _float_param(params, "budget_cny", 0.0, minimum=0.0)
+    if error:
+        return error, {}
+    error, confidence = _float_param(params, "min_confidence", 0.7, minimum=0.0, maximum=1.0)
+    if error:
+        return error, {}
+    out["budget_cny"] = budget
+    out["min_confidence"] = confidence
+    for key, default in (
+        ("force", False),
+        ("auto_advance", True),
+        ("require_start_point", True),
+        ("require_plan", True),
+        ("require_external_review", True),
+    ):
+        error, value = _bool_param(params, key, default)
+        if error:
+            return error, {}
+        out[key] = value
+    return None, out
+
+
+def _validate_plan_chapters_params(params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    raw_target = params.get("target_chapters", params.get("chapters", 5))
+    error, target = _int_value(raw_target, "target_chapters", minimum=1, maximum=200)
+    if error:
+        return error, {}
+    return None, {
+        "target_chapters": target,
+        "force": True,
+        "append_count": 0,
+        "from_chapter": 0,
+        "require_start_point": True,
+    }
+
+
+def _int_param(params: Dict[str, Any], key: str, default: int, *, minimum: int = 0, maximum: Optional[int] = None) -> Tuple[Optional[str], int]:
+    return _int_value(params.get(key, default), key, minimum=minimum, maximum=maximum)
+
+
+def _int_value(value: Any, key: str, *, minimum: int = 0, maximum: Optional[int] = None) -> Tuple[Optional[str], int]:
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return f"{key} must be an integer", 0
+    if out < minimum:
+        return f"{key} must be >= {minimum}", 0
+    if maximum is not None and out > maximum:
+        return f"{key} must be <= {maximum}", 0
+    return None, out
+
+
+def _float_param(params: Dict[str, Any], key: str, default: float, *, minimum: float = 0.0, maximum: Optional[float] = None) -> Tuple[Optional[str], float]:
+    try:
+        out = float(params.get(key, default))
+    except (TypeError, ValueError):
+        return f"{key} must be a number", 0.0
+    if out < minimum:
+        return f"{key} must be >= {minimum}", 0.0
+    if maximum is not None and out > maximum:
+        return f"{key} must be <= {maximum}", 0.0
+    return None, out
+
+
+def _bool_param(params: Dict[str, Any], key: str, default: bool) -> Tuple[Optional[str], bool]:
+    value = params.get(key, default)
+    if isinstance(value, bool):
+        return None, value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return None, True
+        if lowered in {"0", "false", "no", "off"}:
+            return None, False
+    return f"{key} must be a boolean", False
 
 
 def api_job_status(name: str, job_id: str) -> Tuple[int, str, bytes]:
@@ -323,11 +597,24 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/static/app\.js$"), lambda **_: render_static_js()),
     ("GET", re.compile(r"^/static/wizard\.js$"), lambda **_: render_static_wizard_js()),
     ("GET", re.compile(r"^/workspace/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace(name)),
+    ("GET", re.compile(r"^/api/workspaces/overview/?$"), lambda **_: api_workspaces_overview()),
     ("GET", re.compile(r"^/api/workspaces/?$"), lambda **_: api_workspaces()),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/status/?$"), lambda name, **_: api_workspace_status(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/cost/?$"), lambda name, **_: api_workspace_cost(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/manifest/?$"), lambda name, **_: api_workspace_manifest(name)),
+    ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/start-point/?$"), lambda name, **_: api_workspace_start_point(name)),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/start-point/?$"),
+        lambda name, _body=b"", **_: api_workspace_set_start_point(name, _body),
+    ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: api_workspace_reviews(name)),
+    ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drafts/?$"), lambda name, **_: api_workspace_drafts(name)),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/draft/(?P<chapter>\d+)/?$"),
+        lambda name, chapter, **_: api_workspace_draft(name, chapter),
+    ),
     (
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/readiness/?$"),
@@ -342,6 +629,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/logs/tail/?$"),
         lambda name, _query=None, **_: api_workspace_logs_tail(name, n=_parse_n(_query)),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/jobs/recent/?$"),
+        lambda name, _query=None, **_: api_workspace_recent_jobs(name, limit=_parse_n(_query)),
     ),
     # iter 026: POST /run (start a job) + GET /job/<id> (poll progress)
     (

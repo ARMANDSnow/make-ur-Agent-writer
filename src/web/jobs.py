@@ -31,7 +31,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .. import auto_pipeline
+from .. import auto_pipeline, paths, start_point
 from ..auto_bootstrap import bootstrap_all
 from ..chapter_splitter import split_all
 from ..cli_apply_bootstrap import apply_bootstrap
@@ -80,7 +80,7 @@ def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[s
 
 
 def _job_log_path(workspace: str) -> Path:
-    return ROOT / "workspaces" / workspace / "logs" / "web_jobs.jsonl"
+    return paths.WORKSPACE_DIR / workspace / "logs" / "web_jobs.jsonl"
 
 
 def _persist_job(job: Dict[str, Any]) -> None:
@@ -108,6 +108,51 @@ def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
             if isinstance(row, dict) and row.get("job_id") == job_id:
                 latest = row
     return latest
+
+
+def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
+    """Return the latest persisted jobs for a workspace.
+
+    The dashboard uses this after a browser refresh, when in-memory job
+    state may be gone but ``logs/web_jobs.jsonl`` still has terminal rows.
+    """
+
+    limit = max(1, min(int(limit or 5), 50))
+    path = _job_log_path(workspace)
+    if not path.exists():
+        return []
+    latest_by_id: Dict[str, Dict[str, Any]] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict) or row.get("workspace") != workspace:
+            continue
+        job_id = str(row.get("job_id") or "")
+        if not job_id:
+            continue
+        latest_by_id[job_id] = row
+    jobs = sorted(
+        latest_by_id.values(),
+        key=lambda item: float(item.get("finished_at") or item.get("started_at") or 0),
+        reverse=True,
+    )
+    out: list[Dict[str, Any]] = []
+    for job in jobs[:limit]:
+        snapshot = dict(job)
+        if snapshot.get("status") in {"pending", "running"}:
+            live = get_job(str(snapshot.get("job_id")))
+            snapshot = live or snapshot
+            if snapshot.get("status") in {"pending", "running"}:
+                snapshot["status"] = "lost"
+                snapshot["error"] = "worker process restarted before this job reached a terminal state"
+        out.append(snapshot)
+    return out
 
 
 def _update(job_id: str, **fields: Any) -> None:
@@ -187,13 +232,33 @@ def _step_debate(params: Dict[str, Any], progress_cb: Callable[[str, float], Non
 
 
 def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    return generate_chapter_plan(
-        target_chapters=int(params.get("target_chapters", 5)),
-        force=bool(params.get("force", False)),
-        append_count=int(params.get("append_count", 0)),
-        from_chapter=int(params.get("from_chapter", 0)),
-        require_start_point=bool(params.get("require_start_point", True)),
-    )
+    require_start = bool(params.get("require_start_point", True))
+    if require_start and not start_point.get_start_chapter_id():
+        return {
+            "status": "blocked",
+            "blocked": [{"reason": "start_point_missing", "error": "start point is required before plan-chapters"}],
+        }
+    try:
+        return generate_chapter_plan(
+            target_chapters=int(params.get("target_chapters", 5)),
+            force=bool(params.get("force", False)),
+            append_count=int(params.get("append_count", 0)),
+            from_chapter=int(params.get("from_chapter", 0)),
+            require_start_point=require_start,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        msg = str(exc)
+        if require_start and "start point is required" in msg:
+            return {
+                "status": "blocked",
+                "blocked": [{"reason": "start_point_missing", "error": msg}],
+            }
+        if "outline not found" in msg:
+            return {
+                "status": "blocked",
+                "blocked": [{"reason": "outline_missing", "error": msg}],
+            }
+        raise
 
 
 def _step_draft_once_dev(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -347,6 +412,13 @@ def _summarize_result(step: str, result: Any) -> Any:
             "cost_cny": result.get("cost_cny"),
             "budget_cny": result.get("budget_cny"),
             "snapshot_path": result.get("snapshot_path"),
+        }
+    if step == "plan-chapters" and isinstance(result, dict):
+        blocked = result.get("blocked") or []
+        return {
+            "status": result.get("status", "succeeded"),
+            "blocked": len(blocked),
+            "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
         }
     if isinstance(result, list):
         return {"count": len(result)}

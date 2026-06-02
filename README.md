@@ -7,8 +7,8 @@
 [简体中文](README.md) · [English](README_EN.md)
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-412_passing-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
-[![Iterations](https://img.shields.io/badge/iterations-29_logged-orange.svg)](docs/iterations/)
+[![Tests](https://img.shields.io/badge/tests-419_passing-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
+[![Iterations](https://img.shields.io/badge/iterations-30_logged-orange.svg)](docs/iterations/)
 [![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
 [![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
 
@@ -32,16 +32,16 @@
 
 | 层 | 在代码里长什么样 |
 |---|---|
-| **Mock 优先开发** | 412 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
+| **Mock 优先开发** | 419 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
 | **Preflight 守门** | 真模型跑之前 7 类 FATAL 检查 + N 条 WARN：env / context limit / agents 配置 / rolling state / manifest 完整性 / **provider routing** / 人工事实 / cache 提供商提示。 |
 | **多 workspace 隔离** | iter 017：每本书一个 `workspaces/<name>/{data,outputs,小说txt,logs}/`。`--book myBook` 切换；sha256 baseline 4/4 互不污染。 |
 | **多语言切章 + EPUB 提取** | iter 018：CJK 字符比率自动判中英；中文 `第N章` / 英文 `CHAPTER / POV / 全大写` 两套 regex。`.epub` 用 stdlib `zipfile + xml.etree + html.parser` 直接转 txt，**零新依赖**。 |
-| **本地 Beta 写作入口** | iter 029：`python3 main.py --book X write-readiness --chapters N` 先暴露阻塞原因，再由 `write-book` 统一执行。`scripts/write_book.sh` 只是 wrapper；retry / budget / replan / auto-advance / snapshot 都在 Python runner。 |
+| **本地 Beta 写作入口** | iter 029-030：CLI 用 `write-readiness -> write-book`；Web 首页显示每本书 readiness，workspace 工作台支持设置起点、生成计划、继续写书、查看草稿/阻塞原因。 |
 | **Reviewer fail-closed** | iter 019 audit：5-agent 中任一 JSON 解析失败，记 `Abstain + _fallback_reason="(parse_failed)"`，不当 Approve；最终 verdict 任一 substantive Reject → Reject，零 substantive Approve → Reject。 |
 | **带 timeline 的 Entity graph** | 角色/地点/概念作为 entity；关系携带 `timeline[]`，`active=true` 标记当前续写起点状态。**writer 只看 active state**；"关系一致性" reviewer 对照核验。 |
 | **成本遥测** | 每次 LLM 调用记 `request_hash`、prompt/response tokens、cache_read/cache_write tokens。`estimate-cost` 按 provider 单价聚合。龙族 ch1 真模型实测：30 calls / 143K prompt（cache 命中 58%）/ 36K response / **~¥0.45**。 |
 | **Persona 抽象** | iter 016：debate / reviewer 的 5 agent 不再硬编码龙族角色名；每本书 `init-book` 自动用 LLM 出 personas proposal → 人工审 → 落 `data/manual_overrides/personas.json`，模板渲染。 |
-| **迭代日志** | [29 条](docs/iterations/)，每条 Context / Plan / Acceptance / 实测数字 / File summary 完整工程复盘。仓库本身就是一份工程日记。 |
+| **迭代日志** | [30 条](docs/iterations/)，每条 Context / Plan / Acceptance / 实测数字 / File summary 完整工程复盘。仓库本身就是一份工程日记。 |
 
 ---
 
@@ -53,7 +53,7 @@
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
 cd make-ur-Agent-writer
 pip install -r requirements.txt
-bash scripts/verify.sh      # 412 unit tests + 全流水线 mock，退出 0 = 接通
+bash scripts/verify.sh      # 419 unit tests + 全流水线 mock，退出 0 = 接通
 ```
 
 ### 真模型模式（gpt-5.5 / deepseek / 任何 OpenAI 兼容 provider）
@@ -105,9 +105,9 @@ bash scripts/write_book.sh --book myBook --chapters 3
 
 切换书只改一个 flag（`--book otherBook`），或 `export WORKSPACE_NAME=otherBook` 一次性生效。`workspace-list` / `workspace-show` 看现有 workspace。
 
-### Run the dashboard（iter 025）
+### Run the writing cockpit（iter 030）
 
-CLI 看完状态嫌切来切去？跑一个本地浏览器仪表盘：
+CLI 看完状态嫌切来切去？跑一个本地浏览器写作工作台：
 
 ```bash
 python3 main.py web              # 默认 127.0.0.1:8765
@@ -115,14 +115,15 @@ python3 main.py web              # 默认 127.0.0.1:8765
 python3 main.py web --port 9999
 ```
 
-打开 `http://127.0.0.1:8765/` 看所有 workspace；点进去看 4 panel：
+打开 `http://127.0.0.1:8765/` 看所有 workspace 的 readiness / 起点 / plan / 草稿 / 最近 job；点进一本书后可以：
 
-- **Status** —— `collect_status()` 完整 9 阶段进度
-- **Cost** —— 累计 token / cache / 估算 ¥
-- **Manifest** —— `data/chapter_manifest.json` 全表
-- **Reviews** —— 每章 verdict / rewrite_count / agent_reviews 全量 + iter 024 advisor `rewrite_suggestions`（点行展开）
+- 设置续写起点（chapter 或 volume）。
+- 生成/重生成章节计划（Web job，强制 `--force --require-start-point`）。
+- 检查阻塞原因与推荐命令。
+- 启动 `write-book`，配置章节数、预算、replan、retry、entity auto-advance。
+- 查看只读 draft 预览、review、manifest、status、cost。
 
-stdlib only（http.server + string.Template，**0 新依赖**）。默认绑 127.0.0.1 不外露；mock-only 验收；iter 026 接 wizard + 模型切换 panel。
+stdlib only（http.server + string.Template + vanilla JS，**0 新依赖**）。默认绑 127.0.0.1 不外露；mock-only 验收；真模型长跑仍需用户明确授权。
 
 ---
 
@@ -163,7 +164,7 @@ stdlib only（http.server + string.Template，**0 新依赖**）。默认绑 127
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 029（2026-06-02）** — 本地 Beta 上线入口：新增 `write-readiness` JSON 就绪检查，`scripts/write_book.sh` 降级为 wrapper，`write-book` Python runner 接管 retry / budget / replan / auto-advance / snapshot，Web dashboard 增加“继续写书”按钮与阻塞原因展示；真模型长跑仍待用户授权。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 030（2026-06-02）** — WebUI 从工程 dashboard 升级成本地 Beta 写作工作台：首页显示每本书 readiness，workspace 内支持设置起点、生成计划、继续写书、查看只读草稿和最近 job；真模型长跑仍待用户授权。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -252,6 +253,7 @@ stdlib only（http.server + string.Template，**0 新依赖**）。默认绑 127
 | U.3 | `auto-pipeline` 子命令（CLI + wizard 共享绿地编排）| ✅ | **iter 028** 普通 Web 生产不再暴露 generic `auto-pipeline`；wizard 使用 `auto-pipeline-greenfield` |
 | U.4 | Web job 状态持久化 + fail-closed summary | ✅ | **iter 028**（`succeeded/blocked/failed/aborted/lost`，Reject/needs_human_review 不算 success） |
 | U.5 | Web “继续写书”本地 Beta 入口 | ✅ | **iter 029**（dashboard 显示 readiness、阻塞原因、推荐命令；普通区不展示 `draft-once-dev`） |
+| U.6 | Web 写作工作台 | ✅ | **iter 030**（首页 workspace overview；详情页设置起点/生成计划/继续写书/只读 draft 预览/最近 job 恢复） |
 
 ---
 

@@ -625,3 +625,31 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 - 实现真正 `knowledge_for_start_point()` / KB 安全视图。
 - entity_graph timeline schema 增加 chapter marker 并提供 preflight 升级提示。
 - WebUI 下一步可做 draft review/edit、安全 KB view、长跑监控与成本仪表。
+
+---
+
+## Phase 4 Status（iter 030，2026-06-02）
+
+### Iteration 030 — 本地 Beta 写作工作台（mock-only）
+
+**目标**：把 iter 029 的可靠“继续写书”按钮升级成用户侧能理解的本地写作工作台。首页不再只是 workspace 链接列表；进入 workspace 后能按“设置起点 → 生成计划 → 检查就绪 → 继续写书 → 查看产出/阻塞原因”的顺序操作。
+
+**主要落地**：
+- 首页新增 `/api/workspaces/overview`：每本书显示原文章节数、起点、plan、草稿、review、最近 job、readiness。单本坏 plan/schema 错会显示 `blocked`，不会拖垮首页。
+- workspace 详情页改为 cockpit：起点选择、plan job、write-book 参数、readiness、最近 job 置于首屏；status/cost/manifest/reviews/drafts 放入 tabs。
+- 新增起点 API：`GET/POST /api/workspace/<name>/start-point`；保存后刷新 readiness。
+- 新增只读产物 API：`/drafts` 与 `/draft/<chapter>`，展示章节正文、meta verdict、review verdict，不做在线编辑。
+- 新增 `/jobs/recent`，从 `logs/web_jobs.jsonl` 恢复 terminal job；修复 job log 路径尊重 `paths.WORKSPACE_DIR`。
+- Web `/run` 增加服务端参数校验；`write-book` 非法参数 400；`plan-chapters` 强制 `force=True` / `require_start_point=True`。缺起点/缺 outline 作为用户可修复 `blocked`，不标 `failed`。
+- UI 从深色工程 dashboard 改成浅色紧凑工作台；普通页面仍不暴露 `draft-once-dev`。
+
+**验证进度**：
+- Targeted Web tests：`tests.test_web_routes_get tests.test_web_jobs_dispatch` → 36 OK。
+- 其余全量验证见 iter 030 文档 Acceptance Result。
+- 本轮不跑真模型 smoke，不改 `.env`。
+
+**当前接力点**：
+1. 用户体验入口：`.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`。
+2. 从 workspace 页面设置起点后，可直接点“生成/重生成计划”；真模型配置下这一步可能产生费用，仍需用户自行确认 `.env` 与预算。
+3. 真模型长跑仍建议先 CLI/Web readiness，确认只剩可接受 WARN 后再 `write-book --budget-cny <ceiling> --replan-every K`。
+4. 后续候选：真模型 capstone、KB 安全视图、entity timeline schema、在线编辑/复审入口。

@@ -7,6 +7,7 @@ import os
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from src import paths
@@ -78,6 +79,49 @@ class JobsDispatchTests(unittest.TestCase):
         )
         self.assertEqual(status, 400)
         self.assertIn("JSON", json.loads(body)["error"])
+
+    def test_write_book_invalid_params_400_before_worker(self) -> None:
+        status, data = self._post_run(
+            "alpha",
+            {"step": "write-book", "params": {"chapters": 0}},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("chapters", data["error"])
+
+        status, data = self._post_run(
+            "alpha",
+            {"step": "write-book", "params": {"min_confidence": 1.2}},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("min_confidence", data["error"])
+
+    def test_plan_chapters_missing_start_point_is_blocked(self) -> None:
+        status, data = self._post_run(
+            "alpha",
+            {"step": "plan-chapters", "params": {"target_chapters": 3}},
+        )
+        self.assertEqual(status, 202)
+        job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(job["status"], "blocked")
+        self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "start_point_missing")
+
+    def test_plan_chapters_params_are_forced_to_start_point_mode(self) -> None:
+        with unittest.mock.patch(
+            "src.web.jobs.generate_chapter_plan",
+            return_value={"chapters": []},
+        ) as planner, unittest.mock.patch(
+            "src.web.jobs.start_point.get_start_chapter_id",
+            return_value="alpha_ch001",
+        ):
+            status, data = self._post_run(
+                "alpha",
+                {"step": "plan-chapters", "params": {"target_chapters": 7, "require_start_point": False, "force": False}},
+            )
+            self.assertEqual(status, 202)
+            self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(planner.call_args.kwargs["target_chapters"], 7)
+        self.assertTrue(planner.call_args.kwargs["force"])
+        self.assertTrue(planner.call_args.kwargs["require_start_point"])
 
     def test_concurrent_same_workspace_409(self) -> None:
         # The first job must remain in flight when we fire the second
@@ -177,11 +221,13 @@ class JobsDispatchTests(unittest.TestCase):
         ) as run:
             status, data = self._post_run(
                 "alpha",
-                {"step": "write-book", "params": {"chapters": 1, "min_confidence": 0}},
+                {"step": "write-book", "params": {"chapters": 1, "min_confidence": 0, "budget_cny": 2.5, "replan_every": 3}},
             )
             self.assertEqual(status, 202)
             self._wait_for_done("alpha", data["job_id"], timeout=10.0)
         self.assertEqual(run.call_args.kwargs["min_confidence"], 0.0)
+        self.assertEqual(run.call_args.kwargs["budget_cny"], 2.5)
+        self.assertEqual(run.call_args.kwargs["replan_every"], 3)
 
     def test_write_book_budget_exceeded_terminal_status(self) -> None:
         with unittest.mock.patch(

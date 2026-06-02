@@ -22,20 +22,32 @@ _INDEX_TPL = Template(
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>WebUI · 续写 dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地写作工作台</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<header><h1>续写 dashboard</h1><p class="muted">iter 026 · stdlib-only · 127.0.0.1 · <a href="/wizard">+ 新建 workspace</a> · <a href="/settings">模型设置</a></p></header>
-<main>
-  <section>
-    <h2>Workspaces</h2>
-    <ul class="workspace-list">
-$ITEMS
-    </ul>
-    <p class="muted">$EMPTY_HINT</p>
+<header class="app-header">
+  <div>
+    <h1>本地写作工作台</h1>
+    <p class="muted">127.0.0.1 · mock-first · 单用户 Beta</p>
+  </div>
+  <nav><a class="button secondary" href="/wizard">新建作品</a><a class="button secondary" href="/settings">模型设置</a></nav>
+</header>
+<main class="page-shell">
+  <section class="hero-band">
+    <div>
+      <p class="eyebrow">书架</p>
+      <h2>选择一本书，继续安全写下去</h2>
+    </div>
+    <div class="hero-stats" id="shelf-stats"></div>
+  </section>
+  <section class="section-flat">
+    <div id="workspace-shelf" class="workspace-grid" data-empty="$EMPTY_HINT">loading...</div>
   </section>
 </main>
+<script>window.PAGE_KIND = "index";</script>
+<script src="/static/app.js"></script>
 </body>
 </html>
 """
@@ -47,31 +59,77 @@ _WORKSPACE_TPL = Template(
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>$NAME · WebUI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$NAME · 写作工作台</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<header>
-  <h1><a href="/">←</a> $NAME</h1>
-  <p class="muted">workspace dashboard</p>
+<header class="app-header">
+  <div>
+    <h1><a href="/">←</a> $NAME</h1>
+    <p class="muted">写作工作台 · 设置起点、生成计划、检查就绪、继续写书</p>
+  </div>
+  <nav><a class="button secondary" href="/wizard">新建作品</a><a class="button secondary" href="/settings">模型设置</a></nav>
 </header>
-<main>
-  <section id="panel-readiness">
-    <h2>继续写书</h2>
-    <form id="write-book-form">
-      <p><label>章节数 <input name="chapters" type="number" min="1" value="1"></label></p>
-      <p><label>从第几章 <input name="resume_from" type="number" min="1" value="1"></label></p>
-      <p><button type="submit" id="write-book-submit">开始续写</button></p>
-    </form>
-    <div class="panel-body" data-source="readiness">loading…</div>
-    <div id="write-job-status" class="panel-body"></div>
+<main class="page-shell">
+  <section class="workspace-hero">
+    <div>
+      <p class="eyebrow">当前作品</p>
+      <h2>$NAME</h2>
+    </div>
+    <div id="workspace-summary" class="summary-strip"></div>
   </section>
-  <section id="panel-status"><h2>Status</h2><div class="panel-body" data-source="status">loading…</div></section>
-  <section id="panel-cost"><h2>Cost</h2><div class="panel-body" data-source="cost">loading…</div></section>
-  <section id="panel-manifest"><h2>Manifest</h2><div class="panel-body" data-source="manifest">loading…</div></section>
-  <section id="panel-reviews"><h2>Reviews</h2><div class="panel-body" data-source="reviews">loading…</div></section>
+
+  <section class="cockpit-grid">
+    <div class="panel action-panel">
+      <div class="panel-title">
+        <h2>准备续写</h2>
+        <span id="readiness-pill" class="pill">loading</span>
+      </div>
+      <form id="start-point-form" class="control-grid">
+        <label>续写起点<select name="start_point" id="start-point-select"></select></label>
+        <button type="submit" class="button secondary">保存起点</button>
+      </form>
+      <form id="plan-form" class="control-grid">
+        <label>计划章节数<input name="target_chapters" type="number" min="1" max="200" value="5"></label>
+        <button type="submit" class="button secondary" id="plan-submit">生成/重生成计划</button>
+      </form>
+      <form id="write-book-form" class="write-grid">
+        <label>写几章<input name="chapters" type="number" min="1" value="1"></label>
+        <label>从第几章<input name="resume_from" type="number" min="1" value="1"></label>
+        <label>预算 CNY<input name="budget_cny" type="number" min="0" step="0.1" value="0"></label>
+        <label>每几章重规划<input name="replan_every" type="number" min="0" value="0"></label>
+        <label>最大重试<input name="max_retries" type="number" min="0" value="2"></label>
+        <label>推进置信度<input name="min_confidence" type="number" min="0" max="1" step="0.05" value="0.7"></label>
+        <label class="check-row"><input name="auto_advance" type="checkbox" checked> 自动推进实体状态</label>
+        <button type="submit" class="button primary" id="write-book-submit">继续写书</button>
+      </form>
+    </div>
+    <div class="panel">
+      <div class="panel-title"><h2>就绪检查</h2><button class="icon-button" id="refresh-readiness" title="刷新">↻</button></div>
+      <div id="readiness-panel" class="panel-body">loading...</div>
+      <div id="job-status" class="panel-body"></div>
+      <div id="recent-jobs" class="panel-body"></div>
+    </div>
+  </section>
+
+  <section class="tabs">
+    <div class="tab-list">
+      <button class="tab active" data-tab="drafts">产出</button>
+      <button class="tab" data-tab="reviews">评审</button>
+      <button class="tab" data-tab="manifest">原文章节</button>
+      <button class="tab" data-tab="status">流水线</button>
+      <button class="tab" data-tab="cost">成本</button>
+    </div>
+    <div class="tab-panel active" id="tab-drafts"><div id="drafts-panel" class="panel-body">loading...</div></div>
+    <div class="tab-panel" id="tab-reviews"><div class="panel-body" data-source="reviews">loading...</div></div>
+    <div class="tab-panel" id="tab-manifest"><div class="panel-body" data-source="manifest">loading...</div></div>
+    <div class="tab-panel" id="tab-status"><div class="panel-body" data-source="status">loading...</div></div>
+    <div class="tab-panel" id="tab-cost"><div class="panel-body" data-source="cost">loading...</div></div>
+  </section>
 </main>
 <script>window.WORKSPACE_NAME = "$NAME";</script>
+<script>window.PAGE_KIND = "workspace";</script>
 <script src="/static/app.js"></script>
 </body>
 </html>
@@ -81,18 +139,8 @@ _WORKSPACE_TPL = Template(
 
 def render_index(workspaces: Iterable[str]) -> str:
     names = list(workspaces)
-    if names:
-        items = "\n".join(
-            f'      <li><a href="/workspace/{escape(n)}/">{escape(n)}</a></li>' for n in names
-        )
-        empty_hint = ""
-    else:
-        items = ""
-        empty_hint = (
-            "(no workspaces yet — run `python3 main.py workspace-init <name>` "
-            "to create one)"
-        )
-    return _INDEX_TPL.substitute(ITEMS=items, EMPTY_HINT=empty_hint)
+    empty_hint = "" if names else "还没有作品。点击“新建作品”上传 epub/txt。"
+    return _INDEX_TPL.substitute(EMPTY_HINT=escape(empty_hint))
 
 
 def render_workspace(name: str) -> str:

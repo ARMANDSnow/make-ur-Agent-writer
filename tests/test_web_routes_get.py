@@ -9,7 +9,9 @@ import unittest
 from pathlib import Path
 
 from src import paths
+from src.plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
 from src.web import routes
+from src.web.workspace_ctx import use_workspace
 
 
 def _stub_workspace(root: Path, name: str) -> Path:
@@ -20,6 +22,7 @@ def _stub_workspace(root: Path, name: str) -> Path:
     (ws / "data").mkdir(parents=True)
     (ws / "outputs" / "debate").mkdir(parents=True)
     (ws / "outputs" / "drafts").mkdir(parents=True)
+    (ws / "outputs" / "reviews").mkdir(parents=True)
     (ws / "logs").mkdir(parents=True)
     (ws / "小说txt").mkdir(parents=True)
     # chapter_manifest is enough to make collect_status report "split done"
@@ -55,14 +58,55 @@ def _stub_workspace(root: Path, name: str) -> Path:
         ],
         "rewrite_suggestions": [{"section": "intro", "type": "rewrite", "guidance": "..."}],
     }
+    (ws / "outputs" / "drafts" / "chapter_01.md").write_text(
+        "# chapter 1\n\nmock draft", encoding="utf-8"
+    )
     (ws / "outputs" / "drafts" / "chapter_01.meta.json").write_text(
         json.dumps(meta, ensure_ascii=False), encoding="utf-8"
+    )
+    (ws / "outputs" / "reviews" / "chapter_01.review.json").write_text(
+        json.dumps({"verdict": "Approve", "agent_reviews": []}, ensure_ascii=False),
+        encoding="utf-8",
     )
     (ws / "logs" / "llm_calls.jsonl").write_text(
         '{"task":"review","model":"mock","prompt_tokens":10,"response_tokens":5}\n',
         encoding="utf-8",
     )
     return ws
+
+
+def _write_strict_plan(root: Path, name: str, chapters: int = 1) -> None:
+    with use_workspace(name):
+        from src import start_point
+
+        start_point.set_start_point(f"{name}_ch001")
+        start_fp = start_point.start_point_fingerprint()
+    plan = {
+        "target_chapters": chapters,
+        "overall_arc": "arc",
+        "start_chapter_id": f"{name}_ch001",
+        "start_point_fingerprint": start_fp,
+        "schema_version": 1,
+        "chapters": [
+            {
+                "chapter_no": i,
+                "title": f"第 {i} 章",
+                "opening_scene": "开场",
+                "key_events": ["事件一", "事件二"],
+                "relationships_in_play": [],
+                "ending_hook": "钩子",
+                "target_chinese_chars": 4000,
+                "plot_purpose": "用途",
+            }
+            for i in range(1, chapters + 1)
+        ],
+    }
+    for item in plan["chapters"]:
+        item["chapter_plan_item_fingerprint"] = chapter_plan_item_fingerprint(item)
+    plan["plan_fingerprint"] = plan_fingerprint(plan)
+    (root / name / "outputs" / "debate" / "chapter_plan.json").write_text(
+        json.dumps(plan, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 class RoutesGetTests(unittest.TestCase):
@@ -93,17 +137,20 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
-        self.assertIn("alpha", html)
-        self.assertIn("beta", html)
+        self.assertIn("本地写作工作台", html)
+        self.assertIn("/api/workspaces/overview", routes.static.JS_DASHBOARD)
+        self.assertNotIn("iter 026", html)
 
     def test_workspace_page_renders(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/workspace/alpha/")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn("alpha", html)
+        self.assertIn("准备续写", html)
         self.assertIn("继续写书", html)
-        self.assertIn('data-source="readiness"', html)
+        self.assertIn("start-point-form", html)
         self.assertIn('data-source="reviews"', html)
+        self.assertNotIn("draft-once-dev", html)
 
     def test_workspace_page_404(self) -> None:
         status, _ct, _body = routes.dispatch("GET", "/workspace/__missing__/")
@@ -113,6 +160,19 @@ class RoutesGetTests(unittest.TestCase):
         status, data = self._get_json("/api/workspaces")
         self.assertEqual(status, 200)
         self.assertEqual(sorted(data["workspaces"]), ["alpha", "beta"])
+
+    def test_api_workspaces_overview_blocked_and_ready_shapes(self) -> None:
+        _write_strict_plan(Path(self._tmp.name), "alpha", chapters=1)
+        status, data = self._get_json("/api/workspaces/overview")
+        self.assertEqual(status, 200)
+        by_name = {item["name"]: item for item in data["workspaces"]}
+        self.assertIn(by_name["alpha"]["readiness"]["status"], {"ready", "warn", "blocked"})
+        self.assertEqual(by_name["alpha"]["chapter_count"], 1)
+        self.assertEqual(by_name["alpha"]["draft_count"], 1)
+        self.assertIn("plan", by_name["alpha"])
+        self.assertIn("recent_job", by_name["alpha"])
+        self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
+        self.assertIn("start_point_missing", by_name["beta"]["readiness"]["blockers"])
 
     def test_api_status_404_for_unknown(self) -> None:
         status, data = self._get_json("/api/workspace/nope/status")
@@ -124,6 +184,24 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["chapters"][0]["chapter_id"], "alpha_ch001")
 
+    def test_api_start_point_can_be_set_and_rejects_invalid_id(self) -> None:
+        status, _ct, body = routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/start-point",
+            json.dumps({"start_point": "alpha_ch001"}).encode("utf-8"),
+        )
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        data = json.loads(body)
+        self.assertEqual(data["start_point"]["start_chapter_id"], "alpha_ch001")
+
+        status, _ct, body = routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/start-point",
+            json.dumps({"start_point": "missing_chapter"}).encode("utf-8"),
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("matches neither", json.loads(body)["error"])
+
     def test_api_reviews_full_shape(self) -> None:
         status, data = self._get_json("/api/workspace/alpha/reviews")
         self.assertEqual(status, 200)
@@ -132,6 +210,38 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(data["stats"]["advisor_suggestions_total"], 1)
         # full agent_reviews preserved
         self.assertEqual(data["chapters"][0]["agent_reviews"][0]["agent_name"], "PlotMaster")
+
+    def test_api_drafts_list_and_preview_are_read_only(self) -> None:
+        status, data = self._get_json("/api/workspace/alpha/drafts")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["drafts"][0]["chapter"], 1)
+        self.assertEqual(data["drafts"][0]["verdict"], "Approve")
+
+        status, data = self._get_json("/api/workspace/alpha/draft/1")
+        self.assertEqual(status, 200)
+        self.assertIn("mock draft", data["content"])
+        self.assertEqual(data["review"]["verdict"], "Approve")
+
+        status, data = self._get_json("/api/workspace/alpha/draft/99999")
+        self.assertEqual(status, 400)
+        self.assertIn("out of range", data["error"])
+
+    def test_api_recent_jobs_reads_persisted_jsonl(self) -> None:
+        job = {
+            "job_id": "a" * 32,
+            "workspace": "alpha",
+            "step": "write-book",
+            "status": "succeeded",
+            "started_at": 1.0,
+            "finished_at": 2.0,
+        }
+        (Path(self._tmp.name) / "alpha" / "logs" / "web_jobs.jsonl").write_text(
+            json.dumps(job) + "\n", encoding="utf-8"
+        )
+        status, data = self._get_json("/api/workspace/alpha/jobs/recent?n=5")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["jobs"][0]["job_id"], "a" * 32)
+        self.assertEqual(data["jobs"][0]["status"], "succeeded")
 
     def test_api_logs_tail(self) -> None:
         status, data = self._get_json("/api/workspace/alpha/logs/tail?n=10")
