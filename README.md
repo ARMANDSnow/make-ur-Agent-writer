@@ -125,7 +125,95 @@ python3 main.py web --port 9999
 
 stdlib only（http.server + string.Template + vanilla JS，**0 新依赖**）。默认绑 127.0.0.1 不外露；mock-only 验收；真模型长跑仍需用户明确授权。
 
+#### Web 服务启动 / 换端口 / 关闭
+
+推荐使用项目虚拟环境启动，避免系统 Python 缺依赖：
+
+```bash
+cd /Users/dingyuxuan/Desktop/Agent续写项目
+.venv/bin/python3 main.py web                 # 默认 127.0.0.1:8765
+.venv/bin/python3 main.py web --port 8766     # 8765 被占用时换端口
+```
+
+打开浏览器：
+
+```text
+http://127.0.0.1:8765/
+http://127.0.0.1:8766/
+```
+
+关闭方式：
+
+```bash
+# 如果服务在当前终端前台运行
+Ctrl+C
+
+# 如果端口被旧进程占用，先查 PID 再 kill
+lsof -ti tcp:8765
+kill <PID>
+
+# 也可以直接查 8766
+lsof -ti tcp:8766
+kill <PID>
+```
+
+判断端口是否被占用：
+
+```bash
+lsof -nP -iTCP:8765 -sTCP:LISTEN
+```
+
+如果 8765 仍显示旧 UI，说明旧 server 没关；关闭旧 PID 后重新启动，或临时改用 `--port 8766`。
+
 ---
+
+## 文件分区管理
+
+每本书一个 workspace，默认结构如下：
+
+```text
+workspaces/<book>/
+  小说txt/                 # 用户放入的原始 txt/epub 转换文本；gitignored
+  data/
+    normalized_texts/      # normalize 输出
+    extracted_jsons/       # extract 输出
+    knowledge_base/        # compress 输出
+    manual_overrides/      # 用户确认后的 facts/entity/personas/start point 等
+    proposals/             # init-book 生成、等待人工确认的 proposal
+    chapter_manifest.json  # split 输出的章节索引
+  outputs/
+    debate/                # debate / chapter_plan.json / outline / decisions
+    drafts/                # chapter_NN.md、meta、failure、snapshot
+    reviews/               # chapter_NN.review.json
+  logs/
+    llm_calls.jsonl        # LLM 调用、token、成本遥测
+    web_jobs.jsonl         # Web job 历史
+```
+
+管理原则：
+
+| 区域 | 用途 | 是否提交 |
+|---|---|---|
+| `src/`, `config/`, `scripts/`, `tests/`, `docs/` | 代码、配置、测试、文档 | ✅ 提交 |
+| `workspaces/<book>/小说txt/` | 用户本地原文输入 | ❌ 不提交 |
+| `workspaces/<book>/data/` | 抽取、知识库、人工确认数据 | ❌ 不提交 |
+| `workspaces/<book>/outputs/` | debate、plan、draft、review、snapshot | ❌ 不提交 |
+| `workspaces/<book>/logs/` | 调用日志、Web job、成本记录 | ❌ 不提交 |
+| 根目录 `data/`, `outputs/`, `logs/` | legacy / verify mock 路径 | ❌ 不提交 |
+
+常用 workspace 命令：
+
+```bash
+python3 main.py workspace-list
+python3 main.py workspace-show --name myBook
+python3 main.py workspace-init myBook
+
+# 所有生产命令都用 --book 指定目标书
+python3 main.py --book myBook write-readiness --chapters 3
+python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
+```
+
+不要修改 `小说txt/` 中的原文内容；要修结构化事实、人物关系、风格片段，改 `data/manual_overrides/` 或重新生成/确认 proposal。旧 draft/review 不需要手动删除；生产 runner 会在 `--force` 或 retry 时归档 stale artifact。
 
 ## CLI 速查
 
