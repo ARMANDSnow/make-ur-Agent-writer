@@ -879,6 +879,11 @@ JS_DASHBOARD = """\
   }
 
   // ---- shared: chapter detail tab routing (hash deep-link) --------------
+  // Keep in sync with chapter-detail and plan-view tab keys.
+  const _ALLOWED_TAB_KEYS = [
+    "body", "review", "lint", "advisor", "history",
+    "chapters", "outline", "decisions",
+  ];
   function bindHashTabs() {
     function activate(tab) {
       if (!tab) return;
@@ -901,7 +906,7 @@ JS_DASHBOARD = """\
       loadTabPanel(tab.dataset.tab);
     });
     const initial = (location.hash || "").replace(/^#/, "");
-    if (initial) {
+    if (initial && _ALLOWED_TAB_KEYS.indexOf(initial) >= 0) {
       const t = document.querySelector('.tab[data-tab="' + initial + '"]');
       if (t) activate(t);
     }
@@ -1205,7 +1210,7 @@ JS_DASHBOARD = """\
   }
   function renderPlanChapters(box, plan, draftChapters, draftVerdicts) {
     if (!box) return;
-    const chapters = (plan && plan.chapters) || [];
+    const chapters = Array.isArray(plan && plan.chapters) ? plan.chapters : [];
     const arc = (plan && plan.overall_arc) || "";
     if (!chapters.length) {
       box.innerHTML = '<p class="muted">尚无章节计划。先在「续写」里生成一份。</p>';
@@ -1227,10 +1232,10 @@ JS_DASHBOARD = """\
         (written ? '<span class="badge ready">已写</span>' : '<span class="badge no-dot">未写</span>') +
         (written && verdict ? verdictBadge(verdict) : '') +
         '</div></div>';
-      const events = (c.key_events || []).map(function (e) {
+      const events = (Array.isArray(c.key_events) ? c.key_events : []).map(function (e) {
         return '<li>' + escapeHtml(e) + '</li>';
       }).join("");
-      const rels = (c.relationships_in_play || []).map(function (r) {
+      const rels = (Array.isArray(c.relationships_in_play) ? c.relationships_in_play : []).map(function (r) {
         return '<span class="badge no-dot">' + escapeHtml(typeof r === "string" ? r : JSON.stringify(r)) + '</span>';
       }).join(" ");
       const body =
@@ -1283,7 +1288,7 @@ JS_DASHBOARD = """\
   }
   function renderDecisions(box, decisions) {
     if (!box) return;
-    const votes = (decisions && decisions.votes) || [];
+    const votes = Array.isArray(decisions && decisions.votes) ? decisions.votes : [];
     if (!votes.length) {
       box.innerHTML = '<p class="muted">decisions.json 不存在或没有 votes。</p>';
       return;
@@ -1297,7 +1302,7 @@ JS_DASHBOARD = """\
     const cards = votes.map(function (v) {
       const fors = (v["for"] || []).join("；") || "—";
       const againsts = (v.against || []).join("；") || "—";
-      const agents = (v.agent_votes || []).map(function (a) {
+      const agents = (Array.isArray(v.agent_votes) ? v.agent_votes : []).map(function (a) {
         return '<li><strong>' + escapeHtml(a.agent_name || "?") + '</strong> · ' +
           escapeHtml(a.position || "—") + '：' + escapeHtml(a.reason || "—") + '</li>';
       }).join("");

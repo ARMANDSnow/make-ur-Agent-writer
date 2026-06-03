@@ -1034,6 +1034,9 @@ $ .venv/bin/python3 -m unittest discover -s tests 2>&1 | tail -5
 Ran 462 tests in 1.919s
 
 FAILED (errors=6)
+# 注：6 ERROR 全部是 iter 032 起就存在的沙箱 socket.bind PermissionError
+# （影响 test_web_server.* 4 个 + test_web_hardening.ServeHostWarningTests.* 2 个），
+# 非本轮回归。详见 iter 032 验收记录。
 
 $ .venv/bin/python3 -c "
 from src.web import routes

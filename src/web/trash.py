@@ -17,6 +17,11 @@ from .. import paths
 
 TRASH_DIR_NAME = "_trash"
 _ENTRY_NAME_RE = re.compile(r"^(?P<original>.+)__(?P<ts>[0-9]{8}_[0-9]{6}(?:_\d+)?)$")
+_SAFE_ENTRY_RE = re.compile(
+    r"^[A-Za-z0-9_一-鿿][A-Za-z0-9_一-鿿-]{0,63}"
+    r"__[0-9]{8}_[0-9]{6}(?:_\d+)?$"
+)
+_RESERVED_ORIGINAL_NAMES = frozenset({"legacy", "_trash", "", ".", ".."})
 
 
 def soft_delete_workspace(name: str) -> Tuple[bool, str]:
@@ -92,6 +97,9 @@ def list_trash_entries() -> List[Dict[str, Any]]:
 def restore_trash_entry(entry: str) -> Tuple[bool, str]:
     """Move workspaces/_trash/<entry>/ back to workspaces/<original_name>/."""
 
+    ok, reason = _safe_entry_path(entry)
+    if not ok:
+        return False, reason
     src = paths.WORKSPACE_DIR / TRASH_DIR_NAME / entry
     if not src.is_dir():
         return False, "entry_not_found"
@@ -108,6 +116,9 @@ def restore_trash_entry(entry: str) -> Tuple[bool, str]:
 def purge_trash_entry(entry: str) -> Tuple[bool, str]:
     """Hard-delete workspaces/_trash/<entry>/ via shutil.rmtree. No undo."""
 
+    ok, reason = _safe_entry_path(entry)
+    if not ok:
+        return False, reason
     src = paths.WORKSPACE_DIR / TRASH_DIR_NAME / entry
     if not src.is_dir():
         return False, "entry_not_found"
@@ -116,7 +127,26 @@ def purge_trash_entry(entry: str) -> Tuple[bool, str]:
 
 
 def _split_entry_name(entry: str) -> Tuple[str, str]:
-    match = _ENTRY_NAME_RE.match(entry)
+    match = _ENTRY_NAME_RE.fullmatch(entry)
     if not match:
         return entry, ""
     return match.group("original"), match.group("ts")
+
+
+def _safe_entry_path(entry: str) -> Tuple[bool, str]:
+    """Validate a trash entry name before resolving it under ``_trash``.
+
+    The route layer performs the edge check too; keeping this local guard
+    prevents future callers from bypassing path-traversal and sentinel
+    protections at the filesystem boundary.
+    """
+
+    if not entry or "/" in entry or "\\" in entry or ".." in entry.split("__")[0]:
+        return False, "malformed_entry"
+    if not _SAFE_ENTRY_RE.fullmatch(entry):
+        return False, "malformed_entry"
+    match = _ENTRY_NAME_RE.fullmatch(entry)
+    original = match.group("original") if match else ""
+    if original in _RESERVED_ORIGINAL_NAMES:
+        return False, "reserved_name"
+    return True, ""

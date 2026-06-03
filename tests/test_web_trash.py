@@ -9,6 +9,7 @@ from pathlib import Path
 from src import paths
 from src.web.trash import (
     TRASH_DIR_NAME,
+    _safe_entry_path,
     list_trash_entries,
     purge_trash_entry,
     restore_trash_entry,
@@ -92,6 +93,30 @@ class TrashTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(restored, "foo__bar")
         self.assertTrue((paths.WORKSPACE_DIR / "foo__bar" / "marker.txt").exists())
+
+    def test_safe_entry_path_rejects_path_traversal(self) -> None:
+        for bad in (
+            "../alpha",
+            "../../etc",
+            "alpha/../beta",
+            "a\\b__20260101_120000",
+            "alpha__20260101_120000\n",
+            "alpha__20260101_120000\r",
+        ):
+            ok, reason = _safe_entry_path(bad)
+            self.assertFalse(ok, f"{bad!r} should be rejected")
+            self.assertEqual(reason, "malformed_entry")
+
+    def test_safe_entry_path_rejects_reserved_names(self) -> None:
+        for bad in ("legacy__20260101_120000", "_trash__20260603_000000"):
+            ok, reason = _safe_entry_path(bad)
+            self.assertFalse(ok, f"{bad!r} should be rejected")
+            self.assertEqual(reason, "reserved_name")
+
+    def test_safe_entry_path_accepts_well_formed(self) -> None:
+        for good in ("alpha__20260101_120000", "alpha__20260101_120000_2", "龙族__20260101_120000"):
+            ok, reason = _safe_entry_path(good)
+            self.assertTrue(ok, f"{good!r} should be accepted; got {reason}")
 
 
 if __name__ == "__main__":

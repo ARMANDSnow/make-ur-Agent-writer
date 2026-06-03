@@ -456,6 +456,22 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("function showToast", js)
         self.assertIn("toast-stack", js)
 
+    def test_static_js_has_array_isarray_guards(self) -> None:
+        """A2 - Plan renderer must not blow up on malformed-but-truthy JSON."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertGreaterEqual(js.count("Array.isArray("), 5)
+
+    def test_static_js_has_tab_whitelist(self) -> None:
+        """A3 - bindHashTabs must filter against a whitelist."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("_ALLOWED_TAB_KEYS", js)
+        for kw in ("body", "review", "lint", "advisor", "history", "chapters", "outline", "decisions"):
+            self.assertIn(f'"{kw}"', js)
+
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must
         match the on-disk workspace name after URL-decoding."""

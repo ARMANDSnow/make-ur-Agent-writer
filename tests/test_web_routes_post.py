@@ -156,6 +156,14 @@ class RoutesPostTests(unittest.TestCase):
         self.assertEqual(status, 200, body.decode())
         self.assertTrue((paths.WORKSPACE_DIR / "alpha" / "marker.txt").exists())
 
+    def test_trash_restore_rejects_newline_entry(self) -> None:
+        status, _ct, body = routes.dispatch(
+            "POST",
+            "/api/trash/alpha__20260101_120000%0A/restore",
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("invalid trash entry", json.loads(body)["error"])
+
     def test_trash_purge_requires_confirm(self) -> None:
         routes.dispatch(
             "POST",

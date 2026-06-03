@@ -291,7 +291,7 @@ _TRASH_ENTRY_RE = re.compile(r"^[A-Za-z0-9_一-鿿][A-Za-z0-9_一-鿿-]{0,63}__[
 
 
 def _validate_trash_entry(entry: str) -> bool:
-    return bool(_TRASH_ENTRY_RE.match(entry))
+    return bool(_TRASH_ENTRY_RE.fullmatch(entry))
 
 
 def api_trash_restore(entry: str) -> Tuple[int, str, bytes]:
@@ -301,7 +301,12 @@ def api_trash_restore(entry: str) -> Tuple[int, str, bytes]:
 
     ok, msg = _trash.restore_trash_entry(entry)
     if not ok:
-        code = {"entry_not_found": 404, "name_collision": 409, "malformed_entry": 400}.get(msg, 500)
+        code = {
+            "entry_not_found": 404,
+            "name_collision": 409,
+            "malformed_entry": 400,
+            "reserved_name": 400,
+        }.get(msg, 500)
         return _json(code, {"error": msg})
     _clear_overview_cache()
     return _json(200, {"restored_to": msg})
@@ -320,7 +325,8 @@ def api_trash_purge(entry: str, body: bytes) -> Tuple[int, str, bytes]:
 
     ok, msg = _trash.purge_trash_entry(entry)
     if not ok:
-        return _json(404 if msg == "entry_not_found" else 500, {"error": msg})
+        code = {"entry_not_found": 404, "malformed_entry": 400, "reserved_name": 400}.get(msg, 500)
+        return _json(code, {"error": msg})
     return _json(200, {"purged": entry})
 
 
