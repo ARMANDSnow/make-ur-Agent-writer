@@ -30,6 +30,12 @@ def run(workspace: str, *, mock: bool = True) -> Dict[str, Any]:
     setup = json.loads(setup_path.read_text(encoding="utf-8"))
     if not isinstance(setup, dict):
         raise ValueError(f"setup must be a JSON object: {setup_path}")
+    core_setup = setup.get("core_setup")
+    if not isinstance(core_setup, dict) or "protagonist" not in core_setup:
+        raise ValueError(
+            f"station 1 output for {workspace!r} missing core_setup.protagonist; "
+            "station 2 cannot proceed"
+        )
 
     wizard_input = _load_wizard_input(workspace)
     track = wizard_input["track"]

@@ -893,6 +893,13 @@ JS_DASHBOARD = """\
       setTimeout(function () { el.remove(); }, 400);
     }, 5000);
   }
+  window.setPendingToastAndNavigate = function (toast, url) {
+    sessionStorage.setItem("__pending_toast", JSON.stringify(toast));
+    setTimeout(function () {
+      sessionStorage.removeItem("__pending_toast");
+    }, 5000);
+    window.location.href = url;
+  };
 
   // ---- shared: chapter detail tab routing (hash deep-link) --------------
   // Keep in sync with chapter-detail and plan-view tab keys.
@@ -933,25 +940,31 @@ JS_DASHBOARD = """\
   }
 
   // ``loadTabPanel`` identifier preserved (iter 026 test asserts it).
-  function loadTabPanel(tabName) {
+  async function loadTabPanel(tabName) {
     const container = document.getElementById("tab-" + tabName);
     if (!container) return;
     const lazy = container.querySelector("[data-lazy]");
     if (!lazy) return;
     if (lazy.dataset.loaded === "1") return;
     const url = lazy.dataset.lazy;
-    fetch(url)
-      .then((res) => res.json().then((d) => ({ ok: res.ok, data: d })))
-      .then((wrap) => {
-        if (!wrap.ok) throw new Error(wrap.data.error || "load failed");
-        lazy.dataset.loaded = "1";
-        const renderer = window["__renderPanel_" + tabName];
-        if (renderer) renderer(lazy, wrap.data);
-        else lazy.innerHTML = '<pre>' + escapeHtml(JSON.stringify(wrap.data, null, 2)) + '</pre>';
-      })
-      .catch((err) => {
-        lazy.innerHTML = '<div class="alert error">' + escapeHtml(err.message || String(err)) + '</div>';
-      });
+    try {
+      const res = await fetch(url);
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        throw new Error("response is not valid JSON (status " + res.status + ")");
+      }
+      if (!res.ok) {
+        throw new Error(data.error || "HTTP " + res.status);
+      }
+      lazy.dataset.loaded = "1";
+      const renderer = window["__renderPanel_" + tabName];
+      if (renderer) renderer(lazy, data);
+      else lazy.innerHTML = '<pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+    } catch (err) {
+      lazy.innerHTML = '<div class="alert error">' + escapeHtml(err.message || String(err)) + '</div>';
+    }
   }
 
   // ===== page: index ======================================================
@@ -1226,9 +1239,10 @@ JS_DASHBOARD = """\
       try {
         const data = await postJson("/api/workspace/" + encodeURIComponent(name) + "/delete",
           { confirm: name });
-        sessionStorage.setItem("__pending_toast",
-          JSON.stringify({ kind: "info", msg: "已删除 《" + name + "》 → " + data.trashed_to }));
-        window.location.href = "/";
+        window.setPendingToastAndNavigate(
+          { kind: "info", msg: "已删除 《" + name + "》 → " + data.trashed_to },
+          "/"
+        );
       } catch (err) {
         errBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
         confirmBtn.disabled = false;
@@ -1278,7 +1292,8 @@ JS_DASHBOARD = """\
       box.innerHTML = '<p class="muted">尚无章节计划。先在「续写」里生成一份。</p>';
       return;
     }
-    const draftSet = new Set((draftChapters || []).map((n) => Number(n)));
+    const draftArr = Array.isArray(draftChapters) ? draftChapters : [];
+    const draftSet = new Set(draftArr.map((n) => Number(n)));
     const arcHtml = arc
       ? '<div class="alert info" style="margin-bottom:16px"><strong>整体走向：</strong>' + escapeHtml(arc) + '</div>'
       : '';
@@ -2158,6 +2173,7 @@ JS_DASHBOARD = """\
   // ===== page: drama write ==================================================
   async function initDramaWrite() {
     bindHashTabs();
+    bindHookPickDelegate();
     await loadStationSetup();
     await loadStationHooks();
     await loadDramaProgress();
@@ -2343,6 +2359,7 @@ JS_DASHBOARD = """\
         const data = await postJson(wsUrl("/drama/hooks"), {});
         const hooks = data.hooks || [];
         const pane = document.querySelector('[data-station-pane="hook"]');
+        if (!pane) return;
         pane.innerHTML = '<div class="card"><div class="card-header"><h3 class="ornament">3 个候选 — 选 1 个</h3></div>' +
           '<div class="card-body stack">' +
           hooks.map(function (h, i) {
@@ -2353,22 +2370,33 @@ JS_DASHBOARD = """\
               '</div>';
           }).join("") +
           '</div></div>';
-        pane.addEventListener("click", async function (ev) {
-          const pick = ev.target.closest("[data-hook-pick]");
-          if (!pick) return;
-          const idx = Number(pick.getAttribute("data-hook-pick"));
-          try {
-            await putJson(wsUrl("/drama/setup"), { hook: hooks[idx] });
-            showToast("钩子已锁定", "info");
-            await loadStationHooks();
-            await loadDramaProgress();
-          } catch (err) {
-            showToast("保存失败：" + err.message, "error");
-          }
-        });
+        pane.__hooks = hooks;
       } catch (err) {
         showToast("生成失败：" + err.message, "error");
         btn.disabled = false;
+      }
+    });
+  }
+
+  let hookPickDelegateBound = false;
+  function bindHookPickDelegate() {
+    if (hookPickDelegateBound) return;
+    hookPickDelegateBound = true;
+    document.addEventListener("click", async function (ev) {
+      const pick = ev.target.closest("[data-hook-pick]");
+      if (!pick) return;
+      const pane = pick.closest('[data-station-pane="hook"]');
+      if (!pane || !pane.__hooks) return;
+      pane.querySelectorAll("[data-hook-pick]").forEach((b) => { b.disabled = true; });
+      const idx = Number(pick.getAttribute("data-hook-pick"));
+      try {
+        await putJson(wsUrl("/drama/setup"), { hook: pane.__hooks[idx] });
+        showToast("钩子已锁定", "info");
+        await loadStationHooks();
+        await loadDramaProgress();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+        pane.querySelectorAll("[data-hook-pick]").forEach((b) => { b.disabled = false; });
       }
     });
   }
@@ -2532,9 +2560,10 @@ JS_WIZARD = """\
           submitBtn.disabled = false;
           return;
         }
-        sessionStorage.setItem("__pending_toast",
-          JSON.stringify({ kind: "info", msg: "短剧 workspace 已创建：" + data.name }));
-        window.location.href = "/w/" + encodeURIComponent(data.name) + "/write?step=setup";
+        window.setPendingToastAndNavigate(
+          { kind: "info", msg: "短剧 workspace 已创建：" + data.name },
+          "/w/" + encodeURIComponent(data.name) + "/write?step=setup"
+        );
       } catch (err) {
         dramaErrBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
         submitBtn.disabled = false;

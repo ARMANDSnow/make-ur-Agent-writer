@@ -805,3 +805,39 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. Claude §B 将在 Codex commit 后替换 10 个 fixture + 2 个 prompt 为真实创作内容；Codex 不读不改这些创作内容。
 2. iter 038 候选：站 ③ 分镜、站 ④ 角色、AI 绘画 client / Comfy 导出。
 3. 真模型接入仍 deferred 到 iter 040+；本轮 drama agents 保持 mock-only。
+
+
+---
+
+## Phase 4 Status（iter 038，2026-06-04）
+
+### Iteration 038 — P1/P2 hardening pass（sandbox skip / hook leak / test fixture extraction）
+
+**目标**：按 `docs/iterations/iteration_038_PLAN.md` §A 做纯工程修补，不新增页面/API/fixture/prompt，不触碰 drama 创作内容；核心是把连续 6 轮的沙箱 Web socket bind 6 ERROR 清零，并修掉 drama hook picker listener 堆叠与 rapid-click race。
+
+**主要落地**：
+- 新增 `tests/_socket_skip.py`，`ServerTests` 与 `ServeHostWarningTests` 用 `@skipIf` 在 socket bind 被 sandbox 禁止时优雅跳过；同时 probe loopback 与 wildcard bind，避免 `0.0.0.0` 单独被禁时仍 ERROR。
+- `src/web/static.py` 的 hook picker 从每次 render 绑定 `pane.addEventListener("click")` 改为 `bindHookPickDelegate()` document-level 单次事件代理；候选 hooks 存到 `pane.__hooks`；点击候选后立即禁用所有 `[data-hook-pick]` 按钮，失败再恢复。
+- `loadTabPanel` 保留函数名但改为 async/await，并对 JSON parse failure 给明确错误；pending toast 新增 `setPendingToastAndNavigate()`，替换删除 workspace 与 drama wizard 创建后的两处跨页 toast。
+- `renderPlanChapters` 增加 `Array.isArray(draftChapters)` 外层兜底。
+- 新增 `tests/_drama_base.py::DramaTestBase` + `_make_drama_workspace()`，抽掉 3 个 drama 测试文件重复 setUp/tearDown。
+- `workspace_meta.write()` 改为临时文件 + atomic replace；测试补并发 read/write、BOM/截断 JSON、非 UTF-8 fallback。
+- `_safe_entry_path` 补空串、null byte、过长、Unicode NFC 边界测试；`hook_designer.run()` 对 station ① 输出缺 `core_setup.protagonist` 明确 raise；`workspace_ctx` 增加 thread-safety contract 与路径级 thread isolation 测试。
+
+**验证进度**：
+- Full `.venv` unittest：549 tests，**OK (skipped=6)**；原 Web socket bind backlog 从 ERROR 变 skip。
+- Targeted socket suite：14 tests，**OK (skipped=6)**。
+- JS guard：33/33 identifiers present；`Array.isArray(` count = 6。
+- Dispatcher smoke：`/`, `/trash`, `/wizard`, `/settings`, novel overview/continue, drama overview/write/jobs 均 200；drama `/continue` 404。
+- `scripts/verify.sh`（mock env scrub）→ exit 0；`python3 main.py preflight`（mock env scrub）→ PREFLIGHT ok，FATAL none，WARN none。
+- `node --check /private/tmp/iter038_app.js` 与 `/private/tmp/iter038_wizard.js` → OK。
+
+**Subagent 审核**：
+- Wegener 做了只读 diff/static review，覆盖 A1-A11。初始结论 Go，无 blocker。
+- 审核指出 1 个 P3：socket skip helper 只 probe loopback，而 `ServeHostWarningTests` 也 bind `0.0.0.0`。本轮已补 `SOCKET_WILDCARD_BIND_BLOCKED` 并复跑 targeted suite。
+- 未修风险：无本轮 blocker。drama 站 ③/④、AI 绘画、drama_reviewer、真模型接入仍不在本轮范围。
+
+**当前接力点**：
+1. 本轮纯工程已收口；不要 push，等用户按 V1-V12 验收。
+2. 下一步功能候选仍是 drama 站 ③ 分镜 / 站 ④ 角色 / AI 绘画 client / Comfy 导出 / drama_reviewer。
+3. 真模型接入仍 deferred 到 iter 040+；继续遵守真模型 smoke 必须等用户明确授权。

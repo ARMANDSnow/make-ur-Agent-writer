@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import unittest
-from pathlib import Path
 
 from src import paths
 from src.web import routes, static, workspace_meta
+from tests._drama_base import DramaTestBase
 
 
 def _payload(**overrides: object) -> dict:
@@ -24,23 +22,7 @@ def _payload(**overrides: object) -> dict:
     return data
 
 
-class DramaWizardFullFormTests(unittest.TestCase):
-    def setUp(self) -> None:
-        os.environ["OPENAI_MODEL"] = "mock"
-        self._tmp = tempfile.TemporaryDirectory()
-        self._saved_ws_dir = paths.WORKSPACE_DIR
-        self._saved_env = os.environ.get("WORKSPACE_NAME")
-        os.environ.pop("WORKSPACE_NAME", None)
-        paths.WORKSPACE_DIR = Path(self._tmp.name)
-
-    def tearDown(self) -> None:
-        paths.WORKSPACE_DIR = self._saved_ws_dir
-        if self._saved_env is None:
-            os.environ.pop("WORKSPACE_NAME", None)
-        else:
-            os.environ["WORKSPACE_NAME"] = self._saved_env
-        self._tmp.cleanup()
-
+class DramaWizardFullFormTests(DramaTestBase):
     def _post(self, payload: dict, content_type: str = "application/json") -> tuple[int, dict]:
         status, _ct, body = routes.dispatch(
             "POST",

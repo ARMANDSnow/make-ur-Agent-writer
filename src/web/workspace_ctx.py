@@ -21,6 +21,11 @@ handler can't accidentally leak its workspace into the next handler
 served by the same thread (ThreadingHTTPServer reuses thread pools
 implicitly when ``threading.Thread.run`` exits, but the override would
 already be cleared by the ``finally``).
+
+Thread-safety contract: ``use_workspace(name)`` mutates ``paths`` state
+for the current thread only. Nested calls in the same thread stack and
+restore correctly. Do not share an open context across threads; each
+thread that needs a workspace must call ``use_workspace`` itself.
 """
 
 from __future__ import annotations

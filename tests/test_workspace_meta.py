@@ -74,6 +74,58 @@ class WorkspaceMetaTests(unittest.TestCase):
         init_workspace("novel_box")
         self.assertEqual(workspace_meta.read("novel_box")["type"], "novel")
 
+    def test_concurrent_read_write_does_not_corrupt(self) -> None:
+        import threading
+
+        name = "concurrent"
+        workspace_meta.write(name, type="novel")
+        results: list[str] = []
+        barrier = threading.Barrier(4)
+
+        def writer() -> None:
+            barrier.wait()
+            for _ in range(50):
+                workspace_meta.write(name, type="drama")
+                workspace_meta.write(name, type="novel")
+
+        def reader() -> None:
+            barrier.wait()
+            for _ in range(50):
+                try:
+                    meta = workspace_meta.read(name)
+                    results.append(str(meta["type"]))
+                except Exception as exc:  # pragma: no cover - assertion below records it.
+                    results.append(f"err:{exc}")
+
+        threads = [threading.Thread(target=writer)] + [threading.Thread(target=reader) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        for thread in threads:
+            self.assertFalse(thread.is_alive())
+        self.assertTrue(results)
+        for result in results:
+            self.assertIn(result, {"novel", "drama"}, f"corrupt read: {result!r}")
+
+    def test_malformed_json_with_bom_falls_back_to_novel(self) -> None:
+        path = workspace_meta.workspace_meta_path("bommed")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'\xef\xbb\xbf{"type": "drama"')
+        meta = workspace_meta.read("bommed")
+        self.assertEqual(meta["type"], "novel")
+        self.assertEqual(meta["schema_version"], 0)
+
+    def test_non_utf8_workspace_json_falls_back_to_novel(self) -> None:
+        path = workspace_meta.workspace_meta_path("bad_utf8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\xff\xfe\x00")
+        meta = workspace_meta.read("bad_utf8")
+        self.assertEqual(meta["type"], "novel")
+        self.assertEqual(meta["schema_version"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

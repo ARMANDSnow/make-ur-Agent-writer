@@ -838,8 +838,94 @@ PYTHONPATH=. .venv/bin/python3 -c "<iter 037 §4 第 2 块脚本>"
 
 > Codex 请在这里粘贴 §4 四块命令的原文输出。**注意**：本轮 `unittest discover` 在 Codex 真环境应该 `OK` 无 ERROR 也无 skipped（因为 `SOCKET_BIND_BLOCKED == False`）；在沙箱里应该 `OK (skipped=6)`。不再需要 6-ERROR 注脚。
 
+执行时间：2026-06-04 00:25 CST。执行环境：Codex sandbox，mock-only；未运行任何真模型 smoke，未修改 `.env` / `data/` / `outputs/` / `小说txt/` / `tests/fixtures/drama/` / `prompts/drama/` / `docs/product/short_drama_*.md`。
+
+### 1. 全套 unittest
+
+```bash
+$ .venv/bin/python3 -m unittest discover -s tests 2>&1 | tail -5
+.........................................
+----------------------------------------------------------------------
+Ran 549 tests in 2.110s
+
+OK (skipped=6)
 ```
-(待 Codex 填写)
+
+### 2. 沙箱 skipped/errors/failures 计数
+
+计划中的 `loader.loadTestsFromName('tests')` 在当前仓库布局下返回 `Ran 0 tests`，不能作为有效计数。因此本轮采用标准 discover 输出作为全套计数依据：`OK (skipped=6)` 等价于 `errors=0, failures=0, skipped=6`。另外对原 6 个 socket-bind ERROR 所在套件做了 targeted 复核：
+
+```bash
+$ .venv/bin/python3 -m unittest tests.test_socket_skip tests.test_web_server tests.test_web_hardening
+.ssss...ss....
+----------------------------------------------------------------------
+Ran 14 tests in 0.019s
+
+OK (skipped=6)
+```
+
+### 3. 33 个 JS 标识符 + `Array.isArray` 守门
+
+```bash
+$ .venv/bin/python3 -c "<§4 string guard>"
+all 33 identifiers present; Array.isArray=6
+```
+
+额外 JS 语法检查：
+
+```bash
+$ node --check /private/tmp/iter038_app.js
+$ node --check /private/tmp/iter038_wizard.js
+```
+
+两条命令均退出 0，无输出。
+
+### 4. dispatcher 14 路径不变
+
+```bash
+$ PYTHONPATH=. .venv/bin/python3 -c "<iter 037 §4 dispatcher smoke>"
+200 /
+200 /trash
+200 /wizard
+200 /settings
+200 /w/a_n/
+200 /w/a_n/continue
+200 /w/b_d/
+200 /w/b_d/write
+200 /w/b_d/jobs
+404 /w/b_d/continue
+```
+
+### 5. 额外 sanity
+
+```bash
+$ OPENAI_MODEL=mock OPENAI_API_KEY= OPENAI_BASE_URL= PLANNER_API_KEY= PLANNER_BASE_URL= PLANNER_MODEL= OPENAI_STREAM= PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh
+...
+Report snapshots OK: data/chapter_manifest.md, outputs/reviews/review_summary.md
+...
+# Cost Estimate
+- chapters: 1
+- source_chars: 86
+- estimated_source_tokens: 54
+- extract_calls: 1
+- compress_calls: 1
+- debate_calls: 36
+- review_calls_per_written_chapter: 7
+```
+
+```bash
+$ OPENAI_MODEL=mock OPENAI_API_KEY= OPENAI_BASE_URL= PLANNER_API_KEY= PLANNER_BASE_URL= PLANNER_MODEL= OPENAI_STREAM= .venv/bin/python3 main.py preflight
+PREFLIGHT: ok
+
+## FATAL
+- none
+
+## WARN
+- none
+```
+
+```
+LiteLLM 在无网络 sandbox 中会打印 cost map fallback warning；不影响 mock-only 验证。
 ```
 
 ---
@@ -848,6 +934,11 @@ PYTHONPATH=. .venv/bin/python3 -c "<iter 037 §4 第 2 块脚本>"
 
 > Claude 填写 V1-V12 结果 + 转 iter 039 backlog（drama 站 ③ ④）+ 转 iter 040 backlog（P3 清单）。
 
-```
-(待 Claude 验收后填写)
-```
+Codex pre-commit self-check: V1-V12 对应实现均已落地，Claude 最终验收待 §5 执行。
+
+Subagent 审核：
+- 审核 agent：Wegener（只读 diff/static review）。
+- 覆盖范围：A1 socket skip、A2/A3 hook picker delegate、A4 `loadTabPanel`、A5 pending toast、A6 `draftChapters` guard、A7 test base extraction、A8 workspace_meta atomic write/tests、A9-A11 边界测试/doc。
+- 初始结论：Go；无 blocker。指出 1 个 P3：`tests/_socket_skip.py` 只 probe loopback，但 `ServeHostWarningTests` 也会 bind `0.0.0.0`。
+- 处理结果：已补 `SOCKET_WILDCARD_BIND_BLOCKED = _probe("0.0.0.0")`；`ServeHostWarningTests` 在 loopback 或 wildcard 任一被 sandbox 禁止时 skip。targeted socket suite 复跑 `OK (skipped=6)`。
+- 未修风险：无本轮 blocker。仍不开放 drama 站 ③/④，不接真模型，不接 AI 绘画；P3 UI polish 仍按 §6 留后续。

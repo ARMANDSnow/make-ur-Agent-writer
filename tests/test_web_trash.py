@@ -118,6 +118,25 @@ class TrashTests(unittest.TestCase):
             ok, reason = _safe_entry_path(good)
             self.assertTrue(ok, f"{good!r} should be accepted; got {reason}")
 
+    def test_safe_entry_path_rejects_empty_string(self) -> None:
+        ok, reason = _safe_entry_path("")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "malformed_entry")
+
+    def test_safe_entry_path_rejects_null_byte(self) -> None:
+        ok, reason = _safe_entry_path("alpha\x00__20260101_120000")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "malformed_entry")
+
+    def test_safe_entry_path_rejects_too_long(self) -> None:
+        ok, reason = _safe_entry_path("a" * 200 + "__20260101_120000")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "malformed_entry")
+
+    def test_safe_entry_path_accepts_unicode_nfc(self) -> None:
+        ok, reason = _safe_entry_path("龙族__20260101_120000")
+        self.assertTrue(ok, f"reason: {reason}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,8 @@ import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
 
+from tests._socket_skip import SOCKET_BIND_BLOCKED
+
 from src.web.server import WebHandler
 
 
@@ -18,6 +20,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+@unittest.skipIf(SOCKET_BIND_BLOCKED, "sandbox: socket.bind blocked")
 class ServerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.port = _free_port()

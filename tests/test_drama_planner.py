@@ -3,57 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import unittest
-from pathlib import Path
 
 from src import drama_planner, paths
 from src.config import load_config
 from src.cli_workspace import init_workspace
-from src.web import wizard
+from tests._drama_base import DramaTestBase
 
 
 TRACKS = ("霸总", "重生", "推理", "系统", "觉醒")
 
 
-class DramaPlannerTests(unittest.TestCase):
-    def setUp(self) -> None:
-        os.environ["OPENAI_MODEL"] = "mock"
-        self._tmp = tempfile.TemporaryDirectory()
-        self._saved_ws_dir = paths.WORKSPACE_DIR
-        self._saved_env = os.environ.get("WORKSPACE_NAME")
-        os.environ.pop("WORKSPACE_NAME", None)
-        paths.WORKSPACE_DIR = Path(self._tmp.name)
-
-    def tearDown(self) -> None:
-        paths.WORKSPACE_DIR = self._saved_ws_dir
-        if self._saved_env is None:
-            os.environ.pop("WORKSPACE_NAME", None)
-        else:
-            os.environ["WORKSPACE_NAME"] = self._saved_env
-        self._tmp.cleanup()
-
+class DramaPlannerTests(DramaTestBase):
     def _workspace(self, name: str, track: str = "霸总", *, snapshot: bool = True) -> None:
-        init_workspace(name, type="drama")
-        data_dir = paths.WORKSPACE_DIR / name / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        (data_dir / "wizard_input.json").write_text(
-            json.dumps(
-                {
-                    "workspace": name,
-                    "topic": "test topic",
-                    "track": track,
-                    "episode_count": 12,
-                    "episode_duration_seconds": 60,
-                    "schema_version": 1,
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-        if snapshot:
-            wizard._snapshot_creation_standard(name)
+        self._make_drama_workspace(name, track, snapshot=snapshot)
 
     def test_mock_returns_fixture_per_track(self) -> None:
         for idx, track in enumerate(TRACKS):
@@ -80,7 +43,6 @@ class DramaPlannerTests(unittest.TestCase):
 
     def test_missing_wizard_input_raises(self) -> None:
         init_workspace("no_input", type="drama")
-        wizard._snapshot_creation_standard("no_input")
         with self.assertRaisesRegex(FileNotFoundError, "wizard_input"):
             drama_planner.run("no_input")
 

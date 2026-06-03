@@ -3,54 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import unittest
-from pathlib import Path
 
 from src import drama_planner, hook_designer, paths
-from src.cli_workspace import init_workspace
-from src.web import wizard
+from tests._drama_base import DramaTestBase
 
 
 TRACKS = ("霸总", "重生", "推理", "系统", "觉醒")
 
 
-class HookDesignerTests(unittest.TestCase):
-    def setUp(self) -> None:
-        os.environ["OPENAI_MODEL"] = "mock"
-        self._tmp = tempfile.TemporaryDirectory()
-        self._saved_ws_dir = paths.WORKSPACE_DIR
-        self._saved_env = os.environ.get("WORKSPACE_NAME")
-        os.environ.pop("WORKSPACE_NAME", None)
-        paths.WORKSPACE_DIR = Path(self._tmp.name)
-
-    def tearDown(self) -> None:
-        paths.WORKSPACE_DIR = self._saved_ws_dir
-        if self._saved_env is None:
-            os.environ.pop("WORKSPACE_NAME", None)
-        else:
-            os.environ["WORKSPACE_NAME"] = self._saved_env
-        self._tmp.cleanup()
-
+class HookDesignerTests(DramaTestBase):
     def _workspace(self, name: str, track: str = "霸总", *, setup: bool = True, snapshot: bool = True) -> None:
-        init_workspace(name, type="drama")
-        (paths.WORKSPACE_DIR / name / "data" / "wizard_input.json").write_text(
-            json.dumps(
-                {
-                    "workspace": name,
-                    "topic": "test topic",
-                    "track": track,
-                    "episode_count": 12,
-                    "episode_duration_seconds": 60,
-                    "schema_version": 1,
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-        if snapshot:
-            wizard._snapshot_creation_standard(name)
+        self._make_drama_workspace(name, track, snapshot=snapshot)
         if setup:
             out = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +33,14 @@ class HookDesignerTests(unittest.TestCase):
         self._workspace("no_setup", setup=False)
         with self.assertRaisesRegex(FileNotFoundError, "station 1"):
             hook_designer.run("no_setup")
+
+    def test_hooks_raises_when_setup_missing_required_fields(self) -> None:
+        self._make_drama_workspace("partial", "霸总")
+        setup_path = paths.WORKSPACE_DIR / "partial" / "outputs" / "episodes" / "episode_01.setup.json"
+        setup_path.parent.mkdir(parents=True, exist_ok=True)
+        setup_path.write_text(json.dumps({"track": "霸总"}, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "core_setup"):
+            hook_designer.run("partial")
 
     def test_missing_snapshot_raises(self) -> None:
         self._workspace("no_snapshot", snapshot=False, setup=False)

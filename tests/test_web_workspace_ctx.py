@@ -10,9 +10,11 @@ the mechanism — it's only one of several fallbacks.
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 
 from src import paths
 from src.web.workspace_ctx import use_workspace
@@ -102,6 +104,34 @@ class UseWorkspaceTests(unittest.TestCase):
         self.assertEqual(observed["b_inside"], "beta")
         self.assertIsNone(observed["b_after"])
         self.assertIsNone(observed["a_after"])
+
+    def test_thread_isolation_workspace_root(self) -> None:
+        """Iter 038 A11: each thread resolves paths under its own context."""
+
+        saved = paths.WORKSPACE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            paths.WORKSPACE_DIR = Path(tmp)
+            (paths.WORKSPACE_DIR / "alpha").mkdir()
+            (paths.WORKSPACE_DIR / "beta").mkdir()
+            barrier = threading.Barrier(2)
+            results: dict[str, bool] = {}
+
+            def worker(name: str) -> None:
+                barrier.wait()
+                with use_workspace(name):
+                    results[name] = paths.workspace_root() == paths.WORKSPACE_DIR / name
+
+            t1 = threading.Thread(target=worker, args=("alpha",))
+            t2 = threading.Thread(target=worker, args=("beta",))
+            try:
+                t1.start()
+                t2.start()
+                t1.join(timeout=2.0)
+                t2.join(timeout=2.0)
+                self.assertTrue(results["alpha"])
+                self.assertTrue(results["beta"])
+            finally:
+                paths.WORKSPACE_DIR = saved
 
     def test_does_not_block_other_threads(self) -> None:
         """Iter 026 #1: a long-held use_workspace in one thread must

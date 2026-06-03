@@ -554,7 +554,8 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
-        self.assertGreaterEqual(js.count("Array.isArray("), 5)
+        self.assertGreaterEqual(js.count("Array.isArray("), 6)
+        self.assertIn("Array.isArray(draftChapters)", js)
 
     def test_static_js_has_tab_whitelist(self) -> None:
         """A3 - bindHashTabs must filter against a whitelist."""
@@ -588,8 +589,34 @@ class RoutesGetTests(unittest.TestCase):
             "loadStationHooks",
             "loadDramaProgress",
             "data-station-pane",
+            "bindHookPickDelegate",
+            "__hooks",
         ):
             self.assertIn(kw, js)
+
+    def test_static_js_hook_picker_uses_single_delegate_and_disables_buttons(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("bindHookPickDelegate", js)
+        self.assertIn("pane.__hooks = hooks", js)
+        self.assertNotIn('pane.addEventListener("click"', js)
+        self.assertIn("forEach((b) => { b.disabled = true; })", js)
+
+    def test_static_js_load_tab_panel_is_async(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("async function loadTabPanel", js)
+        self.assertIn("response is not valid JSON", js)
+
+    def test_static_js_has_pending_toast_cleanup(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("setPendingToastAndNavigate", js)
+        self.assertIn('sessionStorage.removeItem("__pending_toast")', js)
+        self.assertIn('msg: "已删除 《" + name + "》', js)
 
     def test_static_js_has_type_badge(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
@@ -605,7 +632,8 @@ class RoutesGetTests(unittest.TestCase):
         js = body.decode("utf-8")
         self.assertIn("/api/wizard/drama-start", js)
         self.assertIn("data-back-to-type", js)
-        self.assertIn("__pending_toast", js)
+        self.assertIn("window.setPendingToastAndNavigate", js)
+        self.assertIn('msg: "短剧 workspace 已创建：" + data.name', js)
 
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must

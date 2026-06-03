@@ -12,6 +12,8 @@ import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+from tests._socket_skip import SOCKET_BIND_BLOCKED, SOCKET_WILDCARD_BIND_BLOCKED
+
 from src import paths
 from src.cli_workspace import list_workspaces
 from src.web import routes
@@ -147,6 +149,10 @@ class DispatchExceptionMaskingTests(unittest.TestCase):
             routes.collect_status = original
 
 
+@unittest.skipIf(
+    SOCKET_BIND_BLOCKED or SOCKET_WILDCARD_BIND_BLOCKED,
+    "sandbox: socket.bind blocked",
+)
 class ServeHostWarningTests(unittest.TestCase):
     """#10 — non-loopback bind must print a multi-line stderr WARNING."""
 
