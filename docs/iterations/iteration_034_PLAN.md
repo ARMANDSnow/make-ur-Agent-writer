@@ -1117,8 +1117,73 @@ Follow-up fixes applied:
 
 ## 8. Acceptance Result（Claude 验收后填）
 
-> 由 Claude（reviewer）填写 §5 的 10 条流程结果 + 截图链接 + 通过 / 退回意见。
+**验收人**：Claude · **验收日**：2026-06-03 · **基线**：commit `4d797b3`
+**判定**：✅ **接受**（accept），无 P0 / P1 退回项。4 个 P2/P3 follow-up 转入 iter 035 起始 backlog。
+
+### 验收方法说明
+
+延续 iter 033 的降级验收路径：浏览器自动化通道仍被 Claude Code Bash 沙箱（`socket.bind` `PermissionError`）+ Claude in Chrome 扩展（not connected）双重卡死。本轮验收走：
+
+1. **代码级审读**：逐文件核对 Codex 改动的 `trash.py / insights.py(沿用) / plan_view.py / jobs.py / routes.py / templates.py / static.py / tests/*` 与施工单 §A / §B 的契约。
+2. **dispatcher 级冒烟**：12 条路径（`/`、`/trash`、`/wizard`、`/settings`、`/w/longzu/` 全 7 个 section）全部返 200。
+3. **22 个关键 JS 标识符 + 协议表达式**：100% 命中。
+4. **沙箱安全测试集**：92 → **111 / 111 OK**（iter 033 起的 92 个保留 + Codex 本轮新增的 19 个全过）。
+5. **完整 suite**：446 → **465 tests**，6 个 ERROR **完全等同于** iter 032 起就存在的沙箱 socket-bind PermissionError（影响 `test_web_server.*` 4 个 + `test_web_hardening.ServeHostWarningTests.*` 2 个），无新增 ERROR / FAIL。
+6. **Codex 自检与 subagent 审核**：§7 Codex Run Log 的 §4 四块全过；两个 read-only subagent（Plan / UI 侧 40 tests + Trash / jobs 侧 39 tests）输出 4 条 P2/P3 follow-up，无 P1 阻断。
+
+### F1-F10 逐项判定
+
+| # | 流程 | 判定 | 方法 | 证据 |
+|---|---|---|---|---|
+| F1 | `/` 视觉无回归 | ✅ PASS | dispatcher + 静态 | brand 续写工作台 + sidebar + ✦ ornament 全在；iter 032 design tokens 一字未改 |
+| F2 | 顶栏 `♻ 回收站` 链接 | ✅ PASS | 静态 | `templates.py:158` 在 ⚙ 设置 左侧；类名 `btn btn-ghost` 与 ⚙ 同档 |
+| F3 | `/w/longzu/plan` 三 tab + 顶部摘要 | ✅ PASS | dispatcher + 静态 | 路径返 200；`renderPlanSummary` 含 起点 / 短指纹 / 已写 N / 计划 M；3 个 `[data-plan-pane]` DOM 锚点齐全 |
+| F4 | 已写章节卡顶部 verdict 徽章 | ✅ PASS | 静态 | Codex 在 plan_view 后端 + JS 两端**主动加了 `draft_verdicts` 字段**（计划只要求 "已写/未写" 二态），章节卡同时显示 verdict —— 比计划做得多 |
+| F5 | `/trash` 列表 | ✅ PASS | dispatcher + 静态 | 路径返 200；`reloadTrashList` 渲染 entry / 原 name / 删除时间 / 大小 MB / file count 5 列全 |
+| F6 | restore 闭环 | ✅ PASS | 静态 + 单测 | `data-trash-restore` 按钮 → `POST /api/trash/<entry>/restore` → reloadTrashList → toast；`tests/test_web_trash.py::test_restore_renames_back` 通过 |
+| F7 | 同名 restore 冲突 | ✅ PASS | 静态 + 单测 | 后端 `restore_trash_entry` 返 `name_collision` → route 映射 409 → 前端 toast error；`tests/test_web_trash.py::test_restore_name_collision` 通过 |
+| F8 | purge modal 输入校验 | ✅ PASS | 静态 | 复用 iter 033 `.modal-*` 类；`input.value !== entry` 控制 disable；Esc / 取消 / 遮罩三路关 + `closeModal` 清 keydown listener |
+| F9 | 真 purge | ✅ PASS（间接） | 单测 | `tests/test_web_trash.py::test_purge_removes_from_disk` 验真 rmtree；端到端浏览器流程沙箱无法跑 |
+| F10 | **delete race 修复** | ✅ PASS | 单测（并发） | `tests/test_web_routes_post.py::test_delete_vs_start_job_race_resolved` 用 `threading.Barrier` 触发并发，两个 worker 必有且只有一个赢；`jobs.workspace_reserved` ctx manager 把 busy-check + rename 包成原子操作。Mendel iter 033 P2 关闭 |
+
+### Codex 比施工单做得更好的地方
+
+1. **`draft_verdicts` 字段**（B 节未规划）：plan_view 后端聚合每章 draft 的 verdict，JS 在已写章节卡里加 `verdictBadge`。计划只写"已写/未写 二态"，Codex 升到三态（已写+approve / 已写+reject / 未写），更接近 PM 真实需求。
+2. **`_split_entry_name` 抽到模块顶（trash.py:118）**：施工单里两处独立解析，Codex 做了一次 regex 抽取，未来扩 trash 字段共用。
+3. **subagent 自审 + 主动暴露 4 个 P2/P3**：iter 033 也是 Codex 自跑 Mendel；本轮升级为 2 个 subagent 并行（Plan/UI + Trash/jobs），覆盖更广。**这是 Codex 工作模式的成熟标志**：他在主动给 reviewer 留 follow-up 而不是等被发现。
+4. **`.gitignore` 加 `workspaces/_trash/`**（diff stat line 1）：把回收站排除出 git，避免 commit 历史滚雪球。计划没要求，是良性补丁。
+
+### Subagent 找到的 P2/P3（我独立复核，全部属实）
+
+| # | 严重度 | 位置 | 真实性 | 触发条件 |
+|---|---|---|---|---|
+| 1 | P2 | `trash.py:95` / `:111` restore/purge | ✅ 属实 | 调用者绕过 route 直接传 `../alpha` 类字符串。当前 route 层 `_TRASH_ENTRY_RE` 已拦，纯防御纵深 |
+| 2 | P2 | `trash.py:98` restore | ✅ 属实 | 手工构造 `_trash/legacy__YYYYMMDD_HHMMSS/` → restore 复活 `legacy` 这个 paths 哨兵名。用户操作触发不到，但工程不洁 |
+| 3 | P2 | `static.py:1208` Plan viewer | ✅ 属实 | `chapter_plan.json` 里 `chapters: "string"` 或 `key_events: {...}` 会让 `.map` 抛错并清空整页 |
+| 4 | P3 | `static.py:905` bindHashTabs | ✅ 属实 | URL hash 如 `#x"]; ...` → `querySelector` 因非法 CSS 抛 `SyntaxError` → Plan / Chapter Detail boot 失败 |
+
+**为什么不退回**：4 条全部是 P2/P3 防御纵深类，**不影响正常用户路径**。本轮 destructive UX（delete + restore + purge）核心逻辑正确、race 已修、单测有覆盖。
+
+### Follow-up（iter 035 起始 backlog，请在下一轮 iter 计划 §6 转 §2）
 
 ```
-(待 Claude 验收后填写)
+[P2] trash.py: 在 restore / purge / 任何接 entry 的 helper 入口加 _validate_trash_entry()
+     —— 不依赖 route 层，hard-rm 路径自防 ../ 与保留名（legacy / _trash / "" / "." / ".."）
+[P2] static.py renderPlan*: 把 (plan && plan.x) || [] 改为
+     Array.isArray(plan && plan.x) ? plan.x : []，覆盖 chapters / key_events /
+     relationships_in_play / decisions.votes / agent_votes 五处
+[P3] static.py bindHashTabs: 用 CSS.escape(initial) 或白名单
+     ["body","review","lint","advisor","history","chapters","outline","decisions"] 拦掉非法 hash
+[P3] iteration_034_PLAN.md §7 Codex Run Log: Run Log 注脚里点明 "6 ERROR = iter 032
+     起就有的沙箱 socket-bind，非本轮回归"（subagent 提到验收读起来略暧昧）
 ```
+
+### 已记录的残留风险（不阻塞，不入 follow-up）
+
+- Toast 仍基于 polling；多用户场景再升 SSE/WS
+- restore 没有"覆盖原有同名工作区"选项
+- `_trash/` 无自动定期清理（按大小 / 时间）
+
+### 验收结论
+
+**iter 034 accept**，4 个 P2/P3 转 iter 035 backlog。Codex 在 iter 033 → 034 之间的工作模式提升：从"按图精装 + 主动防护"升级到"按图精装 + 主动防护 + 主动暴露 follow-up"。下一轮 iter 计划可以把这 4 条 backlog 转成 iter 035 的 §A 子项，预计 30 分钟内可关。
