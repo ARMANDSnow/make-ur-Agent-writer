@@ -1,14 +1,13 @@
 {
   "episode_no": 1,
   "season_no": 1,
-  "title": "placeholder, see creation_standard",
-  "logline": "placeholder, see creation_standard",
+  "title": "他给我倒水的那只手",
+  "logline": "她记得他给学生倒水时左手腕的疤——那道疤不该存在。",
   "track": "推理",
   "target_duration_seconds": 60,
   "core_setup": {
-    "protagonist": "placeholder, see creation_standard",
-    "antagonist": "placeholder, see creation_standard",
-    "emotional_hook": "placeholder, see creation_standard"
-  },
-  "_codex_note": "placeholder, see creation_standard"
+    "protagonist": "江洲，28 岁，实习刑警；细节强迫症、把所有人当悬念解；过分平静、不笑、低眉、说话像在记笔记；深色风衣、左手食指有薄茧",
+    "antagonist": "季砚，35 岁，高中语文老师；温润、滴水不漏、家长群里口碑最好的那一个；左手腕一道五公分的旧疤——他对学生说是切水果留下的",
+    "emotional_hook": "一个完美无缺的「好人」 → 一个细节松动 → 不可能 → 必然"
+  }
 }

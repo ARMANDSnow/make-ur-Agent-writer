@@ -1,8 +1,7 @@
 {
   "hooks": [
-    {"type": "情绪钩", "content": "placeholder, see creation_standard"},
-    {"type": "悬念钩", "content": "placeholder, see creation_standard"},
-    {"type": "反差钩", "content": "placeholder, see creation_standard"}
-  ],
-  "_codex_note": "placeholder, see creation_standard"
+    {"type": "情绪钩", "content": "热咖啡顺着他衬衫往下滴，整个食堂在笑——他低头，看见自己白衬衫上一道棕色，没动。"},
+    {"type": "悬念钩", "content": "系统提示：「宿主已激活[反规则]权限。当前剩余使用次数：1。」——只剩一次，他在等最好的时机。"},
+    {"type": "反差钩", "content": "陆昊抬手要再泼一杯，顾衍突然笑了，慢慢地把卫衣袖口卷起来：「学长，我建议你这杯，别泼。」"}
+  ]
 }

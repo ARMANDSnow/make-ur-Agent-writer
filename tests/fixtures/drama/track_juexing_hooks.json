@@ -1,8 +1,7 @@
 {
   "hooks": [
-    {"type": "情绪钩", "content": "placeholder, see creation_standard"},
-    {"type": "悬念钩", "content": "placeholder, see creation_standard"},
-    {"type": "反差钩", "content": "placeholder, see creation_standard"}
-  ],
-  "_codex_note": "placeholder, see creation_standard"
+    {"type": "情绪钩", "content": "她在门外端着汤听了三分钟：「那个外人嘛，养着干活就行，正经事别让她沾。」汤还在冒热气。"},
+    {"type": "悬念钩", "content": "她回了厨房，从抽屉最底下拿出一个泛黄的信封——里面是这四年所有的转账截图，每一笔都标了「沈家」。"},
+    {"type": "反差钩", "content": "婆婆在饭桌上招呼：「澜澜过来盛汤啊。」她端着空碗站在桌边，第一次没有应「哎」，只是看着对方笑了一下：「今天没汤了。」"}
+  ]
 }

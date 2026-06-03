@@ -1,8 +1,7 @@
 {
   "hooks": [
-    {"type": "情绪钩", "content": "placeholder, see creation_standard"},
-    {"type": "悬念钩", "content": "placeholder, see creation_standard"},
-    {"type": "反差钩", "content": "placeholder, see creation_standard"}
-  ],
-  "_codex_note": "placeholder, see creation_standard"
+    {"type": "情绪钩", "content": "她托着滚烫的咖啡跪在地上整整二十秒，他翻文件没抬眼。"},
+    {"type": "悬念钩", "content": "他抽屉里那张全员股权表，第一行名字被反复划掉过——三个字，林。晚。某。"},
+    {"type": "反差钩", "content": "他把开除信摔到她脸上的下一秒，她合上文件夹笑了一下：「巧了，今天股东会，是我主持。」"}
+  ]
 }

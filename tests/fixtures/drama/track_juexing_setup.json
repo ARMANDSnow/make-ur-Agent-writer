@@ -1,14 +1,13 @@
 {
   "episode_no": 1,
   "season_no": 1,
-  "title": "placeholder, see creation_standard",
-  "logline": "placeholder, see creation_standard",
+  "title": "她那天没再笑",
+  "logline": "她端着汤站在门口听了完整三分钟，然后把汤倒进垃圾桶。",
   "track": "觉醒",
   "target_duration_seconds": 60,
   "core_setup": {
-    "protagonist": "placeholder, see creation_standard",
-    "antagonist": "placeholder, see creation_standard",
-    "emotional_hook": "placeholder, see creation_standard"
-  },
-  "_codex_note": "placeholder, see creation_standard"
+    "protagonist": "沈澜，27 岁，大嫂；嫁入沈家四年、所有家务一手包；圆脸、马尾、围裙、习惯性微笑；这集里第一次让笑容停在嘴角不再上扬",
+    "antagonist": "婆婆周淑芬 + 小姑沈茵；周淑芬：55 岁，旗袍、佛珠、声音永远在「为你好」和「你怎么这么不懂事」之间切换；沈茵：26 岁，沈家亲女儿、永远的对照面",
+    "emotional_hook": "忍 → 一次微小的「再忍不下去」 → 从此不笑"
+  }
 }

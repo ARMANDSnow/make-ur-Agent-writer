@@ -1,8 +1,7 @@
 {
   "hooks": [
-    {"type": "情绪钩", "content": "placeholder, see creation_standard"},
-    {"type": "悬念钩", "content": "placeholder, see creation_standard"},
-    {"type": "反差钩", "content": "placeholder, see creation_standard"}
-  ],
-  "_codex_note": "placeholder, see creation_standard"
+    {"type": "情绪钩", "content": "教室空了，黑板上还写着一行字：「如果你看到这个，请去找江警官」。粉笔字微微歪斜，像是手在抖。"},
+    {"type": "悬念钩", "content": "他左手腕的疤——三年前那起溺亡案的报告里写着，凶手「挣扎时被指甲划伤左手腕，五公分」。"},
+    {"type": "反差钩", "content": "他给江洲倒了一杯水，温的，放在两人之间正中央。江洲没碰，盯着他左手：「季老师，这杯水您先喝。」"}
+  ]
 }

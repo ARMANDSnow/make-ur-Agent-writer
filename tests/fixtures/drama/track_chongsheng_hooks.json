@@ -1,8 +1,7 @@
 {
   "hooks": [
-    {"type": "情绪钩", "content": "placeholder, see creation_standard"},
-    {"type": "悬念钩", "content": "placeholder, see creation_standard"},
-    {"type": "反差钩", "content": "placeholder, see creation_standard"}
-  ],
-  "_codex_note": "placeholder, see creation_standard"
+    {"type": "情绪钩", "content": "她看着镜子里完好的脸，伸手摸自己的肋骨——那里前世碎过。"},
+    {"type": "悬念钩", "content": "日历停在三年前的今天——她记得这一天他是怎么开口的，连第几秒抬眼都记得。"},
+    {"type": "反差钩", "content": "他正酝酿「我们分开吧」，她先合上文件笑了：「陈先生，我同意分手，附议你昨晚那份转账截图。」"}
+  ]
 }

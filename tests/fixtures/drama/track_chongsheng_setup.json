@@ -1,14 +1,13 @@
 {
   "episode_no": 1,
   "season_no": 1,
-  "title": "placeholder, see creation_standard",
-  "logline": "placeholder, see creation_standard",
+  "title": "她重生在被抛弃的那天",
+  "logline": "26 岁那个清晨，他说「我们分开吧」——这一次，她在他开口之前先笑了。",
   "track": "重生",
   "target_duration_seconds": 60,
   "core_setup": {
-    "protagonist": "placeholder, see creation_standard",
-    "antagonist": "placeholder, see creation_standard",
-    "emotional_hook": "placeholder, see creation_standard"
-  },
-  "_codex_note": "placeholder, see creation_standard"
+    "protagonist": "苏念，26 岁，普通职场女性；前世为爱付出十年，被未婚夫与堂妹联手骗光家产后跳楼；重生回三年前同一个清晨；眉骨清晰、眼下一颗小痣、短发凌乱、神态比记忆里冷",
+    "antagonist": "陈卓，28 岁，金融分析师/前世未婚夫；精算情绪、克制温柔、永远在最关键时刻递上一杯温水；西装外套、银框眼镜",
+    "emotional_hook": "被抛弃 → 重生 → 「这一次，我先说分手。」"
+  }
 }

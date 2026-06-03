@@ -1,14 +1,13 @@
 {
   "episode_no": 1,
   "season_no": 1,
-  "title": "placeholder, see creation_standard",
-  "logline": "placeholder, see creation_standard",
+  "title": "我让你弯下腰",
+  "logline": "她递茶三年被当狗，他不知道这间公司原本写着她的名字。",
   "track": "霸总",
   "target_duration_seconds": 60,
   "core_setup": {
-    "protagonist": "placeholder, see creation_standard",
-    "antagonist": "placeholder, see creation_standard",
-    "emotional_hook": "placeholder, see creation_standard"
-  },
-  "_codex_note": "placeholder, see creation_standard"
+    "protagonist": "林晚，26 岁，集团总裁秘书；表面卑微温顺，实为创始人遗孤、隐名大股东之女；齐肩短发、米白高领、平眉抿唇",
+    "antagonist": "周铭，30 岁，集团接班的「准董事长」；精致利己、把人分等级、习惯把咖啡杯放在助理摊开的手心里；西装一丝不苟，金属袖扣",
+    "emotional_hook": "卑微 → 反转 → 「这家公司，你跪给谁看？」"
+  }
 }

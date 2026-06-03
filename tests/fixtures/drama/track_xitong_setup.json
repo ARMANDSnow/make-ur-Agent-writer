@@ -1,14 +1,13 @@
 {
   "episode_no": 1,
   "season_no": 1,
-  "title": "placeholder, see creation_standard",
-  "logline": "placeholder, see creation_standard",
+  "title": "系统说：你已经忍够了",
+  "logline": "他被泼咖啡的第三次，耳边响起一句机械女声：「宿主羞辱值 100% 达成」。",
   "track": "系统",
   "target_duration_seconds": 60,
   "core_setup": {
-    "protagonist": "placeholder, see creation_standard",
-    "antagonist": "placeholder, see creation_standard",
-    "emotional_hook": "placeholder, see creation_standard"
-  },
-  "_codex_note": "placeholder, see creation_standard"
+    "protagonist": "顾衍，22 岁，普通财经大三学生；瘦削、眼神懒、永远穿洗到发白的灰卫衣；被欺负到第三次时第一次抬眼、那眼神和原本完全不是同一种人",
+    "antagonist": "学长团 + 学校鄙视链 + 上代命运；具象化反派：陆昊，24 岁，校学生会主席，西装领带、永远叼着一支没点燃的烟、习惯当众羞辱他人取乐",
+    "emotional_hook": "受辱 → 系统觉醒 → 反规则的胜利"
+  }
 }
