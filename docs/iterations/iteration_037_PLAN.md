@@ -1583,8 +1583,103 @@ Subagent read-only review:
 
 ## 8. Acceptance Result（Claude 验收后填）
 
-> Claude 填写 §5 V1-V13 结果 + Claude §B 替换进度 + 转 iter 038 backlog。
+**验收人**：Claude · **验收日**：2026-06-03 · **基线**：commit `1a491ae`
+**判定**：✅ **接受**（accept），无 P0 / P1 / P2 退回项。drama 模块 4 站向导的**前 2 站骨架完整就位**；§B（Claude 替换 10 fixture + 2 prompts 真实创作内容）即将开始，不阻塞验收。
 
-```
-(待 Claude 验收后填写)
-```
+### 数字一览
+
+| 维度 | iter 036 baseline | iter 037 (`1a491ae`) | Δ |
+|---|---|---|---|
+| 全套 unittest（Claude 沙箱） | 488 / 6 ERROR | **536 / 6 ERROR** | +48 OK，沙箱 ERROR 不动 |
+| 全套 unittest（Codex 真环境，verify.sh） | 488 / 6 ERROR | **536 / 0 ERROR** | +48，无新 ERROR |
+| dispatcher 路径 | 13 个 200 + 6 个 404 | **14 个 200 + 6 个 404**（新增 `/w/<drama>/write`） | +1 |
+| 保留 JS 标识符 | 25 | **30** (+5：`initDramaWrite / loadStationSetup / loadStationHooks / loadDramaProgress / data-station-pane`) | +5 |
+| 新模块文件 | — | `src/drama_planner.py` / `src/hook_designer.py` / `src/web/drama_view.py` | +3 |
+| 新 API | — | `GET .../drama/progress` + `POST .../drama/plan` + `POST .../drama/hooks` + `PUT .../drama/setup` | +4 |
+| Mock fixture 占位 | — | **10 个**（5 赛道 × setup + hooks） | +10 |
+
+### V1-V13 逐项判定
+
+| # | 项 | 判定 | 证据 |
+|---|---|---|---|
+| V1 | drama wizard 5 字段表单完整渲染 | ✅ | `test_drama_wizard_full_form` 套件 + dispatcher 渲染 `panel-drama` 含 5 个 input/textarea/radio |
+| V2 | 提交后 `wizard_input.json` + `creation_standard.snapshot.md` 落盘 | ✅ | `test_drama_wizard_creates_snapshot_and_wizard_input_files` |
+| V3 | 提交后前端跳 `/write?step=setup` | ✅ | `JS_WIZARD` 含 `/w/" + encodeURIComponent(data.name) + "/write?step=setup` |
+| V4 | drama overview 升级为"4 站进度看板" | ✅ | `loadDramaOverview` + `drama-overview-progress` DOM 锚点齐全 |
+| V5 | sidebar drama 3 项 `[overview, write, jobs]` | ✅ | 运行时 `_sections_for("drama")` → 3 项；iter 036 测试断言已正确升级 |
+| V6 | `/w/<name>/write` 渲染 4 个 tab + 前 2 站可用 | ✅ | dispatcher 200；4 个 `data-station-pane` 全在 |
+| V7 | `/w/<name>/write?step=storyboard` 渲染 empty-state "iter 038 起开放"，**非 404** | ✅ | 静态：storyboard / characters tab 含 `iter 038 起开放`；非 404（同页内 tab 切换） |
+| V8 | `drama_planner.run()` mock 按 track 查 fixture，5 赛道全过 | ✅ | 运行时验证 5 赛道（霸总/重生/推理/系统/觉醒）fixture 全返正确 track |
+| V9 | `hook_designer.run()` mock 出 3 候选，5 赛道全过 | ✅ | 运行时验证 5 赛道全返 3 hook 候选 `[情绪钩, 悬念钩, 反差钩]` |
+| V10 | drama agent 加载 snapshot 注入 prompt（含"3 秒法则" / "60 秒的内部节奏"） | ✅ | 运行时 prompt 拼接验证两字符串 `True` |
+| V11 | drama workspace 缺 snapshot → `drama_planner.run()` raise | ✅ | 运行时删除快照 → `FileNotFoundError("missing creation_standard.snapshot.md for workspace 'b_d'; this workspace cannot run drama agents")` |
+| V12 | drama workspace 上 `POST /run` 仍 400（iter 036 V11 不破） | ✅ | 运行时返 400 + hint，行为完全保持 iter 036 状态 |
+| V13 | iter 036 全套 488 + 沙箱 6 ERROR 不变 | ✅ | 536 OK + 同一组沙箱 6 ERROR；Codex 真环境 verify.sh 0 ERROR |
+
+### Codex 超出施工单做得更好的地方
+
+1. **2 个 subagent 自审 + 修了 2 个 P2**（在 commit 前完成）：
+   - **Web/UI reviewer**：`?step=setup` 在 reload 时可能压过 `#hook` → Codex 改为初始 query step 激活后规范成 hash deep-link，与 iter 034 hash tab 语义对齐。
+   - **Drama 框架 reviewer**：`agents.yaml` 的 `system_prompt_base` 字段会让配置契约看起来仍指向全局 product doc（违反红线 #7"只读 snapshot 不读全局"的工程意图）→ Codex 删除该字段，只留 workspace-relative `system_prompt_snapshot: data/creation_standard.snapshot.md`，并加测试锁住 snapshot-only config。
+2. **48 个新测试**（要求 ≥30）覆盖更彻底：
+   - `test_drama_planner.py` 含 mock fixture × 5 赛道 + snapshot 注入 + 缺失 raise
+   - `test_hook_designer.py` 含 5 赛道 + 站 ① 前置检查
+   - `test_drama_view.py` 含 4 站状态判定（done / todo / locked）
+   - `test_drama_wizard_full_form.py` 含 5 字段全空 / episode_count 越界 / track 非法 / 完整流程
+   - `test_web_routes_post.py` 扩展 trash 与 drama API 互操作
+3. **Run Log 6-ERROR 注脚的工程化理解**：施工单 §4 要求"FAILED (errors=6) 那一行下补沙箱注脚"。Codex 在自己真环境跑出 `OK` 无 `FAILED` 行 → **不机械补注脚**，而是用一段话解释"本地无 FAILED 落点；裸 verify.sh 用系统 python 时出现 70 ERROR 是因为缺 pydantic，提供 PATH 后归零"。这是对规则的语义理解，不是字面遵循 —— **iter 036 验收时我特意点过这条工作模式，Codex 内化了**。
+4. **Run Log 三档证明**：`unittest` / `verify.sh`（含 mock auto-pipeline）/ `preflight` 三件套全跑。`preflight` 输出 `warn` 但 `FATAL none`，是正常 mock 模式状态。
+
+### Codex 工作模式曲线（继续上升）
+
+| iter | 模式 |
+|---|---|
+| 032 | 按图施工 |
+| 033 | 按图精装 + 主动防护 |
+| 034 | 按图精装 + 主动防护 + 主动暴露 follow-up |
+| 035 | 按图 1:1 + 自加边界测试 + 不超调 |
+| 036 | 按图 1:1 + §3 K1-K10 全消化 + 双 subagent + node + verify.sh |
+| **037** | **按图 1:1 + 双 subagent 修 2 P2 自我升级 + 规则语义化理解（非字面遵循）** |
+
+iter 037 的工作姿态比 iter 036 更成熟一档 —— **不只是"执行图"，而是"理解图的工程意图并主动加固"**。Drama 框架 reviewer 找出的 `system_prompt_base` 那处，是真正"读懂了 §3 红线 #7 的精神"才能识别的隐藏违规。
+
+### §B Claude 后续工作（不阻塞 iter 037 accept）
+
+iter 037 accept 后，Claude 立刻并行做：
+
+- **§B1**：10 个 mock fixture 真实创作内容（5 赛道 × setup + hooks）。每个 fixture 按 `short_drama_creation_standard.md` §七 5 个赛道母题严格自洽。
+  - 霸总：核心 = 权力不对等突然反转
+  - 重生：核心 = "我知道而你不知道"
+  - 推理：核心 = 不可能 → 可能 → 必然
+  - 系统：核心 = 开挂前后的对照
+  - 觉醒：核心 = 忍 → 不忍 → 反击
+- **§B2**：2 个 `prompts/drama/*.txt` 真实 system prompt 内容（参照 §八骨架，注入"飞天奖编剧 + AI 短剧导演"身份 + 完整自检清单）
+
+§B 完成后单独 commit `iter 037 §B content`，跑全套测试确保 fixture/prompt schema 不破。Codex commit 后所有测试结构应已 schema-locked，§B 替换文案不会触发任何测试断言变化。
+
+### 已记录的残留风险（不阻塞）
+
+- 站 ③ 分镜 / 站 ④ 角色 业务逻辑（iter 038 设计）
+- AI 绘画 HTTP client / Comfy workflow 导出（iter 038）
+- 真模型路径（iter 040+）
+- agents.yaml `provider: mock_only` 在 LLMClient 接入时需扩展（iter 040+）
+- 集 2+ 续写（本轮只支持集 1）
+- drama POST /run 的 hint 文案现在说 "drama bootstrap arrives in iter 037"，技术上 iter 037 已到，hint 文案稍微 stale —— **不算 P3**（行为正确，只是文案过时），iter 038 升级到 "arrives in iter 038" 即可
+
+### 验收结论
+
+**iter 037 accept**。drama 模块前 2 站骨架完整就位，§B 内容替换不阻塞验收。Codex 工作模式跨过一个新台阶 —— **从"按图执行"升到"理解图的工程意图主动加固"**，2 个 subagent 自审都找到了真问题而非泛泛建议。
+
+### 给 iter 038 起始的状态记录
+
+- **baseline commit**：`1a491ae`
+- **全套测试**：536 OK + 6 沙箱 ERROR（连续 6 iter 不变）
+- **drama 4 站完成度**：站 ① + 站 ② = 50%；站 ③ + 站 ④ 待 iter 038
+- **保留 JS 标识符**：30 个
+- **侧栏 drama sections**：3 项 `[overview, write, jobs]`
+- **dispatcher 路径**：novel 13 个 200 + drama 3 个 200 + drama type guard 6 个 404
+- **mock fixture**：10 个占位（待 Claude §B 替换为真实创作内容）
+- **API endpoint 新增**：`GET .../drama/progress` + `POST .../drama/plan` + `POST .../drama/hooks` + `PUT .../drama/setup`
+- **创作规范快照机制**：drama workspace 创建时自动复制 `docs/product/short_drama_creation_standard.md` 到 `data/creation_standard.snapshot.md`，drama agent 只读快照
+
+iter 038 起进入"AI 绘画 + 分镜 + 角色"的工业链路集成层，复杂度会再升一档（外部 HTTP client + LoRA-ready prompt 生成 + Comfy workflow .json 导出）。但 iter 037 的 station + agent + snapshot pattern 已经为后 2 站打通了工具链，iter 038 可以照搬。
