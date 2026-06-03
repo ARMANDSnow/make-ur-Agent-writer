@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from src import paths
 from src.web import jobs, routes
+from src.web import workspace_meta
 
 
 def _stub_workspace(root: Path, name: str) -> None:
@@ -68,6 +69,18 @@ class RoutesPostTests(unittest.TestCase):
             json.dumps({"step": "normalize"}).encode(),
         )
         self.assertEqual(status, 404)
+
+    def test_post_run_drama_workspace_returns_400_with_hint(self) -> None:
+        workspace_meta.write("alpha", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        status, _ct, body = routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/run",
+            json.dumps({"step": "normalize"}).encode(),
+        )
+        self.assertEqual(status, 400)
+        data = json.loads(body)
+        self.assertIn("drama workspace", data["error"])
+        self.assertIn("iter 037", data["hint"])
 
     def test_put_on_get_route_returns_405(self) -> None:
         status, _ct, body = routes.dispatch("PUT", "/api/workspaces")
@@ -155,6 +168,19 @@ class RoutesPostTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("POST", f"/api/trash/{entry}/restore")
         self.assertEqual(status, 200, body.decode())
         self.assertTrue((paths.WORKSPACE_DIR / "alpha" / "marker.txt").exists())
+
+    def test_trash_restore_preserves_drama_workspace_meta(self) -> None:
+        workspace_meta.write("alpha", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/delete",
+            json.dumps({"confirm": "alpha"}).encode(),
+        )
+        entries = json.loads(routes.dispatch("GET", "/api/trash")[2])["entries"]
+        entry = entries[0]["entry"]
+        status, _ct, body = routes.dispatch("POST", f"/api/trash/{entry}/restore")
+        self.assertEqual(status, 200, body.decode())
+        self.assertEqual(workspace_meta.read("alpha")["type"], "drama")
 
     def test_trash_restore_rejects_newline_entry(self) -> None:
         status, _ct, body = routes.dispatch(

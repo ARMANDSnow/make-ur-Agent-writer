@@ -11,6 +11,7 @@ from pathlib import Path
 
 from src import paths
 from src.web import jobs, routes
+from src.web import workspace_meta
 
 
 def _build_multipart(workspace: str, filename: str, content: bytes, mime: str) -> tuple[bytes, str]:
@@ -137,6 +138,40 @@ class WizardE2ETests(unittest.TestCase):
             "POST", "/api/wizard/start", body, {"content-type": ct}
         )
         self.assertEqual(status, 409)
+
+    def test_drama_start_creates_empty_workspace_without_job(self) -> None:
+        status, _ct, resp = routes.dispatch(
+            "POST",
+            "/api/wizard/drama-start",
+            json.dumps({"workspace": "drama_a"}).encode("utf-8"),
+            {"content-type": "application/json"},
+        )
+        self.assertEqual(status, 200, resp.decode("utf-8"))
+        data = json.loads(resp)
+        self.assertEqual(data, {"name": "drama_a", "type": "drama"})
+        self.assertNotIn("job_id", data)
+        self.assertEqual(workspace_meta.read("drama_a")["type"], "drama")
+        self.assertTrue((paths.WORKSPACE_DIR / "drama_a" / "data" / "tables").is_dir())
+        self.assertTrue((paths.WORKSPACE_DIR / "drama_a" / "outputs" / "episodes").is_dir())
+
+    def test_drama_start_rejects_reserved_workspace_name(self) -> None:
+        status, _ct, resp = routes.dispatch(
+            "POST",
+            "/api/wizard/drama-start",
+            json.dumps({"workspace": "_trash"}).encode("utf-8"),
+            {"content-type": "application/json"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("invalid workspace name", json.loads(resp)["error"])
+
+    def test_drama_start_requires_json_content_type(self) -> None:
+        status, _ct, _resp = routes.dispatch(
+            "POST",
+            "/api/wizard/drama-start",
+            json.dumps({"workspace": "drama_a"}).encode("utf-8"),
+            {"content-type": "text/plain"},
+        )
+        self.assertEqual(status, 415)
 
 
 if __name__ == "__main__":

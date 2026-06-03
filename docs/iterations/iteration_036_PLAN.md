@@ -1000,7 +1000,150 @@ print('workspace_meta + init_workspace + _sections_for verified')
 > Codex 请在这里粘贴 §4 四块命令的原文输出，并在 `FAILED (errors=6)` 那一行下补一行 iter 035 同款沙箱注脚（"6 ERROR 全部是 iter 032 起就存在的沙箱 socket.bind PermissionError…"）。
 
 ```
-(待 Codex 填写)
+$ .venv/bin/python3 -m unittest discover -s tests 2>&1 | tail -5
+
+----------------------------------------------------------------------
+Ran 488 tests in 2.541s
+
+FAILED (errors=6)
+# 注：6 ERROR 全部是 iter 032 起就存在的沙箱 socket.bind PermissionError
+# （影响 test_web_server.* 4 个 + test_web_hardening.ServeHostWarningTests.* 2 个），
+# 非本轮回归。
+
+$ .venv/bin/python3 -c "
+from src.web import routes
+import tempfile, json
+from pathlib import Path
+from src import paths
+# Setup: 在 tmp 里建一个 drama workspace
+saved = paths.WORKSPACE_DIR
+tmp = tempfile.mkdtemp()
+paths.WORKSPACE_DIR = Path(tmp)
+from src.cli_workspace import init_workspace
+init_workspace('alpha_n', type='novel')
+init_workspace('beta_d', type='drama')
+for p in ['/', '/trash', '/wizard', '/settings',
+          '/w/alpha_n/', '/w/alpha_n/continue', '/w/alpha_n/plan',
+          '/w/alpha_n/chapters', '/w/alpha_n/reviews', '/w/alpha_n/insights',
+          '/w/alpha_n/jobs',
+          '/w/beta_d/', '/w/beta_d/jobs',
+          '/w/beta_d/continue', '/w/beta_d/plan']:  # last two should 404
+    print(routes.dispatch('GET', p)[0], p)
+paths.WORKSPACE_DIR = saved
+"
+21:47:18 - LiteLLM:WARNING: get_model_cost_map.py:271 - LiteLLM: Failed to fetch remote model cost map from https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json: [Errno 8] nodename nor servname provided, or not known. Falling back to local backup.
+21:47:19 - LiteLLM:WARNING: common_utils.py:979 - litellm: could not pre-load bedrock-runtime response stream shape — Bedrock event-stream decoding will be unavailable. Error: No module named 'botocore'
+21:47:19 - LiteLLM:WARNING: common_utils.py:24 - litellm: could not pre-load sagemaker-runtime response stream shape — SageMaker event-stream decoding will be unavailable. Error: No module named 'botocore'
+200 /
+200 /trash
+200 /wizard
+200 /settings
+200 /w/alpha_n/
+200 /w/alpha_n/continue
+200 /w/alpha_n/plan
+200 /w/alpha_n/chapters
+200 /w/alpha_n/reviews
+200 /w/alpha_n/insights
+200 /w/alpha_n/jobs
+200 /w/beta_d/
+200 /w/beta_d/jobs
+404 /w/beta_d/continue
+404 /w/beta_d/plan
+
+$ .venv/bin/python3 -c "
+from src.web import static
+required = [
+    # iter 026-035 保留
+    'loadTabPanel', 'scheduleReadiness', 'writeBookJobRunning',
+    'readinessRequestSeq', 'readinessTimer',
+    \"submit.disabled = writeBookJobRunning || data.status === 'blocked'\",
+    'showToast', 'showDeleteModal', 'jumpToParagraph', 'initInsights',
+    'data-jump-line', '__pending_toast',
+    'initPlan', 'renderPlanChapters', 'renderOutlineMarkdown', 'renderDecisions',
+    '_mdToHtml', 'data-plan-pane',
+    'initTrash', 'reloadTrashList', 'showPurgeModal',
+    'data-trash-restore', 'data-trash-purge',
+    '_ALLOWED_TAB_KEYS',
+    # iter 036 新增
+    'typeBadge',
+]
+for kw in required:
+    assert kw in static.JS_DASHBOARD, f'missing in JS_DASHBOARD: {kw}'
+# wizard JS 也要包含 drama path
+for kw in ['/api/wizard/drama-start', 'data-back-to-type', '__pending_toast']:
+    assert kw in static.JS_WIZARD, f'missing in JS_WIZARD: {kw}'
+n = static.JS_DASHBOARD.count('Array.isArray(')
+assert n >= 5, f'Array.isArray count = {n}'
+print(f'all {len(required)} JS_DASHBOARD identifiers present; Array.isArray = {n}')
+print('JS_WIZARD drama path wired')
+"
+all 25 JS_DASHBOARD identifiers present; Array.isArray = 5
+JS_WIZARD drama path wired
+
+$ .venv/bin/python3 -c "
+import tempfile
+from pathlib import Path
+from src import paths
+from src.cli_workspace import init_workspace
+from src.web import workspace_meta
+from src.web.templates import _sections_for
+
+saved = paths.WORKSPACE_DIR
+tmp = tempfile.mkdtemp()
+paths.WORKSPACE_DIR = Path(tmp)
+
+# Novel default
+init_workspace('w_novel', type='novel')
+m = workspace_meta.read('w_novel')
+assert m['type'] == 'novel', m
+assert m['schema_version'] == 1, m
+assert _sections_for('novel') == _sections_for(m['type'])
+assert len(_sections_for('novel')) == 7
+
+# Drama
+init_workspace('w_drama', type='drama')
+m = workspace_meta.read('w_drama')
+assert m['type'] == 'drama', m
+assert (paths.WORKSPACE_DIR / 'w_drama' / 'data' / 'tables').is_dir()
+assert (paths.WORKSPACE_DIR / 'w_drama' / 'outputs' / 'episodes').is_dir()
+assert len(_sections_for('drama')) == 2
+
+# Backward compat: missing workspace.json
+(paths.WORKSPACE_DIR / 'w_legacy').mkdir()
+(paths.WORKSPACE_DIR / 'w_legacy' / 'data').mkdir()
+m = workspace_meta.read('w_legacy')
+assert m['type'] == 'novel' and m['schema_version'] == 0, m
+
+paths.WORKSPACE_DIR = saved
+print('workspace_meta + init_workspace + _sections_for verified')
+"
+workspace_meta + init_workspace + _sections_for verified
+```
+
+Subagent read-only audit:
+
+- Backend/workspace-type reviewer（workspace_meta / cli_workspace / routes / wizard / POST tests）: No P0/P1/P2 findings, GO. P3 notes: cache mtime test could be flaky; JSON content-type check was case-sensitive. Fixed by forcing `workspace.json` mtime delta in the test and lowercasing content-type before checking.
+- Web UI/routing reviewer（templates / static / route guards / GET tests）: No P0/P1/P2 findings, GO. P3 note: drama overview test should assert the full `overview-*` id set is absent and delete button remains. Fixed by expanding the GET test. Color note accepted: `typeBadge` follows the plan example with existing `--amber-strong` / `--jade-strong` text tokens and `--amber-soft` / `--jade-soft` background/border tokens; no new color literals were added.
+
+Additional local checks:
+
+```
+$ PYTHONPYCACHEPREFIX="$PWD/.pycache" .venv/bin/python3 -m unittest tests.test_workspace_meta tests.test_web_routes_get tests.test_web_routes_post tests.test_web_wizard_e2e
+Ran 83 tests in 0.625s
+OK
+
+$ node -e "... new Function(static.JS_DASHBOARD); new Function(static.JS_WIZARD) ..."
+embedded JS syntax ok
+
+$ PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock .venv/bin/python3 main.py preflight
+PREFLIGHT: ok
+FATAL: none
+WARN: none
+
+$ PATH="$PWD/.venv/bin:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock bash scripts/verify.sh
+Ran 488 tests in 2.148s
+FAILED (errors=6)
+# 注：同上，6 ERROR 全部是既有沙箱 socket.bind PermissionError；verify.sh 因此退出 1，非本轮回归。
 ```
 
 ---

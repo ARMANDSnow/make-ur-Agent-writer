@@ -108,6 +108,17 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
     ("jobs", "任务", "jobs"),
 )
 
+_SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
+    ("overview", "概览", ""),
+    ("jobs", "任务", "jobs"),
+)
+
+
+def _sections_for(workspace_type: str) -> Sequence[tuple[str, str, str]]:
+    if workspace_type == "drama":
+        return _SECTIONS_DRAMA
+    return _WORKSPACE_SECTIONS
+
 
 def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_section: str = "") -> str:
     items = []
@@ -122,8 +133,11 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
     work_html = "\n".join(items) if items else '<p class="muted" style="padding:0 8px">尚无作品</p>'
     sections_html = ""
     if active_workspace:
+        from .workspace_meta import read as _meta_read
+
+        ws_type = _meta_read(active_workspace).get("type", "novel")
         section_items = []
-        for key, label, suffix in _WORKSPACE_SECTIONS:
+        for key, label, suffix in _sections_for(ws_type):
             href = f"/w/{escape(active_workspace)}/{suffix}" if suffix else f"/w/{escape(active_workspace)}/"
             cls = "sidebar-item active" if key == active_section else "sidebar-item"
             section_items.append(
@@ -242,7 +256,24 @@ def render_trash(workspaces: Iterable[str]) -> str:
 
 
 def render_workspace_overview(name: str, workspaces: Iterable[str]) -> str:
-    main = (
+    from .workspace_meta import read as _meta_read
+
+    meta = _meta_read(name)
+    ws_type = meta.get("type", "novel")
+    main = _drama_overview_main(name, meta) if ws_type == "drama" else _novel_overview_main(name)
+    return _render_shell(
+        title=f"{name} · 概览",
+        page_kind="workspace_overview",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="overview"),
+        workspace=name,
+    )
+
+
+def _novel_overview_main(name: str) -> str:
+    return (
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">作品</p>'
@@ -274,14 +305,42 @@ def render_workspace_overview(name: str, workspaces: Iterable[str]) -> str:
         '</div>'
         '</section>'
     )
-    return _render_shell(
-        title=f"{name} · 概览",
-        page_kind="workspace_overview",
-        main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="overview"),
-        workspace=name,
+
+
+def _drama_overview_main(name: str, meta: dict) -> str:
+    created_at = escape(str(meta.get("created_at") or "（未记录）"))
+    schema_version = escape(str(meta.get("schema_version", 0)))
+    return (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">作品 · 短剧</p>'
+        f'<h1>{escape(name)}</h1>'
+        '<p class="muted">短剧 workspace 已创建空骨架。iter 037 起会接入剧本生成。</p>'
+        '</div>'
+        '<div class="cluster">'
+        '<span class="badge no-dot" style="color:var(--amber-strong);background:var(--amber-soft);border-color:var(--amber-soft)">短剧</span>'
+        '<button type="button" class="btn btn-danger btn-sm" id="delete-workspace-btn">删除作品…</button>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="empty-state">'
+        '<span class="ornament">✦</span>'
+        '<h3>等待 iter 037 接入分步审查向导</h3>'
+        '<p class="muted">本轮 iter 036 仅完成基础设施：workspace.json + 类型 badge + 侧栏 + 路由防御。</p>'
+        '<p class="muted">下一轮将上线：<strong>核心设定 → 钩子 → 分镜表 → 角色设定表</strong> 四站向导，'
+        '每站「AI 生成 → 用户改 → 下一站」；产出三件套喂下游 AI 绘画 / 视频。</p>'
+        '</div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">workspace 元信息</h2></div>'
+        '<div class="card"><div class="card-body">'
+        '<div class="kv-list compact">'
+        '<div class="k">type</div><div class="v"><code>drama</code></div>'
+        f'<div class="k">created_at</div><div class="v"><code>{created_at}</code></div>'
+        f'<div class="k">schema_version</div><div class="v"><code>{schema_version}</code></div>'
+        '</div>'
+        '</div></div>'
+        '</section>'
     )
 
 
@@ -634,12 +693,33 @@ def render_wizard() -> str:
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">新建作品</p>'
-        '<h1>导入小说</h1>'
-        '<p class="muted">上传 epub / txt，自动跑完 9 步 SOP，写出第 1 章。</p>'
+        '<h1>选择作品类型</h1>'
+        '<p class="muted">小说续写或短剧剧本，两类工作流是隔离的。</p>'
         '</div>'
         '</header>'
-        '<section class="card" id="panel-upload">'
-        '<div class="card-header"><h3 class="ornament">第 1 步 · 上传</h3></div>'
+
+        '<section class="card" id="panel-type">'
+        '<div class="card-header"><h3 class="ornament">第 0 步 · 类型</h3></div>'
+        '<div class="card-body">'
+        '<form id="type-form" class="stack">'
+        '<label class="field-check">'
+        '<input type="radio" name="ws_type" value="novel" checked> '
+        '<strong>小说续写</strong>　·　导入 epub/txt，AI 续写长篇章节'
+        '</label>'
+        '<label class="field-check">'
+        '<input type="radio" name="ws_type" value="drama"> '
+        '<strong>短剧剧本</strong>　·　创建空骨架（iter 037 起接入剧本生成）'
+        '</label>'
+        '<div class="form-actions">'
+        '<a class="btn btn-ghost" href="/">取消</a>'
+        '<button type="submit" class="btn btn-primary" id="type-next">下一步</button>'
+        '</div>'
+        '</form>'
+        '</div>'
+        '</section>'
+
+        '<section class="card" id="panel-upload" hidden>'
+        '<div class="card-header"><h3 class="ornament">第 1 步 · 上传小说</h3></div>'
         '<div class="card-body">'
         '<form id="wizard-form" enctype="multipart/form-data" class="stack">'
         '<div class="field">'
@@ -653,13 +733,38 @@ def render_wizard() -> str:
         '<input name="upload" type="file" accept=".epub,.txt" required>'
         '</div>'
         '<div class="form-actions">'
-        '<a class="btn btn-ghost" href="/">取消</a>'
+        '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
         '<button type="submit" class="btn btn-primary">开始</button>'
         '</div>'
         '</form>'
         '<div id="upload-error"></div>'
         '</div>'
         '</section>'
+
+        '<section class="card" id="panel-drama" hidden>'
+        '<div class="card-header"><h3 class="ornament">第 1 步 · 短剧 workspace</h3></div>'
+        '<div class="card-body">'
+        '<form id="drama-form" class="stack">'
+        '<div class="field">'
+        '<label>workspace 名</label>'
+        '<input name="workspace" required '
+        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
+        '</div>'
+        '<div class="alert info">'
+        '本轮仅创建空骨架（data/workspace.json + 各空目录）。'
+        '<br>iter 037 起会上线 <strong>分步审查向导</strong>：核心设定 → 钩子 → 分镜 → 角色，'
+        '产出「叙事剧本 + 分镜表 + 角色设定表」三件套（喂下游 AI 绘画 / 视频）。'
+        '</div>'
+        '<div class="form-actions">'
+        '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
+        '<button type="submit" class="btn btn-primary">创建空骨架</button>'
+        '</div>'
+        '</form>'
+        '<div id="drama-error"></div>'
+        '</div>'
+        '</section>'
+
         '<section class="card" id="panel-progress" hidden>'
         '<div class="card-header"><h3 class="ornament">第 2 步 · 流水线进度</h3></div>'
         '<div class="card-body" id="progress-body"><p class="muted">等待 worker…</p></div>'

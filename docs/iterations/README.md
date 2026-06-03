@@ -42,3 +42,6 @@
 31. [Iteration 031 - Web Cockpit Hardening + Handoff Refresh](./iteration_031_web_cockpit_hardening.md)
 32. [Iteration 032 - WebUI 信息架构与视觉重做](./iteration_032_webui_ia_visual.md)
 33. [Iteration 033 - 工作区删除 + Insights + Lint 跳转 + Toast](./iteration_033_PLAN.md)
+34. [Iteration 034 - Plan viewer + Trash 闭环 + delete race fix](./iteration_034_PLAN.md)
+35. [Iteration 035 - P2/P3 防御纵深清扫 + 短剧模块产品定义书](./iteration_035_PLAN.md)
+36. [Iteration 036 - drama 模块基础设施](./iteration_036_PLAN.md)

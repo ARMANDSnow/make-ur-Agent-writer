@@ -827,6 +827,12 @@ JS_DASHBOARD = """\
     const cls = v === "approve" ? "approve" : v === "reject" ? "reject" : "abstain";
     return '<span class="badge ' + cls + '">' + escapeHtml(verdict) + "</span>";
   }
+  function typeBadge(type) {
+    if (type === "drama") {
+      return '<span class="badge no-dot" style="color:var(--amber-strong);background:var(--amber-soft);border-color:var(--amber-soft)">短剧</span>';
+    }
+    return '<span class="badge no-dot" style="color:var(--jade-strong);background:var(--jade-soft);border-color:var(--jade-soft)">小说</span>';
+  }
   function skeleton(rows) {
     let out = '<div class="skeleton-block">';
     for (let i = 0; i < (rows || 3); i++) {
@@ -981,7 +987,10 @@ JS_DASHBOARD = """\
       '<a class="workspace-card" href="' + url + '">' +
       '<div class="card-head">' +
       '<div><p class="eyebrow ornament">作品</p><h3>' + escapeHtml(w.name) + "</h3></div>" +
+      '<div class="cluster">' +
+      typeBadge(w.type || "novel") +
       statusBadge(status) +
+      '</div>' +
       "</div>" +
       '<div class="metrics">' +
       '<div class="metric"><span class="k">原文章节</span><span class="v">' + (w.chapter_count || 0) + "</span></div>" +
@@ -1003,6 +1012,10 @@ JS_DASHBOARD = """\
   // ===== page: workspace overview =========================================
   async function initWorkspaceOverview() {
     const summary = document.getElementById("overview-summary");
+    if (!summary) {
+      initDeleteWorkspace();
+      return;
+    }
     if (summary) summary.innerHTML = skeleton(4);
     try {
       const data = await fetchJson("/api/workspaces/overview");
@@ -2166,34 +2179,93 @@ JS_DASHBOARD = """\
 
 JS_WIZARD = """\
 (function () {
-  const form = document.getElementById("wizard-form");
+  const panelType = document.getElementById("panel-type");
+  const panelUpload = document.getElementById("panel-upload");
+  const panelDrama = document.getElementById("panel-drama");
+  const panelProgress = document.getElementById("panel-progress");
+  const typeForm = document.getElementById("type-form");
+  const novelForm = document.getElementById("wizard-form");
+  const dramaForm = document.getElementById("drama-form");
   const errBox = document.getElementById("upload-error");
-  const progressPanel = document.getElementById("panel-progress");
+  const dramaErrBox = document.getElementById("drama-error");
   const progressBody = document.getElementById("progress-body");
-  if (!form) return;
 
-  form.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    errBox.textContent = "";
-    const fd = new FormData(form);
-    const submitBtn = form.querySelector("button[type=submit]");
-    submitBtn.disabled = true;
-    try {
-      const res = await fetch("/api/wizard/start", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) {
-        errBox.innerHTML = '<div class="alert error">上传失败 (' + res.status + "): " +
-          escapeHtml(data.error || "") + "</div>";
-        submitBtn.disabled = false;
-        return;
-      }
-      progressPanel.hidden = false;
-      poll(data.name, data.job_id);
-    } catch (err) {
-      errBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
-      submitBtn.disabled = false;
+  function show(panel) {
+    [panelType, panelUpload, panelDrama, panelProgress].forEach((p) => {
+      if (p) p.hidden = (p !== panel);
+    });
+  }
+
+  if (typeForm) {
+    typeForm.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      const t = typeForm.elements.ws_type.value;
+      if (t === "drama") show(panelDrama);
+      else show(panelUpload);
+    });
+  }
+
+  document.addEventListener("click", function (ev) {
+    if (ev.target.closest("[data-back-to-type]")) {
+      ev.preventDefault();
+      show(panelType);
     }
   });
+
+  if (novelForm) {
+    novelForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      errBox.innerHTML = "";
+      const fd = new FormData(novelForm);
+      const submitBtn = novelForm.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch("/api/wizard/start", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          errBox.innerHTML = '<div class="alert error">上传失败 (' + res.status + "): " +
+            escapeHtml(data.error || "") + "</div>";
+          submitBtn.disabled = false;
+          return;
+        }
+        show(panelProgress);
+        poll(data.name, data.job_id);
+      } catch (err) {
+        errBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  if (dramaForm) {
+    dramaForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      dramaErrBox.innerHTML = "";
+      const ws = dramaForm.elements.workspace.value.trim();
+      const submitBtn = dramaForm.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch("/api/wizard/drama-start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workspace: ws }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          dramaErrBox.innerHTML = '<div class="alert error">创建失败 (' + res.status + "): " +
+            escapeHtml(data.error || "") + "</div>";
+          submitBtn.disabled = false;
+          return;
+        }
+        sessionStorage.setItem("__pending_toast",
+          JSON.stringify({ kind: "info", msg: "短剧 workspace 已创建：" + data.name }));
+        window.location.href = "/w/" + encodeURIComponent(data.name) + "/";
+      } catch (err) {
+        dramaErrBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
+        submitBtn.disabled = false;
+      }
+    });
+  }
 
   async function poll(name, jobId) {
     while (true) {

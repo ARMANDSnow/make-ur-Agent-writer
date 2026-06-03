@@ -176,6 +176,38 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     return _json(202, {"name": name, "job_id": job["job_id"]})
 
 
+def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
+    """POST /api/wizard/drama-start handler.
+
+    Iter 036 creates an empty drama workspace skeleton only. There is no
+    upload processing, no LLM call, and no background job.
+    """
+
+    if "application/json" not in (content_type or "").lower():
+        return _json(415, {"error": "Content-Type must be application/json"})
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    name = payload.get("workspace")
+    if not isinstance(name, str) or not name.strip():
+        return _json(400, {"error": "missing or invalid 'workspace'"})
+    name = name.strip()
+    if not _validate_name(name):
+        return _json(400, {"error": "invalid workspace name"})
+    try:
+        result = init_workspace(name, type="drama")
+    except FileExistsError:
+        return _json(409, {"error": f"workspace already exists: {name}"})
+    except ValueError as exc:
+        return _json(400, {"error": str(exc)})
+    except OSError as exc:
+        return _json(500, {"error": f"failed to create workspace: {exc}"})
+    return _json(200, {"name": result["name"], "type": result["type"]})
+
+
 # ---- helpers ---------------------------------------------------------------
 
 

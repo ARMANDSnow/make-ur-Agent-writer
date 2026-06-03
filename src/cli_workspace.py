@@ -54,9 +54,13 @@ def list_workspaces() -> List[str]:
     return sorted(names)
 
 
-def init_workspace(name: str) -> Dict[str, Any]:
+def init_workspace(name: str, type: str = "novel") -> Dict[str, Any]:
     """Create ``workspaces/<name>/{小说txt,data,outputs,logs}/``."""
     _validate_name(name)
+    from .web import workspace_meta as _meta
+
+    if type not in _meta.VALID_TYPES:
+        raise ValueError(f"invalid workspace type: {type!r}")
     target = paths.WORKSPACE_DIR / name
     if target.exists():
         raise FileExistsError(f"workspace already exists: {target}")
@@ -72,9 +76,19 @@ def init_workspace(name: str) -> Dict[str, Any]:
             created.append(str(sub_path.relative_to(ROOT)))
         except ValueError:
             created.append(str(sub_path))
+    _meta.write(name, type=type)
+    if type == "drama":
+        for extra in ("data/tables", "outputs/debate", "outputs/episodes", "outputs/reviews"):
+            extra_path = target / extra
+            ensure_dir(extra_path)
+            try:
+                created.append(str(extra_path.relative_to(ROOT)))
+            except ValueError:
+                created.append(str(extra_path))
     return {
         "name": name,
         "path": str(target),
+        "type": type,
         "created": created,
     }
 

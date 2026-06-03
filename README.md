@@ -7,8 +7,8 @@
 [简体中文](README.md) · [English](README_EN.md)
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-446_passing-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
-[![Iterations](https://img.shields.io/badge/iterations-33_logged-orange.svg)](docs/iterations/)
+[![Tests](https://img.shields.io/badge/tests-488_total-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
+[![Iterations](https://img.shields.io/badge/iterations-36_logged-orange.svg)](docs/iterations/)
 [![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
 [![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
 
@@ -32,7 +32,7 @@
 
 | 层 | 在代码里长什么样 |
 |---|---|
-| **Mock 优先开发** | 446 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
+| **Mock 优先开发** | 488 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
 | **Preflight 守门** | 真模型跑之前 7 类 FATAL 检查 + N 条 WARN：env / context limit / agents 配置 / rolling state / manifest 完整性 / **provider routing** / 人工事实 / cache 提供商提示。 |
 | **多 workspace 隔离** | iter 017：每本书一个 `workspaces/<name>/{data,outputs,小说txt,logs}/`。`--book myBook` 切换；sha256 baseline 4/4 互不污染。 |
 | **多语言切章 + EPUB 提取** | iter 018：CJK 字符比率自动判中英；中文 `第N章` / 英文 `CHAPTER / POV / 全大写` 两套 regex。`.epub` 用 stdlib `zipfile + xml.etree + html.parser` 直接转 txt，**零新依赖**。 |
@@ -252,7 +252,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 033（2026-06-03）** — WebUI 补齐日常使用缺口：工作区删除改为二次确认 + `_trash` 软删除；新增 `/w/{name}/insights` 数据页（每章成本、cache 命中、reviewer 子分数热力图）；Chapter 详情页 lint anchor 可跳回正文段落并短暂高亮；Web job 终态和删除后跳转会显示 toast。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 036（2026-06-03）** — WebUI 进入 type-aware 基础设施：`workspace.json` 标记 `novel/drama`；wizard 可创建空 drama workspace 骨架；书架卡片显示类型 badge；drama 工作区只开放概览 + 任务页，novel 专属路由和 `/run` 对 drama fail-closed。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -344,6 +344,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.6 | Web 写作工作台 | ✅ | **iter 030-031**（首页 workspace overview；详情页设置起点/覆盖式重生成计划/继续写书/只读 draft 预览/最近 job 恢复；iter 031 加坏 plan 容错、懒加载、debounce、短 TTL cache） |
 | U.7 | Web 信息架构 + 视觉系统 | ✅ | **iter 032**（侧栏 + 工作区子页面 `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}`；旧 `/workspace/{name}` → 301；文学化暖色调 design tokens；统一组件库；新 Chapter 详情页曝光 reviewer 子分数 / lint anchor / advisor / rewrite 历史） |
 | U.8 | Web 日常使用补齐 | ✅ | **iter 033**（工作区二次确认软删除到 `_trash`；新增 `/w/{name}/insights` 数据页；lint anchor → 正文段落跳转 + 高亮；job terminal / 跨页删除 toast） |
+| U.9 | Web type-aware workspace 基础设施 | ✅ | **iter 036**（`workspace.json` schema v1；旧 workspace 缺文件默认 novel；wizard drama-start 仅创建空骨架、零 LLM 调用；drama sidebar 只露 overview/jobs；novel-only 页面 404，`/run` 400 hint） |
 
 ---
 

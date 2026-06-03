@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from src import paths
 from src.plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
 from src.web import routes
+from src.web import workspace_meta
 from src.web.workspace_ctx import use_workspace
 
 
@@ -151,6 +153,17 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('id="trash-list"', html)
         self.assertIn('window.PAGE_KIND = "trash"', html)
 
+    def test_wizard_renders_type_choice_panels(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/wizard")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('id="panel-type"', html)
+        self.assertIn('name="ws_type" value="novel"', html)
+        self.assertIn('name="ws_type" value="drama"', html)
+        self.assertIn('id="panel-upload" hidden', html)
+        self.assertIn('id="panel-drama" hidden', html)
+        self.assertIn("data-back-to-type", html)
+
     def test_workspace_legacy_url_301s_to_new_ia(self) -> None:
         """Iter 032: the iter 025 ``/workspace/<name>/`` URL still
         resolves but now 301-redirects to the new ``/w/<name>/``
@@ -273,6 +286,7 @@ class RoutesGetTests(unittest.TestCase):
         status, data = self._get_json("/api/workspaces/overview")
         self.assertEqual(status, 200)
         by_name = {item["name"]: item for item in data["workspaces"]}
+        self.assertEqual(by_name["alpha"]["type"], "novel")
         self.assertIn(by_name["alpha"]["readiness"]["status"], {"ready", "warn", "blocked"})
         self.assertEqual(by_name["alpha"]["chapter_count"], 1)
         self.assertEqual(by_name["alpha"]["draft_count"], 1)
@@ -280,6 +294,60 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("recent_job", by_name["alpha"])
         self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
         self.assertIn("start_point_missing", by_name["beta"]["readiness"]["blockers"])
+
+    def test_api_workspaces_overview_includes_drama_type(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        status, data = self._get_json("/api/workspaces/overview")
+        self.assertEqual(status, 200)
+        by_name = {item["name"]: item for item in data["workspaces"]}
+        self.assertEqual(by_name["beta"]["type"], "drama")
+
+    def test_overview_cache_key_includes_workspace_json_mtime(self) -> None:
+        key1 = routes._overview_cache_key(["beta"])
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        meta_path = paths.WORKSPACE_DIR / "beta" / "data" / "workspace.json"
+        now = time.time() + 10
+        os.utime(meta_path, (now, now))
+        key2 = routes._overview_cache_key(["beta"])
+        self.assertNotEqual(key1, key2)
+
+    def test_drama_sidebar_only_exposes_overview_and_jobs(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        status, _ct, body = routes.dispatch("GET", "/w/beta/")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn("作品 · 短剧", html)
+        self.assertIn('href="/w/beta/jobs"', html)
+        self.assertIn('id="delete-workspace-btn"', html)
+        self.assertNotIn('href="/w/beta/continue"', html)
+        self.assertNotIn('href="/w/beta/plan"', html)
+        for element_id in (
+            "overview-summary",
+            "overview-next-action",
+            "overview-blockers",
+            "overview-detail-status",
+            "overview-detail-cost",
+        ):
+            self.assertNotIn(f'id="{element_id}"', html)
+
+    def test_drama_novel_only_pages_404(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        for path in (
+            "/w/beta/continue",
+            "/w/beta/plan",
+            "/w/beta/chapters",
+            "/w/beta/chapter/1",
+            "/w/beta/reviews",
+            "/w/beta/insights",
+        ):
+            status, _ct, body = routes.dispatch("GET", path)
+            self.assertEqual(status, 404, f"{path}: {body.decode('utf-8')}")
+
+    def test_drama_jobs_page_still_renders(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        status, _ct, body = routes.dispatch("GET", "/w/beta/jobs")
+        self.assertEqual(status, 200)
+        self.assertIn("任务历史", body.decode("utf-8"))
 
     def test_api_workspaces_overview_bad_plan_blocks_only_that_workspace(self) -> None:
         _write_strict_plan(Path(self._tmp.name), "alpha", chapters=1)
@@ -471,6 +539,22 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("_ALLOWED_TAB_KEYS", js)
         for kw in ("body", "review", "lint", "advisor", "history", "chapters", "outline", "decisions"):
             self.assertIn(f'"{kw}"', js)
+
+    def test_static_js_has_type_badge(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("function typeBadge", js)
+        self.assertIn("var(--amber-soft)", js)
+        self.assertIn("var(--jade-soft)", js)
+
+    def test_wizard_js_has_drama_path(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/wizard.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("/api/wizard/drama-start", js)
+        self.assertIn("data-back-to-type", js)
+        self.assertIn("__pending_toast", js)
 
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must

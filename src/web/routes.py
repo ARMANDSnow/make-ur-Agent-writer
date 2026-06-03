@@ -154,6 +154,23 @@ def _workspace_html_guard(name: str) -> Optional[Tuple[int, str, bytes]]:
     return None
 
 
+def _workspace_html_guard_novel_only(name: str) -> Optional[Tuple[int, str, bytes]]:
+    """Guard routes that only make sense for novel workspaces."""
+
+    base = _workspace_html_guard(name)
+    if base:
+        return base
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "novel":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for novel workspaces; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return None
+
+
 def render_workspace_overview(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard(name)
     if guard:
@@ -162,21 +179,21 @@ def render_workspace_overview(name: str) -> Tuple[int, str, bytes]:
 
 
 def render_workspace_continue(name: str) -> Tuple[int, str, bytes]:
-    guard = _workspace_html_guard(name)
+    guard = _workspace_html_guard_novel_only(name)
     if guard:
         return guard
     return _html(200, templates.render_workspace_continue(name, list_workspaces()))
 
 
 def render_workspace_chapters(name: str) -> Tuple[int, str, bytes]:
-    guard = _workspace_html_guard(name)
+    guard = _workspace_html_guard_novel_only(name)
     if guard:
         return guard
     return _html(200, templates.render_workspace_chapters(name, list_workspaces()))
 
 
 def render_workspace_chapter_detail(name: str, chapter: str) -> Tuple[int, str, bytes]:
-    guard = _workspace_html_guard(name)
+    guard = _workspace_html_guard_novel_only(name)
     if guard:
         return guard
     try:
@@ -189,21 +206,21 @@ def render_workspace_chapter_detail(name: str, chapter: str) -> Tuple[int, str, 
 
 
 def render_workspace_reviews_page(name: str) -> Tuple[int, str, bytes]:
-    guard = _workspace_html_guard(name)
+    guard = _workspace_html_guard_novel_only(name)
     if guard:
         return guard
     return _html(200, templates.render_workspace_reviews(name, list_workspaces()))
 
 
 def render_workspace_insights_page(name: str) -> Tuple[int, str, bytes]:
-    guard = _workspace_html_guard(name)
+    guard = _workspace_html_guard_novel_only(name)
     if guard:
         return guard
     return _html(200, templates.render_workspace_insights(name, list_workspaces()))
 
 
 def render_workspace_plan_page(name: str) -> Tuple[int, str, bytes]:
-    guard = _workspace_html_guard(name)
+    guard = _workspace_html_guard_novel_only(name)
     if guard:
         return guard
     return _html(200, templates.render_workspace_plan(name, list_workspaces()))
@@ -338,6 +355,7 @@ def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
         stamps.append(
             (
                 name,
+                _mtime_ns(ws / "data" / "workspace.json"),
                 _mtime_ns(ws / "data" / "chapter_manifest.json"),
                 _mtime_ns(ws / "outputs" / "debate" / "chapter_plan.json"),
                 _mtime_ns(ws / "data" / "manual_overrides" / "start_chapter.json"),
@@ -363,9 +381,13 @@ def _clear_overview_cache() -> None:
 
 
 def _workspace_overview(name: str) -> Dict[str, Any]:
+    from .workspace_meta import read as _meta_read
+
+    meta = _meta_read(name)
     root = paths.WORKSPACE_DIR / name
     overview: Dict[str, Any] = {
         "name": name,
+        "type": meta["type"],
         "path": str(root),
         "exists": root.is_dir(),
         "chapter_count": 0,
@@ -693,6 +715,13 @@ def api_wizard_start(body: bytes, headers: Dict[str, str]) -> Tuple[int, str, by
     return wizard.start_upload(body, content_type)
 
 
+def api_wizard_drama_start(body: bytes, headers: Dict[str, str]) -> Tuple[int, str, bytes]:
+    """POST /api/wizard/drama-start — create an empty drama workspace."""
+
+    content_type = headers.get("content-type", "")
+    return wizard.start_drama_workspace(body, content_type)
+
+
 def render_wizard_page() -> Tuple[int, str, bytes]:
     return _html(200, templates.render_wizard())
 
@@ -722,6 +751,16 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
         return _json(400, {"error": "invalid workspace name"})
     if not _workspace_exists(name):
         return _json(404, {"error": f"workspace not found: {name}"})
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") == "drama":
+        return _json(
+            400,
+            {
+                "error": "drama workspace cannot run novel pipeline steps yet",
+                "hint": "drama bootstrap arrives in iter 037",
+            },
+        )
     try:
         payload = json.loads(body.decode("utf-8") or "{}") if body else {}
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -970,6 +1009,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/wizard/start/?$"),
         lambda _body=b"", _headers=None, **_: api_wizard_start(_body, _headers or {}),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/wizard/drama-start/?$"),
+        lambda _body=b"", _headers=None, **_: api_wizard_drama_start(_body, _headers or {}),
     ),
     # iter 026 P4: model-switch panel
     ("GET", re.compile(r"^/settings/?$"), lambda **_: render_settings_page()),

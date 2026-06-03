@@ -742,3 +742,33 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. 用户体验入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`。
 2. Web 现有主路径：`/` 书架 → `/w/{name}/` 概览 → 侧栏继续写 / 章节 / 评审 / 数据 / 任务；删除入口只放概览页，成功移入 `_trash`。
 3. 下一步候选：Plan viewer、World viewer、章节 diff、全文搜索、暗色模式、Insights 增量索引/更多图表、真模型 capstone、删除与 job start 的原子 reservation。
+
+
+---
+
+## Phase 4 Status（iter 036，2026-06-03）
+
+### Iteration 034-036 — Plan/Trash 收口 + drama module infrastructure（mock-only）
+
+**目标**：iter 034/035 先把 Web Plan viewer、Trash restore/purge、delete race 与 P2/P3 防御纵深清干净；iter 036 在不触碰 drama 业务逻辑的前提下，让 WebUI 支持 type-aware workspace，为后续短剧模块开入口。
+
+**主要落地**：
+- iter 034：新增 `/w/{name}/plan` 只读 Plan viewer；Trash 页面支持 restore/purge；delete 与 job start 通过 reservation 收窄竞态。
+- iter 035：trash helper 自防路径穿越/保留名；Plan viewer 5 处 `Array.isArray`；hash tab 白名单 `_ALLOWED_TAB_KEYS`；iter 034 Run Log 补 6-ERROR 沙箱注脚。
+- iter 036：新增 `src/web/workspace_meta.py`，`workspaces/<name>/data/workspace.json` schema v1 记录 `type=novel|drama`；缺文件/坏 JSON 默认 legacy novel。
+- `init_workspace(name, type="novel")` 会写 workspace meta；`type="drama"` 只额外创建 `data/tables/`、`outputs/{debate,episodes,reviews}/` 空目录。
+- `/api/workspaces/overview` 返回 `type`，cache key 第一项加入 `workspace.json` mtime；书架卡片通过 `typeBadge` 显示 小说/短剧。
+- `/wizard` 增加第 0 步类型选择；`POST /api/wizard/drama-start` 只创建空 drama 骨架，同步返回 `{name,type}`，不入 job 系统、不触发 LLM。
+- `_WORKSPACE_SECTIONS` 保持 novel 7 项，新增 `_sections_for(type)`；drama 本轮只露 overview + jobs。
+- drama overview 为占位页；continue/plan/chapters/chapter/reviews/insights 6 个 novel-only HTML 路由对 drama 返回 404；`POST /api/workspace/<drama>/run` 返回 400 + iter 037 hint。
+
+**验证进度**：
+- Targeted tests：`tests.test_workspace_meta tests.test_web_routes_get tests.test_web_routes_post tests.test_web_wizard_e2e` → 83 OK。
+- Full `unittest discover -s tests` → 488 tests，仍为 6 个已知沙箱 `socket.bind PermissionError`。
+- iter 036 §4 四块自检输出已粘贴到 `docs/iterations/iteration_036_PLAN.md` §7。
+- 本轮不跑真模型 smoke，不改 `.env`，不触碰 drama agents/prompts/config 业务逻辑。
+
+**当前接力点**：
+1. drama workspace 当前只是空骨架 + 占位 overview；后续 iter 037 才接 drama bootstrap/plan。
+2. novel workspace 仍按 legacy 缺 `workspace.json` 默认 novel；侧栏 7 项、wizard 上传、write-book 入口保持原行为。
+3. Web 入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`。
