@@ -6,13 +6,17 @@ cleanup CLI) is responsible for purging _trash/ on their own schedule.
 
 from __future__ import annotations
 
+import re
+import shutil
 import time
-from typing import Tuple
+from datetime import datetime
+from typing import Any, Dict, List, Tuple
 
 from .. import paths
 
 
 TRASH_DIR_NAME = "_trash"
+_ENTRY_NAME_RE = re.compile(r"^(?P<original>.+)__(?P<ts>[0-9]{8}_[0-9]{6}(?:_\d+)?)$")
 
 
 def soft_delete_workspace(name: str) -> Tuple[bool, str]:
@@ -42,3 +46,77 @@ def soft_delete_workspace(name: str) -> Tuple[bool, str]:
         target = trash_root / f"{name}__{ts}_{counter}"
     src.rename(target)
     return True, str(target.relative_to(paths.WORKSPACE_DIR))
+
+
+def list_trash_entries() -> List[Dict[str, Any]]:
+    """Scan workspaces/_trash/* and return per-entry metadata."""
+
+    root = paths.WORKSPACE_DIR / TRASH_DIR_NAME
+    if not root.is_dir():
+        return []
+    out: List[Dict[str, Any]] = []
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir():
+            continue
+        name = entry.name
+        original_name, ts = _split_entry_name(name)
+        deleted_at = ""
+        if ts:
+            base = ts.split("_")[0] + ts.split("_")[1] if "_" in ts else ts
+            try:
+                dt = datetime.strptime(base[:14], "%Y%m%d%H%M%S")
+                deleted_at = dt.isoformat(timespec="seconds")
+            except (ValueError, IndexError):
+                deleted_at = ts
+        size_bytes = 0
+        file_count = 0
+        for path in entry.rglob("*"):
+            if path.is_file():
+                file_count += 1
+                try:
+                    size_bytes += path.stat().st_size
+                except OSError:
+                    continue
+        out.append(
+            {
+                "entry": name,
+                "original_name": original_name,
+                "deleted_at": deleted_at,
+                "size_mb": round(size_bytes / (1024 * 1024), 2),
+                "file_count": file_count,
+            }
+        )
+    return out
+
+
+def restore_trash_entry(entry: str) -> Tuple[bool, str]:
+    """Move workspaces/_trash/<entry>/ back to workspaces/<original_name>/."""
+
+    src = paths.WORKSPACE_DIR / TRASH_DIR_NAME / entry
+    if not src.is_dir():
+        return False, "entry_not_found"
+    original_name, _ = _split_entry_name(entry)
+    if not original_name:
+        return False, "malformed_entry"
+    target = paths.WORKSPACE_DIR / original_name
+    if target.exists():
+        return False, "name_collision"
+    src.rename(target)
+    return True, str(target.relative_to(paths.WORKSPACE_DIR))
+
+
+def purge_trash_entry(entry: str) -> Tuple[bool, str]:
+    """Hard-delete workspaces/_trash/<entry>/ via shutil.rmtree. No undo."""
+
+    src = paths.WORKSPACE_DIR / TRASH_DIR_NAME / entry
+    if not src.is_dir():
+        return False, "entry_not_found"
+    shutil.rmtree(src)
+    return True, "purged"
+
+
+def _split_entry_name(entry: str) -> Tuple[str, str]:
+    match = _ENTRY_NAME_RE.match(entry)
+    if not match:
+        return entry, ""
+    return match.group("original"), match.group("ts")

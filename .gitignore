@@ -27,6 +27,7 @@ logs/
 # --- multi-book workspaces (iter 017) ---
 # Each workspaces/<book>/ holds per-book {小说txt,data,outputs,logs}/.
 # All contents are gitignored — same rationale as the legacy paths above.
+workspaces/_trash/
 workspaces/*/小说txt/
 workspaces/*/data/
 workspaces/*/outputs/

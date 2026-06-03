@@ -101,6 +101,7 @@ def _render_shell(
 _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
     ("continue", "续写", "continue"),
+    ("plan", "计划", "plan"),
     ("chapters", "章节", "chapters"),
     ("reviews", "评审", "reviews"),
     ("insights", "数据", "insights"),
@@ -154,6 +155,7 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
 
 def _topbar_actions(extra: str = "") -> str:
     base = (
+        '<a class="btn btn-ghost" href="/trash">♻ 回收站</a>'
         '<a class="btn btn-ghost" href="/settings">⚙ 设置</a>'
         '<a class="btn btn-primary" href="/wizard">＋ 新建</a>'
     )
@@ -202,6 +204,35 @@ def render_index(workspaces: Iterable[str]) -> str:
         breadcrumb_html=_crumbs([("书架", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(names),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: trash
+# ---------------------------------------------------------------------------
+
+
+def render_trash(workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">回收站</p>'
+        '<h1>已删除的作品</h1>'
+        '<p class="muted">软删除自 iter 033 起进入这里；可 restore 回原名（同名冲突需手动改名），或永久 purge。</p>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="card flush"><div class="card-body" id="trash-list"></div></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title="回收站 · 写作工作台",
+        page_kind="trash",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), ("回收站", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces),
+        workspace="",
     )
 
 
@@ -355,6 +386,46 @@ def render_workspace_continue(name: str, workspaces: Iterable[str]) -> str:
         breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="continue"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: plan viewer
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_plan(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">计划</p>'
+        '<h1>写作蓝图</h1>'
+        '<p class="muted">章节计划 · 全局大纲 · 辩论决议。所有来源都是只读 JSON / Markdown，本页不发起新调用。</p>'
+        '</div>'
+        '<div id="plan-summary" class="cluster"></div>'
+        '</header>'
+        '<section class="tabs">'
+        '<div class="tab-list">'
+        '<button class="tab active" data-tab="chapters">章节计划</button>'
+        '<button class="tab" data-tab="outline">大纲</button>'
+        '<button class="tab" data-tab="decisions">辩论决议</button>'
+        '</div>'
+        '<div class="tab-panel active" id="tab-chapters" data-plan-pane="chapters">'
+        '<p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-outline" data-plan-pane="outline">'
+        '<p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-decisions" data-plan-pane="decisions">'
+        '<p class="muted">载入中…</p></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 计划",
+        page_kind="plan",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("计划", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="plan"),
         workspace=name,
     )
 

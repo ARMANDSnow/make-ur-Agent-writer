@@ -28,6 +28,7 @@ import time
 import traceback
 import uuid
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -190,6 +191,29 @@ def workspace_running_job(workspace: str) -> Optional[str]:
     """Return the running job_id for ``workspace`` if any, else None."""
     with _WORKSPACE_LOCK:
         return _WORKSPACE_JOBS.get(workspace)
+
+
+@contextmanager
+def workspace_reserved(workspace: str):
+    """Reserve a workspace slot for a destructive operation.
+
+    Raises ``RuntimeError("workspace_busy:<jid>")`` if a job is already
+    active. While reserved, ``start_job`` sees the workspace as busy and
+    fails the same way, closing the delete-vs-job-start race.
+    """
+
+    marker = "__reserved_delete__"
+    with _WORKSPACE_LOCK:
+        existing = _WORKSPACE_JOBS.get(workspace)
+        if existing:
+            raise RuntimeError(f"workspace_busy:{existing}")
+        _WORKSPACE_JOBS[workspace] = marker
+    try:
+        yield
+    finally:
+        with _WORKSPACE_LOCK:
+            if _WORKSPACE_JOBS.get(workspace) == marker:
+                del _WORKSPACE_JOBS[workspace]
 
 
 # ---- step dispatch ---------------------------------------------------------
@@ -446,6 +470,8 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
         if workspace in _WORKSPACE_JOBS:
             existing = _WORKSPACE_JOBS[workspace]
             raise RuntimeError(f"workspace_busy:{existing}")
+        if not (paths.WORKSPACE_DIR / workspace).is_dir():
+            raise RuntimeError(f"workspace_not_found:{workspace}")
         record = _new_job_record(workspace, step, params)
         _WORKSPACE_JOBS[workspace] = record["job_id"]
 

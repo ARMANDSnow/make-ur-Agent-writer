@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +19,7 @@ def _stub_workspace(root: Path, name: str) -> None:
     ws = root / name
     for sub in ("小说txt", "data", "outputs", "logs"):
         (ws / sub).mkdir(parents=True)
+    (ws / "marker.txt").write_text("hi", encoding="utf-8")
 
 
 class RoutesPostTests(unittest.TestCase):
@@ -118,7 +121,7 @@ class RoutesPostTests(unittest.TestCase):
         self.assertEqual(status, 400)
 
     def test_delete_workspace_rejects_running_job(self) -> None:
-        with patch.object(jobs, "workspace_running_job", return_value="job123"):
+        with jobs.workspace_reserved("alpha"):
             status, _ct, body = routes.dispatch(
                 "POST",
                 "/api/workspace/alpha/delete",
@@ -126,8 +129,132 @@ class RoutesPostTests(unittest.TestCase):
             )
         self.assertEqual(status, 409)
         data = json.loads(body)
-        self.assertEqual(data["running_job_id"], "job123")
+        self.assertEqual(data["running_job_id"], "__reserved_delete__")
         self.assertTrue((paths.WORKSPACE_DIR / "alpha").is_dir())
+
+    def test_trash_list_returns_entries(self) -> None:
+        routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/delete",
+            json.dumps({"confirm": "alpha"}).encode(),
+        )
+        status, _ct, body = routes.dispatch("GET", "/api/trash")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(len(data["entries"]), 1)
+        self.assertEqual(data["entries"][0]["original_name"], "alpha")
+
+    def test_trash_restore_returns_workspace(self) -> None:
+        routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/delete",
+            json.dumps({"confirm": "alpha"}).encode(),
+        )
+        entries = json.loads(routes.dispatch("GET", "/api/trash")[2])["entries"]
+        entry = entries[0]["entry"]
+        status, _ct, body = routes.dispatch("POST", f"/api/trash/{entry}/restore")
+        self.assertEqual(status, 200, body.decode())
+        self.assertTrue((paths.WORKSPACE_DIR / "alpha" / "marker.txt").exists())
+
+    def test_trash_purge_requires_confirm(self) -> None:
+        routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/delete",
+            json.dumps({"confirm": "alpha"}).encode(),
+        )
+        entries = json.loads(routes.dispatch("GET", "/api/trash")[2])["entries"]
+        entry = entries[0]["entry"]
+        status, _ct, body = routes.dispatch(
+            "POST",
+            f"/api/trash/{entry}/purge",
+            json.dumps({"confirm": "wrong"}).encode(),
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("confirm", json.loads(body)["error"])
+        self.assertTrue((paths.WORKSPACE_DIR / "_trash" / entry).exists())
+
+    def test_trash_purge_removes_entry(self) -> None:
+        routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/delete",
+            json.dumps({"confirm": "alpha"}).encode(),
+        )
+        entries = json.loads(routes.dispatch("GET", "/api/trash")[2])["entries"]
+        entry = entries[0]["entry"]
+        status, _ct, body = routes.dispatch(
+            "POST",
+            f"/api/trash/{entry}/purge",
+            json.dumps({"confirm": entry}).encode(),
+        )
+        self.assertEqual(status, 200, body.decode())
+        self.assertFalse((paths.WORKSPACE_DIR / "_trash" / entry).exists())
+
+    def test_delete_vs_start_job_race_resolved(self) -> None:
+        done = threading.Event()
+
+        def blocking_handler(params, progress_cb):
+            done.wait(timeout=5)
+            return {"status": "succeeded"}
+
+        barrier = threading.Barrier(2)
+        results = {"delete_status": None, "start_error": None}
+
+        def delete_worker() -> None:
+            barrier.wait()
+            status, _ct, _body = routes.dispatch(
+                "POST",
+                "/api/workspace/alpha/delete",
+                json.dumps({"confirm": "alpha"}).encode(),
+            )
+            results["delete_status"] = status
+
+        def start_worker() -> None:
+            barrier.wait()
+            try:
+                jobs.start_job("alpha", "normalize", {})
+            except RuntimeError as exc:
+                results["start_error"] = str(exc)
+
+        with patch.dict(jobs.STEP_HANDLERS, {"normalize": blocking_handler}):
+            t1 = threading.Thread(target=delete_worker)
+            t2 = threading.Thread(target=start_worker)
+            t1.start()
+            t2.start()
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+            done.set()
+            for _ in range(20):
+                if not jobs.workspace_running_job("alpha"):
+                    break
+                time.sleep(0.01)
+
+        if results["delete_status"] == 200:
+            self.assertTrue(
+                "workspace_busy" in (results["start_error"] or "")
+                or "workspace_not_found" in (results["start_error"] or ""),
+                results,
+            )
+        else:
+            self.assertEqual(results["delete_status"], 409)
+            self.assertIsNone(results["start_error"])
+
+    def test_run_after_delete_race_does_not_recreate_workspace(self) -> None:
+        status, _ct, _body = routes.dispatch(
+            "POST",
+            "/api/workspace/alpha/delete",
+            json.dumps({"confirm": "alpha"}).encode(),
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse((paths.WORKSPACE_DIR / "alpha").exists())
+
+        with patch("src.web.routes._workspace_exists", return_value=True):
+            status, _ct, body = routes.dispatch(
+                "POST",
+                "/api/workspace/alpha/run",
+                json.dumps({"step": "normalize"}).encode(),
+            )
+        self.assertEqual(status, 404, body.decode())
+        self.assertFalse((paths.WORKSPACE_DIR / "alpha").exists())
 
 
 if __name__ == "__main__":

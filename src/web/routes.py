@@ -98,6 +98,10 @@ def render_index() -> Tuple[int, str, bytes]:
     return _html(200, templates.render_index(list_workspaces()))
 
 
+def render_trash_page() -> Tuple[int, str, bytes]:
+    return _html(200, templates.render_trash(list_workspaces()))
+
+
 def _redirect(location: str, status: int = 301) -> Tuple[int, str, bytes]:
     """Iter 032: 301 to the new IA. We synthesize the response as a
     text/html body so the unit tests can still introspect the status
@@ -198,6 +202,13 @@ def render_workspace_insights_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_insights(name, list_workspaces()))
 
 
+def render_workspace_plan_page(name: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_plan(name, list_workspaces()))
+
+
 def render_workspace_jobs_page(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard(name)
     if guard:
@@ -254,16 +265,63 @@ def api_workspace_delete(name: str, body: bytes) -> Tuple[int, str, bytes]:
         return _json(400, {"error": "body must be valid JSON"})
     if not isinstance(payload, dict) or payload.get("confirm") != name:
         return _json(400, {"error": "confirm field must equal the workspace name"})
-    running = jobs.workspace_running_job(name)
-    if running:
-        return _json(409, {"error": "workspace busy", "running_job_id": running})
     from . import trash as _trash
 
-    ok, msg = _trash.soft_delete_workspace(name)
+    try:
+        with jobs.workspace_reserved(name):
+            ok, msg = _trash.soft_delete_workspace(name)
+            if not ok:
+                return _json(404 if msg == "workspace_not_found" else 500, {"error": msg})
+            _clear_overview_cache()
+            return _json(200, {"trashed_to": msg})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        raise
+
+
+def api_trash_list() -> Tuple[int, str, bytes]:
+    from . import trash as _trash
+
+    return _json(200, {"entries": _trash.list_trash_entries()})
+
+
+_TRASH_ENTRY_RE = re.compile(r"^[A-Za-z0-9_一-鿿][A-Za-z0-9_一-鿿-]{0,63}__[0-9]{8}_[0-9]{6}(?:_\d+)?$")
+
+
+def _validate_trash_entry(entry: str) -> bool:
+    return bool(_TRASH_ENTRY_RE.match(entry))
+
+
+def api_trash_restore(entry: str) -> Tuple[int, str, bytes]:
+    if not _validate_trash_entry(entry):
+        return _json(400, {"error": "invalid trash entry"})
+    from . import trash as _trash
+
+    ok, msg = _trash.restore_trash_entry(entry)
     if not ok:
-        return _json(404 if msg == "workspace_not_found" else 500, {"error": msg})
+        code = {"entry_not_found": 404, "name_collision": 409, "malformed_entry": 400}.get(msg, 500)
+        return _json(code, {"error": msg})
     _clear_overview_cache()
-    return _json(200, {"trashed_to": msg})
+    return _json(200, {"restored_to": msg})
+
+
+def api_trash_purge(entry: str, body: bytes) -> Tuple[int, str, bytes]:
+    if not _validate_trash_entry(entry):
+        return _json(400, {"error": "invalid trash entry"})
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict) or payload.get("confirm") != entry:
+        return _json(400, {"error": "confirm field must equal the entry name"})
+    from . import trash as _trash
+
+    ok, msg = _trash.purge_trash_entry(entry)
+    if not ok:
+        return _json(404 if msg == "entry_not_found" else 500, {"error": msg})
+    return _json(200, {"purged": entry})
 
 
 def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
@@ -441,6 +499,17 @@ def api_workspace_insights(name: str) -> Tuple[int, str, bytes]:
 
     with use_workspace(name):
         return _json(200, collect_insights())
+
+
+def api_workspace_plan(name: str) -> Tuple[int, str, bytes]:
+    if not _validate_workspace_name(name):
+        return _json(400, {"error": "invalid workspace name"})
+    if not _workspace_exists(name):
+        return _json(404, {"error": f"workspace not found: {name}"})
+    from .plan_view import collect_plan
+
+    with use_workspace(name):
+        return _json(200, collect_plan())
 
 
 def api_workspace_readiness(
@@ -676,6 +745,8 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
                     "running_job_id": msg.split(":", 1)[1],
                 },
             )
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
         raise
     return _json(202, {"job_id": job["job_id"], "status": job["status"], "step": step})
 
@@ -800,6 +871,7 @@ def api_job_status(name: str, job_id: str) -> Tuple[int, str, bytes]:
 # kwargs passed to the handler.
 _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/$"), lambda **_: render_index()),
+    ("GET", re.compile(r"^/trash/?$"), lambda **_: render_trash_page()),
     ("GET", re.compile(r"^/static/app\.css$"), lambda **_: render_static_css()),
     ("GET", re.compile(r"^/static/app\.js$"), lambda **_: render_static_js()),
     ("GET", re.compile(r"^/static/wizard\.js$"), lambda **_: render_static_wizard_js()),
@@ -815,6 +887,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         lambda name, chapter, **_: render_workspace_chapter_detail(name, chapter),
     ),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: render_workspace_reviews_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/plan/?$"), lambda name, **_: render_workspace_plan_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/insights/?$"), lambda name, **_: render_workspace_insights_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/jobs/?$"), lambda name, **_: render_workspace_jobs_page(name)),
     ("GET", re.compile(r"^/api/workspaces/overview/?$"), lambda **_: api_workspaces_overview()),
@@ -823,6 +896,17 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/delete/?$"),
         lambda name, _body=b"", **_: api_workspace_delete(name, _body),
+    ),
+    ("GET", re.compile(r"^/api/trash/?$"), lambda **_: api_trash_list()),
+    (
+        "POST",
+        re.compile(r"^/api/trash/(?P<entry>[^/]+)/restore/?$"),
+        lambda entry, **_: api_trash_restore(entry),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/trash/(?P<entry>[^/]+)/purge/?$"),
+        lambda entry, _body=b"", **_: api_trash_purge(entry, _body),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/status/?$"), lambda name, **_: api_workspace_status(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/cost/?$"), lambda name, **_: api_workspace_cost(name)),
@@ -834,6 +918,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         lambda name, _body=b"", **_: api_workspace_set_start_point(name, _body),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: api_workspace_reviews(name)),
+    ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/plan/?$"), lambda name, **_: api_workspace_plan(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/insights/?$"), lambda name, **_: api_workspace_insights(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drafts/?$"), lambda name, **_: api_workspace_drafts(name)),
     (

@@ -778,6 +778,7 @@ JS_DASHBOARD = """\
  *   chapters            — /w/<name>/chapters
  *   chapter_detail      — /w/<name>/chapter/<n>
  *   reviews             — /w/<name>/reviews
+ *   plan                — /w/<name>/plan
  *   jobs                — /w/<name>/jobs
  *
  * Iter 026 / iter 030 identifiers preserved verbatim so the existing
@@ -1167,6 +1168,265 @@ JS_DASHBOARD = """\
       }
     });
     setTimeout(() => input.focus(), 0);
+  }
+
+  // ===== page: plan viewer ==============================================
+  async function initPlan() {
+    bindHashTabs();
+    const chBox = document.querySelector('[data-plan-pane="chapters"]');
+    const olBox = document.querySelector('[data-plan-pane="outline"]');
+    const dcBox = document.querySelector('[data-plan-pane="decisions"]');
+    const sumBox = document.getElementById("plan-summary");
+    if (chBox) chBox.innerHTML = skeleton(4);
+    if (olBox) olBox.innerHTML = skeleton(3);
+    if (dcBox) dcBox.innerHTML = skeleton(3);
+    try {
+      const data = await fetchJson(wsUrl("/plan"));
+      renderPlanSummary(sumBox, data);
+      renderPlanChapters(chBox, data.plan || {}, data.draft_chapters || [], data.draft_verdicts || {});
+      renderOutlineMarkdown(olBox, data.outline_md || "");
+      renderDecisions(dcBox, data.decisions || {});
+    } catch (err) {
+      if (chBox) chBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      if (olBox) olBox.innerHTML = "";
+      if (dcBox) dcBox.innerHTML = "";
+    }
+  }
+  function renderPlanSummary(box, data) {
+    if (!box) return;
+    const plan = data.plan || {};
+    const drafts = data.draft_chapters || [];
+    const fp = plan.plan_fingerprint ? String(plan.plan_fingerprint).slice(0, 8) : "—";
+    const target = plan.target_chapters || (plan.chapters || []).length || 0;
+    box.innerHTML =
+      '<span class="badge no-dot">起点 <code>' + escapeHtml(plan.start_chapter_id || "—") + '</code></span>' +
+      '<span class="badge no-dot">指纹 <code>' + escapeHtml(fp) + '</code></span>' +
+      '<span class="badge no-dot">已写 ' + drafts.length + ' / 计划 ' + target + '</span>';
+  }
+  function renderPlanChapters(box, plan, draftChapters, draftVerdicts) {
+    if (!box) return;
+    const chapters = (plan && plan.chapters) || [];
+    const arc = (plan && plan.overall_arc) || "";
+    if (!chapters.length) {
+      box.innerHTML = '<p class="muted">尚无章节计划。先在「续写」里生成一份。</p>';
+      return;
+    }
+    const draftSet = new Set((draftChapters || []).map((n) => Number(n)));
+    const arcHtml = arc
+      ? '<div class="alert info" style="margin-bottom:16px"><strong>整体走向：</strong>' + escapeHtml(arc) + '</div>'
+      : '';
+    const cards = chapters.map(function (c) {
+      const no = Number(c.chapter_no || 0);
+      const written = draftSet.has(no);
+      const verdict = draftVerdicts && draftVerdicts[String(no)];
+      const head =
+        '<div class="card-header" style="align-items:flex-start">' +
+        '<div><p class="eyebrow ornament">第 ' + escapeHtml(String(c.chapter_no || "?")) + ' 章</p>' +
+        '<h3>' + escapeHtml(c.title || "(无标题)") + '</h3></div>' +
+        '<div class="cluster">' +
+        (written ? '<span class="badge ready">已写</span>' : '<span class="badge no-dot">未写</span>') +
+        (written && verdict ? verdictBadge(verdict) : '') +
+        '</div></div>';
+      const events = (c.key_events || []).map(function (e) {
+        return '<li>' + escapeHtml(e) + '</li>';
+      }).join("");
+      const rels = (c.relationships_in_play || []).map(function (r) {
+        return '<span class="badge no-dot">' + escapeHtml(typeof r === "string" ? r : JSON.stringify(r)) + '</span>';
+      }).join(" ");
+      const body =
+        '<div class="card-body">' +
+        (c.opening_scene ? '<p><strong>开场：</strong>' + escapeHtml(c.opening_scene) + '</p>' : '') +
+        (events ? '<div><strong>关键事件</strong><ul>' + events + '</ul></div>' : '') +
+        (rels ? '<div><strong>涉及关系</strong><div class="cluster" style="margin-top:6px">' + rels + '</div></div>' : '') +
+        (c.ending_hook ? '<p><strong>结尾钩子：</strong>' + escapeHtml(c.ending_hook) + '</p>' : '') +
+        (c.plot_purpose ? '<p class="muted"><strong>定位：</strong>' + escapeHtml(c.plot_purpose) + '</p>' : '') +
+        (c.target_chinese_chars ? '<p class="muted">目标字数：' + escapeHtml(String(c.target_chinese_chars)) + '</p>' : '') +
+        '</div>';
+      return '<div class="card" style="margin-bottom:16px">' + head + body + '</div>';
+    }).join("");
+    box.innerHTML = arcHtml + cards;
+  }
+  function renderOutlineMarkdown(box, md) {
+    if (!box) return;
+    if (!md || !md.trim()) {
+      box.innerHTML = '<p class="muted">outline.md 不存在或为空。</p>';
+      return;
+    }
+    box.innerHTML = '<div class="card"><div class="card-body reading-body">' + _mdToHtml(md) + '</div></div>';
+  }
+  function _mdToHtml(md) {
+    const lines = md.replace(/\\r\\n/g, "\\n").split("\\n");
+    const out = [];
+    let inList = false;
+    function closeList() { if (inList) { out.push("</ul>"); inList = false; } }
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].replace(/\\s+$/, "");
+      if (!line.trim()) { closeList(); continue; }
+      let m = /^(#{1,3})\\s+(.*)$/.exec(line);
+      if (m) {
+        closeList();
+        const level = m[1].length;
+        out.push("<h" + level + ">" + escapeHtml(m[2]) + "</h" + level + ">");
+        continue;
+      }
+      m = /^\\-\\s+(.*)$/.exec(line);
+      if (m) {
+        if (!inList) { out.push("<ul>"); inList = true; }
+        out.push("<li>" + escapeHtml(m[1]) + "</li>");
+        continue;
+      }
+      closeList();
+      out.push("<p>" + escapeHtml(line) + "</p>");
+    }
+    closeList();
+    return out.join("");
+  }
+  function renderDecisions(box, decisions) {
+    if (!box) return;
+    const votes = (decisions && decisions.votes) || [];
+    if (!votes.length) {
+      box.innerHTML = '<p class="muted">decisions.json 不存在或没有 votes。</p>';
+      return;
+    }
+    const head =
+      '<div class="alert info" style="margin-bottom:16px">' +
+      '<strong>主题：</strong>' + escapeHtml(decisions.topic || "(未命名)") +
+      '　·　<strong>聚合：</strong>' + escapeHtml(decisions.aggregation_method || "—") +
+      '　·　<strong>transcript 段：</strong>' + escapeHtml(String(decisions.transcript_items || 0)) +
+      '</div>';
+    const cards = votes.map(function (v) {
+      const fors = (v["for"] || []).join("；") || "—";
+      const againsts = (v.against || []).join("；") || "—";
+      const agents = (v.agent_votes || []).map(function (a) {
+        return '<li><strong>' + escapeHtml(a.agent_name || "?") + '</strong> · ' +
+          escapeHtml(a.position || "—") + '：' + escapeHtml(a.reason || "—") + '</li>';
+      }).join("");
+      return (
+        '<div class="card" style="margin-bottom:12px">' +
+        '<div class="card-header"><h3>' + escapeHtml(v.question || "(无问题)") + '</h3></div>' +
+        '<div class="card-body">' +
+        '<p><strong>裁决：</strong>' + escapeHtml(v.result || "—") + '</p>' +
+        '<p><strong>支持：</strong>' + escapeHtml(fors) + '</p>' +
+        '<p><strong>反对：</strong>' + escapeHtml(againsts) + '</p>' +
+        (agents ? '<details><summary class="muted">agent_votes (' + (v.agent_votes || []).length + ')</summary><ul>' + agents + '</ul></details>' : '') +
+        '</div></div>'
+      );
+    }).join("");
+    box.innerHTML = head + cards;
+  }
+
+  // ===== page: trash =====================================================
+  async function initTrash() {
+    const box = document.getElementById("trash-list");
+    if (!box) return;
+    box.innerHTML = skeleton(4);
+    await reloadTrashList();
+  }
+  async function reloadTrashList() {
+    const box = document.getElementById("trash-list");
+    if (!box) return;
+    try {
+      const data = await fetchJson("/api/trash");
+      const entries = data.entries || [];
+      if (!entries.length) {
+        box.innerHTML = emptyState("回收站是空的", "目前没有已删除的作品。", "");
+        return;
+      }
+      const rows = entries.map(function (e) {
+        return (
+          '<tr>' +
+          '<td><code>' + escapeHtml(e.entry) + '</code></td>' +
+          '<td>' + escapeHtml(e.original_name) + '</td>' +
+          '<td><span class="muted">' + escapeHtml(e.deleted_at) + '</span></td>' +
+          '<td>' + escapeHtml(String(e.size_mb)) + ' MB</td>' +
+          '<td>' + escapeHtml(String(e.file_count)) + '</td>' +
+          '<td class="cluster">' +
+          '<button class="btn btn-secondary btn-sm" data-trash-restore="' + escapeHtml(e.entry) + '">restore</button>' +
+          '<button class="btn btn-danger btn-sm" data-trash-purge="' + escapeHtml(e.entry) + '">purge</button>' +
+          '</td>' +
+          '</tr>'
+        );
+      }).join("");
+      box.innerHTML =
+        '<table class="table"><thead><tr>' +
+        '<th>entry</th><th>原 name</th><th>删除时间</th><th>大小</th><th>文件</th><th></th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+    } catch (err) {
+      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+    }
+  }
+  document.addEventListener("click", async function (ev) {
+    const r = ev.target.closest("[data-trash-restore]");
+    if (r) {
+      ev.preventDefault();
+      const entry = r.getAttribute("data-trash-restore");
+      r.disabled = true;
+      try {
+        const data = await postJson("/api/trash/" + encodeURIComponent(entry) + "/restore", {});
+        showToast("已 restore：" + data.restored_to, "info");
+        await reloadTrashList();
+      } catch (err) {
+        showToast("restore 失败：" + err.message, "error");
+        r.disabled = false;
+      }
+      return;
+    }
+    const p = ev.target.closest("[data-trash-purge]");
+    if (p) {
+      ev.preventDefault();
+      showPurgeModal(p.getAttribute("data-trash-purge"));
+    }
+  });
+  function showPurgeModal(entry) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true">' +
+      '<div class="modal-header">永久删除 <code>' + escapeHtml(entry) + '</code></div>' +
+      '<div class="modal-body">' +
+      '<p>这一步会从磁盘 <code>shutil.rmtree</code> 这个条目，<strong>无法恢复</strong>。</p>' +
+      '<p>输入 <strong>' + escapeHtml(entry) + '</strong> 以确认。</p>' +
+      '<div class="field"><label>entry 名</label>' +
+      '<input type="text" id="modal-purge-input" autocomplete="off">' +
+      '</div>' +
+      '<div id="modal-purge-error"></div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
+      '<button type="button" class="btn btn-danger" id="modal-purge-btn" disabled>确认永久删除</button>' +
+      '</div></div>';
+    document.body.appendChild(backdrop);
+    const input = backdrop.querySelector("#modal-purge-input");
+    const btn = backdrop.querySelector("#modal-purge-btn");
+    const err = backdrop.querySelector("#modal-purge-error");
+    function close() {
+      document.removeEventListener("keydown", onKey);
+      backdrop.remove();
+    }
+    function onKey(ev) {
+      if (ev.key === "Escape") close();
+    }
+    input.addEventListener("input", function () {
+      btn.disabled = input.value !== entry;
+    });
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
+    });
+    document.addEventListener("keydown", onKey);
+    btn.addEventListener("click", async function () {
+      btn.disabled = true;
+      err.innerHTML = '<div class="alert info">正在 purge…</div>';
+      try {
+        await postJson("/api/trash/" + encodeURIComponent(entry) + "/purge", { confirm: entry });
+        close();
+        showToast("已永久删除：" + entry, "info");
+        await reloadTrashList();
+      } catch (e) {
+        err.innerHTML = '<div class="alert error">' + escapeHtml(e.message) + "</div>";
+        btn.disabled = false;
+      }
+    });
+    setTimeout(function () { input.focus(); }, 0);
   }
 
   // ===== page: continue (start-point + plan + write-book cockpit) =========
@@ -1883,11 +2143,13 @@ JS_DASHBOARD = """\
       } catch (e) {}
     }
     if (pageKind === "index") return initIndex();
+    if (pageKind === "trash") return initTrash();
     if (pageKind === "workspace_overview") return initWorkspaceOverview();
     if (pageKind === "continue") return initContinue();
     if (pageKind === "chapters") return initChapters();
     if (pageKind === "chapter_detail") return initChapterDetail();
     if (pageKind === "reviews") return initReviews();
+    if (pageKind === "plan") return initPlan();
     if (pageKind === "insights") return initInsights();
     if (pageKind === "jobs") return initJobs();
   }

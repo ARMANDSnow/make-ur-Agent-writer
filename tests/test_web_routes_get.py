@@ -138,8 +138,18 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn("本地写作工作台", html)
+        self.assertIn('href="/trash"', html)
+        self.assertLess(html.index("♻ 回收站"), html.index("⚙ 设置"))
         self.assertIn("/api/workspaces/overview", routes.static.JS_DASHBOARD)
         self.assertNotIn("iter 026", html)
+
+    def test_trash_page_renders(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/trash")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn("已删除的作品", html)
+        self.assertIn('id="trash-list"', html)
+        self.assertIn('window.PAGE_KIND = "trash"', html)
 
     def test_workspace_legacy_url_301s_to_new_ia(self) -> None:
         """Iter 032: the iter 025 ``/workspace/<name>/`` URL still
@@ -161,6 +171,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("alpha", html)
         # sidebar lists the workspace and the new sections
         self.assertIn("续写", html)
+        self.assertIn("计划", html)
         self.assertIn("章节", html)
         self.assertIn("评审", html)
         self.assertIn("任务", html)
@@ -186,6 +197,16 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("write-book-form", html)
         self.assertIn("plan-form", html)
         self.assertNotIn("draft-once-dev", html)
+
+    def test_workspace_plan_page_renders(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/plan")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('data-plan-pane="chapters"', html)
+        self.assertIn('data-plan-pane="outline"', html)
+        self.assertIn('data-plan-pane="decisions"', html)
+        self.assertIn('href="/w/alpha/plan"', html)
+        self.assertIn('window.PAGE_KIND = "plan"', html)
 
     def test_workspace_chapters_renders(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/w/alpha/chapters")
@@ -312,6 +333,12 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(data["stats"]["advisor_suggestions_total"], 1)
         # full agent_reviews preserved
         self.assertEqual(data["chapters"][0]["agent_reviews"][0]["agent_name"], "PlotMaster")
+
+    def test_api_workspace_plan_returns_aggregates(self) -> None:
+        status, data = self._get_json("/api/workspace/alpha/plan")
+        self.assertEqual(status, 200)
+        for key in ("plan", "outline_md", "decisions", "draft_chapters"):
+            self.assertIn(key, data)
 
     def test_api_insights_returns_aggregates(self) -> None:
         status, data = self._get_json("/api/workspace/alpha/insights")
