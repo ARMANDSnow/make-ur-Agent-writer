@@ -1150,8 +1150,94 @@ FAILED (errors=6)
 
 ## 8. Acceptance Result（Claude 验收后填）
 
-> 由 Claude（reviewer）填写 §5 的 V1-V12 结果 + 通过 / 退回意见 + 转 iter 037 backlog。
+**验收人**：Claude · **验收日**：2026-06-03 · **基线**：commit `2f1aae6`
+**判定**：✅ **接受**（accept），无 P0 / P1 / P2 退回项。drama 基础设施层完整就位，iter 037 可基于此 baseline 开工。
 
-```
-(待 Claude 验收后填写)
-```
+### 验收方法
+
+照 iter 035 同款降级路径（沙箱阻 `socket.bind` + Chrome 扩展 not connected）：
+
+1. **§4 四块全跑**：unittest / dispatcher / 字符串 / workspace_meta 端到端
+2. **§5 V1-V12 12 项**：逐项静态 + 单测 + dispatcher
+3. **Codex Run Log 复核**：2 个 subagent 自审 + node JS 语法 + preflight + verify.sh
+
+### 数字一览
+
+| 维度 | iter 035 baseline | iter 036 (`2f1aae6`) | Δ |
+|---|---|---|---|
+| 全套 unittest | 468 / 6 ERROR | **488 / 6 ERROR** | +20 OK，沙箱 ERROR 不动 |
+| dispatcher 路径 | 12 (全 200) | **13 个 200 + 6 个 drama type-404** | +7 |
+| 保留 JS 标识符 | 24 | **25** (`+typeBadge`) | +1 |
+| `Array.isArray(` | 5 | **5** | 0（A2 没改过这块） |
+| 新增 Python 模块 | — | **`src/web/workspace_meta.py`** | 1 |
+| 新增 wizard 端点 | — | **`POST /api/wizard/drama-start`** | 1 |
+
+### V1-V12 逐项判定
+
+| # | 项 | 判定 | 证据 |
+|---|---|---|---|
+| V1 | `workspace_meta.read/write` 往返 | ✅ | `test_write_read_drama_round_trip` + 运行时 round-trip 7/7 边界 case PASS |
+| V2 | 缺 `workspace.json` 默认 novel + `schema_v=0` | ✅ | `test_missing_workspace_json_defaults_to_legacy_novel`；现有 7 个 novel workspace 仍正确识别 |
+| V3 | `init_workspace(type=...)` 创建空骨架 + `workspace.json` | ✅ | `test_init_workspace_drama_creates_empty_skeleton`；4 个 drama 子目录 (`data/tables / outputs/{debate,episodes,reviews}`) 全部落盘 |
+| V4 | `/api/workspaces/overview` 返 `type` 字段 | ✅ | `test_api_workspaces_overview_includes_drama_type` + 运行时验证 a_novel→novel / b_drama→drama |
+| V5 | overview cache key 含 `workspace.json` mtime | ✅ | `test_overview_cache_key_includes_workspace_json_mtime`；运行时验证 touch 后 cache key 改变 |
+| V6 | wizard 端 step 0 radio + 3 panel | ✅ | `test_wizard_renders_type_choice_panels`；HTML 含 `panel-type / panel-upload / panel-drama` + `value="novel" / value="drama"` 两 radio |
+| V7 | `POST /api/wizard/drama-start` 创建空骨架，**无 job** | ✅ | 运行时返 `{"name":"dramatest","type":"drama"}`，**无 `job_id`** —— 严格匹配施工单契约 |
+| V8 | 书架 typeBadge 复用 var(--amber-soft) / var(--jade-soft)，**零新色** | ✅ | `test_static_js_has_type_badge` + JS_DASHBOARD `Array.findall` 0 hex；CSS 19 unique hex 全是 iter 032 design token 源头 |
+| V9 | `_sections_for(novel)`=7 / `_sections_for(drama)`=2 | ✅ | `test_drama_sidebar_only_exposes_overview_and_jobs`；运行时 novel=`[overview/continue/plan/chapters/reviews/insights/jobs]` drama=`[overview/jobs]` |
+| V10 | drama 上 6 novel 专属路由 404 | ✅ | `test_drama_novel_only_pages_404`；dispatcher 6/6 返 404（`/continue` `/plan` `/chapters` `/chapter/1` `/reviews` `/insights`） |
+| V11 | drama 上 `POST /run` 返 400 + hint | ✅ | `test_post_run_drama_workspace_returns_400_with_hint`；运行时返 `{"error":"drama workspace cannot run novel pipeline steps yet","hint":"drama bootstrap arrives in iter 037"}` |
+| V12 | iter 035 全套 468 不破 + 6 ERROR 同 | ✅ | 全套 488 OK（+20）+ 6 ERROR 完全相同（影响 `test_web_server.*` 4 个 + `test_web_hardening.ServeHostWarning*` 2 个），无新 ERROR / FAIL |
+
+### Codex 超出施工单做得更好的地方
+
+1. **K9 边界自检全闭环**：施工单 §3 末尾列了 5 条 Codex 自加测试建议（含 K9：drama workspace 软删 → restore → meta 仍是 drama）。**Codex 把 5 条全部落地了**，并把 K9 直接命名为 `test_trash_restore_preserves_drama_workspace_meta`。
+2. **2 个 subagent 自审 + 即修**：Backend reviewer 找到 P3 cache mtime test 可能 flaky → Codex 强制 mtime delta 修了；UI reviewer 找到 P3 drama overview test assert 不全 → Codex 扩展 assert 修了。**修法都在同一 commit 内**，没有留 follow-up。
+3. **`node --check` 嵌入 JS 语法验证**：Codex 用 Node 把 `JS_DASHBOARD` / `JS_WIZARD` 装进 `new Function(...)` 检查语法 —— 这是 iter 035 起就用的招，本轮继续用。
+4. **`verify.sh` + `preflight` 完整跑通**：不仅跑沙箱安全集，连 mock 全流水线 verify.sh 也过了 488 tests + auto-pipeline OK + preflight no FATAL no WARN。
+5. **content-type lowercase 防御**：subagent 提到 JSON content-type 比对原本大小写敏感，Codex 改为 `.lower()` 比对 —— 这是 wizard 实际使用时浏览器有时发送 `application/json; charset=UTF-8` 大小写不固定的真实问题。
+6. **测试数量比预期多**：施工单要求"≥ 10 新测试"，Codex 实际加了 17 个（test_workspace_meta 7 + test_web_routes_get 6 + test_web_routes_post 2 + test_web_wizard_e2e 1 + 复合 sub-cases），覆盖更彻底。
+
+### Codex 工作模式曲线（再升一级）
+
+| iter | 模式 |
+|---|---|
+| 032 | 按图施工 |
+| 033 | 按图精装 + 主动防护 |
+| 034 | 按图精装 + 主动防护 + 主动暴露 follow-up |
+| 035 | 按图 1:1 落地 + 自加边界测试 + 不超调 |
+| **036** | **按图 1:1 + 主动消化 §3 K1-K10 全部 + 双 subagent 自审 + node JS 语法 + verify.sh 全跑** |
+
+iter 036 是目前为止最干净的一轮 —— **零 follow-up，零退回，零妥协**。
+
+### 与 iter 037 的桥接
+
+**iter 037 = drama 4 站向导骨架 + drama_planner**（按 `short_drama_module.md` v1 §7 拆分）：
+
+- 新 sidebar section `write`（drama-only，iter 037 加入 `_SECTIONS_DRAMA`）
+- 新页面 `/w/<drama-name>/write?step=setup|hook|storyboard|characters`
+- 新 agent `drama_planner.py` + `hook_designer.py`（**system prompt 必须读 `data/creation_standard.snapshot.md`**，本轮 iter 036 不动这个 snapshot 机制；iter 037 起 drama wizard 提交时复制规范文档到 workspace）
+- 新 wizard 完整表单（题材 / 集数 / 单集时长 30/60/90/120）
+- mock fixture：覆盖 5 个赛道（霸总 / 重生 / 推理 / 系统 / 觉醒）
+
+iter 036 已经为 iter 037 打通了所有基础：workspace.type 识别、sidebar 函数化、type-aware route guard、drama wizard 端点、空骨架预创建（`outputs/episodes/` 已经存在）。**iter 037 几乎只需"上层接逻辑"，下层不动**。
+
+### 已记录的残留风险（不阻塞）
+
+- `data/creation_standard.snapshot.md` 快照机制尚未实现（留 iter 037 wizard 完整表单时做）
+- AI 绘画 API 客户端 / Comfy workflow 导出 / LoRA token 系统全部留 iter 038
+- season_no 字段仅在 `workspace.json` schema 中预留，episodes 文件名 / sidebar UI 暂未引入（留 iter 040+ 用户做第二季时启用）
+
+### 验收结论
+
+**iter 036 accept**，作为 drama 模块的"地基轮"完整就位。Codex 工作模式持续上升曲线，已经接近"给一份完整施工单就能交付零 follow-up 代码"的水准。下一轮 iter 037 可以直接基于此 baseline 开工，不需任何修补。
+
+### 给 iter 037 起始的状态记录
+
+- **baseline commit**：`2f1aae6`
+- **全套测试**：488 OK + 6 沙箱 ERROR（连续 5 iter 不变）
+- **保留 JS 标识符**：25 个（含 iter 036 新增 `typeBadge`）
+- **侧栏 sections**：novel 7 项 / drama 2 项（iter 037 起扩 drama 至 4-5 项）
+- **顶栏全局入口**：3 项不变（♻ 回收站 / ⚙ 设置 / + 新建）
+- **产品定义书**：`docs/product/short_drama_module.md` v1（最新）
+- **创作规范**：`docs/product/short_drama_creation_standard.md` v1（已就位待 iter 037 注入 system prompt）
