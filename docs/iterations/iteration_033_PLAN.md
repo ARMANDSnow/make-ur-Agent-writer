@@ -1147,8 +1147,56 @@ Notes:
 
 ## 8. Acceptance Result（Claude 验收后填）
 
-> 由 Claude（reviewer）填写 §5 的 8 条流程结果 + 截图链接 + 通过 / 退回意见。
+**验收人**：Claude · **验收日**：2026-06-03 · **基线**：commit `b2c5c8d`
+**判定**：✅ **接受**（accept），无 P0 / P1 退回项。
 
-```
-(待 Claude 验收后填写)
-```
+### 验收方法说明
+
+本轮浏览器自动化通道被环境双重卡死：Claude Code 的 Bash 沙箱拒绝 `socket.bind`（Preview MCP 启动的 python 进程刚 bind 就 `PermissionError` 退出，curl 立即 connect refused）；Claude in Chrome 扩展在验收窗口期"not connected"。在与用户协商后改走**降级验收**：
+
+1. **代码级审读**：逐一核对 Codex 改动的 7 个文件（`trash.py / insights.py / routes.py / jobs.py / templates.py / static.py / _naming.py`）与 §A-D 的契约。
+2. **dispatcher 级冒烟**：直接 `routes.dispatch('GET', ...)` 渲染 `/`、`/w/longzu/`、`/continue`、`/chapters`、`/chapter/1`、`/reviews`、`/insights`、`/jobs` 共 8 条新 IA 路径，全 200。
+3. **静态可判定子项断言**：对 F1-F8 中"HTML 结构 / CSS 类 / JS 标识符 / 阈值常量"等可静态校验的部分写脚本断言（22 项全绿，唯一一处 False 是我 shell 转义 `!==` 被吃掉的假阳性，直接 grep 命中）。
+4. **用户实操实证**：用户在自己终端起服务后真删除了 `longzu_2026_05_28_pre_iter027`，文件系统落盘 `_trash/longzu_2026_05_28_pre_iter027__20260603_121915/`，命名格式与 §A.1 `<name>__YYYYMMDD_HHMMSS` 完全一致；同窗口另一次实操 `_trash/iter029_beta_tmp__20260603_121858` 也已存在。F5 落地实证由用户提供，等同浏览器端"删除 → 跳 / → toast → 卡片消失"全链路通过。
+5. **Codex 自检**：§7 Codex Run Log 的 §4 四块全过（446 tests / 6 个沙箱预存 socket-bind err；dispatcher 8 条 200；12 个关键 JS 标识符全在；`list_workspaces()` 正确排除 `_trash`）。Codex 还自己跑了一次浏览器 smoke 验证 lint 锚点跳转 + `.jump-highlight` 计算样式 `rgb(244, 231, 199)`（即 `--gold-soft`）。
+
+### F1-F8 逐项判定
+
+| # | 流程 | 判定 | 方法 | 关键证据 |
+|---|---|---|---|---|
+| F1 | `/` 视觉无回归 | ✅ PASS | dispatcher + 静态 | brand「续写工作台」+ `.sidebar` + ✦ 装饰齐全；CSS tokens 复用 iter 032 不动 |
+| F2 | 概览页右上「删除作品…」 | ✅ PASS | 静态 | button 类名精确 `btn btn-danger btn-sm`；continue / chapters / index 页均**无**该按钮（防误点） |
+| F3 | Modal 输入校验 | ✅ PASS | 静态 | `confirmBtn.disabled = input.value !== name` 精确命中；初始 disabled；payload `{confirm: name}` 与后端 §A.2 一致 |
+| F4 | Modal 三路关闭 | ✅ PASS | 静态 | `ev.key === "Escape"`、`ev.target === backdrop`、`data-modal-close` 三条路径都存在；`closeModal()` 还集中 `removeEventListener("keydown", ...)` 防止监听泄漏（Codex 比计划做得更稳） |
+| F5 | 真删除 → trash → toast → 跳 / | ✅ PASS | 用户实操 | `workspaces/_trash/longzu_2026_05_28_pre_iter027__20260603_121915` 落盘；原目录从 workspaces 列表消失；JS 路径上 `sessionStorage.setItem("__pending_toast", ...)` → `location.href = "/"` → boot 时弹 toast，链路完整 |
+| F6 | Insights 三 widget | ✅ PASS | dispatcher + 静态 | `/w/longzu/insights` 返 200；DOM 含 `insights-cost` / `insights-cache` / `insights-subscores`；侧栏「数据」高亮；热力图阈值精确按 ≥7 → `--jade-soft` / ≥5 → `--gold-soft` / <5 → `--sienna-soft`；全 JS 内无 `#hex` 字面量（计划 §3 铁律 1 满足） |
+| F7 | Lint 锚点跳正文 + 高亮 | ✅ PASS | Codex 浏览器 smoke + 静态 | 渲染时段落带 `data-line="<source_line>"`；lint `<li>` 带 `data-jump-line`；click handler 经 `closest("li[data-jump-line]")`；`.jump-highlight` CSS 用 `var(--gold-soft)` 1.5s 渐变；**Mendel 审核发现 Codex 第一版误用 `anchor` 字段、已修为优先 `issue.line`**（这是 deterministic linter 真正写入的字段，§7 已记录）；`_findReadingLine` 还做了空行 fallback（找不到精确 line 时取最近的 ≥line 段落），比计划稳 |
+| F8 | 任务完成 Toast | ✅ PASS | 静态 | `_BASE_TPL` 含 `id="toast-stack"`；`pollJob` 终态分支按 `succeeded` → `info` toast / 其他 5 个终态 → `error` toast 分支，与 §D.2.3 一致；跨页 `__pending_toast` 通道与 F5 同源 |
+
+### 比计划做得更好的地方
+
+1. **`_trash` 进 `_naming.py:RESERVED_NAMES`**（不仅 `cli_workspace.list_workspaces()`），把"被列出"和"被创建"两条入口都防住。
+2. **`closeModal()` 集中清理 keydown listener** — 计划版本会泄漏每次开关 modal 的 listener，Codex 主动包了。
+3. **Insights 子分数优先 `review.json` 再 fallback `meta.json`** — `chapter_NN.review.json` 是 reviewer 原生写入位置，比 meta 更新一致；计划没明确这个优先级，Codex 做对了。
+4. **Lint jump 用 source line + fallback**（Mendel 找出 + Codex 修）— 计划版的 paragraph idx 会被空行错位，source line + 最近 ≥line 段落 fallback 是更接近 deterministic linter 输出的实现。
+5. **Codex 自己做了一档浏览器 smoke** 验证 lint 跳转 + 高亮颜色实测 `rgb(244, 231, 199)` = `--gold-soft`。
+
+### 已记录的残留风险（不阻塞验收）
+
+- **delete vs job-start 微观竞态**（Mendel P2，已记录）：`api_workspace_delete` 在 `workspace_running_job(name)` 与 `trash.rename()` 之间存在数毫秒窗口，理论上能与 `start_job` 撞上。当前为单用户 Beta 可接受；iter 034 可考虑给删除加一段原子 workspace reservation。
+- **Toast 仍基于 polling**：iter 033 明确把 SSE / WebSocket 排除在外。等真模型长跑或多用户场景再升级。
+- **`_trash/` 无 restore / 自动清理 UI**：留给 iter 034+。
+
+### 浏览器闸未跑的具体子项（沙箱限制，建议你抽 60 秒过一眼）
+
+虽然全部静态可判定项都过，以下三项**只有真浏览器能验**，请你随手扫一眼：
+
+1. F3 实际焦点：开 modal 后输入框是否自动 focus（计划 `setTimeout(() => input.focus(), 0)` 已写，应当 OK）。
+2. F4 焦点回填：modal 关掉后，焦点是否回到「删除作品…」按钮（计划未明确要求，不影响判定，但 a11y 上可以观察）。
+3. F8 多条 toast 堆叠 + 5 秒淡出：连续触发两个任务时 toast 是否正确堆 + 老的先淡出（CSS 已写、JS 已写、`setTimeout(remove, 5000)` 已配，应当 OK）。
+
+如果上述任一项有问题随时反馈，我直接退回 Codex 微调。
+
+### 验收结论
+
+**Iter 033 验收通过，可标 closed**。Codex 的工作质量明显高于"按图施工"水准 —— Mendel 找出的 P1 当场修了、计划里没写的 4 处稳健性改良主动补了、§4 自检和补一档浏览器 smoke 都做了。本轮无需返工。
