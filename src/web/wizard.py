@@ -47,6 +47,9 @@ ALLOWED_MIME = frozenset(
     }
 )
 
+DRAMA_TRACKS = frozenset({"霸总", "重生", "推理", "系统", "觉醒"})
+DRAMA_DURATIONS = frozenset({30, 60, 90, 120})
+
 
 def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     """POST /api/wizard/start handler.
@@ -179,8 +182,8 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
 def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     """POST /api/wizard/drama-start handler.
 
-    Iter 036 creates an empty drama workspace skeleton only. There is no
-    upload processing, no LLM call, and no background job.
+    Iter 037 upgrades the drama path from "empty skeleton" to a five-field
+    setup form. It still performs no LLM call and starts no background job.
     """
 
     if "application/json" not in (content_type or "").lower():
@@ -191,12 +194,33 @@ def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, byt
         return _json(400, {"error": "body must be valid JSON"})
     if not isinstance(payload, dict):
         return _json(400, {"error": "body must be a JSON object"})
+
     name = payload.get("workspace")
     if not isinstance(name, str) or not name.strip():
         return _json(400, {"error": "missing or invalid 'workspace'"})
     name = name.strip()
     if not _validate_name(name):
         return _json(400, {"error": "invalid workspace name"})
+
+    topic = payload.get("topic")
+    if not isinstance(topic, str) or not topic.strip():
+        return _json(400, {"error": "missing or invalid 'topic'"})
+    topic = topic.strip()
+    if len(topic) > 500:
+        return _json(400, {"error": "'topic' too long (max 500 chars)"})
+
+    track = payload.get("track")
+    if track not in DRAMA_TRACKS:
+        return _json(400, {"error": f"'track' must be one of {sorted(DRAMA_TRACKS)}"})
+
+    ep_count = payload.get("episode_count")
+    if type(ep_count) is not int or not (1 <= ep_count <= 100):
+        return _json(400, {"error": "'episode_count' must be an int 1-100"})
+
+    ep_dur = payload.get("episode_duration_seconds")
+    if type(ep_dur) is not int or ep_dur not in DRAMA_DURATIONS:
+        return _json(400, {"error": f"'episode_duration_seconds' must be one of {sorted(DRAMA_DURATIONS)}"})
+
     try:
         result = init_workspace(name, type="drama")
     except FileExistsError:
@@ -205,7 +229,40 @@ def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, byt
         return _json(400, {"error": str(exc)})
     except OSError as exc:
         return _json(500, {"error": f"failed to create workspace: {exc}"})
+
+    target_root = paths.WORKSPACE_DIR / name
+    try:
+        wizard_input_path = target_root / "data" / "wizard_input.json"
+        wizard_input = {
+            "workspace": name,
+            "topic": topic,
+            "track": track,
+            "episode_count": ep_count,
+            "episode_duration_seconds": ep_dur,
+            "schema_version": 1,
+        }
+        wizard_input_path.write_text(
+            json.dumps(wizard_input, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        _snapshot_creation_standard(name)
+    except OSError as exc:
+        shutil.rmtree(target_root, ignore_errors=True)
+        return _json(500, {"error": f"failed to create workspace: {exc}"})
+
     return _json(200, {"name": result["name"], "type": result["type"]})
+
+
+def _snapshot_creation_standard(workspace_name: str) -> None:
+    """Copy the drama creation standard into the workspace as a snapshot."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    src = repo_root / "docs" / "product" / "short_drama_creation_standard.md"
+    if not src.is_file():
+        raise OSError(f"creation standard missing: {src}")
+    dst = paths.WORKSPACE_DIR / workspace_name / "data" / "creation_standard.snapshot.md"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(src.read_bytes())
 
 
 # ---- helpers ---------------------------------------------------------------

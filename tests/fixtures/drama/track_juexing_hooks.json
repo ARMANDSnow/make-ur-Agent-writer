@@ -1,0 +1,8 @@
+{
+  "hooks": [
+    {"type": "情绪钩", "content": "placeholder, see creation_standard"},
+    {"type": "悬念钩", "content": "placeholder, see creation_standard"},
+    {"type": "反差钩", "content": "placeholder, see creation_standard"}
+  ],
+  "_codex_note": "placeholder, see creation_standard"
+}

@@ -772,3 +772,36 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. drama workspace 当前只是空骨架 + 占位 overview；后续 iter 037 才接 drama bootstrap/plan。
 2. novel workspace 仍按 legacy 缺 `workspace.json` 默认 novel；侧栏 7 项、wizard 上传、write-book 入口保持原行为。
 3. Web 入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`。
+
+
+---
+
+## Phase 4 Status（iter 037，2026-06-03）
+
+### Iteration 037 — drama 4 站向导前 2 站 + 创作规范快照（mock-only）
+
+**目标**：按 `docs/iterations/iteration_037_PLAN.md` §A 交付 drama 4 站审查向导前 2 站，让短剧 workspace 从“空骨架”推进到“可填 setup → 生成核心设定 → 生成/选择钩子”的 Web 本地闭环，同时把创作规范复制到 workspace 内做可复现 snapshot。
+
+**主要落地**：
+- `/wizard` 的 drama 分支升级为 5 字段表单：workspace 名、题材描述、5 赛道、集数、单集时长 30/60/90/120；提交后写 `data/wizard_input.json`，成功跳 `/w/<name>/write?step=setup`。
+- drama workspace 创建时复制 `docs/product/short_drama_creation_standard.md` 到 `workspaces/<name>/data/creation_standard.snapshot.md`；后续 drama agents 只读 workspace 内 snapshot。
+- 新增 `src/drama_planner.py`（站 ① 核心设定）与 `src/hook_designer.py`（站 ② 钩子），本轮仅 mock fixture-driven；`mock=False` 直接 `NotImplementedError("iter 040+")`，不接 `LLMClient`。
+- 新增 `src/web/drama_view.py` 聚合 4 站状态；新增 `/w/<name>/write` 4 tab 页面，站 ③ 分镜 / 站 ④ 角色保持 “iter 038 起开放” empty-state。
+- 新增 API：`GET /api/workspace/<name>/drama/progress`、`POST .../drama/plan`、`POST .../drama/hooks`、`PUT .../drama/setup`。
+- `_SECTIONS_DRAMA` 升级为 overview / write / jobs；drama overview 升级为 4 站进度看板；`POST /api/workspace/<drama>/run` 继续 fail-closed 400。
+- `config/agents.yaml` 新增 `drama_agents`（provider: `mock_only`）；新增 10 个 `tests/fixtures/drama/track_<pinyin>_<station>.json` 占位 fixture 和 2 个 `prompts/drama/*.txt` 占位 prompt。创作内容仍留给 Claude §B。
+
+**验证进度**：
+- Targeted tests：`tests.test_drama_planner tests.test_hook_designer tests.test_drama_view tests.test_drama_wizard_full_form` → 33 OK；`tests.test_web_routes_get tests.test_web_routes_post tests.test_web_wizard_e2e` → 90 OK。
+- Full `.venv` unittest：536 tests OK。
+- §4 dispatcher smoke：`/`, `/trash`, `/wizard`, `/settings`, novel overview/continue, drama overview/write/jobs 均 200；drama `/continue` 404。
+- §4 JS string guard：30/30 identifiers present。
+- §4 drama_planner + snapshot smoke：mock + snapshot OK；result track = 霸总。
+- `PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` → exit 0（536 tests OK + mock auto-pipeline OK）。
+- `PYTHONPYCACHEPREFIX="$PWD/.pycache" .venv/bin/python3 main.py preflight` → PREFLIGHT warn；FATAL none。
+- 裸 `bash scripts/verify.sh` 在本机系统 `python3` 下因缺 `pydantic` 出现 import errors；使用 `.venv` 路径后通过，判定为环境解释器问题。
+
+**当前接力点**：
+1. Claude §B 将在 Codex commit 后替换 10 个 fixture + 2 个 prompt 为真实创作内容；Codex 不读不改这些创作内容。
+2. iter 038 候选：站 ③ 分镜、站 ④ 角色、AI 绘画 client / Comfy 导出。
+3. 真模型接入仍 deferred 到 iter 040+；本轮 drama agents 保持 mock-only。

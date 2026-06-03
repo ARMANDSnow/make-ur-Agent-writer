@@ -1525,8 +1525,59 @@ print('drama_planner mock + snapshot OK; result track =', result['track'])
 > Codex 请在这里粘贴 §4 四块命令的原文输出。`FAILED (errors=6)` 那一行下补 iter 035 同款 6-ERROR 沙箱注脚。
 
 ```
-(待 Codex 填写)
+$ PYTHONPYCACHEPREFIX="$PWD/.pycache" .venv/bin/python3 -m unittest discover -s tests 2>&1 | tail -5
+.......................................................
+----------------------------------------------------------------------
+Ran 536 tests in 4.077s
+
+OK
+
+$ PYTHONPATH=. .venv/bin/python3 -c "<dispatcher smoke from §4>"
+[92m22:50:02 - LiteLLM:WARNING[0m: common_utils.py:979 - litellm: could not pre-load bedrock-runtime response stream shape — Bedrock event-stream decoding will be unavailable. Error: No module named 'botocore'
+[92m22:50:02 - LiteLLM:WARNING[0m: common_utils.py:24 - litellm: could not pre-load sagemaker-runtime response stream shape — SageMaker event-stream decoding will be unavailable. Error: No module named 'botocore'
+200 /
+200 /trash
+200 /wizard
+200 /settings
+200 /w/a_n/
+200 /w/a_n/continue
+200 /w/b_d/
+200 /w/b_d/write
+200 /w/b_d/jobs
+404 /w/b_d/continue
+
+$ .venv/bin/python3 -c "<30 JS identifiers from §4>"
+all 30 identifiers present
+
+$ .venv/bin/python3 -c "<drama_planner + snapshot smoke from §4>"
+drama_planner mock + snapshot OK; result track = 霸总
 ```
+
+Additional validation:
+
+```
+$ PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh
+...
+Ran 536 tests in 4.081s
+
+OK
+...
+[auto-pipeline] done · chapters_written=1
+Report snapshots OK: data/chapter_manifest.md, outputs/reviews/review_summary.md
+
+$ PYTHONPYCACHEPREFIX="$PWD/.pycache" .venv/bin/python3 main.py preflight
+PREFLIGHT: warn
+
+## FATAL
+- none
+```
+
+注：本地 §4 unittest tail 输出为 536 OK，未出现 `FAILED (errors=6)` 行，因此无 6-ERROR 沙箱注脚落点。裸 `bash scripts/verify.sh` 使用系统 `python3` 时出现 `FAILED (errors=70)`，根因是系统解释器缺 `pydantic`；将 `.venv/bin` 放入 `PATH` 后同一脚本退出 0。
+
+Subagent read-only review:
+
+- Web/API/UI reviewer: GO. 覆盖 5 字段 wizard、`/write?step=setup` 跳转、drama-only `/write` guard、4 个 drama API、`_SECTIONS_DRAMA=overview/write/jobs`、overview progress board、drama `/run` 仍 400、30 JS 标识符。残余 UX 风险：`?step=setup` 可能在 reload 时压过 `#hook`；已修为初始 query step 激活后规范成 hash。
+- Drama agent/scaffold reviewer: 初始 P2 指出 `config/agents.yaml` 的 `system_prompt_base` 字段会让配置契约看起来仍指向全局 product doc。已删除该字段，只保留 workspace-relative `system_prompt_snapshot: data/creation_standard.snapshot.md`，并补测试锁住 snapshot-only config。
 
 ---
 

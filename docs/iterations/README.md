@@ -45,3 +45,4 @@
 34. [Iteration 034 - Plan viewer + Trash 闭环 + delete race fix](./iteration_034_PLAN.md)
 35. [Iteration 035 - P2/P3 防御纵深清扫 + 短剧模块产品定义书](./iteration_035_PLAN.md)
 36. [Iteration 036 - drama 模块基础设施](./iteration_036_PLAN.md)
+37. [Iteration 037 - drama 4 站向导前 2 站 + 创作规范快照](./iteration_037_PLAN.md)

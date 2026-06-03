@@ -7,6 +7,7 @@ Information architecture:
 * ``/settings`` — global .env editor (no workspace context).
 * ``/w/<name>`` — workspace overview (sidebar shows section list).
 * ``/w/<name>/continue`` — start-point + plan + write-book cockpit.
+* ``/w/<name>/write`` — drama 4-station write wizard.
 * ``/w/<name>/chapters`` — manifest + drafts list.
 * ``/w/<name>/chapter/<n>`` — single-chapter detail (text / review /
   lint / advisor / history tabs).
@@ -110,6 +111,8 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
 
 _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
+    # iter 037: drama write opens stations 1 and 2; later stations stay locked.
+    ("write", "续写", "write"),
     ("jobs", "任务", "jobs"),
 )
 
@@ -315,7 +318,7 @@ def _drama_overview_main(name: str, meta: dict) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">作品 · 短剧</p>'
         f'<h1>{escape(name)}</h1>'
-        '<p class="muted">短剧 workspace 已创建空骨架。iter 037 起会接入剧本生成。</p>'
+        '<p class="muted">drama 工作区。点击下方“进入续写”开始 4 站审查向导。</p>'
         '</div>'
         '<div class="cluster">'
         '<span class="badge no-dot" style="color:var(--amber-strong);background:var(--amber-soft);border-color:var(--amber-soft)">短剧</span>'
@@ -323,12 +326,15 @@ def _drama_overview_main(name: str, meta: dict) -> str:
         '</div>'
         '</header>'
         '<section class="section">'
-        '<div class="empty-state">'
-        '<span class="ornament">✦</span>'
-        '<h3>等待 iter 037 接入分步审查向导</h3>'
-        '<p class="muted">本轮 iter 036 仅完成基础设施：workspace.json + 类型 badge + 侧栏 + 路由防御。</p>'
-        '<p class="muted">下一轮将上线：<strong>核心设定 → 钩子 → 分镜表 → 角色设定表</strong> 四站向导，'
-        '每站「AI 生成 → 用户改 → 下一站」；产出三件套喂下游 AI 绘画 / 视频。</p>'
+        '<div class="section-title"><h2 class="ornament">4 站进度</h2>'
+        '<span class="hint">core_setup / hook 已完成进入下一站</span></div>'
+        '<div id="drama-overview-progress" class="grid cols-2"></div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="next-action" id="drama-overview-next-action">'
+        '<p class="eyebrow ornament">下一步</p>'
+        '<h2 id="drama-next-headline">载入中…</h2>'
+        f'<a class="btn btn-primary" href="/w/{escape(name)}/write?step=setup">▸ 进入续写</a>'
         '</div>'
         '</section>'
         '<section class="section">'
@@ -341,6 +347,57 @@ def _drama_overview_main(name: str, meta: dict) -> str:
         '</div>'
         '</div></div>'
         '</section>'
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: drama write wizard
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">续写</p>'
+        '<h1>4 站审查向导</h1>'
+        '<p class="muted">核心设定 → 钩子 → 分镜 → 角色，每站 AI 生成 → 你改 → 下一站。</p>'
+        '</div>'
+        '<div id="drama-write-progress" class="cluster"></div>'
+        '</header>'
+        '<section class="tabs">'
+        '<div class="tab-list">'
+        '<button class="tab active" data-tab="setup">① 核心设定</button>'
+        '<button class="tab" data-tab="hook">② 钩子</button>'
+        '<button class="tab" data-tab="storyboard">③ 分镜</button>'
+        '<button class="tab" data-tab="characters">④ 角色</button>'
+        '</div>'
+        '<div class="tab-panel active" id="tab-setup" data-station-pane="setup">'
+        '<p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-hook" data-station-pane="hook">'
+        '<p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-storyboard" data-station-pane="storyboard">'
+        '<div class="empty-state">'
+        '<span class="ornament">✦</span>'
+        '<h3>分镜表 — iter 038 起开放</h3>'
+        '<p class="muted">本轮 iter 037 仅实现核心设定 + 钩子。分镜表在下一轮上线。</p>'
+        '</div></div>'
+        '<div class="tab-panel" id="tab-characters" data-station-pane="characters">'
+        '<div class="empty-state">'
+        '<span class="ornament">✦</span>'
+        '<h3>角色设定表 — iter 038 起开放</h3>'
+        '<p class="muted">角色设定表在 iter 038 上线。</p>'
+        '</div></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 续写",
+        page_kind="drama_write",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="write"),
+        workspace=name,
     )
 
 
@@ -708,7 +765,7 @@ def render_wizard() -> str:
         '</label>'
         '<label class="field-check">'
         '<input type="radio" name="ws_type" value="drama"> '
-        '<strong>短剧剧本</strong>　·　创建空骨架（iter 037 起接入剧本生成）'
+        '<strong>短剧剧本</strong>　·　创建 drama workspace，进入 4 站审查向导'
         '</label>'
         '<div class="form-actions">'
         '<a class="btn btn-ghost" href="/">取消</a>'
@@ -751,14 +808,39 @@ def render_wizard() -> str:
         'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
         '</div>'
-        '<div class="alert info">'
-        '本轮仅创建空骨架（data/workspace.json + 各空目录）。'
-        '<br>iter 037 起会上线 <strong>分步审查向导</strong>：核心设定 → 钩子 → 分镜 → 角色，'
-        '产出「叙事剧本 + 分镜表 + 角色设定表」三件套（喂下游 AI 绘画 / 视频）。'
+        '<div class="field">'
+        '<label>题材描述（1-500 字）</label>'
+        '<textarea name="topic" rows="3" maxlength="500" required '
+        'placeholder="placeholder, see creation_standard"></textarea>'
+        '</div>'
+        '<div class="field">'
+        '<label>赛道</label>'
+        '<div class="cluster">'
+        '<label class="field-check"><input type="radio" name="track" value="霸总" required> 霸总</label>'
+        '<label class="field-check"><input type="radio" name="track" value="重生"> 重生</label>'
+        '<label class="field-check"><input type="radio" name="track" value="推理"> 推理</label>'
+        '<label class="field-check"><input type="radio" name="track" value="系统"> 系统</label>'
+        '<label class="field-check"><input type="radio" name="track" value="觉醒"> 觉醒</label>'
+        '</div>'
+        '</div>'
+        '<div class="form-grid-2">'
+        '<div class="field">'
+        '<label>集数（1-100）</label>'
+        '<input name="episode_count" type="number" min="1" max="100" value="12" required>'
+        '</div>'
+        '<div class="field">'
+        '<label>单集时长（秒）</label>'
+        '<div class="cluster">'
+        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="30"> 30</label>'
+        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="60" checked> 60</label>'
+        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="90"> 90</label>'
+        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="120"> 120</label>'
+        '</div>'
+        '</div>'
         '</div>'
         '<div class="form-actions">'
         '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
-        '<button type="submit" class="btn btn-primary">创建空骨架</button>'
+        '<button type="submit" class="btn btn-primary">创建并进入续写</button>'
         '</div>'
         '</form>'
         '<div id="drama-error"></div>'

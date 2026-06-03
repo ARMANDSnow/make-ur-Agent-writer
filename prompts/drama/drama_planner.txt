@@ -1,0 +1,28 @@
+{snapshot}
+
+---
+
+drama_planner agent framework.
+
+User input:
+- topic: {topic}
+- track: {track}
+- episode_count: {episode_count}
+- episode_duration_seconds: {episode_duration_seconds}
+
+Output JSON schema:
+{{
+  "episode_no": 1,
+  "season_no": 1,
+  "title": "placeholder, see creation_standard",
+  "logline": "placeholder, see creation_standard",
+  "track": "{track}",
+  "target_duration_seconds": {episode_duration_seconds},
+  "core_setup": {{
+    "protagonist": "placeholder, see creation_standard",
+    "antagonist": "placeholder, see creation_standard",
+    "emotional_hook": "placeholder, see creation_standard"
+  }}
+}}
+
+# placeholder, see creation_standard

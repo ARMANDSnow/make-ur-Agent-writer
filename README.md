@@ -252,7 +252,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 036（2026-06-03）** — WebUI 进入 type-aware 基础设施：`workspace.json` 标记 `novel/drama`；wizard 可创建空 drama workspace 骨架；书架卡片显示类型 badge；drama 工作区只开放概览 + 任务页，novel 专属路由和 `/run` 对 drama fail-closed。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 037（2026-06-03）** — drama wizard 升级为 5 字段表单并落 `wizard_input.json`；创建时复制 `creation_standard.snapshot.md`；`/w/{name}/write` 上线 4 站 tab，站 ① 核心设定 + 站 ② 钩子走 mock fixture，站 ③④ locked 至 iter 038。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -344,7 +344,8 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.6 | Web 写作工作台 | ✅ | **iter 030-031**（首页 workspace overview；详情页设置起点/覆盖式重生成计划/继续写书/只读 draft 预览/最近 job 恢复；iter 031 加坏 plan 容错、懒加载、debounce、短 TTL cache） |
 | U.7 | Web 信息架构 + 视觉系统 | ✅ | **iter 032**（侧栏 + 工作区子页面 `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}`；旧 `/workspace/{name}` → 301；文学化暖色调 design tokens；统一组件库；新 Chapter 详情页曝光 reviewer 子分数 / lint anchor / advisor / rewrite 历史） |
 | U.8 | Web 日常使用补齐 | ✅ | **iter 033**（工作区二次确认软删除到 `_trash`；新增 `/w/{name}/insights` 数据页；lint anchor → 正文段落跳转 + 高亮；job terminal / 跨页删除 toast） |
-| U.9 | Web type-aware workspace 基础设施 | ✅ | **iter 036**（`workspace.json` schema v1；旧 workspace 缺文件默认 novel；wizard drama-start 仅创建空骨架、零 LLM 调用；drama sidebar 只露 overview/jobs；novel-only 页面 404，`/run` 400 hint） |
+| U.9 | Web type-aware workspace 基础设施 | ✅ | **iter 036**（`workspace.json` schema v1；旧 workspace 缺文件默认 novel；wizard drama-start 进入 drama 分支；novel-only 页面 404，`/run` 对 drama 400） |
+| U.10 | Web drama 4 站审查向导（前 2 站）| ✅ | **iter 037**（drama wizard 5 字段 + `wizard_input.json` + `creation_standard.snapshot.md`；`/w/{name}/write` 4 tab；站 ① `drama_planner` / 站 ② `hook_designer` mock fixture-driven；站 ③④ empty-state “iter 038 起开放”） |
 
 ---
 

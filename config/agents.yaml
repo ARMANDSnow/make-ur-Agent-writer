@@ -109,5 +109,24 @@
       "system_prompt": "你是改写顾问，不参与 Approve/Reject 投票，专门输出 actionable rewrite suggestions。\n\n基于 lint issues + 其他 agent 的 issues，给出 1-5 条**结构化** RewriteSuggestion，每条字段：\n- section: 如 '第 3 段' / '开场' / '结尾 hook'\n- type: 'add' | 'rewrite' | 'cut'\n- guidance: 具体怎么改的一句话指引（≤ 300 字）\n\n不要输出 verdict / score / 自由形式建议。只输出 suggestions 数组。",
       "system_prompt_template": "你是改写顾问，不参与 Approve/Reject 投票，专门输出 actionable rewrite suggestions。\n\n基于 lint issues + 其他 agent 的 issues，给出 1-5 条**结构化** RewriteSuggestion，每条字段：\n- section: 如 '第 3 段' / '开场' / '结尾 hook'\n- type: 'add' | 'rewrite' | 'cut'\n- guidance: 具体怎么改的一句话指引（≤ 300 字）\n\n参考资料：{protagonist_name}（{protagonist_role}）+ 原作 archetype 片段。"
     }
-  ]
+  ],
+
+  "drama_agents": {
+    "drama_planner": {
+      "role": "站 ① 核心设定 agent",
+      "provider": "mock_only",
+      "system_prompt_snapshot": "data/creation_standard.snapshot.md",
+      "prompt_template": "prompts/drama/drama_planner.txt",
+      "sections_required": ["一", "二", "三", "六", "七", "八"],
+      "mock_fixture_pattern": "tests/fixtures/drama/track_{track_pinyin}_setup.json"
+    },
+    "hook_designer": {
+      "role": "站 ② 钩子设计 agent",
+      "provider": "mock_only",
+      "system_prompt_snapshot": "data/creation_standard.snapshot.md",
+      "prompt_template": "prompts/drama/hook_designer.txt",
+      "sections_required": ["一", "二", "三", "七"],
+      "mock_fixture_pattern": "tests/fixtures/drama/track_{track_pinyin}_hooks.json"
+    }
+  }
 }

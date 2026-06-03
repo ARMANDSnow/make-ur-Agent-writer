@@ -1,0 +1,14 @@
+{
+  "episode_no": 1,
+  "season_no": 1,
+  "title": "placeholder, see creation_standard",
+  "logline": "placeholder, see creation_standard",
+  "track": "系统",
+  "target_duration_seconds": 60,
+  "core_setup": {
+    "protagonist": "placeholder, see creation_standard",
+    "antagonist": "placeholder, see creation_standard",
+    "emotional_hook": "placeholder, see creation_standard"
+  },
+  "_codex_note": "placeholder, see creation_standard"
+}

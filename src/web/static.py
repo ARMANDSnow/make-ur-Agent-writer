@@ -814,6 +814,16 @@ JS_DASHBOARD = """\
     if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
     return data;
   }
+  async function putJson(url, payload) {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    return data;
+  }
   function wsUrl(suffix) {
     return "/api/workspace/" + encodeURIComponent(ws) + suffix;
   }
@@ -889,6 +899,7 @@ JS_DASHBOARD = """\
   const _ALLOWED_TAB_KEYS = [
     "body", "review", "lint", "advisor", "history",
     "chapters", "outline", "decisions",
+    "setup", "hook", "storyboard", "characters",
   ];
   function bindHashTabs() {
     function activate(tab) {
@@ -911,10 +922,13 @@ JS_DASHBOARD = """\
       }
       loadTabPanel(tab.dataset.tab);
     });
-    const initial = (location.hash || "").replace(/^#/, "");
+    const params = new URLSearchParams(location.search || "");
+    const initialFromQuery = params.get("step") || "";
+    const initial = initialFromQuery || (location.hash || "").replace(/^#/, "");
     if (initial && _ALLOWED_TAB_KEYS.indexOf(initial) >= 0) {
       const t = document.querySelector('.tab[data-tab="' + initial + '"]');
       if (t) activate(t);
+      if (initialFromQuery) history.replaceState(null, "", "#" + initial);
     }
   }
 
@@ -1011,6 +1025,12 @@ JS_DASHBOARD = """\
 
   // ===== page: workspace overview =========================================
   async function initWorkspaceOverview() {
+    const dramaProgress = document.getElementById("drama-overview-progress");
+    if (dramaProgress) {
+      initDeleteWorkspace();
+      await loadDramaOverview();
+      return;
+    }
     const summary = document.getElementById("overview-summary");
     if (!summary) {
       initDeleteWorkspace();
@@ -1119,6 +1139,35 @@ JS_DASHBOARD = """\
       rows.push('<div class="k">' + escapeHtml(k) + '</div><div class="v">' + escapeHtml(val) + "</div>");
     }
     return rows.length ? '<div class="kv-list compact">' + rows.join("") + "</div>" : '<p class="muted">(empty)</p>';
+  }
+
+  async function loadDramaOverview() {
+    const box = document.getElementById("drama-overview-progress");
+    const headline = document.getElementById("drama-next-headline");
+    if (!box) return;
+    box.innerHTML = skeleton(4);
+    try {
+      const data = await fetchJson(wsUrl("/drama/progress"));
+      box.innerHTML = (data.stations || []).map(function (s) {
+        const cls = s.status === "done" ? "ready" :
+          s.status === "locked" ? "blocked" : "warn";
+        return '<div class="card"><div class="card-body">' +
+          '<div class="cluster">' +
+          '<span class="eyebrow ornament">' + escapeHtml(s.id) + "</span>" +
+          '<span class="badge ' + cls + '">' + escapeHtml(s.status) + "</span></div>" +
+          '<h3>' + escapeHtml(s.label) + "</h3>" +
+          "</div></div>";
+      }).join("");
+      const todo = (data.stations || []).find((s) => s.status === "todo");
+      if (headline) {
+        headline.textContent = todo
+          ? "下一步：完成「" + todo.label + "」"
+          : "前 2 站已完成 — 等待 iter 038 解锁分镜";
+      }
+    } catch (err) {
+      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      if (headline) headline.textContent = "载入失败";
+    }
   }
 
   function initDeleteWorkspace() {
@@ -2106,6 +2155,224 @@ JS_DASHBOARD = """\
     box.innerHTML = '<table class="table">' + head + body + '</table>';
   }
 
+  // ===== page: drama write ==================================================
+  async function initDramaWrite() {
+    bindHashTabs();
+    await loadStationSetup();
+    await loadStationHooks();
+    await loadDramaProgress();
+  }
+
+  async function loadDramaProgress() {
+    const box = document.getElementById("drama-write-progress");
+    if (!box) return;
+    try {
+      const data = await fetchJson(wsUrl("/drama/progress"));
+      box.innerHTML = (data.stations || []).map(function (s) {
+        const cls = s.status === "done" ? "ready" :
+          s.status === "locked" ? "blocked" : "warn";
+        return '<span class="badge ' + cls + '">' + escapeHtml(s.label) +
+          " · " + escapeHtml(s.status) + "</span>";
+      }).join("");
+    } catch (err) {
+      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+    }
+  }
+
+  async function loadStationSetup() {
+    const pane = document.querySelector('[data-station-pane="setup"]');
+    if (!pane) return;
+    pane.innerHTML = skeleton(3);
+    try {
+      const data = await fetchJson(wsUrl("/drama/progress"));
+      const station = (data.stations || []).find((s) => s.id === "setup");
+      pane.innerHTML = renderStationSetup(station, data.wizard_input);
+      bindStationSetupActions();
+    } catch (err) {
+      pane.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+    }
+  }
+
+  function renderStationSetup(station, wizardInput) {
+    const status = station ? station.status : "todo";
+    const data = station ? station.data : null;
+    const core = (data && data.core_setup) || data || {};
+    let html = '<div class="card"><div class="card-header"><h3 class="ornament">站 ① 核心设定</h3>' +
+      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + escapeHtml(status) + '</span></div>' +
+      '<div class="card-body stack">';
+    if (wizardInput) {
+      html += '<div class="kv-list compact">' +
+        '<div class="k">题材</div><div class="v">' + escapeHtml(wizardInput.topic || "") + "</div>" +
+        '<div class="k">赛道</div><div class="v"><code>' + escapeHtml(wizardInput.track || "") + "</code></div>" +
+        '<div class="k">集数</div><div class="v">' + escapeHtml(String(wizardInput.episode_count || 0)) + "</div>" +
+        '<div class="k">单集时长</div><div class="v">' + escapeHtml(String(wizardInput.episode_duration_seconds || 0)) + " 秒</div>" +
+        '</div>';
+    }
+    if (data) {
+      html += '<form id="station-setup-form" class="stack">' +
+        '<div class="field"><label>logline</label>' +
+        '<textarea name="logline" rows="2">' + escapeHtml(data.logline || "") + "</textarea></div>" +
+        '<div class="field"><label>protagonist</label>' +
+        '<textarea name="protagonist" rows="2">' + escapeHtml(core.protagonist || "") + "</textarea></div>" +
+        '<div class="field"><label>antagonist</label>' +
+        '<textarea name="antagonist" rows="2">' + escapeHtml(core.antagonist || "") + "</textarea></div>" +
+        '<div class="field"><label>emotional_hook</label>' +
+        '<textarea name="emotional_hook" rows="2">' + escapeHtml(core.emotional_hook || "") + "</textarea></div>" +
+        '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" id="regenerate-setup">重新生成</button>' +
+        '<button type="submit" class="btn btn-primary">保存并进入站 ② →</button>' +
+        '</div></form>';
+    } else {
+      html += '<div class="empty-state">' +
+        '<span class="ornament">✦</span>' +
+        '<h3>等待生成核心设定</h3>' +
+        '<p class="muted">点击生成，产出主角 / 反派 / 情绪钩子。</p>' +
+        '<button type="button" class="btn btn-primary" id="generate-setup">▸ 生成核心设定</button>' +
+        "</div>";
+    }
+    html += "</div></div>";
+    return html;
+  }
+
+  function bindStationSetupActions() {
+    const genBtn = document.getElementById("generate-setup");
+    if (genBtn) {
+      genBtn.addEventListener("click", async function () {
+        genBtn.disabled = true;
+        try {
+          await postJson(wsUrl("/drama/plan"), {});
+          showToast("核心设定已生成", "info");
+          await loadStationSetup();
+          await loadStationHooks();
+          await loadDramaProgress();
+        } catch (err) {
+          showToast("生成失败：" + err.message, "error");
+          genBtn.disabled = false;
+        }
+      });
+    }
+    const regenBtn = document.getElementById("regenerate-setup");
+    if (regenBtn) {
+      regenBtn.addEventListener("click", async function () {
+        regenBtn.disabled = true;
+        try {
+          await postJson(wsUrl("/drama/plan"), {});
+          showToast("核心设定已重新生成", "info");
+          await loadStationSetup();
+          await loadStationHooks();
+          await loadDramaProgress();
+        } catch (err) {
+          showToast("重新生成失败：" + err.message, "error");
+          regenBtn.disabled = false;
+        }
+      });
+    }
+    const form = document.getElementById("station-setup-form");
+    if (form) {
+      form.addEventListener("submit", async function (ev) {
+        ev.preventDefault();
+        const payload = {
+          logline: form.elements.logline.value,
+          protagonist: form.elements.protagonist.value,
+          antagonist: form.elements.antagonist.value,
+          emotional_hook: form.elements.emotional_hook.value,
+        };
+        try {
+          await putJson(wsUrl("/drama/setup"), payload);
+          showToast("已保存，进入站 ②", "info");
+          history.replaceState(null, "", "#hook");
+          const tab = document.querySelector('.tab[data-tab="hook"]');
+          if (tab) tab.click();
+          await loadStationHooks();
+          await loadDramaProgress();
+        } catch (err) {
+          showToast("保存失败：" + err.message, "error");
+        }
+      });
+    }
+  }
+
+  async function loadStationHooks() {
+    const pane = document.querySelector('[data-station-pane="hook"]');
+    if (!pane) return;
+    pane.innerHTML = skeleton(3);
+    try {
+      const data = await fetchJson(wsUrl("/drama/progress"));
+      const station = (data.stations || []).find((s) => s.id === "hook");
+      if (station && station.status === "locked") {
+        pane.innerHTML = '<div class="alert info">请先完成站 ①</div>';
+        return;
+      }
+      pane.innerHTML = renderStationHooks(station);
+      bindStationHooksActions();
+    } catch (err) {
+      pane.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+    }
+  }
+
+  function renderStationHooks(station) {
+    const status = station ? station.status : "todo";
+    const data = station ? station.data : null;
+    let html = '<div class="card"><div class="card-header"><h3 class="ornament">站 ② 钩子</h3>' +
+      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + escapeHtml(status) + '</span></div>' +
+      '<div class="card-body stack">';
+    if (!data) {
+      html += '<div class="empty-state">' +
+        '<span class="ornament">✦</span>' +
+        '<h3>等待生成钩子候选</h3>' +
+        '<p class="muted">AI 会出 3 个候选：情绪钩 / 悬念钩 / 反差钩，你选 1 个继续。</p>' +
+        '<button type="button" class="btn btn-primary" id="generate-hooks">▸ 生成 3 个钩子</button>' +
+        "</div>";
+    } else {
+      html += '<div class="kv-list compact">' +
+        '<div class="k">type</div><div class="v"><code>' + escapeHtml(data.type || "") + "</code></div>" +
+        '<div class="k">content</div><div class="v">' + escapeHtml(data.content || "") + "</div>" +
+        '</div>' +
+        '<div class="alert info">站 ② 已锁定。下一站“分镜”iter 038 起开放。</div>';
+    }
+    html += "</div></div>";
+    return html;
+  }
+
+  function bindStationHooksActions() {
+    const btn = document.getElementById("generate-hooks");
+    if (!btn) return;
+    btn.addEventListener("click", async function () {
+      btn.disabled = true;
+      try {
+        const data = await postJson(wsUrl("/drama/hooks"), {});
+        const hooks = data.hooks || [];
+        const pane = document.querySelector('[data-station-pane="hook"]');
+        pane.innerHTML = '<div class="card"><div class="card-header"><h3 class="ornament">3 个候选 — 选 1 个</h3></div>' +
+          '<div class="card-body stack">' +
+          hooks.map(function (h, i) {
+            return '<div class="advisor-item">' +
+              '<span class="type">' + escapeHtml(h.type || "") + "</span>" +
+              '<div class="guidance">' + escapeHtml(h.content || "") + "</div>" +
+              '<button class="btn btn-secondary btn-sm" data-hook-pick="' + i + '">选这个 →</button>' +
+              '</div>';
+          }).join("") +
+          '</div></div>';
+        pane.addEventListener("click", async function (ev) {
+          const pick = ev.target.closest("[data-hook-pick]");
+          if (!pick) return;
+          const idx = Number(pick.getAttribute("data-hook-pick"));
+          try {
+            await putJson(wsUrl("/drama/setup"), { hook: hooks[idx] });
+            showToast("钩子已锁定", "info");
+            await loadStationHooks();
+            await loadDramaProgress();
+          } catch (err) {
+            showToast("保存失败：" + err.message, "error");
+          }
+        });
+      } catch (err) {
+        showToast("生成失败：" + err.message, "error");
+        btn.disabled = false;
+      }
+    });
+  }
+
   // ===== page: jobs =======================================================
   async function initJobs() {
     const recentBox = document.getElementById("jobs-recent");
@@ -2169,6 +2436,7 @@ JS_DASHBOARD = """\
     if (pageKind === "reviews") return initReviews();
     if (pageKind === "plan") return initPlan();
     if (pageKind === "insights") return initInsights();
+    if (pageKind === "drama_write") return initDramaWrite();
     if (pageKind === "jobs") return initJobs();
   }
   document.addEventListener("DOMContentLoaded", boot);
@@ -2241,14 +2509,21 @@ JS_WIZARD = """\
     dramaForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       dramaErrBox.innerHTML = "";
-      const ws = dramaForm.elements.workspace.value.trim();
+      const fd = new FormData(dramaForm);
+      const payload = {
+        workspace: (fd.get("workspace") || "").trim(),
+        topic: (fd.get("topic") || "").trim(),
+        track: fd.get("track") || "",
+        episode_count: Number(fd.get("episode_count") || 0),
+        episode_duration_seconds: Number(fd.get("episode_duration_seconds") || 0),
+      };
       const submitBtn = dramaForm.querySelector("button[type=submit]");
       submitBtn.disabled = true;
       try {
         const res = await fetch("/api/wizard/drama-start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workspace: ws }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -2259,7 +2534,7 @@ JS_WIZARD = """\
         }
         sessionStorage.setItem("__pending_toast",
           JSON.stringify({ kind: "info", msg: "短剧 workspace 已创建：" + data.name }));
-        window.location.href = "/w/" + encodeURIComponent(data.name) + "/";
+        window.location.href = "/w/" + encodeURIComponent(data.name) + "/write?step=setup";
       } catch (err) {
         dramaErrBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
         submitBtn.disabled = false;

@@ -311,12 +311,15 @@ class RoutesGetTests(unittest.TestCase):
         key2 = routes._overview_cache_key(["beta"])
         self.assertNotEqual(key1, key2)
 
-    def test_drama_sidebar_only_exposes_overview_and_jobs(self) -> None:
+    def test_drama_sidebar_exposes_overview_write_jobs(self) -> None:
+        # Updated iter 037: drama sidebar now includes "write" for stations 1 and 2.
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
         status, _ct, body = routes.dispatch("GET", "/w/beta/")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn("作品 · 短剧", html)
+        self.assertIn('href="/w/beta/"', html)
+        self.assertIn('href="/w/beta/write"', html)
         self.assertIn('href="/w/beta/jobs"', html)
         self.assertIn('id="delete-workspace-btn"', html)
         self.assertNotIn('href="/w/beta/continue"', html)
@@ -329,6 +332,28 @@ class RoutesGetTests(unittest.TestCase):
             "overview-detail-cost",
         ):
             self.assertNotIn(f'id="{element_id}"', html)
+
+    def test_drama_write_page_renders_four_station_tabs(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        status, _ct, body = routes.dispatch("GET", "/w/beta/write")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('window.PAGE_KIND = "drama_write"', html)
+        for tab in ("setup", "hook", "storyboard", "characters"):
+            self.assertIn(f'data-tab="{tab}"', html)
+            self.assertIn(f'data-station-pane="{tab}"', html)
+        self.assertIn("iter 038 起开放", html)
+
+    def test_drama_write_storyboard_step_renders_empty_state_not_404(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        status, _ct, body = routes.dispatch("GET", "/w/beta/write?step=storyboard")
+        self.assertEqual(status, 200)
+        self.assertIn("分镜表", body.decode("utf-8"))
+
+    def test_novel_workspace_write_page_404(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/write")
+        self.assertEqual(status, 404)
+        self.assertIn("drama workspaces only", body.decode("utf-8"))
 
     def test_drama_novel_only_pages_404(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
@@ -537,8 +562,34 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
         self.assertIn("_ALLOWED_TAB_KEYS", js)
-        for kw in ("body", "review", "lint", "advisor", "history", "chapters", "outline", "decisions"):
+        for kw in (
+            "body",
+            "review",
+            "lint",
+            "advisor",
+            "history",
+            "chapters",
+            "outline",
+            "decisions",
+            "setup",
+            "hook",
+            "storyboard",
+            "characters",
+        ):
             self.assertIn(f'"{kw}"', js)
+
+    def test_static_js_has_drama_write_identifiers(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        for kw in (
+            "initDramaWrite",
+            "loadStationSetup",
+            "loadStationHooks",
+            "loadDramaProgress",
+            "data-station-pane",
+        ):
+            self.assertIn(kw, js)
 
     def test_static_js_has_type_badge(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")

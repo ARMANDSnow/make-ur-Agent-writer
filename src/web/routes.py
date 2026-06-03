@@ -178,6 +178,23 @@ def render_workspace_overview(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_overview(name, list_workspaces()))
 
 
+def render_workspace_write_page(name: str) -> Tuple[int, str, bytes]:
+    """Drama-only 4-station write wizard page."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_write(name, list_workspaces()))
+
+
 def render_workspace_continue(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard_novel_only(name)
     if guard:
@@ -538,6 +555,104 @@ def api_workspace_plan(name: str) -> Tuple[int, str, bytes]:
 
     with use_workspace(name):
         return _json(200, collect_plan())
+
+
+def _drama_endpoint_error(name: str) -> Optional[Tuple[int, str, bytes]]:
+    if not _validate_workspace_name(name):
+        return _json(400, {"error": "invalid workspace name"})
+    if not _workspace_exists(name):
+        return _json(404, {"error": f"workspace not found: {name}"})
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _json(400, {"error": "drama-only endpoint"})
+    return None
+
+
+def api_drama_progress(name: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .drama_view import collect_drama_progress
+
+    return _json(200, collect_drama_progress(name))
+
+
+def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .. import drama_planner
+
+    try:
+        result = drama_planner.run(name, mock=True)
+    except FileNotFoundError as exc:
+        return _json(500, {"error": str(exc)})
+    except (ValueError, NotImplementedError) as exc:
+        return _json(400, {"error": str(exc)})
+
+    setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
+    setup_path.parent.mkdir(parents=True, exist_ok=True)
+    setup_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    _clear_overview_cache()
+    return _json(200, result)
+
+
+def api_drama_hooks(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .. import hook_designer
+
+    try:
+        result = hook_designer.run(name, mock=True)
+    except FileNotFoundError as exc:
+        return _json(500, {"error": str(exc)})
+    except (ValueError, NotImplementedError) as exc:
+        return _json(400, {"error": str(exc)})
+    return _json(200, result)
+
+
+def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+
+    setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
+    if not setup_path.is_file():
+        return _json(400, {"error": "station 1 must run first"})
+    try:
+        setup = json.loads(setup_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return _json(500, {"error": f"failed to read setup: {exc}"})
+    if not isinstance(setup, dict):
+        return _json(500, {"error": "setup file must be a JSON object"})
+
+    core_keys = {"logline", "protagonist", "antagonist", "emotional_hook"}
+    if any(k in payload for k in core_keys):
+        core = setup.setdefault("core_setup", {})
+        if not isinstance(core, dict):
+            core = {}
+            setup["core_setup"] = core
+        if "logline" in payload:
+            setup["logline"] = payload["logline"]
+        for key in ("protagonist", "antagonist", "emotional_hook"):
+            if key in payload:
+                core[key] = payload[key]
+    if "hook" in payload:
+        if not isinstance(payload["hook"], dict):
+            return _json(400, {"error": "'hook' must be an object"})
+        setup["hook"] = payload["hook"]
+
+    setup_path.write_text(json.dumps(setup, ensure_ascii=False, indent=2), encoding="utf-8")
+    _clear_overview_cache()
+    return _json(200, {"saved": True})
 
 
 def api_workspace_readiness(
@@ -924,6 +1039,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/workspace/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_redirect(name)),
     # iter 032: new workspace-scoped IA
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_overview(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/write/?$"), lambda name, **_: render_workspace_write_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/continue/?$"), lambda name, **_: render_workspace_continue(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/chapters/?$"), lambda name, **_: render_workspace_chapters(name)),
     (
@@ -965,6 +1081,22 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: api_workspace_reviews(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/plan/?$"), lambda name, **_: api_workspace_plan(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/insights/?$"), lambda name, **_: api_workspace_insights(name)),
+    ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/progress/?$"), lambda name, **_: api_drama_progress(name)),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/plan/?$"),
+        lambda name, _body=b"", **_: api_drama_plan(name, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/hooks/?$"),
+        lambda name, _body=b"", **_: api_drama_hooks(name, _body),
+    ),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/setup/?$"),
+        lambda name, _body=b"", **_: api_drama_setup_save(name, _body),
+    ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drafts/?$"), lambda name, **_: api_workspace_drafts(name)),
     (
         "GET",
