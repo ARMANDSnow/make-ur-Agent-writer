@@ -442,8 +442,75 @@ Subagent read-only audit:
 
 ## 8. Acceptance Result（Claude 验收后填）
 
-> 由 Claude（reviewer）填写 §5 的 V1-V10 结果 + 通过 / 退回意见。
+**验收人**：Claude · **验收日**：2026-06-03 · **基线**：commit `fd956c7`
+**判定**：✅ **接受**（accept），无 P0 / P1 / P2 退回项。本轮把 iter 034 留下的 4 个 P2/P3 防御纵深项**全部关闭**。
 
-```
-(待 Claude 验收后填写)
-```
+### 验收方法说明
+
+iter 035 是设计上的"小工程清扫"轮：4 个 P2/P3 修法在施工单 §A 里已经给出完整代码片段 + 行号，Codex 几乎是 1:1 落地 + 自加 1 个边界测试。验收路径是**纯代码级 + dispatcher + 单测**，不需要浏览器：
+
+1. 全套 `unittest discover`：**465 → 468 OK**（+3 trash 安全测试），6 ERROR 与 iter 034 完全一致（沙箱 socket-bind PermissionError）
+2. dispatcher 级冒烟：12 路径全部 200
+3. trash `_safe_entry_path` 运行时：7 个边界 case 全 PASS（4 拒 + 3 通）
+4. 24/24 保留 JS 标识符 + 协议表达式命中
+5. A2 改动 diff 严格限定在 `renderPlanChapters` + `renderDecisions`，未污染 Insights/Chapters
+
+### V1-V10 逐项判定
+
+| # | 项 | 判定 | 证据 |
+|---|---|---|---|
+| V1 | A1 `_safe_entry_path` 实现 + restore/purge 调用 | ✅ | `trash.py` 三处全在；inspect.getsource 验证 |
+| V2 | A1 trash 单测全过 | ✅ | 3 新 trash test 全过；7 个 case 运行时全 PASS |
+| V3 | A1 route `reserved_name` → 400 映射 | ✅ | `routes.py` grep `"reserved_name": 400` 命中 |
+| V4 | A2 `Array.isArray` 计数 ≥ 5 | ✅ | 恰好 5 处，零超调 |
+| V5 | A2 改动限于 `renderPlanChapters` / `renderDecisions` | ✅ | git diff 验证：5 个修改全部落在两个函数体内 |
+| V6 | A3 `_ALLOWED_TAB_KEYS` + 8 tokens + indexOf 检查 | ✅ | 全部命中；新增注释"Keep in sync with chapter-detail and plan-view tab keys" |
+| V7 | A4 iter 034 PLAN §7 注脚 | ✅ | iter 034 PLAN line 1037 起新增 3 行注脚 |
+| V8 | dispatcher 12 路径 200 | ✅ | 全 200 |
+| V9 | 22 + 1 + 1 = 24/24 标识符 | ✅ | 全部命中（含新增 `_ALLOWED_TAB_KEYS`） |
+| V10 | 全套 unittest 6 ERROR 不变 | ✅ | 468 tests，6 ERROR 全部是 iter 032 起的沙箱 socket-bind |
+
+### Codex 主动增项（不在施工单内但贴题）
+
+- **`test_trash_restore_rejects_newline_entry`**（`tests/test_web_routes_post.py`）：URL-encoded newline 在 entry name 里被 `_TRASH_ENTRY_RE` 挡回返 400。计划没要求，是优秀的边界测试，恰好覆盖"helper 自防 vs route 自防"双闸的 route 侧那一闸。
+
+### iter 033/034 backlog 关闭情况
+
+| iter 034 §8 列出的 follow-up | iter 035 关闭 |
+|---|---|
+| [P2] trash.py 入口自防 `..` 与保留名 | ✅ A1 全闭 |
+| [P2] static.py renderPlan* `Array.isArray` 兜底（5 处） | ✅ A2 全闭，零超调 |
+| [P3] static.py bindHashTabs 白名单 | ✅ A3 全闭 |
+| [P3] iter 034 §7 Run Log 6-ERROR 注脚 | ✅ A4 全闭 |
+
+**4/4 全关。iter 035 起进入 iter 036 开新模块前的洁净 baseline。**
+
+### Codex 工作模式观察
+
+| iter | 模式 |
+|---|---|
+| 032 | 按图施工 |
+| 033 | 按图精装 + 主动防护（Mendel 自审） |
+| 034 | 按图精装 + 主动防护 + 主动暴露 follow-up（2 subagent 并行审） |
+| **035** | **按图 1:1 落地 + 自加边界测试 + 不超调** |
+
+iter 035 是反过来的成熟标志：**当施工单本身已经把每一处行号 / 代码片段 / 阈值都写死时，Codex 不再"做加法"，而是精确按图执行 + 留一个小边界测试** —— 这正是 §3 铁律最希望看到的工作姿态。
+
+### 已记录的残留风险（不阻塞）
+
+- delete vs job-start race 已在 iter 034 关闭，本轮不重审
+- restore "覆盖原有同名工作区" 选项仍未做（留 iter 036+）
+- `_trash/` 自动定期清理仍未做（留 iter 036+）
+
+### 验收结论
+
+**iter 035 accept**，iter 034 follow-up backlog 完全清零。iter 036 起的短剧模块可以基于 `fd956c7` 这个干净 baseline 开工，按 `docs/product/short_drama_module.md` §7 的 036-039 拆分逐轮执行。
+
+### 给 iter 036 起始的状态记录
+
+- **baseline commit**：`fd956c7`
+- **代码量**：~5500 行 `src/web/` + ~2000 行 `tests/` + ~3500 行 `docs/`
+- **保留 JS 标识符**：24 个（含 iter 035 新增 `_ALLOWED_TAB_KEYS`）
+- **侧栏 sections**：7 项 （overview / continue / plan / chapters / reviews / insights / jobs）
+- **顶栏全局入口**：3 项（♻ 回收站 / ⚙ 设置 / + 新建）
+- **产品定义书**：`docs/product/short_drama_module.md` v0 已落盘，待用户 review D1-D5 后定 v1
