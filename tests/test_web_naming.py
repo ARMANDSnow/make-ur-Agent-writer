@@ -13,6 +13,9 @@ class NamingSharedModuleTests(unittest.TestCase):
     def test_legacy_rejected(self) -> None:
         self.assertFalse(_naming.validate_workspace_name("legacy"))
 
+    def test_trash_reserved(self) -> None:
+        self.assertFalse(_naming.validate_workspace_name("_trash"))
+
     def test_valid_ascii(self) -> None:
         for ok in ("alpha", "alpha_beta", "alpha-beta", "a1b2c3", "_x", "x_"):
             self.assertTrue(_naming.validate_workspace_name(ok), f"rejected {ok!r}")
@@ -47,6 +50,7 @@ class CrossModuleSyncTests(unittest.TestCase):
             "龙族",
             "-bad",
             "legacy",
+            "_trash",
             "ok_name-1",
             "..escape",
             "a" * 32,

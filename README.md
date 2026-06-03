@@ -7,8 +7,8 @@
 [简体中文](README.md) · [English](README_EN.md)
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-421_passing-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
-[![Iterations](https://img.shields.io/badge/iterations-31_logged-orange.svg)](docs/iterations/)
+[![Tests](https://img.shields.io/badge/tests-446_passing-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
+[![Iterations](https://img.shields.io/badge/iterations-33_logged-orange.svg)](docs/iterations/)
 [![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
 [![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
 
@@ -32,16 +32,16 @@
 
 | 层 | 在代码里长什么样 |
 |---|---|
-| **Mock 优先开发** | 421 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
+| **Mock 优先开发** | 446 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
 | **Preflight 守门** | 真模型跑之前 7 类 FATAL 检查 + N 条 WARN：env / context limit / agents 配置 / rolling state / manifest 完整性 / **provider routing** / 人工事实 / cache 提供商提示。 |
 | **多 workspace 隔离** | iter 017：每本书一个 `workspaces/<name>/{data,outputs,小说txt,logs}/`。`--book myBook` 切换；sha256 baseline 4/4 互不污染。 |
 | **多语言切章 + EPUB 提取** | iter 018：CJK 字符比率自动判中英；中文 `第N章` / 英文 `CHAPTER / POV / 全大写` 两套 regex。`.epub` 用 stdlib `zipfile + xml.etree + html.parser` 直接转 txt，**零新依赖**。 |
-| **本地 Beta 写作入口** | iter 029-032：CLI 用 `write-readiness -> write-book`；Web 走 `/` 书架 → `/w/{name}/` 概览 → 侧栏切换续写 / 章节 / 评审 / 任务；章节详情页 `/w/{name}/chapter/{n}` 展示 reviewer 子分数、lint anchor、advisor 改写建议。 |
+| **本地 Beta 写作入口** | iter 029-033：CLI 用 `write-readiness -> write-book`；Web 走 `/` 书架 → `/w/{name}/` 概览 → 侧栏切换续写 / 章节 / 评审 / 数据 / 任务；章节详情页 `/w/{name}/chapter/{n}` 展示 reviewer 子分数、lint anchor、advisor 改写建议，并支持 lint anchor 跳正文。 |
 | **Reviewer fail-closed** | iter 019 audit：5-agent 中任一 JSON 解析失败，记 `Abstain + _fallback_reason="(parse_failed)"`，不当 Approve；最终 verdict 任一 substantive Reject → Reject，零 substantive Approve → Reject。 |
 | **带 timeline 的 Entity graph** | 角色/地点/概念作为 entity；关系携带 `timeline[]`，`active=true` 标记当前续写起点状态。**writer 只看 active state**；"关系一致性" reviewer 对照核验。 |
 | **成本遥测** | 每次 LLM 调用记 `request_hash`、prompt/response tokens、cache_read/cache_write tokens。`estimate-cost` 按 provider 单价聚合。龙族 ch1 真模型实测：30 calls / 143K prompt（cache 命中 58%）/ 36K response / **~¥0.45**。 |
 | **Persona 抽象** | iter 016：debate / reviewer 的 5 agent 不再硬编码龙族角色名；每本书 `init-book` 自动用 LLM 出 personas proposal → 人工审 → 落 `data/manual_overrides/personas.json`，模板渲染。 |
-| **迭代日志** | [31 条](docs/iterations/)，每条 Context / Plan / Acceptance / 实测数字 / File summary 完整工程复盘。仓库本身就是一份工程日记。 |
+| **迭代日志** | [33 条](docs/iterations/)，每条 Context / Plan / Acceptance / 实测数字 / File summary 完整工程复盘。仓库本身就是一份工程日记。 |
 
 ---
 
@@ -53,7 +53,7 @@
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
 cd make-ur-Agent-writer
 pip install -r requirements.txt
-bash scripts/verify.sh      # 421 unit tests + 全流水线 mock，退出 0 = 接通
+bash scripts/verify.sh      # 446 unit tests + 全流水线 mock，退出 0 = 接通
 ```
 
 ### 真模型模式（gpt-5.5 / deepseek / 任何 OpenAI 兼容 provider）
@@ -105,7 +105,7 @@ bash scripts/write_book.sh --book myBook --chapters 3
 
 切换书只改一个 flag（`--book otherBook`），或 `export WORKSPACE_NAME=otherBook` 一次性生效。`workspace-list` / `workspace-show` 看现有 workspace。
 
-### Run the writing cockpit（iter 030-031）
+### Run the writing cockpit（iter 030-033）
 
 CLI 看完状态嫌切来切去？跑一个本地浏览器写作工作台：
 
@@ -252,7 +252,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 032（2026-06-02）** — WebUI 信息架构重组与视觉重做：把 iter 025-031 累积的"单页 5 tab"拆成 `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}` 多个子页面 + 持久左侧栏；新增 Chapter 详情页（reviewer 子分数 + lint anchor + advisor + rewrite 历史）；统一文学化暖色调设计 tokens；旧 `/workspace/{name}` 301 兼容。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 033（2026-06-03）** — WebUI 补齐日常使用缺口：工作区删除改为二次确认 + `_trash` 软删除；新增 `/w/{name}/insights` 数据页（每章成本、cache 命中、reviewer 子分数热力图）；Chapter 详情页 lint anchor 可跳回正文段落并短暂高亮；Web job 终态和删除后跳转会显示 toast。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -343,6 +343,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.5 | Web “继续写书”本地 Beta 入口 | ✅ | **iter 029**（dashboard 显示 readiness、阻塞原因、推荐命令；普通区不展示 `draft-once-dev`） |
 | U.6 | Web 写作工作台 | ✅ | **iter 030-031**（首页 workspace overview；详情页设置起点/覆盖式重生成计划/继续写书/只读 draft 预览/最近 job 恢复；iter 031 加坏 plan 容错、懒加载、debounce、短 TTL cache） |
 | U.7 | Web 信息架构 + 视觉系统 | ✅ | **iter 032**（侧栏 + 工作区子页面 `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}`；旧 `/workspace/{name}` → 301；文学化暖色调 design tokens；统一组件库；新 Chapter 详情页曝光 reviewer 子分数 / lint anchor / advisor / rewrite 历史） |
+| U.8 | Web 日常使用补齐 | ✅ | **iter 033**（工作区二次确认软删除到 `_trash`；新增 `/w/{name}/insights` 数据页；lint anchor → 正文段落跳转 + 高亮；job terminal / 跨页删除 toast） |
 
 ---
 

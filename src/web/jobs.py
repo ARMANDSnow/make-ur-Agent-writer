@@ -186,6 +186,12 @@ def workspace_busy(workspace: str) -> Optional[str]:
         return _WORKSPACE_JOBS.get(workspace)
 
 
+def workspace_running_job(workspace: str) -> Optional[str]:
+    """Return the running job_id for ``workspace`` if any, else None."""
+    with _WORKSPACE_LOCK:
+        return _WORKSPACE_JOBS.get(workspace)
+
+
 # ---- step dispatch ---------------------------------------------------------
 
 

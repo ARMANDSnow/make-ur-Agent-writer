@@ -710,3 +710,35 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. 用户体验入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`；老书签 `/workspace/{name}` 会自动 301 到 `/w/{name}/`。
 2. 真模型长跑仍先跑 CLI/Web readiness。
 3. 后续候选（iter 033）：Insights 仪表盘（cost burn + cache 命中率 + 子分数热力图）、Plan viewer、World viewer、章节 diff、lint anchor → 正文跳转、Toast 通知接事件总线、暗色模式、章节全文搜索。
+
+
+---
+
+## Phase 4 Status（iter 033，2026-06-03）
+
+### Iteration 033 — 工作区删除 + Insights + Lint 跳转 + Toast（mock-only）
+
+**目标**：按 `docs/iterations/iteration_033_PLAN.md` §2 顺序补齐 WebUI 日常使用的 4 个缺口：工作区删除、Insights 数据页、lint anchor 跳正文、任务终态 toast。保持 iter 032 视觉 token，不引入真模型调用。
+
+**主要落地**：
+- 工作区删除：`POST /api/workspace/<name>/delete` 要求 confirm 字段逐字匹配 workspace 名；已有运行 job 时返回 409；成功后把 `workspaces/<name>/` 原子 rename 到 `workspaces/_trash/<name>__<ts>/`，清 overview cache，并由前端跳回书架显示 toast。Web/CLI 创建路径均把 `_trash` 设为保留名。
+- Insights：新增 `/w/{name}/insights` 与 `/api/workspace/<name>/insights`，只读聚合 `llm_calls.jsonl` 的 per-chapter cost、按 model 的 cache_read/cache_write 命中率，以及 `chapter_NN.meta.json` / review JSON 的 reviewer sub_scores 热力表。
+- Chapter 详情页 lint 跳转：正文渲染保留真实 source line 为 `data-line`；lint issue 优先读 deterministic linter 的 `line` 字段，fallback 到 numeric/object anchor；点击 lint 行切回正文并用 `.jump-highlight` 短暂高亮目标行。
+- Toast：基础壳新增 `toast-stack`；job poll terminal status 和删除后跨页跳转都会显示通知。
+- 修复一个既有生成 JS quote bug：`renderKV()` 拼接字符串现在通过 `node --check /tmp/iter033_app.js`。
+
+**验证进度**：
+- §4 四块命令原文输出已粘贴到 `docs/iterations/iteration_033_PLAN.md` §7；普通沙箱 `unittest discover` 仍为 446 tests + 6 个已知 `socket.bind PermissionError`。
+- Targeted Web tests：`tests.test_web_routes_get tests.test_web_routes_post tests.test_web_insights tests.test_web_trash tests.test_web_naming` → 60 OK。
+- Full `scripts/verify.sh`：普通沙箱同 6 个 socket bind error；提权后 446 tests OK + mock auto-pipeline OK。
+- `python3 main.py preflight`（mock）→ PREFLIGHT ok；FATAL none；WARN none。
+- Browser smoke：用 `/private/tmp` 临时 workspace 启动 WebUI，确认 `lint_issues: [{"line": 4, ...}]` 渲染成 `li[data-jump-line="4"]`；点击后 `#lint` → `#body`，目标 `data-line="4"` 为 `第二段有问题。`，并出现 `jump-highlight` 高亮。
+
+**Subagent 审核**：
+- Mendel 做了只读结构/程序审核，覆盖 soft delete、Insights、lint jump、toast、§7 输出。审核初始结论为 no-go，指出 lint jump 误读 `anchor` 而非真实 `line`；本轮已修复并补回测试/浏览器 smoke。
+- 未修风险：删除 API 的 busy check 与并发 job start 之间仍有一个很窄的单用户本地竞态窗口。当前已拒绝已运行 job 的删除；未来若 Web 从单用户 Beta 升级，可在 jobs 层增加 delete reservation 做原子占位。
+
+**当前接力点**：
+1. 用户体验入口仍是 `.venv/bin/python3 main.py web` → `http://127.0.0.1:8765/`。
+2. Web 现有主路径：`/` 书架 → `/w/{name}/` 概览 → 侧栏继续写 / 章节 / 评审 / 数据 / 任务；删除入口只放概览页，成功移入 `_trash`。
+3. 下一步候选：Plan viewer、World viewer、章节 diff、全文搜索、暗色模式、Insights 增量索引/更多图表、真模型 capstone、删除与 job start 的原子 reservation。

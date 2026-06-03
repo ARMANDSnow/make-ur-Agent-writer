@@ -51,6 +51,7 @@ _BASE_TPL = Template(
     <main class="page">
       $MAIN
     </main>
+    <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
   </div>
 </div>
 <script>
@@ -102,6 +103,7 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
     ("continue", "续写", "continue"),
     ("chapters", "章节", "chapters"),
     ("reviews", "评审", "reviews"),
+    ("insights", "数据", "insights"),
     ("jobs", "任务", "jobs"),
 )
 
@@ -217,6 +219,11 @@ def render_workspace_overview(name: str, workspaces: Iterable[str]) -> str:
         '<p class="muted">这一本书的全景：状态、下一步、最近活动。</p>'
         '</div>'
         '<div id="overview-status-badge"></div>'
+        '<div class="topbar-actions">'
+        '<button type="button" class="btn btn-danger btn-sm" id="delete-workspace-btn">'
+        '删除作品…'
+        '</button>'
+        '</div>'
         '</header>'
         '<section class="overview-hero">'
         '<div class="next-action" id="overview-next-action"></div>'
@@ -466,6 +473,47 @@ def render_workspace_reviews(name: str, workspaces: Iterable[str]) -> str:
         breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("评审", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="reviews"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: insights
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_insights(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">数据</p>'
+        '<h1>Insights</h1>'
+        '<p class="muted">每章成本 · 缓存命中率 · 评审子分数。全部从已落盘的 jsonl / meta 聚合，不发起新调用。</p>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">每章成本</h2>'
+        '<span class="hint">按 chapter_no 聚合 llm_calls.jsonl 的 cost_cny</span></div>'
+        '<div class="card"><div class="card-body" id="insights-cost"></div></div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">缓存命中率</h2>'
+        '<span class="hint">cache_read / (cache_read + cache_write) by model</span></div>'
+        '<div class="card"><div class="card-body" id="insights-cache"></div></div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">评审子分数</h2>'
+        '<span class="hint">每章平均；列 = plot / prose / fidelity / total</span></div>'
+        '<div class="card"><div class="card-body" id="insights-subscores"></div></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · Insights",
+        page_kind="insights",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("数据", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="insights"),
         workspace=name,
     )
 

@@ -643,6 +643,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 }
 .reading-body p { margin: 0 0 1.1em; text-indent: 2em; }
 .reading-body h1, .reading-body h2 { text-indent: 0; text-align: center; margin: 1.5em 0 .8em; }
+.reading-body .jump-highlight { background-color: var(--gold-soft); transition: background-color 1.5s ease; }
 .review-card {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) 2fr;
@@ -665,6 +666,8 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .lint-group ul { list-style: none; padding: 0; margin: 0; }
 .lint-group li { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--rule); font-size: var(--fs-sm); display: flex; gap: var(--space-3); }
 .lint-group li:last-child { border-bottom: 0; }
+.lint-group li.link-cell { cursor: pointer; }
+.lint-group li.link-cell:hover { background: var(--bg-sunken); }
 .lint-group li .anchor { color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-xs); }
 .lint-group li .severity { color: var(--gold); font-size: var(--fs-xs); }
 .lint-group li .severity.error { color: var(--sienna); }
@@ -716,6 +719,37 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+}
+
+/* iter 033: confirm modal */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: var(--bg-overlay);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 40;
+  padding: var(--space-5);
+}
+.modal {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.modal-header {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg);
+}
+.modal-body { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+.modal-footer {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--rule);
+  background: var(--bg-sunken);
+  display: flex; justify-content: flex-end; gap: var(--space-2);
 }
 
 /* ---------- responsive ---------- */
@@ -828,6 +862,20 @@ JS_DASHBOARD = """\
     });
   }
   bindCopy(document);
+
+  function showToast(msg, kind) {
+    const stack = document.getElementById("toast-stack");
+    if (!stack) return;
+    const el = document.createElement("div");
+    el.className = "toast" + (kind === "error" ? " error" : kind === "warn" ? " warn" : "");
+    el.textContent = msg;
+    stack.appendChild(el);
+    setTimeout(function () {
+      el.style.transition = "opacity .4s ease";
+      el.style.opacity = "0";
+      setTimeout(function () { el.remove(); }, 400);
+    }, 5000);
+  }
 
   // ---- shared: chapter detail tab routing (hash deep-link) --------------
   function bindHashTabs() {
@@ -958,6 +1006,7 @@ JS_DASHBOARD = """\
       if (summary) summary.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
     }
     loadOverviewDetails();
+    initDeleteWorkspace();
   }
   function renderOverview(item) {
     const readiness = item.readiness || {};
@@ -1048,9 +1097,76 @@ JS_DASHBOARD = """\
     const rows = [];
     for (const [k, v] of Object.entries(obj)) {
       const val = typeof v === "object" ? JSON.stringify(v) : String(v);
-      rows.push('<div class="k">' + escapeHtml(k) + "</div><div class=\"v\">" + escapeHtml(val) + "</div>");
+      rows.push('<div class="k">' + escapeHtml(k) + '</div><div class="v">' + escapeHtml(val) + "</div>");
     }
     return rows.length ? '<div class="kv-list compact">' + rows.join("") + "</div>" : '<p class="muted">(empty)</p>';
+  }
+
+  function initDeleteWorkspace() {
+    const btn = document.getElementById("delete-workspace-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      showDeleteModal(ws);
+    });
+  }
+
+  function showDeleteModal(name) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">' +
+      '<div class="modal-header" id="modal-title">删除作品 《' + escapeHtml(name) + '》</div>' +
+      '<div class="modal-body">' +
+      '<p>这一步会把整个工作区移动到 <code>workspaces/_trash/</code>，' +
+      '并不会立即从磁盘 rm。要彻底清理需要你手动删除 trash 目录。</p>' +
+      '<p>为了避免误删，请在下方输入 <strong>' + escapeHtml(name) + '</strong> 以确认。</p>' +
+      '<div class="field">' +
+      '<label>workspace 名</label>' +
+      '<input type="text" id="modal-confirm-input" autocomplete="off" placeholder="' +
+      escapeHtml(name) + '">' +
+      '</div>' +
+      '<div id="modal-error"></div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
+      '<button type="button" class="btn btn-danger" id="modal-confirm-btn" disabled>确认删除</button>' +
+      '</div>' +
+      '</div>';
+    document.body.appendChild(backdrop);
+    const input = backdrop.querySelector("#modal-confirm-input");
+    const confirmBtn = backdrop.querySelector("#modal-confirm-btn");
+    const errBox = backdrop.querySelector("#modal-error");
+    function closeModal() {
+      document.removeEventListener("keydown", onKeyDown);
+      backdrop.remove();
+    }
+    function onKeyDown(ev) {
+      if (ev.key === "Escape") closeModal();
+    }
+    input.addEventListener("input", function () {
+      confirmBtn.disabled = input.value !== name;
+    });
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) {
+        closeModal();
+      }
+    });
+    document.addEventListener("keydown", onKeyDown);
+    confirmBtn.addEventListener("click", async function () {
+      confirmBtn.disabled = true;
+      errBox.innerHTML = '<div class="alert info">正在移动到 trash…</div>';
+      try {
+        const data = await postJson("/api/workspace/" + encodeURIComponent(name) + "/delete",
+          { confirm: name });
+        sessionStorage.setItem("__pending_toast",
+          JSON.stringify({ kind: "info", msg: "已删除 《" + name + "》 → " + data.trashed_to }));
+        window.location.href = "/";
+      } catch (err) {
+        errBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        confirmBtn.disabled = false;
+      }
+    });
+    setTimeout(() => input.focus(), 0);
   }
 
   // ===== page: continue (start-point + plan + write-book cockpit) =========
@@ -1284,6 +1400,13 @@ JS_DASHBOARD = """\
       const terminal = ["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"];
       if (terminal.indexOf(job.status) >= 0) {
         if (submit) submit.disabled = false;
+        const stepLabel = job.step || job.current_step || "task";
+        if (job.status === "succeeded") {
+          showToast(stepLabel + " 已完成", "info");
+        } else {
+          const reason = (job.error || "").split("\\n")[0].slice(0, 80);
+          showToast(stepLabel + " · " + job.status + (reason ? "：" + reason : ""), "error");
+        }
         if (afterDone) await afterDone();
         return;
       }
@@ -1394,6 +1517,7 @@ JS_DASHBOARD = """\
   // ===== page: chapter detail ============================================
   async function initChapterDetail() {
     bindHashTabs();
+    bindLintJump();
     const num = window.CHAPTER_NO;
     if (!num) return;
     try {
@@ -1403,6 +1527,59 @@ JS_DASHBOARD = """\
       document.getElementById("chapter-body").innerHTML =
         '<div class="alert error">' + escapeHtml(err.message) + "</div>";
     }
+  }
+  function _asLineNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  function _extractAnchorLine(anchor) {
+    if (anchor == null) return null;
+    if (typeof anchor === "number" || typeof anchor === "string") return _asLineNumber(anchor);
+    if (typeof anchor === "object") {
+      for (const k of ["paragraph", "line", "para", "index"]) {
+        const n = _asLineNumber(anchor[k]);
+        if (n != null) return n;
+      }
+    }
+    return null;
+  }
+  function _extractIssueLine(issue) {
+    const line = _asLineNumber(issue && issue.line);
+    return line != null ? line : _extractAnchorLine(issue && issue.anchor);
+  }
+  function _findReadingLine(line) {
+    let target = document.querySelector('.reading-body [data-line="' + line + '"]');
+    if (!target) {
+      const nodes = Array.from(document.querySelectorAll(".reading-body [data-line]"));
+      target = nodes.find((el) => Number(el.getAttribute("data-line")) >= line) || nodes[nodes.length - 1];
+    }
+    return target || null;
+  }
+  function _highlightReadingLine(target) {
+    if (!target) return;
+    target.classList.remove("jump-highlight");
+    void target.offsetWidth;
+    target.classList.add("jump-highlight");
+    setTimeout(function () { target.classList.remove("jump-highlight"); }, 4000);
+  }
+  function jumpToParagraph(line) {
+    _highlightReadingLine(_findReadingLine(line));
+    const tabBody = document.querySelector('.tab[data-tab="body"]');
+    if (tabBody) tabBody.click();
+    setTimeout(function () {
+      const target = _findReadingLine(line);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      _highlightReadingLine(target);
+    }, 50);
+  }
+  function bindLintJump() {
+    document.addEventListener("click", function (ev) {
+      const li = ev.target.closest("li[data-jump-line]");
+      if (!li) return;
+      const line = Number(li.getAttribute("data-jump-line"));
+      if (Number.isFinite(line)) jumpToParagraph(line);
+    });
   }
   function renderChapterDetail(data) {
     const meta = data.meta || {};
@@ -1422,13 +1599,16 @@ JS_DASHBOARD = """\
     // body — render as paragraphs
     const body = document.getElementById("chapter-body");
     if (body) {
-      const lines = (data.content || "").split(/\\n+/);
+      const lines = (data.content || "").split(/\\n/);
       body.innerHTML = '<div class="reading-body">' +
-        lines.map((line) => line.trim() ? (
-          line.startsWith("#") ?
-            '<h2>' + escapeHtml(line.replace(/^#+\\s*/, "")) + "</h2>" :
-            '<p>' + escapeHtml(line) + "</p>"
-        ) : "").join("") + "</div>";
+        lines.map((line, idx) => {
+          const sourceLine = idx + 1;
+          if (!line.trim()) return "";
+          if (line.startsWith("#")) {
+            return '<h2 data-line="' + sourceLine + '">' + escapeHtml(line.replace(/^#+\\s*/, "")) + "</h2>";
+          }
+          return '<p data-line="' + sourceLine + '">' + escapeHtml(line) + "</p>";
+        }).join("") + "</div>";
     }
     // reviews tab
     const reviewsBox = document.getElementById("tab-review");
@@ -1459,11 +1639,15 @@ JS_DASHBOARD = """\
             '<div class="lint-group">' +
             '<h4>' + escapeHtml(rule) + " · " + list.length + "</h4>" +
             "<ul>" +
-            list.map((it) => '<li><span class="severity ' + escapeHtml((it.severity || "").toLowerCase()) +
-              '">' + escapeHtml(it.severity || "info") + "</span>" +
-              "<span>" + escapeHtml(it.message || JSON.stringify(it)) + "</span>" +
-              (it.anchor ? '<span class="anchor">@ ' + escapeHtml(JSON.stringify(it.anchor)) + "</span>" : "") +
-              "</li>").join("") +
+            list.map((it) => {
+              const anchorLine = _extractIssueLine(it);
+              return '<li' + (anchorLine != null ? ' class="link-cell" data-jump-line="' + anchorLine + '"' : "") + '>' +
+                '<span class="severity ' + escapeHtml((it.severity || "").toLowerCase()) + '">' +
+                escapeHtml(it.severity || "info") + '</span>' +
+                '<span>' + escapeHtml(it.message || JSON.stringify(it)) + '</span>' +
+                (it.anchor ? '<span class="anchor">@ ' + escapeHtml(JSON.stringify(it.anchor)) + '</span>' : '') +
+                '</li>';
+            }).join("") +
             "</ul>" +
             "</div>"
           );
@@ -1566,6 +1750,84 @@ JS_DASHBOARD = """\
     }
   }
 
+  // ===== page: insights ==================================================
+  async function initInsights() {
+    const costBox = document.getElementById("insights-cost");
+    const cacheBox = document.getElementById("insights-cache");
+    const subBox = document.getElementById("insights-subscores");
+    if (!costBox || !cacheBox || !subBox) return;
+    costBox.innerHTML = skeleton(4);
+    cacheBox.innerHTML = skeleton(3);
+    subBox.innerHTML = skeleton(5);
+    try {
+      const data = await fetchJson(wsUrl("/insights"));
+      renderCostByChapter(costBox, data.cost_by_chapter || []);
+      renderCacheByModel(cacheBox, data.cache_by_model || []);
+      renderSubscores(subBox, data.subscores || []);
+    } catch (err) {
+      costBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      cacheBox.innerHTML = "";
+      subBox.innerHTML = "";
+    }
+  }
+
+  function renderCostByChapter(box, rows) {
+    if (!rows.length) { box.innerHTML = '<p class="muted">尚无 llm_calls 记录。</p>'; return; }
+    const max = Math.max.apply(null, rows.map((r) => r.cost_cny || 0)) || 1;
+    const lines = rows.map((r) => {
+      const cost = Number(r.cost_cny || 0);
+      const pct = Math.round((cost / max) * 100);
+      return (
+        '<div style="display:grid;grid-template-columns:56px 1fr 80px;gap:8px;align-items:center;margin-bottom:6px">' +
+        '<span class="muted" style="text-align:right">ch ' + r.chapter + '</span>' +
+        '<div class="progress" style="height:14px"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+        '<span style="font-family:var(--font-mono);font-size:var(--fs-xs)">¥' + cost.toFixed(3) +
+        ' · ' + r.calls + ' 次</span>' +
+        '</div>'
+      );
+    }).join("");
+    box.innerHTML = lines;
+  }
+
+  function renderCacheByModel(box, rows) {
+    if (!rows.length) { box.innerHTML = '<p class="muted">尚无 llm_calls 记录。</p>'; return; }
+    const lines = rows.map((r) => {
+      const pct = Math.round((r.hit_ratio || 0) * 100);
+      return (
+        '<div class="kv-list compact" style="margin-bottom:8px">' +
+        '<div class="k">model</div><div class="v"><code>' + escapeHtml(r.model) + '</code></div>' +
+        '<div class="k">calls</div><div class="v">' + r.calls + '</div>' +
+        '<div class="k">cache_read</div><div class="v">' + r.cache_read_tokens + '</div>' +
+        '<div class="k">cache_write</div><div class="v">' + r.cache_write_tokens + '</div>' +
+        '<div class="k">hit_ratio</div><div class="v">' +
+        '<div class="progress" style="display:inline-block;width:120px;vertical-align:middle">' +
+        '<div class="progress-fill" style="width:' + pct + '%"></div></div> ' + pct + '%</div>' +
+        '</div>'
+      );
+    }).join("");
+    box.innerHTML = lines;
+  }
+
+  function renderSubscores(box, rows) {
+    if (!rows.length) { box.innerHTML = '<p class="muted">尚无评审记录。</p>'; return; }
+    const cell = (v) => {
+      if (v == null) return '<td style="text-align:center;color:var(--ink-3)">—</td>';
+      let bg = "var(--bg-card)";
+      if (v >= 7) bg = "var(--jade-soft)";
+      else if (v >= 5) bg = "var(--gold-soft)";
+      else bg = "var(--sienna-soft)";
+      return '<td style="text-align:center;background:' + bg + ';font-family:var(--font-mono)">' +
+        v.toFixed(2) + '</td>';
+    };
+    const head = '<tr><th>章</th><th>plot</th><th>prose</th><th>fidelity</th><th>total</th><th>agents</th></tr>';
+    const body = rows.map((r) =>
+      '<tr><td>ch ' + r.chapter + '</td>' +
+      cell(r.plot) + cell(r.prose) + cell(r.fidelity) + cell(r.total) +
+      '<td style="text-align:center" class="muted">' + r.agents + '</td></tr>'
+    ).join("");
+    box.innerHTML = '<table class="table">' + head + body + '</table>';
+  }
+
   // ===== page: jobs =======================================================
   async function initJobs() {
     const recentBox = document.getElementById("jobs-recent");
@@ -1612,12 +1874,21 @@ JS_DASHBOARD = """\
 
   // ---- dispatch ---------------------------------------------------------
   function boot() {
+    const pending = sessionStorage.getItem("__pending_toast");
+    if (pending) {
+      sessionStorage.removeItem("__pending_toast");
+      try {
+        const t = JSON.parse(pending);
+        showToast(t.msg, t.kind || "info");
+      } catch (e) {}
+    }
     if (pageKind === "index") return initIndex();
     if (pageKind === "workspace_overview") return initWorkspaceOverview();
     if (pageKind === "continue") return initContinue();
     if (pageKind === "chapters") return initChapters();
     if (pageKind === "chapter_detail") return initChapterDetail();
     if (pageKind === "reviews") return initReviews();
+    if (pageKind === "insights") return initInsights();
     if (pageKind === "jobs") return initJobs();
   }
   document.addEventListener("DOMContentLoaded", boot);

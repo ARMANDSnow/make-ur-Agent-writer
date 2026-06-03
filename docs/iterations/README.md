@@ -40,3 +40,5 @@
 29. [Iteration 029 - Local Beta Launch Entry](./iteration_029_launch_entry.md)
 30. [Iteration 030 - Web Beta Writing Cockpit](./iteration_030_web_beta_cockpit.md)
 31. [Iteration 031 - Web Cockpit Hardening + Handoff Refresh](./iteration_031_web_cockpit_hardening.md)
+32. [Iteration 032 - WebUI 信息架构与视觉重做](./iteration_032_webui_ia_visual.md)
+33. [Iteration 033 - 工作区删除 + Insights + Lint 跳转 + Toast](./iteration_033_PLAN.md)

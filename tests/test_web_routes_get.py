@@ -168,6 +168,8 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("overview-summary", html)
         self.assertIn("overview-next-action", html)
         self.assertIn("overview-blockers", html)
+        self.assertIn("delete-workspace-btn", html)
+        self.assertIn('id="toast-stack"', html)
 
     def test_workspace_continue_renders_cockpit_forms(self) -> None:
         """Iter 032: the continue page preserves the iter 026 cockpit
@@ -211,6 +213,14 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/w/alpha/reviews")
         self.assertEqual(status, 200)
         self.assertIn(b"reviews-panel", body)
+
+    def test_workspace_insights_page(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/insights")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn("insights-cost", html)
+        self.assertIn("insights-cache", html)
+        self.assertIn("insights-subscores", html)
 
     def test_workspace_jobs_page(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/w/alpha/jobs")
@@ -303,6 +313,12 @@ class RoutesGetTests(unittest.TestCase):
         # full agent_reviews preserved
         self.assertEqual(data["chapters"][0]["agent_reviews"][0]["agent_name"], "PlotMaster")
 
+    def test_api_insights_returns_aggregates(self) -> None:
+        status, data = self._get_json("/api/workspace/alpha/insights")
+        self.assertEqual(status, 200)
+        for key in ("cost_by_chapter", "cache_by_model", "subscores"):
+            self.assertIn(key, data)
+
     def test_api_drafts_list_and_preview_are_read_only(self) -> None:
         status, data = self._get_json("/api/workspace/alpha/drafts")
         self.assertEqual(status, 200)
@@ -393,6 +409,25 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("readinessRequestSeq", js)
         self.assertIn("submit.disabled = writeBookJobRunning || data.status === 'blocked'", js)
         self.assertIn("readinessTimer = null", js)
+
+    def test_static_js_includes_lint_jump_helpers(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("jumpToParagraph", js)
+        self.assertIn("data-jump-line", js)
+        self.assertIn("_extractIssueLine", js)
+        self.assertIn("issue && issue.line", js)
+        self.assertIn("jump-highlight", js)
+        self.assertIn('data-line="', js)
+        self.assertIn("split(/\\n/)", js)
+
+    def test_static_js_includes_toast_helper(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("function showToast", js)
+        self.assertIn("toast-stack", js)
 
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must

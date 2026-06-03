@@ -28,7 +28,7 @@ from .utils import ensure_dir
 
 
 WORKSPACE_SUBDIRS = ("小说txt", "data", "outputs", "logs")
-RESERVED_NAMES = {"legacy", "", ".", ".."}
+RESERVED_NAMES = {"legacy", "_trash", "", ".", ".."}
 
 
 def list_workspaces() -> List[str]:
