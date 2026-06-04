@@ -5,7 +5,7 @@ Schema v1:
 ``{"type": "novel" | "drama", "created_at": "<ISO 8601>" | null,
 "schema_version": 1}``
 
-Workspaces created before iter 036 do not have this file.  In that case
+Older workspaces may not have this file. In that case
 ``read()`` returns a schema_version=0 novel default so all existing novel
 workspaces keep working.
 """

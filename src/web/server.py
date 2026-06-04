@@ -76,7 +76,7 @@ class WebHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         # No cache: dashboard data is read fresh on every load.
         self.send_header("Cache-Control", "no-store")
-        # iter 032: ``routes.render_workspace_redirect`` emits a 301 body
+        # ``routes.render_workspace_redirect`` emits a 301 body
         # whose ``<p data-redirect-to="...">`` carries the target URL.
         # The dispatcher contract is (status, content_type, body) — no
         # header dict — so we sniff the body here to add a Location.

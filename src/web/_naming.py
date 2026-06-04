@@ -29,7 +29,7 @@ WORKSPACE_NAME_RE = re.compile(
 )
 
 # ``legacy`` is a paths.py sentinel — setting WORKSPACE_NAME to it
-# resolves to repo-root mode (returns None). ``_trash`` is the iter 033
+# resolves to repo-root mode (returns None). ``_trash`` is the reserved
 # soft-delete holding area. User-creatable workspaces with either name
 # would collide with internal control paths.
 RESERVED_NAMES = frozenset({"legacy", "_trash"})

@@ -1,4 +1,4 @@
-"""iter 033: aggregate cost / cache / sub-score data for the Insights page.
+"""Aggregate cost / cache / sub-score data for the Insights page.
 
 Pure aggregation over llm_calls.jsonl + chapter_NN.meta.json /
 chapter_NN.review.json. No LLM calls, no writes.

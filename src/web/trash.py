@@ -1,7 +1,7 @@
-"""iter 033: soft-delete a workspace by moving it to workspaces/_trash/.
+"""Soft-delete a workspace by moving it to workspaces/_trash/.
 
-Hard rm is intentionally out of scope. The user (or a future iter 034
-cleanup CLI) is responsible for purging _trash/ on their own schedule.
+Hard rm is intentionally out of scope. The purge flow is responsible for
+removing _trash/ entries on the user's schedule.
 """
 
 from __future__ import annotations

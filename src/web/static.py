@@ -1,6 +1,6 @@
-"""iter 032: embedded CSS / JS for the WebUI.
+"""Embedded CSS / JS for the WebUI.
 
-Iter 032 reworks the WebUI's information architecture and visual system
+The current WebUI uses a shared information architecture and visual system
 (see ``docs/iterations/iteration_032_webui_ia_visual.md``):
 
 * New literary-warm design tokens (rice-paper background, ink text,
@@ -9,8 +9,8 @@ Iter 032 reworks the WebUI's information architecture and visual system
   template renders against the same .btn / .badge / .card / .tabs /
   .breadcrumb / .sidebar / .skeleton / .kv-list / .empty-state shapes.
 * JS is still served as a single ``/static/app.js`` bundle that
-  branches on ``window.PAGE_KIND``. We deliberately keep the iter 026 /
-  iter 030 identifiers ``loadTabPanel``, ``scheduleReadiness``,
+  branches on ``window.PAGE_KIND``. We deliberately keep established
+  identifiers ``loadTabPanel``, ``scheduleReadiness``,
   ``readinessRequestSeq``, ``writeBookJobRunning``, ``readinessTimer``
   and the ``submit.disabled = writeBookJobRunning || data.status === 'blocked'``
   expression so the iter 026 test suite stays green.
@@ -74,7 +74,7 @@ def _job_failure_line(job: Mapping[str, Any]) -> str:
 
 CSS_BODY = """\
 /* ========================================================================
- * iter 032 — literary warm design system
+ * Literary warm design system
  * ----------------------------------------------------------------------
  * Layer order: tokens → reset → typography → layout → components →
  * page-specific overrides. Anything that needs to mutate a colour or
@@ -507,6 +507,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .empty-state .ornament { color: var(--jade); font-size: var(--fs-h2); display: block; margin-bottom: var(--space-3); }
 .empty-state h3 { margin-bottom: var(--space-2); color: var(--ink-1); }
 .empty-state .cta { margin-top: var(--space-4); }
+.empty-state .cta.cluster { justify-content: center; }
 
 /* skeleton — replaces "loading..." */
 .skeleton {
@@ -526,6 +527,10 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 /* toast placeholder */
 .toast-stack { position: fixed; bottom: var(--space-5); right: var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); z-index: 50; }
 .toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
   background: var(--bg-card);
   border: 1px solid var(--rule);
   border-left: 3px solid var(--jade);
@@ -536,6 +541,14 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 }
 .toast.error { border-left-color: var(--sienna); }
 .toast.warn { border-left-color: var(--gold); }
+.toast-dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  padding: 0;
+}
 
 /* alerts inline */
 .alert {
@@ -827,7 +840,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   gap: var(--space-5);
 }
 
-/* iter 033: confirm modal */
+/* confirm modal */
 .modal-backdrop {
   position: fixed; inset: 0;
   background: var(--bg-overlay);
@@ -875,7 +888,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 
 
 JS_DASHBOARD = """\
-/* iter 032 — single JS bundle, dispatches on window.PAGE_KIND.
+/* Single JS bundle, dispatches on window.PAGE_KIND.
  *
  * Page kinds:
  *   index               — workspace shelf at /
@@ -887,7 +900,7 @@ JS_DASHBOARD = """\
  *   plan                — /w/<name>/plan
  *   jobs                — /w/<name>/jobs
  *
- * Iter 026 / iter 030 identifiers preserved verbatim so the existing
+ * Established identifiers are preserved verbatim so the existing
  * web test suite stays green:
  *   loadTabPanel, scheduleReadiness, readinessRequestSeq,
  *   writeBookJobRunning, readinessTimer, the
@@ -1099,18 +1112,32 @@ JS_DASHBOARD = """\
   }
   bindCopy(document);
 
-  function showToast(msg, kind) {
+  function showToast(msg, kind, options) {
     const stack = document.getElementById("toast-stack");
     if (!stack) return;
+    const opts = options || {};
     const el = document.createElement("div");
     el.className = "toast" + (kind === "error" ? " error" : kind === "warn" ? " warn" : "");
-    el.textContent = msg;
+    const text = document.createElement("span");
+    text.textContent = msg;
+    el.appendChild(text);
+    if (opts.dismiss !== false) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "toast-dismiss";
+      close.setAttribute("aria-label", "关闭通知");
+      close.textContent = "×";
+      close.addEventListener("click", function () { removeToast(el); });
+      el.appendChild(close);
+    }
     stack.appendChild(el);
-    setTimeout(function () {
-      el.style.transition = "opacity .4s ease";
-      el.style.opacity = "0";
-      setTimeout(function () { el.remove(); }, 400);
-    }, 5000);
+    setTimeout(function () { removeToast(el); }, 5000);
+  }
+  function removeToast(el) {
+    if (!el || !el.parentNode) return;
+    el.style.transition = "opacity .4s ease";
+    el.style.opacity = "0";
+    setTimeout(function () { if (el.parentNode) el.remove(); }, 400);
   }
   window.setPendingToastAndNavigate = function (toast, url) {
     sessionStorage.setItem("__pending_toast", JSON.stringify(toast));
@@ -1408,7 +1435,7 @@ JS_DASHBOARD = """\
       if (headline) {
         headline.textContent = todo
           ? "下一步：完成「" + todo.label + "」"
-          : "前 2 站已完成 — 等待 iter 038 解锁分镜";
+          : "前 2 站已完成。分镜与角色设定将在后续版本上线";
       }
     } catch (err) {
       box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
@@ -2478,7 +2505,7 @@ JS_DASHBOARD = """\
         '<div class="k">snapshot_path</div><div class="v"><code>' + escapeHtml(meta.snapshot_path || "(无)") + "</code></div>" +
         '<div class="k">path</div><div class="v"><code>' + escapeHtml(data.path || "") + "</code></div>" +
         "</div>" +
-        '<p class="muted" style="margin-top:12px">多版本草稿对比（diff）留待 iter 033。</p>';
+        '<p class="muted" style="margin-top:12px">多版本草稿对比（diff）将在后续版本开放。</p>';
     }
   }
   function renderAgentReview(a) {
@@ -2798,7 +2825,7 @@ JS_DASHBOARD = """\
         '<div class="k">type</div><div class="v"><code>' + escapeHtml(data.type || "") + "</code></div>" +
         '<div class="k">content</div><div class="v">' + escapeHtml(data.content || "") + "</div>" +
         '</div>' +
-        '<div class="alert info">站 ② 已锁定。下一站“分镜”iter 038 起开放。</div>';
+        '<div class="alert info">站 ② 已锁定。分镜与角色设定将在后续版本上线。</div>';
     }
     html += "</div></div>";
     return html;

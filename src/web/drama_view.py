@@ -1,4 +1,4 @@
-"""iter 037: read-only drama workspace progress aggregation."""
+"""Read-only drama workspace progress aggregation."""
 
 from __future__ import annotations
 

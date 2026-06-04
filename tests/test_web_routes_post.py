@@ -132,7 +132,7 @@ class RoutesPostTests(unittest.TestCase):
         self.assertEqual(status, 400)
         data = json.loads(body)
         self.assertIn("drama workspace", data["error"])
-        self.assertIn("iter 037", data["hint"])
+        self.assertIn("drama 模块已可用", data["hint"])
 
     def test_api_drama_progress_returns_four_station_shape(self) -> None:
         self._init_drama("drama")

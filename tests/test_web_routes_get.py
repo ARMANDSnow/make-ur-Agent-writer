@@ -162,6 +162,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('name="ws_type" value="drama"', html)
         self.assertIn('id="panel-upload" hidden', html)
         self.assertIn('id="panel-drama" hidden', html)
+        self.assertIn("复仇 → 救赎", html)
         self.assertIn("data-back-to-type", html)
 
     def test_workspace_legacy_url_301s_to_new_ia(self) -> None:
@@ -346,7 +347,8 @@ class RoutesGetTests(unittest.TestCase):
         for tab in ("setup", "hook", "storyboard", "characters"):
             self.assertIn(f'data-tab="{tab}"', html)
             self.assertIn(f'data-station-pane="{tab}"', html)
-        self.assertIn("iter 038 起开放", html)
+        self.assertIn("分镜表尚未开放", html)
+        self.assertIn("角色设定表尚未开放", html)
 
     def test_drama_write_storyboard_step_renders_empty_state_not_404(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
@@ -359,7 +361,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertIn("drama workspaces only", body.decode("utf-8"))
 
-    def test_drama_novel_only_pages_404(self) -> None:
+    def test_drama_novel_only_pages_render_shell_empty_state(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
         for path in (
             "/w/beta/continue",
@@ -370,7 +372,11 @@ class RoutesGetTests(unittest.TestCase):
             "/w/beta/insights",
         ):
             status, _ct, body = routes.dispatch("GET", path)
-            self.assertEqual(status, 404, f"{path}: {body.decode('utf-8')}")
+            html = body.decode("utf-8")
+            self.assertEqual(status, 200, f"{path}: {html}")
+            self.assertIn("此页面属于小说模块", html)
+            self.assertIn('window.PAGE_KIND = "workspace_empty"', html)
+            self.assertIn('href="/w/beta/write"', html)
 
     def test_drama_jobs_page_still_renders(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
@@ -594,6 +600,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
         self.assertIn("function showToast", js)
+        self.assertIn("toast-dismiss", js)
         self.assertIn("toast-stack", js)
 
     def test_static_js_has_array_isarray_guards(self) -> None:

@@ -1,4 +1,4 @@
-"""iter 034: aggregate chapter_plan.json + outline.md + decisions.json.
+"""Aggregate chapter_plan.json + outline.md + decisions.json.
 
 Pure read-only aggregation for the Plan viewer page. No LLM calls, no
 writes. Caller enters the workspace context.

@@ -135,7 +135,7 @@ def escape_html(s: str) -> str:
 
 
 def render_workspace_redirect(name: str) -> Tuple[int, str, bytes]:
-    """iter 032: ``/workspace/<name>`` is the legacy URL. We 301 it to
+    """``/workspace/<name>`` is the legacy URL. We 301 it to
     the new ``/w/<name>/`` overview so old bookmarks survive but the new
     IA shows everywhere."""
 
@@ -163,11 +163,7 @@ def _workspace_html_guard_novel_only(name: str) -> Optional[Tuple[int, str, byte
     from .workspace_meta import read as _meta_read
 
     if _meta_read(name).get("type") != "novel":
-        return _html(
-            404,
-            f'<h1>404</h1><p>this page is for novel workspaces; '
-            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
-        )
+        return _html(200, templates.render_workspace_novel_only_empty(name, list_workspaces()))
     return None
 
 
@@ -933,7 +929,7 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
             400,
             {
                 "error": "drama workspace cannot run novel pipeline steps yet",
-                "hint": "drama bootstrap arrives in iter 037",
+                "hint": "drama 模块已可用，请使用短剧写作页的站点操作",
             },
         )
     try:
@@ -1103,9 +1099,9 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/static/app\.css$"), lambda **_: render_static_css()),
     ("GET", re.compile(r"^/static/app\.js$"), lambda **_: render_static_js()),
     ("GET", re.compile(r"^/static/wizard\.js$"), lambda **_: render_static_wizard_js()),
-    # iter 032: legacy /workspace/<name> → 301 to /w/<name>/
+    # Legacy /workspace/<name> → 301 to /w/<name>/
     ("GET", re.compile(r"^/workspace/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_redirect(name)),
-    # iter 032: new workspace-scoped IA
+    # Workspace-scoped IA
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_overview(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/write/?$"), lambda name, **_: render_workspace_write_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/continue/?$"), lambda name, **_: render_workspace_continue(name)),

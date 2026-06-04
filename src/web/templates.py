@@ -1,4 +1,4 @@
-"""iter 032: HTML page templates with shared sidebar + topbar shell.
+"""HTML page templates with shared sidebar + topbar shell.
 
 Information architecture:
 
@@ -111,7 +111,7 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
 
 _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
-    # iter 037: drama write opens stations 1 and 2; later stations stay locked.
+    # Drama write currently opens stations 1 and 2; later stations stay locked.
     ("write", "续写", "write"),
     ("jobs", "任务", "jobs"),
 )
@@ -164,7 +164,7 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
         f'{sections_html}'
         '<div class="sidebar-footer">'
         '<span>127.0.0.1 · 单用户 Beta</span>'
-        '<span>iter 032</span>'
+        '<span>本地 Beta</span>'
         '</div>'
         '</aside>'
     )
@@ -177,6 +177,32 @@ def _topbar_actions(extra: str = "") -> str:
         '<a class="btn btn-primary" href="/wizard">＋ 新建</a>'
     )
     return extra + base
+
+
+def render_workspace_novel_only_empty(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<section class="section">'
+        '<div class="empty-state">'
+        '<span class="ornament">✦</span>'
+        '<h3>此页面属于小说模块</h3>'
+        '<p class="muted">当前 workspace 是短剧。该功能不适用于短剧模块。</p>'
+        '<div class="cta cluster">'
+        '<a class="btn btn-secondary" href="/w/' + escape(name) + '/">返回短剧概览</a>'
+        '<a class="btn btn-primary" href="/w/' + escape(name) + '/write">进入短剧工作台</a>'
+        '<a class="btn btn-ghost" href="/w/' + escape(name) + '/jobs">查看任务</a>'
+        '</div>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 小说模块",
+        page_kind="workspace_empty",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("小说模块", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section=""),
+        workspace=name,
+    )
 
 
 def _crumbs(parts: Sequence[tuple[str, Optional[str]]]) -> str:
@@ -235,7 +261,7 @@ def render_trash(workspaces: Iterable[str]) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">回收站</p>'
         '<h1>已删除的作品</h1>'
-        '<p class="muted">软删除自 iter 033 起进入这里；可 restore 回原名（同名冲突需手动改名），或永久 purge。</p>'
+        '<p class="muted">软删除的作品会进入这里；可 restore 回原名（同名冲突需手动改名），或永久 purge。</p>'
         '</div>'
         '</header>'
         '<section class="section">'
@@ -379,14 +405,14 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         '<div class="tab-panel" id="tab-storyboard" data-station-pane="storyboard">'
         '<div class="empty-state">'
         '<span class="ornament">✦</span>'
-        '<h3>分镜表 — iter 038 起开放</h3>'
-        '<p class="muted">本轮 iter 037 仅实现核心设定 + 钩子。分镜表在下一轮上线。</p>'
+        '<h3>分镜表尚未开放</h3>'
+        '<p class="muted">本地 Beta 暂只支持核心设定与钩子站。</p>'
         '</div></div>'
         '<div class="tab-panel" id="tab-characters" data-station-pane="characters">'
         '<div class="empty-state">'
         '<span class="ornament">✦</span>'
-        '<h3>角色设定表 — iter 038 起开放</h3>'
-        '<p class="muted">角色设定表在 iter 038 上线。</p>'
+        '<h3>角色设定表尚未开放</h3>'
+        '<p class="muted">分镜与角色设定将在后续版本上线。</p>'
         '</div></div>'
         '</section>'
     )
@@ -830,7 +856,7 @@ def render_wizard() -> str:
         '<div class="field">'
         '<label>题材描述（1-500 字）</label>'
         '<textarea name="topic" rows="3" maxlength="500" required '
-        'placeholder="placeholder, see creation_standard"></textarea>'
+        'placeholder="示例：复仇 → 救赎，单线发展，强冲突"></textarea>'
         '</div>'
         '<div class="field">'
         '<label>赛道</label>'
