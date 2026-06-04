@@ -990,3 +990,35 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. iter044 建议优先做 Bundle 3：D-5 onboarding budget/timeout/cancel、D-7 form/mobile density、D-8 Insights `scores || sub_scores` + subscore inline。
 2. iter044 同步做 AGENTS.md 全面刷新，把 iter039-043 的 WebUI/tier/drama 状态纳入新入口锚点。
 3. 本轮 deferred：subscore inline 剩余样式债、`_workspace_html_guard_novel_only` 抽象、真实模型 capstone、drama 站 ③/④、AI 绘画 client / Comfy 导出。
+
+---
+
+## Phase 4 Status（iter 044，2026-06-05）
+
+### Iteration 044 — 收尾轮（D-5/D-7/D-8 + 文档刷新，mock-only）
+
+**目标**：严格按 `/Users/dingyuxuan/.claude/plans/codex-iteration-039-webui-cozy-charm.md` 的 iter044 plan，把 iter043 §A audit 中剩余 Bundle 3 长尾收掉：onboarding critical path、移动响应式、subscore/UI schema 兼容，以及 AGENTS/README/HANDOFF/iteration index 文档刷新。
+
+**主要落地**：
+- D-5 后端协作式 cancel：`src/web/jobs.py` 新增 `cancel_requested` / `cancel_reason`、`JobCancelled` / `JobTimeout`、`request_cancel()`；worker 在开始、progress callback、handler 返回后三处检查，timeout 走同一 `aborted` 终态，不强 kill 线程。
+- D-5 路由：`POST /api/workspace/<ws>/job/<id>/cancel` 只允许 `pending/running`，terminal job 返回 409，未知 job 404。
+- D-5 wizard：小说 onboarding 增加 budget CNY / timeout minutes / extract limit；drama wizard 同步存 budget/timeout；进度页按 running/succeeded/failed/aborted 给 CTA 组，并提供取消按钮。
+- D-7 mobile：共享 shell 增加 hamburger、sidebar overlay、topbar `...` actions menu；768px 以下 sidebar 改 drawer，jobs/chapters/reviews table 进入横向滚动容器并带滚动阴影提示。
+- D-8 UI debt：Insights subscore table 的 inline cell style 改为 `.subscore-cell-*` class；chapter detail 与 Insights 聚合均兼容 `scores || sub_scores`，覆盖 iter042 schema 演进风险。
+- 文档：AGENTS.md、README.md、docs/AGENT_HANDOFF.md、docs/iterations/README.md 对齐到 iter044；外部 plan 已归档为 `iteration_044_PLAN_DRAFT.md`，执行档案为 `iteration_044_PLAN.md`。
+
+**Backlog 状态**：
+- iter039 P2-C onboarding budget/timeout/cancel：✅ done（iter044 §A）。
+- iter038 P3 / iter042 subscore UI debt：✅ done（iter044 §C）。
+- `_workspace_html_guard` 抽象：保留 iter045+ backlog。本轮阅读后未发现低风险且收益明显的抽象点，未强行改。
+- F1 二次 prompt 调优：仍 deferred，仅在后续真实 mid 档再次卡住时单独开。
+
+**验证进度（截至文档刷新前）**：
+- Targeted cancel/job route suites：`tests.test_jobs_cancel tests.test_routes_job_cancel tests.test_web_jobs_dispatch tests.test_web_routes_post` 通过。
+- Targeted wizard/mobile/static suites：`tests.test_web_routes_get tests.test_web_wizard_e2e tests.test_drama_wizard_full_form tests.test_jobs_drawer tests.test_static_subscore_compat tests.test_web_insights` 通过。
+- Full unittest / preflight / verify、移动截图回归、subagent read-only audit 将在 final commit 前记录到 `docs/iterations/iteration_044_PLAN.md`。
+
+**当前接力点**：
+1. 本轮完成后不要 push，等用户验收。
+2. Web 当前生产入口：`/` 书架 → `/w/{name}/continue` 的 `write-book` preset/tier；新建书走 `/wizard`，可设置高级选项并在进度页 cancel。
+3. 后续功能面建议从 drama 站 ③/④ 或章节 diff / 全文搜索中选择；不要把 `_workspace_html_guard` 抽象当 blocker。

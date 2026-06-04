@@ -7,8 +7,8 @@
 [简体中文](README.md) · [English](README_EN.md)
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-488_total-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
-[![Iterations](https://img.shields.io/badge/iterations-36_logged-orange.svg)](docs/iterations/)
+[![Tests](https://img.shields.io/badge/tests-588_total-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
+[![Iterations](https://img.shields.io/badge/iterations-44_logged-orange.svg)](docs/iterations/)
 [![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
 [![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
 
@@ -20,9 +20,9 @@
 
 读入一部已出版小说 → 构建结构化知识库 → 6 个 agent 辩论续写方向 → 用强推理模型规划 N 章 → 每章由便宜快模型生成 → 5 个 reviewer + 确定性 linter 质量把关 → **`write-readiness → write-book` 一个可靠的本地继续写书入口**。
 
-**不是**"又一个套壳 GPT"。重点是**围绕 LLM 的工程脚手架**：19 轮 mock 优先的迭代、真模型验证、preflight 守门、reviewer fail-closed 抗 silent-approve、多 workspace 隔离、中英文双语切章 + stdlib EPUB 提取、每次调用的成本遥测。
+**不是**"又一个套壳 GPT"。重点是**围绕 LLM 的工程脚手架**：44 轮 mock 优先的迭代、真模型验证、preflight 守门、reviewer fail-closed 抗 silent-approve、多 workspace 隔离、中英文双语切章 + stdlib EPUB 提取、每次调用的成本遥测。
 
-实证：《龙族》（江南）+《冰与火之歌》（GRRM 英文）+ 自有小说均能跑通同一条流水线。最新真模型测试：**龙族 ch1 → Approve、13.8K 字符、单章成本 ~¥0.45**（gpt-5.5）。
+实证：《龙族》（江南）+《冰与火之歌》（GRRM 英文）+ 自有小说均能跑通同一条流水线。最新真模型测试：**龙族 ch2 → tier=mid Approve、panel_score=7.58、成本 ¥0.909**。iter043 完成 WebUI UX audit + Bundle 1/2 重构；iter044 收掉 onboarding cancel/timeout、移动响应式与 Insights schema 兼容。
 
 > 原作小说本体被 gitignored。本仓库只发布引擎，不发布语料。
 
@@ -32,16 +32,16 @@
 
 | 层 | 在代码里长什么样 |
 |---|---|
-| **Mock 优先开发** | 488 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
+| **Mock 优先开发** | 588 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
 | **Preflight 守门** | 真模型跑之前 7 类 FATAL 检查 + N 条 WARN：env / context limit / agents 配置 / rolling state / manifest 完整性 / **provider routing** / 人工事实 / cache 提供商提示。 |
 | **多 workspace 隔离** | iter 017：每本书一个 `workspaces/<name>/{data,outputs,小说txt,logs}/`。`--book myBook` 切换；sha256 baseline 4/4 互不污染。 |
 | **多语言切章 + EPUB 提取** | iter 018：CJK 字符比率自动判中英；中文 `第N章` / 英文 `CHAPTER / POV / 全大写` 两套 regex。`.epub` 用 stdlib `zipfile + xml.etree + html.parser` 直接转 txt，**零新依赖**。 |
-| **本地 Beta 写作入口** | iter 029-033：CLI 用 `write-readiness -> write-book`；Web 走 `/` 书架 → `/w/{name}/` 概览 → 侧栏切换续写 / 章节 / 评审 / 数据 / 任务；章节详情页 `/w/{name}/chapter/{n}` 展示 reviewer 子分数、lint anchor、advisor 改写建议，并支持 lint anchor 跳正文。 |
+| **本地 Beta 写作入口** | iter 029-044：CLI 用 `write-readiness -> write-book`；Web 走 `/` 书架 → `/w/{name}/` 概览 → 侧栏切换续写 / 计划 / 章节 / 评审 / 数据 / 任务；write-book 有 preset + `tier=low/mid/high`，wizard 有 budget/timeout/extract limit + cancel，移动端有 sidebar drawer 与表格横向滚动。 |
 | **Reviewer fail-closed** | iter 019 audit：5-agent 中任一 JSON 解析失败，记 `Abstain + _fallback_reason="(parse_failed)"`，不当 Approve；最终 verdict 任一 substantive Reject → Reject，零 substantive Approve → Reject。 |
 | **带 timeline 的 Entity graph** | 角色/地点/概念作为 entity；关系携带 `timeline[]`，`active=true` 标记当前续写起点状态。**writer 只看 active state**；"关系一致性" reviewer 对照核验。 |
 | **成本遥测** | 每次 LLM 调用记 `request_hash`、prompt/response tokens、cache_read/cache_write tokens。`estimate-cost` 按 provider 单价聚合。龙族 ch1 真模型实测：30 calls / 143K prompt（cache 命中 58%）/ 36K response / **~¥0.45**。 |
 | **Persona 抽象** | iter 016：debate / reviewer 的 5 agent 不再硬编码龙族角色名；每本书 `init-book` 自动用 LLM 出 personas proposal → 人工审 → 落 `data/manual_overrides/personas.json`，模板渲染。 |
-| **迭代日志** | [33 条](docs/iterations/)，每条 Context / Plan / Acceptance / 实测数字 / File summary 完整工程复盘。仓库本身就是一份工程日记。 |
+| **迭代日志** | [44 条](docs/iterations/)，每条 Context / Plan / Acceptance / 实测数字 / File summary 完整工程复盘。仓库本身就是一份工程日记。 |
 
 ---
 
@@ -53,7 +53,7 @@
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
 cd make-ur-Agent-writer
 pip install -r requirements.txt
-bash scripts/verify.sh      # 446 unit tests + 全流水线 mock，退出 0 = 接通
+bash scripts/verify.sh      # 588 unit tests + 全流水线 mock，退出 0 = 接通
 ```
 
 ### 真模型模式（gpt-5.5 / deepseek / 任何 OpenAI 兼容 provider）
@@ -120,7 +120,8 @@ python3 main.py web --port 9999
 - 设置续写起点（chapter 或 volume）。
 - 生成/重生成章节计划（Web job，强制 `--force --require-start-point`）。
 - 检查阻塞原因与推荐命令。
-- 启动 `write-book`，配置章节数、预算、replan、retry、entity auto-advance。
+- 启动 `write-book`，配置章节数、预算、replan、retry、entity auto-advance 与 reviewer tier。
+- 在 onboarding 进度页请求协作式 cancel；移动端通过 drawer/sidebar 与横向滚动表格查看任务。
 - 查看只读 draft 预览、review、manifest、status、cost。
 
 stdlib only（http.server + string.Template + vanilla JS，**0 新依赖**）。默认绑 127.0.0.1 不外露；mock-only 验收；真模型长跑仍需用户明确授权。
@@ -243,7 +244,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | 阶段 2（iter 006-008）| 首次真模型 smoke + debate 结构化投票 | ✅ |
 | 阶段 3（iter 009-013）| 写作质量轴：entity graph / 一致性 reviewer / 多章架构 | ✅ |
 | 阶段 4（iter 014-019）| 多 workspace + 多语言 + 无人值守 + 审计加固 | ✅ |
-| 阶段 5（iter 020+）| Web Dashboard + 本地 Beta 写作入口 | ✅ |
+| 阶段 5（iter 020+）| Web Dashboard + 本地 Beta 写作入口 + UX 收尾 | ✅ |
 
 阶段小结：[stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md)。
 会话延续锚点：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md)。
@@ -252,7 +253,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 042（2026-06-04）** — 修复 external review 漏传 source context，新增 reviewer `high/mid/low` 三档打分阈值；真实 `longzu` ch2 在 `tier=mid` 下 meta/review 一致 `Approve`（`panel_score=7.58`、`approve_count=4`、成本 ¥0.909），Web job 成功收口。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 044（2026-06-05）** — iter043 完成 WebUI UX audit + Bundle 1/2（readiness CTA、jobs drawer、type-aware IA、tier preset、drama shell），iter044 收尾 D-5/D-7/D-8：onboarding budget/timeout/cancel、移动 drawer/table 响应式、subscore CSS class 与 `scores || sub_scores` 兼容；真实 `longzu` ch2 `tier=mid` happy path 仍是当前生产证据。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -340,7 +341,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | I.4 | 生产写作入口 `write-book` 严格 runner | ✅ | **iter 028**（start/plan/draft/review 指纹、stale 归档、blocked/succeeded/failed snapshot） |
 | I.5 | `write-readiness` 就绪检查 | ✅ | **iter 029**（ready/warn/blocked + blockers/warnings/recommended_commands） |
 | U.1 | WebUI dashboard | ✅ | **iter 025**（`python3 main.py web` 起 stdlib http.server；workspace 列表 + 4 panel 全量 reviews） |
-| U.2 | 模型切换 panel + onboarding wizard | ✅ | **iter 026**（`/wizard` 上传 epub/txt → 后端 `auto-pipeline` 9 步 worker → ch1 落盘；`/settings` 读 .env + key 屏蔽 + 原子写）|
+| U.2 | 模型切换 panel + onboarding wizard | ✅ | **iter 026**（`/wizard` 上传 epub/txt → 后端 `auto-pipeline` 9 步 worker → ch1 落盘；`/settings` 读 .env + key 屏蔽 + 原子写）；**iter 044** wizard 加 budget/timeout/extract limit、mock/real 标识与协作式 cancel |
 | U.3 | `auto-pipeline` 子命令（CLI + wizard 共享绿地编排）| ✅ | **iter 028** 普通 Web 生产不再暴露 generic `auto-pipeline`；wizard 使用 `auto-pipeline-greenfield` |
 | U.4 | Web job 状态持久化 + fail-closed summary | ✅ | **iter 028**（`succeeded/blocked/failed/aborted/lost`，Reject/needs_human_review 不算 success）；**iter 039** live running job 不再误标 lost，blocked reason 读 `result_summary.first_blocked` |
 | U.5 | Web “继续写书”本地 Beta 入口 | ✅ | **iter 029**（dashboard 显示 readiness、阻塞原因、推荐命令；普通区不展示 `draft-once-dev`） |
@@ -350,6 +351,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.9 | Web type-aware workspace 基础设施 | ✅ | **iter 036**（`workspace.json` schema v1；旧 workspace 缺文件默认 novel；wizard drama-start 进入 drama 分支；novel-only 页面 404，`/run` 对 drama 400） |
 | U.10 | Web drama 4 站审查向导（前 2 站）| ✅ | **iter 037-038**（drama wizard 5 字段 + `wizard_input.json` + `creation_standard.snapshot.md`；`/w/{name}/write` 4 tab；站 ①/② mock fixture-driven；iter 038 修 hook picker listener leak/rapid-click race，站 ③④仍待后续开放） |
 | U.11 | Web 真实续写链路可观测/可恢复 | ✅ | **iter 039**（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行）；**iter 040** meta/review verdict 同步；**iter 042** `longzu` ch2 `tier=mid` 真实 happy path approved + job succeeded |
+| U.12 | Web UX audit + 收尾响应式 | ✅ | **iter 043** UX audit + D-1/D-2/D-3/D-4/D-6；**iter 044** D-5/D-7/D-8，sidebar drawer、topbar actions 折叠、jobs/chapters/reviews 表格移动端横向滚动、Insights `scores || sub_scores` 兼容 |
 
 ---
 
@@ -376,6 +378,6 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 <div align="center">
 
-用 38 轮 *先测量，再 commit* 建出来的项目。
+用 44 轮 *先测量，再 commit* 建出来的项目。
 
 </div>

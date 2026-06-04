@@ -102,12 +102,14 @@ logs/                     # 全部 gitignored
 
 ## 当前阶段 & SOP 状态
 
+**最后更新**：iter 044（2026-06-05）
+
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：042（happy path 跑通 + 打分制三档兼容版）
-**已完成阶段**：1-4 主链路全打通；5.3 / 8.3 / 9.3 已进入 `write-book` 生产 runner；Web 本地 Beta 入口 iter 029-032 已打通，iter 033-038 补齐 Insights/Plan/Trash/type-aware/drama 前 2 站与沙箱测试清零，iter 039 修 recent_jobs lost、write-book 细粒度 progress、partial artifact、章内预算止损与前端 blocked/partial 可见性；iter 040 修 external review verdict 回写 meta；iter 042 修 external review source context 漏传，新增 reviewer `high/mid/low` 三档打分阈值，并让真实 `longzu` ch2 在 `tier=mid` 下 approved。实时细节以 README SOP + `docs/AGENT_HANDOFF.md` 末尾为准。
-**关键证据**：`write-readiness -> write-book` 是当前推荐生产入口；Web 进入 `/` 书架 → 侧栏 → `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}` 多页 IA；drama `/w/{name}/write` 站 ①/② mock fixture-driven；`unittest discover` 在沙箱内 `569 tests OK (skipped=6)`；mock Web smoke 已验证 `chapter_NN.partial.md` + failure JSON 与 blocked reason 前端展示；iter 042 `longzu` ch2 meta/review 一致 `Approve`，`tier=mid`，`panel_score=7.58`，`approve_count=4`，成本 ¥0.909，Web job succeeded。
-**下一步候选**（iter 043）：N3 WebUI 重构 / drama UX / iter039 P2-A/B/C（Jobs 展开详情、sidebar lost 历史标记、onboarding budget/timeout/cancel）/ tier UI 入口 / Insights/UI `scores || sub_scores` 兼容 / auto-advance 缺失关系 proposal 上游校验 / P0-B writer pending_external_review 保险 / drama 站 ③ 分镜 / 站 ④ 角色 / AI 绘画 client / Comfy 导出 / drama_reviewer / 章节 diff / 全文搜索 / 真模型 capstone / KB 起点过滤安全视图。
+**当前 iter**：044（收尾轮：D-5 cancel/onboarding + D-7 mobile + D-8 UI debt + docs）
+**已完成阶段**：1-4 主链路全打通；5.3 / 8.3 / 9.3 已进入 `write-book` 生产 runner；Web 本地 Beta 入口 iter 029-032 已打通，iter 033-038 补齐 Insights/Plan/Trash/type-aware/drama 前 2 站与沙箱测试清零；iter 039-042 跑通真实续写 happy path 与 `high/mid/low` reviewer tier；iter 043 §A 完成 WebUI UX audit，§B 落地 readiness CTA、jobs drawer、type-aware IA、write-book preset/tier 与 drama shell；iter 044 收掉 onboarding budget/timeout/cancel、移动 drawer/table 响应式、Insights `scores || sub_scores` 兼容与 subscore 样式债。实时细节以 README SOP + `docs/AGENT_HANDOFF.md` 末尾为准。
+**关键证据**：`write-readiness -> write-book` 是当前推荐生产入口；Web 进入 `/` 书架 → 侧栏 → `/w/{name}/{overview,continue,plan,chapters,chapter/{n},reviews,insights,jobs}` 多页 IA；write-book 支持 preset + `tier=low/mid/high`；wizard 支持高级选项与协作式 cancel；移动端有 sidebar drawer、topbar actions 折叠与表格横向滚动；drama `/w/{name}/write` 站 ①/② mock fixture-driven；`unittest discover` 预期约 `588 tests OK (skipped=6)`；iter 042 `longzu` ch2 meta/review 一致 `Approve`，`tier=mid`，`panel_score=7.58`，`approve_count=4`，成本 ¥0.909，Web job succeeded。
+**后续候选（iter045+）**：`_workspace_html_guard` 抽象（本轮未发现低风险明显收益点）/ F1 二次 prompt 调优（仅在 mid 档真实卡住时开）/ drama 站 ③ 分镜 / 站 ④ 角色 / AI 绘画 client / Comfy 导出 / drama_reviewer / 章节 diff / 全文搜索 / 真模型 capstone / KB 起点过滤安全视图 / auto-advance 缺失关系 proposal 上游校验。
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
 
 ## 常用 git 操作

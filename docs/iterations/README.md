@@ -52,3 +52,4 @@
 41. [Iteration 041 - Reviewer Reject 根因诊断](./iteration_041_INVESTIGATION.md)
 42. [Iteration 042 - happy path 跑通 + 打分制三档（兼容版）](./iteration_042_PLAN.md)
 43. [Iteration 043 - WebUI UX Audit + UX 重构 Bundle 1+2](./iteration_043_PLAN.md)
+44. [Iteration 044 - 收尾轮（D-5/D-7/D-8 + 文档刷新）](./iteration_044_PLAN.md)
