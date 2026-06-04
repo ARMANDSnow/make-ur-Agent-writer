@@ -18,6 +18,59 @@ Iter 032 reworks the WebUI's information architecture and visual system
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
+
+def job_actionable_summary(job: Mapping[str, Any]) -> str:
+    status = str(job.get("status") or "?")
+    icons = {
+        "succeeded": "✓",
+        "blocked": "!",
+        "failed": "!",
+        "lost": "?",
+        "running": "…",
+        "pending": "…",
+        "aborted": "!",
+        "budget_exceeded": "¥",
+    }
+    result = job.get("result_summary")
+    summary = result if isinstance(result, Mapping) else {}
+    first_blocked = summary.get("first_blocked")
+    blocked = first_blocked if isinstance(first_blocked, Mapping) else {}
+    reason = str(blocked.get("reason") or "")
+    line = _job_failure_line(job)
+    icon = icons.get(status, "•")
+    if status == "succeeded":
+        return icon + " succeeded" + (" · snapshot ready" if summary.get("snapshot_path") else "")
+    if reason:
+        return icon + " " + status + " · " + reason
+    if line:
+        return icon + " " + status + " · " + line
+    return icon + " " + status
+
+
+def jobActionableSummary(job: Mapping[str, Any]) -> str:
+    return job_actionable_summary(job)
+
+
+def _job_failure_line(job: Mapping[str, Any]) -> str:
+    result = job.get("result_summary")
+    summary = result if isinstance(result, Mapping) else {}
+    first_blocked = summary.get("first_blocked")
+    blocked = first_blocked if isinstance(first_blocked, Mapping) else {}
+    if blocked and (blocked.get("reason") or blocked.get("error")):
+        parts = []
+        if blocked.get("chapter"):
+            parts.append(f"ch{blocked.get('chapter')}")
+        if blocked.get("reason"):
+            parts.append(str(blocked.get("reason")))
+        if blocked.get("error"):
+            parts.append(str(blocked.get("error")))
+        return " · ".join(parts)
+    if summary.get("error"):
+        return str(summary.get("error")).split("\n")[0]
+    return str(job.get("error") or "").split("\n")[0]
+
 
 CSS_BODY = """\
 /* ========================================================================
@@ -500,6 +553,34 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .table tbody tr { transition: background .12s ease; }
 .table tbody tr:hover { background: var(--bg-sunken); }
 .table .link-cell { color: var(--jade); cursor: pointer; }
+.job-toggle {
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+.job-drawer-row { display: none; }
+.job-drawer-row.open { display: table-row; }
+.job-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border-left: 3px solid var(--jade);
+}
+.job-drawer .drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+.job-drawer pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  background: var(--bg-sunken);
+  padding: var(--space-3);
+  border-radius: var(--radius-1);
+}
 
 /* progress */
 .progress { height: 8px; background: var(--bg-sunken); border-radius: var(--radius-pill); overflow: hidden; }
@@ -1862,6 +1943,135 @@ JS_DASHBOARD = """\
     if (summaryError) return String(summaryError).split('\\n')[0];
     return (job.error || '').split('\\n')[0];
   }
+  function jobActionableSummary(job) {
+    const status = job.status || "?";
+    const icons = {
+      succeeded: "✓",
+      blocked: "!",
+      failed: "!",
+      lost: "?",
+      running: "…",
+      pending: "…",
+      aborted: "!",
+      budget_exceeded: "¥",
+    };
+    const detail = jobBlockedDetail(job);
+    const reason = detail && detail.reason ? detail.reason : "";
+    const line = jobFailureLine(job);
+    const icon = icons[status] || "•";
+    if (status === "succeeded") return icon + " succeeded" + (job.result_summary && job.result_summary.snapshot_path ? " · snapshot ready" : "");
+    if (reason) return icon + " " + status + " · " + reason;
+    if (line) return icon + " " + status + " · " + line;
+    return icon + " " + status;
+  }
+  function jobActionKind(job) {
+    const detail = jobBlockedDetail(job);
+    const reason = detail && detail.reason ? detail.reason : "";
+    if (CTA_ACTIONS[reason]) return reason;
+    const partial = job.result_summary && job.result_summary.partial;
+    if (partial && partial.chapter) return "retry_exhausted";
+    if (job.status === "failed" || job.status === "blocked" || job.status === "budget_exceeded") return "retry_exhausted";
+    return "";
+  }
+  function resultSummaryRows(summary) {
+    if (!summary || typeof summary !== "object") return '<p class="muted">无 result_summary。</p>';
+    return '<div class="kv-list compact">' + Object.keys(summary).sort().map(function (key) {
+      const value = summary[key];
+      const rendered = value && typeof value === "object"
+        ? "<pre>" + escapeHtml(JSON.stringify(value, null, 2)) + "</pre>"
+        : escapeHtml(String(value == null ? "—" : value));
+      return '<div class="k">' + escapeHtml(key) + '</div><div class="v">' + rendered + '</div>';
+    }).join("") + "</div>";
+  }
+  function jobChapterNumber(job) {
+    const partial = job.result_summary && job.result_summary.partial;
+    if (partial && partial.chapter) return Number(partial.chapter);
+    const blocked = job.result_summary && job.result_summary.first_blocked;
+    if (blocked && blocked.chapter) return Number(blocked.chapter);
+    const params = job.params || {};
+    if (params.resume_from) return Number(params.resume_from);
+    return 0;
+  }
+  function renderJobPageCta(kind) {
+    if (!kind) return "";
+    const cfg = ctaConfig(kind, {});
+    const target = kind === "outline_missing" ? wsHref("/plan") : wsHref("/continue");
+    return '<a class="btn btn-secondary btn-sm" href="' + target + '">' + escapeHtml(cfg.cta_label) + "</a>";
+  }
+  function renderJobDrawer(job) {
+    const summary = job.result_summary || {};
+    const partial = summary.partial || null;
+    const chapter = jobChapterNumber(job);
+    const actionKind = jobActionKind(job);
+    const actions = [];
+    if (partial && partial.chapter) {
+      actions.push('<button type="button" class="btn btn-secondary btn-sm" data-job-partial="' + escapeHtml(String(partial.chapter)) + '">查看 partial draft</button>');
+    }
+    if (job.status === "succeeded" && chapter) {
+      actions.push('<a class="btn btn-secondary btn-sm" href="' + wsHref("/chapter/" + chapter) + '">查看章节</a>');
+    }
+    if (actionKind) actions.push(renderJobPageCta(actionKind));
+    if (job.status !== "running" && job.status !== "pending") {
+      actions.push('<button type="button" class="btn btn-primary btn-sm" data-job-retry="' + escapeHtml(job.job_id || "") + '">用相同参数重试</button>');
+    }
+    return '<div class="job-drawer">' +
+      '<div class="drawer-grid">' +
+      '<div class="kv-list compact">' +
+      '<div class="k">summary</div><div class="v">' + escapeHtml(jobActionableSummary(job)) + '</div>' +
+      '<div class="k">trace_id</div><div class="v">' + escapeHtml(job.trace_id || "—") + (job.trace_id ? " " + copyButton(job.trace_id) : "") + '</div>' +
+      '<div class="k">snapshot_path</div><div class="v">' + escapeHtml(summary.snapshot_path || "—") + '</div>' +
+      '<div class="k">partial</div><div class="v">' + (partial && partial.chapter ? '<button type="button" class="copy-btn" data-job-partial="' + escapeHtml(String(partial.chapter)) + '">chapter_' + String(partial.chapter).padStart(2, "0") + ".partial.md</button>" : "—") + '</div>' +
+      '</div>' +
+      '<div class="stack">' +
+      '<p class="eyebrow">恢复动作</p>' +
+      '<div class="cluster">' + (actions.join("") || '<span class="muted">暂无动作</span>') + '</div>' +
+      '</div>' +
+      '</div>' +
+      '<details class="details-fold"><summary>完整 result_summary</summary>' + resultSummaryRows(summary) + '</details>' +
+      '</div>';
+  }
+  function openPartialPreview(chapter) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true">' +
+      '<div class="modal-header">partial draft · chapter ' + escapeHtml(chapter) + '</div>' +
+      '<div class="modal-body"><div class="alert info">正在载入…</div></div>' +
+      '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-ghost" data-modal-close>关闭</button>' +
+      '</div></div>';
+    document.body.appendChild(backdrop);
+    const body = backdrop.querySelector(".modal-body");
+    const footer = backdrop.querySelector(".modal-footer");
+    function close() { backdrop.remove(); }
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
+    });
+    fetchJson(wsUrl("/draft/" + encodeURIComponent(chapter) + "?variant=partial")).then(function (data) {
+      const text = data.content || "";
+      const preview = text.length > 2000 ? text.slice(0, 2000) + "\\n…" : text;
+      const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+      const href = URL.createObjectURL(blob);
+      body.innerHTML = '<pre>' + escapeHtml(preview || "（空）") + "</pre>";
+      footer.innerHTML =
+        '<a class="btn btn-secondary" download="chapter_' + String(data.chapter || chapter).padStart(2, "0") + '.partial.md" href="' + href + '">下载完整</a>' +
+        '<button type="button" class="btn btn-ghost" data-modal-close>关闭</button>';
+    }).catch(function (err) {
+      body.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+    });
+  }
+  async function retryJob(job, btn) {
+    if (!job) return;
+    if (btn) btn.disabled = true;
+    try {
+      const data = await postJson(wsUrl("/run"), { step: job.step, params: job.params || {} });
+      showToast("已重新启动：" + (job.step || "job"), "info");
+      if (data && data.job_id) setTimeout(function () { initJobs(); }, 500);
+    } catch (err) {
+      showToast("重试失败：" + err.message, "error");
+      if (btn) btn.disabled = false;
+    }
+  }
   async function pollJob(jobId, box, submit, afterDone) {
     while (true) {
       let job;
@@ -2569,24 +2779,52 @@ JS_DASHBOARD = """\
       if (!items.length) {
         recentBox.innerHTML = emptyState("尚无任务历史", "点击「续写」启动第一个任务后会出现在这里。", "");
       } else {
+        const byId = new Map();
         const rows = items.map((job) => {
+          byId.set(job.job_id || "", job);
           const trace = job.trace_id || "";
-          const note = jobFailureLine(job);
+          const note = jobActionableSummary(job);
+          const rowId = "job-drawer-" + escapeHtml(job.job_id || "");
           return (
             '<tr class="job-row">' +
+            '<td><button type="button" class="btn btn-icon btn-sm job-toggle" aria-expanded="false" aria-controls="' + rowId + '" data-job-toggle="' + escapeHtml(job.job_id || "") + '">▸</button></td>' +
             "<td>" + escapeHtml(job.step || "?") + "</td>" +
             "<td>" + statusBadge(job.status || "?") + "</td>" +
             '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code> " + copyButton(job.job_id || "") + "</td>" +
             '<td><span class="trace">' + escapeHtml(trace || "—") + "</span>" + (trace ? " " + copyButton(trace) : "") + "</td>" +
             "<td>" + escapeHtml(job.started_at ? String(job.started_at) : "—") + "</td>" +
             "<td>" + escapeHtml(note ? note.slice(0, 120) : "") + "</td>" +
-            "</tr>"
+            "</tr>" +
+            '<tr class="job-drawer-row" id="' + rowId + '"><td colspan="7">' + renderJobDrawer(job) + "</td></tr>"
           );
         }).join("");
         recentBox.innerHTML =
           '<table class="table"><thead><tr>' +
-          "<th>step</th><th>status</th><th>job_id</th><th>trace_id</th><th>started</th><th>note</th>" +
+          "<th></th><th>step</th><th>status</th><th>job_id</th><th>trace_id</th><th>started</th><th>note</th>" +
           "</tr></thead><tbody>" + rows + "</tbody></table>";
+        recentBox.onclick = function (ev) {
+          const toggle = ev.target.closest("[data-job-toggle]");
+          if (toggle) {
+            const id = toggle.getAttribute("data-job-toggle") || "";
+            const drawer = document.getElementById("job-drawer-" + id);
+            if (drawer) {
+              const open = !drawer.classList.contains("open");
+              drawer.classList.toggle("open", open);
+              toggle.setAttribute("aria-expanded", open ? "true" : "false");
+              toggle.textContent = open ? "▾" : "▸";
+            }
+            return;
+          }
+          const partial = ev.target.closest("[data-job-partial]");
+          if (partial) {
+            openPartialPreview(partial.getAttribute("data-job-partial") || "");
+            return;
+          }
+          const retry = ev.target.closest("[data-job-retry]");
+          if (retry) {
+            retryJob(byId.get(retry.getAttribute("data-job-retry") || ""), retry);
+          }
+        };
       }
     } catch (err) {
       recentBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
