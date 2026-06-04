@@ -789,6 +789,17 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .subscore-bar .track { flex: 1; height: 6px; background: var(--bg-sunken); border-radius: var(--radius-pill); overflow: hidden; }
 .subscore-bar .track > i { display: block; height: 100%; background: var(--jade); }
 .subscore-bar .val { width: 32px; text-align: right; }
+.subscore-cell {
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.subscore-cell-empty {
+  color: var(--ink-3);
+  background: var(--bg-card);
+}
+.subscore-cell-approve { background: var(--jade-soft); }
+.subscore-cell-warn { background: var(--gold-soft); }
+.subscore-cell-fail { background: var(--sienna-soft); }
 
 .lint-group { border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--bg-card); overflow: hidden; }
 .lint-group h4 { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--rule); background: var(--bg-sunken); font-size: var(--fs-sm); }
@@ -2789,19 +2800,17 @@ JS_DASHBOARD = """\
   function renderSubscores(box, rows) {
     if (!rows.length) { box.innerHTML = '<p class="muted">尚无评审记录。</p>'; return; }
     const cell = (v) => {
-      if (v == null) return '<td style="text-align:center;color:var(--ink-3)">—</td>';
-      let bg = "var(--bg-card)";
-      if (v >= 7) bg = "var(--jade-soft)";
-      else if (v >= 5) bg = "var(--gold-soft)";
-      else bg = "var(--sienna-soft)";
-      return '<td style="text-align:center;background:' + bg + ';font-family:var(--font-mono)">' +
-        v.toFixed(2) + '</td>';
+      if (v == null) return '<td class="subscore-cell subscore-cell-empty">—</td>';
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '<td class="subscore-cell subscore-cell-empty">—</td>';
+      const cls = n >= 7 ? "subscore-cell-approve" : n >= 5 ? "subscore-cell-warn" : "subscore-cell-fail";
+      return '<td class="subscore-cell ' + cls + '">' + n.toFixed(2) + '</td>';
     };
     const head = '<tr><th>章</th><th>plot</th><th>prose</th><th>fidelity</th><th>total</th><th>agents</th></tr>';
     const body = rows.map((r) =>
       '<tr><td>ch ' + r.chapter + '</td>' +
       cell(r.plot) + cell(r.prose) + cell(r.fidelity) + cell(r.total) +
-      '<td style="text-align:center" class="muted">' + r.agents + '</td></tr>'
+      '<td class="subscore-cell subscore-cell-empty">' + r.agents + '</td></tr>'
     ).join("");
     box.innerHTML = '<table class="table">' + head + body + '</table>';
   }
