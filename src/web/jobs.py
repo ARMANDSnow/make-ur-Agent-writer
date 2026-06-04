@@ -441,6 +441,7 @@ def _summarize_result(step: str, result: Any) -> Any:
             "first_blocked": first_blocked,
             "cost_cny": result.get("cost_cny"),
             "budget_cny": result.get("budget_cny"),
+            "partial": result.get("partial"),
             "snapshot_path": result.get("snapshot_path"),
         }
     if step == "plan-chapters" and isinstance(result, dict):

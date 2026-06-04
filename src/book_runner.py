@@ -138,36 +138,50 @@ def run_write_book(
         reports: List[Dict[str, Any]] = []
         status = {}
         attempt_summaries: List[Dict[str, Any]] = []
-        for attempt in range(max_retries + 1):
-            if attempt > 0 or (force and md_path.exists()):
-                archive_dir = _archive_chapter_artifacts(
-                    drafts_dir,
-                    chapter_no,
-                    reason=f"retry_attempt_{attempt}" if attempt > 0 else "force_rewrite",
+        try:
+            for attempt in range(max_retries + 1):
+                if attempt > 0 or (force and md_path.exists()):
+                    archive_dir = _archive_chapter_artifacts(
+                        drafts_dir,
+                        chapter_no,
+                        reason=f"retry_attempt_{attempt}" if attempt > 0 else "force_rewrite",
+                    )
+                    prune_from_chapter(chapter_no)
+                    attempt_summaries.append({"attempt": attempt, "archived_to": str(archive_dir)})
+                write_reports = write_chapters(
+                    chapters=1,
+                    resume_from=chapter_no,
+                    force=True,
+                    progress_cb=_chapter_progress,
                 )
-                prune_from_chapter(chapter_no)
-                attempt_summaries.append({"attempt": attempt, "archived_to": str(archive_dir)})
-            write_reports = write_chapters(
-                chapters=1,
-                resume_from=chapter_no,
-                force=True,
-                progress_cb=_chapter_progress,
-            )
-            reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
-            if require_external_review and md_path.exists():
-                review_target(md_path, enforce_relationship_checklist=True)
-            status = chapter_status(
-                chapter_no,
-                drafts_dir,
-                validate_context=True,
-                require_start_point=require_start_point,
-                require_plan=require_plan,
-                require_external_review=require_external_review,
-                expected_context=expected,
-            )
-            attempt_summaries.append({"attempt": attempt, "status": status})
-            if status.get("approved"):
-                break
+                reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
+                if require_external_review and md_path.exists():
+                    review_target(md_path, enforce_relationship_checklist=True)
+                status = chapter_status(
+                    chapter_no,
+                    drafts_dir,
+                    validate_context=True,
+                    require_start_point=require_start_point,
+                    require_plan=require_plan,
+                    require_external_review=require_external_review,
+                    expected_context=expected,
+                )
+                attempt_summaries.append({"attempt": attempt, "status": status})
+                if status.get("approved"):
+                    break
+        except Exception as exc:
+            progress("failed", 1.0)
+            payload: Dict[str, Any] = {
+                "chapters": written,
+                "blocked": blocked,
+                "advances": advances,
+                "costs": costs,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            partial = _partial_artifact(drafts_dir, chapter_no)
+            if partial:
+                payload["partial"] = partial
+            return _snapshot("failed", payload)
         written.append(
             {
                 "chapter": chapter_no,
@@ -392,6 +406,7 @@ def _archive_chapter_artifacts(drafts_dir: Path, chapter_no: int, *, reason: str
     archive_dir = ensure_dir(drafts_dir / "snapshots" / f"stale_chapter_{chapter_no:02d}_{stamp}")
     for suffix in (
         ".md",
+        ".partial.md",
         ".meta.json",
         ".failure.json",
         ".entity_advances.json",
@@ -406,6 +421,24 @@ def _archive_chapter_artifacts(drafts_dir: Path, chapter_no: int, *, reason: str
         shutil.move(str(review_path), str(archive_dir / review_path.name))
     write_json(archive_dir / "archive_reason.json", {"reason": reason, "chapter": chapter_no})
     return archive_dir
+
+
+def _partial_artifact(drafts_dir: Path, chapter_no: int) -> Dict[str, Any] | None:
+    partial_path = drafts_dir / f"chapter_{chapter_no:02d}.partial.md"
+    if not partial_path.exists():
+        return None
+    failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
+    failure = read_json(failure_path, {}) if failure_path.exists() else {}
+    if not isinstance(failure, dict):
+        failure = {}
+    return {
+        "chapter": int(chapter_no),
+        "stage": failure.get("stage") or "unknown",
+        "draft_path": str(partial_path),
+        "attempt": failure.get("attempt", 0),
+        "last_error": failure.get("last_error", ""),
+        "failure_path": str(failure_path) if failure_path.exists() else "",
+    }
 
 
 def _auto_apply_advances(chapter_no: int, *, min_confidence: float) -> Dict[str, Any]:

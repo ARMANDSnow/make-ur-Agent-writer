@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -129,237 +130,270 @@ def write_chapters(
         lint_blocked_reviews: List[Dict[str, Any]] = []
         last_lint_issues: List[Dict[str, Any]] = []
         last_blocking_reasons: List[Dict[str, Any]] = []
-        for attempt in range(1, rewrite_limit + 1):
-            progress(f"write-attempt-{attempt}", 0.05)
-            messages, cache_segments = _write_prompt(
-                chapter_no=chapter_no,
-                knowledge=knowledge,
-                facts=facts,
-                style_examples=style_examples,
-                continuation_anchor=continuation_anchor,
-                index=index,
-                outline=outline,
-                chapter_plan_item=chapter_plan_item,
-                rolling_context=rolling_context,
-                previous_chapter_ending=previous_chapter_ending,
-                feedback=feedback,
-            )
-            draft = _complete_write_text(client, messages, cache_segments).strip()
-            # Iter 019: mock-only failure injection so the write_book.sh retry
-            # path is testable without burning real-model budget. Gated by
-            # OPENAI_MODEL=mock so production runs cannot trigger this branch
-            # even if WRITER_FORCE_FAIL leaks into the environment.
-            if (
-                os.getenv("WRITER_FORCE_FAIL") == "1"
-                and os.getenv("OPENAI_MODEL") == "mock"
-            ):
-                # Inject content guaranteed to trigger linter "short chapter"
-                # error so the chapter is recorded as a failure.
-                draft = "强制失败注入。" * 5
-            lint_issues = linter.lint(draft)
-            last_lint_issues = lint_issues
-            if any(issue["severity"] == "error" for issue in lint_issues):
-                if shadow_review_enabled:
-                    try:
-                        shadow_review = review_text(
-                            draft,
-                            out_path.name,
-                            precomputed_lint_issues=lint_issues,
-                            rewrite_round=attempt - 1,
-                            run_agents_on_lint_error=True,
-                            enforce_relationship_checklist=enforce_checklist_mode,
-                            run_context=run_context,
-                            draft_sha256=_draft_file_sha256(draft),
-                        )
-                        lint_blocked_reviews.append({"attempt": attempt, "review": shadow_review})
-                    except Exception as exc:
-                        log_event("write", "shadow_review_error", chapter=chapter_no, error=str(exc))
-                feedback = "请修复 deterministic linter 问题:\n" + _format_lint_feedback(lint_issues)
-                last_blocking_reasons = [
-                    {
-                        "reviewer": "deterministic_linter",
-                        "rule_id": issue.get("rule"),
-                        "severity": issue.get("severity"),
-                        "message": issue.get("message"),
-                        "anchor": issue.get("anchor") or issue.get("excerpt", ""),
-                    }
-                    for issue in lint_issues
-                ]
-                report = {"verdict": "Reject", "lint_issues": lint_issues, "attempt": attempt}
-                continue
-            lint_ok = True
-            progress(f"review-attempt-{attempt}", 0.50)
-            # Iter 022 B4: pass KB + start-point source chapters into reviewer
-            # so the 8-agent panel can judge fidelity against actual source
-            # prose, not just persona impressions. Both args are graceful
-            # — start_point.format_chapters_before_start_for_anchor returns
-            # empty string when no start point is configured (iter 020 behavior).
-            review_source = start_point.format_chapters_before_start_for_anchor(
-                k=3, limit_chars=8000
-            )
-            # Iter 023 P3: pass scene-matched excerpts so reviewer fidelity
-            # scoring has the same archetype anchor as the writer prompt.
-            scene_matches_for_review = (
-                source_excerpts.select_for_chapter(chapter_plan_item, k=3)
-                if chapter_plan_item
-                else []
-            )
-            scene_excerpts_text = (
-                source_excerpts.format_excerpts_for_prompt(
-                    scene_matches_for_review, limit_chars=8000
-                )
-                if scene_matches_for_review
-                else ""
-            )
-            report = review_text(
-                draft,
-                out_path.name,
-                precomputed_lint_issues=lint_issues,
-                rewrite_round=attempt - 1,
-                enforce_relationship_checklist=True,
-                knowledge=knowledge[:6000] if knowledge else "",
-                source_chapters=review_source,
-                scene_excerpts=scene_excerpts_text,
-                run_context=run_context,
-                draft_sha256=_draft_file_sha256(draft),
-            )
-            progress(f"review-done-attempt-{attempt}", 0.55 + 0.05 * attempt)
-            if report["verdict"] == "Approve":
-                last_blocking_reasons = []
-                break
-            last_blocking_reasons = _blocking_reasons(report)
-            feedback = _review_feedback(report)
-
-        chinese_chars = count_chinese_chars(draft)
-        needs_polish = (
-            polish_enabled
-            and draft
-            and (
-                not lint_ok
-                or report.get("verdict") != "Approve"
-                or chinese_chars < 3000
-            )
-        )
-        if needs_polish:
-            progress("polish", 0.85)
-            try:
-                polished = _polish_draft(
-                    client=client,
-                    draft=draft,
-                    lint_issues=last_lint_issues,
-                    review_report=report,
+        last_nonempty_draft = ""
+        attempt = 0
+        stage = "setup"
+        try:
+            for attempt in range(1, rewrite_limit + 1):
+                stage = "write"
+                progress(f"write-attempt-{attempt}", 0.05)
+                messages, cache_segments = _write_prompt(
+                    chapter_no=chapter_no,
+                    knowledge=knowledge,
+                    facts=facts,
                     style_examples=style_examples,
                     continuation_anchor=continuation_anchor,
-                    chinese_chars=chinese_chars,
+                    index=index,
+                    outline=outline,
+                    chapter_plan_item=chapter_plan_item,
+                    rolling_context=rolling_context,
+                    previous_chapter_ending=previous_chapter_ending,
+                    feedback=feedback,
                 )
-                if polished:
-                    pre_chars = len(draft)
-                    draft = polished.strip()
-                    polish_applied = True
-                    polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
-            except Exception as exc:
-                report["polish_error"] = f"{type(exc).__name__}: {exc}"
+                try:
+                    draft = _complete_write_text(client, messages, cache_segments).strip()
+                except Exception as exc:
+                    partial_draft = _partial_draft_from_exception(exc)
+                    if partial_draft:
+                        last_nonempty_draft = partial_draft
+                    raise
+                if draft:
+                    last_nonempty_draft = draft
+                # Iter 019: mock-only failure injection so the write_book.sh retry
+                # path is testable without burning real-model budget. Gated by
+                # OPENAI_MODEL=mock so production runs cannot trigger this branch
+                # even if WRITER_FORCE_FAIL leaks into the environment.
+                if (
+                    os.getenv("WRITER_FORCE_FAIL") == "1"
+                    and os.getenv("OPENAI_MODEL") == "mock"
+                ):
+                    # Inject content guaranteed to trigger linter "short chapter"
+                    # error so the chapter is recorded as a failure.
+                    draft = "强制失败注入。" * 5
+                    last_nonempty_draft = draft
+                stage = "lint"
+                lint_issues = linter.lint(draft)
+                last_lint_issues = lint_issues
+                if any(issue["severity"] == "error" for issue in lint_issues):
+                    if shadow_review_enabled:
+                        try:
+                            stage = "shadow_review"
+                            shadow_review = review_text(
+                                draft,
+                                out_path.name,
+                                precomputed_lint_issues=lint_issues,
+                                rewrite_round=attempt - 1,
+                                run_agents_on_lint_error=True,
+                                enforce_relationship_checklist=enforce_checklist_mode,
+                                run_context=run_context,
+                                draft_sha256=_draft_file_sha256(draft),
+                            )
+                            lint_blocked_reviews.append({"attempt": attempt, "review": shadow_review})
+                        except Exception as exc:
+                            log_event("write", "shadow_review_error", chapter=chapter_no, error=str(exc))
+                    feedback = "请修复 deterministic linter 问题:\n" + _format_lint_feedback(lint_issues)
+                    last_blocking_reasons = [
+                        {
+                            "reviewer": "deterministic_linter",
+                            "rule_id": issue.get("rule"),
+                            "severity": issue.get("severity"),
+                            "message": issue.get("message"),
+                            "anchor": issue.get("anchor") or issue.get("excerpt", ""),
+                        }
+                        for issue in lint_issues
+                    ]
+                    report = {"verdict": "Reject", "lint_issues": lint_issues, "attempt": attempt}
+                    continue
+                lint_ok = True
+                stage = "review"
+                progress(f"review-attempt-{attempt}", 0.50)
+                # Iter 022 B4: pass KB + start-point source chapters into reviewer
+                # so the 8-agent panel can judge fidelity against actual source
+                # prose, not just persona impressions. Both args are graceful
+                # — start_point.format_chapters_before_start_for_anchor returns
+                # empty string when no start point is configured (iter 020 behavior).
+                review_source = start_point.format_chapters_before_start_for_anchor(
+                    k=3, limit_chars=8000
+                )
+                # Iter 023 P3: pass scene-matched excerpts so reviewer fidelity
+                # scoring has the same archetype anchor as the writer prompt.
+                scene_matches_for_review = (
+                    source_excerpts.select_for_chapter(chapter_plan_item, k=3)
+                    if chapter_plan_item
+                    else []
+                )
+                scene_excerpts_text = (
+                    source_excerpts.format_excerpts_for_prompt(
+                        scene_matches_for_review, limit_chars=8000
+                    )
+                    if scene_matches_for_review
+                    else ""
+                )
+                report = review_text(
+                    draft,
+                    out_path.name,
+                    precomputed_lint_issues=lint_issues,
+                    rewrite_round=attempt - 1,
+                    enforce_relationship_checklist=True,
+                    knowledge=knowledge[:6000] if knowledge else "",
+                    source_chapters=review_source,
+                    scene_excerpts=scene_excerpts_text,
+                    run_context=run_context,
+                    draft_sha256=_draft_file_sha256(draft),
+                )
+                progress(f"review-done-attempt-{attempt}", 0.55 + 0.05 * attempt)
+                if report["verdict"] == "Approve":
+                    last_blocking_reasons = []
+                    break
+                last_blocking_reasons = _blocking_reasons(report)
+                feedback = _review_feedback(report)
 
-        chapter_summary = _summarize_chapter(client, chapter_no, draft)
-        # Iter 022 B5: store an opening + ending snippet (~500 chars each
-        # tail) alongside the LLM summary so render_rolling_context can
-        # serve raw prose for the most-recent chapters. Empty when
-        # draft itself is short to avoid duplicate / nonsense.
-        text_snippet = ""
-        if draft and len(draft) >= 800:
-            text_snippet = (
-                f"{draft[:300].strip()}\n\n[…省略中段…]\n\n{draft[-300:].strip()}"
+            chinese_chars = count_chinese_chars(draft)
+            needs_polish = (
+                polish_enabled
+                and draft
+                and (
+                    not lint_ok
+                    or report.get("verdict") != "Approve"
+                    or chinese_chars < 3000
+                )
             )
-        append_chapter_summary(
-            chapter_no,
-            chapter_summary.get("summary", ""),
-            chapter_summary.get("key_events", []),
-            chapter_summary.get("ending_state", ""),
-            text_snippet=text_snippet,
-            path=drafts_dir / "rolling_chapter_summary.json",
-        )
-        proposals = _propose_entity_advance(client, chapter_no, draft, load_entity_graph())
-        proposal_path = save_entity_advance_proposals(chapter_no, proposals, drafts_dir=drafts_dir)
+            if needs_polish:
+                stage = "polish"
+                progress("polish", 0.85)
+                try:
+                    polished = _polish_draft(
+                        client=client,
+                        draft=draft,
+                        lint_issues=last_lint_issues,
+                        review_report=report,
+                        style_examples=style_examples,
+                        continuation_anchor=continuation_anchor,
+                        chinese_chars=chinese_chars,
+                    )
+                    if polished:
+                        pre_chars = len(draft)
+                        draft = polished.strip()
+                        last_nonempty_draft = draft or last_nonempty_draft
+                        polish_applied = True
+                        polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
+                except Exception as exc:
+                    report["polish_error"] = f"{type(exc).__name__}: {exc}"
 
-        if not lint_ok:
-            failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
-            meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
-            failure_report = {
-                "chapter": chapter_no,
-                "lint_issues": report.get("lint_issues", []),
-                "last_attempt": attempt,
-                "rewrite_count": max(0, attempt - 1),
-                "chinese_char_count": count_chinese_chars(draft),
-                "polish_applied": polish_applied,
-                "polish_diff_stats": polish_diff_stats,
-                "polish_error": report.get("polish_error", ""),
-                "lint_blocked_reviews": lint_blocked_reviews,
-                "last_blocking_reasons": last_blocking_reasons,
-                "draft_preview": draft[:2000],
-                "run_context": run_context,
-                "draft_sha256": _draft_file_sha256(draft),
-            }
-            write_json(failure_path, failure_report)
-            meta = {
-                "target": out_path.name,
-                "rewrite_round": max(0, attempt - 1),
-                "lint_issues": report.get("lint_issues", []),
-                "agent_reviews": [],
-                "verdict": "Reject",
-                "rewrite_count": max(0, attempt - 1),
-                "chinese_char_count": count_chinese_chars(draft),
-                "needs_human_review": True,
-                "polish_applied": polish_applied,
-                "polish_diff_stats": polish_diff_stats,
-                "polish_error": report.get("polish_error", ""),
-                "lint_blocked_reviews": lint_blocked_reviews,
-                "last_blocking_reasons": last_blocking_reasons,
-                "failure_path": str(failure_path),
-                "run_context": run_context,
-                "draft_sha256": _draft_file_sha256(draft),
-            }
-            write_text_atomic(out_path, draft + "\n")
-            write_json(meta_path, meta)
-            log_event("write", "failure", chapter=chapter_no, reason="lint_errors")
-            reports.append(
-                {
+            stage = "summarize"
+            chapter_summary = _summarize_chapter(client, chapter_no, draft)
+            # Iter 022 B5: store an opening + ending snippet (~500 chars each
+            # tail) alongside the LLM summary so render_rolling_context can
+            # serve raw prose for the most-recent chapters. Empty when
+            # draft itself is short to avoid duplicate / nonsense.
+            text_snippet = ""
+            if draft and len(draft) >= 800:
+                text_snippet = (
+                    f"{draft[:300].strip()}\n\n[…省略中段…]\n\n{draft[-300:].strip()}"
+                )
+            append_chapter_summary(
+                chapter_no,
+                chapter_summary.get("summary", ""),
+                chapter_summary.get("key_events", []),
+                chapter_summary.get("ending_state", ""),
+                text_snippet=text_snippet,
+                path=drafts_dir / "rolling_chapter_summary.json",
+            )
+            stage = "entity_advance"
+            proposals = _propose_entity_advance(client, chapter_no, draft, load_entity_graph())
+            proposal_path = save_entity_advance_proposals(chapter_no, proposals, drafts_dir=drafts_dir)
+
+            stage = "persist"
+            if not lint_ok:
+                failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
+                meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
+                failure_report = {
                     "chapter": chapter_no,
-                    "path": str(out_path),
+                    "lint_issues": report.get("lint_issues", []),
+                    "last_attempt": attempt,
+                    "rewrite_count": max(0, attempt - 1),
+                    "chinese_char_count": count_chinese_chars(draft),
+                    "polish_applied": polish_applied,
+                    "polish_diff_stats": polish_diff_stats,
+                    "polish_error": report.get("polish_error", ""),
+                    "lint_blocked_reviews": lint_blocked_reviews,
+                    "last_blocking_reasons": last_blocking_reasons,
+                    "draft_preview": draft[:2000],
+                    "run_context": run_context,
+                    "draft_sha256": _draft_file_sha256(draft),
+                }
+                write_json(failure_path, failure_report)
+                meta = {
+                    "target": out_path.name,
+                    "rewrite_round": max(0, attempt - 1),
+                    "lint_issues": report.get("lint_issues", []),
+                    "agent_reviews": [],
+                    "verdict": "Reject",
+                    "rewrite_count": max(0, attempt - 1),
+                    "chinese_char_count": count_chinese_chars(draft),
+                    "needs_human_review": True,
+                    "polish_applied": polish_applied,
+                    "polish_diff_stats": polish_diff_stats,
+                    "polish_error": report.get("polish_error", ""),
+                    "lint_blocked_reviews": lint_blocked_reviews,
+                    "last_blocking_reasons": last_blocking_reasons,
                     "failure_path": str(failure_path),
-                    "proposal_path": str(proposal_path),
-                    "review": meta,
-                    "written": True,
+                    "run_context": run_context,
+                    "draft_sha256": _draft_file_sha256(draft),
                 }
-            )
-        else:
-            meta = dict(report)
-            meta["rewrite_count"] = max(0, attempt - 1)
-            meta["chinese_char_count"] = count_chinese_chars(draft)
-            meta["needs_human_review"] = report.get("verdict") != "Approve"
-            meta["polish_applied"] = polish_applied
-            meta["polish_diff_stats"] = polish_diff_stats
-            meta["polish_error"] = report.get("polish_error", "")
-            meta["lint_blocked_reviews"] = lint_blocked_reviews
-            meta["run_context"] = run_context
-            meta["draft_sha256"] = _draft_file_sha256(draft)
-            if report.get("verdict") != "Approve":
-                meta["last_blocking_reasons"] = last_blocking_reasons
-            write_text_atomic(out_path, draft + "\n")
-            write_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", meta)
-            failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
-            if failure_path.exists():
-                failure_path.unlink()
-            reports.append(
-                {
-                    "chapter": chapter_no,
-                    "path": str(out_path),
-                    "proposal_path": str(proposal_path),
-                    "review": report,
-                    "written": True,
-                }
-            )
-            log_event("write", report.get("verdict", "unknown").lower(), chapter=chapter_no, output=str(out_path))
-        progress("finalize", 0.95)
+                write_text_atomic(out_path, draft + "\n")
+                write_json(meta_path, meta)
+                log_event("write", "failure", chapter=chapter_no, reason="lint_errors")
+                reports.append(
+                    {
+                        "chapter": chapter_no,
+                        "path": str(out_path),
+                        "failure_path": str(failure_path),
+                        "proposal_path": str(proposal_path),
+                        "review": meta,
+                        "written": True,
+                    }
+                )
+            else:
+                meta = dict(report)
+                meta["rewrite_count"] = max(0, attempt - 1)
+                meta["chinese_char_count"] = count_chinese_chars(draft)
+                meta["needs_human_review"] = report.get("verdict") != "Approve"
+                meta["polish_applied"] = polish_applied
+                meta["polish_diff_stats"] = polish_diff_stats
+                meta["polish_error"] = report.get("polish_error", "")
+                meta["lint_blocked_reviews"] = lint_blocked_reviews
+                meta["run_context"] = run_context
+                meta["draft_sha256"] = _draft_file_sha256(draft)
+                if report.get("verdict") != "Approve":
+                    meta["last_blocking_reasons"] = last_blocking_reasons
+                write_text_atomic(out_path, draft + "\n")
+                write_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", meta)
+                failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
+                if failure_path.exists():
+                    failure_path.unlink()
+                reports.append(
+                    {
+                        "chapter": chapter_no,
+                        "path": str(out_path),
+                        "proposal_path": str(proposal_path),
+                        "review": report,
+                        "written": True,
+                    }
+                )
+                log_event("write", report.get("verdict", "unknown").lower(), chapter=chapter_no, output=str(out_path))
+            progress("finalize", 0.95)
+        except Exception as exc:
+            if last_nonempty_draft:
+                _write_partial_failure(
+                    drafts_dir,
+                    chapter_no,
+                    last_nonempty_draft,
+                    attempt=attempt,
+                    last_error=f"{type(exc).__name__}: {exc}",
+                    stage=stage,
+                )
+            raise
     return reports
 
 
@@ -444,6 +478,43 @@ def _draft_file_sha256(draft: str) -> str:
     """Hash the exact text writer persists to chapter_NN.md."""
 
     return sha256_text(draft + "\n")
+
+
+def _partial_draft_from_exception(exc: Exception) -> str:
+    for attr in ("partial_draft", "partial_text", "draft", "text"):
+        value = getattr(exc, attr, "")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _write_partial_failure(
+    drafts_dir: Path,
+    chapter_no: int,
+    draft: str,
+    *,
+    attempt: int,
+    last_error: str,
+    stage: str,
+) -> Dict[str, Any]:
+    partial_path = drafts_dir / f"chapter_{chapter_no:02d}.partial.md"
+    failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
+    draft_text = draft.strip()
+    draft_sha = _draft_file_sha256(draft_text)
+    failure = {
+        "chapter": int(chapter_no),
+        "attempt": int(attempt),
+        "last_error": last_error,
+        "draft_sha256": draft_sha,
+        "stage": stage,
+        "draft_path": str(partial_path),
+    }
+    write_text_atomic(partial_path, draft_text + "\n")
+    write_text_atomic(
+        failure_path,
+        json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
+    )
+    return failure
 
 
 def _complete_write_text(client: LLMClient, messages: List[Dict[str, str]], cache_segments: List[Dict[str, Any]]) -> str:
