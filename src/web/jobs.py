@@ -147,8 +147,9 @@ def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
         snapshot = dict(job)
         if snapshot.get("status") in {"pending", "running"}:
             live = get_job(str(snapshot.get("job_id")))
-            snapshot = live or snapshot
-            if snapshot.get("status") in {"pending", "running"}:
+            if live is not None:
+                snapshot = live
+            else:
                 snapshot["status"] = "lost"
                 snapshot["error"] = "worker process restarted before this job reached a terminal state"
         out.append(snapshot)
