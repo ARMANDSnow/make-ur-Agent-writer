@@ -104,10 +104,10 @@ logs/                     # 全部 gitignored
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：038（P1/P2 hardening pass，mock-only）
-**已完成阶段**：1-4 主链路全打通；5.3 / 8.3 / 9.3 已进入 `write-book` 生产 runner；Web 本地 Beta 入口 iter 029-032 已打通，iter 033-037 补齐 Insights/Plan/Trash/type-aware/drama 前 2 站，iter 038 清掉沙箱 socket bind 6 ERROR backlog 并修 hook picker listener leak。实时细节以 README SOP + `docs/AGENT_HANDOFF.md` 末尾为准。
-**关键证据**：`write-readiness -> write-book` 是当前推荐生产入口；Web 进入 `/` 书架 → 侧栏 → `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}` 多页 IA；drama `/w/{name}/write` 站 ①/② mock fixture-driven；`unittest discover` 在沙箱内 `OK (skipped=6)`，不再有 Web socket bind ERROR。
-**下一步候选**（iter 039/040）：drama 站 ③ 分镜 / 站 ④ 角色 / AI 绘画 client / Comfy 导出 / drama_reviewer / 章节 diff / 全文搜索 / 真模型 capstone / KB 起点过滤安全视图。
+**当前 iter**：039（WebUI 小说续写真实链路修复，mock-only）
+**已完成阶段**：1-4 主链路全打通；5.3 / 8.3 / 9.3 已进入 `write-book` 生产 runner；Web 本地 Beta 入口 iter 029-032 已打通，iter 033-038 补齐 Insights/Plan/Trash/type-aware/drama 前 2 站与沙箱测试清零，iter 039 修 recent_jobs lost、write-book 细粒度 progress、partial artifact、章内预算止损与前端 blocked/partial 可见性。实时细节以 README SOP + `docs/AGENT_HANDOFF.md` 末尾为准。
+**关键证据**：`write-readiness -> write-book` 是当前推荐生产入口；Web 进入 `/` 书架 → 侧栏 → `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}` 多页 IA；drama `/w/{name}/write` 站 ①/② mock fixture-driven；`unittest discover` 在沙箱内 `OK (skipped=6)`；mock Web smoke 已验证 `chapter_NN.partial.md` + failure JSON 与 blocked reason 前端展示。
+**下一步候选**（iter 040）：P2-A/B/C（Jobs 展开详情、sidebar lost 历史标记、onboarding budget/timeout/cancel）/ drama 站 ③ 分镜 / 站 ④ 角色 / AI 绘画 client / Comfy 导出 / drama_reviewer / 章节 diff / 全文搜索 / 真模型 capstone / KB 起点过滤安全视图。
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
 
 ## 常用 git 操作

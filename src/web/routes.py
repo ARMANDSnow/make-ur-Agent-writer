@@ -715,7 +715,7 @@ def api_workspace_drafts(name: str) -> Tuple[int, str, bytes]:
     return _json(200, {"drafts": [item for item in drafts if item]})
 
 
-def api_workspace_draft(name: str, chapter: str) -> Tuple[int, str, bytes]:
+def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int, str, bytes]:
     error = _workspace_error(name)
     if error:
         return error
@@ -725,17 +725,26 @@ def api_workspace_draft(name: str, chapter: str) -> Tuple[int, str, bytes]:
         return _json(400, {"error": "chapter must be an integer"})
     if chapter_no < 1 or chapter_no > 9999:
         return _json(400, {"error": "chapter out of range"})
+    variant = (variant or "").strip().lower()
+    if variant not in {"", "final", "partial"}:
+        return _json(400, {"error": "unknown draft variant"})
     with use_workspace(name):
-        md_path = paths.drafts_dir() / f"chapter_{chapter_no:02d}.md"
+        filename = f"chapter_{chapter_no:02d}.partial.md" if variant == "partial" else f"chapter_{chapter_no:02d}.md"
+        md_path = paths.drafts_dir() / filename
         if not md_path.exists():
-            return _json(404, {"error": f"draft not found: chapter_{chapter_no:02d}"})
+            return _json(404, {"error": f"draft not found: {filename}"})
         text = md_path.read_text(encoding="utf-8", errors="replace")
-        meta = read_json(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
-        review = read_json(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
+        if variant == "partial":
+            meta = read_json(paths.drafts_dir() / f"chapter_{chapter_no:02d}.failure.json", {})
+            review = {}
+        else:
+            meta = read_json(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
+            review = read_json(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
     return _json(
         200,
         {
             "chapter": chapter_no,
+            "variant": variant or "final",
             "path": str(md_path),
             "content": text,
             "meta": meta if isinstance(meta, dict) else {},
@@ -745,14 +754,30 @@ def api_workspace_draft(name: str, chapter: str) -> Tuple[int, str, bytes]:
 
 
 def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
-    match = re.match(r"chapter_(\d+)\.md$", path.name)
+    match = re.match(r"chapter_(\d+)(\.partial)?\.md$", path.name)
     if not match:
         return None
     chapter_no = int(match.group(1))
+    is_partial = bool(match.group(2))
+    if is_partial:
+        failure = read_json(path.parent / f"chapter_{chapter_no:02d}.failure.json", {})
+        return {
+            "chapter": chapter_no,
+            "variant": "partial",
+            "path": str(path),
+            "chars": len(path.read_text(encoding="utf-8", errors="replace")),
+            "verdict": "failure",
+            "needs_human_review": True,
+            "rewrite_count": None,
+            "review_verdict": None,
+            "failure_stage": failure.get("stage") if isinstance(failure, dict) else None,
+            "failure_error": failure.get("last_error") if isinstance(failure, dict) else None,
+        }
     meta = read_json(path.with_suffix(".meta.json"), {})
     review = read_json(path.parent.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", {})
     return {
         "chapter": chapter_no,
+        "variant": "final",
         "path": str(path),
         "chars": len(path.read_text(encoding="utf-8", errors="replace")),
         "verdict": meta.get("verdict") if isinstance(meta, dict) else None,
@@ -1101,7 +1126,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     (
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/draft/(?P<chapter>\d+)/?$"),
-        lambda name, chapter, **_: api_workspace_draft(name, chapter),
+        lambda name, chapter, _query=None, **_: api_workspace_draft(
+            name,
+            chapter,
+            variant=(_query or {}).get("variant", [""])[0],
+        ),
     ),
     (
         "GET",

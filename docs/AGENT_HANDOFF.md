@@ -841,3 +841,38 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. 本轮纯工程已收口；不要 push，等用户按 V1-V12 验收。
 2. 下一步功能候选仍是 drama 站 ③ 分镜 / 站 ④ 角色 / AI 绘画 client / Comfy 导出 / drama_reviewer。
 3. 真模型接入仍 deferred 到 iter 040+；继续遵守真模型 smoke 必须等用户明确授权。
+
+---
+
+## Phase 4 Status（iter 039，2026-06-04）
+
+### Iteration 039 — WebUI 小说续写真实链路修复（mock-only）
+
+**目标**：严格按 `/Users/dingyuxuan/.claude/plans/codex-iteration-039-webui-cozy-charm.md` 修复 WebUI 真实续写链路的 P0/P1 问题，让 `write-readiness -> write-book` 在前端可观测、失败可恢复、预算可章内止损。
+
+**主要落地**：
+- `recent_jobs()` 修复 persisted running/pending 的 lost 判定：内存中仍有 live job 时保留 running/progress，只有 process restart 后查不到内存 job 才标 lost。
+- `writer.write_chapters()` 新增 `progress_cb` 与 `budget_check_cb`；章内最小进度点覆盖 write attempt、review attempt、review done、polish、finalize；book_runner 映射成 `chapter-N/sub_step` 全局 progress。
+- writer 在异常路径维护最新非空 draft，写出 `chapter_NN.partial.md` 与 `chapter_NN.failure.json`（attempt、last_error、draft_sha256、stage、draft_path），book_runner 的 failed/budget_exceeded snapshot 与 Web job summary 透传 `partial`。
+- 新增 `BudgetExceeded`，book_runner 用 `estimate_cost_since(initial_log_lines)` closure 在 write/review/polish 与外层 review_target 后检查预算，超限返回 `budget_exceeded`。
+- Web 前端新增 `jobBlockedDetail()` / `jobFailureLine()`；sidebar、pollJob terminal alert/toast、jobs 页 note 优先展示 `result_summary.first_blocked`。
+- `/api/workspace/<ws>/draft/<chapter>?variant=partial` 可读取 partial draft；`/drafts` 列出 final/partial variant；chapters 页显示 `partial` / `failure` 标签；terminal job box 展示 partial draft 链接。
+- `WRITER_FORCE_FAIL=1` 的 mock-only hook 改成在 write 后抛出携带 partial draft 的异常，用于无成本 smoke partial artifact 路径；仍需 `OPENAI_MODEL=mock`。
+
+**验证进度**：
+- P0-A/B/C/D 每个子项后均跑 `.venv/bin/python -m unittest discover`，从 551 到 554 tests，均 `OK (skipped=6)`。
+- 最终 full `.venv/bin/python -m unittest discover` → 557 tests，`OK (skipped=6)`。
+- `PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` → exit 0，557 tests `OK (skipped=6)` + mock auto-pipeline OK。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → PREFLIGHT ok，FATAL none，WARN none。
+- `node --check /dev/stdin` for `JS_DASHBOARD` → OK。
+- Mock Web smoke：`OPENAI_MODEL=mock WRITER_FORCE_FAIL=1` 启 Web，`iter039smoke` write-book 返回 failed + `result_summary.partial`，`chapter_01.partial.md` / `chapter_01.failure.json` 落盘，partial API 200；`iter039blocked` plan-chapters 显示 `outline_missing` blocked reason。截图：`/private/tmp/iter039_jobs_outline_missing.png`、`/private/tmp/iter039_chapters_partial.png`。
+- 真模型龙族 1 章 approved 验收未跑：需要用户明确授权后才能执行。
+
+**Subagent 审核**：
+- Gibbs 做了只读结构审核，覆盖 P0 recent_jobs/progress/partial/budget、P1 blocked/partial UI、测试与 protected scope。结论：无 blocking findings、无 protected scope 违规。
+- 审核提出 3 点已修复：polish 路径预算检查缺口、write-book 返回式失败 summary 未透传 error、成功 final draft 后旧 `.partial.md` 孤儿文件会继续显示为 failure。修复后补回 targeted tests 与 JS syntax check。
+
+**当前接力点**：
+1. 不要 push，等用户验收。
+2. 真模型验收候选：用户明确回“可以跑了”后，用 `workspaces/longzu/小说txt/龙族Ⅰ火之晨曦.txt` 截取前 3-5 章为起点，跑 plan-chapters + write-book chapter=1，目标至少 1 章 approved。
+3. iter040 backlog：P2-A/B/C（Jobs 展开详情、sidebar lost 历史标记、onboarding budget/timeout/cancel）、drama 站 ③/④、AI 绘画 client / Comfy 导出、drama_reviewer、章节 diff、全文搜索、KB 起点过滤安全视图、真模型 capstone。

@@ -1712,11 +1712,27 @@ JS_DASHBOARD = """\
         '<div class="k">step</div><div class="v">' + escapeHtml(job.step || "?") + "</div>" +
         '<div class="k">status</div><div class="v">' + statusBadge(job.status || "?") + "</div>" +
         '<div class="k">job</div><div class="v"><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code></div>" +
+        (jobFailureLine(job) ? '<div class="k">note</div><div class="v">' + escapeHtml(jobFailureLine(job).slice(0, 120)) + "</div>" : "") +
         "</div>"
       )).join("");
     } catch (err) {
       box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
     }
+  }
+  function jobBlockedDetail(job) {
+    const fb = job.result_summary && job.result_summary.first_blocked;
+    if (!fb) return null;
+    return { chapter: fb.chapter, reason: fb.reason, error: fb.error, status: fb.status };
+  }
+  function jobFailureLine(job) {
+    const detail = jobBlockedDetail(job);
+    if (detail && (detail.reason || detail.error)) {
+      return [detail.chapter ? `ch${detail.chapter}` : null, detail.reason, detail.error]
+        .filter(Boolean).join(' · ');
+    }
+    const summaryError = job.result_summary && job.result_summary.error;
+    if (summaryError) return String(summaryError).split('\\n')[0];
+    return (job.error || '').split('\\n')[0];
   }
   async function pollJob(jobId, box, submit, afterDone) {
     while (true) {
@@ -1729,6 +1745,7 @@ JS_DASHBOARD = """\
         return;
       }
       const pct = Math.round((job.progress || 0) * 100);
+      const failureLine = jobFailureLine(job);
       box.innerHTML =
         '<div class="kv-list compact">' +
         '<div class="k">job</div><div class="v"><code>' + escapeHtml(jobId) + "</code></div>" +
@@ -1737,16 +1754,23 @@ JS_DASHBOARD = """\
         '<div class="k">progress</div><div class="v">' + pct + "%</div>" +
         "</div>" +
         '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
-        (job.error ? '<div class="alert error" style="margin-top:8px">' + escapeHtml(job.error) +
+        (failureLine ? '<div class="alert error" style="margin-top:8px">' + escapeHtml(failureLine) +
           (job.trace_id ? ' <code>trace=' + escapeHtml(job.trace_id) + '</code>' : '') + "</div>" : "");
       const terminal = ["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"];
       if (terminal.indexOf(job.status) >= 0) {
+        const partial = job.result_summary && job.result_summary.partial;
+        if (partial && partial.chapter) {
+          const label = "chapter_" + String(partial.chapter).padStart(2, "0") + ".partial.md";
+          box.innerHTML += '<div class="alert warn" style="margin-top:8px">partial draft saved: ' +
+            '<a href="' + wsUrl("/draft/" + partial.chapter + "?variant=partial") + '">' +
+            escapeHtml(label) + "</a></div>";
+        }
         if (submit) submit.disabled = false;
         const stepLabel = job.step || job.current_step || "task";
         if (job.status === "succeeded") {
           showToast(stepLabel + " 已完成", "info");
         } else {
-          const reason = (job.error || "").split("\\n")[0].slice(0, 80);
+          const reason = jobFailureLine(job).slice(0, 80);
           showToast(stepLabel + " · " + job.status + (reason ? "：" + reason : ""), "error");
         }
         if (afterDone) await afterDone();
@@ -1795,13 +1819,17 @@ JS_DASHBOARD = """\
       const r = reviewByCh.get(d.chapter) || {};
       const id = "chapter_" + String(d.chapter).padStart(2, "0");
       const title = r.title || "";
-      const detailHref = "/w/" + encodeURIComponent(ws) + "/chapter/" + d.chapter;
+      const isPartial = d.variant === "partial";
+      const detailHref = isPartial ? wsUrl("/draft/" + d.chapter + "?variant=partial") : "/w/" + encodeURIComponent(ws) + "/chapter/" + d.chapter;
+      const typeCell = isPartial
+        ? '<span class="badge warn">partial</span> <span class="badge reject">failure</span>'
+        : "续写";
       rows.push(
         '<tr class="chapter-row" data-title="' + escapeHtml(title) + '" data-id="' + escapeHtml(id) +
         '" data-status="' + escapeHtml(d.verdict || "") + '">' +
         "<td>" + d.chapter + "</td>" +
-        "<td>续写</td>" +
-        "<td><code>" + escapeHtml(id) + "</code></td>" +
+        "<td>" + typeCell + "</td>" +
+        "<td><code>" + escapeHtml(id + (isPartial ? ".partial" : "")) + "</code></td>" +
         "<td>" + escapeHtml(title) + "</td>" +
         "<td>" + verdictBadge(d.verdict) + "</td>" +
         "<td>" + verdictBadge(d.review_verdict) + "</td>" +
@@ -2415,6 +2443,7 @@ JS_DASHBOARD = """\
       } else {
         const rows = items.map((job) => {
           const trace = job.trace_id || "";
+          const note = jobFailureLine(job);
           return (
             '<tr class="job-row">' +
             "<td>" + escapeHtml(job.step || "?") + "</td>" +
@@ -2422,7 +2451,7 @@ JS_DASHBOARD = """\
             '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code> " + copyButton(job.job_id || "") + "</td>" +
             '<td><span class="trace">' + escapeHtml(trace || "—") + "</span>" + (trace ? " " + copyButton(trace) : "") + "</td>" +
             "<td>" + escapeHtml(job.started_at ? String(job.started_at) : "—") + "</td>" +
-            "<td>" + escapeHtml(job.error ? job.error.slice(0, 80) : "") + "</td>" +
+            "<td>" + escapeHtml(note ? note.slice(0, 120) : "") + "</td>" +
             "</tr>"
           );
         }).join("");

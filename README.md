@@ -252,7 +252,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 038（2026-06-04）** — P1/P2 修补收口：沙箱 Web socket bind 6 ERROR 改为 `skipIf`，drama hook picker 改 document-level delegated listener + rapid-click 禁用，`loadTabPanel` / pending toast / Plan viewer / workspace_meta / trash / workspace_ctx 测试边界补齐。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 039（2026-06-04）** — WebUI 真实续写链路修复：running job 不再误标 lost，write-book 章内 progress 细粒度上报，失败/预算超限落 `chapter_NN.partial.md` + failure JSON，blocked reason 与 partial draft 在前端可见。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -303,6 +303,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | 6.4 | lint 阈值动态化（按字数缩放）| ✅ | **iter 022 B1**（4000 字 base × dynamic scale）|
 | 6.5 | writer prompt 加 anti-pattern（去字面例避免 priming） | ✅ | **iter 022 B2** |
 | 6.6 | writer 读 scene-matched 经典片段（按 chapter_plan 选段）| ✅ | **iter 023 P3**（替代硬切起点前 K 章）|
+| 6.7 | 失败时 partial draft 落盘 | ✅ | **iter 039** write/review/budget 异常保留 `chapter_NN.partial.md` + `chapter_NN.failure.json` |
 
 ### 阶段 7 — 审核
 | # | 节点 | 状态 | 备注 |
@@ -326,7 +327,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 |---|---|---|---|
 | 9.1 | rolling_summary 更新 | ✅ | iter 013 |
 | 9.2 | rolling_summary 分层（摘要 + 最近 K 章原文片段）| ✅ | **iter 022 B5**（schema 加 text_snippet 字段） |
-| 9.3 | per-章 cost 实时报告 + budget ceiling | ✅ | **iter 029** `write-book --budget-cny N` 返回 `budget_exceeded` / exit 3 |
+| 9.3 | per-章 cost 实时报告 + budget ceiling | ✅ | **iter 029** `write-book --budget-cny N` 返回 `budget_exceeded` / exit 3；**iter 039** write/review/polish 章内预算检查 |
 
 ### infra & UI
 | # | 节点 | 状态 | 备注 |
@@ -339,13 +340,14 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.1 | WebUI dashboard | ✅ | **iter 025**（`python3 main.py web` 起 stdlib http.server；workspace 列表 + 4 panel 全量 reviews） |
 | U.2 | 模型切换 panel + onboarding wizard | ✅ | **iter 026**（`/wizard` 上传 epub/txt → 后端 `auto-pipeline` 9 步 worker → ch1 落盘；`/settings` 读 .env + key 屏蔽 + 原子写）|
 | U.3 | `auto-pipeline` 子命令（CLI + wizard 共享绿地编排）| ✅ | **iter 028** 普通 Web 生产不再暴露 generic `auto-pipeline`；wizard 使用 `auto-pipeline-greenfield` |
-| U.4 | Web job 状态持久化 + fail-closed summary | ✅ | **iter 028**（`succeeded/blocked/failed/aborted/lost`，Reject/needs_human_review 不算 success） |
+| U.4 | Web job 状态持久化 + fail-closed summary | ✅ | **iter 028**（`succeeded/blocked/failed/aborted/lost`，Reject/needs_human_review 不算 success）；**iter 039** live running job 不再误标 lost，blocked reason 读 `result_summary.first_blocked` |
 | U.5 | Web “继续写书”本地 Beta 入口 | ✅ | **iter 029**（dashboard 显示 readiness、阻塞原因、推荐命令；普通区不展示 `draft-once-dev`） |
-| U.6 | Web 写作工作台 | ✅ | **iter 030-031**（首页 workspace overview；详情页设置起点/覆盖式重生成计划/继续写书/只读 draft 预览/最近 job 恢复；iter 031 加坏 plan 容错、懒加载、debounce、短 TTL cache） |
+| U.6 | Web 写作工作台 | ✅ | **iter 030-031**（首页 workspace overview；详情页设置起点/覆盖式重生成计划/继续写书/只读 draft 预览/最近 job 恢复；iter 031 加坏 plan 容错、懒加载、debounce、短 TTL cache）；**iter 039** write-book 细粒度 progress + partial draft 链接 |
 | U.7 | Web 信息架构 + 视觉系统 | ✅ | **iter 032**（侧栏 + 工作区子页面 `/w/{name}/{overview,continue,chapters,chapter/{n},reviews,jobs}`；旧 `/workspace/{name}` → 301；文学化暖色调 design tokens；统一组件库；新 Chapter 详情页曝光 reviewer 子分数 / lint anchor / advisor / rewrite 历史） |
 | U.8 | Web 日常使用补齐 | ✅ | **iter 033**（工作区二次确认软删除到 `_trash`；新增 `/w/{name}/insights` 数据页；lint anchor → 正文段落跳转 + 高亮；job terminal / 跨页删除 toast） |
 | U.9 | Web type-aware workspace 基础设施 | ✅ | **iter 036**（`workspace.json` schema v1；旧 workspace 缺文件默认 novel；wizard drama-start 进入 drama 分支；novel-only 页面 404，`/run` 对 drama 400） |
 | U.10 | Web drama 4 站审查向导（前 2 站）| ✅ | **iter 037-038**（drama wizard 5 字段 + `wizard_input.json` + `creation_standard.snapshot.md`；`/w/{name}/write` 4 tab；站 ①/② mock fixture-driven；iter 038 修 hook picker listener leak/rapid-click race，站 ③④仍待后续开放） |
+| U.11 | Web 真实续写链路可观测/可恢复 | ✅ | **iter 039**（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行） |
 
 ---
 

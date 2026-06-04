@@ -163,18 +163,15 @@ def write_chapters(
                     last_nonempty_draft = draft
                 stage = "budget_check_write"
                 budget_check()
-                # Iter 019: mock-only failure injection so the write_book.sh retry
-                # path is testable without burning real-model budget. Gated by
-                # OPENAI_MODEL=mock so production runs cannot trigger this branch
-                # even if WRITER_FORCE_FAIL leaks into the environment.
+                # Mock-only failure injection. iter 039 uses this to exercise
+                # the partial-artifact path without burning real-model budget.
                 if (
                     os.getenv("WRITER_FORCE_FAIL") == "1"
                     and os.getenv("OPENAI_MODEL") == "mock"
                 ):
-                    # Inject content guaranteed to trigger linter "short chapter"
-                    # error so the chapter is recorded as a failure.
-                    draft = "强制失败注入。" * 5
-                    last_nonempty_draft = draft
+                    forced = RuntimeError("WRITER_FORCE_FAIL forced partial write failure")
+                    setattr(forced, "partial_draft", draft or "强制失败注入。")
+                    raise forced
                 stage = "lint"
                 lint_issues = linter.lint(draft)
                 last_lint_issues = lint_issues
@@ -287,6 +284,8 @@ def write_chapters(
                         polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
                 except Exception as exc:
                     report["polish_error"] = f"{type(exc).__name__}: {exc}"
+                stage = "budget_check_polish"
+                budget_check()
 
             stage = "summarize"
             chapter_summary = _summarize_chapter(client, chapter_no, draft)
@@ -380,6 +379,9 @@ def write_chapters(
                 failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
                 if failure_path.exists():
                     failure_path.unlink()
+                partial_path = drafts_dir / f"chapter_{chapter_no:02d}.partial.md"
+                if partial_path.exists():
+                    partial_path.unlink()
                 reports.append(
                     {
                         "chapter": chapter_no,

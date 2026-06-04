@@ -443,16 +443,59 @@ class RoutesGetTests(unittest.TestCase):
         status, data = self._get_json("/api/workspace/alpha/drafts")
         self.assertEqual(status, 200)
         self.assertEqual(data["drafts"][0]["chapter"], 1)
+        self.assertEqual(data["drafts"][0]["variant"], "final")
         self.assertEqual(data["drafts"][0]["verdict"], "Approve")
 
         status, data = self._get_json("/api/workspace/alpha/draft/1")
         self.assertEqual(status, 200)
+        self.assertEqual(data["variant"], "final")
         self.assertIn("mock draft", data["content"])
         self.assertEqual(data["review"]["verdict"], "Approve")
 
         status, data = self._get_json("/api/workspace/alpha/draft/99999")
         self.assertEqual(status, 400)
         self.assertIn("out of range", data["error"])
+
+    def test_api_partial_draft_variant_is_readable_and_listed(self) -> None:
+        drafts = Path(self._tmp.name) / "alpha" / "outputs" / "drafts"
+        (drafts / "chapter_02.partial.md").write_text("partial body", encoding="utf-8")
+        (drafts / "chapter_02.failure.json").write_text(
+            json.dumps(
+                {
+                    "attempt": 1,
+                    "stage": "write",
+                    "last_error": "RuntimeError: stream interrupted",
+                    "draft_sha256": "abc",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        status, data = self._get_json("/api/workspace/alpha/drafts")
+        self.assertEqual(status, 200)
+        partial = [item for item in data["drafts"] if item["variant"] == "partial"][0]
+        self.assertEqual(partial["chapter"], 2)
+        self.assertEqual(partial["verdict"], "failure")
+        self.assertEqual(partial["failure_stage"], "write")
+
+        status, data = self._get_json("/api/workspace/alpha/draft/2?variant=partial")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["variant"], "partial")
+        self.assertEqual(data["content"], "partial body")
+        self.assertEqual(data["meta"]["stage"], "write")
+
+        status, data = self._get_json("/api/workspace/alpha/draft/2?variant=unknown")
+        self.assertEqual(status, 400)
+        self.assertIn("variant", data["error"])
+
+    def test_static_js_surfaces_blocked_reason_and_partial_link(self) -> None:
+        js = routes.static.JS_DASHBOARD
+        self.assertIn("function jobBlockedDetail", js)
+        self.assertIn("function jobFailureLine", js)
+        self.assertIn("result_summary.partial", js)
+        self.assertIn("variant=partial", js)
+        self.assertIn("partial draft saved", js)
 
     def test_api_recent_jobs_reads_persisted_jsonl(self) -> None:
         job = {

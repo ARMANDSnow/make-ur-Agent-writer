@@ -131,6 +131,7 @@ class BookRunnerPartialArtifactTests(unittest.TestCase):
 
             summary = jobs._summarize_result("write-book", result)
             self.assertEqual(summary["partial"]["chapter"], 2)
+            self.assertIn("stream interrupted", summary["error"])
 
     def test_budget_exceeded_inside_chapter_saves_partial(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
