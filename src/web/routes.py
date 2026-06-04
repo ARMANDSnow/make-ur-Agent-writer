@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .. import paths, review_tier, start_point
 from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
+from ..config import get_model_config
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
 from ..utils import read_json, read_json_optional
@@ -260,6 +261,13 @@ def render_static_wizard_js() -> Tuple[int, str, bytes]:
 
 def api_workspaces() -> Tuple[int, str, bytes]:
     return _json(200, {"workspaces": list_workspaces()})
+
+
+def api_preflight() -> Tuple[int, str, bytes]:
+    """Return a small secret-free runtime mode summary for onboarding UI."""
+
+    model = str(get_model_config("write").get("model") or "mock")
+    return _json(200, {"model": model, "is_mock": (not model or model == "mock" or model.startswith("mock/"))})
 
 
 def api_workspaces_overview() -> Tuple[int, str, bytes]:
@@ -1247,6 +1255,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     # iter 026: onboarding wizard — single multipart POST that starts an
     # auto-pipeline job; client then polls the job_id from above.
     ("GET", re.compile(r"^/wizard/?$"), lambda **_: render_wizard_page()),
+    ("GET", re.compile(r"^/api/preflight/?$"), lambda **_: api_preflight()),
     (
         "POST",
         re.compile(r"^/api/wizard/start/?$"),

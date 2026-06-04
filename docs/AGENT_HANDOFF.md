@@ -1016,7 +1016,9 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **验证进度（截至文档刷新前）**：
 - Targeted cancel/job route suites：`tests.test_jobs_cancel tests.test_routes_job_cancel tests.test_web_jobs_dispatch tests.test_web_routes_post` 通过。
 - Targeted wizard/mobile/static suites：`tests.test_web_routes_get tests.test_web_wizard_e2e tests.test_drama_wizard_full_form tests.test_jobs_drawer tests.test_static_subscore_compat tests.test_web_insights` 通过。
-- Full unittest / preflight / verify、移动截图回归、subagent read-only audit 将在 final commit 前记录到 `docs/iterations/iteration_044_PLAN.md`。
+- Final acceptance：`.venv/bin/python -m unittest discover` → `590 tests OK (skipped=6)`；`OPENAI_MODEL=mock .venv/bin/python main.py preflight` → `PREFLIGHT: ok`；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` → exit 0。
+- 移动 + cancel 截图回归：`/tmp/iter044_mobile_screenshots_20260605_020931/`，覆盖 iPhone 13 + iPad 的 B/C/D/E journeys；`iphone13_cancel_aborted.png` 显示 mock 模式、`aborted/cancelled`、取消原因与重新开始/返回书架 CTA。
+- Subagent read-only audit：Laplace 初审发现 cancel terminal race、JS empty `scores` fallback、runtime mode label 与文档 placeholder；本轮 final patch 已修。保留的已知限制：cancel/timeout 为协作式，长时间无 progress 的 handler/provider call 仍要等下一 checkpoint 才进入 `aborted`，不强 kill worker。
 
 **当前接力点**：
 1. 本轮完成后不要 push，等用户验收。

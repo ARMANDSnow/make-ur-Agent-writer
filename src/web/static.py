@@ -2677,7 +2677,7 @@ JS_DASHBOARD = """\
   function renderAgentReview(a) {
     // iter042 schema evolution: current reviewer output writes `scores`;
     // older artifacts used `sub_scores`, so the UI accepts both.
-    const sub = a.scores || a.sub_scores || {};
+    const sub = (a.scores && Object.keys(a.scores).length ? a.scores : a.sub_scores) || {};
     const bars = ["plot", "prose", "fidelity"].map((k) => {
       const v = sub[k];
       const pct = (v == null ? 0 : Math.max(0, Math.min(10, Number(v))) * 10);
@@ -3194,11 +3194,10 @@ JS_WIZARD = """\
   async function loadServerMode() {
     if (!modeCard) return;
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetch("/api/preflight");
       const data = await res.json().catch(() => ({}));
-      const settings = data.settings || {};
-      const model = String(settings.OPENAI_MODEL || "mock");
-      const isMock = !model || model === "mock";
+      const model = String(data.model || "mock");
+      const isMock = !!data.is_mock;
       modeCard.innerHTML = '<strong>当前 server 模式：' + (isMock ? "mock" : "real") + '</strong>' +
         '<br><span class="muted">OPENAI_MODEL=' + escapeHtml(model || "mock") +
         (isMock ? "，本次不会消耗真实 token。" : "，请确认已授权真实模型运行。") + "</span>";

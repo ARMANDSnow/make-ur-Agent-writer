@@ -53,7 +53,8 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_chapter_detail_js_accepts_scores_and_legacy_sub_scores(self) -> None:
-        self.assertIn("a.scores || a.sub_scores || {}", static.JS_DASHBOARD)
+        self.assertIn("a.scores && Object.keys(a.scores).length", static.JS_DASHBOARD)
+        self.assertIn(": a.sub_scores) || {}", static.JS_DASHBOARD)
         self.assertIn(".subscore-cell-approve", static.CSS_BODY)
         self.assertNotIn('td style="text-align:center;background:', static.JS_DASHBOARD)
 

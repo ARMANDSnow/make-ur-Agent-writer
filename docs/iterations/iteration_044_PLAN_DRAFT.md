@@ -212,7 +212,7 @@ PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh
 - panel 末尾贴 before/after 对比小表
 
 ### 阶段 4 · 文档 grep
-- `rg "iter 04[0-2].*下一步|iter 043.*下一步" AGENTS.md README.md docs/` → 0 命中
+- 过期“下一步” grep（覆盖 iter040-043 旧候选文案）→ 0 命中
 - `rg "TODO|FIXME" AGENTS.md README.md` → 检查是否仍有过期 todo
 
 ### 阶段 5 · subagent 只读审核

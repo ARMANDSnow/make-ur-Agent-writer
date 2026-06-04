@@ -107,6 +107,18 @@ class JobCancelTests(unittest.TestCase):
         self.assertTrue(terminal["cancel_requested"])
         self.assertIsNone(jobs.workspace_busy("alpha"))
 
+    def test_request_cancel_rejects_terminal_job(self) -> None:
+        with patch.dict(
+            jobs.STEP_HANDLERS,
+            {"normalize": lambda params, progress_cb: {"status": "succeeded"}},
+        ):
+            record = jobs.start_job("alpha", "normalize", {})
+            terminal = self._wait_for_terminal(record["job_id"])
+
+        self.assertEqual(terminal["status"], "succeeded")
+        self.assertIsNone(jobs.request_cancel(record["job_id"]))
+        self.assertFalse(jobs.get_job(record["job_id"])["cancel_requested"])
+
 
 if __name__ == "__main__":
     unittest.main()

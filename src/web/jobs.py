@@ -205,6 +205,8 @@ def request_cancel(job_id: str, reason: str = "user requested cancel") -> Option
         job = _JOBS.get(job_id)
         if job is None:
             return None
+        if str(job.get("status") or "") not in {"pending", "running"}:
+            return None
         job["cancel_requested"] = True
         job["cancel_reason"] = reason
         snapshot = dict(job)
@@ -243,6 +245,37 @@ def _check_cancelled(job_id: str, deadline: Optional[float], timeout_minutes: Op
     reason = _cancel_requested(job_id)
     if reason:
         raise JobCancelled(reason)
+
+
+def _complete_job(job_id: str, terminal: str, step: str, result: Any) -> None:
+    """Record a terminal result without racing a late cancel request."""
+
+    snapshot: Optional[Dict[str, Any]] = None
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            return
+        if job.get("cancel_requested"):
+            job.update(
+                {
+                    "status": "aborted",
+                    "current_step": "cancelled",
+                    "error": str(job.get("cancel_reason") or "user requested cancel"),
+                    "finished_at": _now(),
+                }
+            )
+        else:
+            job.update(
+                {
+                    "status": terminal,
+                    "current_step": terminal,
+                    "progress": 1.0,
+                    "finished_at": _now(),
+                    "result_summary": _summarize_result(step, result),
+                }
+            )
+        snapshot = dict(job)
+    _persist_job(snapshot)
 
 
 def workspace_busy(workspace: str) -> Optional[str]:
@@ -489,14 +522,7 @@ def _worker(job_id: str) -> None:
         terminal = "succeeded"
         if isinstance(result, dict) and result.get("status") in {"blocked", "failed", "succeeded", "aborted", "budget_exceeded"}:
             terminal = str(result.get("status"))
-        _update(
-            job_id,
-            status=terminal,
-            current_step=terminal,
-            progress=1.0,
-            finished_at=_now(),
-            result_summary=_summarize_result(step, result),
-        )
+        _complete_job(job_id, terminal, step, result)
     finally:
         with _WORKSPACE_LOCK:
             _WORKSPACE_JOBS.pop(workspace, None)

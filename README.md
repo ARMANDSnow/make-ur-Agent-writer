@@ -7,7 +7,7 @@
 [简体中文](README.md) · [English](README_EN.md)
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-588_total-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
+[![Tests](https://img.shields.io/badge/tests-590_total-brightgreen.svg)](#%E9%A1%B9%E7%9B%AE%E7%8A%B6%E6%80%81)
 [![Iterations](https://img.shields.io/badge/iterations-44_logged-orange.svg)](docs/iterations/)
 [![LiteLLM](https://img.shields.io/badge/router-LiteLLM-purple.svg)](https://github.com/BerriAI/litellm)
 [![Mock-first](https://img.shields.io/badge/dev-mock_first-success.svg)](#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
@@ -32,7 +32,7 @@
 
 | 层 | 在代码里长什么样 |
 |---|---|
-| **Mock 优先开发** | 588 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
+| **Mock 优先开发** | 590 个单元测试，**几秒跑完**，一个 token 都不烧。`tests/__init__.py` 强制 `OPENAI_MODEL=mock`，防 `.env` 泄露污染测试。 |
 | **Preflight 守门** | 真模型跑之前 7 类 FATAL 检查 + N 条 WARN：env / context limit / agents 配置 / rolling state / manifest 完整性 / **provider routing** / 人工事实 / cache 提供商提示。 |
 | **多 workspace 隔离** | iter 017：每本书一个 `workspaces/<name>/{data,outputs,小说txt,logs}/`。`--book myBook` 切换；sha256 baseline 4/4 互不污染。 |
 | **多语言切章 + EPUB 提取** | iter 018：CJK 字符比率自动判中英；中文 `第N章` / 英文 `CHAPTER / POV / 全大写` 两套 regex。`.epub` 用 stdlib `zipfile + xml.etree + html.parser` 直接转 txt，**零新依赖**。 |
@@ -53,7 +53,7 @@
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
 cd make-ur-Agent-writer
 pip install -r requirements.txt
-bash scripts/verify.sh      # 588 unit tests + 全流水线 mock，退出 0 = 接通
+bash scripts/verify.sh      # 590 unit tests + 全流水线 mock，退出 0 = 接通
 ```
 
 ### 真模型模式（gpt-5.5 / deepseek / 任何 OpenAI 兼容 provider）

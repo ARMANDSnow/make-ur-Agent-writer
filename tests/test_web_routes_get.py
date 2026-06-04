@@ -169,6 +169,22 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("会发生什么", html)
         self.assertIn("复仇 → 救赎", html)
         self.assertIn("data-back-to-type", html)
+        self.assertIn("/api/preflight", routes.static.JS_WIZARD)
+
+    def test_api_preflight_reports_runtime_mode_without_settings_secrets(self) -> None:
+        saved = os.environ.get("OPENAI_MODEL")
+        os.environ["OPENAI_MODEL"] = "mock"
+        try:
+            status, data = self._get_json("/api/preflight")
+        finally:
+            if saved is None:
+                os.environ.pop("OPENAI_MODEL", None)
+            else:
+                os.environ["OPENAI_MODEL"] = saved
+        self.assertEqual(status, 200)
+        self.assertEqual(data["model"], "mock")
+        self.assertTrue(data["is_mock"])
+        self.assertNotIn("API_KEY", json.dumps(data))
 
     def test_workspace_legacy_url_301s_to_new_ia(self) -> None:
         """Iter 032: the iter 025 ``/workspace/<name>/`` URL still
@@ -713,7 +729,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
         self.assertIn("/api/wizard/drama-start", js)
-        self.assertIn("/api/settings", js)
+        self.assertIn("/api/preflight", js)
         self.assertIn("/cancel", js)
         self.assertIn("renderWizardActions", js)
         self.assertIn("data-back-to-type", js)
