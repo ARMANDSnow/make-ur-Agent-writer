@@ -183,6 +183,12 @@ class RoutesGetTests(unittest.TestCase):
     def test_workspace_overview_renders(self) -> None:
         """Iter 032: ``/w/<name>/`` is the new overview page — replaces
         the old all-in-one workspace page."""
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn("data-sidebar-toggle", html)
+        self.assertIn("sidebar-overlay", html)
+        self.assertIn("data-topbar-menu-toggle", html)
 
         status, _ct, body = routes.dispatch("GET", "/w/alpha/")
         self.assertEqual(status, 200)
@@ -684,6 +690,21 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("function typeBadge", js)
         self.assertIn("badge-drama", js)
         self.assertIn("badge-novel", js)
+
+    def test_static_assets_have_mobile_drawer_hooks(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.css")
+        self.assertEqual(status, 200)
+        css = body.decode("utf-8")
+        self.assertIn(".sidebar.open", css)
+        self.assertIn(".sidebar-overlay.open", css)
+        self.assertIn(".topbar-actions.open", css)
+
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("function initShellControls", js)
+        self.assertIn("data-sidebar-toggle", js)
+        self.assertIn("data-topbar-menu-toggle", js)
 
     def test_wizard_js_has_drama_path(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/wizard.js")

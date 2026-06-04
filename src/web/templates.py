@@ -44,10 +44,15 @@ _BASE_TPL = Template(
 <body>
 <div class="app $APP_CLASS">
   $SIDEBAR
+  <div class="sidebar-overlay" data-sidebar-close></div>
   <div class="main">
     <header class="topbar">
+      <button type="button" class="btn btn-icon nav-toggle" data-sidebar-toggle aria-label="打开侧栏">☰</button>
       <nav class="breadcrumb">$BREADCRUMB</nav>
-      <div class="topbar-actions">$TOPBAR_ACTIONS</div>
+      <div class="topbar-actions-wrap">
+        <button type="button" class="btn btn-icon topbar-menu-toggle" data-topbar-menu-toggle aria-label="打开页面操作">⋯</button>
+        <div class="topbar-actions">$TOPBAR_ACTIONS</div>
+      </div>
     </header>
     <main class="page">
       $MAIN
