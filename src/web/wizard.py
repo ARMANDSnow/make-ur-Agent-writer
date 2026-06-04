@@ -87,6 +87,18 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     if not file_bytes:
         return _json(400, {"error": "uploaded file is empty"})
 
+    error, extract_limit = _optional_int(fields.get("extract_limit"), "extract_limit", default=5, minimum=1, maximum=200)
+    if error:
+        return _json(400, {"error": error})
+    error, budget_cny = _optional_float(fields.get("budget_cny"), "budget_cny", default=0.0, minimum=0.0)
+    if error:
+        return _json(400, {"error": error})
+    error, timeout_minutes = _optional_float(
+        fields.get("timeout_minutes"), "timeout_minutes", default=0.0, minimum=0.0, maximum=1440.0
+    )
+    if error:
+        return _json(400, {"error": error})
+
     # Workspace creation: fail loudly if one already exists by that
     # name (don't silently overwrite).
     target_root = paths.WORKSPACE_DIR / name
@@ -164,10 +176,20 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     # always produces a single ch1 — the user grows the corpus from
     # ``write_book.sh`` afterward.
     try:
+        job_params: Dict[str, Any] = {
+            "chapters": 1,
+            "extract_limit": extract_limit,
+            "force": True,
+            "require_start_point": False,
+        }
+        if budget_cny > 0:
+            job_params["budget_cny"] = budget_cny
+        if timeout_minutes > 0:
+            job_params["timeout_minutes"] = timeout_minutes
         job = jobs.start_job(
             name,
             "auto-pipeline-greenfield",
-            {"chapters": 1, "extract_limit": 5, "force": True, "require_start_point": False},
+            job_params,
         )
     except (ValueError, RuntimeError) as exc:
         # Roll back the half-created workspace so the user can retry
@@ -221,6 +243,15 @@ def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, byt
     if type(ep_dur) is not int or ep_dur not in DRAMA_DURATIONS:
         return _json(400, {"error": f"'episode_duration_seconds' must be one of {sorted(DRAMA_DURATIONS)}"})
 
+    error, budget_cny = _optional_float(payload.get("budget_cny"), "budget_cny", default=0.0, minimum=0.0)
+    if error:
+        return _json(400, {"error": error})
+    error, timeout_minutes = _optional_float(
+        payload.get("timeout_minutes"), "timeout_minutes", default=0.0, minimum=0.0, maximum=1440.0
+    )
+    if error:
+        return _json(400, {"error": error})
+
     try:
         result = init_workspace(name, type="drama")
     except FileExistsError:
@@ -239,6 +270,8 @@ def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, byt
             "track": track,
             "episode_count": ep_count,
             "episode_duration_seconds": ep_dur,
+            "budget_cny": budget_cny,
+            "timeout_minutes": timeout_minutes,
             "schema_version": 1,
         }
         wizard_input_path.write_text(
@@ -266,6 +299,48 @@ def _snapshot_creation_standard(workspace_name: str) -> None:
 
 
 # ---- helpers ---------------------------------------------------------------
+
+
+def _optional_int(
+    value: Any,
+    key: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: Optional[int] = None,
+) -> Tuple[Optional[str], int]:
+    if value is None or value == "":
+        return None, default
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return f"{key} must be an integer", default
+    if out < minimum:
+        return f"{key} must be >= {minimum}", default
+    if maximum is not None and out > maximum:
+        return f"{key} must be <= {maximum}", default
+    return None, out
+
+
+def _optional_float(
+    value: Any,
+    key: str,
+    *,
+    default: float,
+    minimum: float,
+    maximum: Optional[float] = None,
+) -> Tuple[Optional[str], float]:
+    if value is None or value == "":
+        return None, default
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return f"{key} must be a number", default
+    if out < minimum:
+        return f"{key} must be >= {minimum}", default
+    if maximum is not None and out > maximum:
+        return f"{key} must be <= {maximum}", default
+    return None, out
 
 
 

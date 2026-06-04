@@ -839,6 +839,22 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   flex-direction: column;
   gap: var(--space-5);
 }
+.wizard-mode-card { margin: 0; }
+.wizard-help-card {
+  padding: var(--space-4);
+  background: var(--bg-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+}
+.wizard-help-card .eyebrow { margin-bottom: var(--space-2); }
+.wizard-advanced { border-top: 1px solid var(--rule); padding-top: var(--space-2); }
+.wizard-progress-actions {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.wizard-progress-actions .cluster { justify-content: flex-start; }
 
 /* confirm modal */
 .modal-backdrop {
@@ -2995,11 +3011,50 @@ JS_WIZARD = """\
   const errBox = document.getElementById("upload-error");
   const dramaErrBox = document.getElementById("drama-error");
   const progressBody = document.getElementById("progress-body");
+  const modeCard = document.getElementById("wizard-mode-card");
+  const cancelRequestedJobs = new Set();
+  const CTA_ACTIONS = {
+    running: {
+      title: "任务进行中",
+      hint: "可以离开此页继续浏览；取消会在 worker 下一个检查点生效。",
+    },
+    succeeded: {
+      title: "导入完成",
+      hint: "下一步可以设置起点、查看章节，或进入续写入口。",
+    },
+    failed: {
+      title: "任务未完成",
+      hint: "查看失败详情后，可以回到 wizard 重新开始。",
+    },
+    aborted: {
+      title: "任务已取消",
+      hint: "取消请求已生效；可以重新开始或返回书架。",
+    },
+  };
+
+  loadServerMode();
 
   function show(panel) {
     [panelType, panelUpload, panelDrama, panelProgress].forEach((p) => {
       if (p) p.hidden = (p !== panel);
     });
+  }
+
+  async function loadServerMode() {
+    if (!modeCard) return;
+    try {
+      const res = await fetch("/api/settings");
+      const data = await res.json().catch(() => ({}));
+      const settings = data.settings || {};
+      const model = String(settings.OPENAI_MODEL || "mock");
+      const isMock = !model || model === "mock";
+      modeCard.innerHTML = '<strong>当前 server 模式：' + (isMock ? "mock" : "real") + '</strong>' +
+        '<br><span class="muted">OPENAI_MODEL=' + escapeHtml(model || "mock") +
+        (isMock ? "，本次不会消耗真实 token。" : "，请确认已授权真实模型运行。") + "</span>";
+    } catch (err) {
+      modeCard.innerHTML = '<strong>当前 server 模式：mock</strong>' +
+        '<br><span class="muted">未读取到设置，按默认 mock-only 展示。</span>';
+    }
   }
 
   if (typeForm) {
@@ -3017,6 +3072,32 @@ JS_WIZARD = """\
       show(panelType);
     }
   });
+
+  if (progressBody) {
+    progressBody.addEventListener("click", async function (ev) {
+      const btn = ev.target.closest("[data-cancel-job]");
+      if (!btn) return;
+      ev.preventDefault();
+      const name = btn.getAttribute("data-workspace") || "";
+      const jobId = btn.getAttribute("data-cancel-job") || "";
+      if (!name || !jobId) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/workspace/" + encodeURIComponent(name) + "/job/" + jobId + "/cancel", {
+          method: "POST",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        cancelRequestedJobs.add(jobId);
+        const notice = document.getElementById("cancel-notice");
+        if (notice) notice.innerHTML = '<div class="alert info">取消请求已发送，等待 worker 响应。</div>';
+      } catch (err) {
+        const notice = document.getElementById("cancel-notice");
+        if (notice) notice.innerHTML = '<div class="alert error">取消失败: ' + escapeHtml(String(err.message || err)) + "</div>";
+        btn.disabled = false;
+      }
+    });
+  }
 
   if (novelForm) {
     novelForm.addEventListener("submit", async (ev) => {
@@ -3054,6 +3135,8 @@ JS_WIZARD = """\
         track: fd.get("track") || "",
         episode_count: Number(fd.get("episode_count") || 0),
         episode_duration_seconds: Number(fd.get("episode_duration_seconds") || 0),
+        budget_cny: Number(fd.get("budget_cny") || 0),
+        timeout_minutes: Number(fd.get("timeout_minutes") || 0),
       };
       const submitBtn = dramaForm.querySelector("button[type=submit]");
       submitBtn.disabled = true;
@@ -3086,17 +3169,11 @@ JS_WIZARD = """\
       try {
         const res = await fetch("/api/workspace/" + encodeURIComponent(name) + "/job/" + jobId);
         const job = await res.json();
-        renderProgress(job);
+        renderProgress(job, name, jobId);
         if (job.status === "succeeded") {
-          progressBody.innerHTML +=
-            '<p style="margin-top:16px"><a class="btn btn-primary" href="/w/' +
-            encodeURIComponent(name) + '/">→ 进入工作区</a></p>';
           return;
         }
-        if (["blocked", "failed", "aborted", "lost"].indexOf(job.status) >= 0) {
-          progressBody.innerHTML +=
-            '<div class="alert error">失败: ' + escapeHtml(job.error || "") +
-            ' <code>trace=' + escapeHtml(job.trace_id || "?") + "</code></div>";
+        if (["blocked", "failed", "aborted", "lost", "budget_exceeded"].indexOf(job.status) >= 0) {
           return;
         }
       } catch (err) {
@@ -3106,7 +3183,7 @@ JS_WIZARD = """\
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
-  function renderProgress(job) {
+  function renderProgress(job, name, jobId) {
     const pct = Math.round((job.progress || 0) * 100);
     progressBody.innerHTML =
       '<div class="kv-list compact">' +
@@ -3115,7 +3192,52 @@ JS_WIZARD = """\
       '<div class="k">progress</div><div class="v">' + pct + "%</div>" +
       '<div class="k">job_id</div><div class="v"><code>' + escapeHtml(job.job_id) + "</code></div>" +
       "</div>" +
-      '<div class="progress" style="margin-top:12px"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+      '<div class="progress" style="margin-top:12px"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+      renderWizardActions(job, name, jobId);
+  }
+  function renderWizardActions(job, name, jobId) {
+    const status = job.status || "pending";
+    const group = (status === "succeeded")
+      ? "succeeded"
+      : (status === "aborted" ? "aborted" : (status === "running" || status === "pending" ? "running" : "failed"));
+    const cfg = CTA_ACTIONS[group] || CTA_ACTIONS.failed;
+    const workspaceHref = "/w/" + encodeURIComponent(name) + "/";
+    const jobsHref = workspaceHref + "jobs";
+    const continueHref = workspaceHref + "continue";
+    const chaptersHref = workspaceHref + "chapters";
+    const trace = job.trace_id ? ' <code>trace=' + escapeHtml(job.trace_id) + '</code>' : "";
+    const err = job.error ? '<div class="alert error">详情: ' + escapeHtml(job.error) + trace + "</div>" : "";
+    let buttons = "";
+    if (group === "running") {
+      buttons =
+        '<a class="btn btn-ghost" href="/">继续浏览书架</a>' +
+        '<a class="btn btn-secondary" href="' + jobsHref + '">查看任务</a>' +
+        '<button type="button" class="btn btn-danger" data-workspace="' + escapeHtml(name) +
+        '" data-cancel-job="' + escapeHtml(jobId) + '"' +
+        (cancelRequestedJobs.has(jobId) ? " disabled" : "") + ">取消任务</button>";
+    } else if (group === "succeeded") {
+      buttons =
+        '<a class="btn btn-primary" href="' + continueHref + '">设置起点</a>' +
+        '<a class="btn btn-secondary" href="' + chaptersHref + '">查看章节</a>' +
+        '<a class="btn btn-secondary" href="' + continueHref + '">开始续写</a>';
+    } else if (group === "aborted") {
+      buttons =
+        '<a class="btn btn-primary" href="/wizard">重新开始</a>' +
+        '<a class="btn btn-ghost" href="/">返回书架</a>';
+    } else {
+      buttons =
+        '<a class="btn btn-secondary" href="' + jobsHref + '">查看失败详情</a>' +
+        '<a class="btn btn-primary" href="/wizard">回到 wizard 重试</a>';
+    }
+    return '<div class="wizard-progress-actions">' +
+      '<div class="alert ' + (group === "failed" ? "error" : group === "aborted" ? "warn" : "info") + '">' +
+      '<strong>' + escapeHtml(cfg.title) + '</strong><br>' + escapeHtml(cfg.hint) + "</div>" +
+      '<div id="cancel-notice">' +
+      (cancelRequestedJobs.has(jobId) && group === "running" ? '<div class="alert info">取消请求已发送，等待 worker 响应。</div>' : "") +
+      "</div>" +
+      err +
+      '<div class="cluster">' + buttons + "</div>" +
+      "</div>";
   }
   function escapeHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({

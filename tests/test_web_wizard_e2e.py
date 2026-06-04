@@ -8,19 +8,36 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from typing import Optional
+from unittest.mock import patch
 
 from src import paths
 from src.web import jobs, routes
 from src.web import workspace_meta
 
 
-def _build_multipart(workspace: str, filename: str, content: bytes, mime: str) -> tuple[bytes, str]:
+def _build_multipart(
+    workspace: str,
+    filename: str,
+    content: bytes,
+    mime: str,
+    extra_fields: Optional[dict[str, str]] = None,
+) -> tuple[bytes, str]:
     boundary = "----WIZARDTESTBOUND"
-    body = (
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"workspace\"\r\n\r\n{workspace}\r\n"
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"{filename}\"\r\n"
-        f"Content-Type: {mime}\r\n\r\n"
-    ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    chunks = [
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"workspace\"\r\n\r\n{workspace}\r\n".encode("utf-8")
+    ]
+    for key, value in (extra_fields or {}).items():
+        chunks.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{key}\"\r\n\r\n{value}\r\n".encode("utf-8")
+        )
+    chunks.append(
+        (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"{filename}\"\r\n"
+            f"Content-Type: {mime}\r\n\r\n"
+        ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    )
+    body = b"".join(chunks)
     return body, f"multipart/form-data; boundary={boundary}"
 
 
@@ -78,6 +95,24 @@ class WizardE2ETests(unittest.TestCase):
         )
         self.assertEqual(status, 400)
         self.assertIn("invalid workspace name", json.loads(resp)["error"])
+
+    def test_upload_advanced_options_forward_to_job_params(self) -> None:
+        body, ct = _build_multipart(
+            "optionsbook",
+            "novel.txt",
+            ("第一章\n测试。\n" * 30).encode("utf-8"),
+            "text/plain",
+            extra_fields={"extract_limit": "7", "budget_cny": "3.5", "timeout_minutes": "12"},
+        )
+        with patch("src.web.wizard.jobs.start_job", return_value={"job_id": "a" * 32}) as start:
+            status, _ct, resp = routes.dispatch(
+                "POST", "/api/wizard/start", body, {"content-type": ct}
+            )
+        self.assertEqual(status, 202, resp.decode("utf-8"))
+        params = start.call_args.args[2]
+        self.assertEqual(params["extract_limit"], 7)
+        self.assertEqual(params["budget_cny"], 3.5)
+        self.assertEqual(params["timeout_minutes"], 12.0)
 
     def test_unsupported_mime_415(self) -> None:
         body, ct = _build_multipart("okname", "x.pdf", b"%PDF-1.4", "application/pdf")
