@@ -623,7 +623,14 @@ def _build_advisor_context_block(
     return "\n".join(parts)
 
 
-def review_target(target: Path, enforce_relationship_checklist: Any = False) -> List[Dict[str, Any]]:
+def review_target(
+    target: Path,
+    enforce_relationship_checklist: Any = False,
+    *,
+    knowledge: str = "",
+    source_chapters: str = "",
+    scene_excerpts: str = "",
+) -> List[Dict[str, Any]]:
     def _review_file(path: Path) -> Dict[str, Any]:
         meta_path = path.with_suffix(".meta.json")
         run_context: Dict[str, Any] = {}
@@ -642,6 +649,9 @@ def review_target(target: Path, enforce_relationship_checklist: Any = False) -> 
             path.read_text(encoding="utf-8"),
             path.name,
             enforce_relationship_checklist=enforce_relationship_checklist,
+            knowledge=knowledge,
+            source_chapters=source_chapters,
+            scene_excerpts=scene_excerpts,
             run_context=run_context,
             draft_sha256=draft_sha256,
         )

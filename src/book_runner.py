@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from . import paths, start_point
+from . import paths, source_excerpts, start_point
 from .chapter_summary import prune_from_chapter
 from .chapter_status import chapter_status
 from .cost_estimator import estimate_cost_since
@@ -15,7 +15,7 @@ from .preflight import run_preflight
 from .proposal_validator import validate_proposals_against_plan
 from .reviewer import review_target
 from .utils import ensure_dir, read_json, write_json
-from .writer import _chapter_plan_item, _load_chapter_plan, _run_context, write_chapters
+from .writer import _chapter_plan_item, _kb_path, _load_chapter_plan, _run_context, write_chapters
 
 
 class BookRunBlocked(RuntimeError):
@@ -141,7 +141,11 @@ def run_write_book(
                 and status.get("verdict") == "Approve"
                 and status.get("strict_failures") == ["external_review_missing"]
             ):
-                review_target(md_path, enforce_relationship_checklist=True)
+                review_target(
+                    md_path,
+                    enforce_relationship_checklist=True,
+                    **_build_review_context(item),
+                )
                 _sync_meta_with_external_review(drafts_dir, chapter_no)
                 status = chapter_status(
                     chapter_no,
@@ -185,7 +189,11 @@ def run_write_book(
                 )
                 reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
                 if require_external_review and md_path.exists():
-                    review_target(md_path, enforce_relationship_checklist=True)
+                    review_target(
+                        md_path,
+                        enforce_relationship_checklist=True,
+                        **_build_review_context(item),
+                    )
                     _sync_meta_with_external_review(drafts_dir, chapter_no)
                     budget_check_cb()
                 status = chapter_status(
@@ -503,6 +511,40 @@ def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[s
 
     write_json(meta_path, meta)
     return meta
+
+
+def _build_review_context(chapter_plan_item: Dict[str, Any] | None) -> Dict[str, str]:
+    """Build the source-rich context external reviews need for fidelity checks."""
+
+    kb_path = _kb_path()
+    try:
+        knowledge = kb_path.read_text(encoding="utf-8")[:6000] if kb_path.exists() else ""
+    except OSError:
+        knowledge = ""
+    try:
+        review_source = start_point.format_chapters_before_start_for_anchor(
+            k=3, limit_chars=8000
+        )
+    except Exception:
+        review_source = ""
+    try:
+        scene_matches = (
+            source_excerpts.select_for_chapter(chapter_plan_item, k=3)
+            if chapter_plan_item
+            else []
+        )
+        scene_excerpts_text = (
+            source_excerpts.format_excerpts_for_prompt(scene_matches, limit_chars=8000)
+            if scene_matches
+            else ""
+        )
+    except Exception:
+        scene_excerpts_text = ""
+    return {
+        "knowledge": knowledge,
+        "source_chapters": review_source,
+        "scene_excerpts": scene_excerpts_text,
+    }
 
 
 def _partial_artifact(drafts_dir: Path, chapter_no: int) -> Dict[str, Any] | None:

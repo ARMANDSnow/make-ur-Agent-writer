@@ -123,6 +123,21 @@ def write_chapters(
         # up. Switch to "warn_only" so the agent still inspects but
         # missing checklist downgrades from Reject to a suggestion.
         enforce_checklist_mode = _enforce_checklist_for_plan(chapter_plan_item)
+        review_source = start_point.format_chapters_before_start_for_anchor(
+            k=3, limit_chars=8000
+        )
+        scene_matches_for_review = (
+            source_excerpts.select_for_chapter(chapter_plan_item, k=3)
+            if chapter_plan_item
+            else []
+        )
+        scene_excerpts_text = (
+            source_excerpts.format_excerpts_for_prompt(
+                scene_matches_for_review, limit_chars=8000
+            )
+            if scene_matches_for_review
+            else ""
+        )
         draft = ""
         report: Dict[str, Any] = {}
         feedback = ""
@@ -186,6 +201,9 @@ def write_chapters(
                                 rewrite_round=attempt - 1,
                                 run_agents_on_lint_error=True,
                                 enforce_relationship_checklist=enforce_checklist_mode,
+                                knowledge=knowledge[:6000] if knowledge else "",
+                                source_chapters=review_source,
+                                scene_excerpts=scene_excerpts_text,
                                 run_context=run_context,
                                 draft_sha256=_draft_file_sha256(draft),
                             )
@@ -210,28 +228,6 @@ def write_chapters(
                 lint_ok = True
                 stage = "review"
                 progress(f"review-attempt-{attempt}", 0.50)
-                # Iter 022 B4: pass KB + start-point source chapters into reviewer
-                # so the 8-agent panel can judge fidelity against actual source
-                # prose, not just persona impressions. Both args are graceful
-                # — start_point.format_chapters_before_start_for_anchor returns
-                # empty string when no start point is configured (iter 020 behavior).
-                review_source = start_point.format_chapters_before_start_for_anchor(
-                    k=3, limit_chars=8000
-                )
-                # Iter 023 P3: pass scene-matched excerpts so reviewer fidelity
-                # scoring has the same archetype anchor as the writer prompt.
-                scene_matches_for_review = (
-                    source_excerpts.select_for_chapter(chapter_plan_item, k=3)
-                    if chapter_plan_item
-                    else []
-                )
-                scene_excerpts_text = (
-                    source_excerpts.format_excerpts_for_prompt(
-                        scene_matches_for_review, limit_chars=8000
-                    )
-                    if scene_matches_for_review
-                    else ""
-                )
                 report = review_text(
                     draft,
                     out_path.name,
