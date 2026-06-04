@@ -698,6 +698,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn(".sidebar.open", css)
         self.assertIn(".sidebar-overlay.open", css)
         self.assertIn(".topbar-actions.open", css)
+        self.assertIn(".table-scroll", css)
 
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
         self.assertEqual(status, 200)
@@ -705,6 +706,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("function initShellControls", js)
         self.assertIn("data-sidebar-toggle", js)
         self.assertIn("data-topbar-menu-toggle", js)
+        self.assertIn("function tableScroll", js)
 
     def test_wizard_js_has_drama_path(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/wizard.js")

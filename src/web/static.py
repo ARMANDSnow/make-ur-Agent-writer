@@ -572,6 +572,13 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .table tbody tr { transition: background .12s ease; }
 .table tbody tr:hover { background: var(--bg-sunken); }
 .table .link-cell { color: var(--jade); cursor: pointer; }
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-wide { min-width: 760px; }
+.jobs-table { min-width: 920px; }
 .job-toggle {
   width: 28px;
   min-height: 28px;
@@ -956,6 +963,15 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
     width: 100%;
     justify-content: flex-start;
   }
+  .table-scroll {
+    margin: 0 calc(-1 * var(--space-4));
+    padding: 0 var(--space-4) var(--space-2);
+    background:
+      linear-gradient(to right, var(--bg-card) 30%, rgba(255, 254, 251, 0)) left center / 36px 100% no-repeat local,
+      linear-gradient(to left, var(--bg-card) 30%, rgba(255, 254, 251, 0)) right center / 36px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(42, 37, 32, .18), rgba(42, 37, 32, 0)) left center / 12px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(42, 37, 32, .18), rgba(42, 37, 32, 0)) right center / 12px 100% no-repeat scroll;
+  }
   .page { padding: var(--space-4); }
   .page-header {
     align-items: flex-start;
@@ -1134,6 +1150,9 @@ JS_DASHBOARD = """\
   }
   function mutedStatusBadge(status) {
     return '<span class="badge no-dot badge-muted">' + escapeHtml(status || "?") + "</span>";
+  }
+  function tableScroll(html) {
+    return '<div class="table-scroll">' + html + "</div>";
   }
   function historicalJobStatus(status) {
     return ["lost", "failed", "blocked", "aborted", "budget_exceeded"].indexOf(status || "") >= 0;
@@ -2399,7 +2418,7 @@ JS_DASHBOARD = """\
     }
     const rows = [];
     rows.push(
-      '<table class="table" id="chapters-data-table"><thead><tr>' +
+      '<table class="table table-wide" id="chapters-data-table"><thead><tr>' +
       "<th>#</th><th>类型</th><th>章节 ID</th><th>标题</th>" +
       "<th>verdict</th><th>review</th><th>rewrite</th><th>字数</th><th></th>" +
       "</tr></thead><tbody>"
@@ -2443,7 +2462,7 @@ JS_DASHBOARD = """\
       );
     }
     rows.push("</tbody></table>");
-    box.innerHTML = rows.join("");
+    box.innerHTML = tableScroll(rows.join(""));
   }
   function bindChapterFilter() {
     const search = document.getElementById("chapter-search");
@@ -2688,7 +2707,7 @@ JS_DASHBOARD = """\
         '<span class="badge no-dot">advisor ' + (stats.advisor_suggestions_total || 0) + "</span>" +
         "</div>";
       const head =
-        '<table class="table"><thead><tr>' +
+        '<table class="table table-wide"><thead><tr>' +
         "<th>ch</th><th>verdict</th><th>rewrite</th><th>字数</th><th>agents</th><th>advisor</th><th></th>" +
         "</tr></thead><tbody>";
       const rows = chs.map((c) => {
@@ -2703,7 +2722,7 @@ JS_DASHBOARD = """\
           '<td><a class="btn btn-ghost btn-sm" href="' + detail + '">详情 →</a></td>' +
           "</tr>";
       }).join("");
-      box.innerHTML = statsHtml + head + rows + "</tbody></table>";
+      box.innerHTML = statsHtml + tableScroll(head + rows + "</tbody></table>");
     } catch (err) {
       box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
     }
@@ -3050,9 +3069,9 @@ JS_DASHBOARD = """\
           );
         }).join("");
         recentBox.innerHTML =
-          '<table class="table"><thead><tr>' +
+          tableScroll('<table class="table table-wide jobs-table"><thead><tr>' +
           "<th></th><th>step</th><th>status</th><th>job_id</th><th>trace_id</th><th>started</th><th>note</th>" +
-          "</tr></thead><tbody>" + rows + "</tbody></table>";
+          "</tr></thead><tbody>" + rows + "</tbody></table>");
         recentBox.onclick = function (ev) {
           const toggle = ev.target.closest("[data-job-toggle]");
           if (toggle) {
