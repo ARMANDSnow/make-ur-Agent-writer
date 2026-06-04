@@ -73,6 +73,11 @@ def run_write_book(
     budget_cny = float(budget_cny or 0.0)
     for offset, chapter_no in enumerate(range(int(resume_from), int(resume_from) + total), start=1):
         progress(f"chapter-{chapter_no}", 0.1 + 0.8 * ((offset - 1) / total))
+        def _chapter_progress(sub_step: str, sub_fraction: float) -> None:
+            chapter_base = 0.1 + 0.8 * ((offset - 1) / total)
+            chapter_span = 0.8 / total
+            progress(f"chapter-{chapter_no}/{sub_step}", chapter_base + chapter_span * float(sub_fraction))
+
         if budget_cny > 0:
             current_cost = estimate_cost_since(initial_log_lines).get("cost_cny", 0.0)
             if float(current_cost) > budget_cny:
@@ -142,7 +147,12 @@ def run_write_book(
                 )
                 prune_from_chapter(chapter_no)
                 attempt_summaries.append({"attempt": attempt, "archived_to": str(archive_dir)})
-            write_reports = write_chapters(chapters=1, resume_from=chapter_no, force=True)
+            write_reports = write_chapters(
+                chapters=1,
+                resume_from=chapter_no,
+                force=True,
+                progress_cb=_chapter_progress,
+            )
             reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
             if require_external_review and md_path.exists():
                 review_target(md_path, enforce_relationship_checklist=True)

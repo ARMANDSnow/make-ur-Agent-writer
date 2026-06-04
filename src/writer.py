@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import paths, source_excerpts, start_point
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
@@ -54,7 +54,9 @@ def write_chapters(
     force: bool = False,
     max_attempts: Optional[int] = None,
     resume_from: int = 1,
+    progress_cb: Optional[Callable[[str, float], None]] = None,
 ) -> List[Dict[str, Any]]:
+    progress = progress_cb or (lambda _step, _fraction: None)
     drafts_dir = _drafts_dir()
     outline_path = _outline_path()
     kb_path = _kb_path()
@@ -128,6 +130,7 @@ def write_chapters(
         last_lint_issues: List[Dict[str, Any]] = []
         last_blocking_reasons: List[Dict[str, Any]] = []
         for attempt in range(1, rewrite_limit + 1):
+            progress(f"write-attempt-{attempt}", 0.05)
             messages, cache_segments = _write_prompt(
                 chapter_no=chapter_no,
                 knowledge=knowledge,
@@ -185,6 +188,7 @@ def write_chapters(
                 report = {"verdict": "Reject", "lint_issues": lint_issues, "attempt": attempt}
                 continue
             lint_ok = True
+            progress(f"review-attempt-{attempt}", 0.50)
             # Iter 022 B4: pass KB + start-point source chapters into reviewer
             # so the 8-agent panel can judge fidelity against actual source
             # prose, not just persona impressions. Both args are graceful
@@ -219,6 +223,7 @@ def write_chapters(
                 run_context=run_context,
                 draft_sha256=_draft_file_sha256(draft),
             )
+            progress(f"review-done-attempt-{attempt}", 0.55 + 0.05 * attempt)
             if report["verdict"] == "Approve":
                 last_blocking_reasons = []
                 break
@@ -236,6 +241,7 @@ def write_chapters(
             )
         )
         if needs_polish:
+            progress("polish", 0.85)
             try:
                 polished = _polish_draft(
                     client=client,
@@ -353,6 +359,7 @@ def write_chapters(
                 }
             )
             log_event("write", report.get("verdict", "unknown").lower(), chapter=chapter_no, output=str(out_path))
+        progress("finalize", 0.95)
     return reports
 
 
