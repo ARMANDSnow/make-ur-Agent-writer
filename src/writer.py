@@ -56,8 +56,10 @@ def write_chapters(
     max_attempts: Optional[int] = None,
     resume_from: int = 1,
     progress_cb: Optional[Callable[[str, float], None]] = None,
+    budget_check_cb: Optional[Callable[[], Any]] = None,
 ) -> List[Dict[str, Any]]:
     progress = progress_cb or (lambda _step, _fraction: None)
+    budget_check = budget_check_cb or (lambda: None)
     drafts_dir = _drafts_dir()
     outline_path = _outline_path()
     kb_path = _kb_path()
@@ -159,6 +161,8 @@ def write_chapters(
                     raise
                 if draft:
                     last_nonempty_draft = draft
+                stage = "budget_check_write"
+                budget_check()
                 # Iter 019: mock-only failure injection so the write_book.sh retry
                 # path is testable without burning real-model budget. Gated by
                 # OPENAI_MODEL=mock so production runs cannot trigger this branch
@@ -191,6 +195,8 @@ def write_chapters(
                             lint_blocked_reviews.append({"attempt": attempt, "review": shadow_review})
                         except Exception as exc:
                             log_event("write", "shadow_review_error", chapter=chapter_no, error=str(exc))
+                        stage = "budget_check_review"
+                        budget_check()
                     feedback = "请修复 deterministic linter 问题:\n" + _format_lint_feedback(lint_issues)
                     last_blocking_reasons = [
                         {
@@ -241,6 +247,8 @@ def write_chapters(
                     run_context=run_context,
                     draft_sha256=_draft_file_sha256(draft),
                 )
+                stage = "budget_check_review"
+                budget_check()
                 progress(f"review-done-attempt-{attempt}", 0.55 + 0.05 * attempt)
                 if report["verdict"] == "Approve":
                     last_blocking_reasons = []

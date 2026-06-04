@@ -21,6 +21,13 @@ class BookRunBlocked(RuntimeError):
     pass
 
 
+class BudgetExceeded(RuntimeError):
+    def __init__(self, *, budget_cny: float, cost_cny: float) -> None:
+        self.budget_cny = float(budget_cny)
+        self.cost_cny = float(cost_cny)
+        super().__init__(f"budget_cny exceeded: {self.cost_cny:.4f} > {self.budget_cny:.4f}")
+
+
 def run_write_book(
     *,
     chapters: int,
@@ -71,6 +78,15 @@ def run_write_book(
     max_retries = max(0, int(max_retries))
     replan_every = max(0, int(replan_every))
     budget_cny = float(budget_cny or 0.0)
+
+    def budget_check_cb() -> float:
+        if budget_cny <= 0:
+            return 0.0
+        current_cost = float(estimate_cost_since(initial_log_lines).get("cost_cny", 0.0))
+        if current_cost > budget_cny:
+            raise BudgetExceeded(budget_cny=budget_cny, cost_cny=current_cost)
+        return current_cost
+
     for offset, chapter_no in enumerate(range(int(resume_from), int(resume_from) + total), start=1):
         progress(f"chapter-{chapter_no}", 0.1 + 0.8 * ((offset - 1) / total))
         def _chapter_progress(sub_step: str, sub_fraction: float) -> None:
@@ -79,8 +95,9 @@ def run_write_book(
             progress(f"chapter-{chapter_no}/{sub_step}", chapter_base + chapter_span * float(sub_fraction))
 
         if budget_cny > 0:
-            current_cost = estimate_cost_since(initial_log_lines).get("cost_cny", 0.0)
-            if float(current_cost) > budget_cny:
+            try:
+                budget_check_cb()
+            except BudgetExceeded as exc:
                 progress("budget_exceeded", 1.0)
                 return _snapshot(
                     "budget_exceeded",
@@ -90,7 +107,7 @@ def run_write_book(
                         "advances": advances,
                         "costs": costs,
                         "budget_cny": budget_cny,
-                        "cost_cny": current_cost,
+                        "cost_cny": exc.cost_cny,
                     },
                 )
         item = _chapter_plan_item(plan, chapter_no) if plan else None
@@ -153,6 +170,7 @@ def run_write_book(
                     resume_from=chapter_no,
                     force=True,
                     progress_cb=_chapter_progress,
+                    budget_check_cb=budget_check_cb,
                 )
                 reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
                 if require_external_review and md_path.exists():
@@ -169,6 +187,20 @@ def run_write_book(
                 attempt_summaries.append({"attempt": attempt, "status": status})
                 if status.get("approved"):
                     break
+        except BudgetExceeded as exc:
+            progress("budget_exceeded", 1.0)
+            payload: Dict[str, Any] = {
+                "chapters": written,
+                "blocked": blocked,
+                "advances": advances,
+                "costs": costs,
+                "budget_cny": exc.budget_cny,
+                "cost_cny": exc.cost_cny,
+            }
+            partial = _partial_artifact(drafts_dir, chapter_no)
+            if partial:
+                payload["partial"] = partial
+            return _snapshot("budget_exceeded", payload)
         except Exception as exc:
             progress("failed", 1.0)
             payload: Dict[str, Any] = {

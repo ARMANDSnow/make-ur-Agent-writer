@@ -132,6 +132,82 @@ class BookRunnerPartialArtifactTests(unittest.TestCase):
             summary = jobs._summarize_result("write-book", result)
             self.assertEqual(summary["partial"]["chapter"], 2)
 
+    def test_budget_exceeded_inside_chapter_saves_partial(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts = root / "outputs" / "drafts"
+            drafts.mkdir(parents=True)
+            (root / "outputs" / "debate").mkdir(parents=True)
+            (root / "outputs" / "debate" / "outline.md").write_text("# outline", encoding="utf-8")
+            (root / "data" / "knowledge_base").mkdir(parents=True)
+            (root / "data" / "knowledge_base" / "global_knowledge.md").write_text("# kb", encoding="utf-8")
+            (root / "data" / "knowledge_base" / "knowledge_index.json").write_text("{}", encoding="utf-8")
+            (root / "logs").mkdir(parents=True)
+            progress: list[tuple[str, float]] = []
+
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return _agent_config()
+                raise AssertionError(name)
+
+            with patch("src.book_runner.paths.workspace_name", return_value="unit"), patch(
+                "src.book_runner.paths.workspace_root", return_value=root
+            ), patch("src.book_runner.paths.drafts_dir", return_value=drafts), patch(
+                "src.book_runner.paths.llm_calls_log_path", return_value=root / "logs" / "llm_calls.jsonl"
+            ), patch(
+                "src.book_runner.paths.entity_graph_path", return_value=root / "data" / "entity_graph.json"
+            ), patch(
+                "src.book_runner.run_preflight", return_value={"status": "ok", "fatal": [], "warn": [], "info": []}
+            ), patch(
+                "src.book_runner.chapter_status", return_value=_status(1, exists=False, approved=False)
+            ), patch(
+                "src.book_runner.estimate_cost_since",
+                side_effect=[{"cost_cny": 0.2}, {"cost_cny": 1.2}],
+            ), patch(
+                "src.book_runner._llm_log_line_count", return_value=0
+            ), patch(
+                "src.book_runner._snapshot", side_effect=lambda status, payload: {"status": status, **payload}
+            ), patch(
+                "src.writer.paths.outline_path", return_value=root / "outputs" / "debate" / "outline.md"
+            ), patch(
+                "src.writer.paths.kb_path", return_value=root / "data" / "knowledge_base" / "global_knowledge.md"
+            ), patch(
+                "src.writer.paths.index_path", return_value=root / "data" / "knowledge_base" / "knowledge_index.json"
+            ), patch(
+                "src.writer.paths.chapter_plan_path", return_value=root / "outputs" / "debate" / "chapter_plan.json"
+            ), patch(
+                "src.writer.load_config", side_effect=fake_load_config
+            ), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.writer._complete_write_text", return_value="预算超额前已生成的正文"
+            ), patch(
+                "src.writer.load_entity_graph", return_value={}
+            ):
+                linter_cls.return_value.lint.return_value = []
+                result = run_write_book(
+                    chapters=1,
+                    max_retries=0,
+                    budget_cny=1.0,
+                    auto_advance=False,
+                    require_start_point=False,
+                    require_plan=False,
+                    require_external_review=False,
+                    progress_cb=lambda step, fraction: progress.append((step, fraction)),
+                )
+
+            partial_path = drafts / "chapter_01.partial.md"
+            failure_path = drafts / "chapter_01.failure.json"
+            self.assertEqual(result["status"], "budget_exceeded")
+            self.assertEqual(result["cost_cny"], 1.2)
+            self.assertTrue(partial_path.exists())
+            self.assertTrue(failure_path.exists())
+            failure = json.loads(failure_path.read_text(encoding="utf-8"))
+            self.assertEqual(failure["stage"], "budget_check_write")
+            self.assertIn("budget_cny exceeded", failure["last_error"])
+            self.assertEqual(result["partial"]["draft_path"], str(partial_path))
+            self.assertIn(("budget_exceeded", 1.0), progress)
+
 
 if __name__ == "__main__":
     unittest.main()
