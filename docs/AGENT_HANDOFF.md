@@ -919,3 +919,42 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. P0-A 已收口，不要回退 `chapter_status` / `writer` / `reviewer` 契约。
 2. `longzu` ch2 happy path approved 仍未通过，但不再是 meta/review sync bug；后续若继续，应作为内容质量/reviewer 阈值/prompt 调整问题单独开 iter。
 3. iter041 候选：P0-B writer pending_external_review 保险、龙族 ch2 内容 incident、iter039 P2-A/B/C、drama 站 ③/④、AI 绘画 client / Comfy 导出、drama_reviewer、章节 diff、全文搜索、KB 起点过滤安全视图。
+
+---
+
+## Phase 4 Status（iter 042，2026-06-04）
+
+### Iteration 042 — happy path 跑通 + 打分制三档（兼容版）
+
+**目标**：严格按 `/Users/dingyuxuan/.claude/plans/codex-iteration-039-webui-cozy-charm.md` 的 iter042 plan，修复 external review source context 漏传，微调 `原作风格模拟` fail-closed prompt，引入兼容版 `high/mid/low` reviewer 阈值，并在真实 `longzu` ch2 上跑通 `tier=mid` happy path。
+
+**主要落地**：
+- `reviewer.review_target()` 扩展 `knowledge/source_chapters/scene_excerpts/tier` 参数，透传 `review_text()`；`book_runner._build_review_context()` 复用 writer 同款起点前 K 章 + scene excerpts 逻辑，external review 两个调用点与 writer shadow review 均补齐 source context。
+- 仅调整 `config/agents.yaml` 的 `原作风格模拟` prompt：source_chapters 存在时先对照原文；明显 AI 腔、严重 voice drift、背离作者文风才 Reject，密度/留白/台词端正等主观项降级为 Approve + major issue。
+- 新增 `src/review_tier.py`：`high` = 5 Approve + 8.5，`mid` = 4 Approve + 7.5，`low` = 3 Approve + 6.5；默认 `mid`，显式参数优先，`WRITE_REVIEW_TIER` 为兜底。
+- reviewer 5-agent panel aggregation 改为 `approve_count + panel_score`；report 与 writer meta 同步写 `tier/panel_score/approve_count/tier_thresholds`；CLI `write-book --tier`、Web job param、`run_write_book()`、writer、external review 链路均透传。
+- `book_runner._auto_apply_advances()` 在 approved chapter 后遇 `FileNotFoundError/IndexError/ValueError` 降级为 no-op，记录 `no_op_reason=apply_advance_failed`，避免缺失关系 proposal 把已通过章节拖成 failed。
+
+**验证进度**：
+- Targeted：`tests.test_book_runner_review_context` → 1 OK；§C targeted suite（review tier / aggregation / book_runner tier flow / web jobs / reviewer / writer / book_runner）→ 74 OK。
+- `.venv/bin/python -m unittest discover` → 569 tests，`OK (skipped=6)`。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → `PREFLIGHT: ok`。
+- `PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` → exit 0，569 tests `OK (skipped=6)` + mock auto-pipeline OK。
+- Tier smoke：当前仓库无 `python -m src.cli --workspace` 入口，使用等价 `OPENAI_MODEL=mock WRITE_REVIEW_TIER=mid .venv/bin/python main.py --book iter029_beta_ok write-book --chapters 1` → `status=succeeded` strict skip。
+- High regression：`OPENAI_MODEL=mock WORKSPACE_NAME=iter029_beta_ok WRITE_REVIEW_TIER=high` 对 approved ch1 跑 `review_text()` → `Approve`，`tier=high`，`panel_score=9.0`，`approve_count=5`。
+
+**真实模型验收（用户授权预算 < 5 元）**：
+- 备份原 ch2 到 `/tmp/iter042_baseline_20260604_231801/`，删除指定 draft/meta/partial/failure/review 文件后，通过 Web API 跑 `longzu` `write-book chapters=1 resume_from=2 budget_cny=10 max_retries=2 tier=mid`。
+- 第一次 job `6cf6d93d3779438ab931ee287edd68c2` 的写作 + external review 本体已通过：meta/review verdict 均 `Approve`，`draft_sha256=6b3ce89672f0259bd0258801df179892ebf6d49c98297383a88d42929d864865`，`tier=mid`，`panel_score=7.58`，`approve_count=4`，阈值 `4 / 7.5`，strict `chapter_status` 为 `approved=true` / `strict_failures=[]`。
+- 成本增量：以 run 前 `longzu` logs 982 行为 offset，15 calls，prompt 322,014 tokens，response 35,736 tokens，`cost_cny=0.909`。
+- 第一次 job 在 approved 后 auto-advance tail 因缺失关系 `char_lu_mingfei <-> org_cassell_college` 抛 `ValueError`，status 被拖成 `failed`；本轮补 no-op 防御后，第二次 job `4e7a02d9a7334964818b503807460e1e` 复跑同参数走 `skipped_approved`，终态 `succeeded`，snapshot `workspaces/longzu/outputs/drafts/snapshots/write_book_succeeded_20260604_233443.json`。
+
+**Subagent 审核**：
+- Darwin 做了 §C read-only 审核，无 blocking findings。
+- 审核确认 `reviewer.panel_score -> writer.meta.panel_score -> review_tier thresholds` 链路一致，`WRITE_REVIEW_TIER` / CLI / Web job param / `run_write_book` / writer / external review / `review_text` 参数链路一致，旧 workspace 缺 `tier/panel_score/approve_count` 不影响 `chapter_status` 与 Web aggregation 读取。
+- 未修 P2：部分 Insights/UI 仍偏读 legacy `sub_scores` 命名，后续建议兼容 `scores || sub_scores`；本轮不改前端 UI。
+
+**当前接力点**：
+1. iter042 已让 `longzu` ch2 在 mid 档真实 approved；不要回退 source context、tier aggregation、meta/review sync 契约。
+2. iter043 backlog：N3 WebUI 重构、drama UX、iter039 P2-A/B/C（Jobs 展开详情、sidebar lost 历史标记、onboarding budget/timeout/cancel）、tier UI 入口。
+3. 其他候选：Insights/UI `scores || sub_scores` 兼容、auto-advance 缺失关系 proposal 的上游校验/清理、writer `pending_external_review` fallback、drama 站 ③/④、AI 绘画 client / Comfy 导出、章节 diff、全文搜索、真模型 capstone、KB 起点过滤安全视图。

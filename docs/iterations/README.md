@@ -49,3 +49,4 @@
 38. [Iteration 038 - P1/P2 hardening pass（sandbox skip / hook leak / test fixture extraction）](./iteration_038_PLAN.md)
 39. [Iteration 039 - WebUI 小说续写真实链路修复](./iteration_039_PLAN.md)
 40. [Iteration 040 - meta/review verdict 同步 + happy path 跑通](./iteration_040_PLAN.md)
+42. [Iteration 042 - happy path 跑通 + 打分制三档（兼容版）](./iteration_042_PLAN.md)

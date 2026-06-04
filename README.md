@@ -252,7 +252,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 040（2026-06-04）** — `book_runner` 在 external review 后把 verdict 同步回 writer meta，修复 iter039 暴露的 `meta=Reject / review=Approve` 不一致；真实 `longzu` ch2 复跑进入一致 `Reject`，判定为内容质量 incident 而非 sync bug。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 042（2026-06-04）** — 修复 external review 漏传 source context，新增 reviewer `high/mid/low` 三档打分阈值；真实 `longzu` ch2 在 `tier=mid` 下 meta/review 一致 `Approve`（`panel_score=7.58`、`approve_count=4`、成本 ¥0.909），Web job 成功收口。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -311,17 +311,18 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | 7.1 | 5+1 agent reviewer panel（精简自 iter 022 的 8 agent）| ✅ | **iter 023 P4**（合并情感/连续/关系 3 agent → 1，加 1 advisor）|
 | 7.2 | fail-closed parse_failed → Abstain | ✅ | iter 019 audit |
 | 7.3 | reviewer sub-score（plot/prose/fidelity 3 维 + 单 score legacy）| ✅ | **iter 022 B3**（真模型实测分化：plot 4-8 区分度首现）|
-| 7.4 | reviewer 读 KB + 起点附近原文 + scene-matched 经典片段 | ✅ | iter 022 B4 + **iter 023 P3** |
+| 7.4 | reviewer 读 KB + 起点附近原文 + scene-matched 经典片段 | ✅ | iter 022 B4 + **iter 023 P3**；**iter 042** 修 external `review_target()` source context 漏传 |
 | 7.5 | 程序化关系一致性检测（deterministic_relations）| ✅ | **iter 023 P5**（0 LLM 成本，替代 LLM agent）|
 | 7.6 | 改写顾问 advisor（不投票，输出 RewriteSuggestion 列表）| ✅ | iter 023 P4（配置）+ **iter 024 P1**（writer rewrite-loop 真消费）|
 | 7.7 | external review verdict 回写 writer meta | ✅ | **iter 040** `book_runner._sync_meta_with_external_review()`；`require_external_review=True` 下 meta/review 文件状态一致 |
+| 7.8 | reviewer 三档打分阈值 | ✅ | **iter 042** `WRITE_REVIEW_TIER` / Web job param 支持 `high/mid/low`；5 agent panel 用 `approve_count + panel_score` 判定，默认 `mid` |
 
 ### 阶段 8 — 关系更新
 | # | 节点 | 状态 | 备注 |
 |---|---|---|---|
 | 8.1 | writer 写完调 propose_entity_advance | ✅ | iter 019 |
 | 8.2 | apply-advance --auto-apply --min-confidence | ✅ | iter 019 |
-| 8.3 | proposal 与 plan 冲突检测（apply-advance 前 dry-run）| ✅ | **iter 029** 进入 `book_runner` auto-advance 链路 |
+| 8.3 | proposal 与 plan 冲突检测（apply-advance 前 dry-run）| ✅ | **iter 029** 进入 `book_runner` auto-advance 链路；**iter 042** approved 后 apply-advance 缺失关系降级 no-op，避免尾部异常拖垮 job |
 
 ### 阶段 9 — 滚动到下一章
 | # | 节点 | 状态 | 备注 |
@@ -348,7 +349,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.8 | Web 日常使用补齐 | ✅ | **iter 033**（工作区二次确认软删除到 `_trash`；新增 `/w/{name}/insights` 数据页；lint anchor → 正文段落跳转 + 高亮；job terminal / 跨页删除 toast） |
 | U.9 | Web type-aware workspace 基础设施 | ✅ | **iter 036**（`workspace.json` schema v1；旧 workspace 缺文件默认 novel；wizard drama-start 进入 drama 分支；novel-only 页面 404，`/run` 对 drama 400） |
 | U.10 | Web drama 4 站审查向导（前 2 站）| ✅ | **iter 037-038**（drama wizard 5 字段 + `wizard_input.json` + `creation_standard.snapshot.md`；`/w/{name}/write` 4 tab；站 ①/② mock fixture-driven；iter 038 修 hook picker listener leak/rapid-click race，站 ③④仍待后续开放） |
-| U.11 | Web 真实续写链路可观测/可恢复 | ✅ | **iter 039**（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行）；**iter 040** meta/review verdict 同步后 blocked 原因从“不一致”收敛为 external review 自身 Reject |
+| U.11 | Web 真实续写链路可观测/可恢复 | ✅ | **iter 039**（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行）；**iter 040** meta/review verdict 同步；**iter 042** `longzu` ch2 `tier=mid` 真实 happy path approved + job succeeded |
 
 ---
 

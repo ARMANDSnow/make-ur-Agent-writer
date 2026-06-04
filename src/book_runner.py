@@ -595,13 +595,25 @@ def _auto_apply_advances(chapter_no: int, *, min_confidence: float) -> Dict[str,
             "conflicts": conflicts,
             "no_op_reason": "conflicts_or_empty_selection" if conflicts else "empty_selection",
         }
-    result = apply_advance_proposals(
-        chapter_no=chapter_no,
-        proposal_indexes=",".join(str(idx) for idx in safe_selected),
-        confirm=True,
-        auto_apply=False,
-        allow_empty=True,
-    )
+    try:
+        result = apply_advance_proposals(
+            chapter_no=chapter_no,
+            proposal_indexes=",".join(str(idx) for idx in safe_selected),
+            confirm=True,
+            auto_apply=False,
+            allow_empty=True,
+        )
+    except (FileNotFoundError, IndexError, ValueError) as exc:
+        return {
+            "chapter_no": chapter_no,
+            "selected": safe_selected,
+            "applied_count": 0,
+            "auto_apply": True,
+            "min_confidence": min_confidence,
+            "conflicts": conflicts,
+            "no_op_reason": "apply_advance_failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     result["auto_apply"] = True
     result["min_confidence"] = min_confidence
     result["conflicts"] = conflicts

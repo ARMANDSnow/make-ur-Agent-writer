@@ -7,6 +7,7 @@ from pathlib import Path
 from src.book_runner import (
     BookRunBlocked,
     _archive_chapter_artifacts,
+    _auto_apply_advances,
     _plan_metadata_failures,
     check_write_readiness,
     run_write_book,
@@ -370,6 +371,34 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertFalse((drafts / "chapter_01.entity_advance_proposals.json").exists())
         self.assertTrue((archive / "chapter_01.entity_advance_proposals.json").exists())
         self.assertTrue((archive / "chapter_01.review.json").exists())
+
+    def test_auto_apply_advance_missing_relationship_degrades_to_noop(self) -> None:
+        drafts = self.root / "outputs" / "drafts"
+        graph_path = self.root / "data" / "entity_graph.json"
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        graph_path.write_text(
+            '{"relationships":[{"src_id":"c","dst_id":"d","timeline":[{"state":"old","active":true}]}]}',
+            encoding="utf-8",
+        )
+        (drafts / "chapter_01.entity_advance_proposals.json").write_text(
+            (
+                '{"proposed_advances":[{"src_id":"a","dst_id":"b","new_state":"new",'
+                '"trigger_event":"evt","confidence":0.95}]}'
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("src.book_runner.paths.workspace_name", return_value="unit"), patch(
+            "src.book_runner.paths.drafts_dir", return_value=drafts
+        ), patch("src.book_runner.paths.entity_graph_path", return_value=graph_path), patch(
+            "src.book_runner._load_raw_chapter_plan", return_value={}
+        ):
+            result = _auto_apply_advances(1, min_confidence=0.7)
+
+        self.assertEqual(result["applied_count"], 0)
+        self.assertEqual(result["selected"], [0])
+        self.assertEqual(result["no_op_reason"], "apply_advance_failed")
+        self.assertIn("relationship not found", result["error"])
 
 
 if __name__ == "__main__":
