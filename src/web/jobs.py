@@ -56,6 +56,15 @@ _WORKSPACE_LOCK = threading.Lock()
 # All jobs, keyed by job_id. Survives only as long as the process.
 _JOBS: Dict[str, Dict[str, Any]] = {}
 _JOBS_LOCK = threading.Lock()
+TERMINAL_STATUSES = {"succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"}
+
+
+class JobCancelled(RuntimeError):
+    """Raised inside a worker when a cooperative cancel checkpoint fires."""
+
+
+class JobTimeout(JobCancelled):
+    """Raised when a job crosses its cooperative timeout deadline."""
 
 
 def _now() -> float:
@@ -76,6 +85,8 @@ def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[s
         "error": None,
         "trace_id": None,
         "result_summary": None,
+        "cancel_requested": False,
+        "cancel_reason": None,
     }
 
 
@@ -179,6 +190,59 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
         persisted["status"] = "lost"
         persisted["error"] = "worker process restarted before this job reached a terminal state"
     return persisted
+
+
+def request_cancel(job_id: str, reason: str = "user requested cancel") -> Optional[Dict[str, Any]]:
+    """Set the cooperative cancel flag and return the updated job snapshot.
+
+    The worker checks this flag at progress boundaries. We intentionally do
+    not kill the thread because the pipeline may be inside filesystem writes
+    or a provider call; the next checkpoint moves the job to ``aborted``.
+    """
+
+    snapshot: Optional[Dict[str, Any]] = None
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            return None
+        job["cancel_requested"] = True
+        job["cancel_reason"] = reason
+        snapshot = dict(job)
+    _persist_job(snapshot)
+    return snapshot
+
+
+def _cancel_requested(job_id: str) -> Optional[str]:
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            return None
+        if job.get("cancel_requested"):
+            return str(job.get("cancel_reason") or "user requested cancel")
+    return None
+
+
+def _timeout_deadline(params: Dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
+    value = params.get("timeout_minutes")
+    if value is None or value == "":
+        return None, None
+    try:
+        timeout_minutes = float(value)
+    except (TypeError, ValueError):
+        return None, None
+    if timeout_minutes <= 0:
+        return None, None
+    return time.monotonic() + timeout_minutes * 60.0, timeout_minutes
+
+
+def _check_cancelled(job_id: str, deadline: Optional[float], timeout_minutes: Optional[float]) -> None:
+    if deadline is not None and time.monotonic() > deadline:
+        label = f"timeout after {timeout_minutes:g} minute(s)"
+        request_cancel(job_id, label)
+        raise JobTimeout(label)
+    reason = _cancel_requested(job_id)
+    if reason:
+        raise JobCancelled(reason)
 
 
 def workspace_busy(workspace: str) -> Optional[str]:
@@ -368,6 +432,7 @@ def _worker(job_id: str) -> None:
     workspace = job["workspace"]
     step = job["step"]
     params = job["params"]
+    deadline, timeout_minutes = _timeout_deadline(params)
     handler = STEP_HANDLERS.get(step)
     if handler is None:
         _update(
@@ -381,12 +446,23 @@ def _worker(job_id: str) -> None:
         return
 
     def _progress(sub_step: str, fraction: float) -> None:
+        _check_cancelled(job_id, deadline, timeout_minutes)
         _update(job_id, current_step=sub_step, progress=float(fraction))
 
     _update(job_id, status="running", started_at=_now(), current_step=step)
     try:
         with use_workspace(workspace):
+            _check_cancelled(job_id, deadline, timeout_minutes)
             result = handler(params, _progress)
+            _check_cancelled(job_id, deadline, timeout_minutes)
+    except JobCancelled as exc:
+        _update(
+            job_id,
+            status="aborted",
+            current_step="timeout" if isinstance(exc, JobTimeout) else "cancelled",
+            error=str(exc),
+            finished_at=_now(),
+        )
     except BookRunBlocked as exc:
         _update(
             job_id,
