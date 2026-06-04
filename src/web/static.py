@@ -582,6 +582,21 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .details-fold[open] summary::before { content: "▾"; }
 
 /* ---------- page: continue (cockpit) ---------- */
+.readiness-primary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--bg-card);
+}
+.readiness-primary .copy { display: flex; flex-direction: column; gap: var(--space-1); }
+.readiness-primary h3 { font-size: var(--fs-lg); }
+.readiness-primary p { color: var(--ink-2); margin: 0; }
+.readiness-status-row { margin-top: var(--space-3); }
+.readiness-diagnostics { margin-top: var(--space-3); }
 .continue-flow {
   display: flex;
   flex-direction: column;
@@ -791,6 +806,32 @@ JS_DASHBOARD = """\
 (function () {
   const ws = window.WORKSPACE_NAME || "";
   const pageKind = window.PAGE_KIND || "";
+  const CTA_ACTIONS = {
+    start_point_missing: {
+      label: "未设置续写起点",
+      action: "scroll_to_start_point",
+      cta_label: "去设置起点",
+      hint: "先选定从原作哪一章之后开始续写。",
+    },
+    outline_missing: {
+      label: "缺少全书大纲",
+      action: "go_plan",
+      cta_label: "去计划页",
+      hint: "先生成或检查全书走向，再进入章节续写。",
+    },
+    chapter_plan_missing: {
+      label: "缺少章节计划",
+      action: "run_plan_chapters",
+      cta_label: "生成章节计划",
+      hint: "续写需要本章计划；可以先用默认目标章数生成。",
+    },
+    retry_exhausted: {
+      label: "已有草稿未通过",
+      action: "retry_write_book",
+      cta_label: "查看并重试",
+      hint: "先查看失败原因，再用相同或调整后的参数重试。",
+    },
+  };
 
   // ---- shared helpers ----------------------------------------------------
   function escapeHtml(s) {
@@ -827,6 +868,9 @@ JS_DASHBOARD = """\
   function wsUrl(suffix) {
     return "/api/workspace/" + encodeURIComponent(ws) + suffix;
   }
+  function wsHref(suffix) {
+    return "/w/" + encodeURIComponent(ws) + suffix;
+  }
   function statusBadge(status) {
     const cls = (status || "blocked").toLowerCase();
     return '<span class="badge ' + escapeHtml(cls) + '">' + escapeHtml(status || "?") + "</span>";
@@ -842,6 +886,58 @@ JS_DASHBOARD = """\
       return '<span class="badge no-dot" style="color:var(--amber-strong);background:var(--amber-soft);border-color:var(--amber-soft)">短剧</span>';
     }
     return '<span class="badge no-dot" style="color:var(--jade-strong);background:var(--jade-soft);border-color:var(--jade-soft)">小说</span>';
+  }
+  function ctaConfig(kind, fallback) {
+    const base = CTA_ACTIONS[kind] || {};
+    return {
+      label: fallback && fallback.label || base.label || "需要处理",
+      action: fallback && fallback.cta_action || base.action || "show_diagnostics",
+      cta_label: fallback && fallback.cta_label || base.cta_label || "查看诊断",
+      hint: base.hint || (fallback && fallback.raw) || "",
+    };
+  }
+  function renderCtaButton(kind, fallback, cls) {
+    const cfg = ctaConfig(kind, fallback || {});
+    return '<button type="button" class="btn ' + escapeHtml(cls || "btn-primary") +
+      '" data-cta-action="' + escapeHtml(cfg.action) + '">' + escapeHtml(cfg.cta_label) + "</button>";
+  }
+  let ctaActionsBound = false;
+  function bindCtaActions() {
+    if (ctaActionsBound) return;
+    ctaActionsBound = true;
+    document.addEventListener("click", function (ev) {
+      const btn = ev.target && ev.target.closest ? ev.target.closest("[data-cta-action]") : null;
+      if (!btn) return;
+      const action = btn.getAttribute("data-cta-action") || "";
+      if (action === "go_plan") {
+        window.location.href = wsHref("/plan");
+        return;
+      }
+      if (action === "scroll_to_start_point") {
+        scrollAndFocus("start-point-form", "start_point");
+        return;
+      }
+      if (action === "run_plan_chapters") {
+        scrollAndFocus("plan-form", "target_chapters");
+        return;
+      }
+      if (action === "retry_write_book") {
+        scrollAndFocus("write-book-form", "resume_from");
+        return;
+      }
+      const details = document.querySelector("#readiness-panel details");
+      if (details) {
+        details.open = true;
+        details.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  }
+  function scrollAndFocus(formId, fieldName) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+    const field = form.elements && form.elements[fieldName];
+    if (field && field.focus) setTimeout(function () { field.focus(); }, 250);
   }
   function skeleton(rows) {
     let out = '<div class="skeleton-block">';
@@ -1521,6 +1617,7 @@ JS_DASHBOARD = """\
   let writeBookJobRunning = false;
 
   async function initContinue() {
+    bindCtaActions();
     bindStartPoint();
     bindPlan();
     bindWriteBook();
@@ -1613,6 +1710,11 @@ JS_DASHBOARD = """\
     if (!form) return;
     const submit = document.getElementById("write-book-submit");
     const jobBox = document.getElementById("write-book-status");
+    if (form.elements.resume_from) {
+      form.elements.resume_from.addEventListener("input", function () {
+        form.elements.resume_from.dataset.userEdited = "1";
+      });
+    }
     form.addEventListener("input", scheduleReadiness);
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -1669,6 +1771,14 @@ JS_DASHBOARD = """\
         "&replan_every=" + encodeURIComponent(replanEvery));
       const data = await fetchJson(url);
       if (requestSeq !== readinessRequestSeq) return;
+      const nextChapter = Number(data.next_unapproved_chapter || 0);
+      if (form.elements.resume_from && nextChapter > 0 &&
+          form.elements.resume_from.dataset.userEdited !== "1" &&
+          Number(form.elements.resume_from.value || 0) !== nextChapter) {
+        form.elements.resume_from.value = String(nextChapter);
+        refreshReadiness();
+        return;
+      }
       panel.innerHTML = renderReadinessPanel(data);
       if (pill) pill.innerHTML = statusBadge(data.status || "blocked");
       if (submit) submit.disabled = writeBookJobRunning || data.status === 'blocked';
@@ -1683,18 +1793,36 @@ JS_DASHBOARD = """\
     const warnings = data.warnings || [];
     const commands = data.recommended_commands || [];
     const status = data.status || "?";
-    let html = '<div class="kv-list compact">' +
+    const primary = data.primary_blocker || null;
+    const kind = primary ? primary.kind : "";
+    const cfg = ctaConfig(kind, primary || {});
+    let html = '<div class="readiness-primary">' +
+      '<div class="copy">' +
+      '<p class="eyebrow ornament">下一步</p>' +
+      '<h3>' + escapeHtml(status === "blocked" ? cfg.label : status === "warn" ? "可以续写，但有提示" : "续写入口已就绪") + "</h3>" +
+      '<p>' + escapeHtml(status === "blocked" ? (cfg.hint || primary.raw || "请先处理阻断项。") : status === "warn" ? "建议看一眼诊断提示，但不影响开始写作。" : "参数与前置产物都已通过检查。") + "</p>" +
+      "</div>" +
+      '<div class="cluster">' +
+      (status === "blocked" ? renderCtaButton(kind, primary || {}, "btn-primary") : '<button type="submit" form="write-book-form" class="btn btn-primary">开始续写</button>') +
+      "</div>" +
+      "</div>";
+    html += '<div class="kv-list compact readiness-status-row">' +
       '<div class="k">status</div><div class="v">' + statusBadge(status) + "</div>" +
       '<div class="k">chapters</div><div class="v">' + escapeHtml(String(data.chapters || "?")) + "</div>" +
       '<div class="k">resume_from</div><div class="v">' + escapeHtml(String(data.resume_from || "?")) + "</div>" +
+      '<div class="k">next</div><div class="v">' + escapeHtml(String(data.next_unapproved_chapter || "—")) + "</div>" +
       '<div class="k">plan_window</div><div class="v">' + escapeHtml(String(data.plan_window || "?")) + "</div>" +
       "</div>";
-    if (blockers.length) html += '<div class="alert error">' + blockers.map(escapeHtml).join("<br>") + "</div>";
-    if (warnings.length) html += '<div class="alert warn">' + warnings.map(escapeHtml).join("<br>") + "</div>";
+    const details = [];
+    if (blockers.length) details.push('<div class="alert error">' + blockers.map(escapeHtml).join("<br>") + "</div>");
+    if (warnings.length) details.push('<div class="alert warn">' + warnings.map(escapeHtml).join("<br>") + "</div>");
     if (commands.length) {
-      html += '<div class="command-list">' +
-        commands.map((c) => "<code>" + escapeHtml(c) + "</code>").join("") + "</div>";
+      details.push('<div class="command-list">' +
+        commands.map((c) => "<code>" + escapeHtml(c) + "</code>").join("") + "</div>");
     }
+    html += '<details class="details-fold readiness-diagnostics"><summary>诊断详情</summary>' +
+      (details.join("") || '<div class="alert info">没有阻断项也没有警示。</div>') +
+      "</details>";
     return html;
   }
   async function refreshRecentJobsSidebar() {

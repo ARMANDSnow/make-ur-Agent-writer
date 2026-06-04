@@ -64,6 +64,7 @@ def run_write_book(
         require_plan=require_plan,
         require_external_review=require_external_review,
         allow_existing_blockers=force,
+        include_next_unapproved=False,
     )
     if readiness.get("status") == "blocked":
         commands = "; ".join(readiness.get("recommended_commands") or [])
@@ -315,6 +316,7 @@ def check_write_readiness(
     require_plan: bool = True,
     require_external_review: bool = True,
     allow_existing_blockers: bool = False,
+    include_next_unapproved: bool = True,
 ) -> Dict[str, Any]:
     """Return the user-facing production writing gate as JSON data."""
 
@@ -358,6 +360,17 @@ def check_write_readiness(
         warnings.append(f"preflight:{warn}")
 
     drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
+    next_unapproved_chapter = None
+    if include_next_unapproved:
+        next_unapproved_chapter = _next_unapproved_chapter(
+            raw_plan=raw_plan,
+            plan=plan,
+            drafts_dir=drafts_dir,
+            resume_from=resume_from,
+            require_start_point=require_start_point,
+            require_plan=require_plan,
+            require_external_review=require_external_review,
+        )
     if plan:
         for chapter_no in chapter_numbers:
             try:
@@ -398,11 +411,108 @@ def check_write_readiness(
         "status": status,
         "chapters": total,
         "resume_from": resume_from,
+        "next_unapproved_chapter": next_unapproved_chapter,
         "plan_window": plan_window,
         "blockers": _dedupe(blockers),
         "warnings": _dedupe(warnings),
         "recommended_commands": _dedupe(recommended),
+        "primary_blocker": _primary_blocker(_dedupe(blockers)),
     }
+
+
+def _next_unapproved_chapter(
+    *,
+    raw_plan: Dict[str, Any],
+    plan: Dict[int, Dict[str, Any]],
+    drafts_dir: Path,
+    resume_from: int,
+    require_start_point: bool,
+    require_plan: bool,
+    require_external_review: bool,
+) -> int | None:
+    numbers: List[int] = []
+    for item in raw_plan.get("chapters", []) or []:
+        if isinstance(item, dict) and item.get("chapter_no") is not None:
+            try:
+                numbers.append(int(item["chapter_no"]))
+            except (TypeError, ValueError):
+                continue
+    if not numbers and plan:
+        numbers = [int(no) for no in plan.keys()]
+    numbers = sorted(set(numbers))
+    if not numbers:
+        return max(1, int(resume_from))
+
+    latest_approved: int | None = None
+    first_unapproved: int | None = None
+    for chapter_no in numbers:
+        expected: Dict[str, Any] | None = None
+        validate_context = False
+        if plan:
+            try:
+                item = _chapter_plan_item(plan, chapter_no)
+            except ValueError:
+                item = None
+            if item:
+                expected = _run_context(item, chapter_no=chapter_no)
+                validate_context = True
+        status = chapter_status(
+            chapter_no,
+            drafts_dir,
+            validate_context=validate_context,
+            require_start_point=require_start_point,
+            require_plan=require_plan,
+            require_external_review=require_external_review,
+            expected_context=expected,
+        )
+        if status.get("approved"):
+            latest_approved = chapter_no if latest_approved is None else max(latest_approved, chapter_no)
+        elif first_unapproved is None:
+            first_unapproved = chapter_no
+
+    if latest_approved is not None:
+        candidate = latest_approved + 1
+        if candidate <= max(numbers):
+            return candidate
+        return None
+    return first_unapproved or max(1, int(resume_from))
+
+
+def _primary_blocker(blockers: List[str]) -> Dict[str, str] | None:
+    if not blockers:
+        return None
+    raw = blockers[0]
+    kind = _blocker_kind(raw)
+    labels = {
+        "start_point_missing": ("未设置续写起点", "scroll_to_start_point", "去设置起点"),
+        "outline_missing": ("缺少全书大纲", "go_plan", "去计划页"),
+        "chapter_plan_missing": ("缺少章节计划", "run_plan_chapters", "生成章节计划"),
+        "retry_exhausted": ("已有草稿未通过", "retry_write_book", "查看并重试"),
+        "preflight_failed": ("工程预检未通过", "show_diagnostics", "查看诊断"),
+        "unknown": ("续写入口受阻", "show_diagnostics", "查看诊断"),
+    }
+    label, action, cta_label = labels.get(kind, labels["unknown"])
+    return {
+        "kind": kind,
+        "label": label,
+        "cta_action": action,
+        "cta_label": cta_label,
+        "raw": raw,
+    }
+
+
+def _blocker_kind(blocker: str) -> str:
+    if blocker == "start_point_missing":
+        return "start_point_missing"
+    if blocker == "chapter_plan_missing" or blocker.startswith("chapter_plan:") or "plan_item_missing" in blocker:
+        return "chapter_plan_missing"
+    if blocker.startswith("outline_missing") or "outline_missing" in blocker:
+        return "outline_missing"
+    if "retry_exhausted" in blocker or "existing_output_not_strict_approved" in blocker:
+        return "retry_exhausted"
+    if blocker.startswith("preflight:"):
+        return "preflight_failed"
+    return "unknown"
 
 
 def _load_raw_chapter_plan() -> Dict[str, Any]:

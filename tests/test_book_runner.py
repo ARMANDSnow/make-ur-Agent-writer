@@ -153,6 +153,84 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertNotIn("chapter_plan:chapter_02_plan_missing", readiness["blockers"])
         self.assertEqual(readiness["plan_window"], 1)
 
+    def test_readiness_primary_blocker_for_missing_start_point(self) -> None:
+        with patch("src.book_runner.start_point.get_start_chapter_id", return_value=None), patch(
+            "src.book_runner._load_raw_chapter_plan", return_value={}
+        ), patch("src.book_runner._load_chapter_plan", return_value={}), patch(
+            "src.book_runner.run_preflight", return_value={"status": "ok", "fatal": [], "warn": [], "info": []}
+        ):
+            readiness = check_write_readiness(chapters=1)
+
+        self.assertEqual(readiness["next_unapproved_chapter"], 1)
+        self.assertEqual(readiness["primary_blocker"]["kind"], "start_point_missing")
+        self.assertEqual(readiness["primary_blocker"]["cta_action"], "scroll_to_start_point")
+
+    def test_readiness_next_unapproved_prefers_after_latest_approved(self) -> None:
+        def status_for(chapter_no, *_args, **_kwargs):
+            if chapter_no == 1:
+                return {
+                    "chapter_no": 1,
+                    "exists": True,
+                    "approved": False,
+                    "needs_review": True,
+                    "failure": False,
+                    "verdict": "Reject",
+                    "rewrite_count": 2,
+                    "strict_failures": ["external_review_reject"],
+                }
+            if chapter_no == 2:
+                return {
+                    "chapter_no": 2,
+                    "exists": True,
+                    "approved": True,
+                    "needs_review": False,
+                    "failure": False,
+                    "verdict": "Approve",
+                    "rewrite_count": 0,
+                    "strict_failures": [],
+                }
+            return {
+                "chapter_no": chapter_no,
+                "exists": False,
+                "approved": False,
+                "needs_review": False,
+                "failure": False,
+                "verdict": None,
+                "rewrite_count": 0,
+                "strict_failures": [],
+            }
+
+        managers = self._common_patches(_strict_plan(chapters=3))
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], patch(
+            "src.book_runner.chapter_status", side_effect=status_for
+        ):
+            readiness = check_write_readiness(chapters=1, resume_from=1)
+
+        self.assertEqual(readiness["next_unapproved_chapter"], 3)
+        self.assertEqual(readiness["primary_blocker"]["kind"], "retry_exhausted")
+
+    def test_readiness_next_unapproved_none_when_plan_done(self) -> None:
+        def approved_status(chapter_no, *_args, **_kwargs):
+            return {
+                "chapter_no": chapter_no,
+                "exists": True,
+                "approved": True,
+                "needs_review": False,
+                "failure": False,
+                "verdict": "Approve",
+                "rewrite_count": 0,
+                "strict_failures": [],
+            }
+
+        managers = self._common_patches(_strict_plan(chapters=2))
+        with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], patch(
+            "src.book_runner.chapter_status", side_effect=approved_status
+        ):
+            readiness = check_write_readiness(chapters=1, resume_from=1)
+
+        self.assertIsNone(readiness["next_unapproved_chapter"])
+        self.assertIsNone(readiness["primary_blocker"])
+
     def test_existing_reject_blocks_entry(self) -> None:
         reject_status = {
             "chapter_no": 1,
