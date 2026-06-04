@@ -377,6 +377,9 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .badge.warn, .badge.queued, .badge.warning, .badge.abstain { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
 .badge.blocked, .badge.failed, .badge.aborted, .badge.reject, .badge.lost { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
 .badge.running, .badge.pending { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
+.badge-novel { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
+.badge-drama { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
+.badge-muted { color: var(--ink-3); background: var(--bg-sunken); border-color: var(--rule); }
 
 /* card */
 .card {
@@ -616,6 +619,13 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .workspace-card .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
 .workspace-card .metric .k { display: block; font-size: var(--fs-xs); color: var(--ink-3); }
 .workspace-card .metric .v { display: block; margin-top: 2px; font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); }
+.workspace-card .metric .v.metric-small { font-size: var(--fs-sm); }
+.workspace-card .metric.history { opacity: .6; }
+
+.sidebar-job {
+  margin-bottom: var(--space-2);
+}
+.sidebar-job.history { opacity: .6; }
 
 /* ---------- page: workspace overview ---------- */
 .overview-hero {
@@ -964,9 +974,36 @@ JS_DASHBOARD = """\
   }
   function typeBadge(type) {
     if (type === "drama") {
-      return '<span class="badge no-dot" style="color:var(--amber-strong);background:var(--amber-soft);border-color:var(--amber-soft)">短剧</span>';
+      return '<span class="badge no-dot badge-drama">短剧</span>';
     }
-    return '<span class="badge no-dot" style="color:var(--jade-strong);background:var(--jade-soft);border-color:var(--jade-soft)">小说</span>';
+    return '<span class="badge no-dot badge-novel">小说</span>';
+  }
+  function mutedStatusBadge(status) {
+    return '<span class="badge no-dot badge-muted">' + escapeHtml(status || "?") + "</span>";
+  }
+  function historicalJobStatus(status) {
+    return ["lost", "failed", "blocked", "aborted", "budget_exceeded"].indexOf(status || "") >= 0;
+  }
+  function recentJobLabel(job) {
+    if (!job) return "无";
+    return (job.step || "?") + " · " + (job.status || "?");
+  }
+  function recentJobMetric(job) {
+    const cls = historicalJobStatus(job && job.status) ? ' class="metric history"' : ' class="metric"';
+    return '<div' + cls + '><span class="k">最近任务</span><span class="v metric-small">' +
+      escapeHtml(recentJobLabel(job)) + "</span></div>";
+  }
+  function dramaProgressList(progress) {
+    if (!progress || typeof progress !== "object") return [];
+    const keys = ["station1", "station2", "station3", "station4"];
+    return keys.map(function (key) { return progress[key]; }).filter(Boolean);
+  }
+  function dramaOverallStatus(progress) {
+    const stations = dramaProgressList(progress);
+    if (!stations.length) return "warn";
+    const firstOpen = stations.find(function (s) { return s.status === "todo"; });
+    if (firstOpen) return "warn";
+    return "ready";
   }
   function ctaConfig(kind, fallback) {
     const base = CTA_ACTIONS[kind] || {};
@@ -1179,38 +1216,52 @@ JS_DASHBOARD = """\
     }
   }
   function renderWorkspaceCard(w) {
+    const type = w.type || "novel";
     const readiness = w.readiness || {};
-    const status = readiness.status || "blocked";
+    const status = type === "drama" ? dramaOverallStatus(w.drama_progress) : (readiness.status || "blocked");
     const blockers = readiness.blockers || [];
     const start = w.start_point && w.start_point.has_start_point
       ? (w.start_point.start_chapter_id || "已设置")
       : "未设置";
     const plan = w.plan && w.plan.exists ? (w.plan.chapters || 0) + " 章" : "缺失";
     const url = "/w/" + encodeURIComponent(w.name) + "/";
+    const body = type === "drama" ? renderDramaWorkspaceMetrics(w) : renderNovelWorkspaceMetrics(w, start, plan);
     return (
       '<a class="workspace-card" href="' + url + '">' +
       '<div class="card-head">' +
       '<div><p class="eyebrow ornament">作品</p><h3>' + escapeHtml(w.name) + "</h3></div>" +
       '<div class="cluster">' +
-      typeBadge(w.type || "novel") +
+      typeBadge(type) +
       statusBadge(status) +
       '</div>' +
       "</div>" +
-      '<div class="metrics">' +
+      body +
+      (type !== "drama" && blockers.length ? '<p class="alert error" style="margin-top:12px">' + escapeHtml(blockers[0]) + "</p>" : "") +
+      "</a>"
+    );
+  }
+  function renderNovelWorkspaceMetrics(w, start, plan) {
+    return '<div class="metrics">' +
       '<div class="metric"><span class="k">原文章节</span><span class="v">' + (w.chapter_count || 0) + "</span></div>" +
       '<div class="metric"><span class="k">续写草稿</span><span class="v">' + (w.draft_count || 0) + "</span></div>" +
       '<div class="metric"><span class="k">评审通过</span><span class="v">' +
       (w.review_accepted || 0) + "/" + (w.review_total || 0) +
       "</span></div>" +
-      '<div class="metric"><span class="k">起点</span><span class="v" style="font-size:14px">' + escapeHtml(start) + "</span></div>" +
-      '<div class="metric"><span class="k">计划</span><span class="v" style="font-size:14px">' + escapeHtml(plan) + "</span></div>" +
-      '<div class="metric"><span class="k">最近任务</span><span class="v" style="font-size:14px">' +
-      escapeHtml(w.recent_job ? (w.recent_job.step || "?") + " · " + (w.recent_job.status || "?") : "无") +
-      "</span></div>" +
-      "</div>" +
-      (blockers.length ? '<p class="alert error" style="margin-top:12px">' + escapeHtml(blockers[0]) + "</p>" : "") +
-      "</a>"
-    );
+      '<div class="metric"><span class="k">起点</span><span class="v metric-small">' + escapeHtml(start) + "</span></div>" +
+      '<div class="metric"><span class="k">计划</span><span class="v metric-small">' + escapeHtml(plan) + "</span></div>" +
+      recentJobMetric(w.recent_job) +
+      "</div>";
+  }
+  function renderDramaWorkspaceMetrics(w) {
+    const stations = dramaProgressList(w.drama_progress);
+    const stationHtml = stations.map(function (s, idx) {
+      return '<div class="metric"><span class="k">站 ' + (idx + 1) + ' · ' + escapeHtml(s.label || s.id || "") +
+        '</span><span class="v metric-small">' + escapeHtml(s.status || "?") + "</span></div>";
+    }).join("");
+    return '<div class="metrics">' +
+      (stationHtml || '<div class="metric"><span class="k">站点</span><span class="v metric-small">未初始化</span></div>') +
+      recentJobMetric(w.recent_job) +
+      "</div>";
   }
 
   // ===== page: workspace overview =========================================
@@ -1916,17 +1967,28 @@ JS_DASHBOARD = """\
         box.innerHTML = '<p class="muted">尚无历史任务</p>';
         return;
       }
-      box.innerHTML = items.map((job) => (
-        '<div class="kv-list compact" style="margin-bottom:8px">' +
-        '<div class="k">step</div><div class="v">' + escapeHtml(job.step || "?") + "</div>" +
-        '<div class="k">status</div><div class="v">' + statusBadge(job.status || "?") + "</div>" +
-        '<div class="k">job</div><div class="v"><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code></div>" +
-        (jobFailureLine(job) ? '<div class="k">note</div><div class="v">' + escapeHtml(jobFailureLine(job).slice(0, 120)) + "</div>" : "") +
-        "</div>"
-      )).join("");
+      const current = items.filter(function (job) { return !historicalJobStatus(job.status); });
+      const history = items.filter(function (job) { return historicalJobStatus(job.status); });
+      const groups = [];
+      if (current.length) {
+        groups.push('<div class="sidebar-section"><h4>当前 / 最近完成</h4>' + current.map(renderSidebarJob).join("") + "</div>");
+      }
+      if (history.length) {
+        groups.push('<div class="sidebar-section"><h4>历史</h4>' + history.map(renderSidebarJob).join("") + "</div>");
+      }
+      box.innerHTML = groups.join("") || '<p class="muted">尚无历史任务</p>';
     } catch (err) {
       box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
     }
+  }
+  function renderSidebarJob(job) {
+    const isHistory = historicalJobStatus(job.status);
+    return '<div class="kv-list compact sidebar-job' + (isHistory ? " history" : "") + '">' +
+      '<div class="k">step</div><div class="v">' + escapeHtml(job.step || "?") + "</div>" +
+      '<div class="k">status</div><div class="v">' + (isHistory ? mutedStatusBadge(job.status || "?") : statusBadge(job.status || "?")) + "</div>" +
+      '<div class="k">job</div><div class="v"><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code></div>" +
+      (jobActionableSummary(job) ? '<div class="k">note</div><div class="v">' + escapeHtml(jobActionableSummary(job).slice(0, 120)) + "</div>" : "") +
+      "</div>";
   }
   function jobBlockedDetail(job) {
     const fb = job.result_summary && job.result_summary.first_blocked;

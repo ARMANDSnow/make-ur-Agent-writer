@@ -375,6 +375,8 @@ def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
                 _mtime_ns(ws / "data" / "workspace.json"),
                 _mtime_ns(ws / "data" / "chapter_manifest.json"),
                 _mtime_ns(ws / "outputs" / "debate" / "chapter_plan.json"),
+                _mtime_ns(ws / "outputs" / "episodes"),
+                _mtime_ns(ws / "outputs" / "episodes" / "episode_01.setup.json"),
                 _mtime_ns(ws / "data" / "manual_overrides" / "start_chapter.json"),
                 _mtime_ns(ws / "outputs" / "drafts"),
                 _mtime_ns(ws / "outputs" / "reviews"),
@@ -418,6 +420,39 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
         "recent_job": None,
     }
     if not root.is_dir():
+        return overview
+    if meta["type"] == "drama":
+        try:
+            from .drama_view import collect_drama_progress
+
+            progress = collect_drama_progress(name)
+            stations = progress.get("stations") if isinstance(progress, dict) else []
+            station_list = stations if isinstance(stations, list) else []
+            overview["drama_progress"] = {
+                f"station{idx}": {
+                    "id": station.get("id", ""),
+                    "label": station.get("label", ""),
+                    "status": station.get("status", ""),
+                }
+                for idx, station in enumerate(station_list[:4], start=1)
+                if isinstance(station, dict)
+            }
+            overview["readiness"] = {
+                "status": "warn" if any(s.get("status") == "todo" for s in station_list if isinstance(s, dict)) else "ready",
+                "blockers": [],
+                "warnings": [],
+                "recommended_commands": [],
+            }
+            recent = jobs.recent_jobs(name, limit=1)
+            overview["recent_job"] = recent[0] if recent else None
+        except Exception as exc:
+            overview["error"] = f"{type(exc).__name__}: {exc}"
+            overview["readiness"] = {
+                "status": "blocked",
+                "blockers": [f"drama_progress_error:{type(exc).__name__}: {exc}"],
+                "warnings": [],
+                "recommended_commands": [],
+            }
         return overview
     with use_workspace(name):
         try:

@@ -666,8 +666,8 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
         self.assertIn("function typeBadge", js)
-        self.assertIn("var(--amber-soft)", js)
-        self.assertIn("var(--jade-soft)", js)
+        self.assertIn("badge-drama", js)
+        self.assertIn("badge-novel", js)
 
     def test_wizard_js_has_drama_path(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/wizard.js")
