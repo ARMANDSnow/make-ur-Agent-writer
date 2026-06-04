@@ -252,7 +252,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 
 ## 项目阶段 SOP（实时状态）
 
-一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 039（2026-06-04）** — WebUI 真实续写链路修复：running job 不再误标 lost，write-book 章内 progress 细粒度上报，失败/预算超限落 `chapter_NN.partial.md` + failure JSON，blocked reason 与 partial draft 在前端可见。
+一条完整续写指令从输入到输出途中的 9 个阶段 + 各节点当前打通状态。本节是**实时活文档**，每轮 iter 收官时同步更新。最近一次更新：**iter 040（2026-06-04）** — `book_runner` 在 external review 后把 verdict 同步回 writer meta，修复 iter039 暴露的 `meta=Reject / review=Approve` 不一致；真实 `longzu` ch2 复跑进入一致 `Reject`，判定为内容质量 incident 而非 sync bug。
 
 > 图例：✅ 已打通 ⚠️ 部分打通（含 gap） ❌ 未打通
 
@@ -314,6 +314,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | 7.4 | reviewer 读 KB + 起点附近原文 + scene-matched 经典片段 | ✅ | iter 022 B4 + **iter 023 P3** |
 | 7.5 | 程序化关系一致性检测（deterministic_relations）| ✅ | **iter 023 P5**（0 LLM 成本，替代 LLM agent）|
 | 7.6 | 改写顾问 advisor（不投票，输出 RewriteSuggestion 列表）| ✅ | iter 023 P4（配置）+ **iter 024 P1**（writer rewrite-loop 真消费）|
+| 7.7 | external review verdict 回写 writer meta | ✅ | **iter 040** `book_runner._sync_meta_with_external_review()`；`require_external_review=True` 下 meta/review 文件状态一致 |
 
 ### 阶段 8 — 关系更新
 | # | 节点 | 状态 | 备注 |
@@ -347,7 +348,7 @@ python3 main.py --book myBook write-book --chapters 3 --budget-cny 5
 | U.8 | Web 日常使用补齐 | ✅ | **iter 033**（工作区二次确认软删除到 `_trash`；新增 `/w/{name}/insights` 数据页；lint anchor → 正文段落跳转 + 高亮；job terminal / 跨页删除 toast） |
 | U.9 | Web type-aware workspace 基础设施 | ✅ | **iter 036**（`workspace.json` schema v1；旧 workspace 缺文件默认 novel；wizard drama-start 进入 drama 分支；novel-only 页面 404，`/run` 对 drama 400） |
 | U.10 | Web drama 4 站审查向导（前 2 站）| ✅ | **iter 037-038**（drama wizard 5 字段 + `wizard_input.json` + `creation_standard.snapshot.md`；`/w/{name}/write` 4 tab；站 ①/② mock fixture-driven；iter 038 修 hook picker listener leak/rapid-click race，站 ③④仍待后续开放） |
-| U.11 | Web 真实续写链路可观测/可恢复 | ✅ | **iter 039**（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行） |
+| U.11 | Web 真实续写链路可观测/可恢复 | ✅ | **iter 039**（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行）；**iter 040** meta/review verdict 同步后 blocked 原因从“不一致”收敛为 external review 自身 Reject |
 
 ---
 

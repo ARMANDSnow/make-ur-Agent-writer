@@ -48,3 +48,4 @@
 37. [Iteration 037 - drama 4 站向导前 2 站 + 创作规范快照](./iteration_037_PLAN.md)
 38. [Iteration 038 - P1/P2 hardening pass（sandbox skip / hook leak / test fixture extraction）](./iteration_038_PLAN.md)
 39. [Iteration 039 - WebUI 小说续写真实链路修复](./iteration_039_PLAN.md)
+40. [Iteration 040 - meta/review verdict 同步 + happy path 跑通](./iteration_040_PLAN.md)

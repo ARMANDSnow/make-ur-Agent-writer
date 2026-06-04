@@ -186,8 +186,8 @@ def run_write_book(
                 reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
                 if require_external_review and md_path.exists():
                     review_target(md_path, enforce_relationship_checklist=True)
-                    budget_check_cb()
                     _sync_meta_with_external_review(drafts_dir, chapter_no)
+                    budget_check_cb()
                 status = chapter_status(
                     chapter_no,
                     drafts_dir,

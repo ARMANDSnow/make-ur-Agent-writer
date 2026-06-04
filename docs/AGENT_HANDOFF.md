@@ -878,3 +878,44 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 2. 真模型 happy path approved 仍未通过；下一轮若继续真实链路，应从 `longzu` ch2 `retry_exhausted` 结果和 reviewer/meta 判定差异切入。
 3. iter040 backlog：P2-A/B/C（Jobs 展开详情、sidebar lost 历史标记、onboarding budget/timeout/cancel）、drama 站 ③/④、AI 绘画 client / Comfy 导出、drama_reviewer、章节 diff、全文搜索、KB 起点过滤安全视图、真模型 capstone。
 4. iter040 backlog 新增真实验收发现：`chapter_02.meta.json` 顶层 `verdict=Reject`，但 `outputs/reviews/chapter_02.review.json` 顶层 `verdict=Approve`，最终 strict `chapter_status` 仍判 blocked。证据 job `a9fe3502ed0e438a82ada58ea78b8982`；证据路径 `workspaces/longzu/outputs/drafts/chapter_02.meta.json` + `workspaces/longzu/outputs/reviews/chapter_02.review.json`。
+
+---
+
+## Phase 4 Status（iter 040，2026-06-04）
+
+### Iteration 040 — meta/review verdict 同步 + 龙族 ch2 真实 incident 归因
+
+**目标**：严格按 `/Users/dingyuxuan/.claude/plans/codex-iteration-039-webui-cozy-charm.md` 的 iter040 plan，只修 P0-A：external review 完成后把最终 verdict 回写到 writer meta，消除 iter039 暴露的 `chapter_02.meta.json=Reject` / `outputs/reviews/chapter_02.review.json=Approve` 双文件不一致。
+
+**主要落地**：
+- `src/book_runner.py` 新增 `_sync_meta_with_external_review(drafts_dir, chapter_no)`，同步 `verdict`、`needs_human_review`、`agent_reviews`、`external_synced_at`。
+- external review 缺 `needs_human_review` 时，`Approve -> False`，其他 verdict -> True；external `Approve` 时清空 `last_blocking_reasons`。
+- 保留 writer 历史字段：`run_context`、`draft_sha256`、`polish_*`、`lint_blocked_reviews`、`chinese_char_count`、`rewrite_count` 等。
+- 两个调用点均已接入：`reviewed_existing` 路径的 `review_target()` 后，以及每章新写路径的 external `review_target()` 后。Subagent audit 后把 normal write path 调整为先 sync 再做 post-review budget check，避免“review 已落盘但预算超限导致 meta 未同步”。
+- 新增 `tests/test_book_runner_meta_sync.py`，用 subTest 覆盖 meta Reject + review Approve、meta Approve + review Reject、sync 后 strict `chapter_status(validate_context=True, require_external_review=True)`，以及 post-review budget_exceeded 仍先 sync meta。
+
+**验证进度**：
+- `.venv/bin/python -m unittest tests.test_book_runner_meta_sync` → 1 test OK。
+- `.venv/bin/python -m unittest tests.test_chapter_status tests.test_book_runner tests.test_book_runner_retry_progress` → 17 tests OK。
+- Audit follow-up targeted：`.venv/bin/python -m unittest tests.test_book_runner_meta_sync` → 1 test OK；`.venv/bin/python -m unittest tests.test_book_runner tests.test_book_runner_partial tests.test_book_runner_retry_progress tests.test_write_book_replan_budget` → 18 tests OK。
+- `.venv/bin/python -m unittest discover` → 559 tests，`OK (skipped=6)`。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → `PREFLIGHT: ok`，FATAL none，WARN none。
+- `PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` → exit 0，559 tests `OK (skipped=6)` + mock auto-pipeline OK。
+
+**真实模型验收（用户授权预算 < 10 元）**：
+- 备份原 ch2 到 `/tmp/iter040_baseline_20260604_194612/`，删除指定 draft/meta/partial/failure/review 文件后，通过 Web API 跑 `longzu` `write-book chapters=1 resume_from=2 budget_cny=10 max_retries=2`。
+- job_id `d526d330267648869006869de5a15872`，终态 `blocked`，`first_blocked.reason=retry_exhausted`，snapshot `workspaces/longzu/outputs/drafts/snapshots/write_book_blocked_20260604_210821.json`。
+- 最终 meta/review verdict 均为 `Reject`，`draft_sha256` 一致，meta 写入 `external_synced_at=2026-06-04T13:08:21+00:00`。
+- strict `chapter_status` 返回 `approved=false`，`strict_failures=["external_review_reject"]`。这证明 iter039 的 verdict 不一致 bug 已修；本次 blocked 是 external review 自身 Reject。
+- 成本增量：以 run 前 `longzu` logs 899 行为 offset，83 calls，prompt 1,731,936 tokens，response 227,680 tokens，`cost_cny=5.1701`。低于授权 10 元，高于 happy-path 目标 5 元。
+- 内容 incident：external review 票面 4 Approve / 1 Reject，但 reviewer fail-closed 规则使总体 Reject；主要 rule_ids 包括 `tone_balance`、`norma_authority_consistency`、`protagonist_agency`、`mystery_pacing`、`worldbuilding_logic`、`character_fidelity`。
+
+**Subagent 审核**：
+- Faraday 做了只读 diff/static review，覆盖 `book_runner` helper/call sites、`chapter_status`、`reviewer.review_target`、新测试与真实验收结论。结论：无 blocking findings。
+- 审核确认 helper 保留 writer-owned meta 字段，测试覆盖核心 P0-A plan。
+- 审核提出的 budget-after-review stale-meta 风险已修；未修风险为“已有历史 mismatch 不自动自愈”和“external Approve 清空 `last_blocking_reasons` 是设计取舍”。
+
+**当前接力点**：
+1. P0-A 已收口，不要回退 `chapter_status` / `writer` / `reviewer` 契约。
+2. `longzu` ch2 happy path approved 仍未通过，但不再是 meta/review sync bug；后续若继续，应作为内容质量/reviewer 阈值/prompt 调整问题单独开 iter。
+3. iter041 候选：P0-B writer pending_external_review 保险、龙族 ch2 内容 incident、iter039 P2-A/B/C、drama 站 ③/④、AI 绘画 client / Comfy 导出、drama_reviewer、章节 diff、全文搜索、KB 起点过滤安全视图。
