@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
@@ -141,6 +142,7 @@ def run_write_book(
                 and status.get("strict_failures") == ["external_review_missing"]
             ):
                 review_target(md_path, enforce_relationship_checklist=True)
+                _sync_meta_with_external_review(drafts_dir, chapter_no)
                 status = chapter_status(
                     chapter_no,
                     drafts_dir,
@@ -185,6 +187,7 @@ def run_write_book(
                 if require_external_review and md_path.exists():
                     review_target(md_path, enforce_relationship_checklist=True)
                     budget_check_cb()
+                    _sync_meta_with_external_review(drafts_dir, chapter_no)
                 status = chapter_status(
                     chapter_no,
                     drafts_dir,
@@ -463,6 +466,43 @@ def _archive_chapter_artifacts(drafts_dir: Path, chapter_no: int, *, reason: str
         shutil.move(str(review_path), str(archive_dir / review_path.name))
     write_json(archive_dir / "archive_reason.json", {"reason": reason, "chapter": chapter_no})
     return archive_dir
+
+
+def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[str, Any]:
+    """Mirror the external review verdict into writer meta for strict status.
+
+    Writer-owned history fields stay untouched; the standalone review owns the
+    final verdict surface once ``require_external_review`` is enabled.
+    """
+
+    drafts_dir = Path(drafts_dir)
+    meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
+    review_path = drafts_dir.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json"
+    if not meta_path.exists() or not review_path.exists():
+        return {}
+
+    meta = read_json(meta_path, {})
+    review = read_json(review_path, {})
+    if not isinstance(meta, dict) or not isinstance(review, dict):
+        return {}
+
+    verdict = str(review.get("verdict") or "")
+    if not verdict:
+        return meta
+
+    meta["verdict"] = verdict
+    if "needs_human_review" in review:
+        meta["needs_human_review"] = bool(review.get("needs_human_review"))
+    else:
+        meta["needs_human_review"] = verdict != "Approve"
+    agent_reviews = review.get("agent_reviews")
+    meta["agent_reviews"] = agent_reviews if isinstance(agent_reviews, list) else []
+    meta["external_synced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if verdict == "Approve":
+        meta["last_blocking_reasons"] = []
+
+    write_json(meta_path, meta)
+    return meta
 
 
 def _partial_artifact(drafts_dir: Path, chapter_no: int) -> Dict[str, Any] | None:
