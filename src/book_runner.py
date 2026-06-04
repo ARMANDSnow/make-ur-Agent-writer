@@ -88,11 +88,19 @@ def run_write_book(
         return current_cost
 
     for offset, chapter_no in enumerate(range(int(resume_from), int(resume_from) + total), start=1):
-        progress(f"chapter-{chapter_no}", 0.1 + 0.8 * ((offset - 1) / total))
+        chapter_base = 0.1 + 0.8 * ((offset - 1) / total)
+        chapter_span = 0.8 / total
+        progress(f"chapter-{chapter_no}", chapter_base)
+        _last_progress = chapter_base
+        _current_retry = 0
+
         def _chapter_progress(sub_step: str, sub_fraction: float) -> None:
-            chapter_base = 0.1 + 0.8 * ((offset - 1) / total)
-            chapter_span = 0.8 / total
-            progress(f"chapter-{chapter_no}/{sub_step}", chapter_base + chapter_span * float(sub_fraction))
+            nonlocal _last_progress
+            raw_progress = chapter_base + chapter_span * float(sub_fraction)
+            next_progress = max(_last_progress, raw_progress)
+            _last_progress = next_progress
+            prefix = f"retry-{_current_retry}/" if _current_retry > 0 else ""
+            progress(f"chapter-{chapter_no}/{prefix}{sub_step}", next_progress)
 
         if budget_cny > 0:
             try:
@@ -157,6 +165,7 @@ def run_write_book(
         attempt_summaries: List[Dict[str, Any]] = []
         try:
             for attempt in range(max_retries + 1):
+                _current_retry = attempt
                 if attempt > 0 or (force and md_path.exists()):
                     archive_dir = _archive_chapter_artifacts(
                         drafts_dir,

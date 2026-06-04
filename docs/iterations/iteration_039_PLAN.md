@@ -34,6 +34,7 @@ iter038 把沙箱 `socket.bind` 6 ERROR 清零后，本轮按 `/Users/dingyuxuan
 - P0-D 已提交：`6499489 Iteration 039 §D P0-D: 章内预算止损`。`BudgetExceeded` 由 book_runner closure 抛出，writer 在 write/review 后检查；最终收口时补充 polish 后与外层 `review_target()` 后也立即检查同一预算闭包。
 - P1-A/P1-B 在最终提交收口：`src/web/routes.py` 支持 `variant=partial`，`/drafts` 列出 final + partial 两种 variant；`src/web/static.py` 展示 blocked reason、terminal partial 链接、chapters 页 partial/failure row。
 - `WRITER_FORCE_FAIL=1` 的 mock-only hook 从“注入短章 lint failure”调整为“在 write 后抛出携带 `partial_draft` 的异常”，用于无 token 成本地验证 partial artifact 路径；仍需同时满足 `OPENAI_MODEL=mock`。
+- P0-C 补丁：真实 Web 验收暴露外层章节 retry 会让 progress 从 `finalize` 回到 `write-attempt-*`，本补丁在 `book_runner` 章节 progress 闭包内增加 `_last_progress` 单调钳位，并让 retry 子 step 增加 `retry-K/` 前缀。
 
 ## Acceptance Result
 
@@ -45,7 +46,9 @@ iter038 把沙箱 `socket.bind` 6 ERROR 清零后，本轮按 `/Users/dingyuxuan
 - 最终 full：`.venv/bin/python -m unittest discover` → 557 tests，`OK (skipped=6)`；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` → exit 0，557 tests `OK (skipped=6)` + mock auto-pipeline OK；`OPENAI_MODEL=mock .venv/bin/python main.py preflight` → `PREFLIGHT: ok`，FATAL none，WARN none；`node --check /dev/stdin` for `JS_DASHBOARD` → OK。
 - Mock Web smoke：`OPENAI_MODEL=mock WRITER_FORCE_FAIL=1 .venv/bin/python main.py web --host 127.0.0.1 --port 8789`；`write-book` on `iter039smoke` 返回 `status=failed` 且 `result_summary.partial` 存在；`workspaces/iter039smoke/outputs/drafts/chapter_01.partial.md` 与 `chapter_01.failure.json` 落盘；`/api/workspace/iter039smoke/draft/1?variant=partial` 返回 200。
 - Blocked reason smoke：`plan-chapters` on `iter039blocked` 返回 `first_blocked.reason=outline_missing`；Browser 验证 `/w/iter039blocked/jobs` 显示 `outline_missing · outline not found; run \`python main.py debate\` first`，截图 `/private/tmp/iter039_jobs_outline_missing.png`；`/w/iter039smoke/chapters` 显示 partial/failure row，截图 `/private/tmp/iter039_chapters_partial.png`。
-- 真实模型验收：未执行。原因：项目铁律要求真模型 smoke 必须等用户明确回“可以跑了”；本轮没有收到该授权。
+- 真实模型 Web 验收（用户授权后执行）：`longzu` 先从前端重跑 `plan-chapters --chapters 3 --force` 成功；随后 `write-book chapters=1 resume_from=2 budget_cny=10 max_retries=2` 终态为 `blocked`，`first_blocked.reason=retry_exhausted`，前端 continue/jobs/chapters/chapter/reviews 页面均可读展示，未误标 lost，成本增量约 ¥4.6467，未超过 ¥10。该验收暴露 P0-C progress 倒退问题，本补丁已修；happy path approved 未通过。
+- P0-C 补丁 targeted：`.venv/bin/python -m unittest tests.test_book_runner_retry_progress` → 1 test OK；`.venv/bin/python -m unittest tests.test_book_runner tests.test_book_runner_partial tests.test_writer_progress` → 15 tests OK。
+- P0-C 补丁 full：`.venv/bin/python -m unittest discover` → 558 tests，`OK (skipped=6)`。
 - Subagent 只读审核：Gibbs 结论为无 blocking findings、无 protected scope 违规。审核提出 3 点已修复：polish 路径预算检查缺口、write-book 返回式失败 summary 未透传 error、成功 final draft 后旧 `.partial.md` 孤儿文件会继续显示为 failure。修复后补跑 `.venv/bin/python -m unittest tests.test_writer_progress tests.test_book_runner_partial tests.test_web_routes_get tests.test_web_jobs_dispatch` → 76 tests OK；`node --check /dev/stdin` for `JS_DASHBOARD` → OK。
 
 ## 文件变更汇总
@@ -56,6 +59,7 @@ iter038 把沙箱 `socket.bind` 6 ERROR 清零后，本轮按 `/Users/dingyuxuan
 - `src/web/routes.py`：partial draft variant API；draft list 支持 final/partial variant。
 - `src/web/static.py`：blocked/failure note helper；pollJob/jobs/sidebar 展示 blocked reason；terminal partial 链接；chapters 页 partial/failure row。
 - `tests/test_web_jobs_recent.py`、`tests/test_writer_progress.py`、`tests/test_book_runner_partial.py`、`tests/test_web_routes_get.py`：新增/扩展 P0/P1 覆盖。
+- `tests/test_book_runner_retry_progress.py`：覆盖外层章节 retry 下 progress 单调不减与 `retry-K/` step 前缀。
 - `README.md`、`AGENTS.md`、`docs/AGENT_HANDOFF.md`、`docs/iterations/README.md`、本文件：同步 iter039 状态与交接。
 
 ## 不在本轮范围
@@ -73,3 +77,4 @@ iter038 把沙箱 `socket.bind` 6 ERROR 清零后，本轮按 `/Users/dingyuxuan
 - 由于 mock Web smoke 需要本机 socket bind，Web server 启动使用了已获批准的提权路径；测试套件自身仍在普通沙箱内保持 `OK (skipped=6)`。
 - `workspaces/iter039smoke` 与 `workspaces/iter039blocked` 为 ignored smoke workspace，不纳入 git。
 - iter040 backlog 应优先考虑 P2-A/B/C、章节 diff、全文搜索、真模型 capstone、KB 起点过滤安全视图。
+- iter040 backlog 新增真实验收发现：`chapter_02.meta.json` 顶层 `verdict=Reject`，但 `outputs/reviews/chapter_02.review.json` 顶层 `verdict=Approve`，最终 strict `chapter_status` 仍判 blocked。证据 job `a9fe3502ed0e438a82ada58ea78b8982`；证据路径 `workspaces/longzu/outputs/drafts/chapter_02.meta.json` + `workspaces/longzu/outputs/reviews/chapter_02.review.json`。

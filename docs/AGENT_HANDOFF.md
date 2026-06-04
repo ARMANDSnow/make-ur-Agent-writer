@@ -866,7 +866,8 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 - `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → PREFLIGHT ok，FATAL none，WARN none。
 - `node --check /dev/stdin` for `JS_DASHBOARD` → OK。
 - Mock Web smoke：`OPENAI_MODEL=mock WRITER_FORCE_FAIL=1` 启 Web，`iter039smoke` write-book 返回 failed + `result_summary.partial`，`chapter_01.partial.md` / `chapter_01.failure.json` 落盘，partial API 200；`iter039blocked` plan-chapters 显示 `outline_missing` blocked reason。截图：`/private/tmp/iter039_jobs_outline_missing.png`、`/private/tmp/iter039_chapters_partial.png`。
-- 真模型龙族 1 章 approved 验收未跑：需要用户明确授权后才能执行。
+- 真模型 Web 验收（用户授权后）已跑 `longzu`：前端 `plan-chapters` 成功；`write-book chapters=1 resume_from=2 budget_cny=10 max_retries=2` 终态 `blocked`，`first_blocked.reason=retry_exhausted`，blocked reason 在 continue/jobs 等页面可见，running 期间未误标 lost，成本约 ¥4.6467。happy path approved 未通过。
+- 真实验收暴露 P0-C 补丁：外层章节 retry 时 progress 会从 `finalize` 回到 `write-attempt-*` 造成视觉倒退；iter039 追加补丁在 `book_runner` 章节 progress 闭包内做单调钳位，并为 retry 子 step 加 `retry-K/` 前缀。
 
 **Subagent 审核**：
 - Gibbs 做了只读结构审核，覆盖 P0 recent_jobs/progress/partial/budget、P1 blocked/partial UI、测试与 protected scope。结论：无 blocking findings、无 protected scope 违规。
@@ -874,5 +875,6 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 
 **当前接力点**：
 1. 不要 push，等用户验收。
-2. 真模型验收候选：用户明确回“可以跑了”后，用 `workspaces/longzu/小说txt/龙族Ⅰ火之晨曦.txt` 截取前 3-5 章为起点，跑 plan-chapters + write-book chapter=1，目标至少 1 章 approved。
+2. 真模型 happy path approved 仍未通过；下一轮若继续真实链路，应从 `longzu` ch2 `retry_exhausted` 结果和 reviewer/meta 判定差异切入。
 3. iter040 backlog：P2-A/B/C（Jobs 展开详情、sidebar lost 历史标记、onboarding budget/timeout/cancel）、drama 站 ③/④、AI 绘画 client / Comfy 导出、drama_reviewer、章节 diff、全文搜索、KB 起点过滤安全视图、真模型 capstone。
+4. iter040 backlog 新增真实验收发现：`chapter_02.meta.json` 顶层 `verdict=Reject`，但 `outputs/reviews/chapter_02.review.json` 顶层 `verdict=Approve`，最终 strict `chapter_status` 仍判 blocked。证据 job `a9fe3502ed0e438a82ada58ea78b8982`；证据路径 `workspaces/longzu/outputs/drafts/chapter_02.meta.json` + `workspaces/longzu/outputs/reviews/chapter_02.review.json`。
