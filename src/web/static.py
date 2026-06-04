@@ -2675,7 +2675,9 @@ JS_DASHBOARD = """\
     }
   }
   function renderAgentReview(a) {
-    const sub = a.sub_scores || {};
+    // iter042 schema evolution: current reviewer output writes `scores`;
+    // older artifacts used `sub_scores`, so the UI accepts both.
+    const sub = a.scores || a.sub_scores || {};
     const bars = ["plot", "prose", "fidelity"].map((k) => {
       const v = sub[k];
       const pct = (v == null ? 0 : Math.max(0, Math.min(10, Number(v))) * 10);

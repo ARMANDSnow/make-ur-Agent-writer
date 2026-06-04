@@ -105,7 +105,9 @@ def _subscores_per_chapter() -> List[Dict[str, Any]]:
         plot = prose = fidelity = total = 0.0
         n = 0
         for a in agent_reviews:
-            sub = (a or {}).get("sub_scores") or {}
+            # iter042 schema evolution: new reviewer rows use `scores`;
+            # legacy Web artifacts may still carry `sub_scores`.
+            sub = (a or {}).get("scores") or (a or {}).get("sub_scores") or {}
             try:
                 plot += float(sub.get("plot") or 0)
                 prose += float(sub.get("prose") or 0)
