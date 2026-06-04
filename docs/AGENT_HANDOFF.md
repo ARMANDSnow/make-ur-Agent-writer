@@ -958,3 +958,35 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. iter042 已让 `longzu` ch2 在 mid 档真实 approved；不要回退 source context、tier aggregation、meta/review sync 契约。
 2. iter043 backlog：N3 WebUI 重构、drama UX、iter039 P2-A/B/C（Jobs 展开详情、sidebar lost 历史标记、onboarding budget/timeout/cancel）、tier UI 入口。
 3. 其他候选：Insights/UI `scores || sub_scores` 兼容、auto-advance 缺失关系 proposal 的上游校验/清理、writer `pending_external_review` fallback、drama 站 ③/④、AI 绘画 client / Comfy 导出、章节 diff、全文搜索、真模型 capstone、KB 起点过滤安全视图。
+
+---
+
+## Phase 4 Status（iter 043，2026-06-05）
+
+### Iteration 043 — WebUI UX Audit + UX 重构 Bundle 1+2（mock-only）
+
+**目标**：先按 §A read-only audit 找出 WebUI 高 ROI UX 问题，再按用户选定的 Bundle 1+2 实施 D-1/D-2/D-3/D-4/D-6；全程 `OPENAI_MODEL=mock`，不跑真实模型，不 push。
+
+**主要落地**：
+- §A 新增 `docs/iterations/iteration_043_UX_AUDIT.md`，覆盖小说 continue/plan/chapters/reviews/jobs/dashboard 错误态、drama wizard/workspace/debate/subscore、新书 onboarding、导航/错误态/密度/表单/sidebar，并产出 D-1..D-8 方向与 3 个实施 bundle。
+- D-1 readiness 增加 `next_unapproved_chapter` / `primary_blocker`，前端改为“主 CTA + 紧凑状态 + 折叠诊断”；`longzu` 这类历史 ch1 Reject / ch2 Approve 状态默认引导到 ch3。
+- D-2 jobs 页增加展开 drawer、`jobActionableSummary`、snapshot/trace/partial 链接、partial preview modal 与“相同参数重试”，复用现有 `/run` 和 partial draft API。
+- D-3 书架与 workspace overview type-aware；drama 返回 `drama_progress`；recent jobs sidebar 拆成当前/最近完成与历史，历史降权；顺手清掉 type badge / metric inline style。
+- D-4 write-book 表单新增试写/生产/严格 preset、`tier=low/mid/high` 选档器与高级参数 `<details>`；后端缺省 tier 归一为 `mid`，非法 tier 返回 400。
+- D-6 drama shell 收口：novel-only drama 页面改完整 shell empty-state HTTP 200，清过期 iter 文案，wizard placeholder 改实际示例，toast 支持 5000ms 可 dismiss。
+
+**验证进度**：
+- `.venv/bin/python -m unittest discover` → 577 tests，`OK (skipped=6)`。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → `PREFLIGHT: ok`。
+- `PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` → exit 0，577 tests `OK (skipped=6)` + mock auto-pipeline OK。
+- `rg "placeholder, see creation_standard|iter 03[0-9]" src/web/` → 无结果。
+- Web 截图回归目录：`/tmp/iter043B_screenshots_20260605_005741/`，覆盖 readiness CTA、write-book preset/tier、jobs drawer/partial modal、drama empty shell。
+
+**Subagent 审核**：
+- §A：James 做了只读结构/程序性审核，确认 UX_AUDIT §0-§6 齐备、5 条 journey 与 drama 章节均覆盖，read-only/upload limitation 已说明，无 blocking。
+- §B：Bacon 做只读结构/程序性审核，范围覆盖 CTA_ACTIONS、jobs summary 职责、drama shell 200、iter038 P3 4 项清债、旧 workspace type fallback。结论 non-blocking；指出 drama overview type badge inline 残留，已补为 `badge-drama` 并用 targeted route tests + grep 复验。
+
+**当前接力点**：
+1. iter044 建议优先做 Bundle 3：D-5 onboarding budget/timeout/cancel、D-7 form/mobile density、D-8 Insights `scores || sub_scores` + subscore inline。
+2. iter044 同步做 AGENTS.md 全面刷新，把 iter039-043 的 WebUI/tier/drama 状态纳入新入口锚点。
+3. 本轮 deferred：subscore inline 剩余样式债、`_workspace_html_guard_novel_only` 抽象、真实模型 capstone、drama 站 ③/④、AI 绘画 client / Comfy 导出。

@@ -347,7 +347,7 @@ def _drama_overview_main(name: str, meta: dict) -> str:
         '<p class="muted">drama 工作区。点击下方“进入续写”开始 4 站审查向导。</p>'
         '</div>'
         '<div class="cluster">'
-        '<span class="badge no-dot" style="color:var(--amber-strong);background:var(--amber-soft);border-color:var(--amber-soft)">短剧</span>'
+        '<span class="badge no-dot badge-drama">短剧</span>'
         '<button type="button" class="btn btn-danger btn-sm" id="delete-workspace-btn">删除作品…</button>'
         '</div>'
         '</header>'
