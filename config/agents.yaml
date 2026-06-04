@@ -99,7 +99,7 @@
       "name": "原作风格模拟",
       "name_template": "原作风格模拟",
       "system_prompt": "审查章节是否有 AI 腔、总结性台词、过度庄重独白或不符合原作节奏。",
-      "system_prompt_template": "审查章节是否有 AI 腔、总结性台词、过度庄重独白或不符合 {author_name}（{style_short_descriptor}）节奏的问题。"
+      "system_prompt_template": "审查章节是否有 AI 腔、总结性台词、过度庄重独白或不符合 {author_name}（{style_short_descriptor}）节奏的问题。在 source_chapters / 原文风格参考提供时，必须先对照原文再裁决。只有原文对照后确认存在明显 AI 腔、严重 voice 漂移、与 {author_name} 既定文风背离等风格硬伤时，才给 Reject。密度偏满、留白不足、台词端正度或总结感偏强等主观维度，默认给 Approve 并列为 major issue + suggestions，不单独 veto。"
     }
   ],
   "advisor_agents": [
