@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from . import paths, source_excerpts, start_point
+from . import paths, review_tier, source_excerpts, start_point
 from .chapter_summary import prune_from_chapter
 from .chapter_status import chapter_status
 from .cost_estimator import estimate_cost_since
@@ -43,6 +43,7 @@ def run_write_book(
     require_plan: bool = True,
     require_external_review: bool = True,
     progress_cb: Callable[[str, float], None] | None = None,
+    tier: str | None = None,
 ) -> Dict[str, Any]:
     """Production write entrypoint shared by CLI/Web wrappers.
 
@@ -79,6 +80,7 @@ def run_write_book(
     max_retries = max(0, int(max_retries))
     replan_every = max(0, int(replan_every))
     budget_cny = float(budget_cny or 0.0)
+    resolved_tier = review_tier.resolve_tier(tier)
 
     def budget_check_cb() -> float:
         if budget_cny <= 0:
@@ -144,6 +146,7 @@ def run_write_book(
                 review_target(
                     md_path,
                     enforce_relationship_checklist=True,
+                    tier=resolved_tier,
                     **_build_review_context(item),
                 )
                 _sync_meta_with_external_review(drafts_dir, chapter_no)
@@ -186,12 +189,14 @@ def run_write_book(
                     force=True,
                     progress_cb=_chapter_progress,
                     budget_check_cb=budget_check_cb,
+                    tier=resolved_tier,
                 )
                 reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
                 if require_external_review and md_path.exists():
                     review_target(
                         md_path,
                         enforce_relationship_checklist=True,
+                        tier=resolved_tier,
                         **_build_review_context(item),
                     )
                     _sync_meta_with_external_review(drafts_dir, chapter_no)
@@ -505,6 +510,9 @@ def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[s
         meta["needs_human_review"] = verdict != "Approve"
     agent_reviews = review.get("agent_reviews")
     meta["agent_reviews"] = agent_reviews if isinstance(agent_reviews, list) else []
+    for key in ("tier", "panel_score", "approve_count", "tier_thresholds"):
+        if key in review:
+            meta[key] = review[key]
     meta["external_synced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if verdict == "Approve":
         meta["last_blocking_reasons"] = []

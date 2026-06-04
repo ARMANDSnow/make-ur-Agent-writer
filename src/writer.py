@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from . import paths, source_excerpts, start_point
+from . import paths, review_tier, source_excerpts, start_point
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
@@ -57,9 +57,12 @@ def write_chapters(
     resume_from: int = 1,
     progress_cb: Optional[Callable[[str, float], None]] = None,
     budget_check_cb: Optional[Callable[[], Any]] = None,
+    tier: str | None = None,
 ) -> List[Dict[str, Any]]:
     progress = progress_cb or (lambda _step, _fraction: None)
     budget_check = budget_check_cb or (lambda: None)
+    resolved_tier = review_tier.resolve_tier(tier)
+    tier_thresholds = review_tier.thresholds_snapshot(resolved_tier)
     drafts_dir = _drafts_dir()
     outline_path = _outline_path()
     kb_path = _kb_path()
@@ -204,6 +207,7 @@ def write_chapters(
                                 knowledge=knowledge[:6000] if knowledge else "",
                                 source_chapters=review_source,
                                 scene_excerpts=scene_excerpts_text,
+                                tier=resolved_tier,
                                 run_context=run_context,
                                 draft_sha256=_draft_file_sha256(draft),
                             )
@@ -237,6 +241,7 @@ def write_chapters(
                     knowledge=knowledge[:6000] if knowledge else "",
                     source_chapters=review_source,
                     scene_excerpts=scene_excerpts_text,
+                    tier=resolved_tier,
                     run_context=run_context,
                     draft_sha256=_draft_file_sha256(draft),
                 )
@@ -332,6 +337,10 @@ def write_chapters(
                     "lint_issues": report.get("lint_issues", []),
                     "agent_reviews": [],
                     "verdict": "Reject",
+                    "tier": resolved_tier,
+                    "panel_score": 0.0,
+                    "approve_count": 0,
+                    "tier_thresholds": tier_thresholds,
                     "rewrite_count": max(0, attempt - 1),
                     "chinese_char_count": count_chinese_chars(draft),
                     "needs_human_review": True,
@@ -359,6 +368,10 @@ def write_chapters(
                 )
             else:
                 meta = dict(report)
+                meta.setdefault("tier", resolved_tier)
+                meta.setdefault("panel_score", 0.0)
+                meta.setdefault("approve_count", 0)
+                meta.setdefault("tier_thresholds", tier_thresholds)
                 meta["rewrite_count"] = max(0, attempt - 1)
                 meta["chinese_char_count"] = count_chinese_chars(draft)
                 meta["needs_human_review"] = report.get("verdict") != "Approve"

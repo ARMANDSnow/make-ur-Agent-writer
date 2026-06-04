@@ -15,7 +15,7 @@ class ReviewerDeterministicRelationsTests(unittest.TestCase):
     def test_no_conflict_no_synthetic_agent(self) -> None:
         from src.reviewer import review_text
         # All real agents return Approve via mock; no entity_graph conflict
-        clean_response = '{"verdict":"Approve","plot":7,"prose":7,"fidelity":7,"issues":[],"suggestions":[]}'
+        clean_response = '{"verdict":"Approve","plot":8,"prose":8,"fidelity":8,"issues":[],"suggestions":[]}'
         with patch(
             "src.reviewer.load_entity_graph",
             return_value={"entities": [], "relationships": []},

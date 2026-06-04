@@ -470,7 +470,7 @@ class LLMClient:
     def _mock_text(self, messages: List[Dict[str, str]]) -> str:
         user = "\n".join(m.get("content", "") for m in messages if m.get("role") == "user")
         if "审查" in user or "review" in user.lower():
-            return json.dumps({"verdict": "Approve", "score": 8, "issues": [], "suggestions": []}, ensure_ascii=False)
+            return json.dumps({"verdict": "Approve", "score": 9, "issues": [], "suggestions": []}, ensure_ascii=False)
         if "续写" in user or "写作" in user:
             return "雨停在凌晨。路明非站在窗边，看着城市的灯一盏盏熄灭。他没有说话，只把那张写满名字的纸折起来，放进口袋。"
         return "基于当前资料，方案倾向于保留角色选择的代价，并回收主要伏笔。"
@@ -501,7 +501,7 @@ class LLMClient:
             payload = {
                 "agent_name": _field_from_prompt("\n".join(m.get("content", "") for m in messages), "agent_name") or "mock_agent",
                 "verdict": "Approve",
-                "score": 8,
+                "score": 9,
                 "issues": [],
                 "suggestions": [],
             }

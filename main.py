@@ -176,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     write_book.add_argument("--budget-cny", type=float, default=0.0)
     write_book.add_argument("--replan-every", type=int, default=0)
     write_book.add_argument("--min-confidence", type=float, default=0.7)
+    write_book.add_argument("--tier", choices=["high", "mid", "low"], default=None)
     write_book.add_argument("--no-auto-advance", action="store_true")
     write_book.add_argument("--allow-missing-start-point", action="store_true")
     write_book.add_argument("--allow-missing-plan", action="store_true")
@@ -432,6 +433,7 @@ def main() -> None:
                 require_start_point=not args.allow_missing_start_point,
                 require_plan=not args.allow_missing_plan,
                 require_external_review=not args.skip_external_review,
+                tier=args.tier,
             )
         except BookRunBlocked as exc:
             print(_json.dumps({"status": "blocked", "error": str(exc)}, ensure_ascii=False))

@@ -313,6 +313,7 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
         require_plan=bool(params.get("require_plan", True)),
         require_external_review=bool(params.get("require_external_review", True)),
         progress_cb=progress_cb,
+        tier=params.get("tier"),
     )
 
 

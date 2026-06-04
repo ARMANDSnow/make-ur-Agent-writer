@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .. import paths, start_point
+from .. import paths, review_tier, start_point
 from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
 from ..cost_estimator import estimate_cost
@@ -966,6 +966,12 @@ def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], 
         return error, {}
     out["budget_cny"] = budget
     out["min_confidence"] = confidence
+    raw_tier = params.get("tier")
+    if raw_tier is not None and str(raw_tier).strip():
+        try:
+            out["tier"] = review_tier.resolve_tier(str(raw_tier))
+        except ValueError as exc:
+            return str(exc), {}
     for key, default in (
         ("force", False),
         ("auto_advance", True),

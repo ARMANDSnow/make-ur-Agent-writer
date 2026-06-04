@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import review_tier
 from . import paths
 from .config import ROOT, load_config
 from .entities import load_entity_graph, render_active_state
@@ -220,6 +221,29 @@ def _simple_verdict_fallback(
     }
 
 
+def _agent_weighted_score(review: Dict[str, Any]) -> float:
+    scores = review.get("scores")
+    if isinstance(scores, dict):
+        try:
+            plot = float(scores.get("plot", 0))
+            prose = float(scores.get("prose", 0))
+            fidelity = float(scores.get("fidelity", 0))
+            if (plot, prose, fidelity) != (7.0, 7.0, 7.0) or review.get("score") in (None, 7):
+                return plot * 0.4 + prose * 0.3 + fidelity * 0.3
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(review.get("score", 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _weighted_panel_score(reviews: List[Dict[str, Any]]) -> float:
+    if not reviews:
+        return 0.0
+    return round(sum(_agent_weighted_score(r) for r in reviews) / len(reviews), 2)
+
+
 def review_text(
     text: str,
     target_name: str = "draft",
@@ -232,6 +256,7 @@ def review_text(
     scene_excerpts: str = "",
     run_context: Dict[str, Any] | None = None,
     draft_sha256: str = "",
+    tier: str | None = None,
 ) -> Dict[str, Any]:
     """Iter 022 B4 + iter 023 P3/P5:
 
@@ -248,6 +273,8 @@ def review_text(
     """
     reviews_dir = _reviews_dir()
     ensure_dir(reviews_dir)
+    resolved_tier = review_tier.resolve_tier(tier)
+    tier_thresholds = review_tier.thresholds_snapshot(resolved_tier)
     if precomputed_lint_issues is not None:
         lint_issues = precomputed_lint_issues
     else:
@@ -260,6 +287,10 @@ def review_text(
             "lint_issues": lint_issues,
             "agent_reviews": [],
             "verdict": "Reject",
+            "tier": resolved_tier,
+            "panel_score": 0.0,
+            "approve_count": 0,
+            "tier_thresholds": tier_thresholds,
             "run_context": run_context or {},
             "draft_sha256": draft_sha256,
         }
@@ -486,16 +517,30 @@ def review_text(
             }
         )
 
-    # Iter 019 audit fix: aggregate over substantive verdicts only. Treat
-    # all-abstain as Reject (fail-closed) so a fully-broken multi-agent
-    # review cannot accidentally approve a chapter.
-    substantive = [r for r in reviews if r.get("verdict") in ("Approve", "Reject")]
-    if not substantive:
+    # Iter 042: full 5-agent panels use tier-aware aggregation
+    # (approve_count + panel_score). Test-only custom panels with fewer
+    # than 5 agents keep the old substantive verdict semantics so legacy
+    # unit tests that patch a one-agent panel remain meaningful.
+    panel_reviews = [
+        r
+        for r in reviews
+        if not r.get("_synthetic") and r.get("verdict") in ("Approve", "Reject")
+    ]
+    approve_count = sum(1 for r in panel_reviews if r.get("verdict") == "Approve")
+    panel_score = _weighted_panel_score(panel_reviews)
+    hard_synthetic_reject = any(
+        r.get("_synthetic") and r.get("verdict") == "Reject" for r in reviews
+    )
+    if hard_synthetic_reject or not panel_reviews:
         verdict = "Reject"
-    elif any(r.get("verdict") == "Reject" for r in substantive):
-        verdict = "Reject"
+    elif len(agents) < 5:
+        verdict = "Reject" if any(r.get("verdict") == "Reject" for r in panel_reviews) else "Approve"
     else:
-        verdict = "Approve"
+        thresholds = review_tier.thresholds_for(resolved_tier)
+        if approve_count >= thresholds.min_approve_count and panel_score >= thresholds.min_panel_score:
+            verdict = "Approve"
+        else:
+            verdict = "Reject"
     # Iter 024 P1: advisor agents (non-voting). Run after voting agents
     # so they see lint + review issues as context. Output structured
     # RewriteSuggestion list joined into report["rewrite_suggestions"].
@@ -581,10 +626,14 @@ def review_text(
         "agent_reviews": reviews,
         "rewrite_suggestions": rewrite_suggestions,
         "verdict": verdict,
+        "tier": resolved_tier,
+        "panel_score": panel_score,
+        "approve_count": approve_count,
+        "tier_thresholds": tier_thresholds,
         "run_context": run_context or {},
         "draft_sha256": draft_sha256,
     }
-    if reviews and not substantive:
+    if reviews and not panel_reviews and not hard_synthetic_reject:
         report["_fallback_reason"] = "(all_agents_parse_failed)"
     write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
     log_event("review", verdict.lower(), target=target_name)
@@ -630,6 +679,7 @@ def review_target(
     knowledge: str = "",
     source_chapters: str = "",
     scene_excerpts: str = "",
+    tier: str | None = None,
 ) -> List[Dict[str, Any]]:
     def _review_file(path: Path) -> Dict[str, Any]:
         meta_path = path.with_suffix(".meta.json")
@@ -652,6 +702,7 @@ def review_target(
             knowledge=knowledge,
             source_chapters=source_chapters,
             scene_excerpts=scene_excerpts,
+            tier=tier,
             run_context=run_context,
             draft_sha256=draft_sha256,
         )

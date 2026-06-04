@@ -253,6 +253,26 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["budget_cny"], 2.5)
         self.assertEqual(run.call_args.kwargs["replan_every"], 3)
 
+    def test_write_book_job_preserves_tier_param(self) -> None:
+        with unittest.mock.patch(
+            "src.web.jobs.run_write_book",
+            return_value={"status": "succeeded", "chapters": [], "blocked": []},
+        ) as run:
+            status, data = self._post_run(
+                "alpha",
+                {"step": "write-book", "params": {"chapters": 1, "tier": "low"}},
+            )
+            self.assertEqual(status, 202)
+            self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(run.call_args.kwargs["tier"], "low")
+
+        status, data = self._post_run(
+            "alpha",
+            {"step": "write-book", "params": {"chapters": 1, "tier": "strict"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("WRITE_REVIEW_TIER", data["error"])
+
     def test_write_book_budget_exceeded_terminal_status(self) -> None:
         with unittest.mock.patch(
             "src.web.jobs.run_write_book",
