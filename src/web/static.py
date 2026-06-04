@@ -923,6 +923,11 @@ JS_DASHBOARD = """\
       hint: "先查看失败原因，再用相同或调整后的参数重试。",
     },
   };
+  const WRITE_PRESETS = {
+    trial: { tier: "low", chapters: 1, max_retries: 1, budget_cny: 2, auto_advance: false },
+    production: { tier: "mid", chapters: 1, max_retries: 2, budget_cny: 10, auto_advance: true },
+    strict: { tier: "high", chapters: 1, max_retries: 3, budget_cny: 30, auto_advance: true },
+  };
 
   // ---- shared helpers ----------------------------------------------------
   function escapeHtml(s) {
@@ -1837,11 +1842,31 @@ JS_DASHBOARD = """\
       }
     });
   }
+  function bindWritePresets(form) {
+    const toggle = document.getElementById("write-preset-toggle");
+    if (!toggle) return;
+    toggle.addEventListener("click", function (ev) {
+      const btn = ev.target.closest("[data-write-preset]");
+      if (!btn) return;
+      const preset = WRITE_PRESETS[btn.getAttribute("data-write-preset") || ""];
+      if (!preset) return;
+      toggle.querySelectorAll("[data-write-preset]").forEach(function (item) {
+        item.classList.toggle("active", item === btn);
+      });
+      if (form.elements.tier) form.elements.tier.value = preset.tier;
+      if (form.elements.chapters) form.elements.chapters.value = String(preset.chapters);
+      if (form.elements.max_retries) form.elements.max_retries.value = String(preset.max_retries);
+      if (form.elements.budget_cny) form.elements.budget_cny.value = String(preset.budget_cny);
+      if (form.elements.auto_advance) form.elements.auto_advance.checked = Boolean(preset.auto_advance);
+      scheduleReadiness();
+    });
+  }
   function bindWriteBook() {
     const form = document.getElementById("write-book-form");
     if (!form) return;
     const submit = document.getElementById("write-book-submit");
     const jobBox = document.getElementById("write-book-status");
+    bindWritePresets(form);
     if (form.elements.resume_from) {
       form.elements.resume_from.addEventListener("input", function () {
         form.elements.resume_from.dataset.userEdited = "1";
@@ -1861,6 +1886,7 @@ JS_DASHBOARD = """\
         replan_every: Number(form.elements.replan_every.value || 0),
         budget_cny: Number(form.elements.budget_cny.value || 0),
         min_confidence: Number(form.elements.min_confidence.value || 0.7),
+        tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
         auto_advance: Boolean(form.elements.auto_advance.checked),
         require_start_point: true,
         require_plan: true,

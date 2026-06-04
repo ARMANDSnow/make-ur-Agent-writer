@@ -209,6 +209,10 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("start-point-form", html)
         self.assertIn("write-book-form", html)
         self.assertIn("plan-form", html)
+        self.assertIn("write-preset-toggle", html)
+        self.assertIn('name="tier"', html)
+        self.assertIn("本次最多花费 CNY", html)
+        self.assertIn("高级参数", html)
         self.assertNotIn("draft-once-dev", html)
 
     def test_workspace_plan_page_renders(self) -> None:

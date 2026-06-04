@@ -1007,6 +1007,8 @@ def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], 
             out["tier"] = review_tier.resolve_tier(str(raw_tier))
         except ValueError as exc:
             return str(exc), {}
+    else:
+        out["tier"] = review_tier.DEFAULT_TIER
     for key, default in (
         ("force", False),
         ("auto_advance", True),
