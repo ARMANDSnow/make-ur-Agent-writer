@@ -1088,6 +1088,43 @@ def api_job_status(name: str, job_id: str) -> Tuple[int, str, bytes]:
     return _json(200, job)
 
 
+def api_job_cancel(name: str, job_id: str) -> Tuple[int, str, bytes]:
+    """POST /api/workspace/<name>/job/<job_id>/cancel.
+
+    Cancellation is cooperative: the worker sees the flag at its next
+    progress/deadline checkpoint and then marks the job ``aborted``.
+    """
+
+    error = _workspace_error(name)
+    if error:
+        return error
+    job = jobs.get_job(job_id)
+    if job is None or job.get("workspace") != name:
+        return _json(404, {"error": "job not found"})
+    status = str(job.get("status") or "")
+    if status not in {"pending", "running"}:
+        return _json(409, {"error": "job is not cancellable", "status": status})
+    snapshot = jobs.request_cancel(job_id)
+    if snapshot is None:
+        latest = jobs.get_job(job_id)
+        return _json(
+            409,
+            {
+                "error": "job is not cancellable",
+                "status": (latest or job).get("status"),
+            },
+        )
+    return _json(
+        202,
+        {
+            "job_id": job_id,
+            "status": snapshot.get("status"),
+            "cancel_requested": True,
+            "requested_at": time.time(),
+        },
+    )
+
+
 # ---- dispatcher -------------------------------------------------------------
 
 
@@ -1201,6 +1238,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/job/(?P<job_id>[a-f0-9]{32})/?$"),
         lambda name, job_id, **_: api_job_status(name, job_id),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/job/(?P<job_id>[a-f0-9]{32})/cancel/?$"),
+        lambda name, job_id, **_: api_job_cancel(name, job_id),
     ),
     # iter 026: onboarding wizard — single multipart POST that starts an
     # auto-pipeline job; client then polls the job_id from above.
