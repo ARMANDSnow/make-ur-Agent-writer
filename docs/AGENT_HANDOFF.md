@@ -1024,3 +1024,31 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. 本轮完成后不要 push，等用户验收。
 2. Web 当前生产入口：`/` 书架 → `/w/{name}/continue` 的 `write-book` preset/tier；新建书走 `/wizard`，可设置高级选项并在进度页 cancel。
 3. 后续功能面建议从 drama 站 ③/④ 或章节 diff / 全文搜索中选择；不要把 `_workspace_html_guard` 抽象当 blocker。
+
+---
+
+## Phase 4 Status（iter 045，2026-06-05）
+
+### Iteration 045 — 投资人 demo 落地页 + demo 路径美化（mock-only）
+
+**目标**：为投资人演示新增一个落地页（根 `/`），用两张同等卡片介绍【小说续写】与【剧本生成（Beta）】两大功能并分别进入；对 demo 路径页面做轻度美化。沿用「文学暖色·米纸」设计系统（jade `#3F6B5A` / amber `#C97B3D` / 米纸 `#FBF7F0`，标题衬线），不动后端逻辑，0 新前端依赖。执行档案 `iteration_045_PLAN.md`，外部 plan `~/.claude/plans/splendid-skipping-trinket.md`。
+
+**主要落地**：
+- 路由：`/` 改为新 `render_landing()` 落地页（全屏、无 sidebar）；书架迁到 `/library`（`render_index` 不变）。16 处书架面包屑/链接 + jobs drawer 两处「返回书架」+ 删除成功跳转，全部 `/` → `/library`。
+- 落地页：`templates.render_landing()` = 品牌 hero（内联 SVG logo + slogan）+ 小说续写/剧本生成（Beta）双卡片 + 信任区 serif 大数字；`_LP_LOGO_SVG` 品牌标；`_BASE_TPL` 加 inline-SVG favicon。纯 CSS 零 JS，规避 `string.Template` 的 `$` 坑。
+- CSS：`.lp-*` 全套 + jade→amber 极淡 hero 渐变 + `lp-fade-up` 入场动画（含 `prefers-reduced-motion`）+ `@media 768` 单列堆叠；review/advisor 全局可读性 polish（subscore 8px、verdict badge 700、advisor 竖条）。
+- wizard `?type=drama` 深链（`JS_WIZARD`）：drama 卡片直达 drama 表单。
+
+**Code review（/code-review high）**：1 个 blocker 当 iter 修——删除 workspace 成功跳转 `setPendingToastAndNavigate(..., "/")` 漏改、会落到落地页 → 已改 `/library`（全仓复查为唯一遗漏）。backlog（→iter046+）：`.lp-metrics .tile` 复用 `.metric-pair .tile`、favicon 抽 `_FAVICON_SVG` 常量、`/library` 抽 `_LIBRARY_URL` 常量、`test_web_server::test_index_html` 命名过期。
+
+**验证进度**：
+- 相关测试 `tests/test_web_routes_get.py tests/test_web_server.py` → 64 passed（新增 `test_landing_is_root`，原 index 测试迁 `test_library_lists_workspaces`）。
+- 全量 `pytest tests/` → 588 passed；3 failed 均既有、与本轮无关（`test_env_isolation` + `test_llm_client_cache`，stash 验证 baseline 同样红）。
+- curl 逐页自检：`/`(落地页)、`/library`(书架)、`/wizard?type=drama`、`/w/longzu/chapter/2`、`/reviews`、`/insights`、`/w/i38drama01/`、`/wizard`、`/settings` 全 200，无 500/Traceback。
+- 本环境 preview MCP 浏览器网关不可用 → 验证走 HTTP/API 层 + 自包含 HTML 预览；未做浏览器截图回归，建议有浏览器时补落地页 + `?type=drama` + 章节详情视觉回归。
+
+**当前接力点**：
+1. **Web 生产入口已变**：根 `/` = 投资人落地页；书架迁到 `/library`；`/w/{name}/continue` 续写主流程不变。引用「`/` 是书架」的旧文案需按此更新。
+2. demo 前测试 workspace 清理：提供一键软删命令（保留 longzu + i38drama01），未自动执行，留用户 demo 前运行（可恢复）。
+3. PPT 以「可粘到新 session 的提示词」交付，不在本仓。
+4. 关联 robustness backlog（来自本轮前的只读前端实测，与落地页无关）：auto-pipeline succeeded vs 章节 Reject 语义、被拒章节前端无 force 出口、blocked 运行不报告 cost、短中文样本 `en_` 前缀——择机进后续 iter。

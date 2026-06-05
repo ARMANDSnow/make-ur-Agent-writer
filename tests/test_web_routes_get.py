@@ -135,8 +135,8 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("json", ct)
         return status, json.loads(body.decode("utf-8"))
 
-    def test_index_lists_workspaces(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/")
+    def test_library_lists_workspaces(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/library")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn("本地写作工作台", html)
@@ -144,6 +144,17 @@ class RoutesGetTests(unittest.TestCase):
         self.assertLess(html.index("♻ 回收站"), html.index("⚙ 设置"))
         self.assertIn("/api/workspaces/overview", routes.static.JS_DASHBOARD)
         self.assertNotIn("iter 026", html)
+
+    def test_landing_is_root(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        # Root is now the investor landing page, not the bookshelf.
+        self.assertIn("进入小说续写", html)
+        self.assertIn("剧本生成", html)
+        self.assertIn('window.PAGE_KIND = "landing"', html)
+        self.assertIn('href="/wizard"', html)
+        self.assertIn('href="/library"', html)
 
     def test_trash_page_renders(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/trash")

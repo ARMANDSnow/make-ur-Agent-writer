@@ -95,6 +95,10 @@ def _workspace_error(name: str) -> Optional[Tuple[int, str, bytes]]:
 # ---- handlers ---------------------------------------------------------------
 
 
+def render_landing() -> Tuple[int, str, bytes]:
+    return _html(200, templates.render_landing())
+
+
 def render_index() -> Tuple[int, str, bytes]:
     return _html(200, templates.render_index(list_workspaces()))
 
@@ -1139,7 +1143,8 @@ def api_job_cancel(name: str, job_id: str) -> Tuple[int, str, bytes]:
 # (method, compiled regex, handler). Named groups in the regex become
 # kwargs passed to the handler.
 _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
-    ("GET", re.compile(r"^/$"), lambda **_: render_index()),
+    ("GET", re.compile(r"^/$"), lambda **_: render_landing()),
+    ("GET", re.compile(r"^/library/?$"), lambda **_: render_index()),
     ("GET", re.compile(r"^/trash/?$"), lambda **_: render_trash_page()),
     ("GET", re.compile(r"^/static/app\.css$"), lambda **_: render_static_css()),
     ("GET", re.compile(r"^/static/app\.js$"), lambda **_: render_static_js()),

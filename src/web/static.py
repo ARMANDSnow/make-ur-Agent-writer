@@ -823,6 +823,12 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .advisor-item .section { font-family: var(--font-serif); font-size: var(--fs-lg); margin-top: 2px; }
 .advisor-item .guidance { color: var(--ink-2); margin-top: var(--space-2); white-space: pre-wrap; }
 
+/* ---------- Review / advisor readability polish (global) ---------- */
+.subscore-bar .track { height: 8px; }
+.subscore-bar .val { font-family: var(--font-serif); font-size: var(--fs-sm); color: var(--ink-1); }
+.badge.approve, .badge.reject { font-weight: 700; }
+.advisor-item { border-left: 3px solid var(--jade); }
+
 /* ---------- page: jobs ---------- */
 .job-row .trace {
   font-family: var(--font-mono);
@@ -913,6 +919,167 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   .overview-hero { grid-template-columns: 1fr; }
   .grid.cols-3, .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ---------- Landing page (investor entry) ---------- */
+.lp {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-5) 0 var(--space-7);
+}
+.lp-hero {
+  text-align: center;
+  padding: var(--space-8) var(--space-7);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background:
+    radial-gradient(120% 80% at 18% 0%, var(--jade-soft) 0%, transparent 55%),
+    radial-gradient(100% 80% at 92% 8%, var(--amber-soft) 0%, transparent 50%),
+    var(--bg-card);
+}
+.lp-hero-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.lp-wordmark {
+  font-family: var(--font-serif);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--ink-1);
+  letter-spacing: .02em;
+}
+.lp-hero .eyebrow { justify-content: center; }
+.lp-title {
+  font-family: var(--font-serif);
+  font-size: var(--fs-display);
+  line-height: 1.25;
+  margin: var(--space-3) 0 var(--space-4);
+  color: var(--ink-1);
+}
+.lp-lead {
+  max-width: 36em;
+  margin: 0 auto var(--space-5);
+  font-size: var(--fs-lg);
+  line-height: 1.7;
+}
+.lp-hero-cta { justify-content: center; }
+.lp-hero-cta .btn { min-width: 132px; }
+
+.lp-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+.lp-card {
+  display: flex;
+  flex-direction: column;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.lp-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--rule-strong);
+  box-shadow: 0 6px 20px rgba(42, 37, 32, .08);
+}
+.lp-card .card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.lp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.lp-card-head h2 {
+  font-family: var(--font-serif);
+  font-size: var(--fs-h2);
+  margin: 0;
+  color: var(--ink-1);
+}
+.lp-feats {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.lp-feats li {
+  position: relative;
+  padding-left: var(--space-5);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.lp-feats li::before {
+  content: "✦";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--jade);
+  font-size: var(--fs-xs);
+}
+.lp-feat-beta { color: var(--ink-3); }
+.lp-feat-beta::before { color: var(--gold); }
+.lp-card-footer .btn { width: 100%; justify-content: center; }
+
+.lp-trust {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding-top: var(--space-3);
+}
+.lp-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+.lp-metrics .tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+}
+.lp-metrics .tile .v {
+  font-family: var(--font-serif);
+  font-size: var(--fs-display);
+  line-height: 1;
+  color: var(--jade-strong);
+}
+.lp-metrics .tile .k {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+.lp-metrics .tile .sub {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+.lp-chips { justify-content: center; flex-wrap: wrap; }
+.lp-secondary { font-size: var(--fs-sm); }
+
+@keyframes lp-fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: lp-fade-up .5s ease both; }
+.fade-up-1 { animation-delay: .08s; }
+.fade-up-2 { animation-delay: .16s; }
+.fade-up-3 { animation-delay: .24s; }
+@media (prefers-reduced-motion: reduce) {
+  .fade-up, .fade-up-1, .fade-up-2, .fade-up-3 { animation: none; }
+}
+
 @media (max-width: 768px) {
   .app { grid-template-columns: 1fr; }
   .sidebar {
@@ -991,6 +1158,11 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   .page-header h1 { font-size: var(--fs-h1); }
   .form-grid, .grid.cols-2, .form-grid-2 { grid-template-columns: 1fr; }
   .review-card { grid-template-columns: 1fr; }
+  .lp { padding: var(--space-4) 0 var(--space-6); gap: var(--space-5); }
+  .lp-hero { padding: var(--space-6) var(--space-5); }
+  .lp-title { font-size: var(--fs-h1); }
+  .lp-cards { grid-template-columns: 1fr; }
+  .lp-metrics { grid-template-columns: 1fr; }
 }
 """
 
@@ -1667,7 +1839,7 @@ JS_DASHBOARD = """\
           { confirm: name });
         window.setPendingToastAndNavigate(
           { kind: "info", msg: "已删除 《" + name + "》 → " + data.trashed_to },
-          "/"
+          "/library"
         );
       } catch (err) {
         errBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
@@ -3185,6 +3357,18 @@ JS_WIZARD = """\
 
   loadServerMode();
 
+  // Deep-link: /wizard?type=drama (or ?type=novel) jumps straight to that panel.
+  (function applyTypeFromQuery() {
+    var t = new URLSearchParams(location.search || "").get("type");
+    if (!t) return;
+    if (t === "drama") {
+      if (typeForm) { try { typeForm.elements.ws_type.value = "drama"; } catch (e) {} }
+      show(panelDrama);
+    } else if (t === "novel") {
+      show(panelUpload);
+    }
+  })();
+
   function show(panel) {
     [panelType, panelUpload, panelDrama, panelProgress].forEach((p) => {
       if (p) p.hidden = (p !== panel);
@@ -3360,7 +3544,7 @@ JS_WIZARD = """\
     let buttons = "";
     if (group === "running") {
       buttons =
-        '<a class="btn btn-ghost" href="/">继续浏览书架</a>' +
+        '<a class="btn btn-ghost" href="/library">继续浏览书架</a>' +
         '<a class="btn btn-secondary" href="' + jobsHref + '">查看任务</a>' +
         '<button type="button" class="btn btn-danger" data-workspace="' + escapeHtml(name) +
         '" data-cancel-job="' + escapeHtml(jobId) + '"' +
@@ -3373,7 +3557,7 @@ JS_WIZARD = """\
     } else if (group === "aborted") {
       buttons =
         '<a class="btn btn-primary" href="/wizard">重新开始</a>' +
-        '<a class="btn btn-ghost" href="/">返回书架</a>';
+        '<a class="btn btn-ghost" href="/library">返回书架</a>';
     } else {
       buttons =
         '<a class="btn btn-secondary" href="' + jobsHref + '">查看失败详情</a>' +

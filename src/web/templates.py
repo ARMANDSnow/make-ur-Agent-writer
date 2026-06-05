@@ -39,6 +39,7 @@ _BASE_TPL = Template(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>$TITLE</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23FBF7F0'/><text x='16' y='23' font-size='20' text-anchor='middle' fill='%233F6B5A'>&#10022;</text></svg>">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -161,7 +162,7 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
         )
     return (
         '<aside class="sidebar">'
-        '<a class="brand" href="/"><span>✦</span> 续写工作台</a>'
+        '<a class="brand" href="/library"><span>✦</span> 续写工作台</a>'
         '<div class="sidebar-section">'
         '<h4>书架</h4>'
         f'{work_html}'
@@ -203,7 +204,7 @@ def render_workspace_novel_only_empty(name: str, workspaces: Iterable[str]) -> s
         title=f"{name} · 小说模块",
         page_kind="workspace_empty",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("小说模块", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("小说模块", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section=""),
         workspace=name,
@@ -277,7 +278,7 @@ def render_trash(workspaces: Iterable[str]) -> str:
         title="回收站 · 写作工作台",
         page_kind="trash",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), ("回收站", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), ("回收站", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces),
         workspace="",
@@ -299,7 +300,7 @@ def render_workspace_overview(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 概览",
         page_kind="workspace_overview",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="overview"),
         workspace=name,
@@ -425,7 +426,7 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 续写",
         page_kind="drama_write",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="write"),
         workspace=name,
@@ -549,7 +550,7 @@ def render_workspace_continue(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 续写",
         page_kind="continue",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="continue"),
         workspace=name,
@@ -589,7 +590,7 @@ def render_workspace_plan(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 计划",
         page_kind="plan",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("计划", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("计划", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="plan"),
         workspace=name,
@@ -626,7 +627,7 @@ def render_workspace_chapters(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 章节",
         page_kind="chapters",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("章节", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("章节", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="chapters"),
         workspace=name,
@@ -673,7 +674,7 @@ def render_workspace_chapter_detail(name: str, chapter_no: int, workspaces: Iter
         page_kind="chapter_detail",
         main_html=main,
         breadcrumb_html=_crumbs([
-            ("书架", "/"),
+            ("书架", "/library"),
             (name, f"/w/{escape(name)}/"),
             ("章节", f"/w/{escape(name)}/chapters"),
             (f"第 {chapter_no} 章", None),
@@ -707,7 +708,7 @@ def render_workspace_reviews(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 评审",
         page_kind="reviews",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("评审", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("评审", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="reviews"),
         workspace=name,
@@ -748,7 +749,7 @@ def render_workspace_insights(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · Insights",
         page_kind="insights",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("数据", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("数据", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="insights"),
         workspace=name,
@@ -782,7 +783,7 @@ def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 任务",
         page_kind="jobs",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), (name, f"/w/{escape(name)}/"), ("任务", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("任务", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="jobs"),
         workspace=name,
@@ -819,7 +820,7 @@ def render_wizard() -> str:
         '<strong>短剧剧本</strong>　·　创建 drama workspace，进入 4 站审查向导'
         '</label>'
         '<div class="form-actions">'
-        '<a class="btn btn-ghost" href="/">取消</a>'
+        '<a class="btn btn-ghost" href="/library">取消</a>'
         '<button type="submit" class="btn btn-primary" id="type-next">下一步</button>'
         '</div>'
         '</form>'
@@ -954,7 +955,7 @@ def render_wizard() -> str:
         title="新建作品 · 写作工作台",
         page_kind="wizard",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), ("新建作品", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), ("新建作品", None)]),
         topbar_actions_html='<a class="btn btn-ghost" href="/settings">⚙ 设置</a>',
         sidebar_html="",
         extra_scripts='<script src="/static/wizard.js"></script>',
@@ -993,10 +994,107 @@ def render_settings() -> str:
         title="模型设置 · 写作工作台",
         page_kind="settings",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/"), ("设置", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), ("设置", None)]),
         topbar_actions_html='<a class="btn btn-primary" href="/wizard">＋ 新建</a>',
         sidebar_html="",
         extra_scripts='<script src="/static/settings.js"></script>',
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page: landing (investor-facing root entry, full-screen, no sidebar)
+# ---------------------------------------------------------------------------
+
+
+# Inline brand mark: an open book outlined in jade with an amber ✦ spark.
+# Pure inline SVG, no external asset, no bare ``$`` (Template-safe).
+_LP_LOGO_SVG = (
+    '<svg class="lp-logo" width="44" height="44" viewBox="0 0 44 44" fill="none" '
+    'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+    '<path d="M22 11 C18 8.5 11 8.5 7 10 V34 C11 32.5 18 32.5 22 35 '
+    'C26 32.5 33 32.5 37 34 V10 C33 8.5 26 8.5 22 11 Z" '
+    'fill="#FFFEFB" stroke="#3F6B5A" stroke-width="1.8" stroke-linejoin="round"/>'
+    '<path d="M22 11 V35" stroke="#3F6B5A" stroke-width="1.4"/>'
+    '<path d="M30.5 14 l1.25 3.05 3.05 1.25 -3.05 1.25 -1.25 3.05 '
+    '-1.25 -3.05 -3.05 -1.25 3.05 -1.25 Z" fill="#C97B3D"/>'
+    '</svg>'
+)
+
+
+def render_landing() -> str:
+    main = (
+        '<div class="lp">'
+        '<header class="lp-hero fade-up">'
+        '<div class="lp-hero-brand">' + _LP_LOGO_SVG +
+        '<span class="lp-wordmark">续写工作台</span></div>'
+        '<p class="eyebrow ornament">本地多 Agent 创作引擎</p>'
+        '<h1 class="lp-title">让 AI 接着你的故事，安全地写下去</h1>'
+        '<p class="lp-lead muted">导入你的小说，多 Agent 协同续写、自审、重写'
+        '——全程在 127.0.0.1 本地运行，数据不出你的电脑。</p>'
+        '<div class="cluster lp-hero-cta">'
+        '<a class="btn btn-primary" href="/wizard">开始续写</a>'
+        '<a class="btn btn-secondary" href="/library">打开已有作品</a>'
+        '</div>'
+        '</header>'
+        '<section class="lp-cards">'
+        '<article class="card lp-card fade-up fade-up-1">'
+        '<div class="card-body">'
+        '<div class="lp-card-head"><h2>小说续写</h2>'
+        '<span class="badge badge-novel no-dot">正式开放</span></div>'
+        '<p class="muted">导入 epub / txt，AI 续写长篇章节，每章自动评审与重写。</p>'
+        '<ul class="lp-feats">'
+        '<li>章节级续写，保持人设与世界观一致</li>'
+        '<li>多 Agent 自审：评审 → 打分 → 重写闭环</li>'
+        '<li>成本、缓存、子分数全程可观测</li>'
+        '</ul></div>'
+        '<div class="card-footer lp-card-footer">'
+        '<a class="btn btn-primary" href="/wizard">进入小说续写</a></div>'
+        '</article>'
+        '<article class="card lp-card fade-up fade-up-2">'
+        '<div class="card-body">'
+        '<div class="lp-card-head"><h2>剧本生成</h2>'
+        '<span class="badge badge-drama no-dot">Beta · 部分开放</span></div>'
+        '<p class="muted">输入题材与赛道，生成短剧分集剧本（4 站审查流水线）。</p>'
+        '<ul class="lp-feats">'
+        '<li>题材 / 赛道 / 集数一键立项</li>'
+        '<li>创作规范快照 + 分集 setup 生成</li>'
+        '<li class="lp-feat-beta">Beta：当前开放前 2 站，后续站点陆续解锁</li>'
+        '</ul></div>'
+        '<div class="card-footer lp-card-footer">'
+        '<a class="btn btn-secondary" href="/wizard?type=drama">体验剧本 Beta</a></div>'
+        '</article>'
+        '</section>'
+        '<section class="lp-trust fade-up fade-up-3">'
+        '<div class="lp-metrics">'
+        '<div class="tile"><span class="v">100%</span>'
+        '<span class="k">本地运行</span><span class="sub">数据不出 127.0.0.1</span></div>'
+        '<div class="tile"><span class="v">4+</span>'
+        '<span class="k">协同 Agent</span><span class="sub">评审 · 重写 · 审查闭环</span></div>'
+        '<div class="tile"><span class="v">2</span>'
+        '<span class="k">创作模式</span><span class="sub">小说续写 + 剧本生成</span></div>'
+        '</div>'
+        '<div class="cluster lp-chips">'
+        '<span class="badge badge-muted no-dot">全本地运行</span>'
+        '<span class="badge badge-muted no-dot">数据不出 127.0.0.1</span>'
+        '<span class="badge badge-muted no-dot">多 Agent 自审重写</span>'
+        '<span class="badge badge-muted no-dot">开源可自托管</span>'
+        '</div>'
+        '<p class="muted lp-secondary">已有作品？直接 '
+        '<a href="/library">打开书架 →</a></p>'
+        '</section>'
+        '</div>'
+    )
+    return _render_shell(
+        title="续写工作台 · 本地多 Agent 创作引擎",
+        page_kind="landing",
+        main_html=main,
+        breadcrumb_html=_crumbs([("续写工作台", None)]),
+        topbar_actions_html=(
+            '<a class="btn btn-ghost" href="/settings">⚙ 设置</a>'
+            '<a class="btn btn-primary" href="/wizard">＋ 新建</a>'
+        ),
+        sidebar_html="",
+        extra_scripts="",
     )
 
 
