@@ -413,6 +413,23 @@ def check_write_readiness(
             "knowledge_index.json 缺失：KB 无法按起点过滤，将回退注入全书原文（可能含起点后剧透）。运行 compress 生成 index。"
         )
 
+    # iter 047c: must-resolve foreshadowing overdue at the resume chapter is a
+    # fail-closed blocker. No registry -> overdue_must_resolve returns [] (no-op).
+    try:
+        from . import foreshadowing
+
+        # current = continuation chapters elapsed since the boundary clue
+        # (planted at 0): chapters 1..resume_from-1 are written, resume_from
+        # not yet — so resume_from-1 chapters have gone by at check time.
+        overdue = foreshadowing.overdue_must_resolve(max(0, resume_from - 1))
+    except Exception:
+        overdue = []
+    if overdue:
+        blockers.append(f"foreshadowing_must_resolve_overdue:{len(overdue)}")
+        recommended.append(
+            f"回收 {len(overdue)} 个超期的 must-resolve 伏笔后重试，或用 foreshadowing.resolve/gc 调整 registry"
+        )
+
     status = "blocked" if blockers else "warn" if warnings else "ready"
     return {
         "status": status,
@@ -496,6 +513,7 @@ def _primary_blocker(blockers: List[str]) -> Dict[str, str] | None:
         "chapter_plan_missing": ("缺少章节计划", "run_plan_chapters", "生成章节计划"),
         "retry_exhausted": ("已有草稿未通过", "retry_write_book", "查看并重试"),
         "preflight_failed": ("工程预检未通过", "show_diagnostics", "查看诊断"),
+        "foreshadowing_overdue": ("有 must-resolve 伏笔超期未回收", "show_diagnostics", "查看诊断"),
         "unknown": ("续写入口受阻", "show_diagnostics", "查看诊断"),
     }
     label, action, cta_label = labels.get(kind, labels["unknown"])
@@ -519,6 +537,8 @@ def _blocker_kind(blocker: str) -> str:
         return "retry_exhausted"
     if blocker.startswith("preflight:"):
         return "preflight_failed"
+    if blocker.startswith("foreshadowing_must_resolve_overdue"):
+        return "foreshadowing_overdue"
     return "unknown"
 
 

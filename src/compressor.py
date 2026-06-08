@@ -86,6 +86,14 @@ def compress_all() -> Dict[str, Any]:
         )
     write_text_atomic(kb_dir / "global_knowledge.md", text.strip() + "\n")
     write_json(kb_dir / "knowledge_index.json", index)
+    # iter 047c: (re)build the foreshadowing TTL registry from the fresh index so
+    # the must-resolve write-readiness gate is live in normal operation.
+    try:
+        from . import foreshadowing
+
+        foreshadowing.build_registry()
+    except Exception as exc:  # never let registry seeding break compress
+        log_event("compress", "foreshadowing_registry_error", error=str(exc))
     log_event("compress", "done", chapters=len(extractions), output=str(kb_dir / "global_knowledge.md"))
     return index
 

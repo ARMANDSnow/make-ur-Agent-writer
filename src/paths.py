@@ -238,6 +238,10 @@ def global_facts_path() -> Path:
     return manual_overrides_dir() / "global_facts.json"
 
 
+def foreshadowing_registry_path() -> Path:
+    return data_dir() / "foreshadowing_registry.json"
+
+
 def continuation_anchor_path() -> Path:
     return manual_overrides_dir() / "continuation_anchor.txt"
 

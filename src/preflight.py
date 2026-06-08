@@ -51,6 +51,7 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     _check_global_facts(warn, root)
     _check_runtime_env(warn)
     _check_start_safe_knowledge(warn, info, root)
+    _check_foreshadowing_registry(warn, info, root)
     _summarize_llm_logs(info, root)
 
     status = "fail" if fatal else "warn" if warn else "ok"
@@ -281,6 +282,26 @@ def _check_start_safe_knowledge(warn: List[str], info: List[str], root: Path) ->
         warn.append(
             "global_knowledge.md 未按起点过滤且缺 knowledge_index.json；回退注入原文"
             "（可能含起点后剧透）。运行 `compress` 生成 index。"
+        )
+
+
+def _check_foreshadowing_registry(warn: List[str], info: List[str], root: Path) -> None:
+    p = root / "data" / "foreshadowing_registry.json"
+    if not p.exists():
+        return
+    data = read_json_optional(p, {})
+    items = data.get("items", []) if isinstance(data, dict) else []
+    open_n = sum(1 for it in items if isinstance(it, dict) and it.get("status") in ("open", "", None))
+    expired_n = sum(1 for it in items if isinstance(it, dict) and it.get("status") == "expired")
+    must_expired = sum(
+        1
+        for it in items
+        if isinstance(it, dict) and it.get("must_resolve") and it.get("status") == "expired"
+    )
+    info.append(f"伏笔 registry：open={open_n}, expired={expired_n}, must-resolve 超期={must_expired}。")
+    if must_expired:
+        warn.append(
+            f"{must_expired} 个 must-resolve 伏笔已超期未回收；write-readiness 会拦截，请回收或运行 gc/resolve。"
         )
 
 
