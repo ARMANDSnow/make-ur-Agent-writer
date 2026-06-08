@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import paths
-from .utils import read_json, sha256_data, write_json
+from .utils import read_json, read_json_optional, sha256_data, write_json
 
 
 _START_FILE = "start_chapter.json"
@@ -53,7 +53,9 @@ def _load_manifest() -> List[Dict[str, Any]]:
     p = paths.chapter_manifest_path()
     if not p.exists():
         return []
-    data = read_json(p, [])
+    # iter047B2 H1b: a corrupt manifest must fail-open (read_json would raise
+    # JSONDecodeError, crashing every start-safe KB read that resolves order).
+    data = read_json_optional(p, [])
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
@@ -122,7 +124,9 @@ def get_start_chapter_id() -> Optional[str]:
     p = _start_path()
     if not p.exists():
         return None
-    data = read_json(p, {})
+    # iter047B2 H1b: a corrupt start_chapter.json must fail-open (treat as no
+    # start point) rather than raise into kb_view/writer/planner.
+    data = read_json_optional(p, {})
     if not isinstance(data, dict):
         return None
     if "start_chapter_id" in data and data["start_chapter_id"]:

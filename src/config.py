@@ -178,6 +178,12 @@ def _env_choice(name: str, choices: set[str], default: str) -> str:
 
 
 def _running_under_unittest_discover() -> bool:
+    # iter047B2 M9: pytest is also a test runner — treat it like unittest so .env
+    # (real model + OPENAI_STREAM) is scrubbed and tests stay mock-isolated no
+    # matter which runner launched them. canonical `unittest discover` is
+    # unaffected (pytest is not imported there).
+    if "pytest" in sys.modules:
+        return True
     if "unittest" not in sys.modules:
         return False
     return any(arg == "discover" or "unittest" in arg for arg in sys.argv)

@@ -806,7 +806,10 @@ def _segment_directive_block(
             "## 本章已写前文（无缝衔接续写，不要重复已写内容）\n\n"
             f"{prior_segments_text[-4000:]}\n\n"
         )
-    is_final = bool(segment.get("is_final")) or segment_index >= segment_total
+    # iter047B2 M8: segment position is authoritative — only the last segment
+    # wraps up. A plan that mis-flags a non-final segment is_final=True must NOT
+    # trigger a premature in-chapter ending (+ a second next-chapter hook).
+    is_final = segment_index >= segment_total
     if is_final:
         tail_instruction = (
             "本段是本章最后一段：自然收束全章，并写出 ending_hook 暗示的结尾钩子。"

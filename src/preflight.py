@@ -291,17 +291,33 @@ def _check_foreshadowing_registry(warn: List[str], info: List[str], root: Path) 
         return
     data = read_json_optional(p, {})
     items = data.get("items", []) if isinstance(data, dict) else []
-    open_n = sum(1 for it in items if isinstance(it, dict) and it.get("status") in ("open", "", None))
-    expired_n = sum(1 for it in items if isinstance(it, dict) and it.get("status") == "expired")
-    must_expired = sum(
-        1
-        for it in items
-        if isinstance(it, dict) and it.get("must_resolve") and it.get("status") == "expired"
+
+    def _st(it) -> str:
+        return str(it.get("status") or "").strip().lower()
+
+    open_n = sum(1 for it in items if isinstance(it, dict) and _st(it) not in ("resolved", "expired"))
+    expired_n = sum(1 for it in items if isinstance(it, dict) and _st(it) == "expired")
+    # iter047B2 M6: the write-readiness gate (foreshadowing.overdue_must_resolve)
+    # blocks must_resolve items that are EITHER expired OR still-open-past-TTL, so
+    # preflight must surface BOTH — counting only 'expired' let an operator see
+    # "0 overdue" while the gate still blocked. preflight has no resume_from, so it
+    # flags open must_resolve items as the gate's pending triggers.
+    must_open = sum(
+        1 for it in items
+        if isinstance(it, dict) and it.get("must_resolve") and _st(it) not in ("resolved", "expired")
     )
-    info.append(f"伏笔 registry：open={open_n}, expired={expired_n}, must-resolve 超期={must_expired}。")
-    if must_expired:
+    must_expired = sum(
+        1 for it in items
+        if isinstance(it, dict) and it.get("must_resolve") and _st(it) == "expired"
+    )
+    info.append(
+        f"伏笔 registry：open={open_n}, expired={expired_n}, "
+        f"must-resolve（expired={must_expired}, open={must_open}）。"
+    )
+    if must_expired or must_open:
         warn.append(
-            f"{must_expired} 个 must-resolve 伏笔已超期未回收；write-readiness 会拦截，请回收或运行 gc/resolve。"
+            f"{must_expired} 个 must-resolve 伏笔已超期、{must_open} 个仍 open（续写章数超其 TTL 即被闸门拦截）；"
+            "write-readiness 可能拦截续写，请用 gc/resolve 回收。"
         )
 
 

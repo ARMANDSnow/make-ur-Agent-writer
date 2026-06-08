@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 
 from . import paths
 from .config import ROOT
-from .utils import read_json
+from .utils import read_json, read_json_optional
 
 
 # Legacy constants — workspace-aware resolution below.
@@ -41,7 +41,8 @@ def _raw_kb(kb_path: Path) -> str:
 
 def _manifest_order() -> Dict[str, int]:
     p = paths.chapter_manifest_path()
-    data = read_json(p, []) if p.exists() else []
+    # iter047B2 H1b: a corrupt manifest must fail-open (read_json would raise).
+    data = read_json_optional(p, []) if p.exists() else []
     if isinstance(data, dict):
         data = data.get("chapters", data.get("entries", []))
     if not isinstance(data, list):
@@ -88,21 +89,33 @@ def start_safe_knowledge(
         return _raw_kb(kb_path)
     if not index_path.exists():
         return _raw_kb(kb_path)
-    index = read_json(index_path, {})
+    # iter047B2 H1: a corrupt-but-present index must fail-open to raw KB, not
+    # raise JSONDecodeError (read_json does not catch it; no call site does).
+    index = read_json_optional(index_path, {})
     if not isinstance(index, dict) or not index:
         return _raw_kb(kb_path)
-    return _render_start_safe_index(index, start)
-
-
-def _render_start_safe_index(index: Dict[str, Any], start: str) -> str:
+    # iter047B2 H2: start point is set but the manifest can't locate it
+    # (missing/empty/doesn't contain start) -> we cannot prove filtering is
+    # safe -> fail-open to raw KB (caller's original truncation), rather than
+    # render a block falsely headed "已过滤起点之后的剧透" that leaks post-start
+    # canon. Raw KB may still contain spoilers, but it isn't mislabeled safe and
+    # book_runner already warns about it.
     order = _manifest_order()
+    if order.get(start) is None:
+        return _raw_kb(kb_path)
+    return _render_start_safe_index(index, start, order)
+
+
+def _render_start_safe_index(index: Dict[str, Any], start: str, order: Dict[str, int]) -> str:
+    # ``order`` is supplied by start_safe_knowledge, which has already verified
+    # ``start`` resolves in it (iter047B2 H2), so start_idx is not None here.
     start_idx = order.get(start)
 
     def kept(chapter_id: Any) -> bool:
         if not chapter_id:
             return True  # fail-open: no chapter_id -> keep
         if start_idx is None:
-            return True  # start not in manifest -> can't filter, keep
+            return True  # defensive: caller guarantees start is in the manifest
         ci = order.get(str(chapter_id))
         if ci is None:
             return True  # entry's chapter not in manifest -> keep
@@ -123,7 +136,12 @@ def _render_start_safe_index(index: Dict[str, Any], start: str) -> str:
             kept_states = [s for s in states if isinstance(s, dict) and kept(s.get("chapter_id"))]
             if not kept_states:
                 continue
-            last = kept_states[-1]
+            # iter047B2 M5: pick the entry nearest the start in MANIFEST order,
+            # not the array tail. The extraction array order equals the filename
+            # sort order (compressor.load_extractions globs by name), which can
+            # disagree with narrative order (e.g. ch10 < ch2), so [-1] could
+            # surface a stale state instead of the latest pre-start one.
+            last = max(kept_states, key=lambda s: order.get(str(s.get("chapter_id")), -1))
             desc = str(last.get("after") or last.get("status") or last.get("before") or "").strip()
             char_lines.append(f"- {name}：{desc}" if desc else f"- {name}")
         if char_lines:

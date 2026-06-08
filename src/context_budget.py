@@ -107,6 +107,12 @@ def assemble(
         if layer.max_chars is not None and len(text) > layer.max_chars:
             text = text[: layer.max_chars]
         texts.append(text)
+    # iter047B2 M4: a negative min_chars is meaningless and (when a layer can
+    # never shrink below it) makes the shrink loop spin to the 100k guard — under
+    # real tiktoken that is ~38s of un-interruptible work. Floor it at 0; also
+    # clamp a negative budget so the loop converges via floors, not the guard.
+    floors = [max(0, layer.min_chars) for layer in layers]
+    budget_tokens = max(0, budget_tokens)
 
     def joined() -> str:
         return "".join(texts)
@@ -122,7 +128,7 @@ def assemble(
         candidates = [
             i
             for i, layer in enumerate(layers)
-            if not layer.hard and len(texts[i]) > layer.min_chars
+            if not layer.hard and len(texts[i]) > floors[i]
         ]
         if not candidates:
             break  # only hard / floored layers remain — return best effort
@@ -132,10 +138,10 @@ def assemble(
         layer_tokens = max(1, token_counter(texts[idx]))
         layer_chars = len(texts[idx])
         cut_chars = max(1, math.ceil(over * layer_chars / layer_tokens))
-        new_len = max(layers[idx].min_chars, layer_chars - cut_chars)
+        new_len = max(floors[idx], layer_chars - cut_chars)
         # cut_chars >= 1 already guarantees forward progress; this clamp is a
         # defensive guard kept only in case the heuristic above changes.
         if new_len >= layer_chars:
-            new_len = max(layers[idx].min_chars, layer_chars - 1)
+            new_len = max(floors[idx], layer_chars - 1)
         texts[idx] = texts[idx][:new_len]
     return joined()

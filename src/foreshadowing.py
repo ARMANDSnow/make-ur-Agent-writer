@@ -49,10 +49,19 @@ def _index_path() -> Path:
     )
 
 
+def _normalize_desc(desc: Any) -> str:
+    # iter047B2 M1: normalize so a trivial LLM rewording on re-extract (collapsed
+    # whitespace / trailing punctuation) doesn't change the id and resurrect a
+    # human-resolved item. Only the id is normalized; the stored description
+    # keeps its original text.
+    s = " ".join(str(desc or "").split())
+    return s.rstrip(" 　。．.!！?？;；,，、…").strip()
+
+
 def _item_id(fo: Dict[str, Any]) -> str:
     # json-encode the tuple so a '|' inside any field can't cause id collisions.
     key = json.dumps(
-        [fo.get("chapter_id", ""), fo.get("kind", ""), fo.get("description", "")],
+        [fo.get("chapter_id", ""), fo.get("kind", ""), _normalize_desc(fo.get("description", ""))],
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -68,9 +77,10 @@ def _is_resolved_status(status: str) -> bool:
     """
 
     s = status.lower()
-    # 'unresolved' contains the substring 'resolv' — exclude it explicitly.
+    # 'unresolved' / 'irresolvable' contain the substring 'resolv' — exclude them
+    # explicitly (iter047B2 M2: 'irresolvable' means STILL-OPEN, not closed).
     # 'partially_*' is still open (a partial payoff hasn't fully discharged it).
-    if "unresolv" in s or "partial" in s:
+    if "unresolv" in s or "irresolv" in s or "partial" in s:
         return False
     return any(token in s for token in ("resolv", "payoff", "paid", "closed"))
 
@@ -134,9 +144,16 @@ def build_registry(*, ttl: int = DEFAULT_TTL_CHAPTERS, force: bool = False) -> D
 
 
 def _overdue_by_ttl(item: Dict[str, Any], current_chapter: int) -> bool:
-    ttl = int(item.get("ttl", DEFAULT_TTL_CHAPTERS))
-    planted = int(item.get("planted_chapter", 0))
-    return (int(current_chapter) - planted) > ttl
+    # iter047B2 H3: a malformed ttl/planted must NOT raise — the readiness gate
+    # swallows exceptions, so a raise would silently fail-OPEN a fail-closed
+    # gate. Treat unparseable values as immediately overdue (fail-closed).
+    try:
+        ttl = int(item.get("ttl", DEFAULT_TTL_CHAPTERS))
+        planted = int(item.get("planted_chapter", 0))
+        cur = int(current_chapter)
+    except (TypeError, ValueError):
+        return True
+    return (cur - planted) > ttl
 
 
 def overdue_must_resolve(current_chapter: int) -> List[Dict[str, Any]]:
@@ -151,12 +168,14 @@ def overdue_must_resolve(current_chapter: int) -> List[Dict[str, Any]]:
     for it in load_registry().get("items", []):
         if not isinstance(it, dict) or not it.get("must_resolve"):
             continue
-        status = it.get("status")
+        status = str(it.get("status") or "").strip().lower()
         if status == "resolved":
             continue
-        if status == "expired" or (
-            status in ("open", "", None) and _overdue_by_ttl(it, current_chapter)
-        ):
+        # iter047B2 M3: 'expired' always blocks; anything NOT explicitly
+        # resolved/expired (open, blank, or an unknown word like 'deferred', or
+        # wrong-case 'Open') is treated as still-open and blocks once past TTL —
+        # fail-closed, so a non-standard status can't slip a must-resolve clue past.
+        if status == "expired" or _overdue_by_ttl(it, current_chapter):
             out.append(it)
     return out
 
@@ -169,7 +188,7 @@ def gc(current_chapter: int) -> Dict[str, Any]:
     for it in data.get("items", []):
         if (
             isinstance(it, dict)
-            and it.get("status") in ("open", "", None)
+            and str(it.get("status") or "").strip().lower() in ("open", "")
             and _overdue_by_ttl(it, current_chapter)
         ):
             it["status"] = "expired"

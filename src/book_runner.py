@@ -403,11 +403,14 @@ def check_write_readiness(
                         f"inspect {drafts_dir / f'chapter_{chapter_no:02d}.md'} and rerun write-book with --force if safe"
                     )
 
-    kb_dir = (paths.workspace_root() if paths.workspace_name() else Path(".")) / "data" / "knowledge_base"
+    # iter047B2 M7: use the same workspace-aware paths the real KB injection uses.
+    # _kb_path/_index_path resolve to ROOT in legacy mode; the old code used a
+    # CWD-relative Path("."), so this spoiler warning silently checked the wrong
+    # tree (and was suppressed) whenever the CWD wasn't the repo root.
     if (
         start_point.get_start_chapter_id()
-        and (kb_dir / "global_knowledge.md").exists()
-        and not (kb_dir / "knowledge_index.json").exists()
+        and _kb_path().exists()
+        and not _index_path().exists()
     ):
         warnings.append(
             "knowledge_index.json 缺失：KB 无法按起点过滤，将回退注入全书原文（可能含起点后剧透）。运行 compress 生成 index。"
@@ -415,15 +418,22 @@ def check_write_readiness(
 
     # iter 047c: must-resolve foreshadowing overdue at the resume chapter is a
     # fail-closed blocker. No registry -> overdue_must_resolve returns [] (no-op).
-    try:
-        from . import foreshadowing
+    from . import foreshadowing
 
-        # current = continuation chapters elapsed since the boundary clue
-        # (planted at 0): chapters 1..resume_from-1 are written, resume_from
-        # not yet — so resume_from-1 chapters have gone by at check time.
+    # current = continuation chapters elapsed since the boundary clue
+    # (planted at 0): chapters 1..resume_from-1 are written, resume_from
+    # not yet — so resume_from-1 chapters have gone by at check time.
+    try:
         overdue = foreshadowing.overdue_must_resolve(max(0, resume_from - 1))
-    except Exception:
+    except Exception as exc:
+        # iter047B2 H3: a fail-closed gate must never SILENTLY open. If the
+        # registry read raises unexpectedly, surface a blocker rather than
+        # swallowing it into an empty (passing) result.
         overdue = []
+        blockers.append(f"foreshadowing_gate_error:{type(exc).__name__}")
+        recommended.append(
+            "伏笔闸门检查异常（foreshadowing_registry.json 可能损坏）；修复或删除后重试"
+        )
     if overdue:
         blockers.append(f"foreshadowing_must_resolve_overdue:{len(overdue)}")
         recommended.append(
@@ -537,7 +547,7 @@ def _blocker_kind(blocker: str) -> str:
         return "retry_exhausted"
     if blocker.startswith("preflight:"):
         return "preflight_failed"
-    if blocker.startswith("foreshadowing_must_resolve_overdue"):
+    if blocker.startswith("foreshadowing_must_resolve_overdue") or blocker.startswith("foreshadowing_gate_error"):
         return "foreshadowing_overdue"
     return "unknown"
 

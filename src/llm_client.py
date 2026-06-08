@@ -89,7 +89,11 @@ except Exception:
 # of OPENAI_STREAM=1 still wins because LLMClient.__init__ re-reads env.
 from urllib.parse import urlparse
 
-if "unittest" in _sys.modules or any("unittest" in str(a) for a in _sys.argv):
+if (
+    "pytest" in _sys.modules  # iter047B2 M9: scrub under pytest too, not only unittest
+    or "unittest" in _sys.modules
+    or any("unittest" in str(a) for a in _sys.argv)
+):
     os.environ.pop("OPENAI_STREAM", None)
 
 
