@@ -64,7 +64,7 @@ def load_agents() -> List[Dict[str, Any]]:
     return cfg.get("debate_agents", [])
 
 
-def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") -> Dict[str, Any]:
+def run_debate(topic: str = "") -> Dict[str, Any]:
     debate_dir = _debate_dir()
     kb_path = _kb_path()
     index_path = _index_path()
@@ -80,10 +80,26 @@ def run_debate(topic: str = "龙族一至四之后的长篇续写结局方案") 
     client = LLMClient("debate")
     log_path = debate_dir / "debate_log.jsonl"
 
-    # Iter 016: render agents through persona binding when available. When
-    # personas.json is missing/empty, render_agent_fields returns legacy
-    # fields, preserving the original validation-corpus workflow.
+    # Iter 016: render agents through persona binding when available.
     personas = load_personas()
+    # Phase 6 fix: in workspace mode a missing personas.json used to silently
+    # fall back to the legacy 龙族 validation-corpus agents (路明非 / 江南 / 言灵…),
+    # so a NEW novel's debate read as 龙族 and "couldn't be auto-adjusted". Fail
+    # closed with an actionable message instead. Legacy mode (no active
+    # workspace) keeps the original validation-corpus fallback behavior.
+    if paths.workspace_name() and personas is None:
+        raise FileNotFoundError(
+            f"workspace '{paths.workspace_name()}' 缺少 persona 绑定（personas.json），"
+            "debate 会退回默认（龙族）人格。请先生成并应用 persona 绑定："
+            "`python main.py --book <name> bootstrap-personas` 然后 "
+            "`python main.py --book <name> apply-bootstrap --name personas`，"
+            "或直接用 `python main.py --book <name> auto-pipeline`（已含 bootstrap + apply）。"
+        )
+    # Phase 6 fix: default topic must not be hardcoded 龙族. Derive it from the
+    # bound persona when present, else use a novel-agnostic default.
+    if not topic:
+        protagonist = (personas.get("protagonist_name") if personas else "") or ""
+        topic = f"{protagonist}线的长篇续写结局方案" if protagonist else "长篇小说续写结局方案"
     rendered_agents: List[Dict[str, Any]] = []
     for agent in agents:
         name, system_prompt, stance = render_agent_fields(agent, personas, log_context="debate")
@@ -610,14 +626,14 @@ def build_decisions(
             "topic": "续写核心裁决",
             "votes": [
                 {
-                    "question": "路鸣泽在最终牺牲前是否保留过夺权念头",
-                    "result": "有，但不把角色简化成反派",
+                    "question": "主角在关键抉择处是否保留过私心或动摇",
+                    "result": "有，但不把角色简化为反派或圣人",
                     "for": voter_names[:4],
                     "against": voter_names[4:],
                 },
                 {
-                    "question": "楚子航回归后是否丢失夏弥记忆",
-                    "result": "不丢失，记忆作为代价和行动动机保留",
+                    "question": "核心角色回归后是否承担记忆或情感代价",
+                    "result": "承担，代价作为行动动机保留",
                     "for": voter_names[:5],
                     "against": voter_names[5:],
                 },
@@ -735,8 +751,8 @@ def _hardcoded_outline(topic: str, decisions: Dict[str, Any]) -> str:
         f"# {topic}",
         "",
         "## 核心共识",
-        "- 路明非的选择必须改变结局，而不是被世界观机械碾过。",
-        "- 主要情感关系需要有明确去向，但保留江南式余味。",
+        "- 主角的关键选择必须改变结局走向，而不是被世界观机械碾过。",
+        "- 主要情感关系需要有明确去向，并保留原作的叙事余味。",
         "- 未闭合伏笔必须进入章节级写作约束。",
         "- 世界观硬规则优先于爽点。",
         "",

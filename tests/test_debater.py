@@ -248,7 +248,7 @@ class DebaterHardcodedFallbackTests(unittest.TestCase):
         agents = [{"name": "a1"}, {"name": "a2"}]
         transcript = [{"round": 1, "agent": "a1", "response": "hello"}]
         decisions = build_decisions(agents, transcript, client)
-        self.assertIn("路鸣泽", decisions["votes"][0]["question"])
+        self.assertIn("关键抉择", decisions["votes"][0]["question"])
         self.assertEqual(decisions["transcript_items"], 1)
 
     def test_hardcoded_outline_contains_votes(self) -> None:
