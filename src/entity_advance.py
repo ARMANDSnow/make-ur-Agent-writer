@@ -181,7 +181,7 @@ def apply_advance_proposals(
     if not graph:
         raise FileNotFoundError(f"entity graph not found or empty: {graph_path}")
     before = json.dumps(graph, ensure_ascii=False, indent=2, sort_keys=True)
-    updated = _apply_selected(graph, selected, chapter_no)
+    updated, skipped = _apply_selected(graph, selected, chapter_no)
     after = json.dumps(updated, ensure_ascii=False, indent=2, sort_keys=True)
     diff = "\n".join(
         difflib.unified_diff(
@@ -194,20 +194,41 @@ def apply_advance_proposals(
     )
     if confirm:
         write_json(graph_path, updated)
-    return {
+    result: Dict[str, Any] = {
         "chapter_no": chapter_no,
         "selected": selected_indexes if auto_apply else indexes,
         "confirm": confirm,
         "diff": diff,
-        "applied_count": len(selected),
+        # Skipped (stale-relationship) proposals don't count as applied.
+        "applied_count": len(selected) - len(skipped),
         "auto_apply": auto_apply,
         "min_confidence": min_confidence if auto_apply else None,
     }
+    if skipped:
+        result["skipped"] = skipped
+    return result
 
 
-def _apply_selected(graph: Dict[str, Any], selected: List[Dict[str, Any]], chapter_no: int) -> Dict[str, Any]:
+def _apply_selected(
+    graph: Dict[str, Any], selected: List[Dict[str, Any]], chapter_no: int
+) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Apply selected proposals to the graph timeline, tolerating stale refs.
+
+    Returns ``(updated_graph, skipped)``. A proposal whose relationship is
+    absent from the graph (or whose timeline is malformed) is collected into
+    ``skipped`` and skipped — not raised — so a single stale row no longer
+    discards the rest of the batch. Real-model write runs routinely emit a
+    proposal for a pair the extractor never wrote to ``entity_graph.json``
+    (e.g. ``ent_wuliang_east <-> ent_wuliang_west`` while continuing ch4):
+    pre-fix the first such row raised ``ValueError``, which ``book_runner``
+    caught as ``apply_advance_failed`` and the entity graph never advanced.
+    A proposal missing ``src_id``/``dst_id`` is a structural defect (the
+    auto_apply path already pre-filters these via ``_is_applyable_proposal``)
+    and still raises.
+    """
     updated = json.loads(json.dumps(graph, ensure_ascii=False))
     relationships = updated.setdefault("relationships", [])
+    skipped: List[Dict[str, Any]] = []
     for proposal in selected:
         src_id = str(proposal.get("src_id") or "")
         dst_id = str(proposal.get("dst_id") or "")
@@ -215,10 +236,12 @@ def _apply_selected(graph: Dict[str, Any], selected: List[Dict[str, Any]], chapt
             raise ValueError("proposal missing src_id or dst_id")
         rel = _find_relationship(relationships, src_id, dst_id)
         if rel is None:
-            raise ValueError(f"relationship not found: {src_id} <-> {dst_id}")
+            skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "relationship_not_found"})
+            continue
         timeline = rel.setdefault("timeline", [])
         if not isinstance(timeline, list):
-            raise ValueError(f"relationship timeline is not a list: {src_id} <-> {dst_id}")
+            skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "timeline_not_a_list"})
+            continue
         for item in timeline:
             if isinstance(item, dict) and item.get("active"):
                 item["active"] = False
@@ -231,7 +254,7 @@ def _apply_selected(graph: Dict[str, Any], selected: List[Dict[str, Any]], chapt
                 "active": True,
             }
         )
-    return updated
+    return updated, skipped
 
 
 def _find_relationship(relationships: List[Any], src_id: str, dst_id: str) -> Dict[str, Any] | None:

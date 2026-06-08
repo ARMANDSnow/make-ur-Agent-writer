@@ -1,3 +1,4 @@
+import json
 import unittest
 import tempfile
 from unittest.mock import patch
@@ -450,7 +451,13 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertTrue((archive / "chapter_01.entity_advance_proposals.json").exists())
         self.assertTrue((archive / "chapter_01.review.json").exists())
 
-    def test_auto_apply_advance_missing_relationship_degrades_to_noop(self) -> None:
+    def test_auto_apply_advance_missing_relationship_skips_not_fails(self) -> None:
+        # Regression: a proposal referencing a relationship absent from the
+        # graph (the real-model ``ent_wuliang_east <-> ent_wuliang_west`` ch4
+        # case) must be SKIPPED while the remaining valid proposals still
+        # apply — not abort the whole auto-apply batch. Pre-fix the stale row
+        # raised ValueError, which surfaced as no_op_reason="apply_advance_failed"
+        # with applied_count=0 and the entity graph left un-advanced.
         drafts = self.root / "outputs" / "drafts"
         graph_path = self.root / "data" / "entity_graph.json"
         graph_path.parent.mkdir(parents=True, exist_ok=True)
@@ -458,9 +465,14 @@ class BookRunnerReadinessTests(unittest.TestCase):
             '{"relationships":[{"src_id":"c","dst_id":"d","timeline":[{"state":"old","active":true}]}]}',
             encoding="utf-8",
         )
+        # First proposal points at a relationship the graph never had; second
+        # is a valid advance for the existing c<->d edge.
         (drafts / "chapter_01.entity_advance_proposals.json").write_text(
             (
-                '{"proposed_advances":[{"src_id":"a","dst_id":"b","new_state":"new",'
+                '{"proposed_advances":['
+                '{"src_id":"a","dst_id":"b","new_state":"new_ab",'
+                '"trigger_event":"evt","confidence":0.95},'
+                '{"src_id":"c","dst_id":"d","new_state":"new_cd",'
                 '"trigger_event":"evt","confidence":0.95}]}'
             ),
             encoding="utf-8",
@@ -473,10 +485,24 @@ class BookRunnerReadinessTests(unittest.TestCase):
         ):
             result = _auto_apply_advances(1, min_confidence=0.7)
 
-        self.assertEqual(result["applied_count"], 0)
-        self.assertEqual(result["selected"], [0])
-        self.assertEqual(result["no_op_reason"], "apply_advance_failed")
-        self.assertIn("relationship not found", result["error"])
+        # The valid c<->d advance applied; the stale a<->b row was skipped and
+        # the batch did NOT degrade to apply_advance_failed.
+        self.assertEqual(result["applied_count"], 1)
+        self.assertEqual(result["selected"], [0, 1])
+        self.assertIsNone(result.get("no_op_reason"))
+        self.assertNotIn("error", result)
+        skipped = result.get("skipped") or []
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual({skipped[0]["src_id"], skipped[0]["dst_id"]}, {"a", "b"})
+        self.assertEqual(skipped[0]["reason"], "relationship_not_found")
+
+        # Graph actually advanced for c<->d; the unknown a<->b was not injected.
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(graph["relationships"]), 1)
+        cd_timeline = graph["relationships"][0]["timeline"]
+        self.assertFalse(cd_timeline[0]["active"])
+        self.assertEqual(cd_timeline[-1]["state"], "new_cd")
+        self.assertTrue(cd_timeline[-1]["active"])
 
 
 if __name__ == "__main__":

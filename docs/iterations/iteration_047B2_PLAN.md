@@ -91,3 +91,20 @@ L 级（记入 follow-up，本轮不修）：047b 近空 index 只给 header 行
 
 - 6 个对抗 subagent 全程 mock-only、只读真数据、探针在 /tmp，未污染 repo（遵守 `AGENTS.md:30/:35`）。
 - WebUI 演示用的临时 registry 与真模型冒烟会写 `workspaces/tianlong/`（用户已授权；workspaces/ 不进 commit）。
+
+## Addendum（2026-06-08）：L 级 entity-advance 兑现修复
+
+承上文 §Acceptance Result 第 78 行登记的 L 级既有缺陷（真模型 tianlong 续写 ch4 时 entity advance `apply_advance_failed` / `ValueError: relationship not found: ent_wuliang_east <-> ent_wuliang_west`，write 仍 succeeded；原列入 §不在本轮范围）。本轮后单独兑现修复——**非 iter047B2 引入**，047B2 仅做 KB/伏笔/预算等加固。
+
+**根因**：`entity_advance._apply_selected` 在 `_find_relationship` 返回 `None` 时 `raise ValueError`，异常冒泡至 `book_runner._auto_apply_advances`（`book_runner.py:755` 的 `except (FileNotFoundError, IndexError, ValueError)`），被整批兜底为 `applied_count=0 / no_op_reason="apply_advance_failed"`——一条 hallucinated 边（提取器从未写入 `entity_graph.json`）废掉**整批**推进，write 成功但实体图一步不进。属 batch 级"一条坏行毁全批"容错缺陷。
+
+**修复**（2 源文件）：
+- `src/entity_advance.py`：`_apply_selected` 改为返回 `(updated_graph, skipped)`——关系找不到（或 timeline 非 list）的提案收进 `skipped` 并 `continue`，其余照常应用；`apply_advance_proposals` 把 `applied_count` 修正为 `len(selected)-len(skipped)`，非空时附 `skipped` 字段。缺 `src_id/dst_id` 的结构性坏提案仍 `raise`（auto_apply 路径本就用 `_is_applyable_proposal` 预过滤）。
+- `src/cli_apply_advance.py`：`render_apply_advance_result` 新增 `WARNING: skipped N proposal(s)…` 行；`skipped` 亦随结果进 `book_runner` run 快照 `advances[]`（与 `no_op_reason`/`conflicts` 同源的结构化上报，本仓库不用 logging 模块）。
+
+**回归测试**：
+- `tests/test_entity_advance.py`：新增 `ApplyAdvanceSkipsMissingRelationshipTests`（4 项）——坏关系夹在两条有效提案中间，覆盖显式索引路径（镜像 `book_runner` 调用签名）、auto_apply 路径、dry-run 不写盘仍上报跳过、renderer WARNING。
+- `tests/test_book_runner.py`：原 `test_auto_apply_advance_missing_relationship_degrades_to_noop`（**钉死旧 buggy 行为**）改写为 `..._skips_not_fails`——一条有效 + 一条缺失 → 有效 c↔d 推进、缺失 a↔b 跳过、`applied_count=1`、无 `apply_advance_failed`，并校验图确实推进、未注入未知边。
+- 牙齿验证：临时回退修复后此 5 用例 **2 failures + 3 errors**（3 error 即未捕获的 `ValueError`），恢复后全绿。
+
+**canonical 现状**：`Ran 661 tests OK`（本轮 Acceptance 基线 657 + 新增 4，零回归）。原 §Acceptance Result 的 657 tests / ¥1.04 等为当轮历史快照，不改动。§L 级清单其余条目与 §不在本轮范围（含 `git push` 待用户验收）不变。

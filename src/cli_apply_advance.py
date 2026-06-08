@@ -29,10 +29,19 @@ def apply_advance_cli(
 
 def render_apply_advance_result(result: Dict[str, Any]) -> str:
     mode = "APPLIED" if result.get("confirm") else "DRY-RUN"
+    skipped = result.get("skipped") or []
+    skipped_note = ""
+    if skipped:
+        pairs = ", ".join(f"{s.get('src_id')} <-> {s.get('dst_id')}" for s in skipped)
+        skipped_note = (
+            f"WARNING: skipped {len(skipped)} proposal(s) referencing "
+            f"unknown relationships: {pairs}\n"
+        )
     if result.get("no_op_reason"):
         return (
             f"Apply advance {mode}: chapter {result.get('chapter_no')} "
             f"no-op ({result['no_op_reason']}) auto_apply={result.get('auto_apply', False)}\n"
+            f"{skipped_note}"
         )
     diff = result.get("diff") or "(no changes)"
     auto_tag = ""
@@ -41,5 +50,6 @@ def render_apply_advance_result(result: Dict[str, Any]) -> str:
     return (
         f"Apply advance {mode}: chapter {result.get('chapter_no')} "
         f"indexes={result.get('selected', [])} applied_count={result.get('applied_count', 0)}{auto_tag}\n"
+        f"{skipped_note}"
         f"{diff}\n"
     )
