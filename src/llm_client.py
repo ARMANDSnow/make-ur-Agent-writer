@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-import math
 import os
 import sys as _sys
 import types
@@ -428,18 +427,12 @@ class LLMClient:
         }
 
     def _count_tokens(self, text: str) -> tuple[int, str]:
-        if not text:
-            return 0, "tiktoken"
-        try:
-            import tiktoken  # type: ignore
+        # iter 047a: delegate to the free function in context_budget so token
+        # counting has a single source of truth (also used by the budget
+        # assembler). Return shape (tokens, method) is unchanged.
+        from .context_budget import count_tokens
 
-            try:
-                encoding = tiktoken.encoding_for_model(str(self.model))
-            except Exception:
-                encoding = tiktoken.get_encoding("cl100k_base")
-            return len(encoding.encode(text)), "tiktoken"
-        except Exception:
-            return math.ceil(len(text) / 1.6), "estimate"
+        return count_tokens(text, self.model)
 
     def _check_context(self, prompt_tokens: int, max_tokens: int) -> None:
         context_limit = int(self.config.get("context_limit", 128000))
