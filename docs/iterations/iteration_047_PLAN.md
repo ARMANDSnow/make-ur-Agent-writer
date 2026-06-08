@@ -133,4 +133,17 @@ PYTHONPYCACHEPREFIX="$PWD/.pycache" .venv/bin/python -m pytest tests/ -q   # 应
 
 ## Acceptance Result
 
-（待 047a–d 逐步实现后回填；或见各 `iteration_047{a..d}_PLAN.md`。）
+iter047 完成（047a–d，2026-06-08；全程 mock-first，每子迭代经子代理对抗 review + 修复后提交）。
+
+| 子迭代 | commit | 测试 | review |
+|---|---|---|---|
+| 047a context_budget 基建 | `ca952ad` | test_context_budget 17 | ship |
+| 047b KB 起点安全过滤（gap b） | `882ae7a` | test_kb_view 7 | fix-then-ship（H1 外部 review 漏接 KB 已修）|
+| 047c 伏笔 TTL GC + must-resolve 闸门 | `206ba23` | test_foreshadowing 11 | fix-then-ship（H1/H2/H3 + 共因 bug 已修）|
+| 047d reader/character 细分轴 | `fae2aa0` | test_reader_character_filter 5 | fix-then-ship（H1 fail-open 已修）|
+
+- 全量回归（3.13）：**641 passed, 3 failed**（既有无关：`test_env_isolation` + `test_llm_client_cache`×2）。
+  - 注（iter047B2 修正，2026-06-08）：此处 3 failed 经查为 **pytest runner artifact**——canonical `unittest discover` 当时即全绿；根因是 pytest 下 `.env` 被反复重注入（detector 未认 pytest + litellm import 时 reload dotenv）。已在 iter047B2 用 M9（detector 认 pytest + 新增 `tests/conftest.py`）修复，现 `unittest`(657) 与 `pytest`(657) 双 runner 均全绿。详见 `iteration_047B2_PLAN.md`。
+- **gap b（KB 剧透）已闭合**：writer / planner / debater / 外部 review 四处 KB 注入点都经 `start_safe_knowledge` 只注入起点 ≤S 的结构化知识。
+- 新增 `src/context_budget.py` / `src/kb_view.py` / `src/foreshadowing.py` + paths/preflight/book_runner/compressor 接线；详见各 `iteration_047{a..d}_PLAN.md`。
+- **已知后续**：① 伏笔 gc 持久化（写循环每章 gc）+ CLI resolve/列表 + web 伏笔视图；② reader/character 配套生产者（extractor/bootstrap/人工 authoring）落地前 047d 三轴 dormant（fail-open，零行为变化）；③ `context_budget` 仅 KB 层经 `start_safe_knowledge` 注入，writer 多层装配未全迁 `assemble`（高风险重构，单独评估）。
