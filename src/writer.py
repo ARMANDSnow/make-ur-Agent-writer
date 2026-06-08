@@ -11,6 +11,7 @@ from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
 from .entity_advance import active_relationships, save_entity_advance_proposals
+from .kb_view import start_safe_knowledge
 from .linter import NovelLinter, count_chinese_chars
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
@@ -70,7 +71,10 @@ def write_chapters(
     ensure_dir(drafts_dir)
     if not outline_path.exists():
         raise FileNotFoundError("outline not found; run `python main.py debate` first")
-    knowledge = kb_path.read_text(encoding="utf-8") if kb_path.exists() else ""
+    # iter 047b: start-safe KB view — with a start point + index this drops
+    # post-start canon from the KB; with neither it returns the raw KB verbatim
+    # (byte-identical to pre-047b). Truncation to knowledge_limit stays in _write_prompt.
+    knowledge = start_safe_knowledge(kb_path=kb_path, index_path=index_path)
     outline = outline_path.read_text(encoding="utf-8")
     index = read_json(index_path, {})
     chapter_plan = _load_chapter_plan()

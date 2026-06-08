@@ -50,7 +50,7 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     _check_cache_provider(warn)
     _check_global_facts(warn, root)
     _check_runtime_env(warn)
-    _check_start_safe_knowledge(warn, root)
+    _check_start_safe_knowledge(warn, info, root)
     _summarize_llm_logs(info, root)
 
     status = "fail" if fatal else "warn" if warn else "ok"
@@ -266,12 +266,21 @@ def _check_runtime_env(warn: List[str]) -> None:
             warn.append("WRITE_MAX_TOKENS is not an integer; model config will use its default max_tokens.")
 
 
-def _check_start_safe_knowledge(warn: List[str], root: Path) -> None:
+def _check_start_safe_knowledge(warn: List[str], info: List[str], root: Path) -> None:
     kb = root / "data" / "knowledge_base" / "global_knowledge.md"
+    index = root / "data" / "knowledge_base" / "knowledge_index.json"
     start = root / "data" / "manual_overrides" / "start_chapter.json"
-    if kb.exists() and start.exists():
+    if not (kb.exists() and start.exists()):
+        return
+    if index.exists():
+        info.append(
+            "global_knowledge 起点安全已生效：writer/planner/debater/external-review 经 "
+            "start_safe_knowledge 仅注入起点及之前的结构化知识（iter 047b）。"
+        )
+    else:
         warn.append(
-            "global_knowledge.md is not yet filtered by start point; planner/writer should treat it as potentially spoiler-prone."
+            "global_knowledge.md 未按起点过滤且缺 knowledge_index.json；回退注入原文"
+            "（可能含起点后剧透）。运行 `compress` 生成 index。"
         )
 
 

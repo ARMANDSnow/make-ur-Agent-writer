@@ -10,6 +10,7 @@ from . import paths
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
+from .kb_view import start_safe_knowledge
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .persona_loader import load_personas, render_agent_fields
@@ -74,7 +75,8 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
     agents = load_agents()
     if not agents:
         raise ValueError("no debate agents configured")
-    knowledge = kb_path.read_text(encoding="utf-8")
+    # iter 047b: start-safe KB view (no start point -> raw KB verbatim).
+    knowledge = start_safe_knowledge(kb_path=kb_path, index_path=index_path)
     index = read_json(index_path, {})
     facts = global_facts_summary()
     client = LLMClient("debate")

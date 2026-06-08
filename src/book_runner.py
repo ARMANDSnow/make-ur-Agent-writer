@@ -15,7 +15,8 @@ from .preflight import run_preflight
 from .proposal_validator import validate_proposals_against_plan
 from .reviewer import review_target
 from .utils import ensure_dir, read_json, write_json
-from .writer import _chapter_plan_item, _kb_path, _load_chapter_plan, _run_context, write_chapters
+from .kb_view import start_safe_knowledge
+from .writer import _chapter_plan_item, _index_path, _kb_path, _load_chapter_plan, _run_context, write_chapters
 
 
 class BookRunBlocked(RuntimeError):
@@ -402,9 +403,15 @@ def check_write_readiness(
                         f"inspect {drafts_dir / f'chapter_{chapter_no:02d}.md'} and rerun write-book with --force if safe"
                     )
 
-    kb_path = (paths.workspace_root() if paths.workspace_name() else Path(".")) / "data" / "knowledge_base" / "global_knowledge.md"
-    if start_point.get_start_chapter_id() and kb_path.exists():
-        warnings.append("knowledge_base is still global; start-point-filtered KB is not implemented in iter029")
+    kb_dir = (paths.workspace_root() if paths.workspace_name() else Path(".")) / "data" / "knowledge_base"
+    if (
+        start_point.get_start_chapter_id()
+        and (kb_dir / "global_knowledge.md").exists()
+        and not (kb_dir / "knowledge_index.json").exists()
+    ):
+        warnings.append(
+            "knowledge_index.json 缺失：KB 无法按起点过滤，将回退注入全书原文（可能含起点后剧透）。运行 compress 生成 index。"
+        )
 
     status = "blocked" if blockers else "warn" if warnings else "ready"
     return {
@@ -636,7 +643,9 @@ def _build_review_context(chapter_plan_item: Dict[str, Any] | None) -> Dict[str,
 
     kb_path = _kb_path()
     try:
-        knowledge = kb_path.read_text(encoding="utf-8")[:6000] if kb_path.exists() else ""
+        # iter 047b: external review must also see only start-safe KB, else the
+        # reviewer judges fidelity against post-start canon (spoiler + bias).
+        knowledge = start_safe_knowledge(kb_path=kb_path, index_path=_index_path())[:6000]
     except OSError:
         knowledge = ""
     try:

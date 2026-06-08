@@ -273,11 +273,16 @@ def _format_start_point_context(start_chapter_id: str | None) -> str:
 
 
 def _load_knowledge() -> str:
-    """Iter 021: read global_knowledge.md, truncated. Empty string if absent."""
-    p = paths.kb_path() if paths.workspace_name() else ROOT / "data" / "knowledge_base" / "global_knowledge.md"
-    if not p.exists():
-        return ""
-    return p.read_text(encoding="utf-8")[:5000]
+    """Iter 021 / 047b: start-safe KB view, truncated to 5000 chars.
+
+    Delegates to ``kb_view.start_safe_knowledge`` so a configured start point
+    gets a spoiler-filtered structured block; with no start point / no index it
+    returns the original ``global_knowledge.md`` verbatim (byte-identical to
+    iter 021).
+    """
+    from .kb_view import start_safe_knowledge
+
+    return start_safe_knowledge()[:5000]
 
 
 def _load_rolling_summary() -> str:
