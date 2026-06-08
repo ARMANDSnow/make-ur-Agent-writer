@@ -52,6 +52,11 @@ def _fact_has_spoiler_evidence(fact: Dict[str, Any]) -> bool:
 
     if start_point.get_start_chapter_id() is None:
         return False
+    # iter 047d (optional, fail-open): explicit reader-known-after axis — the
+    # reader learns this fact only after the start point, so hide it pre-start.
+    reader_known_after = fact.get("reader_known_after")
+    if reader_known_after and start_point.is_after_start(reader_known_after):
+        return True
     spans = fact.get("evidence_spans") or []
     if not spans:
         return False

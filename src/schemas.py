@@ -302,6 +302,9 @@ class GlobalFact(BaseModel):
     scope: str = "global"
     evidence_spans: List[EvidenceSpan] = Field(default_factory=list)
     applies_to: List[str] = Field(default_factory=list)
+    # iter 047d: optional reader-known-after axis (chapter_id). Empty = use
+    # evidence chapter_ids only (iter 021 behavior).
+    reader_known_after: str = ""
 
 
 class ProposalMeta(BaseModel):
