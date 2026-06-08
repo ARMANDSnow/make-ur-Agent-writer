@@ -84,6 +84,10 @@ def write_chapters(
     configured_attempts = int(agent_cfg["max_review_attempts"])
     rewrite_limit = int(max_attempts) if max_attempts is not None else configured_attempts
     polish_enabled = bool(agent_cfg.get("polish_pass", True))
+    # Iter 046: AgentWrite-style segmented write. Off by default → byte-identical
+    # single-shot behavior. On + a chapter_plan_item carrying `segments` →
+    # generate the chapter segment-by-segment honoring per-segment word quotas.
+    segmented_write_enabled = bool(agent_cfg.get("segmented_write", False))
     shadow_review_enabled = bool(agent_cfg.get("review_during_lint_block", True))
     linter = NovelLinter()
     reports: List[Dict[str, Any]] = []
@@ -157,7 +161,7 @@ def write_chapters(
             for attempt in range(1, rewrite_limit + 1):
                 stage = "write"
                 progress(f"write-attempt-{attempt}", 0.05)
-                messages, cache_segments = _write_prompt(
+                prompt_kwargs = dict(
                     chapter_no=chapter_no,
                     knowledge=knowledge,
                     facts=facts,
@@ -170,8 +174,15 @@ def write_chapters(
                     previous_chapter_ending=previous_chapter_ending,
                     feedback=feedback,
                 )
+                seg_plan = (chapter_plan_item or {}).get("segments") or []
                 try:
-                    draft = _complete_write_text(client, messages, cache_segments).strip()
+                    if segmented_write_enabled and seg_plan:
+                        draft = _write_chapter_segmented(
+                            client, seg_plan, prompt_kwargs
+                        ).strip()
+                    else:
+                        messages, cache_segments = _write_prompt(**prompt_kwargs)
+                        draft = _complete_write_text(client, messages, cache_segments).strip()
                 except Exception as exc:
                     partial_draft = _partial_draft_from_exception(exc)
                     if partial_draft:
@@ -563,6 +574,10 @@ def _write_prompt(
     rolling_context: str = "",
     previous_chapter_ending: str = "",
     feedback: str = "",
+    segment: Optional[Dict[str, Any]] = None,
+    segment_index: int = 1,
+    segment_total: int = 1,
+    prior_segments_text: str = "",
 ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
     light_prompt = _write_prompt_profile() == "light"
     knowledge_limit = 2500 if light_prompt else 9000
@@ -718,15 +733,37 @@ def _write_prompt(
         if light_prompt
         else ""
     )
+    # Iter 046: in segmented mode the per-章 length target is replaced by a
+    # per-段 quota and a segment directive (suppress wrap-up on non-final
+    # segments). When ``segment is None`` both blocks reproduce the original
+    # strings exactly → single-shot prompt stays byte-identical.
+    if segment is not None:
+        seg_target = int(segment.get("target_chinese_chars", 1200) or 1200)
+        length_block = (
+            "# 本段目标长度\n\n"
+            f"这是本章第 {segment_index}/{segment_total} 段，本段中文正文约 {seg_target} 字。\n\n"
+        )
+        segment_block = _segment_directive_block(
+            segment=segment,
+            segment_index=segment_index,
+            segment_total=segment_total,
+            prior_segments_text=prior_segments_text,
+        )
+    else:
+        length_block = (
+            "# 本章目标长度\n\n"
+            "中文正文 3500-5500 字之间，过短会被自动重写。\n\n"
+        )
+        segment_block = ""
     dynamic_context = (
         f"{anchor_context}"
-        "# 本章目标长度\n\n"
-        "中文正文 3500-5500 字之间，过短会被自动重写。\n\n"
+        f"{length_block}"
         f"续写第 {chapter_no} 章。\n\n"
         f"人工全局事实:\n{facts_for_prompt}\n\n"
         f"{rolling_block}"
         f"{ending_block}"
         f"{chapter_plan_block}"
+        f"{segment_block}"
         f"{light_style_block}"
         f"previous_review_feedback:\n{feedback}"
     )
@@ -740,6 +777,86 @@ def _write_prompt(
         {"role": "user", "content": dynamic_context, "cache": False},
     ]
     return messages, cache_segments
+
+
+def _segment_directive_block(
+    *,
+    segment: Dict[str, Any],
+    segment_index: int,
+    segment_total: int,
+    prior_segments_text: str,
+) -> str:
+    """Iter 046: per-segment instructions for the segmented write loop.
+
+    Tells the writer which beat to cover, to weave on from prior segments
+    (segment > 1 must not restart from opening_scene), and — crucially — to
+    NOT wrap up the chapter / write an ending hook unless this is the final
+    segment. Only ``_write_prompt`` calls this, and only when a segment is
+    present; the single-shot path never emits this block.
+    """
+
+    beat = str(segment.get("beat", "")).strip()
+    prior_block = ""
+    if prior_segments_text:
+        prior_block = (
+            "## 本章已写前文（无缝衔接续写，不要重复已写内容）\n\n"
+            f"{prior_segments_text[-4000:]}\n\n"
+        )
+    is_final = bool(segment.get("is_final")) or segment_index >= segment_total
+    if is_final:
+        tail_instruction = (
+            "本段是本章最后一段：自然收束全章，并写出 ending_hook 暗示的结尾钩子。"
+        )
+    else:
+        tail_instruction = (
+            "本段不是最后一段：只写完本段 beat 对应的情节，自然停在中途；"
+            "不要收束全章、不要写章节结尾、不要写下一章钩子、不要做总结性收尾句。"
+        )
+    if segment_index == 1:
+        position_instruction = "本段为开篇段，按本章计划的 opening_scene 开场。"
+    else:
+        position_instruction = (
+            "本段衔接上面【本章已写前文】继续写，不要从 opening_scene 重新开场、不要重述已写情节。"
+        )
+    return (
+        "# 分段写作（配额循环）\n\n"
+        f"{prior_block}"
+        f"本段 beat：{beat}\n\n"
+        f"{position_instruction}\n"
+        f"{tail_instruction}\n\n"
+    )
+
+
+def _write_chapter_segmented(
+    client: LLMClient,
+    segments: List[Dict[str, Any]],
+    prompt_kwargs: Dict[str, Any],
+) -> str:
+    """Iter 046: AgentWrite-style segment loop. Generate the chapter one
+    segment at a time — each honoring its word-count quota and (for non-final
+    segments) suppressing premature wrap-up — then concatenate. The assembled
+    chapter flows through the unchanged lint / review / polish / persist path.
+
+    Stable context (style / KB / outline / entity state) stays ``cache:True``
+    and constant across all segments of a chapter; only the per-segment
+    dynamic block is ``cache:False`` — so segmentation stays cache-cost cheap.
+    """
+
+    total = len(segments)
+    parts: List[str] = []
+    for idx, segment in enumerate(segments, start=1):
+        prior_text = "\n\n".join(parts)
+        messages, cache_segments = _write_prompt(
+            **prompt_kwargs,
+            segment=segment,
+            segment_index=idx,
+            segment_total=total,
+            prior_segments_text=prior_text,
+        )
+        piece = _complete_write_text(client, messages, cache_segments).strip()
+        if piece:
+            parts.append(piece)
+    return "\n\n".join(parts)
 
 
 def _summarize_chapter(client: LLMClient, chapter_no: int, draft: str) -> Dict[str, Any]:

@@ -135,6 +135,29 @@ class ChapterSummary(BaseModel):
     ending_state: str = ""
 
 
+class ChapterSegment(BaseModel):
+    """Iter 046: AgentWrite-style segment with a word-count quota.
+
+    Optional per-chapter decomposition. When a ``ChapterPlanItem`` carries
+    segments AND the writer's ``segmented_write`` toggle is on, the writer
+    generates the chapter segment-by-segment, honoring each quota and
+    suppressing premature wrap-up on non-final segments. An empty
+    ``segments`` list (the default) => single-shot generation, byte-identical
+    to pre-046. Segments are intentionally excluded from the chapter plan
+    fingerprint (see ``plot_planner.chapter_plan_item_fingerprint``) so
+    adding the field never invalidates an already-written chapter.
+    """
+
+    segment_no: int = Field(ge=1, description="段序号，从 1 连续递增")
+    beat: str = Field(description="本段要写的情节 beat，一句话")
+    target_chinese_chars: int = Field(
+        default=1200, ge=300, le=4000, description="本段目标中文字数（配额）"
+    )
+    is_final: bool = Field(
+        default=False, description="是否为本章最后一段；只有最后一段写 ending_hook 收尾"
+    )
+
+
 class ChapterPlanItem(BaseModel):
     chapter_no: int
     title: str
@@ -144,6 +167,10 @@ class ChapterPlanItem(BaseModel):
     ending_hook: str = Field(description="本章结尾留给下章承接的钩子")
     target_chinese_chars: int = Field(default=4000, ge=2500, le=6000)
     plot_purpose: str = Field(description="本章在整本书情节弧线中的作用")
+    segments: List[ChapterSegment] = Field(
+        default_factory=list,
+        description="可选：分段写作计划（配额循环）；为空则单发生成",
+    )
     chapter_plan_item_fingerprint: str = ""
 
 

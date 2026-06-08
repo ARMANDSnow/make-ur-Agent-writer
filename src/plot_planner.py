@@ -184,6 +184,10 @@ def chapter_plan_item_fingerprint(item: Dict[str, Any]) -> str:
             "chapter_plan_item_fingerprint",
             "plan_fingerprint",
             "start_point_fingerprint",
+            # Iter 046: segments are a writing-time decomposition, not a plan
+            # semantics change — exclude so adding the field never invalidates
+            # an already-written chapter's stored fingerprint.
+            "segments",
         }
     }
     return sha256_data(stable)
@@ -199,7 +203,7 @@ def plan_fingerprint(data: Dict[str, Any]) -> str:
                 {
                     key: value
                     for key, value in item.items()
-                    if key not in {"chapter_plan_item_fingerprint"}
+                    if key not in {"chapter_plan_item_fingerprint", "segments"}
                 }
             )
     payload = {
@@ -388,6 +392,10 @@ def _build_planner_prompt(
         "anchor 叙事补充 > 辩论大纲 > 其它。若 anchor 与 显式起点 不一致，"
         "anchor 视为过期，按显式起点 chapter_id 之后的时空规划。\n"
         "10. 如已存在 plan 末尾章节给出（append 模式），新规划必须从其 ending_hook 自然承接。\n\n"
+        "11. （可选）配额循环：可为每章提供 segments 分段写作计划，用于长章字数控制。"
+        "若提供，segments 为 2-6 段，每段含 segment_no（从 1 连续递增）、beat（本段情节一句话）、"
+        "target_chinese_chars（本段目标中文字数）、is_final（仅最后一段为 true）；"
+        "各段 target_chinese_chars 之和应≈本章 target_chinese_chars。不需要分段则留空数组 []。\n\n"
         f"# ChapterPlan JSON schema\n\n{schema}\n\n"
         f"{knowledge_block}"
         f"{start_point_block}"
