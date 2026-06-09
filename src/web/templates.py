@@ -630,6 +630,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '</div>'
         '</form>'
         '<div id="plan-chapters-status"></div>'
+        '<div id="plan-chapters-preview" class="muted" style="margin-top:12px">尚未生成细纲。</div>'
         '</div>'
         '<div class="card-footer">'
         '<a class="btn btn-ghost btn-sm" href="/w/' + esc + '/plan">查看细纲详情 →</a>'

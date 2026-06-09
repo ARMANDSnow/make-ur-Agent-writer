@@ -1103,3 +1103,30 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. **048c**（细纲）：workbench 阶段③改「只读 + 重新生成细纲」（重跑 plan-chapters 天然重算指纹），核心验证重生成后 write-book 不撞 `plan_fingerprint` 门禁。
 2. **write-book 在 mock 下 `retry_exhausted` 是固有行为**（mock reviewer 默认 Reject，`reviewer.py:68`）：workbench stage④ 用严格 write-book 是有意设计，draft 写出但未 approve、真实模型才 approve；048b 测试据此断言 draft 落盘 + stage=done，不强求 approved。
 3. 046/047 README/Handoff 回填仍待办（沿 048a 接力点 4）。
+
+## Phase 4 Status（iter 048c，2026-06-09）
+
+### Iteration 048c — 小白四步工作台·细纲只读 + 重新生成 + 写书指纹链兼容回归（mock-only）
+
+**目标**：iter048 串行子迭代终章。workbench stage③ 从「跳走查看细纲」升级为「就地只读展示 + 重生成按钮」；核心使命是**钉牢红队最深暗礁**——细纲改动走"重跑 plan-chapters"路径而非手改回写，让 `write-book` 的 `plan_fingerprint` / `chapter_plan_item_fingerprint` 严格门禁（`book_runner._plan_metadata_failures` `L561-606`）始终自洽。执行档案 `iteration_048c_PLAN.md`。
+
+**主要落地**：
+- `templates.render_workspace_workbench` stage③ 加 `#plan-chapters-preview` 占位容器（HTML +1 div）。
+- `static.refreshWorkbench` 重构：单次 `/plan` 拉取里同时回填大纲 + 渲染细纲 `kv-list`（第 NN 章 / title / · 约 N 字）；新增 `renderPlanPreview(plan)`；按 `has_plan` 切换 `#plan-chapters-submit` 文案为「生成细纲」/「重新生成细纲」。
+- **核心反陷阱测试** `test_workbench_replan.py`（3 测）：人为把 `plan_fingerprint` 置为 `"deadbeef"*8`、首章 `chapter_plan_item_fingerprint` 置为 `"cafebabe"*8`（模拟"假如有人手改了细纲"），再跑 plan-chapters → 所有指纹**自动恢复**到 `plan_fingerprint(data)` / `chapter_plan_item_fingerprint(item)` 的当前重算值；write-book 之后不撞 fingerprint mismatch（draft 落盘）；workbench status 仍正确。
+
+**对抗审核（铁律⑨）**：三个测试本身就是对红队最深暗礁的反陷阱守门 + 实机端到端验证；UI 改动对 048b 现有契约零破坏（684 全绿即证据）。未额外 spawn subagent。
+
+**验证进度**：
+- `OPENAI_MODEL=mock .venv/bin/python -m unittest discover -s tests` → **684 OK**（基线 681 + 新增 3，零回归）。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → PREFLIGHT: ok。
+- **浏览器实机**（CLAUDE.md 铁律）：dev server 上 livebook2 跑完 premise→prepare→debate→plan-chapters，workbench stage③ 卡片内细纲列表渲染（5 章，每行"第 NN 章 / mock 第 N 章 · 约 4000 字"），**按钮文案 = "重新生成细纲"**（has_plan 触发文案切换），console 零错误。
+
+**iter048 完结总结**：
+- 048a 后端骨架（674 OK）→ 048b 前端工作台+大纲回写（681 OK + 实机）→ 048c 细纲只读+重生成+指纹自洽（684 OK + 实机）。
+- **红队对原计划的 7 条修正全部兑现**：①`_WORKSPACE_SECTIONS` 入口 ②`require_start_point:false` ③mtime 链防旧产物误判 ④prepare-greenfield 进度契约修正 ⑤premise 包装单章修复 splitter 假设 ⑥`_validate_plan_chapters_params` 行为变更 ⑦细纲"重生成"路径绕开指纹链陷阱。
+
+**当前接力点**：
+1. **049**：细纲结构化字段编辑（每章 7+ 字段 + 数组增删）+ 正文逐章深度编辑回写 + 重 review；premise 扩写质量增强（短种子→高质量多章）；设定（KB/entity_graph）编辑回写；真模型授权 + 测 Key 成本护栏深化。
+2. **048 真模型端到端**：mock 已全链路跑通，真模型链路（铁律⑥需用户授权）尚未走一遍；建议 049 前用一次最低成本真模型 smoke 钉牢 workbench 真模型场景下「stage④可 Approve」假设。
+3. 046/047 README/Handoff 回填仍待办（沿 048a/048b 接力点）。

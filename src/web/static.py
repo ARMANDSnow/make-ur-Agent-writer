@@ -2219,15 +2219,58 @@ JS_DASHBOARD = """\
     setStageEnabled("outline-save", !!st.has_outline);
     setStageEnabled("plan-chapters-submit", !!st.has_outline);
     setStageEnabled("write-book-submit", !!st.has_plan);
-    const area = document.getElementById("outline-md");
-    if (area && st.has_outline && !area.dataset.dirty && document.activeElement !== area) {
+    // iter 048c: re-label the plan-chapters button so users see that they're
+    // RE-generating an existing plan (重生成 = re-plan from scratch, since the
+    // backend already forces force=true; we drop the prior chapter_plan.json
+    // and re-run generate_chapter_plan which calls _attach_plan_fingerprints,
+    // so write-book's plan_fingerprint gate stays self-consistent — no手改
+    // JSON or manual fingerprint plumbing involved).
+    const planBtn = document.getElementById("plan-chapters-submit");
+    if (planBtn) planBtn.textContent = st.has_plan ? "重新生成细纲" : "生成细纲";
+    // Pull the read-only artifacts (outline + chapter_plan) in a single
+    // fetch and refresh whatever sections have data. has_plan implies
+    // has_outline in our gate, and outline_md回填 is gated on "user not editing".
+    if (st.has_outline) {
+      let plan;
       try {
-        const plan = await fetchJson(wsUrl("/plan"));
-        if (typeof plan.outline_md === "string") area.value = plan.outline_md;
+        plan = await fetchJson(wsUrl("/plan"));
       } catch (err) {
-        /* ignore */
+        return;
       }
+      const area = document.getElementById("outline-md");
+      if (area && !area.dataset.dirty && document.activeElement !== area) {
+        if (typeof plan.outline_md === "string") area.value = plan.outline_md;
+      }
+      renderPlanPreview(plan && plan.plan);
     }
+  }
+  function renderPlanPreview(plan) {
+    const box = document.getElementById("plan-chapters-preview");
+    if (!box) return;
+    const chapters = (plan && plan.chapters) || [];
+    if (!chapters.length) {
+      box.className = "muted";
+      box.textContent = "尚未生成细纲。";
+      return;
+    }
+    // Read-only: chapter_no + title + target char budget. Editing留 049
+    // (any in-place edit would invalidate plan_fingerprint and block stage④,
+    // so 048c deliberately gates "change细纲" through the重生成 button which
+    // re-runs the planner and re-attaches fingerprints — the red-team's
+    // 指纹链 trap is消解 by route, not by handwritten reconciliation).
+    let html = '<div class="kv-list compact">';
+    for (const ch of chapters) {
+      const num = ch.chapter_no == null ? "?" : String(ch.chapter_no).padStart(2, "0");
+      const title = ch.title || "(未命名)";
+      const target = ch.target_chinese_chars ? "约 " + ch.target_chinese_chars + " 字" : "";
+      html += '<div class="k">第' + escapeHtml(num) + '章</div>' +
+        '<div class="v">' + escapeHtml(title) +
+        (target ? ' <span class="muted">· ' + escapeHtml(target) + '</span>' : '') +
+        '</div>';
+    }
+    html += "</div>";
+    box.className = "";
+    box.innerHTML = html;
   }
   async function populateStartPointSelect() {
     const select = document.getElementById("start-point-select");
