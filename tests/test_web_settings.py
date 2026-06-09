@@ -28,8 +28,11 @@ class SettingsTests(unittest.TestCase):
     def tearDown(self) -> None:
         settings_mod._ENV_PATH = self._saved_path
         Path(self._tmp.name).unlink(missing_ok=True)
-        # Clean any .tmp leftover from atomic write
-        Path(self._tmp.name + ".tmp").unlink(missing_ok=True)
+        # iter 048d (A5): atomic write now uses per-writer tmp suffix
+        # (.tmp.<pid>.<tid>), so glob-clean any leftover.
+        base = Path(self._tmp.name)
+        for leftover in base.parent.glob(base.name + ".tmp*"):
+            leftover.unlink(missing_ok=True)
 
     def test_get_masks_api_key(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/api/settings")
@@ -82,7 +85,11 @@ class SettingsTests(unittest.TestCase):
 
     def test_put_atomic_replace_no_tmp_left(self) -> None:
         routes.dispatch("PUT", "/api/settings", json.dumps({"OPENAI_MODEL": "mock"}).encode())
-        self.assertFalse(Path(self._tmp.name + ".tmp").exists())
+        # iter 048d (A5): tmp suffix is now .tmp.<pid>.<tid>; glob-assert
+        # no leftover of any shape.
+        base = Path(self._tmp.name)
+        leftovers = list(base.parent.glob(base.name + ".tmp*"))
+        self.assertEqual(leftovers, [], f"unexpected tmp leftover: {leftovers}")
 
 
 if __name__ == "__main__":

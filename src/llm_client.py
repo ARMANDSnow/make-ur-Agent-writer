@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+import re
 import sys as _sys
 import types
 import time
@@ -268,12 +269,22 @@ class LLMClient:
             }
         except Exception as exc:
             # Never surface the api_key: some providers echo request kwargs
-            # in their error string. Redact the configured key explicitly,
-            # then cap length as defense-in-depth.
+            # in their error string. Layered defense:
+            #   1. exact-match replace of the configured key (covers plaintext)
+            #   2. Bearer <token> pattern (covers Authorization headers
+            #      echoed by middleware / proxies)
+            #   3. sk-<long token> pattern (covers OpenAI-style keys that
+            #      appear bare in error bodies; min length 16 so we don't
+            #      false-positive on names like "sk-test")
+            #   4. length cap as last-resort defense in depth
+            # iter 048d (C2(a)): the prior code only had step 1, which
+            # missed any encoded/echoed form of the key.
             err = f"{type(exc).__name__}: {exc}"
             key = self.config.get("api_key")
             if isinstance(key, str) and len(key) >= 8:
                 err = err.replace(key, "***")
+            err = re.sub(r"Bearer\s+\S+", "Bearer ***", err)
+            err = re.sub(r"sk-[A-Za-z0-9_\-]{16,}", "sk-***", err)
             return {
                 "task": self.task,
                 "model": self.model,

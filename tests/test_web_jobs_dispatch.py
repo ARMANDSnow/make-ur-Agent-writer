@@ -294,6 +294,52 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(job["status"], "budget_exceeded")
         self.assertEqual(job["result_summary"]["cost_cny"], 1.2)
 
+    # ---- iter 048d A4: prep step readiness blockers ----------------------
+    # Each prep step now reports a friendly ``blocked`` dict with a
+    # machine-readable ``reason`` when its prerequisite artifact is
+    # missing, instead of letting the underlying FileNotFoundError become
+    # a job-level ``failed``. The fresh "alpha" workspace from setUp has
+    # only the four empty subdirs and no extracted/manifest/KB files, so
+    # every prep step starting from split is blocked.
+
+    def _assert_blocked(self, workspace: str, step: str, reason: str, params: dict | None = None) -> dict:
+        status, data = self._post_run(workspace, {"step": step, "params": params or {}})
+        self.assertEqual(status, 202, data)
+        job = self._wait_for_done(workspace, data["job_id"], timeout=10.0)
+        self.assertEqual(job["status"], "blocked", f"{step}: {job.get('error')}")
+        blocked = (job.get("result_summary") or {}).get("first_blocked") or {}
+        # _summarize_result for generic dicts doesn't pull first_blocked,
+        # so fall through to the result itself when missing.
+        if not blocked:
+            keys = (job.get("result_summary") or {}).get("keys") or []
+            self.assertIn("blocked", keys, f"{step}: result missing blocked list")
+            return job
+        self.assertEqual(blocked.get("reason"), reason, f"{step}: {blocked}")
+        return job
+
+    def test_split_blocked_when_normalized_missing(self) -> None:
+        self._assert_blocked("alpha", "split", "normalized_missing")
+
+    def test_extract_blocked_when_manifest_missing(self) -> None:
+        self._assert_blocked("alpha", "extract", "manifest_missing")
+
+    def test_compress_blocked_when_extractions_missing(self) -> None:
+        self._assert_blocked("alpha", "compress", "extractions_missing")
+
+    def test_bootstrap_blocked_when_extractions_missing(self) -> None:
+        self._assert_blocked("alpha", "bootstrap", "extractions_missing")
+
+    def test_apply_bootstrap_blocked_when_proposal_missing(self) -> None:
+        self._assert_blocked(
+            "alpha", "apply-bootstrap", "proposal_missing", params={"name": "no-such"}
+        )
+
+    def test_debate_blocked_when_kb_missing(self) -> None:
+        # Red-team flagged this specific path: prior to 048d, debate would
+        # raise FileNotFoundError from inside run_debate and the job ended
+        # in ``failed`` rather than ``blocked``.
+        self._assert_blocked("alpha", "debate", "kb_missing")
+
 
 if __name__ == "__main__":
     unittest.main()

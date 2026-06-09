@@ -317,20 +317,44 @@ def workspace_reserved(workspace: str):
 # ---- step dispatch ---------------------------------------------------------
 
 
+# iter 048d (A4): each prep step now reports a friendly ``blocked`` dict
+# when its prerequisite artifact is missing, instead of letting a raw
+# FileNotFoundError bubble up to ``failed``. The workbench UI surfaces the
+# ``reason`` field directly to the user, so the step graph stays
+# self-explanatory even when the user clicks out of order. Pattern lifted
+# from ``_step_plan_chapters``.
+def _blocked(reason: str, error: str) -> Dict[str, Any]:
+    return {"status": "blocked", "blocked": [{"reason": reason, "error": error}]}
+
+
 # Each step function takes a workspace-scoped context (the worker
 # already set ``WORKSPACE_NAME`` via use_workspace) and the POST body's
 # ``params`` dict. The function should accept ``progress_cb`` if it
 # can report sub-progress; otherwise the worker reports only entry +
 # exit (progress 0.0 → 1.0).
 def _step_normalize(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    # normalize has no prep prerequisite — the raw .txt in 小说txt/ is the
+    # entry point. If the dir is empty normalize_all returns [] silently
+    # and the user sees "0 normalized" downstream.
     return normalize_all(lang=params.get("lang"))
 
 
 def _step_split(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    norm_dir = paths.normalized_dir()
+    if not norm_dir.exists() or not any(norm_dir.glob("*.md")):
+        return _blocked(
+            "normalized_missing",
+            "no normalized chapters found; run `normalize` first",
+        )
     return split_all(lang=params.get("lang"))
 
 
 def _step_extract(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    if not paths.chapter_manifest_path().exists():
+        return _blocked(
+            "manifest_missing",
+            "chapter manifest not found; run `split` first",
+        )
     return extract_all(
         volume=params.get("volume", "all"),
         limit=params.get("limit"),
@@ -339,10 +363,22 @@ def _step_extract(params: Dict[str, Any], progress_cb: Callable[[str, float], No
 
 
 def _step_compress(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    ex_dir = paths.extracted_dir()
+    if not ex_dir.exists() or not any(ex_dir.glob("*.json")):
+        return _blocked(
+            "extractions_missing",
+            "no extracted JSON found; run `extract` first",
+        )
     return compress_all()
 
 
 def _step_bootstrap_all(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    ex_dir = paths.extracted_dir()
+    if not ex_dir.exists() or not any(ex_dir.glob("*.json")):
+        return _blocked(
+            "extractions_missing",
+            "no extracted JSON found; run `extract` first",
+        )
     return bootstrap_all(force=bool(params.get("force", False)))
 
 
@@ -350,10 +386,25 @@ def _step_apply_bootstrap(params: Dict[str, Any], progress_cb: Callable[[str, fl
     name = params.get("name")
     if not name:
         raise ValueError("apply-bootstrap requires params.name")
+    proposal_path = paths.proposals_dir() / f"{name}.json"
+    if not proposal_path.exists():
+        return _blocked(
+            "proposal_missing",
+            f"proposal '{name}' not found; run `bootstrap` first",
+        )
     return apply_bootstrap(name, confirm=True)
 
 
 def _step_debate(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    # iter 048d (A4): KB readiness check — without this, run_debate raises
+    # FileNotFoundError and the job ends in ``failed`` rather than a
+    # user-facing ``blocked``. This is the path the red-team flagged as
+    # "user clicks debate before compress → cryptic failure".
+    if not paths.kb_path().exists():
+        return _blocked(
+            "kb_missing",
+            "global knowledge base not found; run `compress` (or `prepare-greenfield`) first",
+        )
     topic = params.get("topic")
     return run_debate(topic=topic) if topic else run_debate()
 

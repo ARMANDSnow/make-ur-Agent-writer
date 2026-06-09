@@ -230,6 +230,47 @@ class PremisePrepareDiagTests(unittest.TestCase):
         self.assertTrue(out["is_mock"])
         comp.assert_not_called()
 
+    # ---- iter 048d C2(a): redact widened to Bearer / sk- patterns --------
+
+    def test_ping_redacts_bearer_and_sk_key_from_litellm_error(self) -> None:
+        """Prior to 048d, ping() only redacted exact-match plaintext of the
+        configured ``api_key``. If the upstream litellm/openai error string
+        echoed the credential in encoded form (``Authorization: Bearer
+        <token>``) OR a bare ``sk-...`` from a different source, the raw
+        credential would surface to the workbench client. 048d adds regex
+        redaction for both shapes as defense in depth."""
+        # Force a non-mock client by stubbing the resolved model. Inject
+        # a fake api_key that is INTENTIONALLY different from the token
+        # in the simulated error message — so the exact-match replace path
+        # is NOT what redacts the leak; only the regex layers can do it.
+        leaking_msg = (
+            "AuthenticationError: Incorrect API key provided: "
+            "Authorization: Bearer sk-leakedabcdef1234567890XYZ. "
+            "Also stray sk-anotherbarekey9876543210abcdef in body."
+        )
+
+        client = LLMClient("write")
+        # Replace the mock model so ping() takes the real network branch.
+        client.model = "gpt-4o-mini"
+        client.config = dict(client.config)
+        client.config["model"] = "gpt-4o-mini"
+        client.config["api_key"] = "totally-different-configured-key"
+
+        with patch("litellm.completion", side_effect=Exception(leaking_msg)):
+            res = client.ping()
+
+        self.assertFalse(res["ok"])
+        self.assertFalse(res["mock"])
+        # The actual bearer token must NOT appear in the returned error.
+        self.assertNotIn("sk-leakedabcdef1234567890XYZ", res["error"])
+        self.assertNotIn("sk-anotherbarekey9876543210abcdef", res["error"])
+        # And the redacted markers should be present so the user still
+        # sees the redaction happened (rather than silent truncation).
+        self.assertIn("Bearer ***", res["error"])
+        self.assertIn("sk-***", res["error"])
+        # Exception type stays visible so the user can tell 401 / 429 / etc.
+        self.assertIn("AuthenticationError", res["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

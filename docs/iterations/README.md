@@ -57,3 +57,4 @@
 46. [Iteration 048a - 小白四步工作台·后端骨架（premise 开书 + prepare 复合 step + 测 Key 矩阵）](./iteration_048a_PLAN.md)
 47. [Iteration 048b - 小白四步工作台·前端四阶段页 + 大纲回写](./iteration_048b_PLAN.md)
 48. [Iteration 048c - 小白四步工作台·细纲只读 + 重新生成 + 写书指纹链兼容回归](./iteration_048c_PLAN.md)
+49. [Iteration 048d - iter048 对抗审查 H/M 级修复（tmp 竞态 / PUT outline TOCTOU / prep step readiness / ping redact / 测试 gap）](./iteration_048d_PLAN.md)

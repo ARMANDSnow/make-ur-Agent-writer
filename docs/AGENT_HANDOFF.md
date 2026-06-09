@@ -1130,3 +1130,40 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 1. **049**：细纲结构化字段编辑（每章 7+ 字段 + 数组增删）+ 正文逐章深度编辑回写 + 重 review；premise 扩写质量增强（短种子→高质量多章）；设定（KB/entity_graph）编辑回写；真模型授权 + 测 Key 成本护栏深化。
 2. **048 真模型端到端**：mock 已全链路跑通，真模型链路（铁律⑥需用户授权）尚未走一遍；建议 049 前用一次最低成本真模型 smoke 钉牢 workbench 真模型场景下「stage④可 Approve」假设。
 3. 046/047 README/Handoff 回填仍待办（沿 048a/048b 接力点）。
+
+## Phase 4 Status（iter 048d，2026-06-09）
+
+### Iteration 048d — iter048 对抗审查 H/M 级修复（mock-only）
+
+**目标**：iter048 三轮落地后按铁律⑨ spawn 4 路并行 subagent 对抗审查（视角 A 状态机/竞态、B 指纹链、C API 安全、D 前端 UX），共发现 1 H + 5 M + 多个 L 级风险。048d 集中修 H + 5 M；L 级 UX/a11y 推 049 摊销。**用户拍板**：C2(a) 正则加固（保留排错信息），A4 扫所有 prep step（一劳永逸）。执行档案 `iteration_048d_PLAN.md`。
+
+**主要落地**：
+- **A5（H 阻塞，跨轮遗留）**：`state.write_text_atomic` 的 tmp 后缀 `.tmp` → `.tmp.{pid}.{tid}`，解决并发写撞文件名的潜在竞态（048 让触发面变宽：PUT outline + debater + compress 都用 write_text_atomic）。同步加固 `web/settings.py:159` 自写 .tmp 同款，`test_web_settings` 两处断言改 glob。
+- **A2（M，048b 引入）**：`api_workspace_outline_save` 把单点 `workspace_busy` check 升级为 `workspace_reserved` 上下文，捕 RuntimeError 映射 409，消除 busy check 到 write_text_atomic 之间的 TOCTOU 窗口。范式照抄 `api_workspace_trash`。
+- **A4（M）**：新增 `_blocked()` helper；6 个 prep step（`split/extract/compress/bootstrap/apply-bootstrap/debate`）加前置产物 readiness check，缺产物时返 friendly `blocked{reason:xxx_missing}` 而非 `failed` + trace_id。红队点名的 `_step_debate` 缺 KB 路径被钉牢。
+- **C2(a)（M）**：`LLMClient.ping()` redact 叠加 `Bearer\s+\S+` 和 `sk-[A-Za-z0-9_\-]{16,}` 两层正则，挡住 Authorization 头/裸露 sk- key 的编码形式泄漏路径；保留 `type(exc).__name__` 让用户能区分 401/429。
+- **B-M-1（M，测试 gap）**：`test_workbench_replan` 补 3 测——`plan_fingerprint` 缺失 / 首章 item fp 缺失 / plan-vs-draft mtime 链失效，覆盖原 048c 只测 `*_mismatch` 的盲区。
+
+**对抗审核（铁律⑨）**：本轮本身是上轮审查的修复回应，**不再 spawn 二次审查**避免无限镜厅。10 个新测试 + 实机验证就是答辩证据。
+
+**验证进度**：
+- `OPENAI_MODEL=mock .venv/bin/python -m unittest discover -s tests` → **694 OK**（基线 684 + 新增 10，零回归）。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → PREFLIGHT: ok。
+- **浏览器实机**（CLAUDE.md 铁律）：
+  - A4：premise→跳过 prepare 直点 debate → job 终态 `blocked` + summary `["blocked","status"]`（非 failed/trace_id）；
+  - A2：debate job 启动后并发 PUT `/outline` → 409 `workspace busy` + `running_job_id` 字段；
+  - workspace `a2test`/`a4test` 已清理。
+
+**iter048 完整收官**：
+- 048a 后端骨架（674 OK）→ 048b 前端+大纲（681 OK）→ 048c 细纲+重生成（684 OK）→ **048d 对抗审查 H/M 修复（694 OK）**。
+- 红队对原计划 7 条修正 + 4 路对抗审查 1 H + 5 M 共 12 项全部兑现。
+- 全部 mock 端到端 + 浏览器实机均验证；真模型端到端待 049 用户授权后跑。
+
+**当前接力点（049）**：
+1. **L 级 UX/a11y 集中修**：D1 友好 409 文案 / D4 stale plan loading 占位 / D7 `<label for>` 关联 / C3(c) 控制字符过滤 / B3-hint 提示 → 与正文/设定编辑前端一起做摊销。
+2. **细纲结构化字段编辑**：兑现"全程可编辑"承诺最后一块（每章 7+ 字段 + 数组增删 + 范围校验）。
+3. **正文逐章深度编辑回写 + 重 review**；设定（KB/entity_graph）编辑回写。
+4. **premise 扩写质量增强**（短种子→高质量多章）。
+5. **真模型端到端 smoke**（铁律⑥需用户授权）；测 Key 成本护栏深化。
+6. **B-M-2 防御性重构**：`chapter_plan_item_fingerprint` 字段黑名单改白名单。
+7. 046/047 README/Handoff 回填仍待办（沿 048a-c 接力点）。

@@ -227,6 +227,99 @@ class WorkbenchReplanTests(unittest.TestCase):
         data = self._plan_data("stbook")
         self.assertEqual(data["plan_fingerprint"], plan_fingerprint(data))
 
+    # ---- iter 048d B-M-1: *_missing path coverage ------------------------
+
+    def test_replan_recreates_missing_plan_fingerprint(self) -> None:
+        """The 048c reason-to-exist test covered ``plan_fingerprint`` being
+        WRONG (mismatch). This covers the orthogonal failure mode flagged
+        by adversarial review: ``plan_fingerprint`` field entirely MISSING
+        (e.g. a third-party tool that wrote chapter_plan.json without
+        running it through _attach_plan_fingerprints). Re-running
+        plan-chapters must re-attach a fresh fingerprint."""
+        self._drive_to_plan("missfpbook", target_chapters=5)
+        plan_path = (
+            paths.WORKSPACE_DIR / "missfpbook" / "outputs" / "debate" / "chapter_plan.json"
+        )
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
+        del data["plan_fingerprint"]
+        plan_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        rec = self._run_step(
+            "missfpbook",
+            "plan-chapters",
+            {"target_chapters": 5, "require_start_point": False},
+        )
+        self.assertEqual(rec["status"], "succeeded")
+        data2 = json.loads(plan_path.read_text(encoding="utf-8"))
+        self.assertIn("plan_fingerprint", data2)
+        self.assertEqual(data2["plan_fingerprint"], plan_fingerprint(data2))
+
+    def test_replan_recreates_missing_item_fingerprint(self) -> None:
+        """Mirror of the above but for per-chapter
+        ``chapter_plan_item_fingerprint``. ``book_runner._plan_metadata_failures``
+        treats these as a separate code path (chapter_NN_plan_item_fingerprint_missing
+        vs _mismatch), so coverage must hit both."""
+        self._drive_to_plan("missitembook", target_chapters=5)
+        plan_path = (
+            paths.WORKSPACE_DIR
+            / "missitembook"
+            / "outputs"
+            / "debate"
+            / "chapter_plan.json"
+        )
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
+        del data["chapters"][0]["chapter_plan_item_fingerprint"]
+        plan_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        rec = self._run_step(
+            "missitembook",
+            "plan-chapters",
+            {"target_chapters": 5, "require_start_point": False},
+        )
+        self.assertEqual(rec["status"], "succeeded")
+        data2 = json.loads(plan_path.read_text(encoding="utf-8"))
+        ch1 = data2["chapters"][0]
+        self.assertIn("chapter_plan_item_fingerprint", ch1)
+        self.assertEqual(
+            ch1["chapter_plan_item_fingerprint"],
+            chapter_plan_item_fingerprint(ch1),
+        )
+
+    def test_replan_invalidates_stale_drafts_in_workbench_status(self) -> None:
+        """Adversarial review视角 A flagged that re-planning after the user
+        already wrote drafts should让 has_drafts revert to False (drafts
+        become stale relative to the new plan via mtime chain). Covers the
+        plan-vs-draft link that the original 048b test only checked at the
+        plan-vs-outline link."""
+        self._drive_to_plan("staledraftsbook", target_chapters=5)
+        # Plant a draft so has_drafts goes True under the original plan.
+        drafts_dir = paths.WORKSPACE_DIR / "staledraftsbook" / "outputs" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / "chapter_01.md").write_text("# mock draft\n", encoding="utf-8")
+        _, _ct, body = routes.dispatch(
+            "GET", "/api/workspace/staledraftsbook/workbench"
+        )
+        s_before = json.loads(body)
+        self.assertGreaterEqual(s_before["draft_count"], 1)
+        # Push plan's mtime past the draft, simulating a re-plan.
+        future = time.time() + 100
+        plan_path = (
+            paths.WORKSPACE_DIR
+            / "staledraftsbook"
+            / "outputs"
+            / "debate"
+            / "chapter_plan.json"
+        )
+        os.utime(plan_path, (future, future))
+        _, _ct, body = routes.dispatch(
+            "GET", "/api/workspace/staledraftsbook/workbench"
+        )
+        s_after = json.loads(body)
+        # Drafts on disk are unchanged but the mtime chain now marks them
+        # stale → workbench falls back to the write stage.
+        self.assertEqual(s_after["draft_count"], 1)
+        self.assertEqual(s_after["stage"], "write")
+
 
 if __name__ == "__main__":
     unittest.main()

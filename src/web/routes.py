@@ -665,15 +665,18 @@ def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
 def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
     """PUT /api/workspace/<name>/outline — overwrite the story outline
     (iter 048b, workbench stage ②). Plain-text atomic write; rejects an
-    empty body (which would silently break the stage gate). Refuses while a
-    generation job holds the workspace so a running debate can't clobber the
-    user's edit (job-vs-PUT race; the job lock only guards job-vs-job)."""
+    empty body (which would silently break the stage gate).
+
+    iter 048d (A2): the busy guard now wraps the write inside
+    ``workspace_reserved`` instead of a one-shot ``workspace_busy`` check.
+    The old single-check left a TOCTOU window between the check and the
+    write, during which the debater job could start and write outline.md
+    concurrently. ``workspace_reserved`` atomically reserves the slot for
+    the duration of the write, so ``start_job`` from any concurrent job is
+    refused while we hold it — closing the race in both directions."""
     error = _workspace_error(name)
     if error:
         return error
-    running = jobs.workspace_busy(name)
-    if running:
-        return _json(409, {"error": "workspace busy", "running_job_id": running})
     try:
         payload = json.loads(body.decode("utf-8") or "{}") if body else {}
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -687,11 +690,21 @@ def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]
         return _json(400, {"error": "'outline' too long (max 200000 chars)"})
     from ..state import write_text_atomic
 
-    with use_workspace(name):
-        try:
-            write_text_atomic(paths.outline_path(), outline)
-        except OSError as exc:
-            return _json(500, {"error": f"failed to write outline: {exc}"})
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                try:
+                    write_text_atomic(paths.outline_path(), outline)
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write outline: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            )
+        raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "chars": len(outline)})
 

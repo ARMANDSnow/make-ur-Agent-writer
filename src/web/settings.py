@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -156,7 +157,12 @@ def _write_env_atomic(path: Path, env: Dict[str, str]) -> None:
         if key in env:
             lines.append(f"{key}={env[key]}")
     text = "\n".join(lines) + "\n"
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    # iter 048d (A5): same per-writer tmp suffix as state.write_text_atomic
+    # so concurrent PUT /settings calls (and tests that race them) can't
+    # corrupt each other's tmp mid-write.
+    tmp_path = path.with_suffix(
+        path.suffix + f".tmp.{os.getpid()}.{threading.get_ident()}"
+    )
     tmp_path.write_text(text, encoding="utf-8")
     os.replace(tmp_path, path)
 
