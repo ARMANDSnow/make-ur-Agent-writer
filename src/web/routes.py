@@ -244,6 +244,14 @@ def render_workspace_plan_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_plan(name, list_workspaces()))
 
 
+def render_workspace_workbench_page(name: str) -> Tuple[int, str, bytes]:
+    """iter 048b: novel-only four-stage workbench page."""
+    guard = _workspace_html_guard_novel_only(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_workbench(name, list_workspaces()))
+
+
 def render_workspace_jobs_page(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard(name)
     if guard:
@@ -598,6 +606,94 @@ def api_workspace_plan(name: str) -> Tuple[int, str, bytes]:
 
     with use_workspace(name):
         return _json(200, collect_plan())
+
+
+def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/workbench — four-stage workbench gate
+    status (iter 048b): which stage the workspace can act on next, plus
+    per-artifact flags.
+
+    Gating uses an mtime chain, not bare existence: a downstream artifact
+    counts only if it is no older than the artifact it derives from. So if
+    the user edits the premise and re-runs stage ① (prepare-greenfield
+    refreshes the KB), a stale outline/plan left from a prior run is treated
+    as invalid and the workbench falls back to the right stage — avoiding
+    the "old artifact masquerades as new" trap (red-team finding)."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    with use_workspace(name):
+        kb_m = _mtime_ns(paths.kb_path())
+        outline_m = _mtime_ns(paths.outline_path())
+        plan_path = paths.chapter_plan_path()
+        plan_m = _mtime_ns(plan_path)
+        drafts = paths.drafts_dir()
+        draft_files = sorted(drafts.glob("chapter_*.md")) if drafts.exists() else []
+        draft_count = len(draft_files)
+        draft_m = max((_mtime_ns(p) for p in draft_files), default=0)
+        plan_data = read_json_optional(plan_path, {})
+        plan_chapters = plan_data.get("chapters") if isinstance(plan_data, dict) else None
+
+        has_kb = kb_m > 0
+        has_outline = outline_m > 0 and outline_m >= kb_m
+        has_plan = bool(plan_chapters) and plan_m >= outline_m and plan_m >= kb_m
+        has_drafts = draft_count > 0 and draft_m >= plan_m
+
+        if not has_kb:
+            stage = "prepare"
+        elif not has_outline:
+            stage = "outline"
+        elif not has_plan:
+            stage = "plan"
+        elif not has_drafts:
+            stage = "write"
+        else:
+            stage = "done"
+
+    return _json(
+        200,
+        {
+            "stage": stage,
+            "has_kb": has_kb,
+            "has_outline": has_outline,
+            "has_plan": has_plan,
+            "draft_count": draft_count,
+        },
+    )
+
+
+def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/outline — overwrite the story outline
+    (iter 048b, workbench stage ②). Plain-text atomic write; rejects an
+    empty body (which would silently break the stage gate). Refuses while a
+    generation job holds the workspace so a running debate can't clobber the
+    user's edit (job-vs-PUT race; the job lock only guards job-vs-job)."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    running = jobs.workspace_busy(name)
+    if running:
+        return _json(409, {"error": "workspace busy", "running_job_id": running})
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    outline = payload.get("outline")
+    if not isinstance(outline, str) or not outline.strip():
+        return _json(400, {"error": "missing or invalid 'outline'"})
+    if len(outline) > 200_000:
+        return _json(400, {"error": "'outline' too long (max 200000 chars)"})
+    from ..state import write_text_atomic
+
+    with use_workspace(name):
+        try:
+            write_text_atomic(paths.outline_path(), outline)
+        except OSError as exc:
+            return _json(500, {"error": f"failed to write outline: {exc}"})
+    _clear_overview_cache()
+    return _json(200, {"saved": True, "chars": len(outline)})
 
 
 def _drama_endpoint_error(name: str) -> Optional[Tuple[int, str, bytes]]:
@@ -1055,12 +1151,19 @@ def _validate_plan_chapters_params(params: Dict[str, Any]) -> Tuple[Optional[str
     error, target = _int_value(raw_target, "target_chapters", minimum=1, maximum=200)
     if error:
         return error, {}
+    # iter 048b: honor require_start_point from params (default True keeps the
+    # continue page's behavior) so the greenfield workbench can pass False —
+    # otherwise plan-chapters hard-blocks on start_point_missing for a
+    # premise-seeded book that has no prior start point.
+    error, require_start = _bool_param(params, "require_start_point", True)
+    if error:
+        return error, {}
     return None, {
         "target_chapters": target,
         "force": True,
         "append_count": 0,
         "from_chapter": 0,
-        "require_start_point": True,
+        "require_start_point": require_start,
     }
 
 
@@ -1182,6 +1285,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: render_workspace_reviews_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/plan/?$"), lambda name, **_: render_workspace_plan_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/workbench/?$"), lambda name, **_: render_workspace_workbench_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/insights/?$"), lambda name, **_: render_workspace_insights_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/jobs/?$"), lambda name, **_: render_workspace_jobs_page(name)),
     ("GET", re.compile(r"^/api/workspaces/overview/?$"), lambda **_: api_workspaces_overview()),
@@ -1213,6 +1317,12 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: api_workspace_reviews(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/plan/?$"), lambda name, **_: api_workspace_plan(name)),
+    ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/workbench/?$"), lambda name, **_: api_workbench_status(name)),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/outline/?$"),
+        lambda name, _body=b"", **_: api_workspace_outline_save(name, _body),
+    ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/insights/?$"), lambda name, **_: api_workspace_insights(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/progress/?$"), lambda name, **_: api_drama_progress(name)),
     (

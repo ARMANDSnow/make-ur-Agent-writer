@@ -55,3 +55,4 @@
 44. [Iteration 044 - 收尾轮（D-5/D-7/D-8 + 文档刷新）](./iteration_044_PLAN.md)
 45. [Iteration 045 - 投资人 demo 落地页 + demo 路径美化](./iteration_045_PLAN.md)
 46. [Iteration 048a - 小白四步工作台·后端骨架（premise 开书 + prepare 复合 step + 测 Key 矩阵）](./iteration_048a_PLAN.md)
+47. [Iteration 048b - 小白四步工作台·前端四阶段页 + 大纲回写](./iteration_048b_PLAN.md)

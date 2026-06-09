@@ -105,7 +105,11 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(job["status"], "blocked")
         self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "start_point_missing")
 
-    def test_plan_chapters_params_are_forced_to_start_point_mode(self) -> None:
+    def test_plan_chapters_forces_force_but_honors_require_start_point(self) -> None:
+        # iter 048b: force is always overridden to True (a re-plan overwrites),
+        # but require_start_point is now HONORED from params (was forced True
+        # pre-048b) so the greenfield workbench can pass False. Default stays
+        # True for safety — see test_plan_chapters_missing_start_point_is_blocked.
         with unittest.mock.patch(
             "src.web.jobs.generate_chapter_plan",
             return_value={"chapters": []},
@@ -120,8 +124,8 @@ class JobsDispatchTests(unittest.TestCase):
             self.assertEqual(status, 202)
             self._wait_for_done("alpha", data["job_id"], timeout=10.0)
         self.assertEqual(planner.call_args.kwargs["target_chapters"], 7)
-        self.assertTrue(planner.call_args.kwargs["force"])
-        self.assertTrue(planner.call_args.kwargs["require_start_point"])
+        self.assertTrue(planner.call_args.kwargs["force"])  # always re-plan
+        self.assertFalse(planner.call_args.kwargs["require_start_point"])  # honored now
 
     def test_concurrent_same_workspace_409(self) -> None:
         # The first job must remain in flight when we fire the second

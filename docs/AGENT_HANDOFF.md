@@ -1078,3 +1078,28 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 3. **premise 可行性**：几十字 seed 的 KB 偏空已用单章包装跑通 mock，但 049「premise 扩写」需正视「短种子→高质量多章」的真实落差。
 4. **文档滞后**：README 索引与本 Handoff 此前均漏记 046/047 全系列（046/046B/047/047a-d/047B2），本轮仅补 048a，046/047 回填待办。
 5. 验收命令需用 `.venv/bin/python`（系统 python3 缺 pydantic/litellm）。
+
+## Phase 4 Status（iter 048b，2026-06-09）
+
+### Iteration 048b — 小白四步工作台·前端四阶段页 + 大纲回写（mock-only）
+
+**目标**：把 048a 的后端 step 接成用户可见的四阶段工作台页 `/w/{name}/workbench`（① 设定 → ② 大纲 → ③ 细纲 → ④ 正文），pollJob 驱动 + 产物 gate；交付最简单的大纲纯文本回写。兑现红队剩余两条修正。执行档案 `iteration_048b_PLAN.md`。
+
+**主要落地**：
+- `templates.render_workspace_workbench`（4 阶段卡片，复用 continue 页 flow-step/card/status-box）+ `_WORKSPACE_SECTIONS` 加 workbench 入口（**红队修正①**）+ `render_wizard` 独立 premise-form。
+- `routes.api_workbench_status`：GET `/workbench` 用 **mtime 链**探测 `{stage,has_kb,has_outline,has_plan,draft_count}`——下游产物须不旧于上游，改 premise 重跑 stage① 刷新 KB mtime 后旧 outline/plan 自动失效（红队「旧产物误判」防护；亲验 `compressor.py:87` 确认 KB 无条件重写故防护可靠）。
+- `routes.api_workspace_outline_save`：PUT `/outline` 纯文本原子写，`workspace_busy`→409 / 空→400。
+- `static.initWorkbench`：`bindWorkbenchStage` 把 4 form 接 `/run`+pollJob，`refreshWorkbench` 做 gate + 回填大纲；plan-chapters/write-book 显式传 `require_start_point:false`（**红队修正②**）；PAGE_KIND 分发 + premiseForm 提交。
+- `routes._validate_plan_chapters_params`：`require_start_point` 由硬编码 True 改为尊重 params（默认 True 保 continue 页）——否则 workbench 传的 false 被覆盖、greenfield plan-chapters 死锁（**红队 #2a 的具体化**）；配套更新守护测试。
+
+**对抗审核（铁律⑨）**：Bash classifier 暂不可用 + 对抗 subagent 两次 ECONNRESET，本轮审核由**主对话只读自审**完成（A stage 探测 mtime 链 / B plan-chapters 行为变更安全 / C PUT 竞态 / D 前端 gate 绕过），均无阻塞；其中 A 亲验 compress 无条件重写 KB 钉牢防护。诚实记录：铁律⑨「≥1 subagent」本轮未由 subagent 满足（连接故障），待 API 稳定可补一轮。
+
+**验证进度**：
+- `OPENAI_MODEL=mock .venv/bin/python -m unittest discover -s tests` → **681 OK**（基线 674 + 新增 7；1 个 plan-chapters 守护测试按行为变更有意更新）。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → PREFLIGHT: ok，FATAL/WARN none。
+- 未做浏览器实机 / 真模型（铁律⑥）。
+
+**当前接力点**：
+1. **048c**（细纲）：workbench 阶段③改「只读 + 重新生成细纲」（重跑 plan-chapters 天然重算指纹），核心验证重生成后 write-book 不撞 `plan_fingerprint` 门禁。
+2. **write-book 在 mock 下 `retry_exhausted` 是固有行为**（mock reviewer 默认 Reject，`reviewer.py:68`）：workbench stage④ 用严格 write-book 是有意设计，draft 写出但未 approve、真实模型才 approve；048b 测试据此断言 draft 落盘 + stage=done，不强求 approved。
+3. 046/047 README/Handoff 回填仍待办（沿 048a 接力点 4）。

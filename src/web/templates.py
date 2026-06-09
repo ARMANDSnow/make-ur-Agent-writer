@@ -108,6 +108,7 @@ def _render_shell(
 _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
     ("continue", "续写", "continue"),
+    ("workbench", "工作台", "workbench"),
     ("plan", "计划", "plan"),
     ("chapters", "章节", "chapters"),
     ("reviews", "评审", "reviews"),
@@ -557,6 +558,122 @@ def render_workspace_continue(name: str, workspaces: Iterable[str]) -> str:
     )
 
 
+def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
+    """iter 048b: the小白 four-stage workbench. One card per stage
+    (设定→大纲→细纲→正文); each fires its step job via pollJob and the
+    front-end gates the next card on the previous stage's artifacts. Stage ②
+    embeds an editable outline textarea (PUT /outline). Reuses the continue
+    page's flow-step / card / status-box structure verbatim."""
+    esc = escape(name)
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">工作台</p>'
+        '<h1>四阶段写书台</h1>'
+        '<p class="muted">设定 → 大纲 → 细纲 → 正文：逐阶段生成、查看、编辑，再进下一步。</p>'
+        '</div>'
+        '<div id="workbench-stage-pill"></div>'
+        '</header>'
+
+        '<section class="continue-flow">'
+        # stage ① 设定 (prepare-greenfield)
+        '<div class="flow-step">'
+        '<div class="step-mark">1</div>'
+        '<div class="card" id="stage-prepare-card">'
+        '<div class="card-header"><h3 class="ornament">设定</h3>'
+        '<span class="muted">从开书的一句话立意提取知识库与实体设定</span></div>'
+        '<div class="card-body">'
+        '<form id="prepare-form" class="form-grid-2">'
+        '<div class="field"><label>立意</label>'
+        '<div class="muted">开书时填写的一句话已写入 seed.txt；点右侧生成设定（KB / 实体）。</div></div>'
+        '<div class="form-actions" style="align-items:flex-end">'
+        '<button type="submit" id="prepare-submit" class="btn btn-secondary">生成设定</button>'
+        '</div>'
+        '</form>'
+        '<div id="prepare-status"></div>'
+        '</div></div></div>'
+
+        # stage ② 大纲 (debate) + editable outline
+        '<div class="flow-step">'
+        '<div class="step-mark">2</div>'
+        '<div class="card" id="stage-outline-card">'
+        '<div class="card-header"><h3 class="ornament">大纲</h3>'
+        '<span class="muted">生成全书故事大纲，可直接编辑后保存</span></div>'
+        '<div class="card-body">'
+        '<form id="outline-form" class="form-grid-2">'
+        '<div class="field"><label>大纲生成</label>'
+        '<div class="muted">基于设定运行 debate 产出 outline.md</div></div>'
+        '<div class="form-actions" style="align-items:flex-end">'
+        '<button type="submit" id="outline-submit" class="btn btn-secondary">生成大纲</button>'
+        '</div>'
+        '</form>'
+        '<div id="outline-status"></div>'
+        '<div class="field" style="margin-top:12px"><label>大纲内容（可编辑）</label>'
+        '<textarea id="outline-md" rows="12" placeholder="生成后在此查看 / 编辑大纲，然后点保存…"></textarea></div>'
+        '<div class="form-actions" style="justify-content:flex-end">'
+        '<button type="button" id="outline-save" class="btn btn-secondary">保存大纲</button>'
+        '</div>'
+        '</div></div></div>'
+
+        # stage ③ 细纲 (plan-chapters) — read-only detail via /plan
+        '<div class="flow-step">'
+        '<div class="step-mark">3</div>'
+        '<div class="card" id="stage-plan-card">'
+        '<div class="card-header"><h3 class="ornament">细纲</h3>'
+        '<span class="muted">生成分章细纲（章节计划）</span></div>'
+        '<div class="card-body">'
+        '<form id="plan-chapters-form" class="form-grid-2">'
+        '<div class="field"><label>计划章节数</label>'
+        '<input name="target_chapters" type="number" min="1" max="200" value="5"></div>'
+        '<div class="form-actions" style="align-items:flex-end">'
+        '<button type="submit" id="plan-chapters-submit" class="btn btn-secondary">生成细纲</button>'
+        '</div>'
+        '</form>'
+        '<div id="plan-chapters-status"></div>'
+        '</div>'
+        '<div class="card-footer">'
+        '<a class="btn btn-ghost btn-sm" href="/w/' + esc + '/plan">查看细纲详情 →</a>'
+        '</div>'
+        '</div></div>'
+
+        # stage ④ 正文 (write-book)
+        '<div class="flow-step">'
+        '<div class="step-mark">4</div>'
+        '<div class="card" id="stage-write-card">'
+        '<div class="card-header"><h3 class="ornament">正文</h3>'
+        '<span class="muted">逐章生成正文，自动评审</span></div>'
+        '<div class="card-body">'
+        '<form id="write-book-form" class="form-grid">'
+        '<div class="field"><label>写几章</label><input name="chapters" type="number" min="1" value="1"></div>'
+        '<div class="field"><label>评审档位</label>'
+        '<select name="tier">'
+        '<option value="low">low · 快速试写</option>'
+        '<option value="mid" selected>mid · 日常生产</option>'
+        '<option value="high">high · 严格发布</option>'
+        '</select></div>'
+        '<div class="form-actions" style="align-items:flex-end">'
+        '<button type="submit" id="write-book-submit" class="btn btn-primary">开始写书</button>'
+        '</div>'
+        '</form>'
+        '<div id="write-book-status"></div>'
+        '</div>'
+        '<div class="card-footer">'
+        '<a class="btn btn-ghost btn-sm" href="/w/' + esc + '/chapters">查看章节 →</a>'
+        '</div>'
+        '</div></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 工作台",
+        page_kind="workbench",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("工作台", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="workbench"),
+        workspace=name,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Page: plan viewer
 # ---------------------------------------------------------------------------
@@ -869,6 +986,25 @@ def render_wizard() -> str:
         '<div class="form-actions">'
         '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
         '<button type="submit" class="btn btn-primary">开始</button>'
+        '</div>'
+        '</form>'
+
+        '<p class="muted" style="text-align:center;margin:18px 0 6px">— 或者，没有原文？一句话开书 —</p>'
+        '<form id="premise-form" class="stack">'
+        '<div class="field">'
+        '<label>workspace 名</label>'
+        '<input name="workspace" required '
+        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
+        '</div>'
+        '<div class="field">'
+        '<label>一句话立意</label>'
+        '<textarea name="premise" rows="3" maxlength="2000" required '
+        'placeholder="例：少年觉醒上古血脉，在宗门倾轧中逆天改命。"></textarea>'
+        '</div>'
+        '<div class="form-actions">'
+        '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
+        '<button type="submit" class="btn btn-secondary">一句话开书 → 进工作台</button>'
         '</div>'
         '</form>'
         '<div id="upload-error"></div>'

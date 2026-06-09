@@ -2127,6 +2127,108 @@ JS_DASHBOARD = """\
     await refreshReadiness();
     await refreshRecentJobsSidebar();
   }
+  // iter 048b: four-stage workbench. Each stage fires its step job and the
+  // next card is gated on the previous stage's artifact (GET /workbench).
+  async function initWorkbench() {
+    bindWorkbenchStage("prepare-form", "prepare-submit", "prepare-status", "prepare-greenfield", function () {
+      return { force: true };
+    });
+    bindWorkbenchStage("outline-form", "outline-submit", "outline-status", "debate", function () {
+      return {};
+    });
+    bindWorkbenchStage("plan-chapters-form", "plan-chapters-submit", "plan-chapters-status", "plan-chapters", function (form) {
+      // require_start_point:false — greenfield premise has no prior start
+      // point (continue page hard-codes true; workbench must not reuse it).
+      return { target_chapters: Number(form.elements.target_chapters.value || 5), require_start_point: false };
+    });
+    bindWorkbenchStage("write-book-form", "write-book-submit", "write-book-status", "write-book", function (form) {
+      return {
+        chapters: Number(form.elements.chapters.value || 1),
+        tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
+        require_start_point: false,
+        require_plan: true,
+      };
+    });
+    bindOutlineSave();
+    await refreshWorkbench();
+  }
+  function bindWorkbenchStage(formId, submitId, boxId, step, paramsFn) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    const submit = document.getElementById(submitId);
+    const box = document.getElementById(boxId);
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      if (submit) submit.disabled = true;
+      if (box) box.innerHTML = '<div class="alert info">正在运行 ' + escapeHtml(step) + "…</div>";
+      try {
+        const params = paramsFn ? paramsFn(form) : {};
+        const data = await postJson(wsUrl("/run"), { step: step, params: params });
+        await pollJob(data.job_id, box, submit, async () => {
+          await refreshWorkbench();
+        });
+      } catch (err) {
+        if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        if (submit) submit.disabled = false;
+      }
+    });
+  }
+  function bindOutlineSave() {
+    const btn = document.getElementById("outline-save");
+    const area = document.getElementById("outline-md");
+    if (!btn || !area) return;
+    area.addEventListener("input", function () {
+      area.dataset.dirty = "1";
+    });
+    btn.addEventListener("click", async function () {
+      if (!area.value.trim()) {
+        showToast("大纲不能为空", "error");
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await putJson(wsUrl("/outline"), { outline: area.value });
+        delete area.dataset.dirty;
+        showToast("大纲已保存", "info");
+        await refreshWorkbench();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+  function setStageEnabled(id, on) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !on;
+  }
+  async function refreshWorkbench() {
+    let st;
+    try {
+      st = await fetchJson(wsUrl("/workbench"));
+    } catch (err) {
+      return;
+    }
+    const pill = document.getElementById("workbench-stage-pill");
+    if (pill) {
+      const labels = { prepare: "① 设定", outline: "② 大纲", plan: "③ 细纲", write: "④ 正文", done: "✓ 已出稿" };
+      pill.innerHTML = '<span class="badge">当前：' + escapeHtml(labels[st.stage] || st.stage || "?") + "</span>";
+    }
+    // Gate each stage on its prerequisite artifact (mtime-validated server-side).
+    setStageEnabled("outline-submit", !!st.has_kb);
+    setStageEnabled("outline-save", !!st.has_outline);
+    setStageEnabled("plan-chapters-submit", !!st.has_outline);
+    setStageEnabled("write-book-submit", !!st.has_plan);
+    const area = document.getElementById("outline-md");
+    if (area && st.has_outline && !area.dataset.dirty && document.activeElement !== area) {
+      try {
+        const plan = await fetchJson(wsUrl("/plan"));
+        if (typeof plan.outline_md === "string") area.value = plan.outline_md;
+      } catch (err) {
+        /* ignore */
+      }
+    }
+  }
   async function populateStartPointSelect() {
     const select = document.getElementById("start-point-select");
     if (!select) return;
@@ -3308,6 +3410,7 @@ JS_DASHBOARD = """\
     if (pageKind === "trash") return initTrash();
     if (pageKind === "workspace_overview") return initWorkspaceOverview();
     if (pageKind === "continue") return initContinue();
+    if (pageKind === "workbench") return initWorkbench();
     if (pageKind === "chapters") return initChapters();
     if (pageKind === "chapter_detail") return initChapterDetail();
     if (pageKind === "reviews") return initReviews();
@@ -3331,6 +3434,7 @@ JS_WIZARD = """\
   const typeForm = document.getElementById("type-form");
   const novelForm = document.getElementById("wizard-form");
   const dramaForm = document.getElementById("drama-form");
+  const premiseForm = document.getElementById("premise-form");
   const errBox = document.getElementById("upload-error");
   const dramaErrBox = document.getElementById("drama-error");
   const progressBody = document.getElementById("progress-body");
@@ -3453,6 +3557,41 @@ JS_WIZARD = """\
         poll(data.name, data.job_id);
       } catch (err) {
         errBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  if (premiseForm) {
+    premiseForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      if (errBox) errBox.innerHTML = "";
+      const fd = new FormData(premiseForm);
+      const payload = {
+        workspace: (fd.get("workspace") || "").trim(),
+        premise: (fd.get("premise") || "").trim(),
+      };
+      const submitBtn = premiseForm.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch("/api/wizard/premise-start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (errBox) errBox.innerHTML = '<div class="alert error">创建失败 (' + res.status + "): " +
+            escapeHtml(data.error || "") + "</div>";
+          submitBtn.disabled = false;
+          return;
+        }
+        window.setPendingToastAndNavigate(
+          { kind: "info", msg: "已创建：" + data.name + "，进入工作台" },
+          "/w/" + encodeURIComponent(data.name) + "/workbench"
+        );
+      } catch (err) {
+        if (errBox) errBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
         submitBtn.disabled = false;
       }
     });
