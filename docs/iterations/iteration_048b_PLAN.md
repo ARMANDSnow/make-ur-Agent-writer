@@ -42,6 +42,7 @@
   - **C（PUT outline 竞态/校验）**：`workspace_busy`→409 + 前端 running 禁用两道防护；TOCTOU 窗口小且 `write_text_atomic` 原子（不损坏文件）；空/非 str/超 200k 校验完整。无阻塞。
   - **D（前端 gate 绕过）**：gate 仅 UX，后端 `blocked{outline_missing}` 等兜底，绕不过。无阻塞。
   - **诚实记录**：铁律⑨「≥1 subagent」本轮**未由 subagent 满足**（连接故障），全部为主对话自审；待 API 恢复后补一轮 subagent 复核更稳妥。
+- **浏览器实机验证（补做，CLAUDE.md 铁律：UI 改动须实机走过）**：`web-mock` dev server 上 `/wizard` → 选小说 → 一句话开书表单（workspace=livebook, premise=少年觉醒上古血脉，逆天改命踏破苍穹）→ 跳 `/w/livebook/workbench`（`PAGE_KIND="workbench"`、侧栏含"工作台"高亮、面包屑正确）→ 实跑四阶段：stage① 设定 succeeded + 进度条 **100%**（红队修正：不卡 5/6）→ stage② 大纲 0.5s succeeded 且 textarea 自动回填 mock 大纲 → 用户编辑大纲 → 保存 → `GET /plan` 读到编辑后内容 ✓ → stage③ plan-chapters 0.5s succeeded → stage pill 切到"④ 正文"。`console` 全程零错误；`GET /api/diag/models` mock 下 `is_mock:true`/`all_ok:true`/6 task 去重为 1 个 mock 探测；drama workspace 访问 `/workbench` 触发 novel-only guard（不返回 workbench 内容）。截图与 server log 留存于本轮实机回话。实机测试 workspace `livebook` 已清理。
 
 ## 文件变更汇总
 
