@@ -158,13 +158,14 @@ workspaces/<book>/
 | 阶段 2（iter 006-008）| 首次真模型 smoke + debate 结构化投票 | 完成 |
 | 阶段 3（iter 009-013）| 写作质量轴：entity graph / 一致性 reviewer / 多章架构 | 完成 |
 | 阶段 4（iter 014-019）| 多 workspace + 多语言 + 无人值守 + 审计加固 | 完成 |
-| 阶段 5（iter 020+）| Web Dashboard + 本地 Beta 写作入口 + UX 收尾 | 完成 |
+| 阶段 5（iter 020-045）| Web Dashboard + 本地 Beta 写作入口 + UX 收尾 | 完成 |
+| 阶段 6（iter 046-048）| 产品力补齐：AgentWrite 配额循环 / 补 KB 剧透 gap / **小白四步工作台**（一句话开书 + premise→四阶段 pollJob + 大纲编辑保存 + 一键测 Key）；canonical 694 tests OK | 进行中（049/050 待启动） |
 
 阶段小结：[stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md)。会话延续锚点：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md)。
 
 ## 流水线 SOP（实时状态）
 
-一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：iter 044（2026-06-05），收尾 D-5/D-7/D-8：onboarding budget/timeout/cancel、移动端 drawer 与表格响应式、subscore CSS class 和 `scores || sub_scores` 兼容；真实 `longzu` ch2 tier=mid 的 happy path 仍是当前生产证据。
+一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 048d**（2026-06-09），iter048 小白四步工作台完整收官——一句话开书 → `/w/{name}/workbench` 四阶段 pollJob → 大纲可编辑回写 → 一键测 Key 矩阵，+ 4 路并行 subagent 对抗审查发现的 1 H + 5 M 全部直修（`write_text_atomic` tmp 后缀 `.{pid}.{tid}` / PUT outline `workspace_reserved` 闭锁 / 6 个 prep step readiness check / `LLMClient.ping()` Bearer+sk- 正则 redact）。canonical 661→674→681→684→694（iter048 累计 +33 tests）。真实 `longzu` ch2 tier=mid 的 happy path 仍是当前生产证据。
 
 图例：✅ 已打通　⚠️ 部分打通（含 gap）　❌ 未打通
 
@@ -263,6 +264,7 @@ workspaces/<book>/
 | U.10 | Web drama 4 站审查向导（前 2 站）| ✅ | iter 037-038（drama wizard 5 字段 + `wizard_input.json` + `creation_standard.snapshot.md`；`/w/{name}/write` 4 tab；站 ①/② mock fixture-driven；iter 038 修 hook picker listener leak / rapid-click race，站 ③④ 仍待后续开放）|
 | U.11 | Web 真实续写链路可观测/可恢复 | ✅ | iter 039（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行）；iter 040 meta/review verdict 同步；iter 042 `longzu` ch2 tier=mid 真实 happy path approved + job succeeded |
 | U.12 | Web UX audit + 收尾响应式 | ✅ | iter 043 UX audit + D-1/D-2/D-3/D-4/D-6；iter 044 D-5/D-7/D-8，sidebar drawer、topbar actions 折叠、jobs/chapters/reviews 表格移动端横向滚动、Insights `scores || sub_scores` 兼容 |
+| U.13 | Web 小白四步工作台 + 一句话开书 + 一键测 Key | ✅ | iter 048a-d：`/wizard` 加 premise-form（一句话开书，落 seed.txt 单章包装）→ `/w/{name}/workbench` 四阶段卡片（设定→大纲→细纲→正文，`prepare-greenfield` 复合 step 把前 6 步封单 job + 进度契约 `total/emit_done` 参数化）；mtime 链 stage gate（改 premise 重跑①后旧 outline/plan 自动失效）；大纲 textarea PUT `/outline` + `workspace_reserved` 闭锁；细纲只读 + "重新生成"绕开指纹链暗礁；`GET /api/diag/models` mock 短路 + Bearer/sk- 正则 redact。6 个 prep step 加 `_blocked(reason,error)` readiness check |
 
 ## 声明
 
