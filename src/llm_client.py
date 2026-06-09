@@ -222,6 +222,66 @@ class LLMClient:
         suffix = "stream attempts" if use_stream else "attempt(s)"
         raise RuntimeError(f"LLM text completion failed after {attempts} {suffix}: {last_exc}") from last_exc
 
+    def ping(self) -> Dict[str, Any]:
+        """iter 048a: lightweight model-key connectivity probe for the
+        workbench "test key" matrix. Returns a JSON-safe dict; never raises
+        and never echoes the api_key.
+
+        ``OPENAI_MODEL=mock`` short-circuits with zero network I/O (so
+        ``unittest discover`` and the default WebUI stay offline). A real
+        probe sends a single ``max_tokens=1`` "ping" completion — cost is
+        on the order of one token, comparable to ``python main.py
+        preflight`` — and is only ever triggered by an explicit user click.
+        """
+        if self.is_mock:
+            return {"task": self.task, "model": self.model, "ok": True, "mock": True}
+        started = time.monotonic()
+        try:
+            from litellm import completion
+        except Exception as exc:
+            return {
+                "task": self.task,
+                "model": self.model,
+                "ok": False,
+                "mock": False,
+                "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+            }
+        try:
+            kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "temperature": self.config.get("temperature", 0.2),
+                "max_tokens": 1,
+            }
+            if self.config.get("api_key"):
+                kwargs["api_key"] = self.config["api_key"]
+            if self.config.get("base_url"):
+                kwargs["api_base"] = self.config["base_url"]
+            completion(**kwargs)
+            latency_ms = int((time.monotonic() - started) * 1000)
+            return {
+                "task": self.task,
+                "model": self.model,
+                "ok": True,
+                "mock": False,
+                "latency_ms": latency_ms,
+            }
+        except Exception as exc:
+            # Never surface the api_key: some providers echo request kwargs
+            # in their error string. Redact the configured key explicitly,
+            # then cap length as defense-in-depth.
+            err = f"{type(exc).__name__}: {exc}"
+            key = self.config.get("api_key")
+            if isinstance(key, str) and len(key) >= 8:
+                err = err.replace(key, "***")
+            return {
+                "task": self.task,
+                "model": self.model,
+                "ok": False,
+                "mock": False,
+                "error": err[:200],
+            }
+
     def _consume_stream(self, stream_iter: Any) -> tuple[str, Dict[str, Any]]:
         """Consume an SSE iterator from litellm.completion(stream=True).
 

@@ -31,7 +31,7 @@ from ..config import get_model_config
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
 from ..utils import read_json, read_json_optional
-from . import jobs, settings as settings_mod, static, templates, wizard
+from . import diag, jobs, settings as settings_mod, static, templates, wizard
 from ._naming import RESERVED_NAMES as _RESERVED_WORKSPACE_NAMES_SHARED  # noqa: F401
 from ._naming import (
     WORKSPACE_NAME_RE as _WORKSPACE_NAME_RE_SHARED,  # noqa: F401
@@ -905,6 +905,25 @@ def api_wizard_drama_start(body: bytes, headers: Dict[str, str]) -> Tuple[int, s
     return wizard.start_drama_workspace(body, content_type)
 
 
+def api_wizard_premise_start(body: bytes, headers: Dict[str, str]) -> Tuple[int, str, bytes]:
+    """POST /api/wizard/premise-start — create a novel workspace from a
+    one-sentence premise (iter 048a). Starts no job; the four-stage
+    workbench drives prepare-greenfield / debate / plan / write."""
+
+    content_type = headers.get("content-type", "")
+    return wizard.start_premise_workspace(body, content_type)
+
+
+def api_diag_models() -> Tuple[int, str, bytes]:
+    """GET /api/diag/models — model-key connectivity matrix (iter 048a).
+
+    User-triggered diagnostics: probes each distinct configured model once
+    (max_tokens=1), mock-short-circuits offline, never echoes the api_key.
+    """
+
+    return _json(200, diag.collect_model_diagnostics())
+
+
 def render_wizard_page() -> Tuple[int, str, bytes]:
     return _html(200, templates.render_wizard())
 
@@ -1271,6 +1290,13 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         re.compile(r"^/api/wizard/drama-start/?$"),
         lambda _body=b"", _headers=None, **_: api_wizard_drama_start(_body, _headers or {}),
     ),
+    (
+        "POST",
+        re.compile(r"^/api/wizard/premise-start/?$"),
+        lambda _body=b"", _headers=None, **_: api_wizard_premise_start(_body, _headers or {}),
+    ),
+    # iter 048a: workbench "test key" — model-key connectivity matrix
+    ("GET", re.compile(r"^/api/diag/models/?$"), lambda **_: api_diag_models()),
     # iter 026 P4: model-switch panel
     ("GET", re.compile(r"^/settings/?$"), lambda **_: render_settings_page()),
     ("GET", re.compile(r"^/static/settings\.js$"), lambda **_: (200, "application/javascript; charset=utf-8", static.JS_SETTINGS.encode("utf-8"))),

@@ -298,6 +298,79 @@ def _snapshot_creation_standard(workspace_name: str) -> None:
     dst.write_bytes(src.read_bytes())
 
 
+def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
+    """POST /api/wizard/premise-start handler (iter 048a).
+
+    The "one-sentence开书" greenfield entry: accept a single premise
+    string, create a novel workspace, and seed ``小说txt/seed.txt`` with
+    it. Unlike ``start_upload`` this performs no LLM call and starts no
+    job — the four-stage workbench drives prepare-greenfield / debate /
+    plan-chapters / write-book as the user clicks through. Returns 202 with
+    the new workspace name so the front-end can navigate to
+    ``/w/<name>/workbench``.
+    """
+
+    if "application/json" not in (content_type or "").lower():
+        return _json(415, {"error": "Content-Type must be application/json"})
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+
+    name = payload.get("workspace")
+    if not isinstance(name, str) or not name.strip():
+        return _json(400, {"error": "missing or invalid 'workspace'"})
+    name = name.strip()
+    if not _validate_name(name):
+        return _json(400, {"error": "invalid workspace name"})
+
+    premise = payload.get("premise")
+    if not isinstance(premise, str) or not premise.strip():
+        return _json(400, {"error": "missing or invalid 'premise'"})
+    premise = premise.strip()
+    if len(premise) > 2000:
+        return _json(400, {"error": "'premise' too long (max 2000 chars)"})
+
+    try:
+        result = init_workspace(name, type="novel")
+    except FileExistsError:
+        return _json(409, {"error": f"workspace already exists: {name}"})
+    except ValueError as exc:
+        return _json(400, {"error": str(exc)})
+    except OSError as exc:
+        return _json(500, {"error": f"failed to create workspace: {exc}"})
+
+    target_root = paths.WORKSPACE_DIR / name
+    raw_dir = target_root / "小说txt"
+    # Defense-in-depth: the workspace name is already validated, so the
+    # resolved seed path can only land under workspaces/<name>/小说txt/.
+    # Re-check after resolution anyway — cheap, and mirrors start_upload.
+    try:
+        raw_dir.resolve().relative_to(paths.WORKSPACE_DIR.resolve())
+    except (OSError, ValueError):
+        shutil.rmtree(target_root, ignore_errors=True)
+        return _json(400, {"error": "resolved path escapes workspaces/"})
+    # Wrap the premise as a minimal single-chapter document. The greenfield
+    # pipeline's split step keys on a chapter heading (chapter_splitter
+    # HEADING_RE: 第N章 / 楔子 / 序章 …); a bare one-sentence premise has
+    # none, so split would produce 0 chapters and the downstream extract
+    # step fails with "chapter manifest not found". The "第一章 缘起" wrapper
+    # gives split exactly one chapter to seed KB/extract from. KB stays thin
+    # for a few-dozen-char premise — 049 enriches it; that thinness is the
+    # accepted greenfield trade-off, not an error.
+    seed_text = f"第一章 缘起\n\n{premise}\n"
+    try:
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        (raw_dir / "seed.txt").write_text(seed_text, encoding="utf-8")
+    except OSError as exc:
+        shutil.rmtree(target_root, ignore_errors=True)
+        return _json(500, {"error": f"failed to write premise: {exc}"})
+
+    return _json(202, {"name": result["name"]})
+
+
 # ---- helpers ---------------------------------------------------------------
 
 

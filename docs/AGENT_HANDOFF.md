@@ -1052,3 +1052,29 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 2. demo 前测试 workspace 清理：提供一键软删命令（保留 longzu + i38drama01），未自动执行，留用户 demo 前运行（可恢复）。
 3. PPT 以「可粘到新 session 的提示词」交付，不在本仓。
 4. 关联 robustness backlog（来自本轮前的只读前端实测，与落地页无关）：auto-pipeline succeeded vs 章节 Reject 语义、被拒章节前端无 force 出口、blocked 运行不报告 cost、短中文样本 `en_` 前缀——择机进后续 iter。
+
+## Phase 4 Status（iter 048a，2026-06-09）
+
+### Iteration 048a — 小白四步工作台·后端骨架（premise + prepare 复合 step + 测 Key，mock-only）
+
+**目标**：iter048「小白四步封装」经对抗红队拆为串行子迭代（048a 后端骨架 → 048b 前端工作台+大纲回写 → 048c 细纲只读+重生成+写书兼容）。048a 取最干净的后端三件——premise「一句话开书」入口、`prepare-greenfield` 复合 step（9 步 SOP 前 6 步封成单 job）、全 task 测 Key 矩阵。无前端、无指纹链。执行档案 `iteration_048a_PLAN.md`。
+
+**主要落地**：
+- `auto_pipeline._run_prepare_steps`：抽出前 6 步（normalize→apply-bootstrap），`total`/`emit_done` 参数化进度分母；`run_auto_pipeline` 调它传 `total=9,emit_done=False`，9 步契约 + `("done",1.0)` 哨兵 byte-identical（`test_auto_pipeline` 守门）。
+- `jobs._step_prepare_greenfield`（`total=6,emit_done=True`，6 步重映射到自含 0→1.0 进度条，修正红队点名的「卡 5/9」分母 bug）+ `STEP_HANDLERS["prepare-greenfield"]`。
+- `wizard.start_premise_workspace`：JSON 入口，premise 校验（1-2000 字）+ 包装为 `第一章 缘起\n\n{premise}` 写 `小说txt/seed.txt`（splitter 靠章节标题分章，裸 premise 会 0 章 → 这是计划「非空即≥1 章」假设的实测修正）+ 路径越界防御 → 202；routes 注册 `POST /api/wizard/premise-start`。
+- `llm_client.ping()`（mock 短路零联网 / `max_tokens=1` / error redact api_key）+ `web/diag.collect_model_diagnostics()`（`TASKS` 去重各 ping 一次）+ routes 注册 `GET /api/diag/models`。
+
+**对抗审核（铁律⑨，3 视角）**：视角A（subagent，pipeline 重构+进度契约）= 与 `HEAD~1` AST 逐行 diff 0 差异、fraction 复算精确，建议删 `base_index` 死参数（已采纳删除）；视角B（premise 入口安全）、视角C（测 Key + key 泄漏）由主对话只读核验，均无阻塞（path 防御+回滚干净；mock 零联网 + error 不泄漏 key）。
+
+**验证进度**：
+- `OPENAI_MODEL=mock .venv/bin/python -m unittest discover -s tests` → **674 OK**（基线 661 + 新增 13；删 base_index 后复跑仍 674 OK）。
+- `OPENAI_MODEL=mock .venv/bin/python main.py preflight` → FATAL/WARN none。
+- 未做浏览器/真模型（048a 纯后端；真模型铁律⑥需授权）。
+
+**当前接力点**：
+1. **048b**（前端工作台+大纲回写）务必兑现红队剩余两条修正：`templates._WORKSPACE_SECTIONS` 必须加 workbench 入口（否则侧栏无链接+高亮失效）；workbench 的 plan-chapters/write-book 调用必须显式传 `require_start_point:false`（不能复用 continue 页 bindWriteBook 的 `true`）。
+2. **048c**（细纲）按「只读+重生成」做：重跑 plan-chapters 天然走 `_attach_plan_fingerprints` 重算指纹，绕开 write-book 的 `plan_fingerprint` 门禁；核心验证重生成后 write-book 不 blocked。
+3. **premise 可行性**：几十字 seed 的 KB 偏空已用单章包装跑通 mock，但 049「premise 扩写」需正视「短种子→高质量多章」的真实落差。
+4. **文档滞后**：README 索引与本 Handoff 此前均漏记 046/047 全系列（046/046B/047/047a-d/047B2），本轮仅补 048a，046/047 回填待办。
+5. 验收命令需用 `.venv/bin/python`（系统 python3 缺 pydantic/litellm）。

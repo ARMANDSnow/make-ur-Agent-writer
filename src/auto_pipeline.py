@@ -55,54 +55,33 @@ STEPS = (
 ProgressCallback = Callable[[str, float], None]
 
 
-def run_auto_pipeline(
+def _run_prepare_steps(
     *,
-    target_chapters: int = 1,
     progress_cb: Optional[ProgressCallback] = None,
+    total: int,
+    emit_done: bool = False,
     skip_extract: bool = False,
     extract_limit: Optional[int] = 5,
     force: bool = False,
-    plan_chapters_target: Optional[int] = None,
-    require_start_point: bool = False,
 ) -> Dict[str, Any]:
-    """Run the 9-step SOP end-to-end against the active workspace.
+    """Run the first 6 SOP steps (normalize → apply-bootstrap), shared by
+    ``run_auto_pipeline`` (full 9-step run) and the WebUI workbench's
+    ``prepare-greenfield`` composite step (stage ① only).
 
-    The active workspace is resolved by ``src.paths.workspace_name()``,
-    which reads ``WORKSPACE_NAME`` (or ``BOOK``) from the environment.
-    The WebUI sets this via ``src.web.workspace_ctx.use_workspace``; the
-    CLI honors ``--book`` via ``main._consume_book_pre_arg``.
+    iter 048a: the ``total`` denominator is parameterized so the same six
+    steps render as ``index / 9`` inside the full pipeline (``total=9,
+    emit_done=False`` — debate/plan/write still follow) OR remap to a
+    standalone ``index / 6`` → ``("done", 1.0)`` bar for the workbench
+    (``total=6, emit_done=True``). This keeps ``run_auto_pipeline``'s public
+    progress contract byte-identical — see tests/test_auto_pipeline.py,
+    which asserts the 9 step labels in order plus the ``("done", 1.0)``
+    sentinel — while giving the composite step its own self-contained
+    0→100% progress bar.
 
-    Args:
-        target_chapters: How many chapters ``write_chapters`` should
-            produce. Defaults to 1 because the wizard's first run only
-            needs to prove ch1 lands; users grow the corpus afterward
-            via ``write_book.sh``.
-        progress_cb: Optional callback ``(step_label, fraction)`` invoked
-            once per step boundary BEFORE the step runs. ``fraction`` is
-            ``step_index / len(STEPS)`` so the UI can render a 9-segment
-            progress bar. After the final step a sentinel call
-            ``("done", 1.0)`` fires so consumers don't need a "did the
-            last step finish" guard.
-        skip_extract: When True, skip the extract step. Useful for tests
-            that pre-seed ``data/extracted_jsons/`` or for re-runs after
-            a partial failure.
-        extract_limit: Per-call cap forwarded to ``extract_all``. None =
-            no cap. Defaults to 5 to keep onboarding cheap in mock mode.
-        force: Forwarded to extract / bootstrap / write where supported.
-        plan_chapters_target: Override the chapter_plan size. None lets
-            the planner use its built-in default (typically 5+ for usable
-            outline depth). If you set this below ``target_chapters`` the
-            writer may run out of plan entries.
-
-    Returns:
-        A dict keyed by step label whose values are each step's native
-        return type (e.g. ``normalize`` returns the manifest list,
-        ``apply-bootstrap`` returns a dict of per-proposal apply results).
-        On exception the partial dict is NOT returned — the exception
-        propagates and the caller decides how to surface it.
+    Returns a dict keyed by the 6 prep step labels; the full pipeline keeps
+    appending debate / plan-chapters / write to the same dict.
     """
 
-    total = len(STEPS)
     results: Dict[str, Any] = {}
 
     def _notify(step: str, index: int) -> None:
@@ -162,6 +141,78 @@ def run_auto_pipeline(
                 "error": f"{type(exc).__name__}: {exc}",
             }
     results["apply-bootstrap"] = applied
+
+    if emit_done and progress_cb is not None:
+        progress_cb("done", 1.0)
+    return results
+
+
+def run_auto_pipeline(
+    *,
+    target_chapters: int = 1,
+    progress_cb: Optional[ProgressCallback] = None,
+    skip_extract: bool = False,
+    extract_limit: Optional[int] = 5,
+    force: bool = False,
+    plan_chapters_target: Optional[int] = None,
+    require_start_point: bool = False,
+) -> Dict[str, Any]:
+    """Run the 9-step SOP end-to-end against the active workspace.
+
+    The active workspace is resolved by ``src.paths.workspace_name()``,
+    which reads ``WORKSPACE_NAME`` (or ``BOOK``) from the environment.
+    The WebUI sets this via ``src.web.workspace_ctx.use_workspace``; the
+    CLI honors ``--book`` via ``main._consume_book_pre_arg``.
+
+    Args:
+        target_chapters: How many chapters ``write_chapters`` should
+            produce. Defaults to 1 because the wizard's first run only
+            needs to prove ch1 lands; users grow the corpus afterward
+            via ``write_book.sh``.
+        progress_cb: Optional callback ``(step_label, fraction)`` invoked
+            once per step boundary BEFORE the step runs. ``fraction`` is
+            ``step_index / len(STEPS)`` so the UI can render a 9-segment
+            progress bar. After the final step a sentinel call
+            ``("done", 1.0)`` fires so consumers don't need a "did the
+            last step finish" guard.
+        skip_extract: When True, skip the extract step. Useful for tests
+            that pre-seed ``data/extracted_jsons/`` or for re-runs after
+            a partial failure.
+        extract_limit: Per-call cap forwarded to ``extract_all``. None =
+            no cap. Defaults to 5 to keep onboarding cheap in mock mode.
+        force: Forwarded to extract / bootstrap / write where supported.
+        plan_chapters_target: Override the chapter_plan size. None lets
+            the planner use its built-in default (typically 5+ for usable
+            outline depth). If you set this below ``target_chapters`` the
+            writer may run out of plan entries.
+
+    Returns:
+        A dict keyed by step label whose values are each step's native
+        return type (e.g. ``normalize`` returns the manifest list,
+        ``apply-bootstrap`` returns a dict of per-proposal apply results).
+        On exception the partial dict is NOT returned — the exception
+        propagates and the caller decides how to surface it.
+    """
+
+    total = len(STEPS)
+
+    # iter 048a: steps 1-6 (normalize → apply-bootstrap) live in
+    # _run_prepare_steps so the WebUI workbench can run just the prep phase
+    # as its ``prepare-greenfield`` composite step. total=9 keeps fractions
+    # byte-identical to the legacy inline version; emit_done=False because
+    # debate/plan/write/done still follow below.
+    results = _run_prepare_steps(
+        progress_cb=progress_cb,
+        total=total,
+        emit_done=False,
+        skip_extract=skip_extract,
+        extract_limit=extract_limit,
+        force=force,
+    )
+
+    def _notify(step: str, index: int) -> None:
+        if progress_cb is not None:
+            progress_cb(step, index / total)
 
     _notify("debate", 6)
     results["debate"] = run_debate()

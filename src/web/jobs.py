@@ -432,6 +432,27 @@ def _step_auto_pipeline_greenfield(params: Dict[str, Any], progress_cb: Callable
     return _step_auto_pipeline(merged, progress_cb)
 
 
+def _step_prepare_greenfield(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    """iter 048a: workbench stage ① — run only the 6 prep steps
+    (normalize → apply-bootstrap) as a single composite job, then stop.
+
+    Greenfield onboarding has no prior start point, and the workbench
+    drives debate / plan-chapters / write-book as their own later-stage
+    jobs — so this step deliberately does NOT continue past
+    apply-bootstrap. ``total=6, emit_done=True`` remaps the shared prep
+    fractions onto a self-contained 0→100% bar so the stage ① card fills
+    cleanly instead of stalling at 5/9 (which a naive ``index/9`` reuse
+    would produce). See ``auto_pipeline._run_prepare_steps``."""
+    return auto_pipeline._run_prepare_steps(
+        progress_cb=progress_cb,
+        total=6,
+        emit_done=True,
+        skip_extract=bool(params.get("skip_extract", False)),
+        extract_limit=params.get("extract_limit", 5),
+        force=bool(params.get("force", False)),
+    )
+
+
 # Hard-coded whitelist. Adding a step here = a code review event.
 STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]], Any]] = {
     "normalize": _step_normalize,
@@ -445,6 +466,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "write-book": _step_write_book,
     "draft-once-dev": _step_draft_once_dev,
     "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
+    "prepare-greenfield": _step_prepare_greenfield,
 }
 
 
