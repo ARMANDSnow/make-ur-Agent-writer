@@ -58,3 +58,5 @@
 47. [Iteration 048b - 小白四步工作台·前端四阶段页 + 大纲回写](./iteration_048b_PLAN.md)
 48. [Iteration 048c - 小白四步工作台·细纲只读 + 重新生成 + 写书指纹链兼容回归](./iteration_048c_PLAN.md)
 49. [Iteration 048d - iter048 对抗审查 H/M 级修复（tmp 竞态 / PUT outline TOCTOU / prep step readiness / ping redact / 测试 gap）](./iteration_048d_PLAN.md)
+50. [Iteration 049 - Aeloon 插件 + MCP 双轨集成（补 aeloon_plugin + 服务端 opt-in token 闸）](./iteration_049_PLAN.md)
+51. [Iteration 050 - 产品打磨包（048d/049 顺延，计划稿）](./iteration_050_PLAN.md)

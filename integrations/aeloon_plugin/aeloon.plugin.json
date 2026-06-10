@@ -1,0 +1,24 @@
+{
+  "id": "novel.continuer",
+  "name": "小说续写工作台",
+  "version": "0.1.0",
+  "description": "一句话开书，多 agent 流水线续写中文小说；精修跳转网页工作台。",
+  "author": "Agent续写项目",
+  "entry": "integrations.aeloon_plugin.plugin:NovelPlugin",
+  "provides": {
+    "commands": ["novel"],
+    "tools": [
+      "novel_create",
+      "novel_prepare",
+      "novel_plan_outline",
+      "novel_write_chapters",
+      "novel_auto",
+      "novel_status",
+      "novel_open_workbench",
+      "novel_list_books"
+    ]
+  },
+  "requires": {
+    "aeloon_version": ">=0.1.0"
+  }
+}

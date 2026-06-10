@@ -1167,3 +1167,26 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 5. **真模型端到端 smoke**（铁律⑥需用户授权）；测 Key 成本护栏深化。
 6. **B-M-2 防御性重构**：`chapter_plan_item_fingerprint` 字段黑名单改白名单。
 7. 046/047 README/Handoff 回填仍待办（沿 048a-c 接力点）。
+
+---
+
+## Phase 4 Status（iter 049，2026-06-10）
+
+### Iteration 049 — Aeloon 插件 + MCP 双轨集成
+
+**目标**：把续写系统以**插件形式**接入第三方 Agent 平台 Aeloon-Pro。用户拍板：插件 + MCP 双轨、交互做到「命令 + LLM 工具」、可实机验收；048d 预定的产品打磨包顺延 iter050。执行档案 `iteration_049_PLAN.md`。
+
+**形态结论**（源码调研）：Aeloon WebUI 是 React 聊天窗口，插件输出渲染为 Markdown 消息流，链接可点（新标签页）；插件 SDK **无**自定义面板/iframe 扩展点 → 不做窗口内嵌子页，富交互走深链跳 `/w/{name}/workbench`。
+
+**主要落地**（在已存在 95% 的 untracked `integrations/` 脚手架——`novel_client`+`novel_ops`+`mcp_server`，44 测——之上补缺口）：
+- **`integrations/aeloon_plugin/`（新）**：`/novel` 命令族（new/outline/write/auto/status/open/list/prepare）+ 8 个 LLM 工具，复用 `novel_ops` 与 `mcp_server/tools.py` 的 `TOOL_SPECS`。`plugin.py` 薄胶水（唯一 import SDK），`commands.py`/`tool_adapter.py` host 无关可测。`install_into_aeloon.py` 用 `.pth`（repo→Aeloon venv path）+ 符号链接（→`~/.aeloon/plugins/`）一键安装、`--uninstall` 可逆。
+- **`src/web/auth.py`（新）**：opt-in bearer token 闸（env `NOVEL_API_TOKEN`，默认关→零影响既有测）；只 gate `/api/*`，`/w/` 深链与 landing 豁免；接到 `routes.dispatch()` 单咽喉。
+- **关键实测校准**：`PluginAPI` 不在 `_sdk.__init__` 导出，改 `TYPE_CHECKING` 下从 `_sdk.api` 引入；Aeloon loader 全程不碰 `sys.path`，故须 `.pth` 部署。
+
+**验证**：
+- `OPENAI_MODEL=mock .venv/bin/python -m unittest discover -s tests` → **758 OK**（694 + 64：44 既有集成测纳入 canonical + 20 新 plugin/auth），零回归；preflight ok。
+- **Aeloon 轨实机**：Aeloon 自己的 `PluginDiscovery`+`PluginLoader` 从 `~/.aeloon/plugins` 发现并加载 `novel.continuer`（`load_plugin_class` **仅靠 .pth** import）；register = `novel` 命令 + 8 工具；真实 `CommandContext` 跑 handler 产出正确 Markdown。
+- **MCP 轨实机**：真实 `mcp` 客户端启动我方 stdio server → `initialize`→`tools/list`=8→`call_tool` 命中实时 mock 服务出深链。
+- 插件**已装**用户 Aeloon，可 `/novel help`；WebUI 聊天截图与真模型 smoke 留用户/后续。
+
+**接力点（050）**：048d 顺延的产品打磨包（L级 UX/a11y、细纲结构化编辑、正文/设定编辑、premise 扩写质量、真模型 smoke、B-M-2）—— 执行档案 `iteration_050_PLAN.md`（计划稿）。

@@ -104,11 +104,19 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     """Start the dashboard. Blocks until Ctrl+C.
 
     Prints a multi-line stderr WARNING if ``host`` is not a loopback
-    address — the dashboard has zero auth and exposes everything in
-    ``workspaces/`` (status, cost, manifest, reviews, llm_calls.jsonl
-    tail) so binding to ``0.0.0.0`` on a public network is an
-    information leak.
+    address — by default the dashboard exposes everything in ``workspaces/``
+    (status, cost, manifest, reviews, llm_calls.jsonl tail), so binding to
+    ``0.0.0.0`` on a public network is an information leak unless the opt-in
+    ``NOVEL_API_TOKEN`` gate (iter 049) is set.
     """
+
+    # iter 049: ensure ``.env`` is loaded into os.environ before the first
+    # request, so a ``NOVEL_API_TOKEN`` written there actually gates ``/api/*``
+    # (otherwise the gate stays silently disabled until some other code path
+    # triggers ``get_model_config`` → ``load_dotenv_if_available``).
+    from ..config import load_dotenv_if_available
+
+    load_dotenv_if_available()
 
     address = (host, port)
     httpd = ThreadingHTTPServer(address, WebHandler)

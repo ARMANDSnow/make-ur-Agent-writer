@@ -165,7 +165,7 @@ workspaces/<book>/
 
 ## 流水线 SOP（实时状态）
 
-一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 048d**（2026-06-09），iter048 小白四步工作台完整收官——一句话开书 → `/w/{name}/workbench` 四阶段 pollJob → 大纲可编辑回写 → 一键测 Key 矩阵，+ 4 路并行 subagent 对抗审查发现的 1 H + 5 M 全部直修（`write_text_atomic` tmp 后缀 `.{pid}.{tid}` / PUT outline `workspace_reserved` 闭锁 / 6 个 prep step readiness check / `LLMClient.ping()` Bearer+sk- 正则 redact）。canonical 661→674→681→684→694（iter048 累计 +33 tests）。真实 `longzu` ch2 tier=mid 的 happy path 仍是当前生产证据。
+一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 049**（2026-06-10）——续写系统以**插件 / MCP 双轨**接入 Aeloon-Pro（`integrations/aeloon_plugin` 的 `/novel` 命令 + LLM 工具、`integrations/mcp_server` 的 8 工具，结果走深链跳 `/w/{name}/workbench`）+ 服务端 opt-in bearer token 闸；流水线 9 阶段本身不变，canonical 694→**758**（+64）。上一轮 **iter 048d**（2026-06-09），iter048 小白四步工作台完整收官——一句话开书 → `/w/{name}/workbench` 四阶段 pollJob → 大纲可编辑回写 → 一键测 Key 矩阵，+ 4 路并行 subagent 对抗审查发现的 1 H + 5 M 全部直修（`write_text_atomic` tmp 后缀 `.{pid}.{tid}` / PUT outline `workspace_reserved` 闭锁 / 6 个 prep step readiness check / `LLMClient.ping()` Bearer+sk- 正则 redact）。canonical 661→674→681→684→694（iter048 累计 +33 tests）。真实 `longzu` ch2 tier=mid 的 happy path 仍是当前生产证据。
 
 图例：✅ 已打通　⚠️ 部分打通（含 gap）　❌ 未打通
 
