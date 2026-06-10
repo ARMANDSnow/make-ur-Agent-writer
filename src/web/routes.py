@@ -31,7 +31,7 @@ from ..config import get_model_config
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
 from ..utils import read_json, read_json_optional
-from . import diag, jobs, settings as settings_mod, static, templates, wizard
+from . import auth, diag, jobs, settings as settings_mod, static, templates, wizard
 from ._naming import RESERVED_NAMES as _RESERVED_WORKSPACE_NAMES_SHARED  # noqa: F401
 from ._naming import (
     WORKSPACE_NAME_RE as _WORKSPACE_NAME_RE_SHARED,  # noqa: F401
@@ -1475,6 +1475,11 @@ def dispatch(
     # ``/`` separator survives because ``unquote`` is applied AFTER
     # ``urlsplit`` has already extracted the path component.
     decoded_path = unquote(split.path)
+    # iter 049: opt-in bearer-token gate (no-op unless NOVEL_API_TOKEN is set).
+    # Only /api/* is gated; pages + /w/ deep links stay open for the browser.
+    _token = auth.required_token()
+    if _token is not None and not auth.is_authorized(decoded_path, headers or {}, _token):
+        return _json(401, {"error": "unauthorized"})
     matched_any_method = False
     for route_method, pattern, handler in _ROUTES:
         match = pattern.match(decoded_path)
