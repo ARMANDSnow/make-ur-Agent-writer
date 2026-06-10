@@ -10,6 +10,7 @@
 - **不需要改 Aeloon 一行代码，也不需要合并到 Aeloon main 分支。** 续写插件作为 Aeloon 的 **workspace 插件** 安装到 `~/.aeloon/plugins/`，靠一个 `.pth` 让 Aeloon 的 venv 能 import 本仓库——这两样都是**运行时本地安装**，不进 Aeloon 仓库。
 - 两条接入轨，二选一或并用：**Aeloon 原生插件**（`/novel` 命令 + LLM 工具，推荐）与 **MCP server**（`tools.mcpServers` 配置）。
 - 两条轨都要求续写系统作为**独立 HTTP 服务**运行（`python main.py web`）。插件/MCP 只是瘦客户端。
+- **已装 Aeloon、想从零把续写系统用起来？** 直接看下方「🚀 面向 Aeloon 用户」一节——关键是**依赖分边**：插件侧（跑在 Aeloon 进程内）**零额外依赖**，续写引擎的重依赖（litellm 等）在它**自己的独立进程**，两边天然隔离。
 
 ---
 
@@ -27,6 +28,49 @@
 
 - **为什么走 HTTP 而不是直接 import 续写包**：续写流水线是同步、长耗时（LLM 调用以分钟计），Aeloon 是 asyncio——内联会阻塞其事件循环；且「跳转工作台」本就要求续写服务在跑。故插件 = 异步瘦 HTTP 客户端（`asyncio.to_thread` 卸载阻塞 I/O）。
 - **界面形态**：Aeloon WebUI 是 React 聊天窗口，插件输出渲染为 Markdown 气泡，链接可点（新标签页）。插件 SDK **无**自定义面板/iframe 扩展点，所以富交互（改大纲、读正文）一律走深链跳转到续写系统自带的网页工作台。
+
+---
+
+## 🚀 面向 Aeloon 用户：从零把续写系统用起来（依赖分边）
+
+> 场景：你已经在用 Aeloon（venv + 依赖都齐了），现在想加上「续写系统」。
+
+**心智模型**：续写系统是一个**独立程序**（独立进程 + 独立依赖），插件只是装在 Aeloon 里的**瘦 HTTP 客户端**。所以「部署续写系统」= 两件事：① 把续写系统作为服务跑起来；② 在 Aeloon 里装个瘦插件指过去。**不是**把续写系统塞进 Aeloon 进程。
+
+### 依赖分边（关键，也是为什么省心）
+
+| | 跑在哪 | 需要的依赖 | 你已有 Aeloon 时要补什么 |
+|---|---|---|---|
+| **插件侧** | Aeloon 进程（其 venv 内）| 只 import `integrations`（`novel_client`/`novel_ops` 是**纯 stdlib**）+ Aeloon SDK（已有）；MCP 轨另需 `mcp`（Aeloon 已自带 `>=1.26.0`）| **无需额外 pip 装**。只要一个 `.pth` 让 Aeloon venv 能 import `integrations` |
+| **续写侧** | **独立进程**（自己的 venv）| 续写引擎依赖：`litellm` / `pydantic` / `python-dotenv` / `tqdm` / `tiktoken`（见 `requirements.txt`）| 给续写系统 `pip install -r requirements.txt`（它自己的 venv，或复用 Aeloon venv）|
+
+> 实测：`import integrations.aeloon_plugin.*` **不会**拖入 `litellm` / `tiktoken` / 续写引擎 `src.*`——client/ops 只用 stdlib + HTTP。所以续写系统的重依赖即便装在**另一个 venv、甚至另一台机器**，也不会污染 Aeloon 进程。这就是「插件侧零额外依赖」的底气。
+
+### 从零步骤（Aeloon 用户视角）
+
+1. **拿代码**：`git clone <续写仓库> && cd <续写仓库>`。（Aeloon 机器上至少要有 `integrations/` 子树供插件 import；完整引擎可在同机或另机。）
+2. **准备续写服务的运行环境**（二选一）：
+   - 选项 A（推荐·隔离）：给续写系统建独立 venv → `python -m venv .venv && .venv/bin/pip install -r requirements.txt`。
+   - 选项 B（复用 Aeloon venv·省事）：`<Aeloon venv>/bin/pip install -r requirements.txt`（Aeloon 已有 `pydantic`、可能有 `litellm`，已装的会跳过）。留意版本冲突；不确定就用选项 A。
+3. **配置**：`cp .env.example .env`，填 `OPENAI_MODEL` 等（先验证可用 `OPENAI_MODEL=mock` 跳过 key、不联网）。
+4. **起续写服务**（长驻进程，单独开一个终端/服务）：
+   ```bash
+   OPENAI_MODEL=mock python main.py web --port 8765      # 验证用 mock
+   # 真模型：配好 .env 后  python main.py web --port 8765
+   ```
+5. **装插件到 Aeloon**：
+   ```bash
+   python -m integrations.aeloon_plugin.install_into_aeloon --venv <Aeloon venv>
+   ```
+   写 `.pth`（让 Aeloon venv 能 import `integrations`）+ 符号链接 manifest 进 `~/.aeloon/plugins/`。**这一步不在 Aeloon venv 里装续写依赖**（见上「依赖分边」）。
+6. **若续写服务不在 `127.0.0.1:8765`**：在 `~/.aeloon/config.json` 的 `plugins["novel.continuer"].base_url` 指过去（配置全表见 §3.1）。
+7. **重启 Aeloon → 聊天里 `/novel help`**。
+
+### 最小变体：续写系统跑在别处（容器 / 另一台机）
+
+Aeloon 机器上只需 `integrations/` 子树（够插件 import）+ `.pth`，把 `base_url` 指向跑续写服务的机器即可——Aeloon 机器上**不必有续写引擎 `src/`、也不必装 `litellm`**。续写服务在哪、用什么 venv，与 Aeloon 完全解耦。
+
+> 机械步骤的更多细节（一键脚本 / 手工等价 / 加载验证 / 卸载）见 §4；配置项全表见 §3；MCP 轨见 §5。
 
 ---
 
