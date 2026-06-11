@@ -709,6 +709,97 @@ def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]
     return _json(200, {"saved": True, "chars": len(outline)})
 
 
+# Iter 050 (C3c): reject C0/C1 control characters (except \t \n \r) in any
+# user-supplied text that gets persisted — they corrupt prompts, diffs and
+# terminal output downstream. Shared by every edit endpoint.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _contains_control_chars(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(_CONTROL_CHARS_RE.search(value))
+    if isinstance(value, (list, tuple)):
+        return any(_contains_control_chars(v) for v in value)
+    if isinstance(value, dict):
+        return any(_contains_control_chars(v) for v in value.values())
+    return False
+
+
+def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/chapter-plan/<chapter> — structured edit of
+    one chapter's plan item (iter 050, workbench stage ③).
+
+    Body: ``{"fields": {<EDITABLE_PLAN_ITEM_FIELDS subset>}}``. Validation
+    and fingerprint recomputation live in
+    ``plot_planner.apply_chapter_plan_item_edit`` (the single fingerprint
+    truth source — this endpoint never touches fingerprints itself).
+
+    The response reports ``written_chapters_invalidated``: any plan edit
+    changes the plan-level fingerprint, which strict-expires every already
+    written chapter (accepted product semantics, same as regenerating the
+    plan) — the frontend warns before saving when this list is non-empty.
+    """
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        chapter_no = int(chapter)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid chapter number"})
+    if not 1 <= chapter_no <= 9999:
+        return _json(400, {"error": "chapter number out of range"})
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    fields = payload.get("fields")
+    if not isinstance(fields, dict) or not fields:
+        return _json(400, {"error": "missing or invalid 'fields'"})
+    if _contains_control_chars(fields):
+        return _json(400, {"error": "fields must not contain control characters"})
+
+    from ..plot_planner import apply_chapter_plan_item_edit
+
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                drafts = paths.drafts_dir()
+                written = sorted(
+                    int(m.group(1))
+                    for p in (drafts.glob("chapter_*.md") if drafts.exists() else [])
+                    if (m := re.fullmatch(r"chapter_(\d+)\.md", p.name))
+                )
+                try:
+                    data = apply_chapter_plan_item_edit(chapter_no, fields)
+                except FileNotFoundError as exc:
+                    return _json(404, {"error": str(exc)})
+                except KeyError as exc:
+                    return _json(404, {"error": str(exc.args[0]) if exc.args else "chapter not found"})
+                except ValueError as exc:
+                    return _json(400, {"error": str(exc)})
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write chapter plan: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            )
+        raise
+    _clear_overview_cache()
+    return _json(
+        200,
+        {
+            "saved": True,
+            "plan_fingerprint": data.get("plan_fingerprint", ""),
+            "written_chapters_invalidated": written,
+        },
+    )
+
+
 def _drama_endpoint_error(name: str) -> Optional[Tuple[int, str, bytes]]:
     if not _validate_workspace_name(name):
         return _json(400, {"error": "invalid workspace name"})
@@ -1335,6 +1426,12 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "PUT",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/outline/?$"),
         lambda name, _body=b"", **_: api_workspace_outline_save(name, _body),
+    ),
+    # iter 050: structured per-chapter plan edit (workbench stage ③)
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/chapter-plan/(?P<chapter>\d+)/?$"),
+        lambda name, chapter, _body=b"", **_: api_workspace_chapter_plan_save(name, chapter, _body),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/insights/?$"), lambda name, **_: api_workspace_insights(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/progress/?$"), lambda name, **_: api_drama_progress(name)),

@@ -10,7 +10,7 @@ from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
-from .schemas import ChapterPlan, model_to_dict, model_to_json_schema
+from .schemas import ChapterPlan, ChapterPlanItem, model_to_dict, model_to_json_schema
 from . import start_point
 from .style import load_style_examples
 from .utils import sha256_data, write_json
@@ -173,23 +173,36 @@ def generate_chapter_plan(
     return data
 
 
+# Iter 050 (B-M-2): the fingerprint input is an explicit whitelist of the
+# semantic fields of ``ChapterPlanItem``. Previously a blacklist excluded
+# bookkeeping fields ({chapter_plan_item_fingerprint, plan_fingerprint,
+# start_point_fingerprint}) plus ``segments`` (iter 046: writing-time
+# decomposition, not plan semantics) — meaning any future schema field would
+# silently enter the hash and invalidate every written chapter's stored
+# fingerprint. With the whitelist, adding a field to the fingerprint is an
+# explicit decision here. For canonical (model-produced) plan items the two
+# filters select the same keys, so hashes are byte-identical — no migration.
+_ITEM_FINGERPRINT_FIELDS: tuple = (
+    "chapter_no",
+    "title",
+    "opening_scene",
+    "key_events",
+    "relationships_in_play",
+    "ending_hook",
+    "target_chinese_chars",
+    "plot_purpose",
+)
+
+# Iter 050: fields the structured edit endpoint may change. ``chapter_no``
+# stays immutable (renumbering breaks append mode + draft filename mapping)
+# and ``segments`` is not exposed in v1 (regenerate instead).
+EDITABLE_PLAN_ITEM_FIELDS = frozenset(_ITEM_FINGERPRINT_FIELDS) - {"chapter_no"}
+
+
 def chapter_plan_item_fingerprint(item: Dict[str, Any]) -> str:
     """Stable fingerprint for a single chapter plan item."""
 
-    stable = {
-        key: value
-        for key, value in dict(item).items()
-        if key
-        not in {
-            "chapter_plan_item_fingerprint",
-            "plan_fingerprint",
-            "start_point_fingerprint",
-            # Iter 046: segments are a writing-time decomposition, not a plan
-            # semantics change — exclude so adding the field never invalidates
-            # an already-written chapter's stored fingerprint.
-            "segments",
-        }
-    }
+    stable = {key: item[key] for key in _ITEM_FINGERPRINT_FIELDS if key in item}
     return sha256_data(stable)
 
 
@@ -200,11 +213,7 @@ def plan_fingerprint(data: Dict[str, Any]) -> str:
     for item in data.get("chapters", []) or []:
         if isinstance(item, dict):
             chapters.append(
-                {
-                    key: value
-                    for key, value in item.items()
-                    if key not in {"chapter_plan_item_fingerprint", "segments"}
-                }
+                {key: item[key] for key in _ITEM_FINGERPRINT_FIELDS if key in item}
             )
     payload = {
         "schema_version": 1,
@@ -217,14 +226,97 @@ def plan_fingerprint(data: Dict[str, Any]) -> str:
     return sha256_data(payload)
 
 
-def _attach_plan_fingerprints(data: Dict[str, Any], *, start_chapter_id: str | None) -> None:
+def _attach_plan_fingerprints(
+    data: Dict[str, Any],
+    *,
+    start_chapter_id: str | None,
+    refresh_start_point: bool = True,
+) -> None:
+    # Iter 050: the structured edit path passes refresh_start_point=False —
+    # it must keep the plan's *stored* start_point_fingerprint so that
+    # book_runner._plan_metadata_failures can still detect "plan was
+    # generated under a different start point". Recomputing from live state
+    # here would forge freshness the plan content doesn't have.
     data["start_chapter_id"] = start_chapter_id or data.get("start_chapter_id") or ""
-    data["start_point_fingerprint"] = start_point.start_point_fingerprint()
+    if refresh_start_point or not data.get("start_point_fingerprint"):
+        data["start_point_fingerprint"] = start_point.start_point_fingerprint()
     data["schema_version"] = int(data.get("schema_version") or 1)
     for item in data.get("chapters", []) or []:
         if isinstance(item, dict):
             item["chapter_plan_item_fingerprint"] = chapter_plan_item_fingerprint(item)
     data["plan_fingerprint"] = plan_fingerprint(data)
+
+
+def apply_chapter_plan_item_edit(chapter_no: int, fields: Dict[str, Any]) -> Dict[str, Any]:
+    """Iter 050: structured per-chapter plan edit — no LLM, pure IO.
+
+    Merges whitelisted fields into one chapter's plan item, validates the
+    item (Pydantic range checks) and the whole plan, then re-derives every
+    fingerprint via ``_attach_plan_fingerprints`` — the same single entry
+    used by plan generation, so the write-book gate stays self-consistent
+    (the 048c rule: no write path may hand-craft fingerprints).
+
+    Non-edited items are kept byte-identical (no model round-trip of the
+    whole plan), so their stored fingerprints in already-written chapters'
+    meta survive an edit of a *different* chapter at the item level. The
+    plan-level ``plan_fingerprint`` still changes — written chapters going
+    strict-stale after any plan edit is the accepted product semantics.
+
+    Raises ``FileNotFoundError`` (no plan), ``KeyError`` (chapter not in
+    plan), ``ValueError`` (non-editable field or validation failure).
+    """
+
+    from pydantic import ValidationError
+
+    from .utils import read_json
+
+    chapter_plan_path = _chapter_plan_path()
+    if not chapter_plan_path.exists():
+        raise FileNotFoundError("chapter_plan.json not found; run plan-chapters first")
+    data = read_json(chapter_plan_path, {})
+    if not isinstance(data, dict):
+        raise ValueError("chapter_plan.json is not a JSON object")
+    chapters = data.get("chapters", []) or []
+
+    unknown = set(fields) - EDITABLE_PLAN_ITEM_FIELDS
+    if unknown:
+        raise ValueError(
+            "non-editable fields: " + ", ".join(sorted(str(k) for k in unknown))
+        )
+    if not fields:
+        raise ValueError("no editable fields provided")
+
+    idx = next(
+        (
+            i
+            for i, item in enumerate(chapters)
+            if isinstance(item, dict) and item.get("chapter_no") == chapter_no
+        ),
+        None,
+    )
+    if idx is None:
+        raise KeyError(f"chapter {chapter_no} not found in chapter_plan")
+
+    merged = {**chapters[idx], **fields}
+    try:
+        validated = ChapterPlanItem(**merged)
+    except ValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(str(part) for part in err.get('loc', ()))}: {err.get('msg', '')}"
+            for err in exc.errors()
+        )
+        raise ValueError(f"validation failed: {details}") from exc
+
+    chapters[idx] = model_to_dict(validated)
+    try:
+        ChapterPlan(**{**data, "chapters": chapters})
+    except ValidationError as exc:
+        raise ValueError(f"plan validation failed: {exc}") from exc
+
+    data["chapters"] = chapters
+    _attach_plan_fingerprints(data, start_chapter_id=None, refresh_start_point=False)
+    write_json(chapter_plan_path, data)
+    return data
 
 
 def _format_existing_tail(existing_chapters: list, k: int = 5) -> str:

@@ -1215,6 +1215,15 @@ JS_DASHBOARD = """\
       cta_label: "查看并重试",
       hint: "先查看失败原因，再用相同或调整后的参数重试。",
     },
+    // iter 050 (B3-hint): the whole fingerprint failure family
+    // (plan_fingerprint_mismatch / chapter_NN_plan_item_fingerprint_* /
+    // start_point_fingerprint_*) maps here via jobActionKind.
+    plan_fingerprint_stale: {
+      label: "细纲已变更/过期",
+      action: "run_plan_chapters",
+      cta_label: "重新生成细纲",
+      hint: "细纲在写作后被修改或重新生成。可重写受影响章节，或重新生成细纲后再续写。",
+    },
   };
   const WRITE_PRESETS = {
     trial: { tier: "low", chapters: 1, max_retries: 1, budget_cny: 2, auto_advance: false },
@@ -2230,7 +2239,15 @@ JS_DASHBOARD = """\
     // Pull the read-only artifacts (outline + chapter_plan) in a single
     // fetch and refresh whatever sections have data. has_plan implies
     // has_outline in our gate, and outline_md回填 is gated on "user not editing".
+    lastWorkbenchStatus = st;
     if (st.has_outline) {
+      // iter 050 (D4): explicit loading placeholder on first paint so an
+      // empty box never reads as "no plan exists".
+      const previewBox = document.getElementById("plan-chapters-preview");
+      if (previewBox && !planPreviewLoaded && planEditingChapter == null) {
+        previewBox.className = "muted";
+        previewBox.textContent = "细纲加载中…";
+      }
       let plan;
       try {
         plan = await fetchJson(wsUrl("/plan"));
@@ -2241,24 +2258,36 @@ JS_DASHBOARD = """\
       if (area && !area.dataset.dirty && document.activeElement !== area) {
         if (typeof plan.outline_md === "string") area.value = plan.outline_md;
       }
-      renderPlanPreview(plan && plan.plan);
+      renderPlanPreview(plan && plan.plan, st);
+      planPreviewLoaded = true;
     }
   }
-  function renderPlanPreview(plan) {
+  // iter 050: structured per-chapter plan editing (workbench stage ③).
+  // While an editor is open, periodic refreshes must not clobber the form.
+  let planEditingChapter = null;
+  let planPreviewLoaded = false;
+  let lastPlanChapters = [];
+  let lastWorkbenchStatus = null;
+  function renderPlanPreview(plan, st) {
     const box = document.getElementById("plan-chapters-preview");
     if (!box) return;
+    if (planEditingChapter != null) return;
     const chapters = (plan && plan.chapters) || [];
+    lastPlanChapters = chapters;
     if (!chapters.length) {
       box.className = "muted";
       box.textContent = "尚未生成细纲。";
       return;
     }
-    // Read-only: chapter_no + title + target char budget. Editing留 049
-    // (any in-place edit would invalidate plan_fingerprint and block stage④,
-    // so 048c deliberately gates "change细纲" through the重生成 button which
-    // re-runs the planner and re-attaches fingerprints — the red-team's
-    // 指纹链 trap is消解 by route, not by handwritten reconciliation).
-    let html = '<div class="kv-list compact">';
+    // iter 050 (D4): a plan that exists but failed the workbench mtime gate
+    // (upstream KB/outline newer) renders greyed-out with an explicit stale
+    // notice instead of masquerading as current.
+    const stale = !!(st && st.has_plan === false);
+    let html = "";
+    if (stale) {
+      html += '<p class="muted">细纲已过期（上游设定/大纲已更新），请重新生成。以下为旧细纲：</p>';
+    }
+    html += '<div class="kv-list compact"' + (stale ? ' style="opacity:.55"' : "") + '>';
     for (const ch of chapters) {
       const num = ch.chapter_no == null ? "?" : String(ch.chapter_no).padStart(2, "0");
       const title = ch.title || "(未命名)";
@@ -2266,11 +2295,138 @@ JS_DASHBOARD = """\
       html += '<div class="k">第' + escapeHtml(num) + '章</div>' +
         '<div class="v">' + escapeHtml(title) +
         (target ? ' <span class="muted">· ' + escapeHtml(target) + '</span>' : '') +
+        (!stale && ch.chapter_no != null
+          ? ' <button type="button" class="btn btn-ghost btn-sm" data-plan-edit="' + Number(ch.chapter_no) + '">编辑</button>'
+          : '') +
         '</div>';
     }
     html += "</div>";
     box.className = "";
     box.innerHTML = html;
+    box.querySelectorAll("[data-plan-edit]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openPlanEditor(Number(btn.dataset.planEdit));
+      });
+    });
+  }
+  function planEditorListRows(containerId, values, placeholder) {
+    return values.map(function (value, i) {
+      return '<div class="plan-edit-row" style="display:flex;gap:4px;margin-bottom:4px">' +
+        '<input type="text" id="' + containerId + '-' + i + '" value="' + escapeHtml(value) + '" placeholder="' + escapeHtml(placeholder) + '" style="flex:1">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-row-del aria-label="删除此行">✕</button>' +
+        '</div>';
+    }).join("");
+  }
+  function bindPlanEditorList(container, placeholder, addBtn, max) {
+    function rebindDel() {
+      container.querySelectorAll("[data-row-del]").forEach(function (btn) {
+        btn.onclick = function () { btn.parentElement.remove(); };
+      });
+    }
+    rebindDel();
+    addBtn.addEventListener("click", function () {
+      if (container.querySelectorAll("input").length >= max) {
+        showToast("最多 " + max + " 条", "error");
+        return;
+      }
+      const row = document.createElement("div");
+      row.className = "plan-edit-row";
+      row.style.cssText = "display:flex;gap:4px;margin-bottom:4px";
+      row.innerHTML = '<input type="text" placeholder="' + escapeHtml(placeholder) + '" style="flex:1">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-row-del aria-label="删除此行">✕</button>';
+      container.appendChild(row);
+      rebindDel();
+    });
+  }
+  function planEditorListValues(container) {
+    return Array.from(container.querySelectorAll("input"))
+      .map(function (inp) { return inp.value.trim(); })
+      .filter(function (v) { return v; });
+  }
+  function openPlanEditor(chapterNo) {
+    const box = document.getElementById("plan-chapters-preview");
+    const ch = lastPlanChapters.find(function (c) { return c.chapter_no === chapterNo; });
+    if (!box || !ch) return;
+    planEditingChapter = chapterNo;
+    const num = String(chapterNo).padStart(2, "0");
+    const textField = function (id, label, value, textarea) {
+      return '<div class="field">' +
+        '<label for="' + id + '">' + escapeHtml(label) + '</label>' +
+        (textarea
+          ? '<textarea id="' + id + '" rows="2">' + escapeHtml(value || "") + '</textarea>'
+          : '<input type="text" id="' + id + '" value="' + escapeHtml(value || "") + '">') +
+        '</div>';
+    };
+    box.innerHTML =
+      '<div class="plan-edit-form">' +
+      '<p><strong>编辑第' + escapeHtml(num) + '章细纲</strong></p>' +
+      textField("plan-edit-title", "章节标题", ch.title) +
+      textField("plan-edit-opening", "开场场景（一句话，writer 必须遵守）", ch.opening_scene, true) +
+      '<div class="field"><label for="plan-edit-events-0">核心事件（2-7 条，本章必须发生）</label>' +
+      '<div id="plan-edit-events">' + planEditorListRows("plan-edit-events", ch.key_events || [], "事件描述") + '</div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="plan-edit-events-add">＋ 添加事件</button></div>' +
+      '<div class="field"><label for="plan-edit-rels-0">重点演进的关系（可空）</label>' +
+      '<div id="plan-edit-rels">' + planEditorListRows("plan-edit-rels", ch.relationships_in_play || [], "如：路明非 ↔ 陈雯雯") + '</div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="plan-edit-rels-add">＋ 添加关系</button></div>' +
+      textField("plan-edit-hook", "结尾钩子（留给下章承接）", ch.ending_hook, true) +
+      '<div class="field"><label for="plan-edit-target">目标中文字数（2500-6000）</label>' +
+      '<input type="number" id="plan-edit-target" min="2500" max="6000" step="100" value="' + Number(ch.target_chinese_chars || 4000) + '"></div>' +
+      textField("plan-edit-purpose", "本章在全书弧线中的作用", ch.plot_purpose, true) +
+      '<p class="muted">章号不可修改；整体调整请用「重新生成细纲」。保存会重算细纲指纹。</p>' +
+      '<div style="display:flex;gap:8px;margin-top:8px">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="plan-edit-save">保存</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="plan-edit-cancel">取消</button>' +
+      '</div></div>';
+    box.className = "";
+    bindPlanEditorList(document.getElementById("plan-edit-events"), "事件描述", document.getElementById("plan-edit-events-add"), 7);
+    bindPlanEditorList(document.getElementById("plan-edit-rels"), "如：路明非 ↔ 陈雯雯", document.getElementById("plan-edit-rels-add"), 20);
+    document.getElementById("plan-edit-cancel").addEventListener("click", function () {
+      planEditingChapter = null;
+      refreshWorkbench();
+    });
+    document.getElementById("plan-edit-save").addEventListener("click", async function () {
+      const saveBtn = this;
+      const fields = {
+        title: document.getElementById("plan-edit-title").value.trim(),
+        opening_scene: document.getElementById("plan-edit-opening").value.trim(),
+        key_events: planEditorListValues(document.getElementById("plan-edit-events")),
+        relationships_in_play: planEditorListValues(document.getElementById("plan-edit-rels")),
+        ending_hook: document.getElementById("plan-edit-hook").value.trim(),
+        target_chinese_chars: parseInt(document.getElementById("plan-edit-target").value, 10),
+        plot_purpose: document.getElementById("plan-edit-purpose").value.trim(),
+      };
+      // Client-side pre-checks mirror ChapterPlanItem ranges; the server
+      // (Pydantic) stays the source of truth.
+      if (!fields.title || !fields.opening_scene || !fields.ending_hook || !fields.plot_purpose) {
+        showToast("标题、开场、钩子、章节作用均不能为空", "error");
+        return;
+      }
+      if (fields.key_events.length < 2 || fields.key_events.length > 7) {
+        showToast("核心事件需要 2-7 条", "error");
+        return;
+      }
+      if (!(fields.target_chinese_chars >= 2500 && fields.target_chinese_chars <= 6000)) {
+        showToast("目标字数需在 2500-6000 之间", "error");
+        return;
+      }
+      const draftCount = lastWorkbenchStatus ? lastWorkbenchStatus.draft_count || 0 : 0;
+      if (draftCount > 0 && !window.confirm(
+        "当前已写正文 " + draftCount + " 章。保存细纲修改后，这些章节的评审状态将过期，需要重写或重新评审。继续保存？"
+      )) return;
+      saveBtn.disabled = true;
+      try {
+        const res = await putJson(wsUrl("/chapter-plan/" + chapterNo), { fields: fields });
+        planEditingChapter = null;
+        const invalidated = res.written_chapters_invalidated || [];
+        showToast("第" + num + "章细纲已保存" +
+          (invalidated.length ? "；已写章节（" + invalidated.join(", ") + "）评审状态已过期" : ""));
+        refreshWorkbench();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
   }
   async function populateStartPointSelect() {
     const select = document.getElementById("start-point-select");
@@ -2566,6 +2722,7 @@ JS_DASHBOARD = """\
     const detail = jobBlockedDetail(job);
     const reason = detail && detail.reason ? detail.reason : "";
     if (CTA_ACTIONS[reason]) return reason;
+    if (/fingerprint/.test(reason)) return "plan_fingerprint_stale";
     const partial = job.result_summary && job.result_summary.partial;
     if (partial && partial.chapter) return "retry_exhausted";
     if (job.status === "failed" || job.status === "blocked" || job.status === "budget_exceeded") return "retry_exhausted";
