@@ -50,6 +50,7 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     _check_cache_provider(warn)
     _check_global_facts(warn, root)
     _check_runtime_env(warn)
+    _check_budget_guard(warn, is_global_mock)
     _check_start_safe_knowledge(warn, info, root)
     _check_foreshadowing_registry(warn, info, root)
     _summarize_llm_logs(info, root)
@@ -265,6 +266,37 @@ def _check_runtime_env(warn: List[str]) -> None:
             int(value)
         except ValueError:
             warn.append("WRITE_MAX_TOKENS is not an integer; model config will use its default max_tokens.")
+
+
+def _check_budget_guard(warn: List[str], is_global_mock: bool) -> None:
+    """iter 050 (F): with a real model configured, an unset / non-numeric
+    ``NOVEL_DEFAULT_BUDGET_CNY`` means web write jobs fall back to the
+    built-in 10元 cap — fine, but worth surfacing so the operator sets an
+    explicit ceiling before a long unattended run. Mock stays silent."""
+    if is_global_mock:
+        return
+    raw = os.getenv("NOVEL_DEFAULT_BUDGET_CNY", "")
+    if not raw:
+        warn.append(
+            "NOVEL_DEFAULT_BUDGET_CNY is not set; write jobs that omit "
+            "budget_cny default to a 10.0元 cap (the workbench form prefills "
+            "this value but submits it explicitly). Set the env before long "
+            "unattended runs."
+        )
+        return
+    import math
+
+    try:
+        value = float(raw)
+    except ValueError:
+        value = None
+    # iter 050d (L-3): nan never trips the gate (all comparisons False);
+    # inf/negative are equally meaningless as caps.
+    if value is None or not math.isfinite(value) or value < 0:
+        warn.append(
+            f"NOVEL_DEFAULT_BUDGET_CNY='{raw}' is not a usable cap "
+            "(needs a finite number >= 0); the 10.0元 default applies."
+        )
 
 
 def _check_start_safe_knowledge(warn: List[str], info: List[str], root: Path) -> None:

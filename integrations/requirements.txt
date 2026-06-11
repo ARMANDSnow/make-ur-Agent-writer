@@ -1,0 +1,8 @@
+# Optional dependencies for integrations/ (iter 049).
+# The core continuer (src/) has NO dependency on any of these.
+#
+# - novel_client + novel_ops are pure stdlib (zero third-party imports).
+# - Only the MCP stdio server needs the MCP SDK.
+# - The Aeloon plugin runs inside Aeloon's own venv, which already provides the
+#   Aeloon SDK + pydantic — so nothing to install here for that track.
+mcp>=1.26.0

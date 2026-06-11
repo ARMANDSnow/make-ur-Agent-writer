@@ -54,7 +54,9 @@ Thumbs.db
 *.swp
 
 # --- Claude Code local config ---
-.claude/settings.local.json
+# Whole dir is local/runtime state: settings.local.json, scheduled_tasks.lock,
+# launch.json (preview-tool ports). None belong in the repo.
+.claude/
 
 # --- playwright debug artifacts ---
 .playwright-cli/

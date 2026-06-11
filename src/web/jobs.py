@@ -447,13 +447,36 @@ def _step_draft_once_dev(params: Dict[str, Any], progress_cb: Callable[[str, flo
     )
 
 
+def _default_budget_cny() -> float:
+    """iter 050 (F): web-started write jobs are no longer unguarded by
+    default. ``budget_cny=0.0`` (no cap) used to be the silent default for
+    any workbench/API caller that omitted the field — with a real model
+    configured that's an open-ended spend. The default cap comes from
+    ``NOVEL_DEFAULT_BUDGET_CNY`` (else 10.0元); callers can still pass an
+    explicit ``budget_cny`` (0 = uncapped, CLI semantics unchanged)."""
+    import os
+
+    import math
+
+    raw = os.environ.get("NOVEL_DEFAULT_BUDGET_CNY", "")
+    try:
+        value = float(raw) if raw else 10.0
+    except ValueError:
+        return 10.0
+    # iter 050d (L-3): nan compares False with everything → the budget gate
+    # would never trip; inf/negative are equally meaningless as caps.
+    if not math.isfinite(value) or value < 0:
+        return 10.0
+    return value
+
+
 def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     return run_write_book(
         chapters=int(params.get("chapters", 1)),
         resume_from=int(params.get("resume_from", 1)),
         force=bool(params.get("force", False)),
         max_retries=int(params.get("max_retries", 2)),
-        budget_cny=_float_param(params, "budget_cny", 0.0),
+        budget_cny=_float_param(params, "budget_cny", _default_budget_cny()),
         replan_every=int(params.get("replan_every", 0)),
         min_confidence=_float_param(params, "min_confidence", 0.7),
         auto_advance=bool(params.get("auto_advance", True)),
@@ -463,6 +486,72 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
         progress_cb=progress_cb,
         tier=params.get("tier"),
     )
+
+
+def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    """iter 050 (B2): standalone re-review of one written chapter — the
+    job behind「保存并重新评审」after an in-place draft edit.
+
+    Chains the existing pieces end-to-end: ``reviewer.review_target`` (reads
+    draft_sha256 + run_context from meta — it never re-hashes, which is why
+    the draft PUT endpoint must have synced meta first) →
+    ``book_runner._sync_meta_with_external_review`` → strict
+    ``chapter_status`` against the CURRENT plan's expected context. After a
+    successful round-trip the ``external_review_stale`` /
+    ``draft_hash_mismatch`` failures from the edit disappear; the verdict
+    itself is whatever the review panel says."""
+    try:
+        chapter_no = int(params.get("chapter"))
+    except (TypeError, ValueError):
+        raise ValueError("review-chapter requires integer params.chapter")
+    if not 1 <= chapter_no <= 9999:
+        raise ValueError("params.chapter out of range")
+
+    from ..book_runner import _build_review_context, _sync_meta_with_external_review
+    from ..chapter_status import chapter_status
+    from ..reviewer import review_target
+    from ..writer import _chapter_plan_item, _load_chapter_plan, _run_context
+
+    drafts_dir = paths.drafts_dir()
+    md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
+    if not md_path.exists():
+        return _blocked(
+            "draft_missing",
+            f"chapter_{chapter_no:02d}.md not found; write the chapter first",
+        )
+    plan = _load_chapter_plan()
+    if plan is None:
+        return _blocked(
+            "chapter_plan_missing",
+            "chapter_plan.json not found; run `plan-chapters` first",
+        )
+    try:
+        item = _chapter_plan_item(plan, chapter_no)
+    except ValueError as exc:
+        return _blocked("chapter_plan_missing", str(exc))
+
+    progress_cb("review", 0.1)
+    review_target(
+        md_path,
+        enforce_relationship_checklist=True,
+        tier=params.get("tier"),
+        **_build_review_context(item),
+    )
+    progress_cb("sync-meta", 0.8)
+    meta = _sync_meta_with_external_review(drafts_dir, chapter_no)
+    status = chapter_status(
+        chapter_no,
+        drafts_dir,
+        validate_context=True,
+        require_external_review=True,
+        expected_context=_run_context(item, chapter_no=chapter_no),
+    )
+    return {
+        "status": "succeeded",
+        "chapter": chapter_no,
+        "verdict": meta.get("verdict") if isinstance(meta, dict) else None,
+        "chapter_status": status,
+    }
 
 
 def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -515,6 +604,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "debate": _step_debate,
     "plan-chapters": _step_plan_chapters,
     "write-book": _step_write_book,
+    "review-chapter": _step_review_chapter,
     "draft-once-dev": _step_draft_once_dev,
     "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
     "prepare-greenfield": _step_prepare_greenfield,
@@ -620,6 +710,16 @@ def _summarize_result(step: str, result: Any) -> Any:
             "partial": result.get("partial"),
             "error": result.get("error"),
             "snapshot_path": result.get("snapshot_path"),
+        }
+    if step == "review-chapter" and isinstance(result, dict):
+        status = result.get("chapter_status") or {}
+        blocked = result.get("blocked") or []
+        return {
+            "status": result.get("status"),
+            "chapter": result.get("chapter"),
+            "verdict": result.get("verdict"),
+            "strict_failures": status.get("strict_failures"),
+            "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
         }
     if step == "plan-chapters" and isinstance(result, dict):
         blocked = result.get("blocked") or []

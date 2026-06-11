@@ -285,6 +285,94 @@ class WorkbenchReplanTests(unittest.TestCase):
             chapter_plan_item_fingerprint(ch1),
         )
 
+    # ---- iter 050: structured edit shares the same fingerprint truth ------
+
+    def test_write_book_after_structured_edit_passes_fingerprint_gate(self) -> None:
+        """iter 050 mirror of the 048c reason-to-exist test: the structured
+        edit endpoint (PUT /chapter-plan/<n>) re-derives fingerprints via the
+        same _attach_plan_fingerprints entry as plan generation, so a
+        subsequent write-book must NOT trip the fingerprint gate."""
+        self._drive_to_plan("editgate", target_chapters=5)
+        status, _ct, body = routes.dispatch(
+            "PUT",
+            "/api/workspace/editgate/chapter-plan/1",
+            json.dumps(
+                {"fields": {"title": "编辑后的第一章", "key_events": ["事件甲", "事件乙", "事件丙"]}},
+                ensure_ascii=False,
+            ).encode("utf-8"),
+            {"content-type": "application/json"},
+        )
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        data = self._plan_data("editgate")
+        self.assertEqual(data["chapters"][0]["title"], "编辑后的第一章")
+        self.assertEqual(data["plan_fingerprint"], plan_fingerprint(data))
+
+        rec = self._run_step(
+            "editgate",
+            "write-book",
+            {"require_start_point": False, "require_plan": True},
+        )
+        summary = rec.get("result_summary") or {}
+        first_blocked = summary.get("first_blocked")
+        if first_blocked:
+            reason = str(first_blocked.get("reason", ""))
+            self.assertNotIn("fingerprint", reason)
+        ch1 = paths.WORKSPACE_DIR / "editgate" / "outputs" / "drafts" / "chapter_01.md"
+        self.assertTrue(ch1.exists(), "write-book never produced a draft after edit")
+        # And the writer consumed the EDITED plan: meta.run_context carries
+        # the post-edit fingerprints.
+        meta = json.loads(
+            (paths.WORKSPACE_DIR / "editgate" / "outputs" / "drafts" / "chapter_01.meta.json")
+            .read_text(encoding="utf-8")
+        )
+        run_context = meta.get("run_context") or {}
+        self.assertEqual(run_context.get("plan_fingerprint"), data["plan_fingerprint"])
+
+    def test_structured_edit_strict_expires_written_chapters(self) -> None:
+        """Editing ANY chapter changes the plan-level fingerprint, which
+        strict-expires every already-written chapter (writer stores the whole
+        plan's fingerprint in each meta.run_context). This is the accepted
+        product semantics — pinned here so a future 'optimization' doesn't
+        silently weaken the gate (the '只哈希未写章' second-truth-source trap)."""
+        self._drive_to_plan("expirews", target_chapters=5)
+        rec = self._run_step(
+            "expirews",
+            "write-book",
+            {"require_start_point": False, "require_plan": True},
+        )
+        meta_path = (
+            paths.WORKSPACE_DIR / "expirews" / "outputs" / "drafts" / "chapter_01.meta.json"
+        )
+        self.assertTrue(meta_path.exists(), f"write-book left no meta: {rec.get('error')}")
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        stored_fp = (meta.get("run_context") or {}).get("plan_fingerprint")
+        self.assertTrue(stored_fp)
+        data_before = self._plan_data("expirews")
+        self.assertEqual(stored_fp, data_before["plan_fingerprint"])
+
+        # Edit chapter 3 (NOT the written chapter 1).
+        status, _ct, body = routes.dispatch(
+            "PUT",
+            "/api/workspace/expirews/chapter-plan/3",
+            json.dumps({"fields": {"title": "中段改写"}}, ensure_ascii=False).encode("utf-8"),
+            {"content-type": "application/json"},
+        )
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        resp = json.loads(body)
+        self.assertIn(1, resp["written_chapters_invalidated"])
+
+        data_after = self._plan_data("expirews")
+        # Plan-level fingerprint moved away from what chapter 1's meta holds
+        # → chapter_status strict reports plan_fingerprint mismatch for it.
+        self.assertNotEqual(stored_fp, data_after["plan_fingerprint"])
+        # But chapter 1's ITEM fingerprint is untouched (non-edited items
+        # stay byte-identical), so recovery is a rewrite/re-review of the
+        # affected chapters — not a full re-plan.
+        self.assertEqual(
+            data_before["chapters"][0]["chapter_plan_item_fingerprint"],
+            data_after["chapters"][0]["chapter_plan_item_fingerprint"],
+        )
+
     def test_replan_invalidates_stale_drafts_in_workbench_status(self) -> None:
         """Adversarial review视角 A flagged that re-planning after the user
         already wrote drafts should让 has_drafts revert to False (drafts

@@ -1215,6 +1215,15 @@ JS_DASHBOARD = """\
       cta_label: "查看并重试",
       hint: "先查看失败原因，再用相同或调整后的参数重试。",
     },
+    // iter 050 (B3-hint): the whole fingerprint failure family
+    // (plan_fingerprint_mismatch / chapter_NN_plan_item_fingerprint_* /
+    // start_point_fingerprint_*) maps here via jobActionKind.
+    plan_fingerprint_stale: {
+      label: "细纲已变更/过期",
+      action: "run_plan_chapters",
+      cta_label: "重新生成细纲",
+      hint: "细纲在写作后被修改或重新生成。可重写受影响章节，或重新生成细纲后再续写。",
+    },
   };
   const WRITE_PRESETS = {
     trial: { tier: "low", chapters: 1, max_retries: 1, budget_cny: 2, auto_advance: false },
@@ -1228,10 +1237,24 @@ JS_DASHBOARD = """\
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
     });
   }
+  // iter 050 (D1): keep status + payload on the thrown error and translate
+  // the bare "workspace busy" 409 into an actionable message. Every caller
+  // that renders err.message gets the friendly text for free.
+  function _httpError(res, data) {
+    let msg = data.error || ("HTTP " + res.status);
+    if (res.status === 409 && data.running_job_id) {
+      msg = "工作区正被另一任务占用（job " + String(data.running_job_id).slice(0, 8) +
+        "…），请等待其完成或在任务页取消后重试";
+    }
+    const err = new Error(msg);
+    err.status = res.status;
+    err.payload = data;
+    return err;
+  }
   async function fetchJson(url) {
     const res = await fetch(url);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    if (!res.ok) throw _httpError(res, data);
     return data;
   }
   async function postJson(url, payload) {
@@ -1241,7 +1264,7 @@ JS_DASHBOARD = """\
       body: JSON.stringify(payload || {}),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    if (!res.ok) throw _httpError(res, data);
     return data;
   }
   async function putJson(url, payload) {
@@ -1251,7 +1274,7 @@ JS_DASHBOARD = """\
       body: JSON.stringify(payload || {}),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    if (!res.ok) throw _httpError(res, data);
     return data;
   }
   function wsUrl(suffix) {
@@ -2145,12 +2168,172 @@ JS_DASHBOARD = """\
       return {
         chapters: Number(form.elements.chapters.value || 1),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
+        budget_cny: form.elements.budget_cny ? Number(form.elements.budget_cny.value || 10) : 10,
         require_start_point: false,
         require_plan: true,
       };
     });
     bindOutlineSave();
+    bindSettingsPanel();
     await refreshWorkbench();
+  }
+  // iter 050 (B3): stage ① on-demand KB / entity_graph editor. Loads only
+  // when the user opens the panel — no extra fetches on the refresh loop.
+  let settingsPanelInvalidate = null;
+  function bindSettingsPanel() {
+    const toggle = document.getElementById("settings-toggle");
+    const panel = document.getElementById("settings-panel");
+    const kbArea = document.getElementById("kb-md");
+    const kbSave = document.getElementById("kb-save");
+    if (!toggle || !panel || !kbArea || !kbSave) return;
+    let loaded = false;
+    async function loadPanelData() {
+      try {
+        const kb = await fetchJson(wsUrl("/kb"));
+        if (!kbArea.dataset.dirty && document.activeElement !== kbArea) {
+          kbArea.value = kb.content || "";
+        }
+        loaded = true;
+      } catch (err) {
+        kbArea.placeholder = "知识库尚未生成（" + err.message + "）";
+      }
+      await renderEntityPanel();
+    }
+    // iter 050d (M-2): re-running stage ① regenerates KB + entity_graph —
+    // an open panel must reload, or its relationship indices and content go
+    // stale and a save would hit the wrong object (server echo-check is the
+    // backstop; this keeps the UI honest proactively).
+    settingsPanelInvalidate = function () {
+      loaded = false;
+      if (!panel.hidden) loadPanelData();
+    };
+    toggle.addEventListener("click", async function () {
+      panel.hidden = !panel.hidden;
+      toggle.textContent = panel.hidden ? "查看 / 编辑设定 ▾" : "收起设定 ▴";
+      if (panel.hidden || loaded) return;
+      await loadPanelData();
+    });
+    kbArea.addEventListener("input", function () { kbArea.dataset.dirty = "1"; });
+    kbSave.addEventListener("click", async function () {
+      if (!kbArea.value.trim()) {
+        showToast("知识库不能为空", "error");
+        return;
+      }
+      kbSave.disabled = true;
+      try {
+        await putJson(wsUrl("/kb"), { content: kbArea.value });
+        delete kbArea.dataset.dirty;
+        showToast("知识库已保存；下游大纲 / 细纲将提示重新生成", "info");
+        await refreshWorkbench();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        kbSave.disabled = false;
+      }
+    });
+  }
+  async function renderEntityPanel() {
+    const box = document.getElementById("entity-panel");
+    if (!box) return;
+    let graph;
+    try {
+      graph = await fetchJson(wsUrl("/entity-graph"));
+    } catch (err) {
+      box.innerHTML = '<p class="muted">实体图谱尚未生成。</p>';
+      return;
+    }
+    const entities = (graph.entities || []).filter(function (e) { return e && e.id; });
+    const rels = graph.relationships || [];
+    const entityNames = {};
+    entities.forEach(function (e) { entityNames[String(e.id)] = e.name || e.id; });
+    let html = '<div class="field"><label>实体（名称 / 核心事实 / 描写可编辑）</label></div>';
+    entities.forEach(function (e, i) {
+      const facts = (e.key_facts || []).join("\\n");
+      html += '<div class="card" style="margin-bottom:8px"><div class="card-body">' +
+        '<div class="field"><label for="ent-name-' + i + '">名称 <span class="muted">[' +
+        escapeHtml(String(e.type || "entity")) + " · " + escapeHtml(String(e.id)) + ']</span></label>' +
+        '<input type="text" id="ent-name-' + i + '" value="' + escapeHtml(e.name || "") + '"></div>' +
+        '<div class="field"><label for="ent-facts-' + i + '">核心事实（每行一条）</label>' +
+        '<textarea id="ent-facts-' + i + '" rows="3">' + escapeHtml(facts) + '</textarea></div>' +
+        '<div class="field"><label for="ent-desc-' + i + '">描写</label>' +
+        '<textarea id="ent-desc-' + i + '" rows="2">' + escapeHtml(e.description || "") + '</textarea></div>' +
+        '<div class="form-actions" style="justify-content:flex-end">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-entity-save="' + i + '" data-entity-id="' + escapeHtml(String(e.id)) + '">保存实体</button>' +
+        '</div></div></div>';
+    });
+    const activeRels = [];
+    rels.forEach(function (r, idx) {
+      const active = ((r && r.timeline) || []).find(function (t) { return t && t.active; });
+      if (active) activeRels.push({ idx: idx, rel: r, active: active });
+    });
+    if (activeRels.length) {
+      html += '<div class="field"><label>活跃关系（当前状态可编辑）</label></div>';
+      activeRels.forEach(function (item) {
+        const r = item.rel;
+        const src = entityNames[String(r.src_id)] || r.src_id || "?";
+        const dst = entityNames[String(r.dst_id)] || r.dst_id || "?";
+        html += '<div class="field" style="margin-bottom:8px">' +
+          '<label for="rel-state-' + item.idx + '">' + escapeHtml(src + " ↔ " + dst) +
+          ' <span class="muted">(' + escapeHtml(String(r.relation_type || "关系")) + ')</span></label>' +
+          '<div style="display:flex;gap:4px">' +
+          '<input type="text" id="rel-state-' + item.idx + '" value="' + escapeHtml(item.active.state || "") + '" style="flex:1">' +
+          '<button type="button" class="btn btn-ghost btn-sm" data-rel-save="' + item.idx + '"' +
+          ' data-src-id="' + escapeHtml(String(r.src_id || "")) + '"' +
+          ' data-dst-id="' + escapeHtml(String(r.dst_id || "")) + '">保存</button>' +
+          '</div></div>';
+      });
+    }
+    box.innerHTML = html;
+    box.querySelectorAll("[data-entity-save]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const i = btn.dataset.entitySave;
+        const fields = {
+          name: document.getElementById("ent-name-" + i).value.trim(),
+          key_facts: document.getElementById("ent-facts-" + i).value.split("\\n")
+            .map(function (s) { return s.trim(); }).filter(function (s) { return s; }),
+          description: document.getElementById("ent-desc-" + i).value.trim(),
+        };
+        if (!fields.name) {
+          showToast("实体名称不能为空", "error");
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await putJson(wsUrl("/entity/" + encodeURIComponent(btn.dataset.entityId)), { fields: fields });
+          showToast("实体已保存：" + fields.name, "info");
+        } catch (err) {
+          showToast("保存失败：" + err.message, "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+    box.querySelectorAll("[data-rel-save]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const idx = btn.dataset.relSave;
+        const state = document.getElementById("rel-state-" + idx).value.trim();
+        if (!state) {
+          showToast("关系状态不能为空", "error");
+          return;
+        }
+        btn.disabled = true;
+        try {
+          // iter 050d (M-2): echo src/dst so the server can detect a
+          // regenerated graph (stale index) instead of editing the wrong rel.
+          await putJson(wsUrl("/relationship/" + idx), {
+            state: state,
+            src_id: btn.dataset.srcId || "",
+            dst_id: btn.dataset.dstId || "",
+          });
+          showToast("关系状态已保存", "info");
+        } catch (err) {
+          showToast("保存失败：" + err.message, "error");
+          if (err.payload && err.payload.stale_index) await renderEntityPanel();
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
   }
   function bindWorkbenchStage(formId, submitId, boxId, step, paramsFn) {
     const form = document.getElementById(formId);
@@ -2166,6 +2349,9 @@ JS_DASHBOARD = """\
         const data = await postJson(wsUrl("/run"), { step: step, params: params });
         await pollJob(data.job_id, box, submit, async () => {
           await refreshWorkbench();
+          // iter 050d (M-2): stage ① rewrites KB/entity_graph — reload the
+          // settings panel if it's open so indices don't go stale.
+          if (step === "prepare-greenfield" && settingsPanelInvalidate) settingsPanelInvalidate();
         });
       } catch (err) {
         if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
@@ -2230,7 +2416,15 @@ JS_DASHBOARD = """\
     // Pull the read-only artifacts (outline + chapter_plan) in a single
     // fetch and refresh whatever sections have data. has_plan implies
     // has_outline in our gate, and outline_md回填 is gated on "user not editing".
+    lastWorkbenchStatus = st;
     if (st.has_outline) {
+      // iter 050 (D4): explicit loading placeholder on first paint so an
+      // empty box never reads as "no plan exists".
+      const previewBox = document.getElementById("plan-chapters-preview");
+      if (previewBox && !planPreviewLoaded && planEditingChapter == null) {
+        previewBox.className = "muted";
+        previewBox.textContent = "细纲加载中…";
+      }
       let plan;
       try {
         plan = await fetchJson(wsUrl("/plan"));
@@ -2241,24 +2435,36 @@ JS_DASHBOARD = """\
       if (area && !area.dataset.dirty && document.activeElement !== area) {
         if (typeof plan.outline_md === "string") area.value = plan.outline_md;
       }
-      renderPlanPreview(plan && plan.plan);
+      renderPlanPreview(plan && plan.plan, st);
+      planPreviewLoaded = true;
     }
   }
-  function renderPlanPreview(plan) {
+  // iter 050: structured per-chapter plan editing (workbench stage ③).
+  // While an editor is open, periodic refreshes must not clobber the form.
+  let planEditingChapter = null;
+  let planPreviewLoaded = false;
+  let lastPlanChapters = [];
+  let lastWorkbenchStatus = null;
+  function renderPlanPreview(plan, st) {
     const box = document.getElementById("plan-chapters-preview");
     if (!box) return;
+    if (planEditingChapter != null) return;
     const chapters = (plan && plan.chapters) || [];
+    lastPlanChapters = chapters;
     if (!chapters.length) {
       box.className = "muted";
       box.textContent = "尚未生成细纲。";
       return;
     }
-    // Read-only: chapter_no + title + target char budget. Editing留 049
-    // (any in-place edit would invalidate plan_fingerprint and block stage④,
-    // so 048c deliberately gates "change细纲" through the重生成 button which
-    // re-runs the planner and re-attaches fingerprints — the red-team's
-    // 指纹链 trap is消解 by route, not by handwritten reconciliation).
-    let html = '<div class="kv-list compact">';
+    // iter 050 (D4): a plan that exists but failed the workbench mtime gate
+    // (upstream KB/outline newer) renders greyed-out with an explicit stale
+    // notice instead of masquerading as current.
+    const stale = !!(st && st.has_plan === false);
+    let html = "";
+    if (stale) {
+      html += '<p class="muted">细纲已过期（上游设定/大纲已更新），请重新生成。以下为旧细纲：</p>';
+    }
+    html += '<div class="kv-list compact"' + (stale ? ' style="opacity:.55"' : "") + '>';
     for (const ch of chapters) {
       const num = ch.chapter_no == null ? "?" : String(ch.chapter_no).padStart(2, "0");
       const title = ch.title || "(未命名)";
@@ -2266,11 +2472,138 @@ JS_DASHBOARD = """\
       html += '<div class="k">第' + escapeHtml(num) + '章</div>' +
         '<div class="v">' + escapeHtml(title) +
         (target ? ' <span class="muted">· ' + escapeHtml(target) + '</span>' : '') +
+        (!stale && ch.chapter_no != null
+          ? ' <button type="button" class="btn btn-ghost btn-sm" data-plan-edit="' + Number(ch.chapter_no) + '">编辑</button>'
+          : '') +
         '</div>';
     }
     html += "</div>";
     box.className = "";
     box.innerHTML = html;
+    box.querySelectorAll("[data-plan-edit]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openPlanEditor(Number(btn.dataset.planEdit));
+      });
+    });
+  }
+  function planEditorListRows(containerId, values, placeholder) {
+    return values.map(function (value, i) {
+      return '<div class="plan-edit-row" style="display:flex;gap:4px;margin-bottom:4px">' +
+        '<input type="text" id="' + containerId + '-' + i + '" value="' + escapeHtml(value) + '" placeholder="' + escapeHtml(placeholder) + '" style="flex:1">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-row-del aria-label="删除此行">✕</button>' +
+        '</div>';
+    }).join("");
+  }
+  function bindPlanEditorList(container, placeholder, addBtn, max) {
+    function rebindDel() {
+      container.querySelectorAll("[data-row-del]").forEach(function (btn) {
+        btn.onclick = function () { btn.parentElement.remove(); };
+      });
+    }
+    rebindDel();
+    addBtn.addEventListener("click", function () {
+      if (container.querySelectorAll("input").length >= max) {
+        showToast("最多 " + max + " 条", "error");
+        return;
+      }
+      const row = document.createElement("div");
+      row.className = "plan-edit-row";
+      row.style.cssText = "display:flex;gap:4px;margin-bottom:4px";
+      row.innerHTML = '<input type="text" placeholder="' + escapeHtml(placeholder) + '" style="flex:1">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-row-del aria-label="删除此行">✕</button>';
+      container.appendChild(row);
+      rebindDel();
+    });
+  }
+  function planEditorListValues(container) {
+    return Array.from(container.querySelectorAll("input"))
+      .map(function (inp) { return inp.value.trim(); })
+      .filter(function (v) { return v; });
+  }
+  function openPlanEditor(chapterNo) {
+    const box = document.getElementById("plan-chapters-preview");
+    const ch = lastPlanChapters.find(function (c) { return c.chapter_no === chapterNo; });
+    if (!box || !ch) return;
+    planEditingChapter = chapterNo;
+    const num = String(chapterNo).padStart(2, "0");
+    const textField = function (id, label, value, textarea) {
+      return '<div class="field">' +
+        '<label for="' + id + '">' + escapeHtml(label) + '</label>' +
+        (textarea
+          ? '<textarea id="' + id + '" rows="2">' + escapeHtml(value || "") + '</textarea>'
+          : '<input type="text" id="' + id + '" value="' + escapeHtml(value || "") + '">') +
+        '</div>';
+    };
+    box.innerHTML =
+      '<div class="plan-edit-form">' +
+      '<p><strong>编辑第' + escapeHtml(num) + '章细纲</strong></p>' +
+      textField("plan-edit-title", "章节标题", ch.title) +
+      textField("plan-edit-opening", "开场场景（一句话，writer 必须遵守）", ch.opening_scene, true) +
+      '<div class="field"><label for="plan-edit-events-0">核心事件（2-7 条，本章必须发生）</label>' +
+      '<div id="plan-edit-events">' + planEditorListRows("plan-edit-events", ch.key_events || [], "事件描述") + '</div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="plan-edit-events-add">＋ 添加事件</button></div>' +
+      '<div class="field"><label for="plan-edit-rels-0">重点演进的关系（可空）</label>' +
+      '<div id="plan-edit-rels">' + planEditorListRows("plan-edit-rels", ch.relationships_in_play || [], "如：路明非 ↔ 陈雯雯") + '</div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="plan-edit-rels-add">＋ 添加关系</button></div>' +
+      textField("plan-edit-hook", "结尾钩子（留给下章承接）", ch.ending_hook, true) +
+      '<div class="field"><label for="plan-edit-target">目标中文字数（2500-6000）</label>' +
+      '<input type="number" id="plan-edit-target" min="2500" max="6000" step="100" value="' + Number(ch.target_chinese_chars || 4000) + '"></div>' +
+      textField("plan-edit-purpose", "本章在全书弧线中的作用", ch.plot_purpose, true) +
+      '<p class="muted">章号不可修改；整体调整请用「重新生成细纲」。保存会重算细纲指纹。</p>' +
+      '<div style="display:flex;gap:8px;margin-top:8px">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="plan-edit-save">保存</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="plan-edit-cancel">取消</button>' +
+      '</div></div>';
+    box.className = "";
+    bindPlanEditorList(document.getElementById("plan-edit-events"), "事件描述", document.getElementById("plan-edit-events-add"), 7);
+    bindPlanEditorList(document.getElementById("plan-edit-rels"), "如：路明非 ↔ 陈雯雯", document.getElementById("plan-edit-rels-add"), 20);
+    document.getElementById("plan-edit-cancel").addEventListener("click", function () {
+      planEditingChapter = null;
+      refreshWorkbench();
+    });
+    document.getElementById("plan-edit-save").addEventListener("click", async function () {
+      const saveBtn = this;
+      const fields = {
+        title: document.getElementById("plan-edit-title").value.trim(),
+        opening_scene: document.getElementById("plan-edit-opening").value.trim(),
+        key_events: planEditorListValues(document.getElementById("plan-edit-events")),
+        relationships_in_play: planEditorListValues(document.getElementById("plan-edit-rels")),
+        ending_hook: document.getElementById("plan-edit-hook").value.trim(),
+        target_chinese_chars: parseInt(document.getElementById("plan-edit-target").value, 10),
+        plot_purpose: document.getElementById("plan-edit-purpose").value.trim(),
+      };
+      // Client-side pre-checks mirror ChapterPlanItem ranges; the server
+      // (Pydantic) stays the source of truth.
+      if (!fields.title || !fields.opening_scene || !fields.ending_hook || !fields.plot_purpose) {
+        showToast("标题、开场、钩子、章节作用均不能为空", "error");
+        return;
+      }
+      if (fields.key_events.length < 2 || fields.key_events.length > 7) {
+        showToast("核心事件需要 2-7 条", "error");
+        return;
+      }
+      if (!(fields.target_chinese_chars >= 2500 && fields.target_chinese_chars <= 6000)) {
+        showToast("目标字数需在 2500-6000 之间", "error");
+        return;
+      }
+      const draftCount = lastWorkbenchStatus ? lastWorkbenchStatus.draft_count || 0 : 0;
+      if (draftCount > 0 && !window.confirm(
+        "当前已写正文 " + draftCount + " 章。保存细纲修改后，这些章节的评审状态将过期，需要重写或重新评审。继续保存？"
+      )) return;
+      saveBtn.disabled = true;
+      try {
+        const res = await putJson(wsUrl("/chapter-plan/" + chapterNo), { fields: fields });
+        planEditingChapter = null;
+        const invalidated = res.written_chapters_invalidated || [];
+        showToast("第" + num + "章细纲已保存" +
+          (invalidated.length ? "；已写章节（" + invalidated.join(", ") + "）评审状态已过期" : ""));
+        refreshWorkbench();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
   }
   async function populateStartPointSelect() {
     const select = document.getElementById("start-point-select");
@@ -2566,6 +2899,7 @@ JS_DASHBOARD = """\
     const detail = jobBlockedDetail(job);
     const reason = detail && detail.reason ? detail.reason : "";
     if (CTA_ACTIONS[reason]) return reason;
+    if (/fingerprint/.test(reason)) return "plan_fingerprint_stale";
     const partial = job.result_summary && job.result_summary.partial;
     if (partial && partial.chapter) return "retry_exhausted";
     if (job.status === "failed" || job.status === "blocked" || job.status === "budget_exceeded") return "retry_exhausted";
@@ -2826,6 +3160,7 @@ JS_DASHBOARD = """\
     bindLintJump();
     const num = window.CHAPTER_NO;
     if (!num) return;
+    bindDraftEditor(num);
     try {
       const data = await fetchJson(wsUrl("/draft/" + num));
       renderChapterDetail(data);
@@ -2833,6 +3168,59 @@ JS_DASHBOARD = """\
       document.getElementById("chapter-body").innerHTML =
         '<div class="alert error">' + escapeHtml(err.message) + "</div>";
     }
+  }
+  // iter 050 (B1/B2): in-place draft edit + optional re-review job.
+  function bindDraftEditor(num) {
+    const area = document.getElementById("draft-edit-area");
+    const saveBtn = document.getElementById("draft-save");
+    const saveReviewBtn = document.getElementById("draft-save-review");
+    const statusBox = document.getElementById("draft-edit-status");
+    if (!area || !saveBtn || !saveReviewBtn) return;
+    area.addEventListener("input", function () { area.dataset.dirty = "1"; });
+    async function saveDraft() {
+      const content = area.value;
+      if (!content.trim()) {
+        showToast("正文不能为空", "error");
+        return null;
+      }
+      const res = await putJson(wsUrl("/draft/" + num), { content: content });
+      delete area.dataset.dirty;
+      return res;
+    }
+    saveBtn.addEventListener("click", async function () {
+      saveBtn.disabled = saveReviewBtn.disabled = true;
+      try {
+        const res = await saveDraft();
+        if (res) {
+          showToast("第 " + num + " 章已保存；评审已过期，请重新评审", "info");
+          const data = await fetchJson(wsUrl("/draft/" + num));
+          renderChapterDetail(data);
+        }
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        saveBtn.disabled = saveReviewBtn.disabled = false;
+      }
+    });
+    saveReviewBtn.addEventListener("click", async function () {
+      saveBtn.disabled = saveReviewBtn.disabled = true;
+      try {
+        const res = await saveDraft();
+        if (!res) return;
+        const job = await postJson(wsUrl("/run"), {
+          step: "review-chapter",
+          params: { chapter: Number(num) },
+        });
+        await pollJob(job.job_id, statusBox, null, async function () {
+          const data = await fetchJson(wsUrl("/draft/" + num));
+          renderChapterDetail(data);
+        });
+      } catch (err) {
+        showToast("保存或评审失败：" + err.message, "error");
+      } finally {
+        saveBtn.disabled = saveReviewBtn.disabled = false;
+      }
+    });
   }
   function _asLineNumber(value) {
     const n = Number(value);
@@ -2901,6 +3289,11 @@ JS_DASHBOARD = """\
         '<span class="badge no-dot">' + (meta.chinese_char_count || 0) + " 字</span>" +
         '<span class="badge no-dot">' + escapeHtml(cost) + "</span>" +
         (meta.needs_human_review ? '<span class="badge warn">需复核</span>' : "");
+    }
+    // edit tab — populate unless the user is mid-edit (mirrors outline-md)
+    const editArea = document.getElementById("draft-edit-area");
+    if (editArea && !editArea.dataset.dirty && document.activeElement !== editArea) {
+      editArea.value = data.content || "";
     }
     // body — render as paragraphs
     const body = document.getElementById("chapter-body");
