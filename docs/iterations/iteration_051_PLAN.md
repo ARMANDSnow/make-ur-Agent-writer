@@ -65,9 +65,27 @@ iter048a 落地「一句话开书」：`POST /api/wizard/premise-start`（`src/w
 - 视角 A（扩写链路/编辑闭环正确性）：H×0，M×1 + L×2 当轮直修——M-1 `_extractions_context` 截断顺序（拼接后截断可切坏 JSON → 改为扩写稿长度预算扣减，缺失路径仍逐字节等价）；L-1 `render_expansion_markdown` 字段内换行破坏 markdown 列表结构 → 渲染边界折叠为单行；L-2 残缺 artifact 缺 premise 键 → save 时 setdefault 兜底。各补钉死测试。
 - 视角 B（API 安全/预算护栏）：auth 闸覆盖新端点 ✓、XSS 零发现 ✓、预算边界矩阵（0/-0.0/1e308/nan/布尔）✓、并发账结（workspace 单 job 锁封死）✓、mcp_server `_env_float` 副本无漂移 ✓。其报告的"控制字符闸放行 \n"经复核**不成立为缺口**：C3c 有意放行 \t\n\r（多行编辑面 KB/outline/draft 依赖），与既有 KB 编辑面立场一致；其实质关切（字段换行伪造 prompt 段头）已由 L-1 渲染折叠在消费边界消除。
 
-### 真模型 smoke（待用户授权时点，预算 ≤30 元已拍板）
+### 真模型 smoke ✅（2026-06-12，gpt-5.5-high tier=mid，预算 ≤30 元）
 
-- 待执行：同种子裸 seed vs 扩写路径对照各 1–2 章，对比 plan 质量（panel_score / 实体图规模 / 章纲信息密度）与成本，证据回填本段。
+同一句话种子「旧书店店主收到一封亡友的信，信中预言了他自己将在七天后被谋杀」，两条路径各跑 premise-start → [扩写] → prepare-greenfield → debate（6 agent×5 轮+裁决）→ plan-chapters(5) → write-book 1 章 + 评审团：
+
+| 指标 | 裸 seed（现状） | 扩写路径（051a） | 差异 |
+|---|---|---|---|
+| **panel_score** | 8.16 | **8.50** | +0.34（plot/prose/fidelity 全轴抬升；伏笔猎人 8→9、主角本位 8→9） |
+| 章末 verdict | Approve | Approve | 均一次过、needs_human_review=False |
+| KB 字符数 | 2914 | **7610** | +161%（扩写稿 6 字段注入 compress） |
+| 实体图规模 | 12 实体 / 12 关系 | 14 实体 / 11 关系 | 实体 +2 |
+| 章纲信息密度 plan_json | 3637 字符 | **5467 字符** | +50% |
+| 章纲 opening/hook 均长 | 38.6 / 39.4 | **44.4 / 49.4** | 开场+15%、钩子+25% |
+| key_events 总数 | 25 | 21 | 扩写路径每事件更具体（字数更长），数量略少 |
+| 正文 ch1 字数 | 3757 | **4745** | +26% |
+| 成本 | ¥2.75（76 calls） | ¥3.22（71 calls） | **+¥0.47（+17%）** |
+
+**两路径合计 ¥5.96 / 30 元预算（耗 20%）。**
+
+**结论**：扩写路径以 +17% 成本换来 panel +0.34、KB 信息量 +161%、章纲密度 +50%、正文 +26%——种子信息密度提升直接传导到下游规划与写作质量，且未触发任何评审失败或一致性退化。051a「在 premise 与 prepare 之间插显式可编辑扩写稿」的设计假设由真模型对照实测证实。裸 seed 路径同时复现了 050 smoke 的 ¥2.75 基线（76 calls 同口径），证明扩写链路对回退路径零回归。
+
+**暗礁**：debate 阶段 gpt-5.5-high 单 call 1.5–3 分钟 × 36 calls ≈ 1 小时，是长流程主要耗时来源；驱动器需 ≥2 小时超时 + 断点续跑（详见 Notes 结构性暗礁）。
 
 ## 不在本轮范围
 
@@ -78,11 +96,12 @@ iter048a 落地「一句话开书」：`POST /api/wizard/premise-start`（`src/w
 
 ## Notes
 
-- 本档定稿（2026-06-11 用户拍板）：① smoke 预算 ≤30 元；② capstone 顺延 iter052；③ 三轨范围照单采用。mock 段已收官（同日），真模型 smoke 待用户授权时点。
+- 本档**已收官**（mock 段 2026-06-11 + 真模型对照 smoke 2026-06-12）。拍板项全部兑现：① smoke 实耗 ¥5.96/30 元；② capstone 顺延 iter052；③ 三轨照单采用。扩写路径质量优势经真模型对照实测证实（panel +0.34，详见 Acceptance）。
 - **设计偏离记录（051a）**：premise-start 的 `expand` 参数 **API 缺省 false、wizard 前端 checkbox 默认勾选**——计划原文「默认开、可跳过」落在 UI 层而非 API 层。理由：API 默认 true 会让 novel_client/MCP/存量测试的「create-only、不起 job」契约被打破，且 premise→prepare 紧链式调用会撞 409 workspace_busy 竞态；UI 默认勾选保住产品语义，程序化调用方显式 opt-in。
 - **F4 验证结论**：streaming gate base_url 规范化已于 iter027 P2b-fix v2 落地（`llm_client._normalize_url`），本轮零代码改动，补 2 个等价类测试钉死（尾斜杠/大小写/None 降级）。
 - **F7 显式顺延**：F6 本轮才落地、未经真模型路径验证「落稳」，按计划依赖关系不抢跑；建议 051 smoke 或 iter052 验证 F6 后再拆 writer.py 开场补丁。
 - **F6 原文出处校准**：F3–F8 实际出自 iter027 capstone 文档 P7 /code-review findings（AGENT_HANDOFF.md 同文转录），非 047 系列；本档第 26 行「iter047 carry-over」沿用了 050 收官时的口径，特此校准。
 - 暗礁：扩写稿消费的三个注入点（compress/debate/bootstrap）统一走 `expansion_prompt_block()` 单点降级——任何新消费点必须复用它，不得自行 read JSON（否则破坏"缺失=逐字节等价"的回退契约）。
+- **暗礁（结构性，smoke051 实录）**：真模型长流程（2 小时级）的驱动进程**不能寄生在 agent 会话的后台任务里**——会话 context 压缩/重启会静默回收进程组（无信号无 traceback，smoke051 因此死过一次；另一次是 debate 超时参数低估了 gpt-5.5-high 单 call 1.5–3 分钟 × 36 calls 的量级）。macOS 无 `setsid` 命令，正确的脱离方式是 Python double-fork + `os.setsid()`（ppid=1 归 launchd）。项目侧韧性已达标：debate_log 逐条落盘断点续跑 + web_jobs 持久化 + 幂等驱动 gate，三次中断零数据损失、零重复花费。
 - 验收命令统一 `.venv/bin/python`；verify.sh 需 venv PATH（050 暗礁实录）。
 - 铁律⑤：收官只 commit 不 push。
