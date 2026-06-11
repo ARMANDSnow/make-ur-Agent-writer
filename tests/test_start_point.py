@@ -138,5 +138,189 @@ class StartPointTests(unittest.TestCase):
         self.assertNotEqual(first, self.start_point.start_point_fingerprint())
 
 
+class EnforceConsistencyTests(unittest.TestCase):
+    """iter 051b (F6, carry-over from the iter 027 code review): behavior
+    matrix for the centralized start-point consistency gate, plus proof that
+    the historical call sites (plot_planner presence/append gates,
+    book_runner._plan_metadata_failures) route through this one function
+    instead of re-implementing the checks inline."""
+
+    def setUp(self) -> None:
+        self._old_ws_env = os.environ.get("WORKSPACE_NAME")
+        os.environ["WORKSPACE_NAME"] = "iter051btest"
+        repo_root = Path(__file__).resolve().parent.parent
+        self.ws_root = repo_root / "workspaces" / "iter051btest"
+        (self.ws_root / "data" / "manual_overrides").mkdir(parents=True, exist_ok=True)
+        manifest = [
+            {"chapter_id": "b1_ch001", "volume_id": "b1", "source_file": "",
+             "title": "one", "start_line": 1, "end_line": 2, "char_count": 10},
+            {"chapter_id": "b1_ch002", "volume_id": "b1", "source_file": "",
+             "title": "two", "start_line": 3, "end_line": 4, "char_count": 10},
+        ]
+        (self.ws_root / "data" / "chapter_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+        )
+        from src import start_point
+
+        self.start_point = start_point
+
+    def tearDown(self) -> None:
+        if self.ws_root.exists():
+            shutil.rmtree(self.ws_root)
+        if self._old_ws_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._old_ws_env
+
+    # ---- presence mode (plan_data=None) -------------------------------------
+
+    def test_missing_start_blocks_when_required(self) -> None:
+        self.assertEqual(
+            self.start_point.enforce_consistency(require_start_point=True),
+            ["start_point_missing"],
+        )
+
+    def test_gate_off_when_not_required(self) -> None:
+        self.assertEqual(
+            self.start_point.enforce_consistency(require_start_point=False), []
+        )
+
+    def test_present_start_passes(self) -> None:
+        self.start_point.set_start_point("b1_ch001")
+        self.assertEqual(
+            self.start_point.enforce_consistency(require_start_point=True), []
+        )
+
+    # ---- plan-agreement mode (plan_data given) -------------------------------
+
+    def test_matching_plan_passes(self) -> None:
+        self.start_point.set_start_point("b1_ch001")
+        plan = {
+            "start_chapter_id": "b1_ch001",
+            "start_point_fingerprint": self.start_point.start_point_fingerprint(),
+        }
+        self.assertEqual(
+            self.start_point.enforce_consistency(
+                require_start_point=True, plan_data=plan
+            ),
+            [],
+        )
+
+    def test_plan_missing_fields(self) -> None:
+        self.start_point.set_start_point("b1_ch001")
+        self.assertEqual(
+            self.start_point.enforce_consistency(
+                require_start_point=True, plan_data={}
+            ),
+            ["start_chapter_id_missing", "start_point_fingerprint_missing"],
+        )
+
+    def test_plan_id_mismatch(self) -> None:
+        self.start_point.set_start_point("b1_ch001")
+        plan = {
+            "start_chapter_id": "b1_ch002",
+            "start_point_fingerprint": self.start_point.start_point_fingerprint(),
+        }
+        self.assertEqual(
+            self.start_point.enforce_consistency(
+                require_start_point=True, plan_data=plan
+            ),
+            ["start_chapter_id_mismatch"],
+        )
+
+    def test_plan_fingerprint_mismatch(self) -> None:
+        self.start_point.set_start_point("b1_ch001")
+        plan = {"start_chapter_id": "b1_ch001", "start_point_fingerprint": "stale"}
+        self.assertEqual(
+            self.start_point.enforce_consistency(
+                require_start_point=True, plan_data=plan
+            ),
+            ["start_point_fingerprint_mismatch"],
+        )
+
+    def test_plan_mode_fails_open_without_current_start(self) -> None:
+        # No workspace start point → a stored plan id/fp can't contradict it
+        # (mismatch needs both sides) — byte-identical to the pre-051b inline
+        # block in book_runner._plan_metadata_failures.
+        plan = {"start_chapter_id": "b1_ch002", "start_point_fingerprint": "anything"}
+        self.assertEqual(
+            self.start_point.enforce_consistency(
+                require_start_point=True, plan_data=plan
+            ),
+            [],
+        )
+
+    def test_plan_mode_never_emits_start_point_missing(self) -> None:
+        codes = self.start_point.enforce_consistency(
+            require_start_point=True, plan_data={}
+        )
+        self.assertNotIn("start_point_missing", codes)
+
+    def test_not_required_skips_plan_checks_too(self) -> None:
+        self.assertEqual(
+            self.start_point.enforce_consistency(
+                require_start_point=False, plan_data={}
+            ),
+            [],
+        )
+
+    # ---- call-site unity ------------------------------------------------------
+
+    def test_book_runner_plan_metadata_routes_through_gate(self) -> None:
+        from src import book_runner
+
+        data = {"plan_fingerprint": "x", "chapters": []}
+        with patch(
+            "src.start_point.enforce_consistency",
+            return_value=["start_point_fingerprint_mismatch"],
+        ) as gate:
+            failures = book_runner._plan_metadata_failures(
+                data, chapter_numbers=[], require_start_point=True
+            )
+        self.assertIn("start_point_fingerprint_mismatch", failures)
+        gate.assert_called_once_with(require_start_point=True, plan_data=data)
+
+    def test_plot_planner_presence_gate_routes_through_gate(self) -> None:
+        from src import paths, plot_planner
+
+        outline = paths.outline_path()
+        outline.parent.mkdir(parents=True, exist_ok=True)
+        outline.write_text("# outline", encoding="utf-8")
+        with patch(
+            "src.start_point.enforce_consistency",
+            return_value=["start_point_missing"],
+        ) as gate:
+            with self.assertRaises(ValueError) as ctx:
+                plot_planner.generate_chapter_plan(
+                    target_chapters=3, require_start_point=True
+                )
+        self.assertIn("start point is required", str(ctx.exception))
+        gate.assert_called_once_with(require_start_point=True)
+
+    def test_plot_planner_append_mismatch_via_gate_end_to_end(self) -> None:
+        # No patching here: the real centralized gate must surface the
+        # historical append-mode error verbatim.
+        from src import paths, plot_planner
+
+        self.start_point.set_start_point("b1_ch001")
+        outline = paths.outline_path()
+        outline.parent.mkdir(parents=True, exist_ok=True)
+        outline.write_text("# outline", encoding="utf-8")
+        plan_path = paths.chapter_plan_path()
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text(
+            json.dumps(
+                {"start_chapter_id": "b1_ch002", "chapters": [{"chapter_no": 1}]},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            plot_planner.generate_chapter_plan(
+                append_count=1, from_chapter=1, require_start_point=True
+            )
+        self.assertIn("does not match", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

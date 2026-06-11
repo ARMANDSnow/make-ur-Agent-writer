@@ -303,11 +303,21 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
 
     The "one-sentence开书" greenfield entry: accept a single premise
     string, create a novel workspace, and seed ``小说txt/seed.txt`` with
-    it. Unlike ``start_upload`` this performs no LLM call and starts no
-    job — the four-stage workbench drives prepare-greenfield / debate /
+    it. The four-stage workbench drives prepare-greenfield / debate /
     plan-chapters / write-book as the user clicks through. Returns 202 with
     the new workspace name so the front-end can navigate to
     ``/w/<name>/workbench``.
+
+    iter 051a: when ``expand`` is true, a background ``expand-premise`` job
+    is kicked off right after the seed lands, so the structured expansion is
+    (usually) ready by the time the user opens stage ①. The API default is
+    **false** — programmatic clients (novel_client / MCP / tests) keep the
+    048a "create only, no job" contract and stay race-free when they chain
+    prepare immediately; the wizard UI opts in via a default-checked
+    checkbox, which is where the「默认开、可跳过」product semantics live.
+    The job is best-effort: a start failure degrades to the bare seed path
+    (铁律④) and is reported in ``expansion_error`` instead of failing the
+    whole premise-start.
     """
 
     if "application/json" not in (content_type or "").lower():
@@ -338,6 +348,12 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
 
     if _contains_control_chars(premise):
         return _json(400, {"error": "'premise' must not contain control characters"})
+
+    # iter 051a: API-level opt-in (the wizard UI opts in by default via its
+    # checkbox; programmatic clients keep the 048a create-only contract).
+    expand = payload.get("expand", False)
+    if not isinstance(expand, bool):
+        return _json(400, {"error": "'expand' must be a boolean"})
 
     try:
         result = init_workspace(name, type="novel")
@@ -374,7 +390,25 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
         shutil.rmtree(target_root, ignore_errors=True)
         return _json(500, {"error": f"failed to write premise: {exc}"})
 
-    return _json(202, {"name": result["name"]})
+    # iter 051a: fire the expansion job after the seed is durably on disk.
+    # Best-effort: the workspace is brand-new so a busy collision is
+    # near-impossible, but if start_job fails for any reason the user can
+    # still trigger「扩写设定」manually from stage ① — never fail the 202.
+    expansion_job_id = None
+    expansion_error = None
+    if expand:
+        from . import jobs
+
+        try:
+            job = jobs.start_job(name, "expand-premise", {})
+            expansion_job_id = job["job_id"]
+        except RuntimeError as exc:
+            expansion_error = str(exc)
+
+    body: dict = {"name": result["name"], "expansion_job_id": expansion_job_id}
+    if expansion_error:
+        body["expansion_error"] = expansion_error
+    return _json(202, body)
 
 
 # ---- helpers ---------------------------------------------------------------

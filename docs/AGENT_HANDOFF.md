@@ -1211,3 +1211,20 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **合并状态（2026-06-11）**：用户拍板 **Aeloon 一起进 main**，作废 `76695b3` 的「Aeloon 留 feature 分支」拆分。完整 `iter050-edit-loop`（含 iter049 Aeloon 全套 + iter050）已 merge 进 main（`32d4da9`，token 闸子集三路合并零冲突），并 push origin（`1288224`）。`.claude/` 整个目录已 gitignore。
 
 **接力点（051 候选）**：premise 扩写质量增强（短种子→高质量多章，050 真模型 smoke 的种子质量数据可作输入）；KB 保存 stage 回退的交互软化（如实机反馈刺眼）；review-chapter 独立预算强拦；MCP server progress 通道 / `/novel write` 暴露 tier 参数（049 遗留）；iter040 backlog（章节 diff、全文搜索等）；feature 分支 `iter049-aeloon-integration` / `iter050-edit-loop` 已并入 main，可删。
+
+## Phase 4 Status（iter 051，2026-06-11，mock 段收官）
+
+### Iteration 051 — premise 扩写质量增强 + 评审预算强拦 + 技债清偿
+
+**目标**：兑现 050 顺延的 #4 premise 扩写质量增强（主轨）+ review-chapter 独立预算强拦与 iter027 P7 carry-over F3–F8 清偿（副轨）。用户拍板：三轨照单采用、真模型 smoke ≤30 元（高于草案 15 元，留对照各 2 章 + 重试余量）、30–100 章 capstone 顺延 iter052 单独立项。执行档案 `iteration_051_PLAN.md`（已回填 Acceptance）。
+
+**核心设计**：premise 与 prepare-greenfield 之间插入**显式可编辑的结构化扩写产物**（`data/premise_expansion.json`，6 字段 schema `PremiseExpansion`），不覆写 seed.txt（seed=用户原话，扩写=模型推断，单向消费无第二真源）；可编辑性完整复用 050 模式（Pydantic 校验 → `write_json` 原子写 → mtime 链过期提示——扩写稿挂 KB 上游，编辑即 stale 全链）；三个 prompt 消费点（compress/debate/bootstrap `_extractions_context`）统一走 `expansion_prompt_block()` 单点降级，**缺失时逐字节等价**（mock KB == `_mock_knowledge_markdown` verbatim 测试钉死）。
+
+**主要落地**：
+- **051a**：`src/premise_expansion.py`（expand_premise 幂等/force + load 三态降级 + save 创建/更新 + 渲染）；`PremiseExpansion` mock stub 确定性分支；`expand-premise` web job（seed 缺失 blocked、force 语义）；premise-start `expand` 参数——**设计偏离：API 缺省 false、wizard checkbox 默认勾选**（保 novel_client/MCP「create-only」契约 + 防 premise→prepare 链式 409 竞态；「默认开」落在 UI 层）；`GET/PUT /premise-expansion`（C3c + 字段长度闸走 schema max_length + 100k 外闸）；workbench `has_expansion`/`expansion_stale` + stage① 结构化编辑面板（保存/重新扩写）。
+- **051b**：`config.parse_budget_cny`/`budget_cny_from_env` 成为 050 L-3 校验唯一真源（write/review/preflight 三处共用）；`NOVEL_REVIEW_BUDGET_CNY`（缺省 5 元，params.budget_cny 优先，0=无上限）→ `_step_review_chapter` 事后结算（llm_calls 行偏移 → `estimate_cost_since`），超限 → `budget_exceeded` 终态带 cost_cny/budget_cny（v1 语义：单章无章间断点，与 write-book 章末校验同款）。F3/F8：`_safe_int/_safe_float/_env_float` + config/llm_client/mcp_server 裸解析全迁（defaults 逐字保留）；F5：entity_advance 两处静默跳过加 `proposal_skipped` 审计日志；F6：`start_point.enforce_consistency` 集中 presence + plan-agreement 四码（与原 `_plan_metadata_failures` 内联块逐字节同码），plot_planner/book_runner 入口迁移、spoiler 消费点不动；F4 验证 iter027 已闭环（补 2 测试）；F7 显式顺延（依赖 F6 真模型落稳）。
+- **051c 审查修复**：M-1 `_extractions_context` 截断改扩写稿长度预算扣减（防切坏 JSON）；L-1 渲染边界折叠字段内换行（兼消「伪造 prompt 段头」注入面——C3c 放行 \n 是多行编辑面的有意设计，立场与 KB 编辑一致）；L-2 残缺 artifact premise 键兜底。
+
+**验证**：mock 全绿 **877 OK**（808→837→875→877，+69）+ verify.sh 全链 exit 0；浏览器实机（ui051）：开书自动扩写 → 面板回填 → 生成设定 → KB 含扩写 section → 手改字段保存 → 过期提示 + stage 回退 + 大纲禁用 → 重跑清除 + 手改内容进 KB → console 零报错；铁律⑨ 双视角（功能正确性 × API 安全/预算）H×0，M×1+L×2 当轮直修。
+
+**接力点（051 收尾 + 052 候选）**：① 真模型对照 smoke 待授权（≤30 元已拍板）：同种子裸 seed vs 扩写路径各 1–2 章，比 plan 质量与成本，证据回填 051 计划档；② F7 在 F6 真模型验证后拆补丁；③ 30–100 章 longzu capstone（iter052 单独立项 + 单独预算）；④ premise 扩写多轮自评精修（视 smoke 对照结果）；⑤ Aeloon 打磨 / KB stage 回退软化继续等实机反馈。

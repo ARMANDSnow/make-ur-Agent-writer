@@ -79,6 +79,11 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
     knowledge = start_safe_knowledge(kb_path=kb_path, index_path=index_path)
     index = read_json(index_path, {})
     facts = global_facts_summary()
+    # iter 051a: inject the user-confirmed premise expansion (empty string
+    # when absent → prompt byte-identical to pre-051, 铁律④).
+    from .premise_expansion import expansion_prompt_block
+
+    expansion = expansion_prompt_block()
     client = LLMClient("debate")
     log_path = debate_dir / "debate_log.jsonl"
 
@@ -169,6 +174,7 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
                                 f"轮次: {round_index} - {round_name}\n"
                                 f"agent_name: {agent['name']}\n"
                                 f"已有共识/争议:\n{json.dumps(transcript[-12:], ensure_ascii=False)[:6000]}\n\n"
+                                f"{expansion}"
                                 f"人工全局事实:\n{facts}\n\n"
                                 f"知识文档摘要:\n{knowledge[:9000]}\n\n"
                                 f"索引统计: {json.dumps({k: len(v) if hasattr(v, '__len__') else 0 for k, v in index.items()}, ensure_ascii=False)}"

@@ -60,3 +60,4 @@
 49. [Iteration 048d - iter048 对抗审查 H/M 级修复（tmp 竞态 / PUT outline TOCTOU / prep step readiness / ping redact / 测试 gap）](./iteration_048d_PLAN.md)
 50. [Iteration 049 - Aeloon 插件 + MCP 双轨集成（补 aeloon_plugin + 服务端 opt-in token 闸）](./iteration_049_PLAN.md)
 51. [Iteration 050 - 产品打磨包（048d/049 顺延，计划稿）](./iteration_050_PLAN.md)
+52. [Iteration 051 - premise 扩写质量增强 + 评审预算强拦 + 技债清偿（计划稿）](./iteration_051_PLAN.md)

@@ -331,7 +331,12 @@ def check_write_readiness(
     recommended: List[str] = []
     cmd_prefix = _main_cmd_prefix()
 
-    if require_start_point and not start_point.get_start_chapter_id():
+    # iter 051b (F6): presence gate routed through the centralized
+    # start_point.enforce_consistency (same entry-point plot_planner uses);
+    # blocker string unchanged.
+    if "start_point_missing" in start_point.enforce_consistency(
+        require_start_point=require_start_point
+    ):
         blockers.append("start_point_missing")
         recommended.append(f"{cmd_prefix} set-start-point <chapter_id>")
 
@@ -574,17 +579,14 @@ def _plan_metadata_failures(
 
         if str(data.get("plan_fingerprint")) != plan_fingerprint(data):
             failures.append("plan_fingerprint_mismatch")
-    if require_start_point:
-        current_start = start_point.get_start_chapter_id() or ""
-        current_fp = start_point.start_point_fingerprint()
-        if not data.get("start_chapter_id"):
-            failures.append("start_chapter_id_missing")
-        elif current_start and str(data.get("start_chapter_id")) != current_start:
-            failures.append("start_chapter_id_mismatch")
-        if not data.get("start_point_fingerprint"):
-            failures.append("start_point_fingerprint_missing")
-        elif current_fp and str(data.get("start_point_fingerprint")) != current_fp:
-            failures.append("start_point_fingerprint_mismatch")
+    # iter 051b (F6): the plan-vs-current-start agreement block moved verbatim
+    # into start_point.enforce_consistency (codes byte-identical); this
+    # function just splices the centralized result into its failure list.
+    failures.extend(
+        start_point.enforce_consistency(
+            require_start_point=require_start_point, plan_data=data
+        )
+    )
 
     by_no = {
         int(item.get("chapter_no")): item

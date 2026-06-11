@@ -623,6 +623,11 @@ def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
     if error:
         return error
     with use_workspace(name):
+        # iter 051a: the premise expansion joins the mtime chain upstream of
+        # the KB — editing (or regenerating) the expansion makes the KB and
+        # everything below it stale, same semantics as a KB edit staling the
+        # outline. Missing expansion → mtime 0 → chain byte-identical to 050.
+        expansion_m = _mtime_ns(paths.premise_expansion_path())
         kb_m = _mtime_ns(paths.kb_path())
         outline_m = _mtime_ns(paths.outline_path())
         plan_path = paths.chapter_plan_path()
@@ -634,7 +639,8 @@ def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
         plan_data = read_json_optional(plan_path, {})
         plan_chapters = plan_data.get("chapters") if isinstance(plan_data, dict) else None
 
-        has_kb = kb_m > 0
+        has_expansion = expansion_m > 0
+        has_kb = kb_m > 0 and kb_m >= expansion_m
         has_outline = outline_m > 0 and outline_m >= kb_m
         has_plan = bool(plan_chapters) and plan_m >= outline_m and plan_m >= kb_m
         has_drafts = draft_count > 0 and draft_m >= plan_m
@@ -658,6 +664,10 @@ def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
             "has_outline": has_outline,
             "has_plan": has_plan,
             "draft_count": draft_count,
+            "has_expansion": has_expansion,
+            # explicit hint for the stage ① card: KB exists but predates the
+            # (edited) expansion — "扩写稿已更新，需重新生成设定".
+            "expansion_stale": has_expansion and kb_m > 0 and kb_m < expansion_m,
         },
     )
 
@@ -964,6 +974,85 @@ def api_workspace_kb_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
         raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "chars": len(content)})
+
+
+def api_workspace_premise_expansion_get(name: str) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/premise-expansion — the structured premise
+    expansion artifact for the stage ① editor (iter 051a)."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    from ..premise_expansion import load_expansion
+
+    with use_workspace(name):
+        record = load_expansion()
+    if record is None:
+        return _json(404, {"error": "premise expansion not found; run expand-premise first"})
+    return _json(
+        200,
+        {
+            "fields": record.get("fields") or {},
+            "premise": record.get("premise") or "",
+            "generated_by": record.get("generated_by") or "",
+            "edited": bool(record.get("edited")),
+            "edited_at": record.get("edited_at") or "",
+        },
+    )
+
+
+def api_workspace_premise_expansion_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/premise-expansion — edit the expansion
+    fields (iter 051a, 050 edit-loop pattern: Pydantic validation → atomic
+    write → mtime chain marks downstream KB/outline/plan stale).
+
+    Body: ``{"fields": {<PremiseExpansion fields>}}``. Creating from scratch
+    is allowed — a user may hand-write the expansion without the agent.
+    Per-field length caps live in the ``PremiseExpansion`` schema; the
+    payload cap here is the M-4 style outer gate."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    fields = payload.get("fields")
+    if not isinstance(fields, dict) or not fields:
+        return _json(400, {"error": "missing or invalid 'fields'"})
+    unknown = set(fields) - {
+        "genre_tone", "protagonist", "world_notes",
+        "central_conflict", "ending_anchor", "arc_hints",
+    }
+    if unknown:
+        return _json(400, {"error": f"unknown fields: {', '.join(sorted(unknown))}"})
+    if _contains_control_chars(fields):
+        return _json(400, {"error": "fields must not contain control characters"})
+    if len(body) > 100_000:
+        return _json(400, {"error": "payload too large (max 100000 bytes)"})
+
+    from ..premise_expansion import save_expansion_fields
+
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                try:
+                    record = save_expansion_fields(fields)
+                except ValueError as exc:
+                    return _json(400, {"error": str(exc)})
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write premise expansion: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            )
+        raise
+    _clear_overview_cache()
+    return _json(200, {"saved": True, "edited_at": record.get("edited_at", "")})
 
 
 def api_workspace_entity_graph(name: str) -> Tuple[int, str, bytes]:
@@ -1796,6 +1885,17 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "PUT",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/kb/?$"),
         lambda name, _body=b"", **_: api_workspace_kb_save(name, _body),
+    ),
+    # iter 051a: premise expansion view + edit (workbench stage ①)
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/premise-expansion/?$"),
+        lambda name, **_: api_workspace_premise_expansion_get(name),
+    ),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/premise-expansion/?$"),
+        lambda name, _body=b"", **_: api_workspace_premise_expansion_save(name, _body),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/entity-graph/?$"), lambda name, **_: api_workspace_entity_graph(name)),
     (

@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.cli_apply_advance import render_apply_advance_result
 from src.entity_advance import active_relationships, apply_advance_proposals, save_entity_advance_proposals
@@ -280,6 +281,77 @@ class ApplyAdvanceSkipsMissingRelationshipTests(unittest.TestCase):
         self.assertIn("WARNING", rendered)
         self.assertIn("ent_wuliang_east <-> ent_wuliang_west", rendered)
         self.assertIn("applied_count=2", rendered)
+
+
+class SkippedProposalLoggingTests(unittest.TestCase):
+    """iter 051b (F5, carry-over from the iter 027 code review): the
+    stale-proposal skip is correct behavior, but it used to be silent — no
+    log trail for a high-confidence proposal that vanished. Both skip
+    reasons must now emit a ``log_event`` audit record; applied proposals
+    must stay silent."""
+
+    def test_relationship_not_found_logs_event(self) -> None:
+        from src.entity_advance import _apply_selected
+
+        graph = {"relationships": []}
+        proposal = {"src_id": "ent_a", "dst_id": "ent_b", "new_state": "x", "confidence": 0.9}
+        with patch("src.entity_advance.log_event") as log:
+            _updated, skipped = _apply_selected(graph, [proposal], 3)
+        self.assertEqual(skipped[0]["reason"], "relationship_not_found")
+        log.assert_called_once()
+        args, kwargs = log.call_args
+        self.assertEqual(args, ("entity_advance", "proposal_skipped"))
+        self.assertEqual(kwargs["reason"], "relationship_not_found")
+        self.assertEqual(kwargs["src_id"], "ent_a")
+        self.assertEqual(kwargs["dst_id"], "ent_b")
+        self.assertEqual(kwargs["chapter_no"], 3)
+        self.assertEqual(kwargs["confidence"], 0.9)
+
+    def test_timeline_not_a_list_logs_event(self) -> None:
+        from src.entity_advance import _apply_selected
+
+        graph = {
+            "relationships": [
+                {"src_id": "ent_a", "dst_id": "ent_b", "timeline": "corrupt"}
+            ]
+        }
+        proposal = {"src_id": "ent_a", "dst_id": "ent_b", "new_state": "x", "confidence": 0.8}
+        with patch("src.entity_advance.log_event") as log:
+            _updated, skipped = _apply_selected(graph, [proposal], 5)
+        self.assertEqual(skipped[0]["reason"], "timeline_not_a_list")
+        log.assert_called_once()
+        self.assertEqual(log.call_args.kwargs["reason"], "timeline_not_a_list")
+
+    def test_applied_proposal_does_not_log(self) -> None:
+        from src.entity_advance import _apply_selected
+
+        graph = {
+            "relationships": [
+                {
+                    "src_id": "ent_a",
+                    "dst_id": "ent_b",
+                    "timeline": [{"state": "旧", "active": True}],
+                }
+            ]
+        }
+        proposal = {"src_id": "ent_a", "dst_id": "ent_b", "new_state": "新", "confidence": 0.9}
+        with patch("src.entity_advance.log_event") as log:
+            _updated, skipped = _apply_selected(graph, [proposal], 1)
+        self.assertEqual(skipped, [])
+        log.assert_not_called()
+
+    def test_skipped_result_structure_unchanged(self) -> None:
+        # The audit log must not alter the public skipped/applied contract.
+        from src.entity_advance import _apply_selected
+
+        graph = {"relationships": []}
+        proposal = {"src_id": "a", "dst_id": "b", "new_state": "x", "confidence": 0.7}
+        with patch("src.entity_advance.log_event"):
+            _updated, skipped = _apply_selected(graph, [proposal], 2)
+        self.assertEqual(
+            skipped,
+            [{"src_id": "a", "dst_id": "b", "reason": "relationship_not_found"}],
+        )
 
 
 if __name__ == "__main__":

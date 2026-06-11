@@ -446,7 +446,17 @@ def _extractions_context(root: Path, limit_chars: int) -> str:
                 "worldbuilding": _without_quotes(item.get("worldbuilding", [])),
             }
         )
-    return json.dumps(compact, ensure_ascii=False, indent=2)[:limit_chars]
+    payload = json.dumps(compact, ensure_ascii=False, indent=2)
+    # iter 051a: global_facts / entity_graph proposals consume the premise
+    # expansion when present (greenfield extractions from a one-sentence seed
+    # are too thin on their own). Empty block when absent → byte-identical.
+    # iter 051c (review M-1): budget the cap against the payload only — a
+    # combined-then-truncate would cut mid-JSON when expansion + payload
+    # exceed limit_chars, feeding the LLM a broken structure.
+    from .premise_expansion import expansion_prompt_block
+
+    expansion = expansion_prompt_block()
+    return expansion + payload[: max(0, limit_chars - len(expansion))]
 
 
 def _recent_extractions_context(root: Path, count: int, limit_chars: int) -> str:

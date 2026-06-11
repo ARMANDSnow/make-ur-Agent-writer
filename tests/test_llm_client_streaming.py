@@ -213,6 +213,34 @@ class LLMClientStreamingTests(unittest.TestCase):
                 "non-matching base_url must not auto-stream",
             )
 
+    def test_normalize_url_equivalence_classes(self) -> None:
+        """iter 051b (F4 closure): the streaming gate compares base_urls via
+        ``_normalize_url`` (iter 027 P2b-fix v2) — trailing slash and
+        scheme/host case differences must NOT silently disable streaming.
+        This pins the normalization itself, which previously had no direct
+        coverage (the gate tests above re-built the comparison by hand)."""
+        from src.llm_client import _normalize_url
+
+        canonical = _normalize_url("https://main.example.com/v1")
+        # Trailing slash and scheme/host casing are equivalent.
+        self.assertEqual(_normalize_url("https://main.example.com/v1/"), canonical)
+        self.assertEqual(_normalize_url("HTTPS://Main.Example.COM/v1"), canonical)
+        self.assertEqual(_normalize_url("https://MAIN.EXAMPLE.COM/v1/"), canonical)
+        # Path case is significant (only scheme/netloc fold).
+        self.assertNotEqual(_normalize_url("https://main.example.com/V1"), canonical)
+        # A genuinely different proxy stays different — the gate must still
+        # block streaming to a separately-configured endpoint.
+        self.assertNotEqual(_normalize_url("https://alt.example.com/v1"), canonical)
+
+    def test_normalize_url_degenerate_inputs(self) -> None:
+        from src.llm_client import _normalize_url
+
+        self.assertIsNone(_normalize_url(None))
+        self.assertIsNone(_normalize_url(""))
+        self.assertIsNone(_normalize_url("   "))
+        # Scheme-less text falls back to a plain rstrip("/") comparison key.
+        self.assertEqual(_normalize_url("some-proxy/path/"), "some-proxy/path")
+
     def test_disable_prompt_cache_uses_original_messages(self) -> None:
         messages = [{"role": "user", "content": "dynamic original"}]
         cache_segments = [

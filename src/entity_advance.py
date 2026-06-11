@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List
 
 from . import paths
 from .config import ROOT
+from .state import log_event
 from .utils import ensure_dir, read_json, write_json
 
 
@@ -236,10 +237,33 @@ def _apply_selected(
             raise ValueError("proposal missing src_id or dst_id")
         rel = _find_relationship(relationships, src_id, dst_id)
         if rel is None:
+            # iter 051b (F5, carry-over from iter 027 review): the skip is the
+            # right call (see docstring), but it used to be invisible — a
+            # high-confidence proposal silently vanished with no log trail.
+            # Leave an audit record so real-model runs can be diagnosed.
+            log_event(
+                "entity_advance",
+                "proposal_skipped",
+                reason="relationship_not_found",
+                src_id=src_id,
+                dst_id=dst_id,
+                chapter_no=chapter_no,
+                confidence=float(proposal.get("confidence") or 0.0),
+            )
             skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "relationship_not_found"})
             continue
         timeline = rel.setdefault("timeline", [])
         if not isinstance(timeline, list):
+            # iter 051b (F5): same audit trail for the malformed-timeline skip.
+            log_event(
+                "entity_advance",
+                "proposal_skipped",
+                reason="timeline_not_a_list",
+                src_id=src_id,
+                dst_id=dst_id,
+                chapter_no=chapter_no,
+                confidence=float(proposal.get("confidence") or 0.0),
+            )
             skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "timeline_not_a_list"})
             continue
         for item in timeline:

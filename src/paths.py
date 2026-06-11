@@ -242,6 +242,13 @@ def foreshadowing_registry_path() -> Path:
     return data_dir() / "foreshadowing_registry.json"
 
 
+def premise_expansion_path() -> Path:
+    """Iter 051a: structured premise expansion artifact. Lives in data/
+    next to entity_graph.json — an editable intermediate product, NOT a
+    pipeline output. seed.txt (小说txt/) is never overwritten by it."""
+    return data_dir() / "premise_expansion.json"
+
+
 def continuation_anchor_path() -> Path:
     return manual_overrides_dir() / "continuation_anchor.txt"
 

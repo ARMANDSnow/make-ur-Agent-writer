@@ -188,6 +188,61 @@ def start_point_fingerprint() -> str:
     return sha256_data(metadata)
 
 
+def enforce_consistency(
+    *,
+    require_start_point: bool = True,
+    plan_data: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """iter 051b (F6, carry-over from the iter 027 code review): the single
+    entry-point gate for start-point consistency. Before this, the same
+    checks were scattered across shell + planner + writer layers
+    (``plot_planner.generate_chapter_plan`` raised its own ValueError,
+    ``book_runner.check_write_readiness`` / ``_plan_metadata_failures``
+    re-implemented the comparisons inline) — drift between the copies was
+    only a matter of time.
+
+    Returns a list of failure codes (empty = consistent). Two check families:
+
+    * presence (``plan_data is None``): ``require_start_point`` and no start
+      configured → ``["start_point_missing"]``.
+    * plan agreement (``plan_data`` = raw chapter_plan.json dict): the plan's
+      stored ``start_chapter_id`` / ``start_point_fingerprint`` must agree
+      with the CURRENT workspace start point. Codes are byte-identical to the
+      pre-051b inline block in ``book_runner._plan_metadata_failures``:
+      ``start_chapter_id_missing`` / ``start_chapter_id_mismatch`` /
+      ``start_point_fingerprint_missing`` / ``start_point_fingerprint_mismatch``.
+      Mismatch codes only fire when the workspace side is non-empty (a
+      missing current start can't contradict a stored one — fail-open, same
+      as before). ``start_point_missing`` is deliberately NOT emitted in this
+      mode, preserving each caller's existing output verbatim.
+
+    Callers map codes onto their own surfaces (ValueError in plot_planner,
+    blocker strings in book_runner) so behavior stays byte-identical.
+    ``require_start_point=False`` short-circuits to ``[]`` (greenfield runs
+    have no start point by design). Spoiler-filter consumers
+    (``is_after_start`` in entities/manual_facts/kb_view) are a different
+    concern and intentionally untouched.
+    """
+    failures: List[str] = []
+    if not require_start_point:
+        return failures
+    current_start = get_start_chapter_id() or ""
+    if plan_data is None:
+        if not current_start:
+            failures.append("start_point_missing")
+        return failures
+    current_fp = start_point_fingerprint()
+    if not plan_data.get("start_chapter_id"):
+        failures.append("start_chapter_id_missing")
+    elif current_start and str(plan_data.get("start_chapter_id")) != current_start:
+        failures.append("start_chapter_id_mismatch")
+    if not plan_data.get("start_point_fingerprint"):
+        failures.append("start_point_fingerprint_missing")
+    elif current_fp and str(plan_data.get("start_point_fingerprint")) != current_fp:
+        failures.append("start_point_fingerprint_mismatch")
+    return failures
+
+
 def _index_of(chapter_id: str) -> Optional[int]:
     """Return the manifest index of chapter_id, or ``None`` if not found."""
     for i, c in enumerate(_load_manifest()):

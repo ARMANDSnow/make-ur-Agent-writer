@@ -2197,6 +2197,7 @@ JS_DASHBOARD = """\
       } catch (err) {
         kbArea.placeholder = "知识库尚未生成（" + err.message + "）";
       }
+      await loadExpansionPanel();
       await renderEntityPanel();
     }
     // iter 050d (M-2): re-running stage ① regenerates KB + entity_graph —
@@ -2213,6 +2214,7 @@ JS_DASHBOARD = """\
       if (panel.hidden || loaded) return;
       await loadPanelData();
     });
+    bindExpansionPanel();
     kbArea.addEventListener("input", function () { kbArea.dataset.dirty = "1"; });
     kbSave.addEventListener("click", async function () {
       if (!kbArea.value.trim()) {
@@ -2229,6 +2231,98 @@ JS_DASHBOARD = """\
         showToast("保存失败：" + err.message, "error");
       } finally {
         kbSave.disabled = false;
+      }
+    });
+  }
+  // iter 051a: stage ① structured premise-expansion editor. Field ids map
+  // 1:1 onto PremiseExpansion schema fields; list fields are one-per-line
+  // textareas (same convention as the entity key_facts editor).
+  const EXPANSION_FIELDS = [
+    { id: "exp-genre-tone", key: "genre_tone", list: false },
+    { id: "exp-protagonist", key: "protagonist", list: false },
+    { id: "exp-world-notes", key: "world_notes", list: true },
+    { id: "exp-central-conflict", key: "central_conflict", list: false },
+    { id: "exp-ending-anchor", key: "ending_anchor", list: false },
+    { id: "exp-arc-hints", key: "arc_hints", list: true },
+  ];
+  function expansionEls() {
+    const els = {};
+    for (const f of EXPANSION_FIELDS) {
+      els[f.key] = document.getElementById(f.id);
+      if (!els[f.key]) return null;
+    }
+    return els;
+  }
+  async function loadExpansionPanel() {
+    const els = expansionEls();
+    const emptyHint = document.getElementById("expansion-empty");
+    if (!els) return;
+    let data = null;
+    try {
+      data = await fetchJson(wsUrl("/premise-expansion"));
+    } catch (err) {
+      if (emptyHint) emptyHint.hidden = false;
+      return;
+    }
+    if (emptyHint) emptyHint.hidden = true;
+    const fields = (data && data.fields) || {};
+    for (const f of EXPANSION_FIELDS) {
+      const el = els[f.key];
+      if (el.dataset.dirty || document.activeElement === el) continue;
+      const value = fields[f.key];
+      el.value = f.list ? ((value || []).join("\\n")) : (value || "");
+    }
+  }
+  function bindExpansionPanel() {
+    const els = expansionEls();
+    const save = document.getElementById("expansion-save");
+    const regen = document.getElementById("expansion-regen");
+    const box = document.getElementById("expansion-status");
+    if (!els || !save || !regen) return;
+    for (const f of EXPANSION_FIELDS) {
+      els[f.key].addEventListener("input", function () { els[f.key].dataset.dirty = "1"; });
+    }
+    save.addEventListener("click", async function () {
+      const fields = {};
+      for (const f of EXPANSION_FIELDS) {
+        const raw = els[f.key].value;
+        fields[f.key] = f.list
+          ? raw.split("\\n").map(function (s) { return s.trim(); }).filter(function (s) { return s; })
+          : raw.trim();
+      }
+      const hasContent = EXPANSION_FIELDS.some(function (f) {
+        return f.list ? fields[f.key].length : fields[f.key];
+      });
+      if (!hasContent) {
+        showToast("扩写稿不能全空", "error");
+        return;
+      }
+      save.disabled = true;
+      try {
+        await putJson(wsUrl("/premise-expansion"), { fields: fields });
+        for (const f of EXPANSION_FIELDS) delete els[f.key].dataset.dirty;
+        showToast("扩写稿已保存；需重新生成设定（KB / 实体）才会生效", "info");
+        await refreshWorkbench();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        save.disabled = false;
+      }
+    });
+    regen.addEventListener("click", async function () {
+      if (!window.confirm("重新扩写会覆盖当前扩写稿（含手工修改），确定？")) return;
+      regen.disabled = true;
+      if (box) box.innerHTML = '<div class="alert info">正在重新扩写…</div>';
+      try {
+        const data = await postJson(wsUrl("/run"), { step: "expand-premise", params: { force: true } });
+        await pollJob(data.job_id, box, regen, async function () {
+          for (const f of EXPANSION_FIELDS) delete els[f.key].dataset.dirty;
+          await loadExpansionPanel();
+          await refreshWorkbench();
+        });
+      } catch (err) {
+        if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        regen.disabled = false;
       }
     });
   }
@@ -2399,6 +2493,14 @@ JS_DASHBOARD = """\
     if (pill) {
       const labels = { prepare: "① 设定", outline: "② 大纲", plan: "③ 细纲", write: "④ 正文", done: "✓ 已出稿" };
       pill.innerHTML = '<span class="badge">当前：' + escapeHtml(labels[st.stage] || st.stage || "?") + "</span>";
+    }
+    // iter 051a: KB older than the (edited) expansion → tell the user to
+    // re-run stage ① instead of silently writing on stale settings.
+    const expansionStaleHint = document.getElementById("expansion-stale-hint");
+    if (expansionStaleHint) {
+      expansionStaleHint.innerHTML = st.expansion_stale
+        ? '<div class="alert warn">扩写稿已更新：请重新「生成设定」（KB / 实体），下游大纲 / 细纲会随之提示重建。</div>'
+        : "";
     }
     // Gate each stage on its prerequisite artifact (mtime-validated server-side).
     setStageEnabled("outline-submit", !!st.has_kb);
@@ -4006,6 +4108,8 @@ JS_WIZARD = """\
       const payload = {
         workspace: (fd.get("workspace") || "").trim(),
         premise: (fd.get("premise") || "").trim(),
+        // iter 051a: unchecked checkbox is absent from FormData → false
+        expand: fd.get("expand") != null,
       };
       const submitBtn = premiseForm.querySelector("button[type=submit]");
       submitBtn.disabled = true;

@@ -9,6 +9,7 @@ from . import paths
 from .config import ROOT
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary, load_global_facts
+from .premise_expansion import expansion_prompt_block, load_expansion, render_expansion_markdown
 from .state import log_event, write_text_atomic
 from .utils import ensure_dir, read_json, write_json
 
@@ -65,8 +66,14 @@ def compress_all() -> Dict[str, Any]:
         raise FileNotFoundError("no extracted JSON files found; run `python main.py extract --volume all` first")
     index = build_knowledge_index(extractions)
     client = LLMClient("compress")
+    # iter 051a: prepare-greenfield prefers the premise expansion when it
+    # exists. Missing artifact → empty block → prompt/KB byte-identical to
+    # pre-051 (铁律④ graceful degrade; pinned by tests).
+    expansion = expansion_prompt_block()
     if client.is_mock:
         text = _mock_knowledge_markdown(extractions, index)
+        if expansion:
+            text += "\n\n" + _expansion_kb_section()
     else:
         summaries = "\n".join(f"- {item.get('chapter_id')}: {item.get('summary')}" for item in extractions)
         facts = global_facts_summary()
@@ -78,6 +85,7 @@ def compress_all() -> Dict[str, Any]:
                     "content": (
                         "请根据章节 JSON 摘要压缩成全局叙事知识文档，包含角色档案、关系网络、"
                         "未闭合伏笔、世界观硬约束和写作风格规则。\n\n"
+                        f"{expansion}"
                         f"{facts}\n\n"
                         f"{summaries[:24000]}"
                     ),
@@ -96,6 +104,18 @@ def compress_all() -> Dict[str, Any]:
         log_event("compress", "foreshadowing_registry_error", error=str(exc))
     log_event("compress", "done", chapters=len(extractions), output=str(kb_dir / "global_knowledge.md"))
     return index
+
+
+def _expansion_kb_section() -> str:
+    """iter 051a: KB markdown section for the mock path (the real path lets
+    the compressor LLM weave the expansion in via the prompt)."""
+    record = load_expansion()
+    if record is None:
+        return ""
+    body = render_expansion_markdown(record.get("fields") or {})
+    if not body:
+        return ""
+    return "## premise 扩写稿（用户确认的设定基础）\n" + body
 
 
 def _mock_knowledge_markdown(extractions: List[Dict[str, Any]], index: Dict[str, Any]) -> str:

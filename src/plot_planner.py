@@ -89,17 +89,27 @@ def generate_chapter_plan(
     rolling = _load_rolling_summary()
     anchor = load_continuation_anchor()
     start_chapter_id = start_point.get_start_chapter_id()
-    if require_start_point and not start_chapter_id:
+    # iter 051b (F6): both gates now go through the centralized
+    # start_point.enforce_consistency (single entry-point shared with
+    # book_runner) — this function only maps codes to its historical
+    # ValueError messages, byte-identical to the pre-051b inline checks.
+    if "start_point_missing" in start_point.enforce_consistency(
+        require_start_point=require_start_point
+    ):
         raise ValueError(
             "start point is required before plan-chapters; run `set-start-point` first"
         )
     if append_count > 0 and require_start_point:
-        if not existing_start_chapter_id:
+        plan_failures = start_point.enforce_consistency(
+            require_start_point=True,
+            plan_data={"start_chapter_id": existing_start_chapter_id},
+        )
+        if "start_chapter_id_missing" in plan_failures:
             raise ValueError(
                 "existing chapter_plan.json has no start_chapter_id; regenerate it "
                 "with --force --require-start-point before appending"
             )
-        if start_chapter_id and existing_start_chapter_id != start_chapter_id:
+        if "start_chapter_id_mismatch" in plan_failures:
             raise ValueError(
                 "existing chapter_plan.json start_chapter_id does not match the "
                 "current start point; regenerate the plan before appending"

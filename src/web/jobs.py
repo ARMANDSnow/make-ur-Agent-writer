@@ -453,21 +453,27 @@ def _default_budget_cny() -> float:
     any workbench/API caller that omitted the field — with a real model
     configured that's an open-ended spend. The default cap comes from
     ``NOVEL_DEFAULT_BUDGET_CNY`` (else 10.0元); callers can still pass an
-    explicit ``budget_cny`` (0 = uncapped, CLI semantics unchanged)."""
-    import os
+    explicit ``budget_cny`` (0 = uncapped, CLI semantics unchanged).
 
-    import math
+    iter 051b: parsing/validation (incl. the iter 050d L-3 nan/inf/negative
+    rules) moved to ``config.budget_cny_from_env`` — the single source of
+    truth shared with ``_review_budget_cny`` and preflight's budget guard."""
+    from ..config import budget_cny_from_env
 
-    raw = os.environ.get("NOVEL_DEFAULT_BUDGET_CNY", "")
-    try:
-        value = float(raw) if raw else 10.0
-    except ValueError:
-        return 10.0
-    # iter 050d (L-3): nan compares False with everything → the budget gate
-    # would never trip; inf/negative are equally meaningless as caps.
-    if not math.isfinite(value) or value < 0:
-        return 10.0
-    return value
+    return budget_cny_from_env("NOVEL_DEFAULT_BUDGET_CNY", 10.0)
+
+
+def _review_budget_cny() -> float:
+    """iter 051b: independent cap for the review-chapter job. Review is
+    user-triggerable in a loop from the draft editor (「保存并重新评审」), so
+    sharing ``NOVEL_DEFAULT_BUDGET_CNY`` with write-book would let the two
+    job families crowd each other out of one ceiling. A single-chapter
+    review round is much cheaper than write+retry, hence the lower 5.0元
+    fallback. Same semantics as the write default: env unset/garbage →
+    fallback, explicit 0 = uncapped, params.budget_cny still wins."""
+    from ..config import budget_cny_from_env
+
+    return budget_cny_from_env("NOVEL_REVIEW_BUDGET_CNY", 5.0)
 
 
 def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -499,7 +505,17 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
     ``chapter_status`` against the CURRENT plan's expected context. After a
     successful round-trip the ``external_review_stale`` /
     ``draft_hash_mismatch`` failures from the edit disappear; the verdict
-    itself is whatever the review panel says."""
+    itself is whatever the review panel says.
+
+    iter 051b — budget gate (v1 semantics): a single-chapter review has no
+    inter-chapter checkpoint to stop at, so the cap is enforced by
+    settlement-after-the-fact: record the llm_calls.jsonl line offset at job
+    start, run the review round-trip, then settle with
+    ``estimate_cost_since``; over budget → terminal ``budget_exceeded`` with
+    cost_cny/budget_cny — the exact semantics of write-book's end-of-chapter
+    check (book_runner.run_write_book), which likewise only trips AFTER the
+    spend that crossed the line. ``params.budget_cny`` wins when provided
+    (0 = uncapped); otherwise ``NOVEL_REVIEW_BUDGET_CNY`` (else 5.0元)."""
     try:
         chapter_no = int(params.get("chapter"))
     except (TypeError, ValueError):
@@ -507,10 +523,20 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
     if not 1 <= chapter_no <= 9999:
         raise ValueError("params.chapter out of range")
 
-    from ..book_runner import _build_review_context, _sync_meta_with_external_review
+    from ..book_runner import (
+        _build_review_context,
+        _llm_log_line_count,
+        _sync_meta_with_external_review,
+    )
     from ..chapter_status import chapter_status
+    from ..cost_estimator import estimate_cost_since
     from ..reviewer import review_target
     from ..writer import _chapter_plan_item, _load_chapter_plan, _run_context
+
+    budget_cny = float(_float_param(params, "budget_cny", _review_budget_cny()) or 0.0)
+    # Offset BEFORE any spend so the settlement below only counts this job's
+    # calls (mirrors book_runner.run_write_book's initial_log_lines usage).
+    initial_log_lines = _llm_log_line_count()
 
     drafts_dir = paths.drafts_dir()
     md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
@@ -546,12 +572,23 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
         require_external_review=True,
         expected_context=_run_context(item, chapter_no=chapter_no),
     )
-    return {
+    # iter 051b: settlement — cost of THIS job only (since initial offset).
+    # cost fields ride along on the success path too so the workbench can
+    # show what the round-trip actually cost.
+    cost_cny = float(estimate_cost_since(initial_log_lines).get("cost_cny", 0.0))
+    result: Dict[str, Any] = {
         "status": "succeeded",
         "chapter": chapter_no,
         "verdict": meta.get("verdict") if isinstance(meta, dict) else None,
         "chapter_status": status,
+        "cost_cny": cost_cny,
+        "budget_cny": budget_cny,
     }
+    if budget_cny > 0 and cost_cny > budget_cny:
+        # Same terminal contract as write-book: _worker maps this status to
+        # the budget_exceeded terminal state (already in TERMINAL_STATUSES).
+        result["status"] = "budget_exceeded"
+    return result
 
 
 def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -570,6 +607,44 @@ def _step_auto_pipeline_greenfield(params: Dict[str, Any], progress_cb: Callable
     merged = dict(params)
     merged["require_start_point"] = False
     return _step_auto_pipeline(merged, progress_cb)
+
+
+def _step_expand_premise(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    """iter 051a: expand the one-sentence premise into the structured,
+    user-editable expansion artifact (``data/premise_expansion.json``).
+
+    Reads the premise back from ``小说txt/seed.txt`` (written by
+    ``wizard.start_premise_workspace`` with the「第一章 缘起」wrapper) so the
+    job needs no payload. Idempotent unless ``params.force`` —「重新扩写」
+    passes force=true and overwrites, including user edits (the frontend
+    confirms first)."""
+    seed_path = paths.raw_txt_dir() / "seed.txt"
+    if not seed_path.exists():
+        return _blocked(
+            "seed_missing",
+            "小说txt/seed.txt not found; this step only applies to premise-start workspaces",
+        )
+    try:
+        seed_text = seed_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return _blocked("seed_unreadable", f"failed to read seed.txt: {exc}")
+    premise = seed_text
+    prefix = "第一章 缘起\n\n"
+    if premise.startswith(prefix):
+        premise = premise[len(prefix):]
+    premise = premise.strip()
+    if not premise:
+        return _blocked("seed_empty", "seed.txt contains no premise text")
+
+    from ..premise_expansion import expand_premise
+
+    progress_cb("expand", 0.1)
+    record = expand_premise(premise[:2000], force=bool(params.get("force", False)))
+    return {
+        "status": "succeeded",
+        "generated_by": record.get("generated_by"),
+        "edited": bool(record.get("edited")),
+    }
 
 
 def _step_prepare_greenfield(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -608,6 +683,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "draft-once-dev": _step_draft_once_dev,
     "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
     "prepare-greenfield": _step_prepare_greenfield,
+    "expand-premise": _step_expand_premise,
 }
 
 
@@ -719,6 +795,17 @@ def _summarize_result(step: str, result: Any) -> Any:
             "chapter": result.get("chapter"),
             "verdict": result.get("verdict"),
             "strict_failures": status.get("strict_failures"),
+            "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
+            # iter 051b: budget settlement fields (None on blocked paths that
+            # return before the gate ran).
+            "cost_cny": result.get("cost_cny"),
+            "budget_cny": result.get("budget_cny"),
+        }
+    if step == "expand-premise" and isinstance(result, dict):
+        blocked = result.get("blocked") or []
+        return {
+            "status": result.get("status"),
+            "generated_by": result.get("generated_by"),
             "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
         }
     if step == "plan-chapters" and isinstance(result, dict):

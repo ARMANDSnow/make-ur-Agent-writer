@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,7 +116,10 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
     max_tokens = default.get("max_tokens", 2000)
     max_tokens_env = task_cfg.get("max_tokens_env")
     if max_tokens_env and os.getenv(str(max_tokens_env)):
-        max_tokens = _env_int(str(max_tokens_env), int(max_tokens))
+        # iter 051b (F3): a non-numeric config max_tokens must not crash the
+        # env-override path either (the env value itself is already guarded
+        # by _env_int).
+        max_tokens = _env_int(str(max_tokens_env), _safe_int(max_tokens, 2000))
     return {
         "model": model,
         "api_key_env": api_key_env,
@@ -124,10 +128,13 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
         "base_url": (os.getenv(base_url_env_name) if base_url_env_name else None) or default.get("base_url"),
         "temperature": default.get("temperature", 0.2),
         "max_tokens": max_tokens,
-        "retry_attempts": int(default.get("retry_attempts", 1)),
-        "retry_backoff_seconds": float(default.get("retry_backoff_seconds", 0.5)),
+        # iter 051b (F3): models.yaml is hand-edited — a non-numeric value here
+        # used to crash get_model_config (and with it every pipeline step that
+        # builds an LLMClient). Degrade to the documented defaults instead.
+        "retry_attempts": _safe_int(default.get("retry_attempts", 1), 1),
+        "retry_backoff_seconds": _safe_float(default.get("retry_backoff_seconds", 0.5), 0.5),
         "json_repair": _env_bool("JSON_REPAIR", bool(default.get("json_repair", True))),
-        "context_limit": int(context_limit),
+        "context_limit": _safe_int(context_limit, _default_context_limit(str(model))),
         "cache_enabled": _env_bool("DISABLE_PROMPT_CACHE", False) is False
         and bool(default.get("cache_enabled", False)),
         **{
@@ -175,6 +182,65 @@ def _env_bool(name: str, default: bool = False) -> bool:
 def _env_choice(name: str, choices: set[str], default: str) -> str:
     value = str(os.getenv(name) or "").strip().lower()
     return value if value in choices else default
+
+
+def _env_float(name: str, default: float) -> float:
+    # iter 051b (F8): float twin of _env_int — unset/blank/garbage env values
+    # fall back to the default instead of raising at the call site.
+    value = os.getenv(name)
+    if value is None or str(value).strip() == "":
+        return default
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int) -> int:
+    # iter 051b (F3): coercion guard for hand-edited config values — keep the
+    # documented default instead of crashing on garbage.
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float) -> float:
+    # iter 051b (F3): float twin of _safe_int.
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_budget_cny(raw: Any) -> Optional[float]:
+    """iter 051b: validation core for budget-cap values — the single source
+    of truth for the iter 050 L-3 rules. Returns the parsed cap, or ``None``
+    when ``raw`` is unusable: non-numeric, nan (compares False with
+    everything, so a nan cap would never trip the gate), inf, or negative.
+    ``0.0`` is a VALID return — it means "explicitly uncapped" (CLI
+    semantics), which is why callers must distinguish None from 0.0."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return value
+
+
+def budget_cny_from_env(env_name: str, fallback: float) -> float:
+    """iter 051b: shared env→budget resolver for ``NOVEL_DEFAULT_BUDGET_CNY``
+    (write-book, fallback 10.0) and ``NOVEL_REVIEW_BUDGET_CNY``
+    (review-chapter, fallback 5.0). Unset/empty, non-numeric, or
+    nan/inf/negative values all degrade to ``fallback`` — never to "no cap" —
+    so a typo'd env can't silently remove the spend guard. An explicit ``0``
+    in the env IS honored (0.0 = uncapped, same as an explicit param)."""
+    raw = os.environ.get(env_name, "")
+    if not raw:
+        return fallback
+    value = parse_budget_cny(raw)
+    return fallback if value is None else value
 
 
 def _running_under_unittest_discover() -> bool:

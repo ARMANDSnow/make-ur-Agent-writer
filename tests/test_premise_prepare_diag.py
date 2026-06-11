@@ -64,8 +64,10 @@ class PremisePrepareDiagTests(unittest.TestCase):
     def test_premise_start_creates_workspace_and_seed(self) -> None:
         status, data = self._premise_start("seedbook", "少年觉醒系统，踏上修行路。")
         self.assertEqual(status, 202, data)
-        self.assertEqual(data, {"name": "seedbook"})
-        self.assertNotIn("job_id", data)  # premise starts NO job
+        # iter 051a: response carries expansion_job_id (None unless the
+        # caller opts in with expand=true — API default keeps create-only).
+        self.assertEqual(data, {"name": "seedbook", "expansion_job_id": None})
+        self.assertNotIn("job_id", data)  # premise starts NO pipeline job
         seed = paths.WORKSPACE_DIR / "seedbook" / "小说txt" / "seed.txt"
         self.assertTrue(seed.exists(), f"missing {seed}")
         # seed.txt wraps the premise as a single-chapter doc so split can

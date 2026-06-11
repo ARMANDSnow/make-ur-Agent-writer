@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from .config import ROOT
-from .config import get_model_config
+from .config import _safe_int, get_model_config
 from .schemas import model_to_dict
 from .utils import append_jsonl, extract_json_object
 
@@ -156,7 +156,10 @@ class LLMClient:
         started = time.monotonic()
         prepared_messages = self._prepare_messages(messages, cache_segments)
         request_meta = self._request_meta(prepared_messages)
-        max_tokens = int(self.config.get("max_tokens", 2000))
+        # iter 051b (F3): task-level max_tokens may come straight from a
+        # hand-edited models.yaml — degrade to 2000 instead of crashing the
+        # whole completion call on a non-numeric value.
+        max_tokens = _safe_int(self.config.get("max_tokens", 2000), 2000)
         self._check_context(request_meta["prompt_tokens"], max_tokens)
         if self.is_mock:
             # OPENAI_MODEL=mock must NOT stream (existing behavior, no SSE involved).
@@ -662,6 +665,18 @@ class LLMClient:
                         "target_file": "data/style_examples/opening_rhythm.md",
                     }
                 ],
+            }
+            return response_model(**payload)
+        if name == "PremiseExpansion":
+            # iter 051a: deterministic stub so tests can pin the artifact and
+            # the downstream KB/debate injection byte-exactly.
+            payload = {
+                "genre_tone": "mock 题材基调：都市悬疑，冷静克制。",
+                "protagonist": "mock 主角：身份与欲望来自立意，缺陷待第一章揭示。",
+                "world_notes": ["mock 世界观要点一", "mock 世界观要点二"],
+                "central_conflict": "mock 主冲突：主角必须在两难中做出选择。",
+                "ending_anchor": "mock 结局锚点：以主角承担选择的代价收束。",
+                "arc_hints": ["mock 第 1 章弧线提示", "mock 第 2 章弧线提示"],
             }
             return response_model(**payload)
         if name == "PersonasProposal":

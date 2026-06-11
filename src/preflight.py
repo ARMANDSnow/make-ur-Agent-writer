@@ -284,15 +284,13 @@ def _check_budget_guard(warn: List[str], is_global_mock: bool) -> None:
             "unattended runs."
         )
         return
-    import math
+    from .config import parse_budget_cny
 
-    try:
-        value = float(raw)
-    except ValueError:
-        value = None
     # iter 050d (L-3): nan never trips the gate (all comparisons False);
-    # inf/negative are equally meaningless as caps.
-    if value is None or not math.isfinite(value) or value < 0:
+    # inf/negative are equally meaningless as caps. iter 051b: the validation
+    # itself moved to config.parse_budget_cny — single source of truth shared
+    # with web.jobs._default_budget_cny / _review_budget_cny.
+    if parse_budget_cny(raw) is None:
         warn.append(
             f"NOVEL_DEFAULT_BUDGET_CNY='{raw}' is not a usable cap "
             "(needs a finite number >= 0); the 10.0元 default applies."

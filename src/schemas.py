@@ -76,6 +76,42 @@ class ChapterExtraction(BaseModel):
     manual_overrides_applied: List[str] = Field(default_factory=list)
 
 
+class PremiseExpansion(BaseModel):
+    """Iter 051a: structured expansion of a one-sentence premise.
+
+    The premise-start greenfield path (048a) feeds a few-dozen-char seed to
+    prepare-greenfield; KB / entity_graph come out too thin for debate /
+    plan-chapters to chew on. This schema is the LLM expansion artifact:
+    persisted as an independent product next to seed.txt (never overwriting
+    it — seed is the user's words, this is model inference), shown and
+    editable in workbench stage ①, and consumed by the prepare/debate prompt
+    chain when present. Per-field max_length doubles as the M-4 length gate
+    for the PUT edit endpoint (validation goes through this model).
+    """
+
+    genre_tone: str = Field(default="", max_length=300, description="题材与基调，一两句")
+    protagonist: str = Field(default="", max_length=2000, description="主角卡：身份/欲望/缺陷/起点处境")
+    world_notes: List[str] = Field(
+        default_factory=list, max_items=20, description="世界观要点，每条一句（≤20 条）"
+    )
+    central_conflict: str = Field(default="", max_length=2000, description="贯穿全书的主冲突")
+    ending_anchor: str = Field(default="", max_length=1000, description="结局锚点：故事最终走向哪里")
+    arc_hints: List[str] = Field(
+        default_factory=list, max_items=20, description="前 N 章弧线提示，每条一句（≤20 条）"
+    )
+
+    @model_validator(mode="after")
+    def _cap_list_item_length(self) -> "PremiseExpansion":
+        # max_length on the list fields' items isn't expressible with the
+        # min_items/max_items style used elsewhere in this file; enforce the
+        # per-item cap here so prompt injection stays bounded.
+        for field_name in ("world_notes", "arc_hints"):
+            for item in getattr(self, field_name):
+                if not isinstance(item, str) or len(item) > 500:
+                    raise ValueError(f"{field_name} items must be strings of <=500 chars")
+        return self
+
+
 class ReviewIssue(BaseModel):
     message: str
     rule_id: Optional[str] = None
