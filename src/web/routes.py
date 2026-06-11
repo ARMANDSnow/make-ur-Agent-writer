@@ -688,6 +688,9 @@ def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]
         return _json(400, {"error": "missing or invalid 'outline'"})
     if len(outline) > 200_000:
         return _json(400, {"error": "'outline' too long (max 200000 chars)"})
+    # iter 050 (C3c): same control-char gate as every other edit endpoint.
+    if _contains_control_chars(outline):
+        return _json(400, {"error": "'outline' must not contain control characters"})
     from ..state import write_text_atomic
 
     try:
@@ -798,6 +801,306 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
             "written_chapters_invalidated": written,
         },
     )
+
+
+def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/draft/<chapter> — in-place edit of a written
+    chapter (iter 050, B1).
+
+    The md write and the meta update happen inside ONE ``workspace_reserved``
+    hold: ``reviewer.review_target`` trusts ``meta.draft_sha256`` (it never
+    re-hashes the file), so persisting the draft without syncing meta would
+    leave the chapter permanently ``draft_hash_mismatch``. After this call
+    the strict status is ``external_review_stale`` (review.json still hashes
+    the OLD text) — which is exactly the「需要重新评审」signal the frontend
+    surfaces via「保存并重新评审」(the review-chapter job)."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        chapter_no = int(chapter)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid chapter number"})
+    if not 1 <= chapter_no <= 9999:
+        return _json(400, {"error": "chapter number out of range"})
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    content = payload.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return _json(400, {"error": "missing or invalid 'content'"})
+    if len(content) > 1_000_000:
+        return _json(400, {"error": "'content' too long (max 1000000 chars)"})
+    if _contains_control_chars(content):
+        return _json(400, {"error": "'content' must not contain control characters"})
+
+    from ..state import write_text_atomic
+    from ..utils import sha256_text, write_json
+
+    # Normalize to the writer's on-disk shape (text + single trailing \n)
+    # so the meta sha follows writer._draft_file_sha256's convention.
+    draft = content.rstrip("\n")
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                drafts_dir = paths.drafts_dir()
+                md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
+                if not md_path.exists():
+                    return _json(404, {"error": f"chapter_{chapter_no:02d}.md not found"})
+                meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
+                meta = read_json(meta_path, {})
+                if not isinstance(meta, dict):
+                    meta = {}
+                try:
+                    write_text_atomic(md_path, draft + "\n")
+                    meta["chapter_no"] = chapter_no
+                    meta["draft_sha256"] = sha256_text(draft + "\n")
+                    meta["edited"] = True
+                    meta["edited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                    # An edited draft must not coast on a pre-edit Approve.
+                    meta["needs_human_review"] = True
+                    write_json(meta_path, meta)
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write draft: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            )
+        raise
+    _clear_overview_cache()
+    return _json(
+        200,
+        {
+            "saved": True,
+            "chars": len(draft) + 1,
+            "draft_sha256": meta["draft_sha256"],
+            "review_stale": True,
+        },
+    )
+
+
+def api_workspace_kb_get(name: str) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/kb — raw global knowledge base markdown
+    (iter 050, B3 editor source). Full-KB view is intentional here: this is
+    the EDIT surface for the book's own settings, not a writing prompt — the
+    start-safe spoiler filtering (047b) applies to LLM-facing views."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    with use_workspace(name):
+        kb_path = paths.kb_path()
+        if not kb_path.exists():
+            return _json(404, {"error": "knowledge base not found; run prepare first"})
+        try:
+            content = kb_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return _json(500, {"error": f"failed to read kb: {exc}"})
+    return _json(200, {"content": content})
+
+
+def api_workspace_kb_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/kb — overwrite the global knowledge base
+    (iter 050, B3). Mirrors the outline PUT. Saving the KB bumps its mtime,
+    which makes the workbench mtime chain mark outline/plan stale — kept on
+    purpose (048b red-team fix ③: a changed KB makes downstream artifacts
+    suspect); the frontend explains this instead of hacking mtimes."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    content = payload.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return _json(400, {"error": "missing or invalid 'content'"})
+    if len(content) > 500_000:
+        return _json(400, {"error": "'content' too long (max 500000 chars)"})
+    if _contains_control_chars(content):
+        return _json(400, {"error": "'content' must not contain control characters"})
+    from ..state import write_text_atomic
+
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                try:
+                    write_text_atomic(paths.kb_path(), content)
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write kb: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            )
+        raise
+    _clear_overview_cache()
+    return _json(200, {"saved": True, "chars": len(content)})
+
+
+def api_workspace_entity_graph(name: str) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/entity-graph — raw graph for the stage ①
+    editor (iter 050, B3)."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    with use_workspace(name):
+        graph = read_json_optional(paths.entity_graph_path(), {})
+    if not isinstance(graph, dict):
+        graph = {}
+    return _json(200, graph)
+
+
+# iter 050 (B3): per-field whitelists for entity_graph edits. ``id`` / ``type``
+# / ``src_id`` / ``dst_id`` / ``relation_type`` and timeline ``chapter_id`` /
+# ``order`` / ``active`` stay immutable — entities.py's spoiler filter and the
+# writer's auto_advance chain key off them (entities.py:41-141).
+_ENTITY_EDITABLE_FIELDS = frozenset({"name", "aliases", "tags", "key_facts", "description"})
+_ENTITY_LIST_FIELDS = frozenset({"aliases", "tags", "key_facts"})
+
+
+def api_workspace_entity_save(name: str, entity_id: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/entity/<entity_id> — edit one entity's
+    descriptive fields (iter 050, B3)."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    entity_id = unquote(entity_id)
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    fields = payload.get("fields")
+    if not isinstance(fields, dict) or not fields:
+        return _json(400, {"error": "missing or invalid 'fields'"})
+    unknown = set(fields) - _ENTITY_EDITABLE_FIELDS
+    if unknown:
+        return _json(400, {"error": "non-editable fields: " + ", ".join(sorted(map(str, unknown)))})
+    for key, value in fields.items():
+        if key in _ENTITY_LIST_FIELDS:
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                return _json(400, {"error": f"'{key}' must be a list of strings"})
+        elif not isinstance(value, str):
+            return _json(400, {"error": f"'{key}' must be a string"})
+    if fields.get("name") is not None and not str(fields.get("name")).strip():
+        return _json(400, {"error": "'name' must not be empty"})
+    if _contains_control_chars(fields):
+        return _json(400, {"error": "fields must not contain control characters"})
+    from ..utils import write_json
+
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                graph_path = paths.entity_graph_path()
+                graph = read_json(graph_path, {})
+                if not isinstance(graph, dict) or not graph.get("entities"):
+                    return _json(404, {"error": "entity_graph not found; run prepare first"})
+                target = next(
+                    (
+                        ent
+                        for ent in graph.get("entities") or []
+                        if isinstance(ent, dict) and str(ent.get("id")) == entity_id
+                    ),
+                    None,
+                )
+                if target is None:
+                    return _json(404, {"error": f"entity not found: {entity_id}"})
+                target.update(fields)
+                try:
+                    write_json(graph_path, graph)
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write entity_graph: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            )
+        raise
+    _clear_overview_cache()
+    return _json(200, {"saved": True, "entity_id": entity_id})
+
+
+def api_workspace_relationship_save(name: str, index: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/relationship/<index> — edit the ACTIVE
+    timeline entry's ``state`` text of one relationship (iter 050, B3).
+
+    Relationships carry no stable id (shape: src_id/dst_id/relation_type/
+    timeline), so the contract is the index into the CURRENT relationships
+    array as served by GET /entity-graph; the ``workspace_reserved`` hold
+    prevents the array shifting under the write (e.g. write-book's
+    auto_advance). ``state`` is the one field the writer actually consumes
+    (entities.py:render_active_state); chapter_id/order/active stay immutable
+    because the spoiler filter keys off them."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        rel_index = int(index)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid relationship index"})
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    state = payload.get("state")
+    if not isinstance(state, str) or not state.strip():
+        return _json(400, {"error": "missing or invalid 'state'"})
+    if len(state) > 2000:
+        return _json(400, {"error": "'state' too long (max 2000 chars)"})
+    if _contains_control_chars(state):
+        return _json(400, {"error": "'state' must not contain control characters"})
+    from ..utils import write_json
+
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                graph_path = paths.entity_graph_path()
+                graph = read_json(graph_path, {})
+                rels = graph.get("relationships") if isinstance(graph, dict) else None
+                if not isinstance(rels, list) or not 0 <= rel_index < len(rels):
+                    return _json(404, {"error": f"relationship not found: index {rel_index}"})
+                rel = rels[rel_index]
+                timeline = rel.get("timeline") if isinstance(rel, dict) else None
+                active = next(
+                    (
+                        item
+                        for item in (timeline or [])
+                        if isinstance(item, dict) and item.get("active")
+                    ),
+                    None,
+                )
+                if active is None:
+                    return _json(404, {"error": "relationship has no active timeline entry"})
+                active["state"] = state
+                try:
+                    write_json(graph_path, graph)
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write entity_graph: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            )
+        raise
+    _clear_overview_cache()
+    return _json(200, {"saved": True, "index": rel_index})
 
 
 def _drama_endpoint_error(name: str) -> Optional[Tuple[int, str, bytes]]:
@@ -1432,6 +1735,29 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "PUT",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/chapter-plan/(?P<chapter>\d+)/?$"),
         lambda name, chapter, _body=b"", **_: api_workspace_chapter_plan_save(name, chapter, _body),
+    ),
+    # iter 050 (B1/B3): draft + KB + entity_graph edit surfaces
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/draft/(?P<chapter>\d+)/?$"),
+        lambda name, chapter, _body=b"", **_: api_workspace_draft_save(name, chapter, _body),
+    ),
+    ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/kb/?$"), lambda name, **_: api_workspace_kb_get(name)),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/kb/?$"),
+        lambda name, _body=b"", **_: api_workspace_kb_save(name, _body),
+    ),
+    ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/entity-graph/?$"), lambda name, **_: api_workspace_entity_graph(name)),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/entity/(?P<entity_id>[^/]+)/?$"),
+        lambda name, entity_id, _body=b"", **_: api_workspace_entity_save(name, entity_id, _body),
+    ),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/relationship/(?P<index>\d+)/?$"),
+        lambda name, index, _body=b"", **_: api_workspace_relationship_save(name, index, _body),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/insights/?$"), lambda name, **_: api_workspace_insights(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/progress/?$"), lambda name, **_: api_drama_progress(name)),

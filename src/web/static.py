@@ -1237,10 +1237,24 @@ JS_DASHBOARD = """\
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
     });
   }
+  // iter 050 (D1): keep status + payload on the thrown error and translate
+  // the bare "workspace busy" 409 into an actionable message. Every caller
+  // that renders err.message gets the friendly text for free.
+  function _httpError(res, data) {
+    let msg = data.error || ("HTTP " + res.status);
+    if (res.status === 409 && data.running_job_id) {
+      msg = "工作区正被另一任务占用（job " + String(data.running_job_id).slice(0, 8) +
+        "…），请等待其完成或在任务页取消后重试";
+    }
+    const err = new Error(msg);
+    err.status = res.status;
+    err.payload = data;
+    return err;
+  }
   async function fetchJson(url) {
     const res = await fetch(url);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    if (!res.ok) throw _httpError(res, data);
     return data;
   }
   async function postJson(url, payload) {
@@ -1250,7 +1264,7 @@ JS_DASHBOARD = """\
       body: JSON.stringify(payload || {}),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    if (!res.ok) throw _httpError(res, data);
     return data;
   }
   async function putJson(url, payload) {
@@ -1260,7 +1274,7 @@ JS_DASHBOARD = """\
       body: JSON.stringify(payload || {}),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    if (!res.ok) throw _httpError(res, data);
     return data;
   }
   function wsUrl(suffix) {
@@ -2159,7 +2173,143 @@ JS_DASHBOARD = """\
       };
     });
     bindOutlineSave();
+    bindSettingsPanel();
     await refreshWorkbench();
+  }
+  // iter 050 (B3): stage ① on-demand KB / entity_graph editor. Loads only
+  // when the user opens the panel — no extra fetches on the refresh loop.
+  function bindSettingsPanel() {
+    const toggle = document.getElementById("settings-toggle");
+    const panel = document.getElementById("settings-panel");
+    const kbArea = document.getElementById("kb-md");
+    const kbSave = document.getElementById("kb-save");
+    if (!toggle || !panel || !kbArea || !kbSave) return;
+    let loaded = false;
+    toggle.addEventListener("click", async function () {
+      panel.hidden = !panel.hidden;
+      toggle.textContent = panel.hidden ? "查看 / 编辑设定 ▾" : "收起设定 ▴";
+      if (panel.hidden || loaded) return;
+      try {
+        const kb = await fetchJson(wsUrl("/kb"));
+        kbArea.value = kb.content || "";
+        loaded = true;
+      } catch (err) {
+        kbArea.placeholder = "知识库尚未生成（" + err.message + "）";
+      }
+      await renderEntityPanel();
+    });
+    kbArea.addEventListener("input", function () { kbArea.dataset.dirty = "1"; });
+    kbSave.addEventListener("click", async function () {
+      if (!kbArea.value.trim()) {
+        showToast("知识库不能为空", "error");
+        return;
+      }
+      kbSave.disabled = true;
+      try {
+        await putJson(wsUrl("/kb"), { content: kbArea.value });
+        delete kbArea.dataset.dirty;
+        showToast("知识库已保存；下游大纲 / 细纲将提示重新生成", "info");
+        await refreshWorkbench();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        kbSave.disabled = false;
+      }
+    });
+  }
+  async function renderEntityPanel() {
+    const box = document.getElementById("entity-panel");
+    if (!box) return;
+    let graph;
+    try {
+      graph = await fetchJson(wsUrl("/entity-graph"));
+    } catch (err) {
+      box.innerHTML = '<p class="muted">实体图谱尚未生成。</p>';
+      return;
+    }
+    const entities = (graph.entities || []).filter(function (e) { return e && e.id; });
+    const rels = graph.relationships || [];
+    const entityNames = {};
+    entities.forEach(function (e) { entityNames[String(e.id)] = e.name || e.id; });
+    let html = '<div class="field"><label>实体（名称 / 核心事实 / 描写可编辑）</label></div>';
+    entities.forEach(function (e, i) {
+      const facts = (e.key_facts || []).join("\\n");
+      html += '<div class="card" style="margin-bottom:8px"><div class="card-body">' +
+        '<div class="field"><label for="ent-name-' + i + '">名称 <span class="muted">[' +
+        escapeHtml(String(e.type || "entity")) + " · " + escapeHtml(String(e.id)) + ']</span></label>' +
+        '<input type="text" id="ent-name-' + i + '" value="' + escapeHtml(e.name || "") + '"></div>' +
+        '<div class="field"><label for="ent-facts-' + i + '">核心事实（每行一条）</label>' +
+        '<textarea id="ent-facts-' + i + '" rows="3">' + escapeHtml(facts) + '</textarea></div>' +
+        '<div class="field"><label for="ent-desc-' + i + '">描写</label>' +
+        '<textarea id="ent-desc-' + i + '" rows="2">' + escapeHtml(e.description || "") + '</textarea></div>' +
+        '<div class="form-actions" style="justify-content:flex-end">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-entity-save="' + i + '" data-entity-id="' + escapeHtml(String(e.id)) + '">保存实体</button>' +
+        '</div></div></div>';
+    });
+    const activeRels = [];
+    rels.forEach(function (r, idx) {
+      const active = ((r && r.timeline) || []).find(function (t) { return t && t.active; });
+      if (active) activeRels.push({ idx: idx, rel: r, active: active });
+    });
+    if (activeRels.length) {
+      html += '<div class="field"><label>活跃关系（当前状态可编辑）</label></div>';
+      activeRels.forEach(function (item) {
+        const r = item.rel;
+        const src = entityNames[String(r.src_id)] || r.src_id || "?";
+        const dst = entityNames[String(r.dst_id)] || r.dst_id || "?";
+        html += '<div class="field" style="margin-bottom:8px">' +
+          '<label for="rel-state-' + item.idx + '">' + escapeHtml(src + " ↔ " + dst) +
+          ' <span class="muted">(' + escapeHtml(String(r.relation_type || "关系")) + ')</span></label>' +
+          '<div style="display:flex;gap:4px">' +
+          '<input type="text" id="rel-state-' + item.idx + '" value="' + escapeHtml(item.active.state || "") + '" style="flex:1">' +
+          '<button type="button" class="btn btn-ghost btn-sm" data-rel-save="' + item.idx + '">保存</button>' +
+          '</div></div>';
+      });
+    }
+    box.innerHTML = html;
+    box.querySelectorAll("[data-entity-save]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const i = btn.dataset.entitySave;
+        const fields = {
+          name: document.getElementById("ent-name-" + i).value.trim(),
+          key_facts: document.getElementById("ent-facts-" + i).value.split("\\n")
+            .map(function (s) { return s.trim(); }).filter(function (s) { return s; }),
+          description: document.getElementById("ent-desc-" + i).value.trim(),
+        };
+        if (!fields.name) {
+          showToast("实体名称不能为空", "error");
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await putJson(wsUrl("/entity/" + encodeURIComponent(btn.dataset.entityId)), { fields: fields });
+          showToast("实体已保存：" + fields.name, "info");
+        } catch (err) {
+          showToast("保存失败：" + err.message, "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+    box.querySelectorAll("[data-rel-save]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const idx = btn.dataset.relSave;
+        const state = document.getElementById("rel-state-" + idx).value.trim();
+        if (!state) {
+          showToast("关系状态不能为空", "error");
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await putJson(wsUrl("/relationship/" + idx), { state: state });
+          showToast("关系状态已保存", "info");
+        } catch (err) {
+          showToast("保存失败：" + err.message, "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
   }
   function bindWorkbenchStage(formId, submitId, boxId, step, paramsFn) {
     const form = document.getElementById(formId);
@@ -2983,6 +3133,7 @@ JS_DASHBOARD = """\
     bindLintJump();
     const num = window.CHAPTER_NO;
     if (!num) return;
+    bindDraftEditor(num);
     try {
       const data = await fetchJson(wsUrl("/draft/" + num));
       renderChapterDetail(data);
@@ -2990,6 +3141,59 @@ JS_DASHBOARD = """\
       document.getElementById("chapter-body").innerHTML =
         '<div class="alert error">' + escapeHtml(err.message) + "</div>";
     }
+  }
+  // iter 050 (B1/B2): in-place draft edit + optional re-review job.
+  function bindDraftEditor(num) {
+    const area = document.getElementById("draft-edit-area");
+    const saveBtn = document.getElementById("draft-save");
+    const saveReviewBtn = document.getElementById("draft-save-review");
+    const statusBox = document.getElementById("draft-edit-status");
+    if (!area || !saveBtn || !saveReviewBtn) return;
+    area.addEventListener("input", function () { area.dataset.dirty = "1"; });
+    async function saveDraft() {
+      const content = area.value;
+      if (!content.trim()) {
+        showToast("正文不能为空", "error");
+        return null;
+      }
+      const res = await putJson(wsUrl("/draft/" + num), { content: content });
+      delete area.dataset.dirty;
+      return res;
+    }
+    saveBtn.addEventListener("click", async function () {
+      saveBtn.disabled = saveReviewBtn.disabled = true;
+      try {
+        const res = await saveDraft();
+        if (res) {
+          showToast("第 " + num + " 章已保存；评审已过期，请重新评审", "info");
+          const data = await fetchJson(wsUrl("/draft/" + num));
+          renderChapterDetail(data);
+        }
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally {
+        saveBtn.disabled = saveReviewBtn.disabled = false;
+      }
+    });
+    saveReviewBtn.addEventListener("click", async function () {
+      saveBtn.disabled = saveReviewBtn.disabled = true;
+      try {
+        const res = await saveDraft();
+        if (!res) return;
+        const job = await postJson(wsUrl("/run"), {
+          step: "review-chapter",
+          params: { chapter: Number(num) },
+        });
+        await pollJob(job.job_id, statusBox, null, async function () {
+          const data = await fetchJson(wsUrl("/draft/" + num));
+          renderChapterDetail(data);
+        });
+      } catch (err) {
+        showToast("保存或评审失败：" + err.message, "error");
+      } finally {
+        saveBtn.disabled = saveReviewBtn.disabled = false;
+      }
+    });
   }
   function _asLineNumber(value) {
     const n = Number(value);
@@ -3058,6 +3262,11 @@ JS_DASHBOARD = """\
         '<span class="badge no-dot">' + (meta.chinese_char_count || 0) + " 字</span>" +
         '<span class="badge no-dot">' + escapeHtml(cost) + "</span>" +
         (meta.needs_human_review ? '<span class="badge warn">需复核</span>' : "");
+    }
+    // edit tab — populate unless the user is mid-edit (mirrors outline-md)
+    const editArea = document.getElementById("draft-edit-area");
+    if (editArea && !editArea.dataset.dirty && document.activeElement !== editArea) {
+      editArea.value = data.content || "";
     }
     // body — render as paragraphs
     const body = document.getElementById("chapter-body");

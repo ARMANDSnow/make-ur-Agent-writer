@@ -332,6 +332,12 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
     premise = premise.strip()
     if len(premise) > 2000:
         return _json(400, {"error": "'premise' too long (max 2000 chars)"})
+    # iter 050 (C3c): premise is persisted to seed.txt and fed to prompts —
+    # same control-char gate as the routes.py edit endpoints.
+    from .routes import _contains_control_chars
+
+    if _contains_control_chars(premise):
+        return _json(400, {"error": "'premise' must not contain control characters"})
 
     try:
         result = init_workspace(name, type="novel")

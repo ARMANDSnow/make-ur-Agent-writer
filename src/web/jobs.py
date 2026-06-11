@@ -465,6 +465,72 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
     )
 
 
+def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    """iter 050 (B2): standalone re-review of one written chapter — the
+    job behind「保存并重新评审」after an in-place draft edit.
+
+    Chains the existing pieces end-to-end: ``reviewer.review_target`` (reads
+    draft_sha256 + run_context from meta — it never re-hashes, which is why
+    the draft PUT endpoint must have synced meta first) →
+    ``book_runner._sync_meta_with_external_review`` → strict
+    ``chapter_status`` against the CURRENT plan's expected context. After a
+    successful round-trip the ``external_review_stale`` /
+    ``draft_hash_mismatch`` failures from the edit disappear; the verdict
+    itself is whatever the review panel says."""
+    try:
+        chapter_no = int(params.get("chapter"))
+    except (TypeError, ValueError):
+        raise ValueError("review-chapter requires integer params.chapter")
+    if not 1 <= chapter_no <= 9999:
+        raise ValueError("params.chapter out of range")
+
+    from ..book_runner import _build_review_context, _sync_meta_with_external_review
+    from ..chapter_status import chapter_status
+    from ..reviewer import review_target
+    from ..writer import _chapter_plan_item, _load_chapter_plan, _run_context
+
+    drafts_dir = paths.drafts_dir()
+    md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
+    if not md_path.exists():
+        return _blocked(
+            "draft_missing",
+            f"chapter_{chapter_no:02d}.md not found; write the chapter first",
+        )
+    plan = _load_chapter_plan()
+    if plan is None:
+        return _blocked(
+            "chapter_plan_missing",
+            "chapter_plan.json not found; run `plan-chapters` first",
+        )
+    try:
+        item = _chapter_plan_item(plan, chapter_no)
+    except ValueError as exc:
+        return _blocked("chapter_plan_missing", str(exc))
+
+    progress_cb("review", 0.1)
+    review_target(
+        md_path,
+        enforce_relationship_checklist=True,
+        tier=params.get("tier"),
+        **_build_review_context(item),
+    )
+    progress_cb("sync-meta", 0.8)
+    meta = _sync_meta_with_external_review(drafts_dir, chapter_no)
+    status = chapter_status(
+        chapter_no,
+        drafts_dir,
+        validate_context=True,
+        require_external_review=True,
+        expected_context=_run_context(item, chapter_no=chapter_no),
+    )
+    return {
+        "status": "succeeded",
+        "chapter": chapter_no,
+        "verdict": meta.get("verdict") if isinstance(meta, dict) else None,
+        "chapter_status": status,
+    }
+
+
 def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     return auto_pipeline.run_auto_pipeline(
         target_chapters=int(params.get("chapters", 1)),
@@ -515,6 +581,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "debate": _step_debate,
     "plan-chapters": _step_plan_chapters,
     "write-book": _step_write_book,
+    "review-chapter": _step_review_chapter,
     "draft-once-dev": _step_draft_once_dev,
     "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
     "prepare-greenfield": _step_prepare_greenfield,
@@ -620,6 +687,16 @@ def _summarize_result(step: str, result: Any) -> Any:
             "partial": result.get("partial"),
             "error": result.get("error"),
             "snapshot_path": result.get("snapshot_path"),
+        }
+    if step == "review-chapter" and isinstance(result, dict):
+        status = result.get("chapter_status") or {}
+        blocked = result.get("blocked") or []
+        return {
+            "status": result.get("status"),
+            "chapter": result.get("chapter"),
+            "verdict": result.get("verdict"),
+            "strict_failures": status.get("strict_failures"),
+            "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
         }
     if step == "plan-chapters" and isinstance(result, dict):
         blocked = result.get("blocked") or []

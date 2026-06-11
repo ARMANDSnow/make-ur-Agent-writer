@@ -190,6 +190,16 @@ class PlanEditFrontendStringTests(unittest.TestCase):
         self.assertIn("细纲加载中…", static.JS_DASHBOARD)
         self.assertIn("细纲已过期（上游设定/大纲已更新）", static.JS_DASHBOARD)
 
+    def test_d1_friendly_409_helper(self) -> None:
+        from src.web import static
+
+        # _httpError attaches status+payload and rewrites the bare
+        # "workspace busy" 409 into an actionable message; all three fetch
+        # helpers must route through it.
+        self.assertIn("function _httpError(res, data)", static.JS_DASHBOARD)
+        self.assertIn("工作区正被另一任务占用", static.JS_DASHBOARD)
+        self.assertEqual(static.JS_DASHBOARD.count("throw _httpError(res, data)"), 3)
+
     def test_b3_hint_fingerprint_cta_mapping(self) -> None:
         from src.web import static
 
