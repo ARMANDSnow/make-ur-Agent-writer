@@ -146,6 +146,11 @@ workspaces/<book>/
 | `write --chapters N --resume-from i --force` | 多章生成 + 5+1 reviewer + lint + polish |
 | `review-chapter <i>` / `chapter-status <i>` | 独立复审 / 单章状态 JSON（iter 019） |
 | `apply-advance --chapter i --auto-apply --confirm` | entity advance（iter 019） |
+| `set-start-point <chapter_id>` / `show-start-point` | 续写起点管理（iter 021；写前硬门 iter 027） |
+| `write-book --chapters N --tier T --budget-cny B --replan-every K` | 生产级严格 runner：指纹门禁 + 三档评审 + 预算护栏 + 自动 re-plan（iter 028-029/042；segments 配额循环 iter 046） |
+| `write-readiness --chapters N` | 写前就绪检查 ready/warn/blocked（iter 029） |
+| `auto-pipeline --chapters N --force` | 9 步 SOP 一键编排，CLI 与 WebUI wizard 共用（iter 026/028） |
+| `web --port 8765` | 本地 WebUI：书架 / 四阶段工作台 / 章节 / 评审 / 任务（iter 025 起；工作台 iter 048；全程可编辑 iter 050） |
 | `preflight` / `status` / `estimate-cost` | 守门 / 状态 / 成本汇总 |
 
 [README_EN.md](README_EN.md) 里有架构图、3-tier 执行说明和全部迭代日志索引。
@@ -159,13 +164,15 @@ workspaces/<book>/
 | 阶段 3（iter 009-013）| 写作质量轴：entity graph / 一致性 reviewer / 多章架构 | 完成 |
 | 阶段 4（iter 014-019）| 多 workspace + 多语言 + 无人值守 + 审计加固 | 完成 |
 | 阶段 5（iter 020-045）| Web Dashboard + 本地 Beta 写作入口 + UX 收尾 | 完成 |
-| 阶段 6（iter 046-048）| 产品力补齐：AgentWrite 配额循环 / 补 KB 剧透 gap / **小白四步工作台**（一句话开书 + premise→四阶段 pollJob + 大纲编辑保存 + 一键测 Key）；canonical 694 tests OK | 进行中（049/050 待启动） |
+| 阶段 6（iter 046-048）| 产品力补齐：AgentWrite 配额循环 / 补 KB 剧透 gap / **小白四步工作台**（一句话开书 + premise→四阶段 pollJob + 大纲编辑保存 + 一键测 Key）；canonical 694 tests OK | 完成 |
+| 集成（iter 049）| **Aeloon-Pro 插件 / MCP 双轨集成**（`/novel` 命令 + 8 LLM 工具 + 服务端 opt-in token 闸）；canonical 758 tests OK | 完成 |
+| 阶段 7（iter 050-）| **全程可编辑闭环**：细纲结构化编辑（指纹白名单 + 唯一真源重算）/ 正文编辑回写 + 重评审 / KB·实体编辑 / 预算护栏；canonical 805 tests OK | 进行中 |
 
 阶段小结：[stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md)。会话延续锚点：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md)。
 
 ## 流水线 SOP（实时状态）
 
-一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 049**（2026-06-10）——续写系统以**插件 / MCP 双轨**接入 Aeloon-Pro（`integrations/aeloon_plugin` 的 `/novel` 命令 + LLM 工具、`integrations/mcp_server` 的 8 工具，结果走深链跳 `/w/{name}/workbench`）+ 服务端 opt-in bearer token 闸；流水线 9 阶段本身不变，canonical 694→**758**（+64）。上一轮 **iter 048d**（2026-06-09），iter048 小白四步工作台完整收官——一句话开书 → `/w/{name}/workbench` 四阶段 pollJob → 大纲可编辑回写 → 一键测 Key 矩阵，+ 4 路并行 subagent 对抗审查发现的 1 H + 5 M 全部直修（`write_text_atomic` tmp 后缀 `.{pid}.{tid}` / PUT outline `workspace_reserved` 闭锁 / 6 个 prep step readiness check / `LLMClient.ping()` Bearer+sk- 正则 redact）。canonical 661→674→681→684→694（iter048 累计 +33 tests）。真实 `longzu` ch2 tier=mid 的 happy path 仍是当前生产证据。
+一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 050**（2026-06-11）——「全程可编辑」收口：细纲结构化字段编辑（`PUT /chapter-plan/<n>`，指纹黑名单改白名单 B-M-2，写盘前复用 `_attach_plan_fingerprints` 唯一真源重算、保留存储的 `start_point_fingerprint` 防伪造新鲜度）+ 正文逐章编辑回写（`PUT /draft/<n>` md+meta 同锁双写）+ `review-chapter` 独立重评审 job + KB / 实体 / 关系编辑（白名单字段；KB 保存保留 mtime 链 stage 回退语义）+ L 级集中修（D1 友好 409 / D4 细纲 stale 灰显 / D7 label-for / C3c 控制字符闸 / B3-hint 指纹失败 CTA）+ 预算护栏（web write 默认 `NOVEL_DEFAULT_BUDGET_CNY`（缺省 10 元）上限 + preflight WARN）。canonical 758→**805**（+47）。上一轮 **iter 049**（2026-06-10）——续写系统以**插件 / MCP 双轨**接入 Aeloon-Pro（`integrations/aeloon_plugin` 的 `/novel` 命令 + LLM 工具、`integrations/mcp_server` 的 8 工具，结果走深链跳 `/w/{name}/workbench`）+ 服务端 opt-in bearer token 闸；流水线 9 阶段本身不变，canonical 694→**758**（+64）。上一轮 **iter 048d**（2026-06-09），iter048 小白四步工作台完整收官——一句话开书 → `/w/{name}/workbench` 四阶段 pollJob → 大纲可编辑回写 → 一键测 Key 矩阵，+ 4 路并行 subagent 对抗审查发现的 1 H + 5 M 全部直修（`write_text_atomic` tmp 后缀 `.{pid}.{tid}` / PUT outline `workspace_reserved` 闭锁 / 6 个 prep step readiness check / `LLMClient.ping()` Bearer+sk- 正则 redact）。canonical 661→674→681→684→694（iter048 累计 +33 tests）。真实 `longzu` ch2 tier=mid 的 happy path 仍是当前生产证据。
 
 图例：✅ 已打通　⚠️ 部分打通（含 gap）　❌ 未打通
 
@@ -197,8 +204,8 @@ workspaces/<book>/
 | 4.2 | load global_facts | ✅ | iter 010 |
 | 4.3 | load personas | ✅ | iter 016 |
 | 4.4 | 按起点过滤剧透 — global_facts | ✅ | iter 021 |
-| 4.5 | 按起点过滤剧透 — entity_graph relationships | ⚠️ | iter 021 仅过滤含 chapter_id 的；schema 升级 iter 022 |
-| 4.6 | 按起点过滤剧透 — KB | ⚠️ | iter 028 先落 preflight WARN；真实 KB view / LLM 重写仍待后续 |
+| 4.5 | 按起点过滤剧透 — entity_graph relationships | ✅ | iter 021 基础 chapter_id 过滤；iter 047d 补 `reader_known` / `character_known`（POV viewpoint）过滤，无新字段时与 021 字节一致（fail-open） |
+| 4.6 | 按起点过滤剧透 — KB | ✅ | iter 028 preflight WARN；iter 047b `kb_view.start_safe_knowledge` 真实起点安全视图，plot_planner / 外部 review 已消费 |
 
 ### 阶段 5 — 情节规划
 | # | 节点 | 状态 | 备注 |
@@ -265,6 +272,7 @@ workspaces/<book>/
 | U.11 | Web 真实续写链路可观测/可恢复 | ✅ | iter 039（recent jobs running/lost 修复；blocked reason 展示；`variant=partial` draft API；chapters 页 partial/failure 行）；iter 040 meta/review verdict 同步；iter 042 `longzu` ch2 tier=mid 真实 happy path approved + job succeeded |
 | U.12 | Web UX audit + 收尾响应式 | ✅ | iter 043 UX audit + D-1/D-2/D-3/D-4/D-6；iter 044 D-5/D-7/D-8，sidebar drawer、topbar actions 折叠、jobs/chapters/reviews 表格移动端横向滚动、Insights `scores || sub_scores` 兼容 |
 | U.13 | Web 小白四步工作台 + 一句话开书 + 一键测 Key | ✅ | iter 048a-d：`/wizard` 加 premise-form（一句话开书，落 seed.txt 单章包装）→ `/w/{name}/workbench` 四阶段卡片（设定→大纲→细纲→正文，`prepare-greenfield` 复合 step 把前 6 步封单 job + 进度契约 `total/emit_done` 参数化）；mtime 链 stage gate（改 premise 重跑①后旧 outline/plan 自动失效）；大纲 textarea PUT `/outline` + `workspace_reserved` 闭锁；细纲只读 + "重新生成"绕开指纹链暗礁；`GET /api/diag/models` mock 短路 + Bearer/sk- 正则 redact。6 个 prep step 加 `_blocked(reason,error)` readiness check |
+| U.14 | Web 全程可编辑闭环 | ✅ | iter 050a-b：stage③ 细纲每章内联结构化编辑（7 字段 + 数组增删 + 客户端预校验 + 已写章过期确认弹窗；服务端 Pydantic 校验 + `_attach_plan_fingerprints` 唯一真源重算，编辑后 write-book 零指纹失败）；章节详情「编辑」tab（保存 / 保存并重新评审 → `review-chapter` job，md+meta 同锁双写闭死 `draft_hash_mismatch`）；stage①「查看/编辑设定」面板（KB textarea + 实体 name/key_facts/description + 活跃关系 state；不可改 id/type/participants/timeline 键位）；D1/D4/D7/C3c/B3-hint 集中修 |
 
 ## 声明
 

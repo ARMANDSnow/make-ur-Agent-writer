@@ -2168,6 +2168,7 @@ JS_DASHBOARD = """\
       return {
         chapters: Number(form.elements.chapters.value || 1),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
+        budget_cny: form.elements.budget_cny ? Number(form.elements.budget_cny.value || 10) : 10,
         require_start_point: false,
         require_plan: true,
       };

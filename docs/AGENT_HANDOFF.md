@@ -1190,3 +1190,21 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 - 插件**已装**用户 Aeloon，可 `/novel help`；WebUI 聊天截图与真模型 smoke 留用户/后续。
 
 **接力点（050）**：048d 顺延的产品打磨包（L级 UX/a11y、细纲结构化编辑、正文/设定编辑、premise 扩写质量、真模型 smoke、B-M-2）—— 执行档案 `iteration_050_PLAN.md`（计划稿）。
+
+## Phase 4 Status（iter 050，2026-06-11）
+
+### Iteration 050 — 全程可编辑闭环 + 预算护栏
+
+**目标**：兑现「全程可编辑」最后一块拼图。用户拍板：编辑闭环优先（细纲结构化编辑 + 正文/设定编辑回写为核心，UX/a11y、B-M-2、文档回填摊销），授权小额真模型 smoke ≤15 元；premise 扩写质量顺延。执行档案 `iteration_050_PLAN.md`（已升级为执行版，含 L 级代号权威定义表）。
+
+**核心设计**（与 048c 暗礁的关系）：048c 红队证伪的是「PUT 原始 JSON + 手搓/保留指纹」；050 的解法不是绕开编辑，而是把「重跑 plan-chapters」泛化为「复用 `_attach_plan_fingerprints` 唯一真源」——结构化字段 PUT → Pydantic 校验 → 同一入口重算指纹 → 原子写盘，门禁自洽 by construction。三个关键决策：① B-M-2 指纹黑名单改白名单 `_ITEM_FINGERPRINT_FIELDS`（canonical item 哈希逐字节兼容，未知字段免疫，测试钉死）；② 编辑路径 `refresh_start_point=False` 保留存储的起点指纹（重算会伪造新鲜度、骗过 `_plan_metadata_failures` 的起点变更检测）；③ 编辑任一章 → 全部已写章 strict 过期是**有意语义**（与重新生成一致），端点返回 `written_chapters_invalidated` + 前端确认弹窗 + B3-hint 恢复指引；非编辑章 item 字节不动 → item 级指纹幸存，恢复 = 重写/重评审受影响章。
+
+**主要落地**：
+- **050a（`f896f2f`）**：`plot_planner.apply_chapter_plan_item_edit`（纯 IO）+ `PUT /api/workspace/<n>/chapter-plan/<c>`（`workspace_reserved` + 409 映射）+ stage③ 内联编辑表单（7 字段 + key_events/relationships 动态增删 + 客户端预校验）；D4 细纲加载中/stale 灰显；B3-hint `plan_fingerprint_stale` CTA（jobActionKind 正则归一指纹失败全家族）。
+- **050b（`d22a3af`）**：`PUT /draft/<c>` —— md+meta **同一 reserved 持有期双写**（`review_target` 只信 meta sha 从不重哈希，不同步即永久 `draft_hash_mismatch`；编辑后 `external_review_stale` 正确触发=「需重评审」自解释）+ jobs 新 step `review-chapter`（review_target → `_sync_meta_with_external_review` → strict chapter_status）+ 章节详情「编辑」tab（保存 / 保存并重新评审）；`GET/PUT /kb`（保留 048b mtime 链 stage 回退语义）+ `GET /entity-graph` + `PUT /entity/<id>`（白名单 name/aliases/tags/key_facts/description）+ `PUT /relationship/<idx>`（仅 active timeline `state`；无稳定 id，契约=当前数组下标+reserved 锁）+ stage① 按需设定面板；D1 `_httpError`（status+payload+友好 409）；D7 label-for 补全；C3c `_contains_control_chars` 挂全部文本入口（含 outline/premise 回填）。
+- **050c**：README 回填（4.5→✅ 047d viewpoint 过滤、4.6→✅ 047b start_safe_knowledge、命令表补 6 行、状态表 049/050 行、U.14、SOP 头 iter050）；预算护栏——web write-book `budget_cny` 默认从 0.0（无上限）改 `NOVEL_DEFAULT_BUDGET_CNY`（缺省 10 元；显式 0 仍=无上限）+ stage④ 预算输入 + preflight `_check_budget_guard` WARN（mock 静默；真模型态实机目击）。
+- **暗礁实录**：static.py 的 JS 字符串字面量换行必须 `"\\n"`（非 raw Python 字符串）；050b 初版 `renderEntityPanel` 误写 `"\n"` 撕裂整个 JS bundle（静默失效），浏览器实机走查抓到——铁律「UI 改动必实机」再次自证。verify.sh 须在 venv PATH 下跑。
+
+**验证**：mock 全绿 **805 OK**（758→805，+47）+ verify.sh 全链；浏览器实机（ui050a）：细纲编辑→指纹自洽→write-book 仅 `retry_exhausted` 零指纹失败；正文编辑→保存并重新评审→md/meta/review 三方 sha 一致；KB/实体编辑落盘；D4 灰显实测。真模型 smoke（smoke050 workspace）见 `iteration_050_PLAN.md` Acceptance Result。
+
+**接力点（051 候选）**：premise 扩写质量增强（短种子→高质量多章，050 真模型 smoke 的种子质量数据可作输入）；KB 保存 stage 回退的交互软化（如实机反馈刺眼）；review-chapter 独立预算强拦；MCP server progress 通道 / `/novel write` 暴露 tier 参数（049 遗留）；iter040 backlog（章节 diff、全文搜索等）。

@@ -447,13 +447,29 @@ def _step_draft_once_dev(params: Dict[str, Any], progress_cb: Callable[[str, flo
     )
 
 
+def _default_budget_cny() -> float:
+    """iter 050 (F): web-started write jobs are no longer unguarded by
+    default. ``budget_cny=0.0`` (no cap) used to be the silent default for
+    any workbench/API caller that omitted the field — with a real model
+    configured that's an open-ended spend. The default cap comes from
+    ``NOVEL_DEFAULT_BUDGET_CNY`` (else 10.0元); callers can still pass an
+    explicit ``budget_cny`` (0 = uncapped, CLI semantics unchanged)."""
+    import os
+
+    raw = os.environ.get("NOVEL_DEFAULT_BUDGET_CNY", "")
+    try:
+        return float(raw) if raw else 10.0
+    except ValueError:
+        return 10.0
+
+
 def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     return run_write_book(
         chapters=int(params.get("chapters", 1)),
         resume_from=int(params.get("resume_from", 1)),
         force=bool(params.get("force", False)),
         max_retries=int(params.get("max_retries", 2)),
-        budget_cny=_float_param(params, "budget_cny", 0.0),
+        budget_cny=_float_param(params, "budget_cny", _default_budget_cny()),
         replan_every=int(params.get("replan_every", 0)),
         min_confidence=_float_param(params, "min_confidence", 0.7),
         auto_advance=bool(params.get("auto_advance", True)),

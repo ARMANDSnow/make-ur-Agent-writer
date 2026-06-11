@@ -667,6 +667,10 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<option value="mid" selected>mid · 日常生产</option>'
         '<option value="high">high · 严格发布</option>'
         '</select></div>'
+        # iter 050 (F): explicit spend cap, default mirrors NOVEL_DEFAULT_BUDGET_CNY
+        '<div class="field"><label for="write-budget-input">预算上限（元）</label>'
+        '<input id="write-budget-input" name="budget_cny" type="number" min="0" step="0.5" value="10">'
+        '</div>'
         '<div class="form-actions" style="align-items:flex-end">'
         '<button type="submit" id="write-book-submit" class="btn btn-primary">开始写书</button>'
         '</div>'
