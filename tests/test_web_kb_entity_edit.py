@@ -178,8 +178,12 @@ class KbEntityEditTests(unittest.TestCase):
             None,
         )
         self.assertIsNotNone(active_idx, "greenfield graph should have an active relationship")
+        rel = rels[active_idx]
+        echo = {"src_id": str(rel["src_id"]), "dst_id": str(rel["dst_id"])}
 
-        status, data = self._put("relws", f"/relationship/{active_idx}", {"state": "已彻底决裂"})
+        status, data = self._put(
+            "relws", f"/relationship/{active_idx}", {"state": "已彻底决裂", **echo}
+        )
         self.assertEqual(status, 200, data)
         status, graph2 = self._get("relws", "/entity-graph")
         rel2 = graph2["relationships"][active_idx]
@@ -191,9 +195,45 @@ class KbEntityEditTests(unittest.TestCase):
             if key in orig_active:
                 self.assertEqual(active.get(key), orig_active.get(key))
 
-        status, data = self._put("relws", "/relationship/999", {"state": "越界"})
+        status, data = self._put("relws", "/relationship/999", {"state": "越界", **echo})
         self.assertEqual(status, 404)
-        status, data = self._put("relws", f"/relationship/{active_idx}", {"state": ""})
+        status, data = self._put("relws", f"/relationship/{active_idx}", {"state": "", **echo})
+        self.assertEqual(status, 400)
+        # iter 050d (M-2): missing echo → 400; wrong echo (graph regenerated
+        # since the panel rendered) → 409 stale_index, wrong object untouched.
+        status, data = self._put("relws", f"/relationship/{active_idx}", {"state": "无回显"})
+        self.assertEqual(status, 400)
+        status, data = self._put(
+            "relws",
+            f"/relationship/{active_idx}",
+            {"state": "错对象", "src_id": "ghost_a", "dst_id": "ghost_b"},
+        )
+        self.assertEqual(status, 409)
+        self.assertTrue(data.get("stale_index"))
+        status, graph3 = self._get("relws", "/entity-graph")
+        active3 = next(t for t in graph3["relationships"][active_idx]["timeline"] if t.get("active"))
+        self.assertEqual(active3["state"], "已彻底决裂")
+
+    def test_entity_field_size_caps(self) -> None:
+        # iter 050d (M-4): entity_graph is rendered whole into prompts —
+        # unbounded fields are unbounded token bills.
+        self._drive_to_prepared("capws")
+        status, graph = self._get("capws", "/entity-graph")
+        eid = str(graph["entities"][0]["id"])
+        status, data = self._put("capws", f"/entity/{eid}", {"fields": {"name": "长" * 201}})
+        self.assertEqual(status, 400)
+        self.assertIn("too long", data["error"])
+        status, data = self._put(
+            "capws", f"/entity/{eid}", {"fields": {"key_facts": ["x"] * 51}}
+        )
+        self.assertEqual(status, 400)
+        status, data = self._put(
+            "capws", f"/entity/{eid}", {"fields": {"key_facts": ["长" * 501]}}
+        )
+        self.assertEqual(status, 400)
+        status, data = self._put(
+            "capws", f"/entity/{eid}", {"fields": {"description": "长" * 5001}}
+        )
         self.assertEqual(status, 400)
 
 

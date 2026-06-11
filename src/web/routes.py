@@ -762,6 +762,10 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
         return _json(400, {"error": "missing or invalid 'fields'"})
     if _contains_control_chars(fields):
         return _json(400, {"error": "fields must not contain control characters"})
+    # iter 050d (M-4): plan items are injected into writer prompts —
+    # Pydantic validates ranges but not string lengths, so cap here.
+    if len(body) > 100_000:
+        return _json(400, {"error": "payload too large (max 100000 bytes)"})
 
     from ..plot_planner import apply_chapter_plan_item_edit
 
@@ -856,15 +860,30 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
                     meta = {}
                 try:
                     write_text_atomic(md_path, draft + "\n")
-                    meta["chapter_no"] = chapter_no
-                    meta["draft_sha256"] = sha256_text(draft + "\n")
-                    meta["edited"] = True
-                    meta["edited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-                    # An edited draft must not coast on a pre-edit Approve.
-                    meta["needs_human_review"] = True
-                    write_json(meta_path, meta)
                 except OSError as exc:
                     return _json(500, {"error": f"failed to write draft: {exc}"})
+                meta["chapter_no"] = chapter_no
+                meta["draft_sha256"] = sha256_text(draft + "\n")
+                meta["edited"] = True
+                meta["edited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                # An edited draft must not coast on a pre-edit Approve.
+                meta["needs_human_review"] = True
+                try:
+                    write_json(meta_path, meta)
+                except OSError as exc:
+                    # iter 050d (M-1): the md IS saved at this point; saying
+                    # "保存失败" would be a lie. The chapter sits at
+                    # draft_hash_mismatch (fail-safe) until a re-save lands
+                    # the meta sync.
+                    return _json(
+                        500,
+                        {
+                            "error": (
+                                "draft saved but meta sync failed; chapter will "
+                                f"show draft_hash_mismatch until you save again: {exc}"
+                            )
+                        },
+                    )
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -974,7 +993,9 @@ def api_workspace_entity_save(name: str, entity_id: str, body: bytes) -> Tuple[i
     error = _workspace_error(name)
     if error:
         return error
-    entity_id = unquote(entity_id)
+    # iter 050d (L-2): no unquote here — dispatch already decodes the whole
+    # path before route matching; a second decode would corrupt ids that
+    # contain literal % sequences.
     try:
         payload = json.loads(body.decode("utf-8") or "{}") if body else {}
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -987,12 +1008,24 @@ def api_workspace_entity_save(name: str, entity_id: str, body: bytes) -> Tuple[i
     unknown = set(fields) - _ENTITY_EDITABLE_FIELDS
     if unknown:
         return _json(400, {"error": "non-editable fields: " + ", ".join(sorted(map(str, unknown)))})
+    # iter 050d (M-4): hard size caps — entity_graph gets rendered whole into
+    # writer/planner prompts, so an unbounded field is an unbounded token bill
+    # (every other edit endpoint already caps its payload).
+    _ENTITY_FIELD_MAX = {"name": 200, "description": 5000}
     for key, value in fields.items():
         if key in _ENTITY_LIST_FIELDS:
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 return _json(400, {"error": f"'{key}' must be a list of strings"})
-        elif not isinstance(value, str):
-            return _json(400, {"error": f"'{key}' must be a string"})
+            if len(value) > 50:
+                return _json(400, {"error": f"'{key}' too long (max 50 items)"})
+            if any(len(v) > 500 for v in value):
+                return _json(400, {"error": f"'{key}' items too long (max 500 chars each)"})
+        else:
+            if not isinstance(value, str):
+                return _json(400, {"error": f"'{key}' must be a string"})
+            limit = _ENTITY_FIELD_MAX.get(key, 5000)
+            if len(value) > limit:
+                return _json(400, {"error": f"'{key}' too long (max {limit} chars)"})
     if fields.get("name") is not None and not str(fields.get("name")).strip():
         return _json(400, {"error": "'name' must not be empty"})
     if _contains_control_chars(fields):
@@ -1064,6 +1097,14 @@ def api_workspace_relationship_save(name: str, index: str, body: bytes) -> Tuple
         return _json(400, {"error": "'state' too long (max 2000 chars)"})
     if _contains_control_chars(state):
         return _json(400, {"error": "'state' must not contain control characters"})
+    # iter 050d (M-2): the index was taken when the panel rendered; if the
+    # graph was regenerated since (re-run prepare) the same index may now be
+    # a DIFFERENT relationship. Require the client to echo src_id/dst_id and
+    # reject on mismatch instead of silently editing the wrong object.
+    echo_src = payload.get("src_id")
+    echo_dst = payload.get("dst_id")
+    if not isinstance(echo_src, str) or not isinstance(echo_dst, str) or not echo_src or not echo_dst:
+        return _json(400, {"error": "missing 'src_id'/'dst_id' echo for index validation"})
     from ..utils import write_json
 
     try:
@@ -1075,6 +1116,14 @@ def api_workspace_relationship_save(name: str, index: str, body: bytes) -> Tuple
                 if not isinstance(rels, list) or not 0 <= rel_index < len(rels):
                     return _json(404, {"error": f"relationship not found: index {rel_index}"})
                 rel = rels[rel_index]
+                if not isinstance(rel, dict) or str(rel.get("src_id")) != echo_src or str(rel.get("dst_id")) != echo_dst:
+                    return _json(
+                        409,
+                        {
+                            "error": "relationship at this index has changed (graph was regenerated); reload the panel",
+                            "stale_index": True,
+                        },
+                    )
                 timeline = rel.get("timeline") if isinstance(rel, dict) else None
                 active = next(
                     (

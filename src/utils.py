@@ -27,8 +27,23 @@ def read_json_optional(path: Path, default: Any = None) -> Any:
 
 
 def write_json(path: Path, data: Any) -> None:
+    # iter 050d (M-1): atomic tmp+replace, same pattern as
+    # state.write_text_atomic (which lives above us in the import graph, so
+    # the logic is inlined here). chapter_plan.json / *.meta.json /
+    # entity_graph.json are now user-editable via PUT endpoints — a crash
+    # mid-write must never leave truncated JSON behind, because
+    # chapter_plan.json is the root of the write-book fingerprint gate.
+    import os
+    import threading
+
     ensure_dir(path.parent)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp = path.with_suffix(
+        path.suffix + f".tmp.{os.getpid()}.{threading.get_ident()}"
+    )
+    tmp.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    os.replace(tmp, path)
 
 
 def append_jsonl(path: Path, record: Dict[str, Any]) -> None:

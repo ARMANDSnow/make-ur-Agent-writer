@@ -456,11 +456,18 @@ def _default_budget_cny() -> float:
     explicit ``budget_cny`` (0 = uncapped, CLI semantics unchanged)."""
     import os
 
+    import math
+
     raw = os.environ.get("NOVEL_DEFAULT_BUDGET_CNY", "")
     try:
-        return float(raw) if raw else 10.0
+        value = float(raw) if raw else 10.0
     except ValueError:
         return 10.0
+    # iter 050d (L-3): nan compares False with everything → the budget gate
+    # would never trip; inf/negative are equally meaningless as caps.
+    if not math.isfinite(value) or value < 0:
+        return 10.0
+    return value
 
 
 def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:

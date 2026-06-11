@@ -236,10 +236,16 @@ def _attach_plan_fingerprints(
     # it must keep the plan's *stored* start_point_fingerprint so that
     # book_runner._plan_metadata_failures can still detect "plan was
     # generated under a different start point". Recomputing from live state
-    # here would forge freshness the plan content doesn't have.
+    # here would forge freshness the plan content doesn't have. 050d (L-1):
+    # that includes the EMPTY case — back-filling a missing/empty stored
+    # fingerprint with the live value would bless a plan that was never
+    # generated under the current start point; leave it empty and let the
+    # gate fail-safe with start_point_fingerprint_missing.
     data["start_chapter_id"] = start_chapter_id or data.get("start_chapter_id") or ""
-    if refresh_start_point or not data.get("start_point_fingerprint"):
+    if refresh_start_point:
         data["start_point_fingerprint"] = start_point.start_point_fingerprint()
+    else:
+        data["start_point_fingerprint"] = data.get("start_point_fingerprint") or ""
     data["schema_version"] = int(data.get("schema_version") or 1)
     for item in data.get("chapters", []) or []:
         if isinstance(item, dict):

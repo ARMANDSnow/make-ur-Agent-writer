@@ -148,6 +148,19 @@ class ApplyChapterPlanItemEditTests(unittest.TestCase):
         # And plan_fingerprint is computed over the preserved value.
         self.assertEqual(result["plan_fingerprint"], plan_fingerprint(result))
 
+    def test_edit_does_not_backfill_empty_start_point_fingerprint(self) -> None:
+        # iter 050d (L-1): a plan generated WITHOUT a start point carries an
+        # empty fingerprint. If a start point is configured later, editing a
+        # chapter must NOT back-fill the live fingerprint — that would bless
+        # a plan that was never generated under the current start point. The
+        # gate fail-safes with start_point_fingerprint_missing instead.
+        data = self._plan()
+        data["start_point_fingerprint"] = ""
+        self.plan_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        result = apply_chapter_plan_item_edit(1, {"title": "改标题"})
+        self.assertEqual(result["start_point_fingerprint"], "")
+        self.assertEqual(result["plan_fingerprint"], plan_fingerprint(result))
+
     def test_rejects_non_editable_field(self) -> None:
         with self.assertRaises(ValueError) as ctx:
             apply_chapter_plan_item_edit(1, {"chapter_no": 9})

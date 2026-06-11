@@ -57,6 +57,22 @@
 6. **成本留痕**：74 LLM calls，prompt 570,654 + response 207,528 tokens，估算 **¥2.75**（项目单价表口径，预算 15 元，实耗 18%）；write-book 段受 `budget_cny=5` 上限保护，未触发 `budget_exceeded`（一章成本远低于上限，路径由 test_budget_guard + 既有 `BudgetExceeded` 测试覆盖）。
 7. **清理**：smoke050 → `workspaces/_trash/smoke050_iter050_smoke_20260611`；真模型 server 停机。
 
+## 050d — 铁律⑨ 对抗审查与修复
+
+收官 subagent 对抗审查（范围 1c8c2a7..07e8dbc，四视角：状态机/竞态、指纹链、API 安全、前端正确性），产出 **M×4 + L×3 + informational×1，零 H 级，零 XSS**；全部 M/L 当轮直修：
+
+| 级 | 发现 | 修复 |
+|---|---|---|
+| M-1 | `utils.write_json` 非原子——chapter_plan/meta/entity_graph 现在是用户可触发写路径，崩溃中断会留下截断 JSON（chapter_plan 是门禁根）；draft PUT 在 md 已落盘后 meta 写失败却报「保存失败」 | `write_json` 全局改 tmp+`os.replace` 原子写（与 `write_text_atomic` 同款 pid/tid 后缀）；draft PUT 拆两段 try，meta 失败时如实报告「正文已保存、待重存同步 meta」 |
+| M-2 | relationship 按数组下标编辑存在 GET→PUT TOCTOU：重跑 prepare 重建图后旧面板保存会改错对象；面板 `loaded` 标志导致永不刷新 | PUT 要求回显 `src_id/dst_id`，不匹配 → 409 `stale_index`；前端 prepare job 完成钩子 `settingsPanelInvalidate` 重载面板，409 时自动重渲染 |
+| M-3 | 工作台表单硬编码 `value="10"` 且永远显式提交 → `NOVEL_DEFAULT_BUDGET_CNY` 对 UI 形同虚设；填 0=无上限无提示 | 模板渲染时注入 `_default_budget_cny()` 为 input 默认值（测试钉死 env=5.5 → value="5.5"）；加「0 = 不设上限（真模型下不建议）」提示；preflight 文案说明 env 的实际作用面 |
+| M-4 | entity 字段与 plan item 字符串无长度上限（实测 10MB title 过 Pydantic）——entity_graph 整体进 prompt，等于无上限 token 账单 | entity 字段级闸（name 200 / description 5000 / 列表 ≤50×500）；chapter-plan PUT body ≤100KB |
+| L-1 | `refresh_start_point=False` 对空存储指纹做了 live 兜底——正是 docstring 声明要避免的 forge freshness（「有 start_chapter_id、无指纹」的存量 plan 上成立） | 编辑路径空值保持空，门禁以 `start_point_fingerprint_missing` fail-safe 拦截（测试钉死） |
+| L-2 | `unquote(entity_id)` 双重解码（dispatch 已解过一次），含字面 `%` 的 id 会被二次解码 | 删除 handler 内 unquote |
+| L-3 | `NOVEL_DEFAULT_BUDGET_CNY="nan"/"inf"` 通过 float() → nan 比较恒 False → 上限静默失效 | jobs 与 preflight 双侧加 `math.isfinite() and >= 0`（测试矩阵 nan/inf/-inf/-5） |
+
+修复后 **808 OK**（805 → 808，+3）；实机复验：设定面板保存关系（echo 属性下发 + 落盘正确）、预算 input 默认值来自 env。informational（L-4 白名单语义反转：非白名单键改动对门禁不可见，046 segments 豁免的既定延伸）记录在案不动。
+
 ## 不在本轮范围
 
 - premise 扩写质量增强（#4，顺延 051+）。

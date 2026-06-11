@@ -278,16 +278,24 @@ def _check_budget_guard(warn: List[str], is_global_mock: bool) -> None:
     raw = os.getenv("NOVEL_DEFAULT_BUDGET_CNY", "")
     if not raw:
         warn.append(
-            "NOVEL_DEFAULT_BUDGET_CNY is not set; web-started write jobs default "
-            "to a 10.0元 cap. Set it explicitly before long unattended runs."
+            "NOVEL_DEFAULT_BUDGET_CNY is not set; write jobs that omit "
+            "budget_cny default to a 10.0元 cap (the workbench form prefills "
+            "this value but submits it explicitly). Set the env before long "
+            "unattended runs."
         )
         return
+    import math
+
     try:
-        float(raw)
+        value = float(raw)
     except ValueError:
+        value = None
+    # iter 050d (L-3): nan never trips the gate (all comparisons False);
+    # inf/negative are equally meaningless as caps.
+    if value is None or not math.isfinite(value) or value < 0:
         warn.append(
-            f"NOVEL_DEFAULT_BUDGET_CNY='{raw}' is not a number; the 10.0元 "
-            "default cap applies."
+            f"NOVEL_DEFAULT_BUDGET_CNY='{raw}' is not a usable cap "
+            "(needs a finite number >= 0); the 10.0元 default applies."
         )
 
 

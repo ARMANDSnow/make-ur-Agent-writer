@@ -29,8 +29,11 @@ class DefaultBudgetTests(unittest.TestCase):
             self.assertEqual(_default_budget_cny(), 3.5)
 
     def test_garbage_env_falls_back(self) -> None:
-        with patch.dict(os.environ, {"NOVEL_DEFAULT_BUDGET_CNY": "unlimited"}):
-            self.assertEqual(_default_budget_cny(), 10.0)
+        # iter 050d (L-3): nan compares False with everything (gate would
+        # never trip); inf/negative are equally meaningless as caps.
+        for bad in ("unlimited", "nan", "inf", "-inf", "-5"):
+            with patch.dict(os.environ, {"NOVEL_DEFAULT_BUDGET_CNY": bad}):
+                self.assertEqual(_default_budget_cny(), 10.0, bad)
 
     def test_step_write_book_applies_default_cap(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
@@ -77,9 +80,26 @@ class PreflightBudgetWarnTests(unittest.TestCase):
         self.assertEqual(self._warns(mock_mode=False, env="15"), [])
 
     def test_real_model_with_garbage_env_warns(self) -> None:
-        warns = self._warns(mock_mode=False, env="abc")
-        self.assertEqual(len(warns), 1)
-        self.assertIn("not a number", warns[0])
+        for bad in ("abc", "nan", "inf", "-1"):
+            warns = self._warns(mock_mode=False, env=bad)
+            self.assertEqual(len(warns), 1, bad)
+            self.assertIn("not a usable cap", warns[0])
+
+    def test_workbench_form_prefills_env_default(self) -> None:
+        # iter 050d (M-3): the form always submits budget_cny explicitly, so
+        # the env default must reach the rendered input value or it would
+        # never apply to workbench-started jobs.
+        from src.web import templates
+
+        with patch.dict(os.environ, {"NOVEL_DEFAULT_BUDGET_CNY": "5.5"}):
+            html = templates.render_workspace_workbench("formws", ["formws"])
+            self.assertIn('name="budget_cny"', html)
+            self.assertIn('value="5.5"', html)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NOVEL_DEFAULT_BUDGET_CNY", None)
+            html = templates.render_workspace_workbench("formws", ["formws"])
+            self.assertIn('value="10"', html)
+        self.assertIn("0 = 不设上限", html)
 
 
 if __name__ == "__main__":

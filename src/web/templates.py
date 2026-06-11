@@ -27,6 +27,13 @@ from html import escape
 from string import Template
 from typing import Iterable, List, Optional, Sequence
 
+from .jobs import _default_budget_cny
+
+
+def _format_budget(value: float) -> str:
+    """Render 10.0 as "10" but keep real decimals (5.5 stays "5.5")."""
+    return f"{value:g}"
+
 
 # ---------------------------------------------------------------------------
 # Shell
@@ -667,9 +674,14 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<option value="mid" selected>mid · 日常生产</option>'
         '<option value="high">high · 严格发布</option>'
         '</select></div>'
-        # iter 050 (F): explicit spend cap, default mirrors NOVEL_DEFAULT_BUDGET_CNY
+        # iter 050d (M-3): the input's default VALUE comes from
+        # NOVEL_DEFAULT_BUDGET_CNY at render time — the form always submits
+        # budget_cny explicitly, so without this the env cap would never
+        # reach workbench-started jobs.
         '<div class="field"><label for="write-budget-input">预算上限（元）</label>'
-        '<input id="write-budget-input" name="budget_cny" type="number" min="0" step="0.5" value="10">'
+        '<input id="write-budget-input" name="budget_cny" type="number" min="0" step="0.5" value="'
+        + _format_budget(_default_budget_cny()) + '">'
+        '<span class="muted">填 0 = 不设上限（真模型下不建议）</span>'
         '</div>'
         '<div class="form-actions" style="align-items:flex-end">'
         '<button type="submit" id="write-book-submit" class="btn btn-primary">开始写书</button>'

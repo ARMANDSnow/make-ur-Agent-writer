@@ -2179,6 +2179,7 @@ JS_DASHBOARD = """\
   }
   // iter 050 (B3): stage ① on-demand KB / entity_graph editor. Loads only
   // when the user opens the panel — no extra fetches on the refresh loop.
+  let settingsPanelInvalidate = null;
   function bindSettingsPanel() {
     const toggle = document.getElementById("settings-toggle");
     const panel = document.getElementById("settings-panel");
@@ -2186,18 +2187,31 @@ JS_DASHBOARD = """\
     const kbSave = document.getElementById("kb-save");
     if (!toggle || !panel || !kbArea || !kbSave) return;
     let loaded = false;
-    toggle.addEventListener("click", async function () {
-      panel.hidden = !panel.hidden;
-      toggle.textContent = panel.hidden ? "查看 / 编辑设定 ▾" : "收起设定 ▴";
-      if (panel.hidden || loaded) return;
+    async function loadPanelData() {
       try {
         const kb = await fetchJson(wsUrl("/kb"));
-        kbArea.value = kb.content || "";
+        if (!kbArea.dataset.dirty && document.activeElement !== kbArea) {
+          kbArea.value = kb.content || "";
+        }
         loaded = true;
       } catch (err) {
         kbArea.placeholder = "知识库尚未生成（" + err.message + "）";
       }
       await renderEntityPanel();
+    }
+    // iter 050d (M-2): re-running stage ① regenerates KB + entity_graph —
+    // an open panel must reload, or its relationship indices and content go
+    // stale and a save would hit the wrong object (server echo-check is the
+    // backstop; this keeps the UI honest proactively).
+    settingsPanelInvalidate = function () {
+      loaded = false;
+      if (!panel.hidden) loadPanelData();
+    };
+    toggle.addEventListener("click", async function () {
+      panel.hidden = !panel.hidden;
+      toggle.textContent = panel.hidden ? "查看 / 编辑设定 ▾" : "收起设定 ▴";
+      if (panel.hidden || loaded) return;
+      await loadPanelData();
     });
     kbArea.addEventListener("input", function () { kbArea.dataset.dirty = "1"; });
     kbSave.addEventListener("click", async function () {
@@ -2263,7 +2277,9 @@ JS_DASHBOARD = """\
           ' <span class="muted">(' + escapeHtml(String(r.relation_type || "关系")) + ')</span></label>' +
           '<div style="display:flex;gap:4px">' +
           '<input type="text" id="rel-state-' + item.idx + '" value="' + escapeHtml(item.active.state || "") + '" style="flex:1">' +
-          '<button type="button" class="btn btn-ghost btn-sm" data-rel-save="' + item.idx + '">保存</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" data-rel-save="' + item.idx + '"' +
+          ' data-src-id="' + escapeHtml(String(r.src_id || "")) + '"' +
+          ' data-dst-id="' + escapeHtml(String(r.dst_id || "")) + '">保存</button>' +
           '</div></div>';
       });
     }
@@ -2302,10 +2318,17 @@ JS_DASHBOARD = """\
         }
         btn.disabled = true;
         try {
-          await putJson(wsUrl("/relationship/" + idx), { state: state });
+          // iter 050d (M-2): echo src/dst so the server can detect a
+          // regenerated graph (stale index) instead of editing the wrong rel.
+          await putJson(wsUrl("/relationship/" + idx), {
+            state: state,
+            src_id: btn.dataset.srcId || "",
+            dst_id: btn.dataset.dstId || "",
+          });
           showToast("关系状态已保存", "info");
         } catch (err) {
           showToast("保存失败：" + err.message, "error");
+          if (err.payload && err.payload.stale_index) await renderEntityPanel();
         } finally {
           btn.disabled = false;
         }
@@ -2326,6 +2349,9 @@ JS_DASHBOARD = """\
         const data = await postJson(wsUrl("/run"), { step: step, params: params });
         await pollJob(data.job_id, box, submit, async () => {
           await refreshWorkbench();
+          // iter 050d (M-2): stage ① rewrites KB/entity_graph — reload the
+          // settings panel if it's open so indices don't go stale.
+          if (step === "prepare-greenfield" && settingsPanelInvalidate) settingsPanelInvalidate();
         });
       } catch (err) {
         if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
