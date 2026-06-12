@@ -188,8 +188,26 @@ class WriterRejectLintCleanTests(unittest.TestCase):
         self.assertIn("发现列车票背面的暗号", prompt)
         self.assertIn("已写章节回顾/上一章结尾状态 > 本章计划 > 辩论大纲", prompt)
 
-    def test_writer_prompt_demotes_stale_opening_scene_after_prior_ending(self) -> None:
-        messages, _cache_segments = _write_prompt(
+    def test_writer_prompt_f7_override_removed_after_prior_ending(self) -> None:
+        """iter 052b：F7 淘汰的显式翻转（原断言钉死覆写文案存在）。
+
+        iter027 的 opening_instruction 覆写块（"上一章结尾状态优先级更高/
+        opening_scene 降级为回忆素材"）是起点一致性缺口的 prompt 创可贴；
+        F6 集中校验落地并经真模型验证后按 052 计划拆除。本测试钉死：
+        previous_chapter_ending 存在时 opening_instruction 仍是基础版，
+        覆写文案不再出现；开场衔接语义由 iter013 的 ending_block 承担。
+        """
+        plan_item = {
+            "chapter_no": 3,
+            "title": "旧开场计划",
+            "opening_scene": "路明非拖着行李箱站在芝加哥火车站。",
+            "key_events": ["回忆列车上的黄金瞳男孩"],
+            "relationships_in_play": ["路明非/神秘男孩"],
+            "ending_hook": "3E 考试倒计时归零。",
+            "target_chinese_chars": 4200,
+            "plot_purpose": "承接当前 3E 考试压力。",
+        }
+        common = dict(
             chapter_no=3,
             knowledge="knowledge",
             facts="facts",
@@ -197,26 +215,35 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             continuation_anchor="",
             index={},
             outline="outline",
-            chapter_plan_item={
-                "chapter_no": 3,
-                "title": "旧开场计划",
-                "opening_scene": "路明非拖着行李箱站在芝加哥火车站。",
-                "key_events": ["回忆列车上的黄金瞳男孩"],
-                "relationships_in_play": ["路明非/神秘男孩"],
-                "ending_hook": "3E 考试倒计时归零。",
-                "target_chinese_chars": 4200,
-                "plot_purpose": "承接当前 3E 考试压力。",
-            },
-            previous_chapter_ending="路明非已经在卡塞尔宿舍等待 3E 考试。",
+            chapter_plan_item=plan_item,
             feedback="",
         )
+        messages, _cache_segments = _write_prompt(
+            previous_chapter_ending="路明非已经在卡塞尔宿舍等待 3E 考试。", **common
+        )
         prompt = "\n".join(item["content"] for item in messages)
-        self.assertIn("如果 opening_scene 发生在上一章结尾之前", prompt)
-        self.assertIn("必须先从上一章结尾后的当前状态开场", prompt)
-        self.assertIn("作为短回忆/插叙素材", prompt)
-        self.assertIn("当前时间线占正文 70% 以上", prompt)
-        self.assertIn("总量不得超过正文 25%", prompt)
-        self.assertIn("不能连续铺成完整回忆章", prompt)
+        # F7 覆写文案必须不存在
+        self.assertNotIn("上一章结尾状态优先级更高", prompt)
+        self.assertNotIn("如果 opening_scene 发生在上一章结尾之前", prompt)
+        self.assertNotIn("作为短回忆/插叙素材", prompt)
+        self.assertNotIn("当前时间线占正文 70% 以上", prompt)
+        # 基础版 opening_instruction 仍在
+        self.assertIn("开场必须是 opening_scene 指定的场景", prompt)
+        # iter013 的开场衔接块不可误删（F7 拆除只动覆写，不动衔接语义）
+        self.assertIn("本章开场衔接提示", prompt)
+        self.assertIn("本章开场必须自然衔接上述结尾状态", prompt)
+
+        # 钉死"F7 删除后 prompt 其余部分逐字节不变"：本章计划块不再随
+        # previous_chapter_ending 存在与否而变化（差异只剩 ending_block）。
+        messages_no_ending, _ = _write_prompt(previous_chapter_ending="", **common)
+        prompt_no_ending = "\n".join(item["content"] for item in messages_no_ending)
+        marker = "## 本章计划（必须严格遵守）"
+        self.assertIn(marker, prompt)
+        self.assertIn(marker, prompt_no_ending)
+        self.assertEqual(
+            prompt[prompt.index(marker):],
+            prompt_no_ending[prompt_no_ending.index(marker):],
+        )
 
     def test_writer_light_prompt_trims_heavy_context(self) -> None:
         with patch.dict(os.environ, {"WRITE_PROMPT_PROFILE": "light"}, clear=False):

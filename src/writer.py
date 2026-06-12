@@ -699,21 +699,16 @@ def _write_prompt(
         )
         if not relationships:
             relationships = "- 无特别指定"
+        # iter 052b: F7 淘汰。iter027 曾在这里对 opening_instruction 做
+        # "上一章结尾优先级更高 / opening_scene 降级为回忆素材" 的覆写——
+        # 那是起点一致性缺口的 prompt 创可贴。F6（start_point.enforce_consistency，
+        # iter051b 集中、052 真模型验证）从源头钉死了起点四码一致性后，
+        # 补丁按计划拆除：开场衔接语义仍由上方 ending_block（iter013）+
+        # chapter_plan_block 的优先级声明承担。
         opening_instruction = (
             "严格按上述本章计划写。开场必须是 opening_scene 指定的场景；"
             "必须发生所有 key_events；不要引入计划之外的主要剧情节点。\n\n"
         )
-        if previous_chapter_ending:
-            opening_instruction = (
-                "严格按上述本章计划写，但上一章结尾状态优先级更高。"
-                "如果 opening_scene 发生在上一章结尾之前，不能把它当作本章主时间线开场；"
-                "必须先从上一章结尾后的当前状态开场，并让当前时间线占正文 70% 以上。"
-                "opening_scene 只能作为短回忆/插叙素材，总量不得超过正文 25%，"
-                "不能连续铺成完整回忆章，不能复述交通流程、入学背景、社团设定或上一章已经交代的信息。"
-                "每段回忆都必须被当前时间线的动作、对话或倒计时打断，并直接推动当前人物做出一个决定。"
-                "本章结尾必须回到当前时间线并推进上一章留下的即时危机。"
-                "必须发生所有 key_events；不要引入计划之外的主要剧情节点。\n\n"
-            )
         chapter_plan_block = (
             "## 本章计划（必须严格遵守）\n\n"
             "优先级：已写章节回顾/上一章结尾状态 > 本章计划 > 辩论大纲。"
