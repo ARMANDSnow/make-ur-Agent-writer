@@ -263,6 +263,10 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
         with log_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(head, ensure_ascii=False) + "\n")
 
+    # iter 053e: 显式起点块——循环外算一次（块内含起点章结尾原文读取，
+    # 36 次 round 调用不必反复读盘）。无起点时为空串，prompt 逐字节不变。
+    start_point_block = _start_point_prompt_block()
+
     for round_index, round_name in enumerate(ROUNDS, 1):
         for agent in agents:
             if (round_index, agent["name"]) in done_keys:
@@ -277,6 +281,7 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
                                 f"辩论主题: {topic}\n"
                                 f"轮次: {round_index} - {round_name}\n"
                                 f"agent_name: {agent['name']}\n"
+                                f"{start_point_block}"
                                 f"已有共识/争议:\n{json.dumps(transcript[-12:], ensure_ascii=False)[:6000]}\n\n"
                                 f"{expansion}"
                                 f"人工全局事实:\n{facts}\n\n"
@@ -593,6 +598,42 @@ def _continuation_anchor() -> str:
     return load_continuation_anchor()
 
 
+def _start_point_prompt_block() -> str:
+    """iter 053e（053c 实跑发现直修）：debate 的显式起点锚定块。
+
+    plot_planner 自 iter021/027 就有同款双保险（显式起点块 + anchor 降级），
+    debate 一直缺位。053c 段一实跑实证：起点安全 KB + 053a 新鲜指纹也挡不住
+    辩论把起点**之前**已收束的高潮（机库倒计时）当"当前局势"重演——KB 的
+    最近条目恰是高潮素材，而 continuation_anchor 这类内容性中间产物可能整体
+    锚错（5/30 的 anchor 描述高潮中段、meta 却记着 ch024：id 级 provenance
+    校验拦不住内容毒）。对照实证：6/5 的章纲在同一份毒 anchor 下、因
+    plot_planner 有显式起点块而过审 7.5——同款治法搬给 debate。
+
+    条件注入（铁律④）：无起点（premise 自创书）返回空串，prompt 逐字节不变。
+    """
+    start_id = start_point.get_start_chapter_id()
+    if not start_id:
+        return ""
+    lines = [
+        "# 显式续写起点（最高优先级，覆盖一切与之冲突的材料）",
+        f"- 起点章节：{start_id}。该章**及其之前**的全部事件（包括任何战斗、危机、倒计时）都已发生完毕、已经收束，属于过去。",
+        "- 续写故事从该章结束之后开始。禁止把起点之前已收束的事件当作'当前局势'重演、续打或倒计时。",
+        "- 若下方任何材料（包括标着'续写起点（must-anchor）'的叙事块、知识摘要）所描述的'当前状态'与本节冲突，一律以本节为准——那些材料可能是过期版本。",
+    ]
+    before = start_point.chapters_before_start(k=3)
+    if before:
+        lines.append("- 起点前最近章节（只作方位校验，不要复述）：")
+        for ch in before:
+            lines.append(f"  - {ch.get('chapter_id', '')}: {ch.get('title', '')}")
+    tail = start_point.load_chapter_text(start_id)[-1200:]
+    if tail:
+        lines.append(
+            "- 起点章节（全书已写到的位置）结尾原文片段——续写必须从这一时空状态之后接续："
+        )
+        lines.append(tail)
+    return "\n".join(lines) + "\n\n"
+
+
 def _anchor_prompt_block() -> str:
     anchor = _continuation_anchor()
     if not anchor:
@@ -782,6 +823,7 @@ def build_decisions(
                         "根据以下辩论记录，总结 2-5 个核心投票问题及裁决结果。"
                         "每个 vote 包含 question、result、for（支持该裁决的 agent 名列表）、against（反对的 agent 名列表）。\n\n"
                         f"Agent 列表: {json.dumps(voter_names, ensure_ascii=False)}\n\n"
+                        f"{_start_point_prompt_block()}"
                         f"{_anchor_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
                         f"辩论记录:\n{_transcript_summary(transcript)}"
@@ -856,6 +898,7 @@ def build_outline(
                     "content": (
                         f"主题: {topic}\n\n"
                         f"{persona_block}"
+                        f"{_start_point_prompt_block()}"
                         f"{_anchor_prompt_block()}"
                         f"{_style_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"

@@ -319,6 +319,74 @@ class DebaterProvenanceTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# debate 显式起点锚定块（iter 053e，053c 实跑发现直修）
+# ---------------------------------------------------------------------------
+
+
+class DebateStartPointBlockTests(unittest.TestCase):
+    """053c 段一实证：起点安全 KB + 053a 指纹也挡不住辩论把起点前已收束的
+    高潮当'当前局势'重演（毒 anchor 内容层穿透，id 级 provenance 拦不住）。
+    053e 把 plot_planner 的显式起点块 + anchor 降级搬给 debate 三个 prompt 面。"""
+
+    def test_no_start_point_block_is_empty(self) -> None:
+        from src.debater import _start_point_prompt_block
+
+        with patch("src.start_point.get_start_chapter_id", return_value=None):
+            self.assertEqual(_start_point_prompt_block(), "")
+
+    def test_block_contains_override_clause_and_chapter_tail(self) -> None:
+        from src.debater import _start_point_prompt_block
+
+        with patch(
+            "src.start_point.get_start_chapter_id", return_value="v9_ch024"
+        ), patch(
+            "src.start_point.chapters_before_start",
+            return_value=[{"chapter_id": "v9_ch023", "title": "前章"}],
+        ), patch(
+            "src.start_point.load_chapter_text", return_value="……尾声结尾原文。"
+        ):
+            block = _start_point_prompt_block()
+        self.assertIn("显式续写起点", block)
+        self.assertIn("v9_ch024", block)
+        # 显式压过 must-anchor 叙事块（anchor 内容毒的治法核心）。
+        self.assertIn("must-anchor", block)
+        self.assertIn("已经收束", block)
+        self.assertIn("尾声结尾原文", block)
+        self.assertIn("v9_ch023", block)
+
+    def test_agent_prompts_carry_block_only_with_start(self) -> None:
+        from src.debater import run_debate
+
+        for start_id, expect in (("v9_ch024", True), (None, False)):
+            prompts: list = []
+
+            def spy(self, messages, temperature=None, cache_segments=None):
+                prompts.append("\n".join(m.get("content", "") for m in messages))
+                return "发言。"
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                (tmp_path / "global_knowledge.md").write_text("# kb", encoding="utf-8")
+                (tmp_path / "knowledge_index.json").write_text("{}", encoding="utf-8")
+                with patch("src.debater.KB_PATH", tmp_path / "global_knowledge.md"), patch(
+                    "src.debater.INDEX_PATH", tmp_path / "knowledge_index.json"
+                ), patch("src.debater.DEBATE_DIR", tmp_path), patch(
+                    "src.start_point.get_start_chapter_id", return_value=start_id
+                ), patch(
+                    "src.start_point.start_point_fingerprint",
+                    return_value="fp-block-test" if start_id else "",
+                ), patch(
+                    "src.llm_client.LLMClient.complete_text", spy
+                ):
+                    run_debate()
+            joined = "\n".join(prompts)
+            if expect:
+                self.assertIn("显式续写起点", joined, msg=f"start={start_id}")
+            else:
+                self.assertNotIn("显式续写起点", joined, msg=f"start={start_id}")
+
+
+# ---------------------------------------------------------------------------
 # plot_planner 消费侧
 # ---------------------------------------------------------------------------
 
