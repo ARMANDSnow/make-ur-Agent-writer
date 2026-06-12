@@ -46,12 +46,36 @@ FIELD_LABELS = (
 )
 
 
+def _empty_fields(fields: Dict[str, Any]) -> list:
+    """iter 053（052 实测缺口）：空字符串 / 空列表（或全空白项）都算空。
+
+    052 真模型段二实录：shudian052 的扩写稿 genre_tone / world_notes /
+    central_conflict（盘面复核 arc_hints 同）为空落盘，风格定调全靠
+    personas 的 style_short_descriptor 兜底——schema 只有长度上限、没有
+    非空校验。"""
+
+    empty = []
+    for key, _label in FIELD_LABELS:
+        value = fields.get(key)
+        if isinstance(value, list):
+            if not [v for v in value if str(v or "").strip()]:
+                empty.append(key)
+        elif not str(value or "").strip():
+            empty.append(key)
+    return empty
+
+
 def expand_premise(premise: str, *, force: bool = False) -> Dict[str, Any]:
     """Expand a one-sentence premise into the structured artifact.
 
     Idempotent by default: an existing artifact is returned as-is unless
     ``force`` is set (the「重新扩写」button), so a re-run never silently
     clobbers user edits.
+
+    iter 053: 落盘前做 6 字段非空校验——发现空字段带"必须补全"提示自动重试
+    一次；仍空则照常落盘但在 **record 层**记 ``_incomplete_fields`` 标记
+    （fields 层会被 ``load_expansion`` 的 ``PremiseExpansion(**fields)`` 反
+    序列化拒掉；标记也绝不进 ``expansion_prompt_block`` 的渲染面）。
     """
 
     premise = (premise or "").strip()
@@ -65,36 +89,57 @@ def expand_premise(premise: str, *, force: bool = False) -> Dict[str, Any]:
             return existing
 
     client = LLMClient("premise_expand")
+    system_message = {
+        "role": "system",
+        "content": (
+            "你是长篇小说的开发编辑。把用户的一句话立意扩写为结构化设定稿，"
+            "供后续知识库抽取、多 Agent 辩论与分章规划消费。"
+            "只补全立意中可合理推断的内容，不要凭空引入与立意矛盾的设定。"
+        ),
+    }
+    user_content = (
+        "请把下面的一句话立意扩写为结构化设定稿（题材基调 / 主角卡 / "
+        "世界观要点 / 主冲突 / 结局锚点 / 前期弧线提示）。\n\n"
+        f"立意：{premise}"
+    )
     expansion = client.complete_json(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "你是长篇小说的开发编辑。把用户的一句话立意扩写为结构化设定稿，"
-                    "供后续知识库抽取、多 Agent 辩论与分章规划消费。"
-                    "只补全立意中可合理推断的内容，不要凭空引入与立意矛盾的设定。"
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "请把下面的一句话立意扩写为结构化设定稿（题材基调 / 主角卡 / "
-                    "世界观要点 / 主冲突 / 结局锚点 / 前期弧线提示）。\n\n"
-                    f"立意：{premise}"
-                ),
-            },
-        ],
+        [system_message, {"role": "user", "content": user_content}],
         response_model=PremiseExpansion,
     )
+    fields = model_to_dict(expansion)
+    empty = _empty_fields(fields)
+    if empty:
+        labels = {key: label for key, label in FIELD_LABELS}
+        log_event("premise_expand", "empty_fields_retry", fields=empty)
+        retry_user = (
+            f"{user_content}\n\n"
+            "上一稿中以下字段缺失，本次必须全部补全、不得留空："
+            + "、".join(labels.get(key, key) for key in empty)
+        )
+        try:
+            retry_expansion = client.complete_json(
+                [system_message, {"role": "user", "content": retry_user}],
+                response_model=PremiseExpansion,
+            )
+            retry_fields = model_to_dict(retry_expansion)
+            if len(_empty_fields(retry_fields)) < len(empty):
+                fields = retry_fields
+                empty = _empty_fields(fields)
+        except Exception as exc:
+            # 重试失败不影响主路径：带着第一稿照常落盘 + 标记。
+            log_event("premise_expand", "empty_fields_retry_error", error=str(exc))
     record = {
         "schema_version": SCHEMA_VERSION,
         "premise": premise,
-        "fields": model_to_dict(expansion),
+        "fields": fields,
         "generated_by": "premise_expand_v1_mock" if client.is_mock else "premise_expand_v1",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "edited": False,
         "edited_at": "",
     }
+    if empty:
+        record["_incomplete_fields"] = empty
+        log_event("premise_expand", "incomplete_fields", fields=empty)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_json(path, record)
     log_event("premise_expand", "done", path=str(path), forced=force)
@@ -151,6 +196,12 @@ def save_expansion_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
     # key entirely — keep the record shape stable for the GET surface.
     record.setdefault("premise", "")
     record["fields"] = model_to_dict(validated)
+    # iter 053: 手工编辑后重算未完成标记——补全即摘牌，仍空则保留。
+    remaining = _empty_fields(record["fields"])
+    if remaining:
+        record["_incomplete_fields"] = remaining
+    else:
+        record.pop("_incomplete_fields", None)
     record["edited"] = True
     record["edited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     path = paths.premise_expansion_path()

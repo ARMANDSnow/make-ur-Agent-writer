@@ -996,6 +996,9 @@ def api_workspace_premise_expansion_get(name: str) -> Tuple[int, str, bytes]:
             "generated_by": record.get("generated_by") or "",
             "edited": bool(record.get("edited")),
             "edited_at": record.get("edited_at") or "",
+            # iter 053: 扩写时重试后仍空的字段（record 层标记），stage ①
+            # 编辑器据此显示"建议补全"。
+            "_incomplete_fields": record.get("_incomplete_fields") or [],
         },
     )
 

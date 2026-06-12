@@ -2286,6 +2286,16 @@ JS_DASHBOARD = """\
       const value = fields[f.key];
       el.value = f.list ? ((value || []).join("\\n")) : (value || "");
     }
+    // iter 053: 扩写重试后仍有空字段 → 建议补全提示（052 实测 shudian052
+    // genre_tone/world_notes/central_conflict 空着落盘、靠 personas 兜底）。
+    const incomplete = (data && data._incomplete_fields) || [];
+    const statusBox = document.getElementById("expansion-status");
+    if (statusBox && incomplete.length) {
+      statusBox.innerHTML =
+        '<div class="alert warn">扩写稿有未补全字段：' +
+        escapeHtml(incomplete.join("、")) +
+        '。建议手工补全后保存，或点「重新扩写」。</div>';
+    }
   }
   function bindExpansionPanel() {
     const els = expansionEls();
