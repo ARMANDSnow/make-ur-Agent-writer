@@ -417,7 +417,7 @@ def load_chapter_text(chapter_id: str) -> str:
 
 
 def format_chapters_before_start_for_anchor(
-    k: int = 3, limit_chars: int = 24000
+    k: int = 3, limit_chars: int = 24000, *, include_start: bool = False
 ) -> str:
     """Compact text block of K pre-start chapters for ``auto_bootstrap``
     to use as anchor sampling context.
@@ -427,8 +427,26 @@ def format_chapters_before_start_for_anchor(
 
     Returns empty string when no start set / no chapters available — caller
     must fall back to the iter 020 ``_recent_extractions_context`` path.
+
+    iter 053f (053c 实跑发现): ``include_start=True`` 把采样窗口改为
+    **以起点章收尾的 K 章**（(start-k, start] 闭区间）——续写的交接点是
+    起点章自己的结尾，不是它前一章的结尾。exclusive 旧窗口在"起点章是
+    时间跳跃的尾声"时是系统性毒源：longzu 的 ch024 尾声距 ch021-023 的
+    高潮隔了三个月，anchor 重新生成多少次都锚在机库倒计时。默认 False
+    保持全部存量调用方（writer 风格锚 / planner 方位校验 / review_source）
+    逐字节不变（铁律④）。
     """
-    chapters = chapters_before_start(k=k)
+    if include_start:
+        start = get_start_chapter_id()
+        if not start:
+            return ""
+        start_idx = _index_of(start)
+        if start_idx is None:
+            return ""
+        window = max(0, start_idx - max(0, int(k)) + 1)
+        chapters = _load_manifest()[window : start_idx + 1]
+    else:
+        chapters = chapters_before_start(k=k)
     if not chapters:
         return ""
     parts = []

@@ -152,13 +152,20 @@ def bootstrap_continuation_anchor(force: bool = False, root: Path = None) -> Dic
     from . import start_point
 
     if start_point.get_start_chapter_id() is not None:
+        # iter 053f: 采样窗口含起点章自身（(start-k, start] 闭区间）——续写
+        # 的交接点是起点章的结尾。旧 exclusive 窗口在起点章为时间跳跃尾声时
+        # 让 anchor 系统性锚早一章（053c 实跑：ch024 尾声 vs ch021-023 高潮，
+        # 重新生成多少次都是机库倒计时毒）。
         context = start_point.format_chapters_before_start_for_anchor(
-            k=3, limit_chars=24000
+            k=3, limit_chars=24000, include_start=True
         )
         instructions = (
-            "请根据下方'起点前 K 章原文'生成续写起点 proposal。anchor_text 写 3-5 句，"
+            "请根据下方'截至起点章的 K 章原文'生成续写起点 proposal。anchor_text 写 3-5 句，"
             "key_state_points 写当前角色/组织/物品状态。anchor_text 必须明确指出此续写"
-            "是接在 *这些原文之后* 开始的，不要复述原文，但要让起点状态与原文末尾自然衔接。"
+            "是接在 *最后一章（起点章）结束之后* 开始的，不要复述原文，但要让起点状态与"
+            "最后一章的末尾自然衔接。若最后一章与它之前的章节之间存在时间跳跃或场景收束"
+            "（例如尾声），一律以最后一章结尾的时空状态为准——更早章节里的战斗、危机、"
+            "倒计时如果在最后一章已收束，必须当作已经过去的事件，不得写成正在进行。"
         )
     else:
         context = _recent_extractions_context(root, count=3, limit_chars=24000)

@@ -322,5 +322,41 @@ class EnforceConsistencyTests(unittest.TestCase):
         self.assertIn("does not match", str(ctx.exception))
 
 
+class AnchorSamplingWindowTests(unittest.TestCase):
+    """iter 053f（053c 实跑发现）：anchor 采样窗口必须含起点章自身——续写的
+    交接点是起点章的结尾。旧 exclusive 窗口在起点章为时间跳跃尾声时让
+    anchor 系统性锚早一章（longzu ch024 尾声 vs ch021-023 高潮）。
+
+    借用 StartPointTests 的 workspace 夹具（不继承，避免存量测试跑两遍）。"""
+
+    setUp = StartPointTests.setUp
+    tearDown = StartPointTests.tearDown
+
+    def test_include_start_window_ends_at_start_chapter(self) -> None:
+        self.start_point.set_start_point("v1_ch003")
+        default = self.start_point.format_chapters_before_start_for_anchor(k=2)
+        inclusive = self.start_point.format_chapters_before_start_for_anchor(
+            k=2, include_start=True
+        )
+        # 旧窗口（铁律④：默认行为逐字节不变）：ch001+ch002，不含起点章。
+        self.assertIn("v1_ch001", default)
+        self.assertIn("v1_ch002", default)
+        self.assertNotIn("v1_ch003", default)
+        # 新窗口：ch002+ch003，含起点章本身（交接点），不含更早的 ch001。
+        self.assertIn("v1_ch002", inclusive)
+        self.assertIn("v1_ch003", inclusive)
+        self.assertNotIn("v1_ch001", inclusive)
+        # 起点章正文确实进入采样（v1_ch003 = 源文件 11-15 行）。
+        self.assertIn("line 11", inclusive)
+
+    def test_include_start_without_start_returns_empty(self) -> None:
+        self.assertEqual(
+            self.start_point.format_chapters_before_start_for_anchor(
+                k=2, include_start=True
+            ),
+            "",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
