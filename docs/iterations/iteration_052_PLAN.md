@@ -107,25 +107,27 @@ smoke051 用 agent 会话后台任务驱动 2 小时级真模型流程，会话 
 - **F6 验证双路径完成** ✅：正路径——整个实跑（plan + 9 稿写作 + readiness）全程零 `start_chapter_id_*` / `start_point_fingerprint_*` 失败；负路径（零成本实录）——`set-start-point longzu_3_3_ch020` → readiness 报 `chapter_plan:start_chapter_id_mismatch` + `chapter_plan:start_point_fingerprint_mismatch` → 恢复 ch024 → start 相关 blockers 清零。
 - 用户拍板（blocked 后）：longzu 止损，canon 锚定转 iter053；驱动器剩余验收换 premise 书载体（方案 B+A）。
 
-### 真模型段二：shudian052 premise 书 12 章（进行中）
+### 真模型段二：shudian052 premise 书实跑 ✅（2026-06-12 收官，7/7 Approve）
 
-- 载体：smoke051 同款种子「旧书店店主收到亡友的信，预言七天后被谋杀」+ 051a 扩写路径（expand_premise 6 字段 → prepare-greenfield 六步），workspace `shudian052`。
-- 跑法：`drive_book.sh --book shudian052 start --chapters 12 --segment-size 4 --replan-every 4 --plan-target 8 --budget-cny 12 --tier mid --allow-missing-start-point --pause-after-segment 1 --detach`；debate 由驱动器执行（真模型 debate step 覆盖，longzu 段跳过了它）。
-- 节拍：seg1（ch1–4，F7 基线 5c4faff 工作树）→ pause → 切 F7 删除版（89eaa84）→ seg2（ch5–8）中途 stop/resume 中断演练 → seg3（ch9–12）→ succeeded。
-- 待回填：成功指标 + 中断演练证据 + F7 段间对照 + timeline 证据包。
+- 载体：smoke051 同款种子「旧书店店主收到亡友的信，预言七天后被谋杀」+ 051a 扩写路径（expand_premise → prepare-greenfield 六步，进程内复刻 wizard 流），workspace `shudian052`。
+- 跑法：`drive_book.sh --book shudian052 start --chapters 12 --segment-size 4 --replan-every 4 --plan-target 8 --budget-cny 12 --tier mid --allow-missing-start-point --pause-after-segment 1 --detach`；debate 由驱动器执行（44 calls ~¥2.4——真模型 debate step 覆盖，longzu 段跳过了它）。
+- **节拍实录**：seg1（ch1–4，F7 基线工作树）→ 22:04 `paused_after_segment` 按设计触发 ✓ → 22:09 **计划外 resume**（用户终端发起 `resume --detach --confirm-real-run`；段 1 四章 `skipped_approved` 零成本重走——意外多收一次"暂停→恢复"实证，但跳过了 agent 的 F7 切换步）→ 22:38 计划内**中断恢复演练**补位执行：`stop`（终态 stopped、子进程组零残留）→ 工作树切 F7 删除版（`git checkout main -- src/writer.py`）→ 途中无确认闸的 resume 被 **exit 64 当场拒绝（确认闸实弹验证 ✓）** → `resume --detach`（attempt 3、`ppid=1` ✓）→ **账本 206 行 → 206 行，零重复花费 ✓** → seg2 跑至 ch7 过审，按用户拍板「ch7 跑完即收官」由监视器自动 `stop`。
+- **结果**：7/7 章 Approve，panel 8.04 / 8.40 / 8.30 / 8.50 / 8.72 / 8.36 / 8.36；成本 **¥11.10 / ¥12**。与 longzu 构成单变量对照（同管道同评审同阈值：自创书 8.0+ 一次过 vs 续写书 5.7–6.2 全灭），坐实段一失败归因。
+- **F7 段间对照定版**：基线（ch1–4，F7 在）panel 均值 **8.31** vs 删除版（ch5–7，F7 拆）**8.48**；开场衔接敏感轴（主角本位）7/7 全 Approve；全程零「时间线回跳/重述已交代内容」类拒因——**回滚条件未触发，F7 拆除坐实（89eaa84 保留，不 revert）**。
+- **timeline 证据包**（D 轨搭车）：7 份 advance proposal 文件、20+ 条提案（置信度 0.91–0.98），**几乎全部被 `relationship_not_found` 跳过（76 条审计日志，051b F5 产物首次在长程现形）**——推进机制只认实体图既有关系边，greenfield 实体图天生边稀疏 → premise 书实体时间线全程未推进，一致性全靠滚动摘要扛。「高置信提案允许动态建边」应为 timeline schema 升级立项的核心论据。
+- 顺带观察：①重试主因是**票数闸边界拒**（ch3–7 首稿 panel 全部 ≥7.94 过分数线、但 2/5 票被打回），首过率 2/7——tier=mid 的 4/5 票对 premise 书可能偏严，每次边界重试 ≈ ¥0.6，可作后续调阈值输入；②本次扩写稿 6 字段中 genre_tone/world_notes/central_conflict 为空（schema 无非空校验，051 改进点），风格定调由 personas 的 `style_short_descriptor` 顶住。
 
-### 真模型段（门槛，30 章 longzu 实跑）
+### 成功指标对照（原 30 章 longzu 口径，载体经用户两次拍板变更后如实核对）
 
-- 30/30 章最终 Approve；首次通过率 > 80%；panel_score 均值 > 8.0；fingerprint 家族失败 = 0；总成本 ≤ ¥40。
-- ≥1 次中断恢复演练：llm_calls 行数对账零重复花费 + `ppid=1` 脱离证据 + 会话重启后进程存活。
-- F6 负路径四码实录（mismatch 两码出现 → 恢复 → ready）。
-- F7 段间对照结论（段 1 基线 vs 段 2+ 删除后；回滚则记录 revert + 重写章号）。
-- entity timeline 证据包：advance proposal 形态汇总 + `proposal_skipped` 原因分布。
-
-### 铁律⑨ 对抗审查（待回填）
-
-- 视角 A（驱动器进程管理/断点续跑正确性）：待审。
-- 视角 B（预算安全/真模型成本控制）：待审。
+| 指标（原口径） | 实际 | 判定 |
+|---|---|---|
+| 30/30 章 Approve | longzu 0/15（质量闸 blocked，有效产出）；shudian052 **7/7**（用户拍板 ch7 止） | ✓（载体/范围变更经拍板） |
+| 首次通过率 > 80% | shudian052 2/7（边界拒全为票数闸，panel 均 ≥7.94） | ⚠️ 如实记录，转阈值观察 |
+| panel 均值 > 8.0 | **8.38**（7 章） | ✓ |
+| fingerprint 家族失败 = 0 | 两跑全程 **0** | ✓（F6 正路径） |
+| 总成本 ≤ 预算 | longzu ¥6.40/20 + shudian ¥11.10/12 + prep ≈ **¥18.1**，收在 ¥20 信封 | ✓ |
+| ≥1 次中断恢复零重复花费 | stop→切码→resume，账本 206→206 行 | ✓ |
+| 无人值守存活 + ppid=1 | longzu 2h + shudian052 4.7h，双跑 ppid=1，零进程事故 | ✓ |
 
 ## 不在本轮范围
 
@@ -137,7 +139,9 @@ smoke051 用 agent 会话后台任务驱动 2 小时级真模型流程，会话 
 
 ## Notes
 
-- 本档为计划稿（2026-06-12 起草，拍板项见篇首引言块），Acceptance 待实施后回填。
-- 接力点：实施顺序建议 052a mock 段（驱动器 + 测试）→ 052b mock 段（F7 删除独立 commit，先不合入实跑分支语义，等 F6 验证）→ 052c 第 0 步清场 → 30 章实跑（段 1 含 F7 基线 → pause → F7 commit → 段 2+）→ F6 负路径 → 铁律⑧⑨收官。
-- 行号引用已于起草日核对：`src/writer.py:706-716`（F7）、`src/start_point.py:191`（F6）、`src/book_runner.py:137`（skipped_approved）、`src/debater.py:122`（done_keys）、`src/web/jobs.py:97`（_persist_job）、`src/web/trash.py:97`（restore）、`main.py:438-447`（退出码）。实施时行号可能再漂移，以符号名为准。
+- 本档**已收官**（2026-06-12 单日完成：mock 段 907 OK + 真模型双载体实跑）。三轨全兑现：052a 驱动器 step 全图真模型逐项点亮（preflight/debate/ensure-plan/readiness/分段写作/pause/stop-resume/blocked/确认闸/预算账）；052b F6 双路径验证 + F7 拆除经段间对照坐实；052c 双载体实跑（longzu 验证「出事停得对」、shudian052 验证「顺利跑得完」）。
+- **longzu 失败根因链（实测考古，iter053 立项核心输入）**：直接根因 = **陈旧中间产物污染重 plan**——5/30 的「四部曲结局后」debate outline 在清场时被保留（驱动器"outline 存在即跳过 debate"的省钱设计反噬），ensure-plan `--force` 重 plan 时被它带到错误时间线（对照：6/5 起点修复后的旧 plan「听力考试」贴起点可过 7.5，今日「机库倒计时」plan 必死）；深层根因 = 写手**预训练记忆泄露**（"路鸣泽四分之一生命交易"不在 plan 里，是写手自己掏的；`start_safe_knowledge` 管 KB 注入、管不住权重记忆）。评审团（含 gf_longzu_014/015 手工反剧透规则）逐稿精准命中两类问题，是全程表现最好的组件。
+- **iter053 候选立项**（按优先级）：① **中间产物起点一致性校验**——outline/decisions 无章节号、不走起点过滤，F6 只管 plan↔start 指纹；建议 plan 前对 outline 做时效/起点一致性 gate（或 ensure-plan 缺 plan 时强制重 debate）；② **canon 锚定增强**——写手 prompt 硬约束「KB 之外的原著知识一律当不存在」+ 评审 block 级拒因结构化回灌重写 prompt（当前笼统反馈循环对剧透问题无效：九稿分数横盘 5.68→6.16）；③ **timeline 动态建边**——高置信 advance 提案 `relationship_not_found` 时允许建边（本轮 76 条跳过实证）；④ 30–100 章 capstone（驱动器已就绪，待 ①② 落地后用干净 plan 重战 longzu）；⑤ 票数闸阈值观察（premise 书边界拒成本）。
+- **暗礁实录（本轮新增）**：① 实跑期间**外部人工操作与 agent 节拍存在竞态**——22:09 计划外 resume 跳过了 F7 切换步（驱动器无"操作者锁"，SOP 纪律：实跑期间人工 stop/resume 前先与值守方通气）；② drive_book.sh 首版忘 venv PATH（050/051 暗礁三度复现，已改为脚本内自带解析）；③ zsh 不做未引号变量词分割（`$ARGS` 需 `${=ARGS}` 或显式写开）；④ 扩写稿 schema 无非空校验，真模型可返回空字段。
+- 行号引用已于起草日核对（F7/F6/skipped_approved/done_keys 等七处），行号会漂移、以符号名为准。
 - 铁律⑤：收官只 commit 不 push。
