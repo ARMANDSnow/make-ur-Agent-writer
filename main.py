@@ -293,6 +293,42 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicitly opt out of the start-point gate (default behavior).",
     )
+
+    # iter 052: long-run driver. Orchestrates write-book/plan-chapters/debate
+    # as subprocesses with checkpoint-resume, so 30-100 chapter real-model
+    # runs survive session recycling (smoke051 lesson). See src/book_driver.py.
+    drive_cmd = sub.add_parser("drive-book")
+    drive_cmd.add_argument("action", choices=["start", "status", "resume", "stop", "report"])
+    drive_cmd.add_argument("--chapters", type=int, default=30)
+    drive_cmd.add_argument("--resume-from", type=int, default=1)
+    drive_cmd.add_argument("--segment-size", type=int, default=5)
+    drive_cmd.add_argument("--replan-every", type=int, default=0)
+    drive_cmd.add_argument(
+        "--plan-target",
+        type=int,
+        default=0,
+        help="initial chapter_plan length when missing (0 = min(10, last chapter))",
+    )
+    # None-defaults let resume distinguish "explicitly overridden" from "keep stored".
+    drive_cmd.add_argument("--budget-cny", type=float, default=None, help="driver-level total budget; <=0 = no cap")
+    drive_cmd.add_argument("--tier", choices=["high", "mid", "low"], default=None)
+    drive_cmd.add_argument("--max-retries", type=int, default=2)
+    drive_cmd.add_argument("--skip-debate", action="store_true")
+    drive_cmd.add_argument("--require-start-point", action="store_true")
+    drive_cmd.add_argument("--allow-missing-start-point", action="store_true")
+    drive_cmd.add_argument("--allow-missing-plan", action="store_true")
+    drive_cmd.add_argument("--skip-external-review", action="store_true")
+    drive_cmd.add_argument("--pause-after-segment", type=int, default=None)
+    drive_cmd.add_argument("--step-timeout-minutes", type=int, default=None)
+    drive_cmd.add_argument("--on-blocked", choices=["stop", "force-once"], default=None)
+    drive_cmd.add_argument("--detach", action="store_true")
+    drive_cmd.add_argument("--confirm-real-run", action="store_true")
+    drive_cmd.add_argument("--json", action="store_true")
+    drive_cmd.add_argument(
+        "--cmd-prefix",
+        default=None,
+        help="test hook: replace 'python main.py [--book X]' subprocess prefix",
+    )
     return parser
 
 
@@ -561,6 +597,10 @@ def main() -> None:
         # can grep for it without parsing the per-step output.
         write_summary = results.get("write") or []
         print(f"[auto-pipeline] done · chapters_written={len(write_summary)}")
+    elif args.command == "drive-book":
+        from src.book_driver import main as drive_book_main
+
+        raise SystemExit(drive_book_main(args))
 
 
 def init_book_pipeline(skip_extract: bool = False, extract_limit: int | None = 10, force: bool = False):

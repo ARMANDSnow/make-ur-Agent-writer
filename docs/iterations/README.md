@@ -61,3 +61,4 @@
 50. [Iteration 049 - Aeloon 插件 + MCP 双轨集成（补 aeloon_plugin + 服务端 opt-in token 闸）](./iteration_049_PLAN.md)
 51. [Iteration 050 - 产品打磨包（048d/049 顺延，计划稿）](./iteration_050_PLAN.md)
 52. [Iteration 051 - premise 扩写质量增强 + 评审预算强拦 + 技债清偿（计划稿）](./iteration_051_PLAN.md)
+53. [Iteration 052 - 长程驱动器正式化 + F6/F7 清债（30 章 longzu 实跑为验证载体，计划稿）](./iteration_052_PLAN.md)

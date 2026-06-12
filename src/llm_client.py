@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from .config import ROOT
-from .config import _safe_int, get_model_config
+from .config import _env_int, _safe_int, get_model_config
 from .schemas import model_to_dict
 from .utils import append_jsonl, extract_json_object
 
@@ -540,6 +540,22 @@ class LLMClient:
 
     def _mock_text(self, messages: List[Dict[str, str]]) -> str:
         user = "\n".join(m.get("content", "") for m in messages if m.get("role") == "user")
+        # iter 052 mock-only test hook: the fixed mock draft (~60 chars) can
+        # never pass the deterministic short_chapter_length gate (3500+), so
+        # mock write-book always ends in Reject. MOCK_WRITER_CHARS=<n> makes
+        # the "write" task return a deterministic long draft so driver E2E
+        # tests can walk the approve path through the real pipeline. Unset =
+        # byte-identical legacy behavior. (Same opt-in pattern as iter 019's
+        # WRITER_FORCE_FAIL.)
+        if self.task == "write":
+            pad = _env_int("MOCK_WRITER_CHARS", 0)
+            if pad > 0:
+                base = (
+                    "雨停在凌晨。路明非站在窗边，看着城市的灯一盏盏熄灭。"
+                    "他没有说话，只把那张写满名字的纸折起来，放进口袋。"
+                )
+                reps = (pad // 40) + 1
+                return "\n\n".join([base] * reps)
         if "审查" in user or "review" in user.lower():
             return json.dumps({"verdict": "Approve", "score": 9, "issues": [], "suggestions": []}, ensure_ascii=False)
         if "续写" in user or "写作" in user:

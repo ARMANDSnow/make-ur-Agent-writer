@@ -62,6 +62,20 @@ class SmokeScriptTests(unittest.TestCase):
             self.assertIn("--confirm-real-smoke", text)
             self.assertIn("exit 64", text)
 
+    def test_drive_book_sh_accepts_book_flag(self) -> None:
+        """iter 052: 驱动器包装脚本沿用 iter017 的 --book / WORKSPACE_NAME 契约。"""
+        text = Path("scripts/drive_book.sh").read_text(encoding="utf-8")
+        self.assertIn("--book", text)
+        self.assertIn("WORKSPACE_NAME", text)
+
+    def test_drive_book_sh_requires_confirmation_gate(self) -> None:
+        """iter 052: start/resume 必须有真模型确认闸，并映射到 --confirm-real-run。"""
+        text = Path("scripts/drive_book.sh").read_text(encoding="utf-8")
+        self.assertIn("CONFIRM_REAL_MODEL_SMOKE", text)
+        self.assertIn("--confirm-real-smoke", text)
+        self.assertIn("exit 64", text)
+        self.assertIn("--confirm-real-run", text)
+
 
 if __name__ == "__main__":
     unittest.main()
