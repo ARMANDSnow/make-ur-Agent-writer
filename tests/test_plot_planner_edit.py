@@ -97,10 +97,22 @@ class ApplyChapterPlanItemEditTests(unittest.TestCase):
         self._patches = [
             patch("src.plot_planner.OUTLINE_PATH", self.outline_path),
             patch("src.plot_planner.CHAPTER_PLAN_PATH", self.plan_path),
+            # iter 053a 密闭性：不 patch DECISIONS_PATH 的话，repo 根 outputs/
+            # debate/decisions.json（verify.sh 实跑残留，带起点指纹+outline
+            # 哈希）会跟本测试的 tmp outline 撞 outline_content_mismatch 硬拦
+            # ——setUp 中途抛异常还会让已 start 的 patch 永久泄漏，污染后续
+            # 测试（workspace_isolation 连环挂的实录根因）。
+            patch("src.plot_planner.DECISIONS_PATH", tmp_path / "decisions.json"),
         ]
         for p in self._patches:
             p.start()
-        generate_chapter_plan(target_chapters=5, force=False)
+        try:
+            generate_chapter_plan(target_chapters=5, force=False)
+        except BaseException:
+            # setUp 失败时 unittest 不会调 tearDown——必须就地止血，防 patch 泄漏。
+            for p in self._patches:
+                p.stop()
+            raise
 
     def tearDown(self) -> None:
         for p in self._patches:

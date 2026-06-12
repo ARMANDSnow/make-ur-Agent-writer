@@ -273,6 +273,50 @@ class DebaterProvenanceTests(unittest.TestCase):
             self.assertFalse((tmp_path / "snapshots").exists())
             self.assertTrue((tmp_path / "decisions.json").exists())
 
+    def test_outline_cr_normalized_before_hashing(self) -> None:
+        # 铁律⑨ A-M2：LLM 输出带 \r\n 时，写盘哈希必须与 read_text 读回一致
+        # ——否则 outline_content_mismatch 假阳性硬拦且重跑无解。
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch(
+                "src.debater.build_outline", return_value="# 大纲\r\n第一行\r第二行"
+            ):
+                self._run(tmp_path, "fp-A")
+            decisions = json.loads(
+                (tmp_path / "decisions.json").read_text(encoding="utf-8")
+            )
+            on_disk = (tmp_path / "outline.md").read_text(encoding="utf-8")
+        self.assertEqual(decisions["outline_sha256"], sha256_text(on_disk))
+        self.assertNotIn("\r", on_disk)
+
+    def test_resume_headless_log_with_metadata_decisions_refuses(self) -> None:
+        # 铁律⑨ A-M3：log 指纹头被删/截断、decisions 已带 053 元数据 →
+        # fail-closed（纯 legacy 工作区两边都无元数据，照旧放行）。
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            self._run(tmp_path, "fp-A")
+            log_path = tmp_path / "debate_log.jsonl"
+            body = [
+                line
+                for line in log_path.read_text(encoding="utf-8").splitlines()
+                if '"meta"' not in line
+            ]
+            log_path.write_text("\n".join(body) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                self._run(tmp_path, "fp-A")
+        self.assertIn("--force", str(ctx.exception))
+
+    def test_empty_log_file_gets_provenance_head(self) -> None:
+        # 铁律⑨ A-L2：0 字节 log 同样补指纹头，防永久无头 fail-open。
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "debate_log.jsonl").write_text("", encoding="utf-8")
+            self._run(tmp_path, "fp-A")
+            first = json.loads(
+                (tmp_path / "debate_log.jsonl").read_text(encoding="utf-8").splitlines()[0]
+            )
+        self.assertEqual(first.get("meta"), "debate_start_point")
+
 
 # ---------------------------------------------------------------------------
 # plot_planner 消费侧
@@ -599,6 +643,25 @@ class DriverDebateTriStateTests(unittest.TestCase):
     def test_skip_and_force_debate_are_mutually_exclusive(self) -> None:
         rc = book_driver.cmd_start(_driver_args(skip_debate=True, force_debate=True))
         self.assertEqual(rc, 2)
+
+    def test_force_debate_archives_plan_before_debate_even_on_failure(self) -> None:
+        # 铁律⑨ A-H1：plan 归档必须先于 debate 子进程——debate 失败/超时也
+        # 不能丢"联动失效"意图，否则 resume（force 已清零）补完辩论后
+        # ensure-plan 见旧 plan 条数够数直接复用（052 事故中断路径复活）。
+        self._seed_outline(stale=True)
+        self._seed_plan(2)
+        prefix, calls_path = self._install_stub(
+            [
+                {"cmd": "preflight", "exit": 0},
+                {"cmd": "debate", "exit": 1},
+            ]
+        )
+        rc = book_driver.cmd_start(_driver_args(cmd_prefix=prefix, force_debate=True))
+        self.assertEqual(rc, book_driver.TERMINAL_EXIT_CODES["failed"])
+        snapshots = list((paths.debate_dir() / "snapshots").iterdir())
+        self.assertEqual(len(snapshots), 1)
+        self.assertTrue((snapshots[0] / "chapter_plan.json").exists())
+        self.assertFalse(paths.chapter_plan_path().exists())
 
 
 if __name__ == "__main__":

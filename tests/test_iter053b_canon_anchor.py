@@ -233,6 +233,39 @@ class CrossCycleSeedTests(unittest.TestCase):
             drafts = self._layout(Path(tmp))
             self.assertEqual(_cross_cycle_seed_feedback(drafts, 1), "")
 
+    def test_seed_strips_lint_line_numbers(self) -> None:
+        # 铁律⑨ B-M4：lint 反馈带上一稿违规行号（"按行号回到正文定位"），
+        # 新周期第一稿不存在该稿——播种必须剥离 lint_issues。
+        with tempfile.TemporaryDirectory() as tmp:
+            drafts = self._layout(Path(tmp))
+            review = {
+                "verdict": "Reject",
+                "lint_issues": [
+                    {
+                        "rule": "not_x_but_y",
+                        "severity": "error",
+                        "message": "第 12 行命中对比句式",
+                        "anchor": "L12",
+                    }
+                ],
+                "agent_reviews": [
+                    {
+                        "agent_name": "守门员",
+                        "verdict": "Reject",
+                        "issues": [
+                            {"rule_id": "gf_1", "severity": "block",
+                             "anchor": "", "message": "违例"}
+                        ],
+                    }
+                ],
+            }
+            (drafts.parent / "reviews" / "chapter_01.review.json").write_text(
+                json.dumps(review, ensure_ascii=False), encoding="utf-8"
+            )
+            seed = _cross_cycle_seed_feedback(drafts, 1)
+        self.assertIn("gf_1", seed)
+        self.assertNotIn("第 12 行", seed)
+
     def test_write_chapters_seeds_first_draft_prompt(self) -> None:
         # 集成断言：seed_feedback 必须出现在第一稿 prompt 里（052 断链修复的
         # 端到端面）；缺省 "" 时第一稿 prompt 不含播种段头。
@@ -261,6 +294,8 @@ class CrossCycleSeedTests(unittest.TestCase):
                 "src.llm_client.LLMClient.complete_text", fake_complete_text
             ), patch(
                 "src.writer.review_text", return_value=approve
+            ), patch(
+                "src.start_point.get_start_chapter_id", return_value=None
             ):
                 linter_cls.return_value.lint.return_value = []
                 write_chapters(
@@ -270,6 +305,11 @@ class CrossCycleSeedTests(unittest.TestCase):
                     seed_feedback="## 上一重试周期的评审拒因\n[守门员] gf_longzu_014: 别再写交易",
                 )
             self.assertIn("gf_longzu_014", prompts[0])
+            # 铁律⑨ B-M1：锚定开关状态留痕（无起点 → False）。
+            meta = json.loads(
+                (drafts / "chapter_01.meta.json").read_text(encoding="utf-8")
+            )
+            self.assertIs(meta["canon_anchor_active"], False)
         self.assertIn("上一重试周期的评审拒因", prompts[0])
 
 

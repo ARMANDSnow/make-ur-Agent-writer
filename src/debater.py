@@ -19,7 +19,14 @@ from .persona_loader import load_personas, render_agent_fields
 from .schemas import DebateDecisions, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
-from .utils import ensure_dir, extract_json_object, read_json, sha256_text, write_json
+from .utils import (
+    ensure_dir,
+    extract_json_object,
+    read_json,
+    read_json_optional,
+    sha256_text,
+    write_json,
+)
 
 
 # Legacy constants — kept so iter 014-016 tests that ``patch("src.debater.DEBATE_DIR", ...)``
@@ -120,13 +127,6 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
     client = LLMClient("debate")
     log_path = debate_dir / "debate_log.jsonl"
 
-    # iter 053a: force = archive the previous trio and debate from scratch —
-    # NOT a resume (done_keys would silently turn "rerun" into "skip").
-    if force:
-        snapshot = _archive_debate_outputs(debate_dir)
-        if snapshot is not None:
-            log_event("debate", "force_archived", snapshot=str(snapshot))
-
     # Iter 016: render agents through persona binding when available.
     personas = load_personas()
     # Phase 6 fix: in workspace mode a missing personas.json used to silently
@@ -162,6 +162,16 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
     # Resume support (iter 015 cross-novel smoke): rather than always unlinking
     # the log, read previously-completed (round, agent) entries with non-empty
     # response and skip them. Failed/empty entries are retried.
+    # iter 053a: force = archive the previous trio and debate from scratch —
+    # NOT a resume (done_keys would silently turn "rerun" into "skip").
+    # 铁律⑨ A-L4：归档放在 kb/agents/personas 校验**之后**——否则一个缺
+    # personas 的 workspace 跑 `debate --force` 会先把好端端的三件套归档再
+    # raise，白拆现场。
+    if force:
+        snapshot = _archive_debate_outputs(debate_dir)
+        if snapshot is not None:
+            log_event("debate", "force_archived", snapshot=str(snapshot))
+
     transcript: List[Dict[str, Any]] = []
     done_keys: set = set()
     done_ballots: set = set()
@@ -216,6 +226,19 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
                     "请用 `python main.py debate --force` 归档旧三件套后全新辩论。"
                 )
         else:
+            # 铁律⑨ A-M3：log 无指纹头、但 decisions.json 已带 053 元数据 →
+            # 该 workspace 已进指纹时代，无头 log 高度可疑（头被删/截断），
+            # fail-closed 防洗白。纯 legacy（decisions 也无元数据）照旧放行。
+            decisions_on_disk = read_json_optional(debate_dir / "decisions.json", None) or {}
+            if any(
+                key in decisions_on_disk
+                for key in ("start_point_fingerprint", "outline_sha256")
+            ):
+                raise ValueError(
+                    "debate_log.jsonl 缺起点指纹头，但 decisions.json 已带指纹元数据——"
+                    "log 可能被截断或篡改，拒绝断点续跑。"
+                    "请用 `python main.py debate --force` 归档后全新辩论。"
+                )
             log_event("debate", "resume_legacy_log_no_fingerprint")
         # Rewrite log keeping only retained entries so we don't accumulate
         # stale error rows on each resume (provenance head preserved).
@@ -227,8 +250,9 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
 
     # iter 053a: a fresh debate (no pre-existing log) opens with a provenance
     # head so later resumes can prove which start-point era the transcript
-    # belongs to.
-    if not log_path.exists():
+    # belongs to. 铁律⑨ A-L2：0 字节的 log（crash 在 open 后 write 前）同样
+    # 算"无头"，补头——否则该 log 永久无指纹、未来 resume 永远 fail-open。
+    if not log_path.exists() or log_path.stat().st_size == 0:
         head = {
             "meta": "debate_start_point",
             "schema_version": 1,
@@ -309,6 +333,10 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
                         agent_ballots[ag] = entry.get("ballots", [])
     decisions = _apply_agent_ballots(decisions, agent_ballots, len(transcript))
     outline = build_outline(topic, decisions, transcript, client)
+    # 铁律⑨ A-M2：写盘前统一换行——消费侧全用 Path.read_text（universal
+    # newlines 会把 \r\n / \r 翻成 \n），LLM 输出一旦带 CR，写盘时哈希的
+    # 内存串 ≠ 读回串 → outline_content_mismatch 假阳性硬拦且重跑无解。
+    outline = outline.replace("\r\n", "\n").replace("\r", "\n")
     # iter 053a: stamp start-point provenance into decisions.json as plain dict
     # keys — NOT DebateDecisions schema fields (that schema is the LLM-facing
     # complete_json contract; adding fields there invites hallucinated values,

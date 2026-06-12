@@ -2292,9 +2292,12 @@ JS_DASHBOARD = """\
     const statusBox = document.getElementById("expansion-status");
     if (statusBox && incomplete.length) {
       statusBox.innerHTML =
-        '<div class="alert warn">扩写稿有未补全字段：' +
+        '<div class="alert warn" data-incomplete-hint="1">扩写稿有未补全字段：' +
         escapeHtml(incomplete.join("、")) +
         '。建议手工补全后保存，或点「重新扩写」。</div>';
+    } else if (statusBox && statusBox.querySelector('[data-incomplete-hint]')) {
+      // 铁律⑨ B-L5：补全后摘牌（只清自己的提示，不动保存 toast）。
+      statusBox.innerHTML = '';
     }
   }
   function bindExpansionPanel() {

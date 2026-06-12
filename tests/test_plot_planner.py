@@ -16,7 +16,7 @@ class PlotPlannerTests(unittest.TestCase):
             outline_path.write_text("# mock outline", encoding="utf-8")
             with patch("src.plot_planner.OUTLINE_PATH", outline_path), patch(
                 "src.plot_planner.CHAPTER_PLAN_PATH", plan_path
-            ):
+            ), patch("src.plot_planner.DECISIONS_PATH", tmp_path / "decisions.json"):
                 data = generate_chapter_plan(target_chapters=5, force=False)
 
             written = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -36,7 +36,7 @@ class PlotPlannerTests(unittest.TestCase):
             plan_path.write_text("{}", encoding="utf-8")
             with patch("src.plot_planner.OUTLINE_PATH", outline_path), patch(
                 "src.plot_planner.CHAPTER_PLAN_PATH", plan_path
-            ):
+            ), patch("src.plot_planner.DECISIONS_PATH", tmp_path / "decisions.json"):
                 with self.assertRaises(FileExistsError):
                     generate_chapter_plan(target_chapters=5, force=False)
 

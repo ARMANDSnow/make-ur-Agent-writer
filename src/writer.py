@@ -375,6 +375,9 @@ def write_chapters(
                     "failure_path": str(failure_path),
                     "run_context": run_context,
                     "draft_sha256": _draft_file_sha256(draft),
+                    # 铁律⑨ B-M1：锚定开关状态留痕——053c 分段单变量对照的
+                    # 凭据（不进 run_context 指纹面，防 chapter_status 比对漂移）。
+                    "canon_anchor_active": bool(_canon_anchor_block()),
                 }
                 write_text_atomic(out_path, draft + "\n")
                 write_json(meta_path, meta)
@@ -404,6 +407,8 @@ def write_chapters(
                 meta["lint_blocked_reviews"] = lint_blocked_reviews
                 meta["run_context"] = run_context
                 meta["draft_sha256"] = _draft_file_sha256(draft)
+                # 铁律⑨ B-M1：锚定开关状态留痕（053c 段间对照凭据）。
+                meta["canon_anchor_active"] = bool(_canon_anchor_block())
                 if report.get("verdict") != "Approve":
                     meta["last_blocking_reasons"] = last_blocking_reasons
                 write_text_atomic(out_path, draft + "\n")

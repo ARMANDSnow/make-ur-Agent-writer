@@ -49,7 +49,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import paths, start_point
 from .config import ROOT
 from .cost_estimator import estimate_cost_since
-from .utils import append_jsonl, ensure_dir, read_json, write_json
+from .utils import append_jsonl, ensure_dir, read_json, read_json_optional, write_json
 
 DEFAULT_STEP_TIMEOUT_MINUTES = 180
 # preflight 是纯本地计算，单独给一个小超时，免得卡死也要等 3 小时。
@@ -309,11 +309,15 @@ def _segment_chapter_rows(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _outline_consistency_codes() -> List[str]:
     """iter 053a: in-process read-only check of the on-disk debate outline's
     provenance vs the CURRENT start point. Caller decides which codes block
-    (hard mismatches) and which only warn (metadata-missing legacy lane)."""
-    decisions = read_json(paths.debate_decisions_path(), None) or {}
+    (hard mismatches) and which only warn (metadata-missing legacy lane).
+
+    铁律⑨ A-M4：decisions 损坏走 read_json_optional 降级（与 plot_planner /
+    readiness / plan_view 同口径——同一份坏文件不能 driver 独自 crash），
+    outline 读取连 UnicodeDecodeError 一起吞。"""
+    decisions = read_json_optional(paths.debate_decisions_path(), None) or {}
     try:
         outline_text: Optional[str] = paths.outline_path().read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         outline_text = None
     return start_point.outline_consistency_failures(decisions, outline_text=outline_text)
 
@@ -366,6 +370,15 @@ def _run_steps(state: Dict[str, Any]) -> str:
     if params.get("skip_debate"):
         _emit(state, "step_skipped", step="debate", reason="skip_debate")
     elif params.get("force_debate"):
+        # 铁律⑨ A-H1：先归档下游 plan、再跑 debate——plan 因 force **意图**
+        # 而失效，与 debate 结果无关。顺序反过来时，debate 超时/中断会让
+        # "联动失效"永久丢失：resume 默认清零 force_debate 走 plain debate
+        # 补完新 outline 后，ensure-plan 见旧 plan 条数够数直接复用（052
+        # 毒 plan 事故在中断路径上复活）。先归档则中断后 resume 补完辩论
+        # → ensure-plan 见无 plan 自然重建，链路自洽。
+        archived = _archive_stale_chapter_plan()
+        if archived is not None:
+            _emit(state, "stale_plan_archived", step="debate", archived_to=str(archived))
         res = _run_step(state, "debate", ["debate", "--force"], timeout_minutes=timeout)
         if _STOP_REQUESTED:
             return "stopped"
@@ -374,9 +387,6 @@ def _run_steps(state: Dict[str, Any]) -> str:
         if res.exit_code != 0:
             state["last_error"] = "debate --force failed"
             return "failed"
-        archived = _archive_stale_chapter_plan()
-        if archived is not None:
-            _emit(state, "stale_plan_archived", step="debate", archived_to=str(archived))
         # 一次性旗标：本 run 内消费掉，配合 cmd_resume 的默认清零，防止
         # pause→resume 把新辩论再归档重辩一遍（白烧钱）。
         params["force_debate"] = False

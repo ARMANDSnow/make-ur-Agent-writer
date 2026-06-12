@@ -675,7 +675,15 @@ def _cross_cycle_seed_feedback(drafts_dir: Path, chapter_no: int) -> str:
     review = read_json(
         drafts_dir.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", None
     )
-    report: Dict[str, Any] = review if isinstance(review, dict) else {}
+    # 铁律⑨ B-M4：只投 agent_reviews + rewrite_suggestions，**剥离 lint_issues**
+    # ——lint 反馈带上一稿的违规行号（"请按行号回到正文定位"），而新周期第
+    # 一稿还不存在，行号指向已归档的尸体，纯误导。
+    report: Dict[str, Any] = {}
+    if isinstance(review, dict) and review.get("agent_reviews"):
+        report = {
+            "agent_reviews": review.get("agent_reviews") or [],
+            "rewrite_suggestions": review.get("rewrite_suggestions") or [],
+        }
     if not report.get("agent_reviews"):
         meta = read_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", None)
         if isinstance(meta, dict) and meta.get("agent_reviews"):
