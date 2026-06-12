@@ -59,7 +59,15 @@ def write_chapters(
     progress_cb: Optional[Callable[[str, float], None]] = None,
     budget_check_cb: Optional[Callable[[], Any]] = None,
     tier: str | None = None,
+    seed_feedback: str = "",
 ) -> List[Dict[str, Any]]:
+    # iter 053b（审查 B3）seed_feedback：跨 retry 周期反馈播种。book_runner 的
+    # 每个 retry 周期先归档全部产物（含 review.json）再调本函数，而本函数每章
+    # feedback 从零起步——外审 block 拒因随归档消失，下一周期第一稿完全失忆
+    # （052 九稿横盘的周期间断链）。book_runner 单章重试时把上一周期的 block
+    # 清单（同一分层模板渲染）经此参数喂进第一稿。缺省 "" = 行为与 053 前
+    # 逐字节一致（铁律④）。多章调用时每章同源播种——当前唯一播种方
+    # book_runner 固定 chapters=1。
     progress = progress_cb or (lambda _step, _fraction: None)
     budget_check = budget_check_cb or (lambda: None)
     resolved_tier = review_tier.resolve_tier(tier)
@@ -151,7 +159,7 @@ def write_chapters(
         )
         draft = ""
         report: Dict[str, Any] = {}
-        feedback = ""
+        feedback = seed_feedback or ""
         lint_ok = False
         polish_applied = False
         polish_diff_stats: Dict[str, int] = {}
@@ -565,6 +573,48 @@ def _write_prompt_profile() -> str:
     return "light" if profile in {"light", "compact"} else "default"
 
 
+def _canon_anchor_enabled() -> bool:
+    """iter 053b: env kill-switch for the canon time-anchor block.
+    ``WRITER_CANON_ANCHOR=0`` disables it — 053c 段一的单变量对照（ch1 只吃
+    053a 净图纸）与紧急回退都走这里。Default on."""
+    return os.getenv("WRITER_CANON_ANCHOR", "1").strip() != "0"
+
+
+def _canon_anchor_block() -> str:
+    """iter 053b（审查 B1）：反剧透时间锚定块。
+
+    052 longzu 实跑的次因实证：写手把预训练记忆里的原著**后期**设定写进
+    正文（"路鸣泽四分之一生命交易"——起点处只有"愿意交换么"悬念）；
+    ``start_safe_knowledge``（047b）管 KB 注入、管不住权重记忆。
+
+    锚定用**时间**而非**注入范围**："未注入的设定一律视为不存在"会把
+    起点之前、但没挤进 knowledge 截断窗口的合法 canon（言灵细节、学院
+    设定……正是 fidelity 评审拿预训练记忆核对的内容）一并误杀，质感与
+    fidelity 反降。时间锚定只禁起点之后，起点之前照常使用。
+
+    条件注入（铁律④回退契约）：无起点（premise 自创书，无"原著记忆"可
+    泄露）或 env 关闭时返回空串——上游 prompt 逐字节不变。
+    """
+    if not _canon_anchor_enabled():
+        return ""
+    start_id = start_point.get_start_chapter_id()
+    if not start_id:
+        return ""
+    return (
+        "## 原著时间线锚定（硬约束，违反会被评审 block）\n"
+        "\n"
+        f"本次续写的起点为原著章节 `{start_id}`，你从这一点起接管故事：\n"
+        f"1. 原著在 `{start_id}` **之后**才发生的事件、才揭示的设定、才出现的"
+        "人物关系变化，在本故事里一律视为尚未发生/尚未揭示——禁止引用、"
+        "转述或暗示，即使你的记忆里有这部作品的后续内容。\n"
+        f"2. 原著在 `{start_id}` **之前**（含该章）已成立的事实、设定与人物"
+        "关系可以正常使用，这是你写出原著质感的根基。\n"
+        "3. 允许原创与既有设定不冲突的新事件、新细节；剧情自然推进不算剧透。\n"
+        "4. 拿不准某设定在起点前是否已揭示时，以注入的知识库/章纲/起点片段"
+        "为准；两者都查不到的，按未揭示处理。"
+    )
+
+
 def _write_prompt(
     *,
     chapter_no: int,
@@ -611,6 +661,12 @@ def _write_prompt(
         "如果上一稿的 review feedback 显示这类句式被命中，"
         "**必须**把所有命中位置改写为以上三种笔法之一，再生成本稿。"
     )
+    # iter 053b（审查 B1）：时间锚定反剧透块——条件注入；无起点 / env 关闭
+    # 时 _canon_anchor_block() 返回空串，system_prompt 与 053 前逐字节一致
+    # （铁律④，mock 测试钉死）。
+    canon_anchor = _canon_anchor_block()
+    if canon_anchor:
+        system_prompt = f"{system_prompt}\n\n{canon_anchor}"
     style_context = ""
     if style_examples and not light_prompt:
         style_context = (
@@ -1025,28 +1081,62 @@ def _polish_draft(
 
 
 def _review_feedback(report: Dict[str, Any]) -> str:
+    """iter 053b: 分层回灌模板（审查 B2 + 052 九稿横盘实证）。
+
+    052 实跑教训：现行实现把 block 级拒因和普通建议混拼成一段平文字，模型
+    分不清"禁令"与"可选优化"，九稿 panel 5.68→6.16 横盘。本版分四层：
+
+    1. lint 问题（保持置顶，与历史一致）；
+    2. ``## 评审 block 级违例`` —— **不再限定该评审整体 verdict=Reject**：
+       severity=block 但所在评审 Approve（整体因票数被拒）的 issue 此前被
+       漏掉（block-but-Approve 漏灌缺陷）。``_blocking_reasons`` 同口径修改，
+       两个出口不许分裂；
+    3. ``## 必须处理的修改建议`` —— Reject 评审的 major/字符串 issue；
+       改写顾问的结构化建议保留原节标题与 [:5] 截断惯例（iter 024 契约）；
+    4. ``## 可选优化`` —— minor 级 issue 与评审 suggestions。
+    """
     parts: List[str] = []
     for issue in report.get("lint_issues", []):
         parts.append(_format_lint_feedback([issue]))
+
+    block_lines: List[str] = []
+    major_lines: List[str] = []
+    optional_lines: List[str] = []
     for review in report.get("agent_reviews", []):
-        if review.get("verdict") == "Reject":
-            for issue in review.get("issues", []):
-                if isinstance(issue, dict):
-                    parts.append(
-                        f"[{review.get('agent_name', 'reviewer')}] "
-                        f"{issue.get('rule_id', 'issue')} / {issue.get('severity', 'major')} / "
-                        f"{issue.get('anchor', '')}: {issue.get('message', '')}"
-                    )
-                else:
-                    parts.append(f"[{review.get('agent_name', 'reviewer')}] {issue}")
+        name = review.get("agent_name", "reviewer")
+        is_reject = review.get("verdict") == "Reject"
+        for issue in review.get("issues", []):
+            if isinstance(issue, dict):
+                severity = str(issue.get("severity", "major")).lower()
+                line = (
+                    f"[{name}] "
+                    f"{issue.get('rule_id', 'issue')} / {issue.get('severity', 'major')} / "
+                    f"{issue.get('anchor', '')}: {issue.get('message', '')}"
+                )
+                if severity == "block":
+                    block_lines.append(line)
+                elif is_reject and severity == "minor":
+                    optional_lines.append(line)
+                elif is_reject:
+                    major_lines.append(line)
+            elif is_reject:
+                major_lines.append(f"[{name}] {issue}")
+        if is_reject:
             for suggestion in review.get("suggestions", []):
-                parts.append(f"[{review.get('agent_name', 'reviewer')}] suggestion: {suggestion}")
+                optional_lines.append(f"[{name}] suggestion: {suggestion}")
+
+    if block_lines:
+        parts.append("## 评审 block 级违例（逐条禁令，本稿必须全部规避）")
+        for i, line in enumerate(block_lines, 1):
+            parts.append(f"{i}. {line}")
+    if major_lines:
+        parts.append("## 必须处理的修改建议")
+        parts.extend(major_lines)
     # Iter 024 P1: advisor's structured RewriteSuggestion list gets a
-    # dedicated trailing section so the rewriter prioritizes it. Empty
-    # list (or missing key) → no advisor block → behavior matches iter 023.
+    # dedicated section so the rewriter prioritizes it. Empty list (or
+    # missing key) → no advisor block. 节标题与 [:5] 截断是既有契约。
     suggs = report.get("rewrite_suggestions") or []
     if suggs:
-        parts.append("")
         parts.append("## 改写顾问建议（按优先级，必须在下一稿处理）")
         for i, s in enumerate(suggs[:5], 1):
             if not isinstance(s, dict):
@@ -1058,6 +1148,9 @@ def _review_feedback(report: Dict[str, Any]) -> str:
             parts.append(
                 f"{i}. [{advisor}] [{op}] {section}: {guidance}"
             )
+    if optional_lines:
+        parts.append("## 可选优化")
+        parts.extend(optional_lines)
     return "\n".join(p for p in parts if p)
 
 
@@ -1075,11 +1168,17 @@ def _blocking_reasons(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                 }
             )
     for review in report.get("agent_reviews", []):
-        if review.get("verdict") != "Reject":
-            continue
+        # iter 053b（审查 B2）：与 _review_feedback 同口径——severity=block 的
+        # issue 不再被"该评审整体 Approve"挡掉（整体因票数 Reject 时，Approve
+        # 评审里的 block 违例此前进不了 last_failure/web 失败面，回灌与失败
+        # 记录两套口径）。非 block 的 issue 仍只取 Reject 评审，行为不变。
+        is_reject = review.get("verdict") == "Reject"
         suggestions = review.get("suggestions", [])
         for issue in review.get("issues", []):
             if isinstance(issue, dict):
+                severity = str(issue.get("severity", "major")).lower()
+                if not is_reject and severity != "block":
+                    continue
                 reasons.append(
                     {
                         "reviewer": review.get("agent_name", "reviewer"),
@@ -1089,7 +1188,7 @@ def _blocking_reasons(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                         "suggestion": issue.get("message") or (suggestions[0] if suggestions else ""),
                     }
                 )
-            else:
+            elif is_reject:
                 reasons.append(
                     {
                         "reviewer": review.get("agent_name", "reviewer"),

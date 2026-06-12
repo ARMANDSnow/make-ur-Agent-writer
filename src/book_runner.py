@@ -16,7 +16,15 @@ from .proposal_validator import validate_proposals_against_plan
 from .reviewer import review_target
 from .utils import ensure_dir, read_json, read_json_optional, write_json
 from .kb_view import start_safe_knowledge
-from .writer import _chapter_plan_item, _index_path, _kb_path, _load_chapter_plan, _run_context, write_chapters
+from .writer import (
+    _chapter_plan_item,
+    _index_path,
+    _kb_path,
+    _load_chapter_plan,
+    _review_feedback,
+    _run_context,
+    write_chapters,
+)
 
 
 class BookRunBlocked(RuntimeError):
@@ -177,7 +185,16 @@ def run_write_book(
         try:
             for attempt in range(max_retries + 1):
                 _current_retry = attempt
+                seed_feedback = ""
                 if attempt > 0 or (force and md_path.exists()):
+                    # iter 053b（审查 B3）：归档之前先把上一周期的拒因收割成
+                    # 播种 feedback——归档会连 review/meta 一起搬走，此后周期
+                    # 内第一稿对上一周期的 block 拒因（gf_longzu_014/015 这类
+                    # 外审命中）完全失忆，052 九稿横盘的周期间断链。只在
+                    # retry（attempt>0）播种；force 重写是操作者主动行为，
+                    # 不带历史包袱。
+                    if attempt > 0:
+                        seed_feedback = _cross_cycle_seed_feedback(drafts_dir, chapter_no)
                     archive_dir = _archive_chapter_artifacts(
                         drafts_dir,
                         chapter_no,
@@ -192,6 +209,7 @@ def run_write_book(
                     progress_cb=_chapter_progress,
                     budget_check_cb=budget_check_cb,
                     tier=resolved_tier,
+                    seed_feedback=seed_feedback,
                 )
                 reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
                 if require_external_review and md_path.exists():
@@ -643,6 +661,34 @@ def _plan_metadata_failures(
         if str(item.get("chapter_plan_item_fingerprint")) != chapter_plan_item_fingerprint(item):
             failures.append(f"chapter_{chapter_no:02d}_plan_item_fingerprint_mismatch")
     return failures
+
+
+def _cross_cycle_seed_feedback(drafts_dir: Path, chapter_no: int) -> str:
+    """iter 053b（审查 B3）：在 ``_archive_chapter_artifacts`` 把上一重试周期
+    的产物搬走**之前**，收割其评审拒因并用与周期内重写循环同一套分层模板
+    （``_review_feedback``）渲染——否则下一周期第一稿对上一周期的 block 拒因
+    （052 实跑中 gf_longzu_014/015 这类外审命中正是 053c 的回灌效果探针）
+    完全失忆。优先读 reviews/chapter_XX.review.json（完整报告），缺失时退
+    meta 的 agent_reviews。Fail-open：没有可收割的产物 → 空串，行为与 053
+    前一致（铁律④）。"""
+    drafts_dir = Path(drafts_dir)
+    review = read_json(
+        drafts_dir.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", None
+    )
+    report: Dict[str, Any] = review if isinstance(review, dict) else {}
+    if not report.get("agent_reviews"):
+        meta = read_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", None)
+        if isinstance(meta, dict) and meta.get("agent_reviews"):
+            report = {"agent_reviews": meta["agent_reviews"]}
+    if not report:
+        return ""
+    rendered = _review_feedback(report)
+    if not rendered.strip():
+        return ""
+    return (
+        "## 上一重试周期的评审拒因（产物已归档；本周期第一稿必须直接规避以下问题）\n"
+        + rendered
+    )
 
 
 def _archive_chapter_artifacts(drafts_dir: Path, chapter_no: int, *, reason: str) -> Path:
