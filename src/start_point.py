@@ -308,6 +308,35 @@ def outline_consistency_failures(
     return failures
 
 
+def extraction_coverage_failures(k: int = 10) -> List[str]:
+    """iter 053g（053c 实跑根因③的机制化护栏，warn 级）：起点前最近 K 章
+    （含起点章）必须有提取产物。
+
+    extracted_jsons → KB(compress) → entity_graph(bootstrap) 整条派生链都
+    以提取层为底座；提取没跟上起点时，评审的"当前活跃关系"会锚死在旧
+    状态。longzu 实测：全书 110 章只提取了前 3 章、起点在第 ~100 章——
+    评审按"入学初期"硬尺连拒贴起点的正确稿件（052 九稿全灭与 6/5"听力
+    考试假基线"的共同根因）。
+
+    返回缺提取的 chapter_id 列表（空 = 覆盖完好）。无起点 / manifest 缺失
+    fail-open 返回空（greenfield 无源书提取概念，铁律④）。
+    """
+    start = get_start_chapter_id()
+    if not start:
+        return []
+    idx = _index_of(start)
+    if idx is None:
+        return []
+    window = _load_manifest()[max(0, idx - max(1, int(k)) + 1) : idx + 1]
+    extracted = paths.extracted_dir()
+    missing: List[str] = []
+    for entry in window:
+        chapter_id = str(entry.get("chapter_id") or "")
+        if chapter_id and not (extracted / f"{chapter_id}.json").exists():
+            missing.append(chapter_id)
+    return missing
+
+
 def plan_outline_lineage_failures(
     plan_data: Optional[Dict[str, Any]],
     *,

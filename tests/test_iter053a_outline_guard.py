@@ -138,6 +138,25 @@ class OutlineConsistencyFunctionTests(unittest.TestCase):
             [],
         )
 
+    def test_extraction_coverage_failures(self) -> None:
+        # iter 053g：起点前最近 K 章缺提取 → 返回缺口清单（warn 级底座检查）。
+        extracted = self.ws_root / "data" / "extracted_jsons"
+        extracted.mkdir(parents=True, exist_ok=True)
+        # 起点 v1_ch002，窗口 k=2 = [v1_ch001, v1_ch002]，全缺。
+        self.assertEqual(
+            start_point.extraction_coverage_failures(k=2),
+            ["v1_ch001", "v1_ch002"],
+        )
+        (extracted / "v1_ch002.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(
+            start_point.extraction_coverage_failures(k=2), ["v1_ch001"]
+        )
+        (extracted / "v1_ch001.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(start_point.extraction_coverage_failures(k=2), [])
+        # 无起点 fail-open（greenfield 无源书提取概念）。
+        (self.ws_root / "data" / "manual_overrides" / "start_chapter.json").unlink()
+        self.assertEqual(start_point.extraction_coverage_failures(k=2), [])
+
     def test_plan_outline_lineage(self) -> None:
         outline = "# 当前大纲"
         # 旧 plan 没记哈希 → fail-open（存量兼容）。

@@ -420,6 +420,18 @@ def check_write_readiness(
                 )
             )
 
+    # iter 053g（053c 实跑根因③）：起点前最近章节的提取覆盖 warn——提取层
+    # 是 KB/实体图的底座，没跟上起点时评审会拿旧状态当硬尺连拒正确稿件。
+    missing_extraction = start_point.extraction_coverage_failures(k=10)
+    if missing_extraction:
+        preview = ",".join(missing_extraction[:5])
+        more = f"(+{len(missing_extraction) - 5} more)" if len(missing_extraction) > 5 else ""
+        warnings.append(f"extraction:start_window_unextracted:{preview}{more}")
+        recommended.append(
+            f"{cmd_prefix} extract --volume <起点所在卷>  # 起点前最近章节缺提取，"
+            "KB/实体图将锚在旧状态"
+        )
+
     drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
     next_unapproved_chapter = None
     if include_next_unapproved:
