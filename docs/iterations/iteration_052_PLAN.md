@@ -74,12 +74,45 @@ smoke051 用 agent 会话后台任务驱动 2 小时级真模型流程，会话 
 - 验收命令统一 `.venv/bin/python`；verify.sh 需 venv PATH（050/051 两轮实录）。
 - 既有 `scripts/watchdog.sh`（llm_calls mtime 心跳，warn/abort 两档，iter027）可直接复用/集成，不重造心跳监控。
 
-## Acceptance Result（待回填）
+## Acceptance Result（mock 段 2026-06-12 回填；真模型段进行中）
 
-### mock 验收（门槛）
+### mock 验收 ✅
 
-- `OPENAI_MODEL=mock .venv/bin/python -m unittest discover -s tests` 全绿（877 + 新增 ~22 ≈ 900）；`PATH=.venv/bin bash scripts/verify.sh` 全链 exit 0。
-- 待钉死断言：驱动器断点续跑 E2E（ch2 失败 → resume → ch1 `skipped_approved` 零重写）；`driver_state.json` 原子性（中断点永远可解析）；末行 JSON 解析抗噪音；F7 删除后 prompt 其余部分逐字节不变；`tests/test_writer.py` F7 断言显式翻转。
+- `OPENAI_MODEL=mock .venv/bin/python -m unittest discover -s tests` → **907 OK**（877 → 907，净 +30：驱动器 28 + smoke_scripts 2，零回归）；`PATH=.venv/bin bash scripts/verify.sh` 全链 exit 0。
+- 钉死的断言（全部落地，tests/test_book_driver.py）：
+  - 断点续跑 E2E（mock 真管道）：start → `--pause-after-segment 1`（ch1 Approve）→ `WRITER_FORCE_FAIL=1` resume → ch1 `skipped_approved` 且段成本 0.0 且 draft_sha256 不变（零重写三重证据）→ 清除注入 resume → succeeded；
+  - 末行 JSON 解析抗噪音（噪音行前后夹击、非 dict JSON、损坏 JSON 全跳过）；
+  - 段切分/终态映射（exit 4 → blocked 停人审不带 --force / exit 3 → budget_exceeded 透传 / 超时 SIGTERM → paused）；
+  - 预算双层：驱动器级总账段前强拦（无任何 write-book 调用）+ 剩余额度传段内 `--budget-cny`；
+  - `--on-blocked force-once` 显式逃生门（第二次调用才带 --force，仅一次）；
+  - 双驱动器互斥（pid 存活 → exit 2）、真模型确认闸（非 mock 无 --confirm-real-run → exit 64）、resume workspace 错配拒绝；
+  - 编排层 crash 落 `failed` 终态（不留 running 假象）；pid 消失 + 终态未落 → status 显示 `lost`；
+  - F7 翻转（tests/test_writer.py）：覆写文案不存在 + 基础指令仍在 + iter013 ending_block 保留 + **本章计划块不再随 previous_chapter_ending 变化**（逐字节钉死）。
+- **设计发现（mock 行为考古）**：mock `_mock_text` 的 write 任务固定返回 ~60 字稿，确定性 linter `short_chapter_length`（<2500 error）必拦 → mock write-book 历史上必 Reject（暗礁 5 "两套历史行为"的根源）。052a 新增 `MOCK_WRITER_CHARS` mock-only 钩子（iter019 `WRITER_FORCE_FAIL` 同款 opt-in 模式，缺省逐字节不变），E2E 由此走通 approve 路径。
+- **暗礁实录复现**：drive_book.sh 首版忘了 venv PATH（050/051 暗礁原样复现），当轮直修为脚本内自带 `.venv/bin/python3` 优先解析。
+
+### 铁律⑨ 对抗审查 ✅（双视角并行，2026-06-12）
+
+- 视角 A（驱动器进程管理/断点续跑正确性）：其报告的 **H-1（resume 后 segments 跨 attempt 混合）经复核不成立**——`_run_steps` 每 attempt 开头 `state["segments"] = []` 重建，且 stub 测试断言 resume 后 `segments[0]` 为 `skipped_approved`（若混合应为旧 attempt 的 `written`）已实证；按 051 视角 B 同款惯例记录复核结论。M×2 当轮直修：A-M1 `_spent_cny` 吞异常加 stderr 留痕（保守低估仍成立，但失效要可见）；A-M2 detach 孙进程 stdio 重定向失败显式 `os._exit(1)`。A-M3 测试补强：segments 不跨 attempt 混合的显式断言。信号竞态/子进程组杀法/预算跨 attempt 总账/JSON 解析均查证安全。
+- 视角 B（预算安全/真模型成本控制）：12 项必查全通过——env 组合矩阵无"驱动器以为 mock、子进程烧真钱"的组合（config 的 mock 短路优先级保证）；预算失效模式保守（低估→闸更宽不会多扣）；`MOCK_WRITER_CHARS` 仅 `is_mock` 路径可达、877 存量测试零影响；F7 删除单点、指纹链完整；step log 无密钥泄漏面。直修 B-M1（确认闸显式 bool()）+ B-L1（钩子 clamp 1e6 防 OOM）。
+
+### 真模型段一：longzu 15 章实跑 → ch1 质量闸 blocked（2026-06-12，有效产出）
+
+- 用户拍板：**15 章 / ¥20 上限 / 保 gpt-5.5-high**（换快模型会破坏 F7 对照与 051 基线可比性的分析获采纳，先 15 章后可 resume 续 30 的方案获选）。
+- 启动实录：detach 后 `ppid=1` ✓；preflight 零 FATAL；ensure-plan `--force --require-start-point` 重 plan 10 章（旧 3 章 plan 归档 `pre_iter052_20260612_162921`）；起点 `longzu_3_3_ch024`。
+- **运行结果**：驱动器无人值守稳定运行 2 小时（16:44–18:44）零进程事故，ch1 经 3 个重试周期（约 9 稿、2 次 stale 归档）全被评审团打回 → `retry_exhausted` → **按设计 blocked 停人审、未自动 --force**。总耗 ¥6.40 / ¥20（92 calls）。
+- **拒因（高质量质量闸实证）**：panel 轨迹 5.68→5.84→6.02→6.16（横盘），文笔轴稳定 7–8 分，block 级拒因全部集中 fidelity 轴：① 时间线前置（把起点处尚未展开的 3E 考试当既成事实调用）；② 未来信息泄露（"路鸣泽四分之一生命交易"——起点处只有"愿意交换么"悬念）；③ "日本支部心神战机黑箱预案"等设定 KB 零铺垫。手工事实规则（gf_longzu_014/015）逐稿精准命中。
+- **根因（事后取证修正版，铁证实录）**：初判归因"写手预训练记忆泄露"**不完整**。真正主因是**陈旧中间产物污染重规划**：`outputs/debate/outline.md`（2026-05-30 11:33 生成，《龙族一至四之后》**结局方案**大纲——"零已进入关东基地机库……东京上空赫尔佐格以新生白王之姿"；关键词统计：心神×19、赫尔佐格×15、零×14、东京×9 vs 考试×1、3E×1）诞生于"四部曲结局后续写"旧玩法时代；iter027 把起点改到第 3 卷 3E 线时隔离了错误草稿与 anchor（`_iter027_wrong_start_quarantine` / `_iter027_wrong_anchor_quarantine`），**唯独 outline.md 漏在原位**。052 清场时为省 debate 成本（驱动器"outline 存在即跳过辩论"的省钱设计）有意保留了它 → ensure-plan `--force` 重规划时 planner 把结局向大纲当剧情方向 → **章纲整体跳线**（实证：重规划章纲 ch1「黑色机库里的倒计时」/ ch2「没有驾照的试飞员」/ ch3「东京上空的黑色折纸」，写手写"心神黑箱预案"是按图施工而非自创）→ 写手 9 稿全部死在按错误图纸施工。评审从第一稿就指出"时间线错位"——它在说**图纸错了**，不是施工差了。预训练泄露（路鸣泽交易不在章纲里）仍存在但降级为次要噪音。
+- **修正后的结论**：① 归因一半是清场失误（保留 outline 没做时间线核对）、一半是系统缺口——**F6 校验 plan↔起点指纹，但 outline/decisions 等 debate 产物没有任何起点一致性闸**（LLM 中间产物不是"原著资料"，start_safe_knowledge 管不到它）；② 流程问题比记忆问题好治得多，且"干净大纲下龙族能否过闸"**未被本次证伪**（2026-06-05 起点修复后人工监督规划的「听力考试里的哥哥」章纲曾 7.5 压线 Approve）；③ 驱动器与评审团全程无辜且立功。**iter053 立项修正为：① outline/decisions 中间产物的起点一致性校验（主）；② 写手反剧透硬约束（辅）**。
+- **F6 验证双路径完成** ✅：正路径——整个实跑（plan + 9 稿写作 + readiness）全程零 `start_chapter_id_*` / `start_point_fingerprint_*` 失败；负路径（零成本实录）——`set-start-point longzu_3_3_ch020` → readiness 报 `chapter_plan:start_chapter_id_mismatch` + `chapter_plan:start_point_fingerprint_mismatch` → 恢复 ch024 → start 相关 blockers 清零。
+- 用户拍板（blocked 后）：longzu 止损，canon 锚定转 iter053；驱动器剩余验收换 premise 书载体（方案 B+A）。
+
+### 真模型段二：shudian052 premise 书 12 章（进行中）
+
+- 载体：smoke051 同款种子「旧书店店主收到亡友的信，预言七天后被谋杀」+ 051a 扩写路径（expand_premise 6 字段 → prepare-greenfield 六步），workspace `shudian052`。
+- 跑法：`drive_book.sh --book shudian052 start --chapters 12 --segment-size 4 --replan-every 4 --plan-target 8 --budget-cny 12 --tier mid --allow-missing-start-point --pause-after-segment 1 --detach`；debate 由驱动器执行（真模型 debate step 覆盖，longzu 段跳过了它）。
+- 节拍：seg1（ch1–4，F7 基线 5c4faff 工作树）→ pause → 切 F7 删除版（89eaa84）→ seg2（ch5–8）中途 stop/resume 中断演练 → seg3（ch9–12）→ succeeded。
+- 待回填：成功指标 + 中断演练证据 + F7 段间对照 + timeline 证据包。
 
 ### 真模型段（门槛，30 章 longzu 实跑）
 

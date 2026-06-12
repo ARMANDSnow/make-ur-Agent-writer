@@ -176,7 +176,10 @@ def _spent_cny(state: Dict[str, Any]) -> float:
     offset = int(state.get("llm_log_offset_at_start") or 0)
     try:
         return float(estimate_cost_since(offset).get("cost_cny", 0.0))
-    except Exception:  # llm log 不可读时宁可报 0 也不要让驱动器崩
+    except Exception as exc:  # llm log 不可读时宁可报 0 也不要让驱动器崩
+        # 052 铁律⑨ A-M1：失效要可见——返回 0 是保守低估（预算闸只会更宽），
+        # 但必须在 stderr 留痕，否则总账静默失真。
+        print(f"[drive-book] WARN cost ledger unreadable, reporting 0: {exc!r}", file=sys.stderr)
         return 0.0
 
 
@@ -565,15 +568,20 @@ def _detach() -> Optional[int]:
     if pid2 > 0:
         os._exit(0)
     # 孙进程：stdio 重定向到 driver log；防睡眠。
-    ensure_dir(driver_dir())
-    log_path = driver_dir() / f"driver_{time.strftime('%Y%m%d_%H%M%S')}.log"
-    fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-    devnull = os.open(os.devnull, os.O_RDONLY)
-    os.dup2(devnull, 0)
-    os.dup2(fd, 1)
-    os.dup2(fd, 2)
-    os.close(fd)
-    os.close(devnull)
+    # 052 铁律⑨ A-M2：重定向失败（磁盘满/权限）时显式退出而不是带着
+    # 不可见的 stdio 继续跑——detach 进程没有终端，崩也要崩得有退出码。
+    try:
+        ensure_dir(driver_dir())
+        log_path = driver_dir() / f"driver_{time.strftime('%Y%m%d_%H%M%S')}.log"
+        fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        devnull = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(devnull, 0)
+        os.dup2(fd, 1)
+        os.dup2(fd, 2)
+        os.close(fd)
+        os.close(devnull)
+    except OSError:
+        os._exit(1)
     try:
         # caffeinate -w：驱动器进程退出后自动释放，无需清理。
         subprocess.Popen(
@@ -615,7 +623,7 @@ def _build_params(args: Any) -> Dict[str, Any]:
 
 def _refuse_real_run(args: Any) -> bool:
     model = os.environ.get("OPENAI_MODEL", "")
-    if model != "mock" and not getattr(args, "confirm_real_run", False):
+    if model != "mock" and not bool(getattr(args, "confirm_real_run", False)):
         print(
             "Refusing to drive a non-mock model without --confirm-real-run "
             f"(OPENAI_MODEL={model!r}). 铁律⑥：真模型实跑必须显式确认。",

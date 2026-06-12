@@ -46,4 +46,8 @@ fi
 
 export PYTHONPYCACHEPREFIX="$ROOT/.pycache"
 
-exec python3 main.py $BOOK_ARG drive-book ${PASS[@]+"${PASS[@]}"}
+# iter 050/051 暗礁实录：验收命令统一走 .venv；存在即优先，缺失回退 PATH。
+PYTHON="$ROOT/.venv/bin/python3"
+[ -x "$PYTHON" ] || PYTHON="python3"
+
+exec "$PYTHON" main.py $BOOK_ARG drive-book ${PASS[@]+"${PASS[@]}"}

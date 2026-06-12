@@ -548,7 +548,8 @@ class LLMClient:
         # byte-identical legacy behavior. (Same opt-in pattern as iter 019's
         # WRITER_FORCE_FAIL.)
         if self.task == "write":
-            pad = _env_int("MOCK_WRITER_CHARS", 0)
+            # 052 铁律⑨ B-L1：clamp 防呆——极端 env 值不应让测试进程 OOM。
+            pad = min(_env_int("MOCK_WRITER_CHARS", 0), 1_000_000)
             if pad > 0:
                 base = (
                     "雨停在凌晨。路明非站在窗边，看着城市的灯一盏盏熄灭。"

@@ -349,6 +349,8 @@ class DriverStateMachineTests(_WorkspaceMixin, unittest.TestCase):
         state = book_driver.load_state()
         self.assertEqual(state["status"], "succeeded")
         self.assertEqual(state["attempt"], 2)
+        # 铁律⑨ A-M3：segments 每个 attempt 重建，不跨 attempt 混合追加
+        self.assertEqual(len(state["segments"]), 2)
         self.assertEqual(
             state["segments"][0]["chapters_result"],
             [{"chapter": 1, "action": "skipped_approved", "verdict": "Approve"}],
