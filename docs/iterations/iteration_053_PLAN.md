@@ -88,12 +88,15 @@ iter052 的 longzu 实跑暴露了一条干净的因果链：清场时为省 deb
 
 ## Acceptance Result（待回填）
 
-### mock 验收（门槛）
-- 全量回归零失败（907 + 预估 +38 ≈ 945；当前收集数 907 已实测核准）；verify.sh exit 0。
-- 待钉死断言：decisions 指纹+outline 哈希写入与写入顺序；plan 四态（匹配过/不匹配硬拦/无指纹 warn/decisions 缺失 warn）；逃生门审计留痕；plan↔outline 血统链记录与校验；debate_log 指纹续跑拒绝；driver 三态（缺省 blocked + --force-debate 联动失效 plan）；debate --force 归档；锚定块条件注入（无起点与 env 关闭均逐字节不变）；回灌分层与 block-but-Approve 修复 + `_blocking_reasons` 同口径 + Approve 主路径零变化；跨周期反馈播种；扩写空字段重试与 record 层标记不进 prompt；`WRITE_REVIEW_MIN_APPROVE` 覆写（3/5 生效、缺省回退 tier 预设、非法值回退）；models.yaml model_env 钩子生效（拍板④）。
+### mock 验收 ✅（2026-06-13 回填）
+- 全量回归 **954 passed 零失败**（907 → 954，净 +47：053a +25 / 拍板④ +6 / 053b +11 / premise +5——预估 +38 偏保守；另 test_cli_integration 的 run_debate 调用契约随 `--force` 透传同步更新）；`PATH=.venv/bin bash scripts/verify.sh` 全链 exit 0。
+- 已钉死断言（原"待钉死"清单全部落地）：decisions 指纹+outline 哈希写入与写入顺序；plan 四态（匹配过/不匹配硬拦/无指纹 warn/decisions 缺失 warn 同道）；逃生门审计留痕；plan↔outline 血统链记录与校验；debate_log 指纹续跑拒绝；driver 三态（缺省 blocked + --force-debate 联动失效 plan + 一次性旗标消费）；debate --force 归档；锚定块条件注入（无起点与 env 关闭均逐字节不变）；回灌分层四节顺序与 block-but-Approve 修复 + `_blocking_reasons` 同口径 + 全 Approve 零回灌；跨周期反馈播种（含 write_chapters 端到端）；扩写空字段重试与 record 层标记不进 prompt、手工补全摘牌；`WRITE_REVIEW_MIN_APPROVE` 覆写（3/5 生效、缺省/非法回退、夹紧）；models.yaml model_env 钩子（mock 隔离不被突破）。
+- 测试分布：053a → `tests/test_iter053a_outline_guard.py`；拍板④ → `tests/test_iter053_decision4_overrides.py`；053b → `tests/test_iter053b_canon_anchor.py`；premise → `tests/test_iter053_premise_guard.py`。
+- commit 边界（审查 D2 纪律，四个独立回滚单元）：053a=`78cdc75`、拍板④=`4dd1ed6`、053b=`27cdea9`、premise=`0e2049b`。
 
-### 真模型段（门槛，longzu 复仇局 ≤¥12）
+### 真模型段（门槛，longzu 复仇局 ≤¥12 —— 待跑，跑前按铁律⑥确认时点）
 - 按 053c 决策表判定（四行覆盖全部结果空间，初稿"连拒不算失败"的口径已结构化进表）；新 outline 指纹+血统链一致性实证；panel 含 prose/plot 分轴对照 6月5日基线；预算 ≤ ¥12。
+- 配方速记（实施段核定版）：第 0 步清场断言（debate 三件套 + **毒 chapter_plan.json** + ch1 残留 + rolling summary）→ 段一 `drive_book.sh --book longzu start --chapters 5 --segment-size 1 --pause-after-segment 1 --plan-target 5 --force-debate --require-start-point --budget-cny 12 --tier mid --detach --confirm-real-run` + `WRITE_REVIEW_MIN_APPROVE=3` + `WRITER_CANON_ANCHOR=0`（ch1 仅 053a）→ 人审 → 段二 resume 开启锚定跑 ch2–5。
 
 ### 铁律⑨ 对抗审查（待回填）
 - 建议视角：A 指纹/血统校验链正确性、存量兼容与逃生门审计 × B 反剧透约束的写作质量副作用、回灌 token 成本与跨周期播种正确性。

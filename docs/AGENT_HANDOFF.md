@@ -1245,3 +1245,19 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **验证**：mock 全绿 **907 OK**（877→907）+ verify.sh 全链 exit 0。**真模型双载体（gpt-5.5-high tier=mid，全天 ≈¥18.1 收在 ¥20 信封）**：①longzu 15 章——驱动器无人值守 2h 零进程事故，ch1 九稿全拒（panel 5.68→6.16 横盘、fidelity 轴 block 级拒因）→ retry_exhausted → **blocked 停人审路径实弹验证**；F6 正路径全程零 fingerprint 失败 + 负路径两码 mismatch 实录。②shudian052 premise 书（旧书店种子+扩写路径开书）——**7/7 章 Approve（panel 8.04–8.72）**；段间 pause 实弹触发；**中断恢复演练**：stop（零残留）→工作树切 F7 删除版→resume（attempt 3, ppid=1）→**账本 206→206 行零重复花费**；未授权 resume 被确认闸 exit 64 实弹拒绝；F7 段间对照 8.31→**8.48** 零开场退化坐实拆除。**longzu 失败根因考古**：直接根因=5/30 陈旧「四部曲结局后」debate outline 在驱动器 ensure-plan --force 重 plan 时污染时间线（对照 6/5 起点修复后旧 plan「听力考试」贴起点可过）；深层根因=写手预训练记忆剧透泄露（start_safe_knowledge 管 KB 注入、管不住权重记忆）；评审团+手工反剧透规则逐稿精准命中，质量闸全程正确。timeline 证据包：20+ 条 0.91–0.98 高置信 advance 提案全因 `relationship_not_found` 跳过（76 条 F5 审计日志）——greenfield 实体图边稀疏，时间线全程未推进。
 
 **接力点（053 候选，按优先级）**：① **中间产物起点一致性校验**（outline/decisions 不走起点过滤、F6 只管 plan↔start 指纹——plan 前需对 outline 做时效 gate 或缺 plan 强制重 debate）；② **canon 锚定增强**（写手 prompt 硬约束「KB 外原著知识当不存在」+ 评审 block 拒因结构化回灌；笼统反馈循环对剧透无效已实证）；③ timeline 高置信提案动态建边；④ 30–100 章 capstone（驱动器已就绪，待①②后用干净 plan 重战 longzu）；⑤ 票数闸阈值观察（premise 书重试全为 panel≥7.94 的边界拒，单次 ≈¥0.6）。**暗礁**：实跑期间外部人工 stop/resume 与 agent 节拍存在竞态（22:09 计划外 resume 跳过了 F7 切换步，靠中断演练补位）——驱动器无操作者锁，SOP 纪律先通气；扩写稿 schema 无非空校验（本次 genre_tone 等三字段空，personas 顶住了风格定调）。
+
+## Phase 5 Status（iter 053，2026-06-13，实施段收官 / 真模型段待跑）
+
+### Iteration 053 — 中间产物起点校验 + 写手 canon 锚定增强（053c longzu 复仇局待跑）
+
+**目标**：兑现 052 接力点①②——治 longzu 失败主因（陈旧 debate outline 不受任何起点一致性校验、污染重 plan）与次因（写手预训练剧透泄露 + 笼统反馈回灌无效）。计划稿经四维 subagent 审核修订（代码锚点核实 × 052 文档口径核对 × 盘面实勘 × 对抗设计审查，采纳 A1-A9/B1-B4/C1-C4/D1-D2）；用户拍板④追加提速降本授权（票数闸 3/5 + 按任务换更快模型档）。执行档案 `iteration_053_PLAN.md`（mock 段已回填）。
+
+**核心设计**：F6 指纹哲学推广到中间产物层——decisions.json 写盘前以 dict 键钉入起点指纹 + `outline_sha256`（**schema 不动**：DebateDecisions 是 complete_json 的 LLM 契约，加字段招幻觉假指纹）；写序倒置（outline 先、decisions 后作 commit 标记，防 SIGTERM 半写错配）；plan 落盘记 outline_sha256 成 **plan↔outline 血统链**（盘面实证：052 毒 chapter_plan.json 起点未变 F6 全绿，ensure-plan guard 会以 plan_sufficient 直接复用——审核期最大发现）；driver 遇陈旧 outline **缺省 blocked 停人审**（对齐 052"不自动 force"哲学）；反剧透用**时间锚定**（只禁起点之后、起点之前照常用——"未注入即不存在"会误杀截断窗口外的合法 canon，fidelity 反降）。
+
+**主要落地**（四个独立回滚单元，审查 D2 纪律）：
+- **053a（`78cdc75`）**：debater 元数据钉入 / `debate --force` 归档 snapshots / debate_log 指纹头 + resume 防洗白（旧起点时代 log 拒绝续跑）；`start_point.outline_consistency_failures` 四态（匹配/硬拦/无指纹 warn/decisions 缺失 warn 同道）+ `plan_outline_lineage_failures`；plot_planner 读 outline 前过闸（报错区分"起点真变"vs"行号漂移"）+ `--allow-stale-outline` 逃生门审计痕；driver debate 三态 + `--force-debate`（联动归档失效下游 chapter_plan.json，一次性旗标 resume 默认清零）+ 与 `--skip-debate` 互斥；write-readiness warnings 通道 + web plan 页陈旧大纲警示。
+- **拍板④（`4dd1ed6`）**：`WRITE_REVIEW_MIN_APPROVE` 只降票数保 7.5 分线（052 实测票数闸边界拒 ≈¥0.6/次）；models.yaml write/review/debate `model_env` 钩子（OPENAI_MODEL=mock 测试隔离不破）。
+- **053b（`27cdea9`）**：写手时间锚定块（条件注入 + `WRITER_CANON_ANCHOR` 开关，无起点/关闭逐字节不变——铁律④）；`_review_feedback` 分层模板（block 禁令置顶，修复 block-but-Approve 漏灌）；`_blocking_reasons` 同口径；**跨 retry 周期反馈播种**（book_runner 归档前收割上一周期拒因 → `write_chapters(seed_feedback=...)`——052 九稿横盘的"周期内有反馈、周期间失忆"断链闭合）。
+- **premise 搭车（`0e2049b`）**：扩写 6 字段非空校验（空字段重试一次 + record 层 `_incomplete_fields` 标记不进 prompt 面 + stage① 建议补全提示 + 手工补全摘牌）。
+
+**验证**：mock 全绿 **954 OK**（907→954，+47）+ verify.sh 全链 exit 0。**真模型段（053c longzu 复仇局，≤¥12）待跑**——跑前按铁律⑥与用户确认时点；配方与验收决策表见 iteration_053_PLAN.md：第 0 步清场断言（debate 三件套 + 毒 chapter_plan.json + ch1 残留 + rolling summary）→ 分段单变量（ch1 仅 053a 净图纸、人审后 ch2–5 开 053b 锚定）→ `WRITE_REVIEW_MIN_APPROVE=3`（拍板④）；票数闸边界拒形态不计入 053b 副作用判定。
