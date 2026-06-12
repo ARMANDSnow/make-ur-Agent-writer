@@ -126,6 +126,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the debate topic; defaults to the legacy validation-corpus topic.",
     )
+    debate_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help="iter 053a: archive the existing outline/decisions/log trio to "
+        "outputs/debate/snapshots/<ts>/ and debate from scratch (a plain rerun "
+        "would resume via done_keys and silently change nothing)",
+    )
 
     bootstrap_facts = sub.add_parser("bootstrap-facts")
     bootstrap_facts.add_argument("--force", action="store_true")
@@ -161,6 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--require-start-point",
         action="store_true",
         help="iter 027: fail if start_chapter.json is missing before planning",
+    )
+    plan_chapters.add_argument(
+        "--allow-stale-outline",
+        action="store_true",
+        help="iter 053a: escape hatch — plan from an outline whose recorded "
+        "start point mismatches the current one (audit trail is written into "
+        "chapter_plan.json). Default is to refuse (the 052 accident).",
     )
 
     write = sub.add_parser("write")
@@ -314,6 +328,15 @@ def build_parser() -> argparse.ArgumentParser:
     drive_cmd.add_argument("--tier", choices=["high", "mid", "low"], default=None)
     drive_cmd.add_argument("--max-retries", type=int, default=2)
     drive_cmd.add_argument("--skip-debate", action="store_true")
+    drive_cmd.add_argument(
+        "--force-debate",
+        action="store_true",
+        help="iter 053a: archive the old debate trio + rerun debate from "
+        "scratch, then archive the downstream chapter_plan.json so ensure-plan "
+        "regenerates it from the fresh outline. Mutually exclusive with "
+        "--skip-debate. One-shot: a later resume does NOT re-force unless "
+        "passed again.",
+    )
     drive_cmd.add_argument("--require-start-point", action="store_true")
     drive_cmd.add_argument("--allow-missing-start-point", action="store_true")
     drive_cmd.add_argument("--allow-missing-plan", action="store_true")
@@ -400,10 +423,11 @@ def main() -> None:
         compress_all()
     elif args.command == "debate":
         topic = getattr(args, "topic", None)
+        force = bool(getattr(args, "force", False))
         if topic:
-            run_debate(topic=topic)
+            run_debate(topic=topic, force=force)
         else:
-            run_debate()
+            run_debate(force=force)
     elif args.command == "bootstrap-facts":
         result = bootstrap_global_facts(force=args.force)
         print(_render_bootstrap_result(result), end="")
@@ -446,6 +470,7 @@ def main() -> None:
             append_count=args.append_count,
             from_chapter=from_chapter,
             require_start_point=args.require_start_point,
+            allow_stale_outline=args.allow_stale_outline,
         )
         mode = f"append +{args.append_count} from ch{from_chapter}" if args.append_count > 0 else "fresh"
         print(f"chapter_plan.json written ({mode}): {len(data['chapters'])} chapters")

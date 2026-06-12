@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import paths
-from .utils import read_json, read_json_optional, sha256_data, write_json
+from .utils import read_json, read_json_optional, sha256_data, sha256_text, write_json
 
 
 _START_FILE = "start_chapter.json"
@@ -241,6 +241,99 @@ def enforce_consistency(
     elif current_fp and str(plan_data.get("start_point_fingerprint")) != current_fp:
         failures.append("start_point_fingerprint_mismatch")
     return failures
+
+
+#: iter 053a — the warn-level (fail-open) code emitted when debate decisions
+#: carry no provenance metadata at all: legacy pre-053 workspaces AND the
+#: "decisions.json missing but outline.md present" branch (callers pass the
+#: read_json_optional default ``{}``). Everything else the gate returns is a
+#: hard mismatch. 审查 A2: both fail-open paths route through this ONE code so
+#: deleting decisions.json can never bypass a hard block silently — it lands
+#: in the same warn lane as legacy workspaces, with the same留痕.
+OUTLINE_METADATA_MISSING = "outline_start_metadata_missing"
+
+
+def outline_consistency_failures(
+    decisions: Optional[Dict[str, Any]],
+    *,
+    outline_text: Optional[str] = None,
+) -> List[str]:
+    """iter 053a: F6's fingerprint philosophy extended to debate intermediates.
+
+    ``decisions`` is the raw decisions.json dict (``{}`` / ``None`` when the
+    file is absent). Returns failure codes (empty = consistent):
+
+    * ``outline_start_metadata_missing`` — no provenance metadata at all
+      (legacy workspace or missing decisions.json). Warn-level by contract:
+      callers print/log and proceed, 先例 kb_view 047b fail-open.
+    * ``outline_start_chapter_id_mismatch`` — outline was debated under a
+      different start chapter (the 052 accident: 起点已真正变更). Hard.
+    * ``outline_start_point_fingerprint_mismatch`` — start chapter id agrees
+      (or wasn't recorded) but the fingerprint moved — typically re-split /
+      normalize line drift rather than a true start change. Hard, but the
+      caller's error message offers ``--allow-stale-outline`` for the
+      line-drift case (审查 A7: 误报不能把用户训练成习惯性逃生).
+    * ``outline_content_mismatch`` — ``outline_sha256`` recorded in decisions
+      doesn't hash the on-disk outline.md: hand-edited outline or a write
+      interrupted between the two files. Hard (审查 A2).
+
+    Mismatch codes only fire when the CURRENT workspace side is non-empty —
+    a missing current start can't contradict a stored one (fail-open, same
+    convention as :func:`enforce_consistency`).
+    """
+    if not isinstance(decisions, dict):
+        return [OUTLINE_METADATA_MISSING]
+    has_metadata = any(
+        key in decisions
+        for key in ("start_chapter_id", "start_point_fingerprint", "outline_sha256")
+    )
+    if not has_metadata:
+        return [OUTLINE_METADATA_MISSING]
+    failures: List[str] = []
+    current_start = get_start_chapter_id() or ""
+    current_fp = start_point_fingerprint()
+    stored_start = str(decisions.get("start_chapter_id") or "")
+    stored_fp = str(decisions.get("start_point_fingerprint") or "")
+    if current_start and stored_start != current_start:
+        failures.append("outline_start_chapter_id_mismatch")
+    if current_fp and stored_fp != current_fp:
+        failures.append("outline_start_point_fingerprint_mismatch")
+    stored_outline_sha = str(decisions.get("outline_sha256") or "")
+    if (
+        stored_outline_sha
+        and outline_text is not None
+        and sha256_text(outline_text) != stored_outline_sha
+    ):
+        failures.append("outline_content_mismatch")
+    return failures
+
+
+def plan_outline_lineage_failures(
+    plan_data: Optional[Dict[str, Any]],
+    *,
+    outline_text: Optional[str],
+) -> List[str]:
+    """iter 053a (审查 A1): plan↔outline lineage — warn-level by contract.
+
+    ``generate_chapter_plan`` records the sha256 of the outline it actually
+    consumed into ``chapter_plan.json["outline_sha256"]``. After a debate
+    rerun the on-disk outline changes, the old plan silently goes stale, and
+    F6 alone can't see it (起点没变，plan 的起点指纹照样全绿——052 的毒
+    chapter_plan.json 即盘面实证). This check closes that gap one layer up.
+
+    Returns ``["plan_outline_lineage_mismatch"]`` or ``[]``. Plans without a
+    recorded hash (pre-053 legacy) and missing outline text both fail-open —
+    deliberately warn-level起步: callers surface it (readiness warn lane /
+    driver decision), they do NOT hard-block on it.
+    """
+    if not isinstance(plan_data, dict):
+        return []
+    stored = str(plan_data.get("outline_sha256") or "")
+    if not stored or outline_text is None:
+        return []
+    if sha256_text(outline_text) != stored:
+        return ["plan_outline_lineage_mismatch"]
+    return []
 
 
 def _index_of(chapter_id: str) -> Optional[int]:

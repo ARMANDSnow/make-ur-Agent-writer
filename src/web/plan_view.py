@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .. import paths
+from .. import paths, start_point
 from ..utils import read_json_optional
 
 
@@ -26,10 +26,27 @@ def collect_plan() -> Dict[str, Any]:
             outline_md = outline_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             outline_md = ""
+    # iter 053a (审查 A5): surface outline↔start-point staleness in the
+    # workbench — the CLI/driver warn lane lands in detached step logs nobody
+    # reads. Read-only check, only meaningful when an outline exists.
+    outline_consistency: Dict[str, Any] = {"checked": False, "codes": []}
+    if outline_md:
+        codes = start_point.outline_consistency_failures(
+            decisions, outline_text=outline_md
+        )
+        outline_consistency = {
+            "checked": True,
+            "codes": codes,
+            "stale": any(
+                c != start_point.OUTLINE_METADATA_MISSING for c in codes
+            ),
+            "metadata_missing": start_point.OUTLINE_METADATA_MISSING in codes,
+        }
     return {
         "plan": plan,
         "outline_md": outline_md,
         "decisions": decisions,
+        "outline_consistency": outline_consistency,
         "draft_chapters": _draft_chapter_numbers(),
         "draft_verdicts": _draft_verdicts(),
     }

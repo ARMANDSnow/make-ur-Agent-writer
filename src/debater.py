@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import paths
+from . import paths, start_point
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
 from .entities import load_entity_graph, render_active_state
@@ -17,7 +19,7 @@ from .persona_loader import load_personas, render_agent_fields
 from .schemas import DebateDecisions, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
-from .utils import ensure_dir, extract_json_object, read_json, write_json
+from .utils import ensure_dir, extract_json_object, read_json, sha256_text, write_json
 
 
 # Legacy constants — kept so iter 014-016 tests that ``patch("src.debater.DEBATE_DIR", ...)``
@@ -39,6 +41,37 @@ def _kb_path() -> Path:
 
 def _index_path() -> Path:
     return paths.index_path() if paths.workspace_name() else INDEX_PATH
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _archive_debate_outputs(debate_dir: Path) -> Optional[Path]:
+    """iter 053a: ``debate --force`` archives (never deletes) the previous
+    outline/decisions/log trio to ``outputs/debate/snapshots/<utc-ts>/`` so the
+    rerun starts clean while the old artifacts stay auditable (052 的毒源三件
+    套即按此口径留档)。三件必须同批归档——只挪 outline 而留 debate_log 会让
+    后续 resume 用旧 transcript 重建大纲（审查 A3 的洗白路径）。
+
+    Returns the snapshot dir, or ``None`` when there was nothing to archive."""
+    targets = [
+        debate_dir / name
+        for name in ("outline.md", "decisions.json", "debate_log.jsonl")
+    ]
+    existing = [p for p in targets if p.exists()]
+    if not existing:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    snapshot = debate_dir / "snapshots" / stamp
+    bump = 1
+    while snapshot.exists():
+        snapshot = debate_dir / "snapshots" / f"{stamp}_{bump}"
+        bump += 1
+    snapshot.mkdir(parents=True)
+    for p in existing:
+        shutil.move(str(p), str(snapshot / p.name))
+    return snapshot
 
 ROUNDS = [
     "立场陈述",
@@ -65,7 +98,7 @@ def load_agents() -> List[Dict[str, Any]]:
     return cfg.get("debate_agents", [])
 
 
-def run_debate(topic: str = "") -> Dict[str, Any]:
+def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
     debate_dir = _debate_dir()
     kb_path = _kb_path()
     index_path = _index_path()
@@ -86,6 +119,13 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
     expansion = expansion_prompt_block()
     client = LLMClient("debate")
     log_path = debate_dir / "debate_log.jsonl"
+
+    # iter 053a: force = archive the previous trio and debate from scratch —
+    # NOT a resume (done_keys would silently turn "rerun" into "skip").
+    if force:
+        snapshot = _archive_debate_outputs(debate_dir)
+        if snapshot is not None:
+            log_event("debate", "force_archived", snapshot=str(snapshot))
 
     # Iter 016: render agents through persona binding when available.
     personas = load_personas()
@@ -125,6 +165,9 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
     transcript: List[Dict[str, Any]] = []
     done_keys: set = set()
     done_ballots: set = set()
+    # iter 053a: provenance head of the log (round-less meta entry written when
+    # a fresh debate starts). Used by the resume guard below.
+    log_meta: Optional[Dict[str, Any]] = None
     if log_path.exists():
         with log_path.open("r", encoding="utf-8") as fh:
             for line in fh:
@@ -134,6 +177,10 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
                 try:
                     entry = json.loads(line)
                 except Exception:
+                    continue
+                if entry.get("meta") == "debate_start_point":
+                    if log_meta is None:
+                        log_meta = entry
                     continue
                 ag = entry.get("agent")
                 r = entry.get("round")
@@ -153,11 +200,44 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
                     continue
                 done_keys.add(key)
                 transcript.append({"round": r, "round_name": rn, "agent": ag, "response": resp})
+        # iter 053a (审查 A3): resume reuses the old transcript verbatim, and the
+        # end of this run stamps FRESH provenance onto decisions.json — without
+        # this guard, a log from another start-point era would get its stale
+        # content "laundered" under a clean fingerprint (outline 缺失 + 旧 log
+        # 在 → done_keys 全命中 → 零轮新辩论重建大纲)。Legacy logs (no meta
+        # head) stay fail-open to protect existing workspaces.
+        if log_meta is not None:
+            stored_fp = str(log_meta.get("start_point_fingerprint") or "")
+            current_fp = start_point.start_point_fingerprint()
+            if current_fp and stored_fp != current_fp:
+                raise ValueError(
+                    "debate_log.jsonl 属于另一个起点时代（log 起点指纹与当前起点不匹配），"
+                    "拒绝断点续跑——否则旧辩论内容会以新鲜指纹落盘。"
+                    "请用 `python main.py debate --force` 归档旧三件套后全新辩论。"
+                )
+        else:
+            log_event("debate", "resume_legacy_log_no_fingerprint")
         # Rewrite log keeping only retained entries so we don't accumulate
-        # stale error rows on each resume.
+        # stale error rows on each resume (provenance head preserved).
         with log_path.open("w", encoding="utf-8") as fh:
+            if log_meta is not None:
+                fh.write(json.dumps(log_meta, ensure_ascii=False) + "\n")
             for item in transcript:
                 fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    # iter 053a: a fresh debate (no pre-existing log) opens with a provenance
+    # head so later resumes can prove which start-point era the transcript
+    # belongs to.
+    if not log_path.exists():
+        head = {
+            "meta": "debate_start_point",
+            "schema_version": 1,
+            "start_chapter_id": start_point.get_start_chapter_id() or "",
+            "start_point_fingerprint": start_point.start_point_fingerprint(),
+            "created_at": _utc_now_iso(),
+        }
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(head, ensure_ascii=False) + "\n")
 
     for round_index, round_name in enumerate(ROUNDS, 1):
         for agent in agents:
@@ -229,8 +309,20 @@ def run_debate(topic: str = "") -> Dict[str, Any]:
                         agent_ballots[ag] = entry.get("ballots", [])
     decisions = _apply_agent_ballots(decisions, agent_ballots, len(transcript))
     outline = build_outline(topic, decisions, transcript, client)
-    write_json(debate_dir / "decisions.json", decisions)
+    # iter 053a: stamp start-point provenance into decisions.json as plain dict
+    # keys — NOT DebateDecisions schema fields (that schema is the LLM-facing
+    # complete_json contract; adding fields there invites hallucinated values,
+    # 审查 A8). outline_sha256 binds the pair so a hand-edited / half-written
+    # outline can't pass on the decisions fingerprint alone (审查 A2). Write
+    # order is outline FIRST, decisions LAST as the commit marker — a SIGTERM
+    # between the two writes can never leave "fresh fingerprint + stale
+    # outline" on disk.
+    decisions["start_chapter_id"] = start_point.get_start_chapter_id() or ""
+    decisions["start_point_fingerprint"] = start_point.start_point_fingerprint()
+    decisions["outline_sha256"] = sha256_text(outline)
+    decisions["generated_at"] = _utc_now_iso()
     write_text_atomic(debate_dir / "outline.md", outline)
+    write_json(debate_dir / "decisions.json", decisions)
     log_event("debate", "done", agents=len(agents), rounds=len(ROUNDS), output=str(debate_dir))
     return {"decisions": decisions, "outline": outline}
 

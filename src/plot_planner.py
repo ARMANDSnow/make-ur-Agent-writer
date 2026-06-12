@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from . import paths
 from .config import ROOT
@@ -12,14 +13,16 @@ from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .schemas import ChapterPlan, ChapterPlanItem, model_to_dict, model_to_json_schema
 from . import start_point
+from .state import log_event
 from .style import load_style_examples
-from .utils import sha256_data, write_json
+from .utils import read_json_optional, sha256_data, sha256_text, write_json
 
 
 # Legacy constants — kept for iter 014-016 test backward compat
 # (``patch("src.plot_planner.OUTLINE_PATH", ...)`` still works).
 CHAPTER_PLAN_PATH = ROOT / "outputs" / "debate" / "chapter_plan.json"
 OUTLINE_PATH = ROOT / "outputs" / "debate" / "outline.md"
+DECISIONS_PATH = ROOT / "outputs" / "debate" / "decisions.json"
 
 
 def _chapter_plan_path() -> Path:
@@ -30,6 +33,34 @@ def _outline_path() -> Path:
     return paths.outline_path() if paths.workspace_name() else OUTLINE_PATH
 
 
+def _decisions_path() -> Path:
+    return paths.debate_decisions_path() if paths.workspace_name() else DECISIONS_PATH
+
+
+def _stale_outline_message(codes: List[str]) -> str:
+    """iter 053a (审查 A7): the hard-block message must tell apart "the start
+    point truly changed" from "probably just a re-split moved line numbers",
+    or users get trained into reflexively passing --allow-stale-outline."""
+    if "outline_start_chapter_id_mismatch" in codes:
+        detail = (
+            "辩论大纲生成时的起点 chapter_id 与当前起点不同——起点已真正变更，"
+            "旧大纲跨时间线（052 事故场景）。请重跑 `python main.py debate --force` "
+            "生成新大纲后再规划。"
+        )
+    elif "outline_content_mismatch" in codes:
+        detail = (
+            "outline.md 与 decisions.json 不是同批产物（outline 被手改，或上次 "
+            "debate 写盘中断）。请重跑 `python main.py debate --force`。"
+        )
+    else:
+        detail = (
+            "起点 chapter_id 未变但起点指纹变化（常见于重跑 normalize/split 后"
+            "行号漂移）。若确认起点语义未变，可加 `--allow-stale-outline` 显式"
+            "放行（会在 chapter_plan.json 留审计痕）；否则重跑 `debate --force`。"
+        )
+    return f"stale debate outline ({', '.join(codes)}): {detail}"
+
+
 def generate_chapter_plan(
     target_chapters: int = 18,
     force: bool = False,
@@ -37,6 +68,7 @@ def generate_chapter_plan(
     append_count: int = 0,
     from_chapter: int = 0,
     require_start_point: bool = False,
+    allow_stale_outline: bool = False,
 ) -> Dict[str, Any]:
     """Iter 024 P2: append mode. When ``append_count > 0``, preserves
     chapters 1..from_chapter from the existing chapter_plan.json and
@@ -73,6 +105,38 @@ def generate_chapter_plan(
         raise FileExistsError("chapter_plan.json already exists; use --force to overwrite")
 
     outline = outline_path.read_text(encoding="utf-8")
+    # iter 053a: before trusting the outline, check its provenance against the
+    # CURRENT start point (the 052 accident: a "四部曲结局后"-era outline was
+    # trusted verbatim after the start moved to ch024 — nine drafts dead).
+    # Hard mismatch → refuse unless --allow-stale-outline; no metadata at all
+    # (legacy / missing decisions.json) → warn and proceed, fail-open.
+    decisions = read_json_optional(_decisions_path(), {})
+    stale_codes = start_point.outline_consistency_failures(
+        decisions, outline_text=outline
+    )
+    hard_codes = [
+        c for c in stale_codes if c != start_point.OUTLINE_METADATA_MISSING
+    ]
+    acknowledged_codes: List[str] = []
+    if hard_codes:
+        if allow_stale_outline:
+            acknowledged_codes = hard_codes
+            log_event(
+                "plot_planner", "stale_outline_acknowledged", codes=hard_codes
+            )
+            print(
+                "[plan-chapters] warn: --allow-stale-outline 放行陈旧大纲 "
+                f"({', '.join(hard_codes)})，审计痕已写入 chapter_plan.json。"
+            )
+        else:
+            raise ValueError(_stale_outline_message(hard_codes))
+    elif start_point.OUTLINE_METADATA_MISSING in stale_codes:
+        log_event("plot_planner", "outline_start_metadata_missing")
+        print(
+            "[plan-chapters] warn: debate 产物没有起点指纹（指纹机制之前的存量，"
+            "或 decisions.json 缺失）。建议重跑 `python main.py debate --force` "
+            "刷新大纲指纹后再规划。"
+        )
     entity_state = render_active_state(load_entity_graph())
     style_examples = load_style_examples()[:3000]
     facts = global_facts_summary()
@@ -178,6 +242,24 @@ def generate_chapter_plan(
     else:
         data = new_data
         data["start_chapter_id"] = start_chapter_id or ""
+    # iter 053a (审查 A1): record which outline this plan was generated from —
+    # the plan↔outline lineage link, checked warn-level by
+    # start_point.plan_outline_lineage_failures. Without it a debate rerun
+    # leaves the old plan silently stale while its F6 fingerprints stay green
+    # (盘面实证：052 的毒 chapter_plan.json 四码全绿). Not part of the
+    # plan_fingerprint whitelist, so existing chapter meta fingerprints are
+    # untouched.
+    data["outline_sha256"] = sha256_text(outline)
+    if acknowledged_codes:
+        # 审查 A9: an escape-hatch pass must leave an audit trail — the plan
+        # produced under an acknowledged-stale outline carries clean F6 codes,
+        # so without this field the lineage pollution would be untraceable.
+        data["stale_outline_acknowledged"] = {
+            "codes": acknowledged_codes,
+            "acknowledged_at": datetime.now(timezone.utc).isoformat(
+                timespec="seconds"
+            ),
+        }
     _attach_plan_fingerprints(data, start_chapter_id=start_chapter_id)
     write_json(chapter_plan_path, data)
     return data

@@ -1900,10 +1900,24 @@ JS_DASHBOARD = """\
     const drafts = data.draft_chapters || [];
     const fp = plan.plan_fingerprint ? String(plan.plan_fingerprint).slice(0, 8) : "—";
     const target = plan.target_chapters || (plan.chapters || []).length || 0;
+    // iter 053a: outline↔start-point staleness warning (audit A5).
+    const oc = data.outline_consistency || {};
+    let outlineWarn = '';
+    if (oc.checked && oc.stale) {
+      outlineWarn =
+        '<div class="alert error" style="margin-top:8px"><strong>辩论大纲陈旧：</strong>' +
+        '大纲生成时的起点与当前起点不一致（' + escapeHtml((oc.codes || []).join(', ')) + '）。' +
+        '请重跑 debate（--force）后再规划，否则章纲会跨时间线。</div>';
+    } else if (oc.checked && oc.metadata_missing) {
+      outlineWarn =
+        '<div class="alert info" style="margin-top:8px">辩论大纲没有起点指纹' +
+        '（指纹机制之前的存量产物）。建议重跑 debate（--force）刷新指纹。</div>';
+    }
     box.innerHTML =
       '<span class="badge no-dot">起点 <code>' + escapeHtml(plan.start_chapter_id || "—") + '</code></span>' +
       '<span class="badge no-dot">指纹 <code>' + escapeHtml(fp) + '</code></span>' +
-      '<span class="badge no-dot">已写 ' + drafts.length + ' / 计划 ' + target + '</span>';
+      '<span class="badge no-dot">已写 ' + drafts.length + ' / 计划 ' + target + '</span>' +
+      outlineWarn;
   }
   function renderPlanChapters(box, plan, draftChapters, draftVerdicts) {
     if (!box) return;

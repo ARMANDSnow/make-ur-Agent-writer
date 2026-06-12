@@ -14,7 +14,7 @@ from .entity_advance import apply_advance_proposals, proposal_path, select_auto_
 from .preflight import run_preflight
 from .proposal_validator import validate_proposals_against_plan
 from .reviewer import review_target
-from .utils import ensure_dir, read_json, write_json
+from .utils import ensure_dir, read_json, read_json_optional, write_json
 from .kb_view import start_safe_knowledge
 from .writer import _chapter_plan_item, _index_path, _kb_path, _load_chapter_plan, _run_context, write_chapters
 
@@ -364,6 +364,43 @@ def check_write_readiness(
         blockers.append(f"preflight:{fatal}")
     for warn in preflight.get("warn", []) or []:
         warnings.append(f"preflight:{warn}")
+
+    # iter 053a (审查 A4/A1): warn lane for debate-intermediate provenance.
+    # The HARD gate lives at plan generation (plot_planner); but the writer
+    # also injects the outline verbatim into every chapter prompt, so a stale
+    # outline at write time still matters — surface it here as warnings
+    # (never blockers: legacy workspaces without provenance stay fail-open).
+    # Same lane checks plan↔outline lineage: after a debate rerun the old
+    # plan goes stale while its F6 fingerprints stay green.
+    outline_p = (
+        paths.outline_path()
+        if paths.workspace_name()
+        else Path("outputs/debate/outline.md")
+    )
+    if outline_p.exists():
+        try:
+            outline_text = outline_p.read_text(encoding="utf-8")
+        except OSError:
+            outline_text = None
+        if outline_text is not None:
+            decisions_p = (
+                paths.debate_decisions_path()
+                if paths.workspace_name()
+                else Path("outputs/debate/decisions.json")
+            )
+            decisions = read_json_optional(decisions_p, {})
+            warnings.extend(
+                f"debate_outline:{code}"
+                for code in start_point.outline_consistency_failures(
+                    decisions, outline_text=outline_text
+                )
+            )
+            warnings.extend(
+                f"chapter_plan:{code}"
+                for code in start_point.plan_outline_lineage_failures(
+                    raw_plan, outline_text=outline_text
+                )
+            )
 
     drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
     next_unapproved_chapter = None

@@ -46,7 +46,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import paths
+from . import paths, start_point
 from .config import ROOT
 from .cost_estimator import estimate_cost_since
 from .utils import append_jsonl, ensure_dir, read_json, write_json
@@ -306,6 +306,39 @@ def _segment_chapter_rows(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _outline_consistency_codes() -> List[str]:
+    """iter 053a: in-process read-only check of the on-disk debate outline's
+    provenance vs the CURRENT start point. Caller decides which codes block
+    (hard mismatches) and which only warn (metadata-missing legacy lane)."""
+    decisions = read_json(paths.debate_decisions_path(), None) or {}
+    try:
+        outline_text: Optional[str] = paths.outline_path().read_text(encoding="utf-8")
+    except OSError:
+        outline_text = None
+    return start_point.outline_consistency_failures(decisions, outline_text=outline_text)
+
+
+def _archive_stale_chapter_plan() -> Optional[Path]:
+    """iter 053a (审查 A1): after --force-debate produces a fresh outline, the
+    OLD chapter_plan.json is lineage-stale — but its F6 fingerprints stay green
+    (the start point didn't move), so the ensure-plan guard would skip
+    re-planning on "plan_sufficient" and feed writers the stale plan (the 052
+    accident path, one layer up). Archive (never delete) so ensure-plan
+    regenerates from the new outline. Returns the archive dir or None."""
+    plan_path = paths.chapter_plan_path()
+    if not plan_path.exists():
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    target = paths.debate_dir() / "snapshots" / f"{stamp}_stale_plan"
+    bump = 1
+    while target.exists():
+        target = paths.debate_dir() / "snapshots" / f"{stamp}_stale_plan_{bump}"
+        bump += 1
+    target.mkdir(parents=True)
+    plan_path.rename(target / plan_path.name)
+    return target
+
+
 def _run_steps(state: Dict[str, Any]) -> str:
     params = state["params"]
     timeout = int(params.get("step_timeout_minutes") or DEFAULT_STEP_TIMEOUT_MINUTES)
@@ -324,11 +357,49 @@ def _run_steps(state: Dict[str, Any]) -> str:
         state["last_error"] = "preflight failed (FATAL)"
         return "blocked"
 
-    # 2) debate（可选）—— outline 已存在或 --skip-debate 即跳过；
-    #    debate_log 的 done_keys 续跑由 debater 自身保证（iter015）。
+    # 2) debate —— iter 053a 三态升级：--skip-debate 跳过；--force-debate
+    #    归档重辩 + 失效下游 plan；outline 存在且指纹一致才跳过，指纹不匹配
+    #    缺省 blocked 停人审（对齐 052 哲学"blocked 默认停人审，不自动
+    #    force"——自动重辩静默烧 ¥1-2 且 debate 步前没有预算闸，审查 A6）。
+    #    debate_log 的 done_keys 续跑由 debater 自身保证（iter015 + 053a
+    #    防洗白指纹校验）。
     if params.get("skip_debate"):
         _emit(state, "step_skipped", step="debate", reason="skip_debate")
+    elif params.get("force_debate"):
+        res = _run_step(state, "debate", ["debate", "--force"], timeout_minutes=timeout)
+        if _STOP_REQUESTED:
+            return "stopped"
+        if res.timed_out:
+            return "paused"
+        if res.exit_code != 0:
+            state["last_error"] = "debate --force failed"
+            return "failed"
+        archived = _archive_stale_chapter_plan()
+        if archived is not None:
+            _emit(state, "stale_plan_archived", step="debate", archived_to=str(archived))
+        # 一次性旗标：本 run 内消费掉，配合 cmd_resume 的默认清零，防止
+        # pause→resume 把新辩论再归档重辩一遍（白烧钱）。
+        params["force_debate"] = False
+        _save_state(state)
     elif paths.outline_path().exists():
+        codes = _outline_consistency_codes()
+        hard = [c for c in codes if c != start_point.OUTLINE_METADATA_MISSING]
+        if hard:
+            state["last_error"] = (
+                "debate outline is stale relative to the current start point ("
+                + ", ".join(hard)
+                + ") — rerun with --force-debate to archive the old trio and "
+                "re-debate, or fix the start point first"
+            )
+            _emit(state, "debate_stale_outline_blocked", step="debate", codes=hard)
+            return "blocked"
+        if start_point.OUTLINE_METADATA_MISSING in codes:
+            _emit(
+                state,
+                "debate_outline_no_fingerprint",
+                step="debate",
+                hint="legacy outline without provenance; --force-debate refreshes it",
+            )
         _emit(state, "step_skipped", step="debate", reason="outline_exists")
     else:
         res = _run_step(state, "debate", ["debate"], timeout_minutes=timeout)
@@ -610,6 +681,7 @@ def _build_params(args: Any) -> Dict[str, Any]:
         "tier": getattr(args, "tier", None),
         "max_retries": int(getattr(args, "max_retries", 2) or 2),
         "skip_debate": bool(getattr(args, "skip_debate", False)),
+        "force_debate": bool(getattr(args, "force_debate", False)),
         "require_start_point": bool(getattr(args, "require_start_point", False)),
         "allow_missing_start_point": bool(getattr(args, "allow_missing_start_point", False)),
         "allow_missing_plan": bool(getattr(args, "allow_missing_plan", False)),
@@ -670,6 +742,10 @@ def cmd_start(args: Any) -> int:
     if running:
         print(f"another driver is running (pid={running.get('pid')}); use drive-book stop first", file=sys.stderr)
         return 2
+    # iter 053a: 互斥校验——跳过与强制重辩语义相反，混传必是操作失误。
+    if bool(getattr(args, "skip_debate", False)) and bool(getattr(args, "force_debate", False)):
+        print("--skip-debate and --force-debate are mutually exclusive", file=sys.stderr)
+        return 2
     if _refuse_real_run(args):
         return _REAL_RUN_REFUSAL_EXIT
 
@@ -717,6 +793,14 @@ def cmd_resume(args: Any) -> int:
     # 否则每次 resume 都会在同一段再暂停一次。
     pause = getattr(args, "pause_after_segment", None)
     params["pause_after_segment"] = int(pause) if pause is not None else 0
+    # iter 053a: force_debate 同款一次性语义——resume 默认清零，显式再传才
+    # 再次强制重辩（否则段间 pause→resume 会把刚辩好的新大纲再归档重辩，
+    # 白烧 ¥1-2）。与 skip_debate 互斥。
+    force_debate = bool(getattr(args, "force_debate", False))
+    if force_debate and params.get("skip_debate"):
+        print("--force-debate conflicts with stored --skip-debate params", file=sys.stderr)
+        return 2
+    params["force_debate"] = force_debate
     for key, attr in (
         ("step_timeout_minutes", "step_timeout_minutes"),
         ("budget_cny", "budget_cny"),

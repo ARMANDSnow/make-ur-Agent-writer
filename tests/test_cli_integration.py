@@ -189,10 +189,14 @@ class CliIntegrationTests(unittest.TestCase):
 
         with patch("main.run_debate") as run_debate:
             self.run_cli(["debate", "--topic", "雪后山门"])
-            run_debate.assert_called_once_with(topic="雪后山门")
+            run_debate.assert_called_once_with(topic="雪后山门", force=False)
             run_debate.reset_mock()
             self.run_cli(["debate"])
-            run_debate.assert_called_once_with()
+            run_debate.assert_called_once_with(force=False)
+            # iter 053a: --force 透传（归档三件套 + 全新辩论）。
+            run_debate.reset_mock()
+            self.run_cli(["debate", "--force"])
+            run_debate.assert_called_once_with(force=True)
 
     def test_init_book_bootstrap_all_returns_six_proposal_keys(self) -> None:
         """Iter 016 + iter 026 code-review #3: bootstrap_all() must
