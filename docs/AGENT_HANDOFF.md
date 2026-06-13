@@ -1351,3 +1351,17 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **⏳ 续写 ch1-3 改日续跑**：遇 aetherheartpool Cloudflare Tunnel `Error 1033/530` 宕机（provider 侧，已恢复但拥堵）+ longzu 章节巨大（20-30K 字）高档 extract 极慢（分块章 967s），窗口提取 2/10 后用户拍板**收于确定性 oracle**。真模型累计 ¥2.93（多为宕机 530 重试损耗）。克隆保留（workspaces gitignore），改日用 `/tmp/extract_window.py`（流式+超时重试+续跑+绕分块）补完 → rebuild 收尾 → drive-book 续写。
 
 **运维发现（沉淀）**：① 绕分块（单调用，30K 仍在 128K context 内）远快于 3 子调用；② LLM 调用无 per-call 超时 → 挂起永久阻塞，实跑须超时+重试；③ **`extract_all` 静默吞每章异常进 failure 记录、不向编排层抛**（extractor.py:393）——宕机时 rebuild 表现为"0 提取无报错"；054b 覆盖闸 blocker 兜底拦"底座没建好"。该健壮性缺口已立背景任务另案。
+
+## iter054 本会话收尾（2026-06-13，extract_all 修 + 三视角审核 + 环境清理）
+
+**`extract_all` 失败可见化（`04eb8a0`，上文「另案」已落地）**：新增 `raise_on_failure: bool = False`（默认逐字节不变，绿地/retry_failures/web jobs 全走默认）——循环内收集 failed_ids、跑完整批后有失败即 `log_event("extract","batch_failures",…)`，opt-in 时抛 `ExtractionBatchFailure`（暴露 failed_ids/extracted）；`rebuild_for_start` 传 `raise_on_failure=True` → 提取失败即 abort，不在残缺集上 compress/bootstrap；`main.py` rebuild handler 扩 `except (ValueError, ExtractionBatchFailure)` 清退。+1 mock 测，verify.sh exit 0 / 987 单测 OK。
+
+**三视角 subagent 代码审核（本会话全部 feat/fix）—— 全部 GO，无阻断/高/中级缺陷**：
+- 054b 自动化（`230a03a`/`3c860c5`）：铁律④ 逐字节不变（sidecar 缺失→fresh、coverage 无起点 fail-open）、stale 语义与 anchor 027 逐行等价、coverage blocker 闸序正确（append-mismatch 先命中）、无 import 循环、sidecar reader/writer 路径一致、测试覆盖关键分支。
+- 编排（`c823e87`/`7cb11b6`）：窗口数学与 coverage 闸逐元素对齐（穷举无 off-by-one）、ingest 截断坐标(1-based `lines[:limit]`)/顺序(重写 manifest 前算完所有卷 limit)/多卷删除/幂等正确、源 `小说txt/` 不动、greenfield raise 保护。
+- `extract_all` 修（`04eb8a0`）：纯加性向后兼容、5 个既有调用点全走默认、raise 在循环后保留「尽量多提取」、传播链唯一调用方 `main.py` 闭环捕获。
+- **审核 nits（非阻断，待选，未改）**：① `main.py` set-start-point 的 coverage WARNING 调用落在 `set_start_point` 的 `try/except ValueError` 块内——未来若 `extraction_coverage_failures` 新增 ValueError 路径会误报命令失败（当前无触发路径）；② 缺两条 ingest 边界回归测试（起点=末章零截断 / 同起点重跑幂等，审核已手测通过）；③ `ExtractionBatchFailure` 文案硬编码 530 成因（已引导查 last_error）。
+
+**环境清理**：054c 临时克隆 `longzu_054c_full`/`longzu_054c_ingest` + 5 个空 `unit_driver_*` 测试遗留 + `/tmp` 本会话脚本/日志（含 `extract_window.py`）**已全部删除**。真实书 workspace（longzu/shudian052/tianlong/alpha/i38drama01）与 longzu 27 章提取均**未被触碰**，git 干净。**改日续跑真模型续写须从头重建**（克隆与 /tmp 驱动已不在）：重跑 ingest-to-start（免费）或按 memory `real-model-run-needs-timeout-retry-driver` 重写超时+重试驱动补提取 → `rebuild-for-start` 收尾 → drive-book 续写 ch1-3。
+
+**iter054 全况**：四轨（054a 消费/采样封口 · 054b 底座 start-aware + 自动化 · 054c 验收 · 054d ingest-to-start 主线机制）**mock 半全部收官**（965→987 单测，每提交独立 verify.sh exit 0）；真模型**核心泄露验收（diff oracle）证毕**；真模型续写冒烟待拥堵缓解续跑。本会话 7 提交（`857fec8..HEAD`：5 feat/fix + 2 docs），全程只 commit 未 push（铁律⑤）。
