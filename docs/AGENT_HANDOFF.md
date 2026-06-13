@@ -1315,3 +1315,15 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 - **可延**：M2（polish 吃 block 行，章长 >3500 不触发）、M5（票闸×Abstain）、timeline 动态建边（052 顺延）
 
 **iter054 主线建议**：两条路线——(甲) 直接上 30 章 capstone 验证长程一致性（B1 拍板后即可跑，A-M5/M3 搭车修），把缺口 A/B 留作"已知残留、操作纪律规避"；(乙) 先补缺口 A/B 把"深起点无泄露续写"从 demo 做成产品能力，再以 capstone 验证。(甲) 快、验证长程；(乙) 慢、补真能力。**取决于产品定位是"演示长程能写"还是"任意书任意起点安全可用"。** capstone 代码前置已就绪（驱动器/护栏/longzu 底座），无技术 blocker。
+
+### 核查修订（2026-06-13，二次 workflow 对抗式核查 `wauup3r0p`，iter054 v2 依据）
+上面「断言一」的泄露口清单经逐文件复核（11 agents / 完整性穷尽）有数处修订，详见 docs/iterations/iteration_054_PLAN.md「核实回填」段：
+- **新增最严重口 style_examples（审查遗漏）**：bootstrap 从全书 normalized_texts 采样（`auto_bootstrap.py:528-551` 含 tail 窗）→ apply 逐字落盘（`cli_apply_bootstrap.py:244-259`）→ 4 处注入 prompt（`writer.py:676/1047`、`plot_planner.py:521`、`debater.py:644`），全程零 `is_after_start`。**verbatim_prose 级**，且**注入端不可过滤**（md 行号锚 normalized_texts，manifest 章号锚原始 txt，异坐标系），须在 bootstrap 采样端卡起点上界。
+- **source_excerpts 修正**：① 落盘带合法 `source_chapter_id`（`schemas.py:392`）→ **可过滤**（047b 未利用）；② 注入点是 **3 处**（`writer.py:703` 写 + `writer.py:149`/`book_runner.py:794` 评审），非单点。
+- **entity_graph 拆分**：关系（`entities.py:41-99`）消费层**已**过 `is_after_start`；实体 key_facts/description（`entities.py:104-118`）**确零过滤**——审查"最大泄露口"指后者，成立，054b 底座 start-aware 治本。
+- **消费层澄清（审查低估）**：KB/manual_facts/anchor 进 prompt 时**已**过滤（`kb_view.py:61-122`、`manual_facts.py:40-94`、起点有界 anchor）；`knowledge_index` 只注入条目计数非内容。
+- **降级**：debater 起点章尾（`debater.py:628`）→ **none**（每章行区间硬封闭 `chapter_splitter.py:145`，读的是合法起点章本身）。
+- **`_load_extractions` 非唯一集中点**：另有 `compressor.py:30` 独立 glob；但 entity key_facts 只走 auto_bootstrap 这条，改一处即堵漏，compressor 那条是纵深（KB 已消费层过滤）。
+- **关键定性**：**longzu 当前不前向泄露是文件名字典序 + 70k char cap 在 longzu_3_1 截断的巧合**（book4/前传从未被采样），非机制——与 ch024 同款，坐实"换深起点必触发"。
+
+**iter054 已拍板（2026-06-13）**：① ingest-to-start（054d）本轮做、作主线机制；② 054a/b 过滤作测试台+纵深 backstop；③ write/debate 已切 `gpt-5.5-low`（`.env`，extract/review 保持 high），ping 验联通 ok。
