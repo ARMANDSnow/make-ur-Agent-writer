@@ -5,7 +5,7 @@
 > ② **次因**——写手把预训练记忆里的原著后期设定写进正文（"路鸣泽四分之一生命交易"，起点处只有"愿意交换么"悬念）；`start_safe_knowledge`（047b）管 KB 注入、管不住模型记忆；现行笼统反馈回灌对此无效（九稿分数横盘实证）。
 > ③ **小缺口**——premise 扩写稿 6 字段无非空校验（shudian052 实测 genre_tone/world_notes/central_conflict 空着落盘，靠 personas 兜底未出事；2026-06-12 盘面复核 arc_hints 同为空）。
 >
-> **拍板结论（用户，2026-06-12）**：① 三轨照单全收（a 中间产物校验 / b canon 锚定增强 / c longzu 复仇局）；② 053c 预算上限 **¥12**；③ 计划稿在 052 实跑收尾期并行起草，**053 实施等 052 收官后开始**（052 驱动器子进程从磁盘热加载代码，跑动中改 src/ 会污染 F7 对照——经用户确认的隔离纪律）；④（实施启动时追加）**053c 提速降本授权**——不影响质量前提下可换更快模型档（如 GPT-5.5-low）、票数闸降至 **3/5**。落地方式：保 7.5 分数线只降票数（review_tier 新增 env 覆写，**不**整体换 `--tier low`——low 档会把分数线连降到 6.5，违背"不影响质量"前提）；模型换档经 models.yaml 补 `model_env` 钩子按任务粒度控制（config.py:104 现成机制），写手任务若换档则 ch1 出稿即人审对照。
+> **拍板结论（用户，2026-06-12）**：① 三轨照单全收（a 中间产物校验 / b canon 锚定增强 / c longzu 复仇局）；② 053c 预算上限 **¥12**；③ 计划稿在 052 实跑收尾期并行起草，**053 实施等 052 收官后开始**（052 驱动器子进程从磁盘热加载代码，跑动中改 src/ 会污染 F7 对照——经用户确认的隔离纪律）；④（实施启动时追加）**053c 提速降本授权**——不影响质量前提下可换更快模型档（如 GPT-5.5-low）、票数闸降至 **3/5**。落地方式：保 7.5 分数线只降票数（review_tier 新增 env 覆写，**不**整体换 `--tier low`——low 档会把分数线连降到 6.5，违背"不影响质量"前提）；模型换档经 models.yaml 补 `model_env` 钩子按任务粒度控制（config.py:104 现成机制），写手任务若换档则 ch1 出稿即人审对照；⑤（2026-06-13 /goal 授权）**真模型预算 ¥50+ 一次性授权、整轮迭代含 053c 由 agent 自主完成**——铁律⑥时点确认成立；ch1 段间人审由 agent 按决策表执行；**模型档全程保持 052 同款 gpt-5.5-high 默认档、不动用 model_env 换档**（双重理由：铁律⑨ B-H1 计价豁免——cost_estimator 单价表单一价，换档会让 ¥12 预算闸计价失真；以及 panel 基线可比性——验收阈值全部建立在 052/6月5日 同模型口径上）；053c 仍按拍板②的 ¥12 上限跑，¥50 余量留给可能的二轮/补跑。
 >
 > **本档已过 2026-06-12 四维 subagent 审核**（代码锚点核实 × 052 文档口径核对 × 盘面状态实勘 × 对抗设计审查），采纳项以"审查 A/B/C/D 编号"标注于各节，初稿勘误汇总见 Notes。
 
@@ -88,19 +88,45 @@ iter052 的 longzu 实跑暴露了一条干净的因果链：清场时为省 deb
 
 ## Acceptance Result（待回填）
 
-### mock 验收 ✅（2026-06-13 回填）
-- 全量回归 **954 passed 零失败**（907 → 954，净 +47：053a +25 / 拍板④ +6 / 053b +11 / premise +5——预估 +38 偏保守；另 test_cli_integration 的 run_debate 调用契约随 `--force` 透传同步更新）；`PATH=.venv/bin bash scripts/verify.sh` 全链 exit 0。
+### mock 验收 ✅（2026-06-13 回填，含 053d 铁律⑨直修后终值）
+- 全量回归 **959 passed 零失败**（907 → 954 → 959，净 +52：053a +25 / 拍板④ +6 / 053b +11 / premise +5 / 053d 铁律⑨钉死 +5——预估 +38 偏保守；另 test_cli_integration 的 run_debate 调用契约随 `--force` 透传同步更新）；`PATH=.venv/bin bash scripts/verify.sh` 全链 exit 0。
 - 已钉死断言（原"待钉死"清单全部落地）：decisions 指纹+outline 哈希写入与写入顺序；plan 四态（匹配过/不匹配硬拦/无指纹 warn/decisions 缺失 warn 同道）；逃生门审计留痕；plan↔outline 血统链记录与校验；debate_log 指纹续跑拒绝；driver 三态（缺省 blocked + --force-debate 联动失效 plan + 一次性旗标消费）；debate --force 归档；锚定块条件注入（无起点与 env 关闭均逐字节不变）；回灌分层四节顺序与 block-but-Approve 修复 + `_blocking_reasons` 同口径 + 全 Approve 零回灌；跨周期反馈播种（含 write_chapters 端到端）；扩写空字段重试与 record 层标记不进 prompt、手工补全摘牌；`WRITE_REVIEW_MIN_APPROVE` 覆写（3/5 生效、缺省/非法回退、夹紧）；models.yaml model_env 钩子（mock 隔离不被突破）。
 - 测试分布：053a → `tests/test_iter053a_outline_guard.py`；拍板④ → `tests/test_iter053_decision4_overrides.py`；053b → `tests/test_iter053b_canon_anchor.py`；premise → `tests/test_iter053_premise_guard.py`。
 - commit 边界（审查 D2 纪律，四个独立回滚单元）：053a=`78cdc75`、拍板④=`4dd1ed6`、053b=`27cdea9`、premise=`0e2049b`。
 
-### 真模型段（门槛，longzu 复仇局 ≤¥12 —— 待跑，跑前按铁律⑥确认时点）
-- 按 053c 决策表判定（四行覆盖全部结果空间，初稿"连拒不算失败"的口径已结构化进表）；新 outline 指纹+血统链一致性实证；panel 含 prose/plot 分轴对照 6月5日基线；预算 ≤ ¥12。
+### 053c 实跑实录（2026-06-13，进行中——四层毒源逐层剥洋葱）
+
+> 拍板⑤（/goal，¥50+ 授权）下自主执行。每一层都是"按图索骥跑一段 → 取证 → 停机 → 机制化修复 → 复跑"的循环，全部留档可考。
+
+| 轮次 | 现象 | 根因 | 修复 | 花费节点 |
+|---|---|---|---|---|
+| 点火一（段一 v1） | 053a 全链绿灯（指纹/血统/log 头全匹配）但全新辩论仍产出"黑色机库"ch1——起点 ch024 是 III 尾声（机库之战已收束三个月），新大纲却把高潮当"当前局势"重演 | **根因②**：debate prompt 从无 plot_planner 自 iter021/027 就有的显式起点块；毒 anchor 以 must-anchor 满权威注入（id 级 provenance 拦不住内容毒：anchor meta 记 ch024、内容锚高潮中段） | **053e**（`fa40b2e`）：`_start_point_prompt_block` 注入 agent 轮次/decisions/outline 三个 prompt 面，显式压过 must-anchor；plan 落盘后停机取证 | ¥2.83（debate 44 calls + plan） |
+| anchor 重生成 | 修完 053e 重新 bootstrap-anchor，**新 anchor 仍锚机库** | **根因③**：anchor 采样窗口 off-by-one——`format_chapters_before_start_for_anchor` 起点章 exclusive，起点章本身（真正的交接点）永远不进窗口；ch021-023 还在高潮里，ch024 才是时间跳跃的尾声 → 重新生成多少次都是毒（5/30 毒 anchor 由此成因，非一次性事故） | **053f**（`d9a0564`）：include_start 开关（(start-k, start] 闭区间），bootstrap 走 inclusive + "以最后一章结尾时空为准"指令；重生成后 anchor 正确锚尾声（"东京危机已过去三个月"） | ¥0.15 ×2 |
+| 复跑（段一 v2） | 053e+053f 生效：新大纲自带"起点校准"节（机库 0 次、"禁止重演已收束战局"白纸黑字）、plan v3 ch1「夜航」无缝衔接尾声最后一幕——**真·干净图纸首次产出**。但 ch1 首稿 panel 5.44 连拒，拒因全部 entity/relationship 系："当前状态停在入学初期、3E 考试前后" | **根因④（最深层）**：extracted_jsons 只有全书 110 章的**前 3 章**（5/29 init 小 limit），起点在第 ~100 章——KB/entity_graph 整条派生链锚死"入学初期"，评审拿旧实体图当硬尺连拒贴起点的正确稿件。同时坐实：052 九稿全灭拒因与 6/5「听力考试」7.5"基线"同源——后者是恰好写进旧底座时代的**假基线** | **053g**（`9163a59`）：`extraction_coverage_failures` warn 护栏进 readiness；运营面补提取 3_3 卷 24 章（进行中）→ recompress → 实体图重建 → resume（plan v3 内容正确，不重辩） | 二轮 debate+plan+ch1 两稿 ≈¥5.0；补提取预估 ≈¥4 |
+| A-H1 实战 | resume --force-debate 时 `stale_plan_archived` 在 debate 之前触发 | 铁律⑨ A-H1 修复的顺序在真实中断-恢复链上首次实战命中 | —— | —— |
+| 根因④变体 | 补提取+KB 重建后 bootstrap-graph **仍**锚序章/入学初期 | **根因④-b（截断毒）**：`_extractions_context` 把 27 章 compact JSON 尾部截断到 65k，LLM 只看到字典序最前的早期章节；5/29 首建只 3 章不触发、提取补全反而引爆 | **053h**（`fda280a`）：recent_first 由近及远整项累加、丢最早章；重建后实体图正确锚 III 尾期（绘梨衣之死/生命交易/全员就位） | bootstrap-graph ×2 ≈¥1 |
+| **终验收（段一三攻 + 段二）** | **ch1–5 全 5/5 满票 Approve**，panel 7.50/7.56/7.52/7.64/7.74（均值 **7.59**）；机库/倒计时/心神原型机全章 **0** 次；ch1 anchor=False（纯 053a 净图纸单独验证）vs ch2–5 anchor=True（053b 锚定）；ch4/ch5 各重试 1 次过审（053b 跨周期播种实战，052 九稿横盘的对照反例） | 四层毒源全部根除，干净底座下流水线本就能写 | 全链验收兑现 | 干净 pass ≈¥9.6（底座修复后单 pass，回原 ¥12 量级内） |
+
+**验收判定（决策表第一行命中）**：ch1 过闸 ✓（且 anchor=False 即纯净图纸下过，干净图纸假说**铁证成立**）；ch1–5 Approve 5/5 ≥ 3/5 ✓；panel 均值 7.59 ≥ 7.5 ✓ → **053 全验收通过，capstone 立项解锁**。3/5 票闸全程未派上用场（5 章 approve_count 均 5/5），质量为真而非降阈值蒙混。
+
+**成本总账**：全程 driver-scope **¥23.61**（拍板⑤ ¥50+ 授权内，拍板② ¥12 是单 pass 口径、不含剥四层毒源的取证）= 取证+底座重建 ¥14.0（两轮辩论/三轮 plan/ch1 三攻 + 24 章提取/KB/实体图×2）+ 最终干净 pass ¥9.6。**关键：底座修复后单 pass 5 章 ≈¥9.6，回到原 ¥12 设计量级**——证明四层护栏不增边际成本，贵的是一次性的历史债清偿。
+
+- **预算执行记录**：拍板②的 ¥12 为单 pass 设计；实跑剥出四层毒源后按拍板⑤（¥50+）扩执行预算——resume 时驱动器 `--budget-cny 20`，全程含补提取预计 ≤¥20。
+- **052 根因考古的修订**：052 收官记载的主因（陈旧 outline）成立但不完备——它是四层毒源的最外层；"6/5 旧 plan 贴起点可过"的对照证据实为"贴旧底座可过"。052 文档不改（历史记录），以本实录为准。
+
+### 真模型段 ✅（2026-06-13 收官，longzu 复仇局通过）
+- 决策表第一行命中：ch1 过闸（anchor=False 纯净图纸，干净图纸假说铁证成立）+ ch1–5 **5/5 满票 Approve** + panel 均值 **7.59** ≥ 7.5 → **053 全验收通过，capstone 解锁**。
+- 实跑剥出 052"根因考古"未触达的更深三层（debate 缺起点块 / anchor 采样 off-by-one / 提取底座断层 + 截断毒），逐层机制化为 053e/f/g/h，全部 mock 钉死；详见上方"053c 实跑实录"四层剥洋葱表。
+- 成本 ¥23.61（含一次性历史债清偿，拍板⑤授权内）；干净底座单 pass 5 章 ≈¥9.6 回原量级。
 - 配方速记（实施段核定版）：第 0 步清场断言（debate 三件套 + **毒 chapter_plan.json** + ch1 残留 + rolling summary）→ 段一 `drive_book.sh --book longzu start --chapters 5 --segment-size 1 --pause-after-segment 1 --plan-target 5 --force-debate --require-start-point --budget-cny 12 --tier mid --detach --confirm-real-run` + `WRITE_REVIEW_MIN_APPROVE=3` + `WRITER_CANON_ANCHOR=0`（ch1 仅 053a）→ 人审 → 段二 resume 开启锚定跑 ch2–5。
 
-### 铁律⑨ 对抗审查（待回填）
-- 建议视角：A 指纹/血统校验链正确性、存量兼容与逃生门审计 × B 反剧透约束的写作质量副作用、回灌 token 成本与跨周期播种正确性。
-- 注：本计划稿层面的对抗审查已于 2026-06-12 由 red team subagent 先行完成并采纳（A1-A9/B1-B4/C1-C4/D1-D2）；此处指**实施收官前**对代码实物的铁律⑨审查，照常执行。
+### 铁律⑨ 对抗审查 ✅（2026-06-13 回填，053c 点火前完成）
+- 双视角 subagent 并行：A 指纹/血统校验链正确性、存量兼容与逃生门审计 × B 反剧透副作用、回灌 token 成本与跨周期播种正确性。结论：**1H + 5M + 3L 当轮直修**（commit `3506b36`，053d）。
+- **A-H1（必修）**：`--force-debate` 的 plan 归档原在 debate 子进程之后——debate 超时/中断会让"联动失效"永久丢失，resume（旗标默认清零）补完辩论后 ensure-plan 见旧 plan 条数够数直接复用，052 毒 plan 事故在中断路径上复活。修法：plan 归档挪到 debate **之前**（plan 因 force 意图失效、与 debate 结果无关），失败路径测试钉死。
+- 其余直修：A-M2 outline 写盘前 CR 规范化（防哈希假阳性硬拦）；A-M3 无头 log + 带元数据 decisions → fail-closed；A-M4 driver 读 decisions 容错四面同口径；A-L2 空 log 补指纹头；A-L4 force 归档挪到 persona 校验后；B-M1 章节 meta 落 `canon_anchor_active`（段间对照凭据）；B-M4 播种剥离 lint 行号；B-L5 web 补全摘牌。
+- **记入 053c 观察项（带病点火获准）**：B-M2 polish 路径（Approve+<3000字）现在会吃到 block 行（053c 章节均 >3500 字，风险低）；B-M3 Approve+block 稿出货无痕（3/5 票闸下人审时专门翻 Approve 章的 agent_reviews 查 block）；B-M5 3/5 票 × Abstain 交互削弱 fail-closed（解析失败率低，观察）；A-M5 append/replan 路径丢审计痕 + 不透传逃生门（053c 不走 replan-every，排 054）。
+- B-H1 条件性发现（模型换档 × cost_estimator 单价表计价失真）→ 以拍板⑤"不换档"豁免。
+- 测试密闭性连环挂根因修复：plot_planner 存量测试补 patch DECISIONS_PATH + setUp 止血（verify.sh 在 repo 根留下带指纹 decisions 与测试 tmp outline 撞 content_mismatch，setUp 抛异常致 patch 泄漏）。mock 全量 **959 passed**（954→959）。
 
 ## 不在本轮范围
 - 30–100 章 capstone（仍单独立项，依赖 053c 结论）。

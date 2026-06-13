@@ -1261,3 +1261,25 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 - **premise 搭车（`0e2049b`）**：扩写 6 字段非空校验（空字段重试一次 + record 层 `_incomplete_fields` 标记不进 prompt 面 + stage① 建议补全提示 + 手工补全摘牌）。
 
 **验证**：mock 全绿 **954 OK**（907→954，+47）+ verify.sh 全链 exit 0。**真模型段（053c longzu 复仇局，≤¥12）待跑**——跑前按铁律⑥与用户确认时点；配方与验收决策表见 iteration_053_PLAN.md：第 0 步清场断言（debate 三件套 + 毒 chapter_plan.json + ch1 残留 + rolling summary）→ 分段单变量（ch1 仅 053a 净图纸、人审后 ch2–5 开 053b 锚定）→ `WRITE_REVIEW_MIN_APPROVE=3`（拍板④）；票数闸边界拒形态不计入 053b 副作用判定。
+
+## Phase 5 Status（iter 053，2026-06-13，全验收收官）
+
+### Iteration 053 — 中间产物起点校验 + 写手 canon 锚定（053c longzu 复仇局 5/5 Approve 通过）
+
+**最终结论**：longzu 干净图纸假说**铁证成立**——ch1–5 全 5/5 满票 Approve，panel 均值 7.59，机库/倒计时/心神原型机全章 0 次（052 时间线穿越毒彻底根除）。3/5 票闸全程未派上用场（approve_count 均 5/5），质量为真。capstone 立项解锁。
+
+**核心发现：052"根因考古"只触达最外层**。053c 真模型实跑（拍板⑤ ¥50+ 授权，agent 自主"跑→取证→停→机制化修复→复跑"循环）剥出四层毒源：
+1. **根因①（052 已识别）陈旧 outline 不受校验** → 053a 指纹+血统链（`78cdc75`）
+2. **根因② debate 缺显式起点块** → 毒 anchor 以 must-anchor 满权威注入，id 级 provenance 拦不住内容毒 → 053e（`fa40b2e`）`_start_point_prompt_block` 注入三个 prompt 面
+3. **根因③ anchor 采样 off-by-one** → 起点章 exclusive，时间跳跃尾声型起点系统性锚早一章（5/30 毒 anchor 由此成因，非一次性事故）→ 053f（`d9a0564`）include_start 闭区间
+4. **根因④ 提取底座断层 + 截断毒** → extracted_jsons 只覆盖前 3 章、起点在第 ~100 章，KB/实体图锚死"入学初期"，评审拿旧状态当硬尺连拒贴起点的正确稿 → 053g（`9163a59`）覆盖 warn 护栏 + 运营补提取 24 章；补全后 bootstrap 截断毒（尾部截断只留早期章）→ 053h（`fda280a`）recent_first 窗口
+
+**052 失败根因链修订**：052 主因（陈旧 outline）成立但是最外层；"6/5 旧 plan 贴起点可过 7.5"实为"贴旧底座可过"的假基线。底座断层是最深层。052 文档不改（历史记录），以 iter053_PLAN 的"053c 实跑实录"四层剥洋葱表为准。
+
+**主要落地**（八个独立回滚单元）：053a 中间产物指纹/血统/防洗白 + 拍板④票数闸/模型档 env（`4dd1ed6`）+ 053b 写手时间锚定/回灌分层/跨周期播种（`27cdea9`）+ premise 非空校验（`0e2049b`）+ 053d 铁律⑨双视角直修（`3506b36`，1H+5M+3L）+ 053e/f/g/h 实跑发现直修。
+
+**053b 实战印证**：ch4/ch5 各重试 1 次过审——同样的 retry 机制，052 是九稿横盘全灭，053 是带跨周期播种的"被拒→吸取拒因→下稿过"。分段单变量对照成立：ch1 anchor=False（纯 053a 净图纸）vs ch2–5 anchor=True（叠加 053b）。
+
+**验证**：mock 全绿 **967 OK**（907→967，+60）+ verify.sh exit 0。真模型 ¥23.61（拍板⑤授权内，含一次性历史债清偿：两轮辩论/三轮 plan/ch1 三攻 + 24 章提取/KB/实体图重建）；**干净底座单 pass 5 章 ≈¥9.6 回原 ¥12 设计量级**——四层护栏不增边际成本。
+
+**接力点（iter054 候选）**：① capstone 30–100 章（基建+底座全就绪，用 longzu 干净 plan）；② 053d 记入观察项的 M2/M3/M5（polish 路径吃 block 行 / Approve+block 出货无痕 / 3票闸×Abstain）+ A-M5（append/replan 丢审计痕）；③ timeline 动态建边（052 顺延）；④ 提取覆盖从 warn 升级为可选 block（053g 现为 warn）。
