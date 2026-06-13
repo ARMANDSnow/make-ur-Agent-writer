@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import paths
+from .start_point import is_after_start
 from .utils import read_json
 
 
@@ -157,6 +158,23 @@ def _score_excerpt(excerpt: Dict[str, Any], plan_text: str, detected_scenes: Lis
     return score
 
 
+def _is_spoiler_excerpt(excerpt: Any) -> bool:
+    """iter 054a: True iff this excerpt's source chapter is strictly AFTER the
+    continuation start point — a forward spoiler that must never reach the
+    writer/reviewer prompt. ``source_chapter_id`` (schemas.py) shares the
+    manifest chapter_id namespace, so ``is_after_start`` applies directly.
+
+    Fail-open (returns False) for non-dict items, missing/empty
+    ``source_chapter_id``, chapter not in manifest, or no start point set —
+    so greenfield / legacy excerpts stay byte-identical to pre-054 behavior
+    (铁律④). This is the consumption-side second line of defense; the
+    bootstrap sampler is the source-side seal (see iter054 plan 054a).
+    """
+    if not isinstance(excerpt, dict):
+        return False
+    return is_after_start(str(excerpt.get("source_chapter_id", "")))
+
+
 def select_for_chapter(plan_item: Optional[Dict[str, Any]], k: int = 3) -> List[Dict[str, Any]]:
     """Return up to K excerpts matching the chapter plan's scene types.
 
@@ -171,7 +189,12 @@ def select_for_chapter(plan_item: Optional[Dict[str, Any]], k: int = 3) -> List[
     """
     if k <= 0 or not plan_item:
         return []
-    excerpts = load_excerpts()
+    # iter 054a spoiler guard: drop excerpts whose source chapter is strictly
+    # after the start point BEFORE scoring. One choke-point covers all three
+    # injection sites (writer.py:703 write / writer.py:149 review /
+    # book_runner.py:794 review-context), each of which calls select_for_chapter.
+    # No start set (greenfield) → _is_spoiler_excerpt is False for all → no-op.
+    excerpts = [ex for ex in load_excerpts() if not _is_spoiler_excerpt(ex)]
     if not excerpts:
         return []
     plan_text = _extract_text_for_matching(plan_item)

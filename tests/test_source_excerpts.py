@@ -102,6 +102,76 @@ class SourceExcerptsTests(unittest.TestCase):
         from src import source_excerpts
         self.assertEqual(source_excerpts.format_excerpts_for_prompt([]), "")
 
+    # --- iter 054a: start-point spoiler guard ---------------------------------
+
+    def _setup_manifest_start(self, chapter_ids, start_id) -> None:
+        data_dir = self.ws_root / "data"
+        (data_dir / "manual_overrides").mkdir(parents=True, exist_ok=True)
+        manifest = [
+            {"chapter_id": cid, "volume_id": "v1", "title": cid} for cid in chapter_ids
+        ]
+        (data_dir / "chapter_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+        )
+        (data_dir / "manual_overrides" / "start_chapter.json").write_text(
+            json.dumps({"start_chapter_id": start_id}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    def test_is_spoiler_excerpt_predicate(self) -> None:
+        from src import source_excerpts
+        self._setup_manifest_start(
+            ["ch001", "ch002", "ch003", "ch004", "ch005"], "ch003"
+        )
+        # strictly after start → spoiler
+        self.assertTrue(source_excerpts._is_spoiler_excerpt({"source_chapter_id": "ch004"}))
+        self.assertTrue(source_excerpts._is_spoiler_excerpt({"source_chapter_id": "ch005"}))
+        # before start / at start → not a spoiler (start chapter is legal context)
+        self.assertFalse(source_excerpts._is_spoiler_excerpt({"source_chapter_id": "ch002"}))
+        self.assertFalse(source_excerpts._is_spoiler_excerpt({"source_chapter_id": "ch003"}))
+        # fail-open: missing id / not in manifest / non-dict
+        self.assertFalse(source_excerpts._is_spoiler_excerpt({"source_chapter_id": ""}))
+        self.assertFalse(source_excerpts._is_spoiler_excerpt({"source_chapter_id": "ch999"}))
+        self.assertFalse(source_excerpts._is_spoiler_excerpt({}))
+        self.assertFalse(source_excerpts._is_spoiler_excerpt("not a dict"))
+
+    def test_select_drops_after_start_excerpts(self) -> None:
+        from src import source_excerpts
+        self._setup_manifest_start(
+            ["ch001", "ch002", "ch003", "ch004", "ch005"], "ch003"
+        )
+        self._write_excerpts([
+            {"id": "before", "scene_type": "战斗", "source_chapter_id": "ch002",
+             "tags": [], "character_focus": [], "excerpt_text": "pre"},
+            {"id": "at_start", "scene_type": "战斗", "source_chapter_id": "ch003",
+             "tags": [], "character_focus": [], "excerpt_text": "at"},
+            {"id": "after1", "scene_type": "战斗", "source_chapter_id": "ch004",
+             "tags": [], "character_focus": [], "excerpt_text": "SPOILER one"},
+            {"id": "after2", "scene_type": "战斗", "source_chapter_id": "ch005",
+             "tags": [], "character_focus": [], "excerpt_text": "SPOILER two"},
+        ])
+        selected = source_excerpts.select_for_chapter({"key_events": ["一场战斗"]}, k=10)
+        ids = {ex["id"] for ex in selected}
+        # after-start dropped; start-inclusive + before-start kept
+        self.assertEqual(ids, {"before", "at_start"})
+
+    def test_select_no_start_keeps_all(self) -> None:
+        # manifest present but NO start_chapter.json → is_after_start False for
+        # all → byte-identical to pre-054 (greenfield fail-open).
+        from src import source_excerpts
+        data_dir = self.ws_root / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        manifest = [{"chapter_id": c} for c in ["ch001", "ch002", "ch003", "ch004"]]
+        (data_dir / "chapter_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+        )
+        self._write_excerpts([
+            {"id": "deep", "scene_type": "战斗", "source_chapter_id": "ch004",
+             "tags": [], "character_focus": [], "excerpt_text": "kept when no start"},
+        ])
+        selected = source_excerpts.select_for_chapter({"key_events": ["战斗"]}, k=10)
+        self.assertEqual([ex["id"] for ex in selected], ["deep"])
+
 
 if __name__ == "__main__":
     unittest.main()
