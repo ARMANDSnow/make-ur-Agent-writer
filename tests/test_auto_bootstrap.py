@@ -106,6 +106,63 @@ class AutoBootstrapTests(unittest.TestCase):
             else:
                 os.environ["WORKSPACE_NAME"] = old_ws
 
+    def test_entity_graph_start_stale_sidecar(self) -> None:
+        # iter 054b: entity_graph stale检测 mirrors the iter 027 anchor
+        # sidecar. set-start-point moving the start must invalidate an
+        # auto-generated graph (whose key_facts may encode起点后 facts) even
+        # when force=False. get_start_chapter_id resolves the workspace via
+        # paths (WORKSPACE_NAME), so it must match the root we pass.
+        import os
+        import shutil
+        from src import auto_bootstrap, start_point
+        from src.utils import write_json
+
+        repo_root = Path(__file__).resolve().parent.parent
+        ws = repo_root / "workspaces" / "iter054b_graph_sidecar"
+        old_ws = os.environ.get("WORKSPACE_NAME")
+        os.environ["WORKSPACE_NAME"] = "iter054b_graph_sidecar"
+        try:
+            _seed_bootstrap_root(ws)
+            manifest = [
+                {"chapter_id": c, "volume_id": "book"}
+                for c in ("book_ch001", "book_ch002", "book_ch003")
+            ]
+            (ws / "data" / "chapter_manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+            )
+            sidecar = auto_bootstrap._entity_graph_state_sidecar(ws)
+
+            # (1) sidecar missing → fresh (legacy / hand-curated fail-open)
+            start_point.set_start_point("book_ch002")
+            self.assertTrue(auto_bootstrap._entity_graph_matches_current_start(ws))
+            # (2) sidecar matching current start → fresh
+            write_json(sidecar, {"start_chapter_id": "book_ch002"})
+            self.assertTrue(auto_bootstrap._entity_graph_matches_current_start(ws))
+            # (3) sidecar recording a different start → STALE
+            write_json(sidecar, {"start_chapter_id": "book_ch001"})
+            self.assertFalse(auto_bootstrap._entity_graph_matches_current_start(ws))
+
+            # integration: existing manual graph + force=False
+            write_json(
+                ws / "data" / "entity_graph.json",
+                {"_meta": {}, "entities": [{"id": "x"}], "relationships": []},
+            )
+            # matching sidecar → skip (don't clobber the curated graph)
+            write_json(sidecar, {"start_chapter_id": "book_ch002"})
+            self.assertEqual(
+                bootstrap_entity_graph(root=ws)["status"], "skipped_existing_manual"
+            )
+            # stale sidecar → rebuild even though force=False
+            write_json(sidecar, {"start_chapter_id": "book_ch001"})
+            self.assertEqual(bootstrap_entity_graph(root=ws)["status"], "written")
+        finally:
+            if ws.exists():
+                shutil.rmtree(ws)
+            if old_ws is None:
+                os.environ.pop("WORKSPACE_NAME", None)
+            else:
+                os.environ["WORKSPACE_NAME"] = old_ws
+
     def test_bootstrap_continuation_anchor_writes_mock_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

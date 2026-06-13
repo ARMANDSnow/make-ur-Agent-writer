@@ -65,6 +65,16 @@ def apply_bootstrap(name: str, confirm: bool = False, root: Path | None = None) 
                 "relationships": proposal.get("relationships", []),
             },
         )
+        # Iter 054b: stamp start_chapter_id sidecar so a future bootstrap
+        # can detect when this graph is stale relative to a re-set
+        # start_chapter.json (mirrors the iter 027 anchor sidecar). Closes
+        # the asymmetric缺口: anchor had stale检测, entity_graph did not.
+        from .start_point import get_start_chapter_id  # avoid module-import cycle
+
+        write_json(
+            root / "data" / ".entity_graph.meta.json",
+            {"start_chapter_id": get_start_chapter_id() or ""},
+        )
     elif name == "continuation_anchor":
         _write_anchor(root, proposal)
     elif name == "style_examples":

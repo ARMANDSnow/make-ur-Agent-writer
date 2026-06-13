@@ -72,11 +72,43 @@ def bootstrap_global_facts(force: bool = False, root: Path = None) -> Dict[str, 
     return {"name": "global_facts", "status": "written", "path": str(path), "data": data}
 
 
+def _entity_graph_state_sidecar(root: Path) -> Path:
+    return root / "data" / ".entity_graph.meta.json"
+
+
+def _entity_graph_matches_current_start(root: Path) -> bool:
+    """Iter 054b: return True iff the on-disk entity_graph.json is fresh
+    relative to the currently-set start_chapter.json.
+
+    Mirrors the iter 027 anchor sidecar (`_anchor_matches_current_start`)——
+    the审查 flagged that entity_graph had no equivalent stale检测, so a
+    set-start-point that moved the start would silently leave an
+    entity_graph built against a *different* start (whose key_facts may
+    encode起点后 facts) in place. Sidecar missing → fresh (legacy /
+    hand-curated graphs predate the sidecar; --force still works);
+    sidecar present with mismatching start_chapter_id → STALE, caller must
+    rebuild even when ``force=False``.
+    """
+    from . import start_point as _start_point
+
+    sidecar = _entity_graph_state_sidecar(root)
+    if not sidecar.exists():
+        return True
+    meta = read_json(sidecar, {}) or {}
+    recorded = meta.get("start_chapter_id")
+    current = _start_point.get_start_chapter_id() or ""
+    return recorded == current
+
+
 def bootstrap_entity_graph(force: bool = False, root: Path = None) -> Dict[str, Any]:
     root = _resolve_root(root)
     path = _proposal_path("entity_graph", root)
     existing = root / "data" / "entity_graph.json"
-    if _has_manual_json(existing) and not force:
+    # Iter 054b: also require the sidecar start_chapter_id to match the
+    # current start. Without this, set-start-point moving the start leaves
+    # a graph whose key_facts/description were extracted against the old
+    # start (potentially起点后 facts) silently in place.
+    if _has_manual_json(existing) and not force and _entity_graph_matches_current_start(root):
         return _skip_result("entity_graph", path)
 
     prompt = _build_json_prompt(

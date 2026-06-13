@@ -123,6 +123,45 @@ class ApplyBootstrapTests(unittest.TestCase):
             else:
                 os.environ["WORKSPACE_NAME"] = old_ws
 
+    def test_entity_graph_apply_stamps_start_sidecar(self) -> None:
+        # iter 054b: applying entity_graph must stamp the start_chapter_id
+        # sidecar so a future bootstrap can detect staleness (mirrors the
+        # iter 027 anchor stamp). get_start_chapter_id resolves the workspace
+        # via paths, so WORKSPACE_NAME and root must point at the same place.
+        import os
+        import shutil
+        from src import start_point
+
+        repo_root = Path(__file__).resolve().parent.parent
+        ws = repo_root / "workspaces" / "iter054b_graph_apply_stamp"
+        old_ws = os.environ.get("WORKSPACE_NAME")
+        os.environ["WORKSPACE_NAME"] = "iter054b_graph_apply_stamp"
+        try:
+            (ws / "data").mkdir(parents=True, exist_ok=True)
+            manifest = [
+                {"chapter_id": c, "volume_id": "v1"}
+                for c in ("v1_ch001", "v1_ch002", "v1_ch003")
+            ]
+            write_json(ws / "data" / "chapter_manifest.json", manifest)
+            start_point.set_start_point("v1_ch002")
+            write_json(
+                ws / "data" / "proposals" / "entity_graph.proposal.json",
+                {"_meta": {}, "entities": [{"id": "x"}], "relationships": []},
+            )
+            result = apply_bootstrap("entity_graph", confirm=True, root=ws)
+            self.assertEqual(result["status"], "applied")
+            sidecar = json.loads(
+                (ws / "data" / ".entity_graph.meta.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(sidecar["start_chapter_id"], "v1_ch002")
+        finally:
+            if ws.exists():
+                shutil.rmtree(ws)
+            if old_ws is None:
+                os.environ.pop("WORKSPACE_NAME", None)
+            else:
+                os.environ["WORKSPACE_NAME"] = old_ws
+
     def test_personas_dry_run_then_confirm_writes_manual_file(self) -> None:
         """Iter 016: apply-bootstrap --name personas dry-run/confirm cycle.
 
