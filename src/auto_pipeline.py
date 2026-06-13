@@ -23,7 +23,7 @@ LLM calls.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .auto_bootstrap import bootstrap_all, bootstrap_continuation_anchor, bootstrap_entity_graph
 from .chapter_splitter import split_all
@@ -324,4 +324,86 @@ def rebuild_for_start(
         "start_chapter_id": start,
         "window_chapter_ids": sorted(window_ids),
         "steps": steps,
+    }
+
+
+def ingest_to_start(start_name: str) -> Dict[str, Any]:
+    """iter 054d: physically bound the corpus to <= the start chapter.
+
+    The production-default ingestion mode (用户拍板主线机制 — "做成机制保证"的
+    直接兑现): the user is continuing their OWN book from a known break point,
+    so post-start chapters should never enter the workspace at all. After
+    normalize+split produce the full manifest, this:
+
+      1. sets the start point (resolves ``start_name`` against the full
+         manifest — chapter_id or volume_id, same as set-start-point);
+      2. physically truncates each normalized-texts volume file to its
+         before-start line limit (reusing start_point.before_start_line_limit:
+         a volume entirely after the start is deleted; the start's own volume
+         is truncated to the start chapter's end_line; volumes fully before the
+         start are untouched);
+      3. rewrites chapter_manifest.json to keep only chapters <= the start.
+
+    Downstream extract/compress/bootstrap/excerpt/style/anchor then sample a
+    corpus that PHYSICALLY contains no post-start content — the 054a/b
+    is_after_start filters degrade to no-ops (纵深 backstop, not load-bearing).
+    This is the structural fix the filters only approximate.
+
+    The source txt under 小说txt/ is untouched, so the full corpus stays
+    recoverable by re-running normalize+split with a later/no start (capstone
+    keeps the full corpus and uses the 054a/b filter mode instead — 不互斥).
+
+    Greenfield note: this is opt-in by command; the no-start ingestion path
+    (auto-pipeline / wizard) is unchanged (铁律④).
+    """
+    from . import paths, start_point
+    from .state import write_text_atomic
+    from .utils import read_json, write_json
+
+    normalize_all()
+    split_all()
+    manifest = read_json(paths.chapter_manifest_path(), []) or []
+    if not manifest:
+        raise ValueError(
+            "ingest-to-start: no chapters after split; check the uploaded txt"
+        )
+    # set_start_point resolves chapter_id/volume_id against the full manifest
+    # and raises ValueError if it matches neither.
+    start_point.set_start_point(start_name)
+    start_cid = start_point.get_start_chapter_id()
+    start_idx = next(
+        (i for i, c in enumerate(manifest) if str(c.get("chapter_id")) == start_cid),
+        None,
+    )
+    if start_idx is None:
+        raise ValueError(
+            f"ingest-to-start: resolved start {start_cid!r} not found in manifest"
+        )
+
+    # Physically clamp each volume file. before_start_line_limit reads the
+    # FULL manifest (still on disk — we rewrite it only after this loop), so
+    # the per-volume limits are computed against the complete chapter map.
+    norm_dir = paths.normalized_dir()
+    truncated: List[str] = []
+    deleted: List[str] = []
+    for path in sorted(norm_dir.glob("*.txt")):
+        limit = start_point.before_start_line_limit(path.name)
+        if limit == 0:
+            # whole volume is after the start → no legitimate content remains
+            path.unlink()
+            deleted.append(path.name)
+        elif limit is not None:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            if len(lines) > limit:
+                write_text_atomic(path, "\n".join(lines[:limit]).strip() + "\n")
+                truncated.append(path.name)
+
+    kept = manifest[: start_idx + 1]
+    write_json(paths.chapter_manifest_path(), kept)
+    return {
+        "start_chapter_id": start_cid,
+        "kept_chapters": len(kept),
+        "dropped_chapters": len(manifest) - len(kept),
+        "truncated_volumes": truncated,
+        "deleted_volumes": deleted,
     }

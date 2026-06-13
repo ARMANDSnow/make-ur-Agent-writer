@@ -168,6 +168,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="build entity_graph/anchor proposals but don't auto-apply (review then apply-bootstrap)",
     )
 
+    # iter 054d: ingest-to-start (主线机制) — normalize→split then physically
+    # truncate normalized_texts + manifest to <= the start, so downstream has
+    # no post-start content to leak (filters degrade to no-ops). Source txt
+    # under 小说txt/ is untouched (full corpus recoverable by re-running).
+    ingest_cmd = sub.add_parser("ingest-to-start")
+    ingest_cmd.add_argument(
+        "start",
+        help="chapter_id or volume_id to bound ingestion at; corpus is physically truncated to <= this",
+    )
+
     init_book = sub.add_parser("init-book")
     init_book.add_argument("--skip-extract", action="store_true")
     init_book.add_argument("--extract-limit", type=int, default=10)
@@ -485,6 +495,19 @@ def main() -> None:
         print(
             f"[rebuild-for-start] done · start={result['start_chapter_id']!r} "
             f"window={result['window_chapter_ids']}"
+        )
+    elif args.command == "ingest-to-start":
+        from src.auto_pipeline import ingest_to_start
+
+        try:
+            result = ingest_to_start(args.start)
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            raise SystemExit(1)
+        print(
+            f"ingest-to-start done · start={result['start_chapter_id']!r} "
+            f"kept={result['kept_chapters']} dropped={result['dropped_chapters']} "
+            f"truncated={result['truncated_volumes']} deleted={result['deleted_volumes']}"
         )
     elif args.command == "init-book":
         results = init_book_pipeline(skip_extract=args.skip_extract, extract_limit=args.extract_limit, force=args.force)

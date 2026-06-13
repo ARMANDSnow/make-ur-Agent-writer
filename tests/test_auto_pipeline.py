@@ -220,5 +220,131 @@ class RebuildForStartTests(unittest.TestCase):
         self.assertFalse(self._ws_path("data/.entity_graph.meta.json").exists())
 
 
+def _chapter_block(heading: str, body: str, n: int = 8) -> str:
+    return heading + "\n" + "\n".join(body for _ in range(n))
+
+
+INGEST_TXT = "\n\n".join(
+    [
+        _chapter_block("第一章", "起点前内容，路明非在教室里。"),
+        _chapter_block("第二章", "起点章内容，雨夜的抉择。"),
+        _chapter_block("第三章", "POSTSTART三章，未来剧情泄露。"),
+        _chapter_block("第四章", "POSTSTART四章，结局泄露。"),
+    ]
+)
+
+
+class IngestToStartTests(unittest.TestCase):
+    """iter 054d: ingest-to-start physically bounds the corpus to <= start."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        os.environ["OPENAI_MODEL"] = "mock"
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        os.environ["WORKSPACE_NAME"] = "ingest_test"
+        ws = paths.WORKSPACE_DIR / "ingest_test"
+        for sub in ("小说txt", "data", "outputs", "logs"):
+            (ws / sub).mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+        self._tmp.cleanup()
+
+    def _ws_root(self) -> Path:
+        return paths.WORKSPACE_DIR / "ingest_test"
+
+    def _ws_path(self, rel: str) -> Path:
+        return self._ws_root() / rel
+
+    def _src(self, name: str, text: str) -> None:
+        (self._ws_path("小说txt") / name).write_text(text, encoding="utf-8")
+
+    def _full_manifest(self) -> list:
+        from src.chapter_splitter import split_all
+        from src.text_normalizer import normalize_all
+
+        normalize_all()
+        split_all()
+        return json.loads(
+            self._ws_path("data/chapter_manifest.json").read_text(encoding="utf-8")
+        )
+
+    def test_truncates_corpus_to_start_single_volume(self) -> None:
+        from src import start_point
+        from src.auto_pipeline import ingest_to_start
+
+        self._src("sample.txt", INGEST_TXT)
+        full = self._full_manifest()
+        cids = [c["chapter_id"] for c in full]
+        self.assertGreaterEqual(len(cids), 3)
+        vol = full[0]["volume_id"]  # lang detection may prefix the stem
+        start = cids[1]  # 2nd chapter; ch3/ch4 carry POSTSTART markers
+        result = ingest_to_start(start)
+
+        # manifest keeps only <= start
+        manifest = json.loads(
+            self._ws_path("data/chapter_manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual([c["chapter_id"] for c in manifest], cids[:2])
+        # normalized texts PHYSICALLY no longer contain post-start prose
+        norm = self._ws_path(f"data/normalized_texts/{vol}.txt").read_text(encoding="utf-8")
+        self.assertNotIn("POSTSTART", norm)
+        self.assertIn("起点章内容", norm)
+        # start point set to the (now-last) start chapter
+        self.assertEqual(start_point.get_start_chapter_id(), start)
+        self.assertEqual(result["kept_chapters"], 2)
+        self.assertEqual(result["dropped_chapters"], len(cids) - 2)
+        self.assertIn(f"{vol}.txt", result["truncated_volumes"])
+
+    def test_deletes_post_start_volumes_multi_volume(self) -> None:
+        from src.auto_pipeline import ingest_to_start
+
+        self._src("volA.txt", "\n\n".join([
+            _chapter_block("第一章", "A卷起点前内容。"),
+            _chapter_block("第二章", "A卷起点章内容。"),
+        ]))
+        self._src("volB.txt", "\n\n".join([
+            _chapter_block("第一章", "POSTSTART B卷泄露内容。"),
+            _chapter_block("第二章", "POSTSTART B卷泄露内容二。"),
+        ]))
+        full = self._full_manifest()
+        first_vol = full[0]["volume_id"]
+        later_vols = {c["volume_id"] for c in full if c["volume_id"] != first_vol}
+        self.assertTrue(later_vols, "test needs >= 2 volumes")
+        # start at the last chapter of the first volume → later volumes drop
+        start = [c for c in full if c["volume_id"] == first_vol][-1]["chapter_id"]
+        result = ingest_to_start(start)
+
+        manifest = json.loads(
+            self._ws_path("data/chapter_manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(all(c["volume_id"] == first_vol for c in manifest))
+        for v in later_vols:
+            self.assertFalse(self._ws_path(f"data/normalized_texts/{v}.txt").exists())
+        self.assertTrue(result["deleted_volumes"])
+
+    def test_downstream_extract_and_sampling_bounded(self) -> None:
+        from src.auto_bootstrap import _normalized_context
+        from src.auto_pipeline import ingest_to_start
+        from src.extractor import extract_all
+
+        self._src("sample.txt", INGEST_TXT)
+        cids = [c["chapter_id"] for c in self._full_manifest()]
+        ingest_to_start(cids[1])
+        # extract everything the (now-bounded) manifest knows → only <= start
+        extract_all(volume="all", force=True)
+        got = sorted(p.stem for p in self._ws_path("data/extracted_jsons").glob("*.json"))
+        self.assertEqual(got, sorted(cids[:2]))
+        # the bootstrap sampling source (style/source_excerpts upstream) is clean
+        ctx = _normalized_context(self._ws_root(), limit_chars=50000)
+        self.assertNotIn("POSTSTART", ctx)
+
+
 if __name__ == "__main__":
     unittest.main()
