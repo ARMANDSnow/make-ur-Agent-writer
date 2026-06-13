@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from .auto_bootstrap import bootstrap_all
+from .auto_bootstrap import bootstrap_all, bootstrap_continuation_anchor, bootstrap_entity_graph
 from .chapter_splitter import split_all
 from .cli_apply_bootstrap import apply_bootstrap
 from .compressor import compress_all
@@ -248,3 +248,80 @@ def run_auto_pipeline(
     if progress_cb is not None:
         progress_cb("done", 1.0)
     return results
+
+
+def rebuild_for_start(
+    *,
+    window: int = 10,
+    reextract: bool = False,
+    apply: bool = True,
+    progress_cb: Optional[ProgressCallback] = None,
+) -> Dict[str, Any]:
+    """iter 054b: one-shot 底座 rebuild after set-start-point moves the start.
+
+    Fills the longzu 4-step manual firefight (补提取 → recompress →
+    bootstrap-graph --force → bootstrap-anchor --force → apply) that no single
+    command orchestrated — 换书/换深起点 必重演 (AGENT_HANDOFF 缺口 A). Chains,
+    in order:
+
+      1. extract the K-chapter window before+incl the start (extract_all
+         chapter_ids=) so the coverage 闸 passes and the base reflects the
+         pre-start state. Fills gaps only unless ``reextract`` (extractions are
+         start-agnostic chapter facts — re-running good ones just burns money).
+      2. compress → KB.
+      3. bootstrap-graph --force: rebuild the entity_graph proposal against the
+         new start (its key_facts are now start-bounded — 054b base seal). The
+         054b stale sidecar would force this anyway; --force is explicit.
+      4. bootstrap-anchor --force: rebuild the continuation anchor.
+      5. apply entity_graph + continuation_anchor (confirm=True) so the freshly
+         built proposals become the live base (+ stamp their start sidecars).
+
+    Requires a start point; greenfield has no source book to rebuild against
+    (raises ValueError — 铁律④ no-start path untouched).
+    """
+    from . import start_point
+
+    start = start_point.get_start_chapter_id()
+    if not start:
+        raise ValueError(
+            "rebuild-for-start requires a start point; run `set-start-point` first"
+        )
+    # K chapters incl. start = (K-1) before start + the start chapter itself,
+    # matching extraction_coverage_failures(k)'s [idx-k+1 : idx+1] window.
+    before = start_point.chapters_before_start(k=max(0, window - 1))
+    window_ids = {str(c.get("chapter_id")) for c in before if c.get("chapter_id")}
+    window_ids.add(start)
+
+    labels = ["extract", "compress", "bootstrap-graph", "bootstrap-anchor"]
+    if apply:
+        labels += ["apply-entity-graph", "apply-anchor"]
+    total = len(labels)
+    done = 0
+
+    def _step(label: str) -> None:
+        nonlocal done
+        if progress_cb is not None:
+            progress_cb(label, done / total)
+        done += 1
+
+    steps: Dict[str, Any] = {}
+    _step("extract")
+    steps["extract"] = extract_all(volume="all", force=reextract, chapter_ids=window_ids)
+    _step("compress")
+    steps["compress"] = compress_all()
+    _step("bootstrap-graph")
+    steps["bootstrap_graph"] = bootstrap_entity_graph(force=True)
+    _step("bootstrap-anchor")
+    steps["bootstrap_anchor"] = bootstrap_continuation_anchor(force=True)
+    if apply:
+        _step("apply-entity-graph")
+        steps["apply_entity_graph"] = apply_bootstrap("entity_graph", confirm=True)
+        _step("apply-anchor")
+        steps["apply_anchor"] = apply_bootstrap("continuation_anchor", confirm=True)
+    if progress_cb is not None:
+        progress_cb("done", 1.0)
+    return {
+        "start_chapter_id": start,
+        "window_chapter_ids": sorted(window_ids),
+        "steps": steps,
+    }

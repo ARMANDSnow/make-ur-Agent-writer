@@ -151,6 +151,23 @@ def build_parser() -> argparse.ArgumentParser:
     apply_bootstrap_cmd.add_argument("--name", required=True)
     apply_bootstrap_cmd.add_argument("--confirm", action="store_true")
 
+    # iter 054b: one-shot 底座 rebuild after set-start-point moves the start —
+    # extract window → compress → bootstrap-graph/anchor --force → apply.
+    # Fills the longzu 4-step manual firefight (AGENT_HANDOFF 缺口 A).
+    rebuild_cmd = sub.add_parser("rebuild-for-start")
+    rebuild_cmd.add_argument(
+        "--window", type=int, default=10,
+        help="K-chapter window before+incl start to ensure extracted (default 10, matches coverage 闸)",
+    )
+    rebuild_cmd.add_argument(
+        "--reextract", action="store_true",
+        help="re-extract window chapters even if already extracted (default: fill gaps only)",
+    )
+    rebuild_cmd.add_argument(
+        "--no-apply", action="store_true",
+        help="build entity_graph/anchor proposals but don't auto-apply (review then apply-bootstrap)",
+    )
+
     init_book = sub.add_parser("init-book")
     init_book.add_argument("--skip-extract", action="store_true")
     init_book.add_argument("--extract-limit", type=int, default=10)
@@ -449,6 +466,26 @@ def main() -> None:
         print(_render_bootstrap_result(result), end="")
     elif args.command == "apply-bootstrap":
         print(render_apply_bootstrap_result(apply_bootstrap(args.name, confirm=args.confirm)), end="")
+    elif args.command == "rebuild-for-start":
+        from src.auto_pipeline import rebuild_for_start
+
+        def _rebuild_progress(step: str, fraction: float) -> None:
+            print(f"[rebuild-for-start] {int(fraction * 100):3d}% {step}")
+
+        try:
+            result = rebuild_for_start(
+                window=args.window,
+                reextract=args.reextract,
+                apply=not args.no_apply,
+                progress_cb=_rebuild_progress,
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            raise SystemExit(1)
+        print(
+            f"[rebuild-for-start] done · start={result['start_chapter_id']!r} "
+            f"window={result['window_chapter_ids']}"
+        )
     elif args.command == "init-book":
         results = init_book_pipeline(skip_extract=args.skip_extract, extract_limit=args.extract_limit, force=args.force)
         print(_render_init_book_results(results), end="")

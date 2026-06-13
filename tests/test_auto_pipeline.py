@@ -8,6 +8,7 @@ WebUI wizard path: the wizard creates ``workspaces/<name>/`` and then
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -122,6 +123,101 @@ class AutoPipelineTests(unittest.TestCase):
             target_chapters=1, skip_extract=True, force=True
         )
         self.assertEqual(results["extract"], {"skipped": True})
+
+
+REBUILD_TXT = "\n\n".join(
+    f"第{cn}章\n" + "\n".join(f"路明非在场景{i}里走了第{j}步，看着远处的雨。" for j in range(1, 12))
+    for i, cn in enumerate(["一", "二", "三", "四"], start=1)
+)
+
+
+class RebuildForStartTests(unittest.TestCase):
+    """iter 054b: rebuild-for-start one-shot 底座 重建编排 (mock LLM)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        os.environ["OPENAI_MODEL"] = "mock"
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        os.environ["WORKSPACE_NAME"] = "rebuild_test"
+        ws = paths.WORKSPACE_DIR / "rebuild_test"
+        for sub in ("小说txt", "data", "outputs", "logs"):
+            (ws / sub).mkdir(parents=True)
+        (ws / "小说txt" / "sample.txt").write_text(REBUILD_TXT, encoding="utf-8")
+
+    def tearDown(self) -> None:
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+        self._tmp.cleanup()
+
+    def _ws_path(self, rel: str) -> Path:
+        return paths.WORKSPACE_DIR / "rebuild_test" / rel
+
+    def _seed_manifest(self) -> list:
+        from src.chapter_splitter import split_all
+        from src.text_normalizer import normalize_all
+
+        normalize_all()
+        split_all()
+        return json.loads(
+            self._ws_path("data/chapter_manifest.json").read_text(encoding="utf-8")
+        )
+
+    def test_rebuild_requires_start_point(self) -> None:
+        # greenfield/no-start: nothing to rebuild against (铁律④).
+        from src.auto_pipeline import rebuild_for_start
+
+        self._seed_manifest()
+        with self.assertRaises(ValueError):
+            rebuild_for_start()
+
+    def test_rebuild_chain_bounded_and_stamps_sidecars(self) -> None:
+        from src import start_point
+        from src.auto_pipeline import rebuild_for_start
+
+        manifest = self._seed_manifest()
+        cids = [c["chapter_id"] for c in manifest]
+        self.assertGreaterEqual(len(cids), 2)
+        start_point.set_start_point(cids[1])  # start at the 2nd chapter
+        seen: list = []
+        result = rebuild_for_start(window=10, progress_cb=lambda s, f: seen.append(s))
+
+        # entity_graph + anchor freshly built AND applied (live base)
+        self.assertTrue(self._ws_path("data/entity_graph.json").exists())
+        self.assertTrue(
+            self._ws_path("data/manual_overrides/continuation_anchor.txt").exists()
+        )
+        # both sidecars stamped to the current start (054b stale detection)
+        eg = json.loads(self._ws_path("data/.entity_graph.meta.json").read_text(encoding="utf-8"))
+        self.assertEqual(eg["start_chapter_id"], cids[1])
+        anc = json.loads(
+            self._ws_path("data/manual_overrides/.continuation_anchor.meta.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(anc["start_chapter_id"], cids[1])
+        # window bounded: window chapters extracted, post-start chapter NOT
+        self.assertTrue(self._ws_path(f"data/extracted_jsons/{cids[0]}.json").exists())
+        self.assertTrue(self._ws_path(f"data/extracted_jsons/{cids[1]}.json").exists())
+        if len(cids) > 2:
+            self.assertFalse(self._ws_path(f"data/extracted_jsons/{cids[2]}.json").exists())
+        self.assertEqual(result["start_chapter_id"], cids[1])
+        self.assertEqual(seen[0], "extract")
+        self.assertEqual(seen[-1], "done")
+
+    def test_rebuild_no_apply_builds_proposals_only(self) -> None:
+        from src import start_point
+        from src.auto_pipeline import rebuild_for_start
+
+        manifest = self._seed_manifest()
+        cids = [c["chapter_id"] for c in manifest]
+        start_point.set_start_point(cids[1])
+        rebuild_for_start(window=10, apply=False)
+        # proposals written but NOT applied → no live graph / sidecar stamp
+        self.assertTrue(self._ws_path("data/proposals/entity_graph.proposal.json").exists())
+        self.assertFalse(self._ws_path("data/.entity_graph.meta.json").exists())
 
 
 if __name__ == "__main__":
