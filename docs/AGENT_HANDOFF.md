@@ -1283,3 +1283,35 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **验证**：mock 全绿 **967 OK**（907→967，+60）+ verify.sh exit 0。真模型 ¥23.61（拍板⑤授权内，含一次性历史债清偿：两轮辩论/三轮 plan/ch1 三攻 + 24 章提取/KB/实体图重建）；**干净底座单 pass 5 章 ≈¥9.6 回原 ¥12 设计量级**——四层护栏不增边际成本。
 
 **接力点（iter054 候选）**：① capstone 30–100 章（基建+底座全就绪，用 longzu 干净 plan）；② 053d 记入观察项的 M2/M3/M5（polish 路径吃 block 行 / Approve+block 出货无痕 / 3票闸×Abstain）+ A-M5（append/replan 丢审计痕）；③ timeline 动态建边（052 顺延）；④ 提取覆盖从 warn 升级为可选 block（053g 现为 warn）。
+
+## 能力边界审查（2026-06-13，iter053 收官后三视角 subagent 代码审查）
+
+收官时"任意起点无泄露续写"的乐观表述经代码审查需**降级**。两大断言的真实状态：
+
+### 断言一「无泄露后续情节」→ 实为"有限硬保证 + 软兜底 + 已知残留口"
+泄露硬过滤覆盖（`is_after_start` 全调用方仅 manual_facts/entities/kb_view 三处）：
+- ✅ **KB**（`kb_view.start_safe_knowledge` 047b）+ **manual_facts**：硬过滤，剔除起点后（前提 index 存在，否则 fail-open 回退全书 KB + warn）
+- ❌ **entity_graph 实体 key_facts/description**（`entities.py:104-118`）：**零起点过滤**——最大泄露口。`render_active_state(respect_start_point=True/False)` 在 longzu 上字节相同（过滤层 no-op）
+- ⚠️ **entity_graph 关系**（`entities.py:94-100`）：仅当 active timeline 带 `chapter_id` 才过滤，bootstrap 不保证写该字段 → 缺字段 fail-open 漏过
+- ❌ **source_excerpts/scene_excerpts**（`source_excerpts.py:89-186`）：从全书摘样，零过滤
+- 共同上游：`extract_all`（`extractor.py:309-323`）+ 所有 bootstrap 生成端**零起点裁剪**；硬过滤只在部分消费端补救
+- **评审端无任何反剧透硬拒因**（gf_longzu_014/015 是普通 canon 事实，非反剧透规则）；053b canon 锚定是 system_prompt 软约束，且会被"硬材料里的剧透"带偏
+- **longzu 未爆剧透是数据巧合**：start=ch024 是结局章、只提取到 ch024，"生命交易"等属起点章自身（`is_after_start` 返 False）非严格之后。换深起点 + 提取含起点后 → 必泄露
+
+### 断言二「任意起点端到端自动」→ 实为"数据模型层支持，底座编排层需人肉"
+- init-book 默认 `--extract-limit=10`（`main.py:156`，全书前 10 章切片，非每卷/非起点窗口）→ 起点在深处时**根因④系统性必现**
+- `set_start_point` 零自动失效重建（`start_point.py:74-106` 只写盘）
+- entity_graph **无起点 stale 检测**（anchor 有 sidecar `_anchor_matches_current_start` 027，graph 没有——不对称缺口）
+- 提取覆盖 053g warn 只在 readiness 报（`book_runner.py:425`），debate/plan 的钱已花完才知道；非 blocker、不自动修
+- drive-book 不编排 extract/compress/bootstrap，假定底座就绪
+- longzu 实跑 4 步救火（补提取→recompress→bootstrap-graph --force×2→bootstrap-anchor --force）**没一步被编排**，换书换深起点必重演
+
+### iter054 必做项分析（代码硬 blocker = 0，但有 1 决策 blocker + 2 能力缺口）
+- **B1 决策 blocker（capstone 立项前必答）**：longzu 起点 ch024 是 manifest 第 83/110 章，**起点后仅 26 章真实素材**（龙族四 17 + 前传哀悼之翼 9，前传是独立时间线）→ 凑不出 30 章原著后续。capstone 目标语义须先拍板：续写原著真实后续（≤26 章、尾部前传断裂）vs **自由生成 30+ 章原著不存在的剧情（推荐，系统本来语义，053c 的 ch1-5 即此）**。不答清楚连 `--chapters`/workspace 都定不了
+- **能力缺口 A（任意起点真自动化）**：起点感知提取窗口（`extract_all` 已有 `chapter_ids` 参数可复用）+ entity_graph 起点 stale 检测（复制 anchor 的 sidecar）+ "换起点重建全链"编排命令 + 提取覆盖闸提前到 set-start-point/plan 前
+- **能力缺口 B（无泄露真保证）**：entity_graph 实体描述/关系 + source_excerpts 的起点硬过滤；理想在提取/bootstrap 生成端按起点裁剪（治本），而非消费端补救
+- **A-M5（可搭车修，非 blocker）**：write-book/driver 缺 `--allow-stale-outline` 透传 → capstone replan append 在重切章/手改 outline 边缘场景无逃生门（happy path 不触发，可降级绕过）。~4 处改动
+- **M3（capstone 全自动放大）**：Approve+block 稿无痕出货，无人审兜底时危害上升
+- **可延**：M2（polish 吃 block 行，章长 >3500 不触发）、M5（票闸×Abstain）、timeline 动态建边（052 顺延）
+
+**iter054 主线建议**：两条路线——(甲) 直接上 30 章 capstone 验证长程一致性（B1 拍板后即可跑，A-M5/M3 搭车修），把缺口 A/B 留作"已知残留、操作纪律规避"；(乙) 先补缺口 A/B 把"深起点无泄露续写"从 demo 做成产品能力，再以 capstone 验证。(甲) 快、验证长程；(乙) 慢、补真能力。**取决于产品定位是"演示长程能写"还是"任意书任意起点安全可用"。** capstone 代码前置已就绪（驱动器/护栏/longzu 底座），无技术 blocker。
