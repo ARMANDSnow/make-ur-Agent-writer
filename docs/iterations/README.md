@@ -63,3 +63,4 @@
 52. [Iteration 051 - premise 扩写质量增强 + 评审预算强拦 + 技债清偿（计划稿）](./iteration_051_PLAN.md)
 53. [Iteration 052 - 长程驱动器正式化 + F6/F7 清债（30 章 longzu 实跑为验证载体，计划稿）](./iteration_052_PLAN.md)
 54. [Iteration 053 - 中间产物起点校验 + 写手 canon 锚定增强 + longzu 复仇局（实跑剥四层毒源，ch1–5 全 5/5 Approve 收官）](./iteration_053_PLAN.md)
+55. [Iteration 054 - 深起点续写：从操作纪律到机制保证（底座 start-aware 重建 + 泄露硬过滤，计划稿）](./iteration_054_PLAN.md)
