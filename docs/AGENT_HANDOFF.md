@@ -1327,3 +1327,17 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 - **关键定性**：**longzu 当前不前向泄露是文件名字典序 + 70k char cap 在 longzu_3_1 截断的巧合**（book4/前传从未被采样），非机制——与 ch024 同款，坐实"换深起点必触发"。
 
 **iter054 已拍板（2026-06-13）**：① ingest-to-start（054d）本轮做、作主线机制；② 054a/b 过滤作测试台+纵深 backstop；③ write/debate 已切 `gpt-5.5-low`（`.env`，extract/review 保持 high），ping 验联通 ok。
+
+## iter054 实施进度（2026-06-13，mock 半收官 / 真模型半待授权）
+
+**mock 半全部完成**（965→986 单测，每提交独立 verify.sh exit 0 + auto-pipeline 跑通）。三条已核实泄露口 style_examples / source_excerpts / entity_graph key_facts 全部**从源头封死**，缺口 A 底座自动重建编排齐活，主线机制 ingest-to-start 落地。提交链（`1dda0a1..7cb11b6`）：
+
+- **054a 泄露硬封**（前序会话）：`c67f517` source_excerpts 消费端三路过滤 → `058fb9c` style/source_excerpts bootstrap 采样端源头封堵（`_normalized_context` 起点上界 + `before_start_line_limit` + apply 守卫）。
+- **054b 核心**（前序）：`857fec8` `_load_extractions(before_start_only=)` start-aware 封 entity_graph key_facts facts 级泄露（接 graph/global_facts/anchor-fallback 三路）+ 折叠 054a-4 关系 timeline chapter_id 强制。
+- **054b 自动化半**（本会话）：`230a03a` entity_graph 起点 stale sidecar（补 anchor 027 不对称缺口）→ `3c860c5` 提取覆盖闸前移（plan-chapters 硬 blocker + set-start-point 即时报）→ `c823e87` `rebuild-for-start` 编排（填 longzu 4 步人肉救火洞）。
+- **054d 主线机制**（本会话）：`7cb11b6` ingest-to-start 物理截断摄入——normalize→split 后按起点物理裁 normalized_texts + 重写 manifest，下游天然有界、过滤层退化为 no-op。
+- 既存红门禁修复：`622f0c3` auto-pipeline debate 步透传 force。
+
+**关键发现/定性沉淀**（勿 re-derive）：① source_excerpts 的 `source_chapter_id` 是 LLM 瞎标的（喂的采样无章节标记）→ 消费端按它过滤不可靠，源头裁剪/ingest-to-start 才可靠。② compress→KB 路径（`compressor.load_extractions` 独立 glob）**绝不**加 start 过滤：kb_view 需完整 index 算"距起点最近 pre-start 状态"，裁剪会破坏它。③ 既存 bug `task_95bdc0d5`：`load_chapter_text` 读 source_file（原始 txt）却用 normalized 行号（manifest 混坐标），非泄露、另案。④ 铁律④逐字节不变已守：graph sidecar 缺失→fresh、覆盖闸无起点→fail-open、rebuild/ingest 均 opt-in 不碰 greenfield 路径。
+
+**真模型半（054c）待用户 `CONFIRM_REAL_MODEL_SMOKE` 授权（≤¥20，铁律⑥）**：换非结局深起点跑 `rebuild-for-start`→续写 ch1-3；diff oracle（ingest-to-start ↔ full+filter 注入材料逐字节一致）；泄露体检；A-M5/M3 搭车修。schema 升级（entity key_facts 结构化）已确认**不与真模型同轮**（052 纪律），本轮零 schema 改动。
