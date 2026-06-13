@@ -526,10 +526,25 @@ def _without_quotes(value: Any) -> Any:
 
 
 def _normalized_context(root: Path, limit_chars: int) -> str:
+    # iter 054a: source-side spoiler seal. The only two callers
+    # (bootstrap_style_examples / bootstrap_source_excerpts) must never feed
+    # post-start prose to the LLM — style_examples cannot be filtered at
+    # injection (no chapter_id on disk) and source_excerpts' LLM-stamped
+    # source_chapter_id is unreliable, so clamping here is the dependable seal.
+    # before_start_line_limit uses normalized-coord manifest line ranges, which
+    # match the line numbers emitted below. No start point → None → whole file
+    # (byte-identical to pre-054); 0 → volume entirely after start → skipped.
+    from . import start_point
+
     parts: List[str] = []
     for path in sorted((root / "data" / "normalized_texts").glob("*.txt")):
         rel = path.relative_to(root)
         lines = path.read_text(encoding="utf-8").splitlines()
+        limit = start_point.before_start_line_limit(path.name)
+        if limit == 0:
+            continue
+        if limit is not None:
+            lines = lines[:limit]
         parts.append(f"## {rel}")
         for line_no, line in _sample_numbered_lines(lines):
             parts.append(f"{line_no}: {line[:160]}")

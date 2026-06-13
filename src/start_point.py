@@ -393,6 +393,50 @@ def is_after_start(chapter_id: str) -> bool:
     return ch_idx > start_idx
 
 
+def before_start_line_limit(normalized_file_name: str) -> Optional[int]:
+    """iter 054a (source-side spoiler seal): for one normalized-texts file,
+    how many LEADING lines are at/before the continuation start point.
+
+    The bootstrap samplers for style_examples / source_excerpts pull from the
+    whole book via ``auto_bootstrap._normalized_context``; that is the only
+    reliable seal for style_examples (whose on-disk form carries no chapter_id,
+    so it cannot be filtered at injection) and a source-side backstop for
+    source_excerpts (whose LLM-stamped ``source_chapter_id`` is unreliable).
+
+    Manifest ``start_line``/``end_line`` are 1-based inclusive in NORMALIZED
+    coordinates (chapter_splitter computes them against
+    data/normalized_texts/*.txt) — identical to the coordinate the sampler
+    numbers lines in — so the returned limit aligns exactly.
+
+    Returns:
+      * ``None``  — no start point set (or start not in manifest): keep the
+        whole file. Greenfield / legacy fail-open, byte-identical to pre-054.
+      * ``0``     — every chapter of this file is strictly AFTER the start, or
+        the file has no manifest chapter: skip the file entirely.
+      * ``N > 0`` — keep lines ``[:N]`` (through the end of the last chapter in
+        this file that is at/before the start; drops everything after).
+    """
+    start = get_start_chapter_id()
+    if not start:
+        return None
+    start_idx = _index_of(start)
+    if start_idx is None:
+        return None
+    name = Path(normalized_file_name).name
+    keep_end = 0
+    for i, c in enumerate(_load_manifest()):
+        if Path(str(c.get("normalized_file", ""))).name != name:
+            continue
+        if i <= start_idx:
+            try:
+                end = int(c.get("end_line", 0) or 0)
+            except (TypeError, ValueError):
+                end = 0
+            if end > keep_end:
+                keep_end = end
+    return keep_end
+
+
 def chapters_before_start(k: int = 3) -> List[Dict[str, Any]]:
     """Return the K manifest entries immediately BEFORE start (exclusive of
     start). Empty list if no start set or start is at manifest position 0.

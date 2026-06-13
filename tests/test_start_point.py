@@ -357,6 +357,82 @@ class AnchorSamplingWindowTests(unittest.TestCase):
             "",
         )
 
+    # --- iter 054a: source-side spoiler seal (before_start_line_limit) --------
+
+    def _setup_with_normalized(self) -> None:
+        """Rebuild the manifest with normalized_file + normalized-coord line
+        ranges (setUp's manifest only carries source_file), plus the matching
+        normalized_texts/*.txt files."""
+        nd = self.ws_root / "data" / "normalized_texts"
+        nd.mkdir(parents=True, exist_ok=True)
+        (nd / "v1.txt").write_text(
+            "\n".join(f"v1L{i}" for i in range(1, 16)) + "\n", encoding="utf-8"
+        )  # 15 lines
+        (nd / "v2.txt").write_text(
+            "\n".join(f"v2L{i}" for i in range(1, 11)) + "\n", encoding="utf-8"
+        )  # 10 lines
+        manifest = [
+            {"chapter_id": "v1_ch001", "volume_id": "v1",
+             "normalized_file": str(nd / "v1.txt"), "start_line": 1, "end_line": 5},
+            {"chapter_id": "v1_ch002", "volume_id": "v1",
+             "normalized_file": str(nd / "v1.txt"), "start_line": 6, "end_line": 10},
+            {"chapter_id": "v1_ch003", "volume_id": "v1",
+             "normalized_file": str(nd / "v1.txt"), "start_line": 11, "end_line": 15},
+            {"chapter_id": "v2_ch001", "volume_id": "v2",
+             "normalized_file": str(nd / "v2.txt"), "start_line": 1, "end_line": 5},
+            {"chapter_id": "v2_ch002", "volume_id": "v2",
+             "normalized_file": str(nd / "v2.txt"), "start_line": 6, "end_line": 10},
+        ]
+        (self.ws_root / "data" / "chapter_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+        )
+
+    def test_before_start_line_limit_no_start(self) -> None:
+        self._setup_with_normalized()
+        # no start configured → None (keep whole file, byte-identical pre-054)
+        self.assertIsNone(self.start_point.before_start_line_limit("v1.txt"))
+        self.assertIsNone(self.start_point.before_start_line_limit("v2.txt"))
+
+    def test_before_start_line_limit_start_mid_volume(self) -> None:
+        self._setup_with_normalized()
+        self.start_point.set_start_point("v1_ch002")  # normalized lines 6-10
+        # v1: keep through end of start chapter (line 10); ch003 (11-15) dropped
+        self.assertEqual(self.start_point.before_start_line_limit("v1.txt"), 10)
+        # v2: every chapter strictly after start → skip
+        self.assertEqual(self.start_point.before_start_line_limit("v2.txt"), 0)
+
+    def test_before_start_line_limit_start_in_later_volume(self) -> None:
+        self._setup_with_normalized()
+        self.start_point.set_start_point("v2_ch001")  # normalized lines 1-5
+        # v1: entirely before start → keep through its last chapter (line 15)
+        self.assertEqual(self.start_point.before_start_line_limit("v1.txt"), 15)
+        # v2: keep through start chapter end (line 5)
+        self.assertEqual(self.start_point.before_start_line_limit("v2.txt"), 5)
+
+    def test_before_start_line_limit_unmapped_file_fail_closed(self) -> None:
+        self._setup_with_normalized()
+        self.start_point.set_start_point("v1_ch001")
+        # a normalized file with no manifest chapter → fail-closed skip (0)
+        # once a start is set (cannot place it relative to start safely)
+        self.assertEqual(self.start_point.before_start_line_limit("ghost.txt"), 0)
+
+    def test_normalized_context_clamps_to_start(self) -> None:
+        self._setup_with_normalized()
+        from src import auto_bootstrap
+        root = self.ws_root
+        # no start → whole book sampled
+        full = auto_bootstrap._normalized_context(root, limit_chars=100000)
+        self.assertIn("v1L15", full)
+        self.assertIn("v2L1", full)
+        # start at v1_ch002 (normalized lines 6-10) → v1 kept through line 10,
+        # v2 (entirely after start) skipped
+        self.start_point.set_start_point("v1_ch002")
+        bounded = auto_bootstrap._normalized_context(root, limit_chars=100000)
+        self.assertIn("v1L3", bounded)       # before start → kept
+        self.assertIn("v1L10", bounded)      # end of start chapter → kept
+        self.assertNotIn("v1L12", bounded)   # after start (ch003) → dropped
+        self.assertNotIn("v2L1", bounded)    # later volume → skipped
+
 
 if __name__ == "__main__":
     unittest.main()

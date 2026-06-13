@@ -242,19 +242,38 @@ def _write_anchor(root: Path, proposal: Dict[str, Any]) -> None:
 
 
 def _write_style_examples(root: Path, proposal: Dict[str, Any]) -> None:
+    # iter 054a: apply-side spoiler guard. _normalized_context already clamps
+    # what the bootstrap LLM SEES to before-start, but the LLM could emit a
+    # line range it never saw — and apply RE-READS the file here, so a
+    # hallucinated post-start range would leak verbatim post-start prose into
+    # data/style_examples/*.md (which carries no chapter_id and so cannot be
+    # filtered at injection). before_start_line_limit(source.name) is in
+    # normalized coords (source is enforced under normalized_texts), matching
+    # start_line/end_line. None → no start → no-op (byte-identical pre-054).
+    from .start_point import before_start_line_limit  # avoid module-import cycle
+
     for item in proposal.get("examples", []) or []:
         source = _safe_source_path(root, str(item.get("source_file") or ""))
         target = _safe_target_path(root, str(item.get("target_file") or ""))
         start_line = int(item.get("start_line") or 1)
         end_line = int(item.get("end_line") or start_line)
+        limit = before_start_line_limit(source.name)
+        if limit == 0:
+            continue  # this normalized volume is entirely after the start
+        if limit is not None and start_line > limit:
+            continue  # range begins after the start point (post-start / hallucinated)
         lines = source.read_text(encoding="utf-8").splitlines()
         start_idx = max(0, start_line - 1)
         end_idx = min(len(lines), max(start_line, end_line))
+        if limit is not None:
+            end_idx = min(end_idx, limit)  # clamp a straddling range to before-start
         snippet = "\n".join(lines[start_idx:end_idx]).strip()
+        if not snippet:
+            continue
         rel_source = source.relative_to(root.resolve())
         ensure_dir(target.parent)
         target.write_text(
-            f"<!-- source: {rel_source} lines {start_line}-{end_line} -->\n\n{snippet}\n",
+            f"<!-- source: {rel_source} lines {start_line}-{end_idx} -->\n\n{snippet}\n",
             encoding="utf-8",
         )
 
