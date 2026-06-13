@@ -478,6 +478,7 @@ def main() -> None:
         print(render_apply_bootstrap_result(apply_bootstrap(args.name, confirm=args.confirm)), end="")
     elif args.command == "rebuild-for-start":
         from src.auto_pipeline import rebuild_for_start
+        from src.extractor import ExtractionBatchFailure
 
         def _rebuild_progress(step: str, fraction: float) -> None:
             print(f"[rebuild-for-start] {int(fraction * 100):3d}% {step}")
@@ -489,7 +490,9 @@ def main() -> None:
                 apply=not args.no_apply,
                 progress_cb=_rebuild_progress,
             )
-        except ValueError as exc:
+        except (ValueError, ExtractionBatchFailure) as exc:
+            # iter054c: ExtractionBatchFailure aborts before compress/bootstrap so
+            # we never build the base on a silently-degraded extraction set.
             print(f"ERROR: {exc}")
             raise SystemExit(1)
         print(

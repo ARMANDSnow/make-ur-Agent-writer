@@ -306,11 +306,39 @@ def _clear_failure(chapter_id: str) -> None:
         path.unlink()
 
 
+class ExtractionBatchFailure(RuntimeError):
+    """iter054c: raised by ``extract_all(raise_on_failure=True)`` when one or
+    more chapters failed to extract.
+
+    Per-chapter failures are written to ``data/extraction_failures/`` and the
+    batch otherwise continues ("extract as much as possible"). That silent-
+    swallow left orchestrators blind: when the aetherheartpool relay's
+    Cloudflare Tunnel went down (Error 1033 / HTTP 530), an entire
+    ``rebuild-for-start`` window failed but ``extract_all`` returned normally
+    with a short results list — the orchestrator then built the base on a
+    silently-degraded extraction set. Opting into ``raise_on_failure`` lets a
+    caller abort loudly instead. Chapters that DID extract are already on disk,
+    so a resume re-runs only the failures.
+    """
+
+    def __init__(self, failed_ids: List[str], extracted: int) -> None:
+        self.failed_ids = list(failed_ids)
+        self.extracted = extracted
+        preview = ", ".join(self.failed_ids[:5])
+        more = f" (+{len(self.failed_ids) - 5} more)" if len(self.failed_ids) > 5 else ""
+        super().__init__(
+            f"extract_all: {len(self.failed_ids)} chapter(s) failed extraction "
+            f"({extracted} ok): {preview}{more}. See data/extraction_failures/ for "
+            "last_error (Cloudflare Tunnel 530 = relay outage; re-run resumes)."
+        )
+
+
 def extract_all(
     volume: str = "all",
     limit: Optional[int] = None,
     force: bool = False,
     chapter_ids: Optional[Set[str]] = None,
+    raise_on_failure: bool = False,
 ) -> List[Dict[str, Any]]:
     ensure_dir(_extracted_dir())
     ensure_dir(_rolling_dir())
@@ -331,6 +359,7 @@ def extract_all(
     previous_chapter_ids_by_volume: Dict[str, Deque[str]] = {}
     volume_summary: Dict[str, str] = {}
     results: List[Dict[str, Any]] = []
+    failed_ids: List[str] = []
 
     for entry in tqdm(manifest, desc="extract"):
         chapter_id = str(entry["chapter_id"])
@@ -392,6 +421,23 @@ def extract_all(
             )
         except Exception as exc:
             _write_failure(entry, text, exc)
+            failed_ids.append(chapter_id)
+    # iter054c: surface the batch outcome so orchestrators aren't blind to a
+    # silently-degraded extraction set (per-chapter failures are written to
+    # data/extraction_failures/ and otherwise swallowed). Log a summary on any
+    # failure; raise only when the caller opts in (rebuild-for-start), keeping
+    # greenfield onboarding / retry_failures' "extract as much as possible"
+    # semantics and the no-failure path byte-identical.
+    if failed_ids:
+        log_event(
+            "extract",
+            "batch_failures",
+            extracted=len(results),
+            failed=len(failed_ids),
+            failed_ids=failed_ids,
+        )
+        if raise_on_failure:
+            raise ExtractionBatchFailure(failed_ids, len(results))
     return results
 
 

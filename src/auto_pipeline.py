@@ -306,7 +306,12 @@ def rebuild_for_start(
 
     steps: Dict[str, Any] = {}
     _step("extract")
-    steps["extract"] = extract_all(volume="all", force=reextract, chapter_ids=window_ids)
+    # iter054c: abort loudly if any window chapter fails to extract (e.g. relay
+    # outage) rather than bootstrap a base on a silently-degraded set. Chapters
+    # that did extract persist on disk, so a re-run resumes only the failures.
+    steps["extract"] = extract_all(
+        volume="all", force=reextract, chapter_ids=window_ids, raise_on_failure=True
+    )
     _step("compress")
     steps["compress"] = compress_all()
     _step("bootstrap-graph")
