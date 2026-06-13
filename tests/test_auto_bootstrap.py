@@ -56,6 +56,56 @@ class AutoBootstrapTests(unittest.TestCase):
         self.assertTrue(data["entities"])
         self.assertTrue(data["relationships"])
 
+    def test_load_extractions_before_start_only(self) -> None:
+        # iter 054b: start-aware base seal for the entity_graph / global_facts /
+        # anchor-fallback paths. is_after_start resolves the workspace via paths
+        # (WORKSPACE_NAME), so it must match the root passed to _load_extractions.
+        import os
+        import shutil
+        from src import auto_bootstrap, start_point
+
+        repo_root = Path(__file__).resolve().parent.parent
+        ws = repo_root / "workspaces" / "iter054b_load_extractions"
+        old_ws = os.environ.get("WORKSPACE_NAME")
+        os.environ["WORKSPACE_NAME"] = "iter054b_load_extractions"
+        try:
+            ex = ws / "data" / "extracted_jsons"
+            ex.mkdir(parents=True, exist_ok=True)
+            (ws / "data" / "manual_overrides").mkdir(parents=True, exist_ok=True)
+            chapter_ids = ["bk_ch001", "bk_ch002", "bk_ch003", "bk_ch004"]
+            for cid in chapter_ids:
+                (ex / f"{cid}.json").write_text(
+                    json.dumps({"chapter_id": cid, "summary": cid}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            manifest = [{"chapter_id": cid, "volume_id": "bk"} for cid in chapter_ids]
+            (ws / "data" / "chapter_manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+            )
+            # no start point → before_start_only keeps all (greenfield fail-open)
+            self.assertEqual(
+                [d["chapter_id"] for d in auto_bootstrap._load_extractions(ws, before_start_only=True)],
+                chapter_ids,
+            )
+            # start at ch002 → only ch001 + ch002 (start chapter itself) kept
+            start_point.set_start_point("bk_ch002")
+            self.assertEqual(
+                [d["chapter_id"] for d in auto_bootstrap._load_extractions(ws, before_start_only=True)],
+                ["bk_ch001", "bk_ch002"],
+            )
+            # default path (before_start_only=False) still returns all 4 verbatim
+            self.assertEqual(
+                [d["chapter_id"] for d in auto_bootstrap._load_extractions(ws)],
+                chapter_ids,
+            )
+        finally:
+            if ws.exists():
+                shutil.rmtree(ws)
+            if old_ws is None:
+                os.environ.pop("WORKSPACE_NAME", None)
+            else:
+                os.environ["WORKSPACE_NAME"] = old_ws
+
     def test_bootstrap_continuation_anchor_writes_mock_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

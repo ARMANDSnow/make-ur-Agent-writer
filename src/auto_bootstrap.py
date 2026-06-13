@@ -59,7 +59,7 @@ def bootstrap_global_facts(force: bool = False, root: Path = None) -> Dict[str, 
             "关注角色当前状态、关键事件、死亡/失踪、重要物品和世界观硬约束。"
             "evidence_spans 只能保留 source_file/chapter_id/start_line/end_line/note，quote 必须为空字符串。"
         ),
-        context=_extractions_context(root, limit_chars=50000),
+        context=_extractions_context(root, limit_chars=50000, before_start_only=True),
     )
     proposal = LLMClient("plot_planner").complete_json(_json_messages(prompt), GlobalFactsProposal)
     data = _with_meta(
@@ -85,14 +85,15 @@ def bootstrap_entity_graph(force: bool = False, root: Path = None) -> Dict[str, 
         instructions=(
             "请从章节抽取 JSON 中客观生成 entity_graph proposal，不要创作新设定。"
             "至少 10 个 entities、5 个 relationships；实体含 id/name/type/aliases/tags/key_facts/description。"
-            "tags 用 #名词；relationship timeline 最后一个节点 active=true，其余 active=false。"
+            "tags 用 #名词；relationship timeline 每个节点必须带 chapter_id（该关系状态"
+            "生效/变化的章节，取自抽取 JSON 的 chapter_id），最后一个节点 active=true，其余 active=false。"
             "所有 key_facts/state/description 都用自己的话概括，不要复制原文。"
             "active 状态以**最近的章节**为准——早期章节的关系/状态若已被后续章节"
             "推进或推翻，timeline 早期节点 active=false，只有最新状态 active=true。"
         ),
         # iter 053h: 由近及远整项累加（recent_first）——超预算时丢最早章节
         # 而非最近章节；entity_graph 的使命是"当前续写起点的活跃状态"。
-        context=_extractions_context(root, limit_chars=65000, recent_first=True),
+        context=_extractions_context(root, limit_chars=65000, recent_first=True, before_start_only=True),
     )
     proposal = LLMClient("plot_planner").complete_json(_json_messages(prompt), EntityGraphProposal)
     data = _with_meta(
@@ -172,7 +173,7 @@ def bootstrap_continuation_anchor(force: bool = False, root: Path = None) -> Dic
             "倒计时如果在最后一章已收束，必须当作已经过去的事件，不得写成正在进行。"
         )
     else:
-        context = _recent_extractions_context(root, count=3, limit_chars=24000)
+        context = _recent_extractions_context(root, count=3, limit_chars=24000, before_start_only=True)
         instructions = (
             "请根据最后 2-3 个章节抽取结果生成续写起点 proposal。anchor_text 写 3-5 句，"
             "key_state_points 写当前角色/组织/物品状态。只能概括，不要复制原文。"
@@ -441,9 +442,9 @@ def _strip_quotes(value: Any) -> Any:
 
 
 def _extractions_context(
-    root: Path, limit_chars: int, *, recent_first: bool = False
+    root: Path, limit_chars: int, *, recent_first: bool = False, before_start_only: bool = False
 ) -> str:
-    items = _load_extractions(root)
+    items = _load_extractions(root, before_start_only=before_start_only)
     if not items:
         return "No extracted JSON found."
     from .premise_expansion import expansion_prompt_block
@@ -493,8 +494,10 @@ def _extractions_context(
     return expansion + payload[:budget]
 
 
-def _recent_extractions_context(root: Path, count: int, limit_chars: int) -> str:
-    items = _load_extractions(root)[-count:]
+def _recent_extractions_context(
+    root: Path, count: int, limit_chars: int, *, before_start_only: bool = False
+) -> str:
+    items = _load_extractions(root, before_start_only=before_start_only)[-count:]
     if not items:
         return "No recent extracted JSON found."
     compact = [
@@ -512,9 +515,29 @@ def _recent_extractions_context(root: Path, count: int, limit_chars: int) -> str
     return json.dumps(compact, ensure_ascii=False, indent=2)[:limit_chars]
 
 
-def _load_extractions(root: Path) -> List[Dict[str, Any]]:
+def _load_extractions(root: Path, *, before_start_only: bool = False) -> List[Dict[str, Any]]:
     paths = sorted((root / "data" / "extracted_jsons").glob("*.json"))
-    return [read_json(path, {}) for path in paths if path.is_file()]
+    items = [read_json(path, {}) for path in paths if path.is_file()]
+    if not before_start_only:
+        return items
+    # iter 054b: start-aware base seal. entity_graph (key_facts/description) and
+    # global_facts derive from these extractions; entity field-level facts are
+    # NOT spoiler-filtered on the consumption side, so exclude extractions
+    # strictly AFTER the start point here — the single base-construction read.
+    # No start / chapter_id absent / not in manifest -> is_after_start False ->
+    # kept (greenfield fail-open, byte-identical). The compress->KB path uses a
+    # SEPARATE glob (compressor.load_extractions) and is deliberately NOT
+    # filtered: kb_view needs the full index to compute the nearest pre-start
+    # state and filters at consumption instead.
+    from . import start_point
+
+    kept: List[Dict[str, Any]] = []
+    for item in items:
+        chapter_id = str((item or {}).get("chapter_id") or "")
+        if chapter_id and start_point.is_after_start(chapter_id):
+            continue
+        kept.append(item)
+    return kept
 
 
 def _without_quotes(value: Any) -> Any:
