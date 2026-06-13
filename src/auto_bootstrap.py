@@ -87,8 +87,12 @@ def bootstrap_entity_graph(force: bool = False, root: Path = None) -> Dict[str, 
             "至少 10 个 entities、5 个 relationships；实体含 id/name/type/aliases/tags/key_facts/description。"
             "tags 用 #名词；relationship timeline 最后一个节点 active=true，其余 active=false。"
             "所有 key_facts/state/description 都用自己的话概括，不要复制原文。"
+            "active 状态以**最近的章节**为准——早期章节的关系/状态若已被后续章节"
+            "推进或推翻，timeline 早期节点 active=false，只有最新状态 active=true。"
         ),
-        context=_extractions_context(root, limit_chars=65000),
+        # iter 053h: 由近及远整项累加（recent_first）——超预算时丢最早章节
+        # 而非最近章节；entity_graph 的使命是"当前续写起点的活跃状态"。
+        context=_extractions_context(root, limit_chars=65000, recent_first=True),
     )
     proposal = LLMClient("plot_planner").complete_json(_json_messages(prompt), EntityGraphProposal)
     data = _with_meta(
@@ -436,23 +440,49 @@ def _strip_quotes(value: Any) -> Any:
     return value
 
 
-def _extractions_context(root: Path, limit_chars: int) -> str:
+def _extractions_context(
+    root: Path, limit_chars: int, *, recent_first: bool = False
+) -> str:
     items = _load_extractions(root)
     if not items:
         return "No extracted JSON found."
-    compact = []
-    for item in items:
-        compact.append(
-            {
-                "chapter_id": item.get("chapter_id"),
-                "title": item.get("title"),
-                "summary": item.get("summary"),
-                "character_states": _without_quotes(item.get("character_states", [])),
-                "relationships": _without_quotes(item.get("relationships", [])),
-                "foreshadowing": _without_quotes(item.get("foreshadowing", [])),
-                "worldbuilding": _without_quotes(item.get("worldbuilding", [])),
-            }
-        )
+    from .premise_expansion import expansion_prompt_block
+
+    expansion = expansion_prompt_block()
+    budget = max(0, limit_chars - len(expansion))
+
+    def _compact(item: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "chapter_id": item.get("chapter_id"),
+            "title": item.get("title"),
+            "summary": item.get("summary"),
+            "character_states": _without_quotes(item.get("character_states", [])),
+            "relationships": _without_quotes(item.get("relationships", [])),
+            "foreshadowing": _without_quotes(item.get("foreshadowing", [])),
+            "worldbuilding": _without_quotes(item.get("worldbuilding", [])),
+        }
+
+    if recent_first:
+        # iter 053h（053c 实跑根因④变体）：尾部截断毒——27 章 payload 远超
+        # limit_chars 时，旧实现只给 LLM 留下字典序最靠前的早期章节，
+        # entity_graph 的 active 状态因此锚死序章/入学初期（提取层补全后
+        # 依然如此，评审继续拿旧时代当硬尺）。修法与 053f 同哲学：续写的
+        # "当前状态"由最近章节定义——由近及远**整项**累加（不切坏 JSON），
+        # 预算耗尽即停，最后按时序回排（旧→新）让 LLM 顺时间线阅读。
+        selected: List[Dict[str, Any]] = []
+        total = 0
+        for item in reversed(items):
+            compact_item = _compact(item)
+            piece = json.dumps(compact_item, ensure_ascii=False, indent=2)
+            if selected and total + len(piece) > budget:
+                break
+            selected.append(compact_item)
+            total += len(piece)
+        selected.reverse()
+        payload = json.dumps(selected, ensure_ascii=False, indent=2)
+        return expansion + payload[:budget]
+
+    compact = [_compact(item) for item in items]
     payload = json.dumps(compact, ensure_ascii=False, indent=2)
     # iter 051a: global_facts / entity_graph proposals consume the premise
     # expansion when present (greenfield extractions from a one-sentence seed
@@ -460,10 +490,7 @@ def _extractions_context(root: Path, limit_chars: int) -> str:
     # iter 051c (review M-1): budget the cap against the payload only — a
     # combined-then-truncate would cut mid-JSON when expansion + payload
     # exceed limit_chars, feeding the LLM a broken structure.
-    from .premise_expansion import expansion_prompt_block
-
-    expansion = expansion_prompt_block()
-    return expansion + payload[: max(0, limit_chars - len(expansion))]
+    return expansion + payload[:budget]
 
 
 def _recent_extractions_context(root: Path, count: int, limit_chars: int) -> str:

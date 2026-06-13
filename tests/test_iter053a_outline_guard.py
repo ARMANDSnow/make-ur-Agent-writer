@@ -338,6 +338,61 @@ class DebaterProvenanceTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# bootstrap 提取窗口 recent-first（iter 053h，053c 实跑根因④变体直修）
+# ---------------------------------------------------------------------------
+
+
+class ExtractionsContextRecentFirstTests(unittest.TestCase):
+    """27 章 payload 超 65k 截断时，旧实现尾部截断只给 LLM 留早期章节，
+    entity_graph 的 active 状态锚死序章（提取补全后依然如此）。recent_first
+    由近及远整项累加，预算耗尽丢最早章节。默认 False 行为逐字节不变（铁律④）。"""
+
+    def _root(self, tmp: Path) -> Path:
+        ex = tmp / "data" / "extracted_jsons"
+        ex.mkdir(parents=True)
+        for cid, summary in (
+            ("v1_ch001", "最早章节" * 50),
+            ("v1_ch002", "中间章节" * 50),
+            ("v1_ch003", "最近章节" * 50),
+        ):
+            (ex / f"{cid}.json").write_text(
+                json.dumps({"chapter_id": cid, "title": cid, "summary": summary},
+                           ensure_ascii=False),
+                encoding="utf-8",
+            )
+        return tmp
+
+    def test_recent_first_drops_earliest_when_over_budget(self) -> None:
+        from src.auto_bootstrap import _extractions_context
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(Path(tmp))
+            with patch(
+                "src.premise_expansion.expansion_prompt_block", return_value=""
+            ):
+                # 预算只容两章（单项实测 365 字符）：recent_first 保最近
+                # 两章、丢最早。默认路径行为由存量 bootstrap 测试钉死。
+                ctx = _extractions_context(root, limit_chars=800, recent_first=True)
+        self.assertIn("v1_ch003", ctx)
+        self.assertIn("v1_ch002", ctx)
+        self.assertNotIn("v1_ch001", ctx)
+        # 时序回排：旧章在前、新章在后（LLM 顺时间线读）。
+        self.assertLess(ctx.index("v1_ch002"), ctx.index("v1_ch003"))
+
+    def test_recent_first_within_budget_keeps_all(self) -> None:
+        from src.auto_bootstrap import _extractions_context
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(Path(tmp))
+            with patch(
+                "src.premise_expansion.expansion_prompt_block", return_value=""
+            ):
+                ctx = _extractions_context(root, limit_chars=100000, recent_first=True)
+        for cid in ("v1_ch001", "v1_ch002", "v1_ch003"):
+            self.assertIn(cid, ctx)
+
+
+# ---------------------------------------------------------------------------
 # debate 显式起点锚定块（iter 053e，053c 实跑发现直修）
 # ---------------------------------------------------------------------------
 
