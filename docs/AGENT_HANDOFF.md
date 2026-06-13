@@ -1341,3 +1341,13 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **关键发现/定性沉淀**（勿 re-derive）：① source_excerpts 的 `source_chapter_id` 是 LLM 瞎标的（喂的采样无章节标记）→ 消费端按它过滤不可靠，源头裁剪/ingest-to-start 才可靠。② compress→KB 路径（`compressor.load_extractions` 独立 glob）**绝不**加 start 过滤：kb_view 需完整 index 算"距起点最近 pre-start 状态"，裁剪会破坏它。③ 既存 bug `task_95bdc0d5`：`load_chapter_text` 读 source_file（原始 txt）却用 normalized 行号（manifest 混坐标），非泄露、另案。④ 铁律④逐字节不变已守：graph sidecar 缺失→fresh、覆盖闸无起点→fail-open、rebuild/ingest 均 opt-in 不碰 greenfield 路径。
 
 **真模型半（054c）待用户 `CONFIRM_REAL_MODEL_SMOKE` 授权（≤¥20，铁律⑥）**：换非结局深起点跑 `rebuild-for-start`→续写 ch1-3；diff oracle（ingest-to-start ↔ full+filter 注入材料逐字节一致）；泄露体检；A-M5/M3 搭车修。schema 升级（entity key_facts 结构化）已确认**不与真模型同轮**（052 纪律），本轮零 schema 改动。
+
+## iter054c 真模型段（2026-06-13，diff oracle 收官 / 续写改日续跑）
+
+用户授权 `CONFIRM_REAL_MODEL_SMOKE` 实跑深起点 **`longzu_2_ch001`（龙族II 开篇，起点后 98 章真实素材在场，破 ch024 旧巧合）**。
+
+**✅ 核心泄露验收已机器证毕（零真模型成本）**：两个同源克隆 `longzu_054c_ingest`（物理截断）vs `longzu_054c_full`（全量+设起点）的 `_normalized_context`（style_examples + source_excerpts 采样源，最严重口）**逐字节一致**（123141 bytes，diff 空）；起点后专属标志两模式皆 0；ingest 截断实证 kept 13/dropped 97/删 5 卷。→ full+filter ≡ 物理截断，封口正确性闭环（叠加 986 单测）。
+
+**⏳ 续写 ch1-3 改日续跑**：遇 aetherheartpool Cloudflare Tunnel `Error 1033/530` 宕机（provider 侧，已恢复但拥堵）+ longzu 章节巨大（20-30K 字）高档 extract 极慢（分块章 967s），窗口提取 2/10 后用户拍板**收于确定性 oracle**。真模型累计 ¥2.93（多为宕机 530 重试损耗）。克隆保留（workspaces gitignore），改日用 `/tmp/extract_window.py`（流式+超时重试+续跑+绕分块）补完 → rebuild 收尾 → drive-book 续写。
+
+**运维发现（沉淀）**：① 绕分块（单调用，30K 仍在 128K context 内）远快于 3 子调用；② LLM 调用无 per-call 超时 → 挂起永久阻塞，实跑须超时+重试；③ **`extract_all` 静默吞每章异常进 failure 记录、不向编排层抛**（extractor.py:393）——宕机时 rebuild 表现为"0 提取无报错"；054b 覆盖闸 blocker 兜底拦"底座没建好"。该健壮性缺口已立背景任务另案。
