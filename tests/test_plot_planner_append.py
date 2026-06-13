@@ -59,6 +59,16 @@ class PlotPlannerAppendTests(unittest.TestCase):
         (self.ws_root / "outputs" / "debate" / "outline.md").write_text(
             "stub outline", encoding="utf-8"
         )
+        # iter 054b: plan-chapters now hard-blocks on an extraction coverage
+        # gap before the start. These tests set start=v1_ch003, so seed the
+        # K-chapter window's extracted_jsons to satisfy the new闸.
+        extracted = self.ws_root / "data" / "extracted_jsons"
+        extracted.mkdir(parents=True, exist_ok=True)
+        for cid in ("v1_ch001", "v1_ch002", "v1_ch003"):
+            (extracted / f"{cid}.json").write_text(
+                json.dumps({"chapter_id": cid, "summary": cid}, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
     def tearDown(self) -> None:
         if self.ws_root.exists():
@@ -130,6 +140,19 @@ class PlotPlannerAppendTests(unittest.TestCase):
         # overall_arc preserved from existing, not from LLM
         self.assertEqual(result["overall_arc"], "原始 arc")
         self.assertEqual(result["start_chapter_id"], "v1_ch003")
+
+    def test_extraction_coverage_gap_hard_blocks(self) -> None:
+        # iter 054b: a gap in the K-chapter extraction window before the start
+        # must hard-block plan-chapters (was readiness warn only — 053g).
+        # setUp seeds the full window; drop one chapter to open a gap.
+        from src import plot_planner, start_point
+
+        start_point.set_start_point("v1_ch003")
+        (self.ws_root / "data" / "extracted_jsons" / "v1_ch002.json").unlink()
+        with self.assertRaises(ValueError) as ctx:
+            plot_planner.generate_chapter_plan(target_chapters=1, force=True)
+        self.assertIn("extraction coverage gap", str(ctx.exception))
+        self.assertIn("v1_ch002", str(ctx.exception))
 
     def test_no_append_mode_unchanged(self) -> None:
         """Default mode (append_count=0) requires force when plan exists."""

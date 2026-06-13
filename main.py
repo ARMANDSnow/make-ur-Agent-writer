@@ -571,6 +571,19 @@ def main() -> None:
             start_point.set_start_point(args.name)
             resolved = start_point.get_start_chapter_id()
             print(f"start point set: {args.name!r} → resolved chapter_id = {resolved!r}")
+            # iter 054b: surface the extraction coverage闸 here, the earliest
+            # point a stale base can be detected, instead of only at readiness
+            # (053g, after debate/plan money is gone). Non-fatal report — the
+            # hard blocker lives in plan-chapters; this just tells the user now.
+            missing = start_point.extraction_coverage_failures(k=10)
+            if missing:
+                preview = ",".join(missing[:5])
+                more = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
+                print(
+                    f"WARNING: extraction coverage gap before start: {preview}{more}\n"
+                    f"  run `python main.py extract --volume <起点所在卷>` "
+                    "(or `rebuild-for-start`) before plan-chapters — it will hard-block otherwise"
+                )
         except ValueError as exc:
             print(f"ERROR: {exc}")
             raise SystemExit(1)

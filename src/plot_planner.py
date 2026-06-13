@@ -178,6 +178,24 @@ def generate_chapter_plan(
                 "existing chapter_plan.json start_chapter_id does not match the "
                 "current start point; regenerate the plan before appending"
             )
+    # iter 054b: extraction coverage闸 promoted from readiness warn (053g) to a
+    # hard blocker HERE. The K chapters before the start (incl. start) feed the
+    # KB/entity_graph base via extract→compress→bootstrap; a gap there锚 the
+    # plan (and the debate spend that precedes it) on stale state — exactly the
+    # 052 "听力考试假基线" root cause. Block before committing to a plan rather
+    # than warning after the LLM money is gone. Sits after the append-mismatch
+    # gate so a moved start surfaces the more fundamental mismatch first.
+    # greenfield/no-start fail-open: extraction_coverage_failures returns []
+    # without a start point (铁律④).
+    missing_extraction = start_point.extraction_coverage_failures(k=10)
+    if missing_extraction:
+        preview = ",".join(missing_extraction[:5])
+        more = f" (+{len(missing_extraction) - 5} more)" if len(missing_extraction) > 5 else ""
+        raise ValueError(
+            f"extraction coverage gap before start point: {preview}{more}; "
+            "run `extract --volume <起点所在卷>` (or `rebuild-for-start`) so the "
+            "KB/entity_graph base is current before planning"
+        )
     start_point_context = _format_start_point_context(start_chapter_id)
 
     # Iter 024: when in append mode, ask LLM for exactly `append_count`
