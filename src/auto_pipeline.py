@@ -215,7 +215,16 @@ def run_auto_pipeline(
             progress_cb(step, index / total)
 
     _notify("debate", 6)
-    results["debate"] = run_debate()
+    # iter 054: debate was the ONLY pipeline step that dropped `force` —
+    # plan-chapters and write below both forward it. Without this, an
+    # `auto-pipeline --force` could not force a fresh debate: a stale /
+    # inconsistent outputs/debate/ trio (e.g. a log truncated mid-run on a
+    # prior pass, leaving debate_log.jsonl headless while decisions.json
+    # carries fingerprint metadata) tripped run_debate's resume integrity
+    # guard (debater.py:237) and aborted the whole pipeline — exactly the
+    # deterministic verify.sh failure. force=True archives the old trio and
+    # re-debates; the default (force=False) path stays byte-identical (resume).
+    results["debate"] = run_debate(force=force)
 
     _notify("plan-chapters", 7)
     plan_target = plan_chapters_target
