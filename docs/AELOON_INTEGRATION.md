@@ -95,6 +95,8 @@ Aeloon 的插件发现有 4 个来源（优先级低→高，见 `aeloon/plugins
 
 > 关于 SDK 兼容：本机 Aeloon 克隆在 `dev/ui` 分支，其 `aeloon/plugins/_sdk/` 与 `origin/main` **零差异**（已 `git diff` 实测），所以插件对两个分支都适用，无需为分支差异分叉。
 
+> 📌 **2026-06-16 更新**：现已另有一种 **bundled 内置插件法**（落在专用孤立分支 `dev/novel-ui`，非 main），免 `.pth`+符号链接安装、原生被 discovery 发现；详见 **§9**。同时 §9 记录了 Aeloon 的 **gateway 架构**——它对「在 live Aeloon 里实测插件」是关键坑，务必先读 §9.4。
+
 ---
 
 ## 3. 引入的配置
@@ -338,3 +340,76 @@ NOVEL_BASE_URL=http://127.0.0.1:8765 python -m integrations.mcp_server.server
 - **token 与浏览器互斥**：见 3.2。
 - **无自定义 UI 面板**：Aeloon 插件 SDK 无面板/iframe 扩展点，富交互走深链——这是确认过的形态，不是临时方案。
 - **版权/数据**：续写产物落在续写仓库的 `workspaces/<book>/`，不经 Aeloon 持久化；Aeloon 只拿到聊天里的 Markdown 摘要 + 深链。
+
+---
+
+## 9. 实测补遗（2026-06-16）：bundled 内置插件法 + Aeloon gateway 架构 + 踩坑
+
+> 本节记录把续写并入 Aeloon-Pro `dev/novel-ui` 分支、并把该分支**装成可跑部署做前后端实测**时的新发现。§4 的 workspace 安装法仍然有效；本节是**第二种部署法 + live 调试的关键坑**。
+
+### 9.1 第二种部署法：bundled 内置插件（已落在 `dev/novel-ui`）
+
+与 §4 的「workspace 安装（`.pth` + 符号链接）」并列的另一种形态，已实装在 `AetherHeart-AI/Aeloon-Pro` 的孤立分支 `dev/novel-ui`：
+
+- **位置**：`aeloon/plugins/NovelContinuation/`，4 个文件——`aeloon.plugin.json`（id=`novel.continuer`，声明 `/novel` + 8 工具）、`__init__.py`、`plugin.py`（薄 shim）、`README.md`。
+- **原理**：`plugin.py` 用路径 shim（`Path(__file__).resolve().parents[3] / "novel_web"`）把**同分支内**的 `novel_web/` 加进 `sys.path`，再 `from integrations.aeloon_plugin.plugin import NovelPlugin` 复用同一份插件类——**单一真源、零逻辑重复**。
+- **好处**：原生被 discovery 扫到，**免 `.pth` + 符号链接安装**；clone 该分支 + 起 Aeloon 即自动有 `/novel`。
+- **与 §2「不合并 main」的关系**：bundled 这次是放在**专用孤立分支 `dev/novel-ui`**（不是 main），main 仍保持干净；属于"按分支交付快照"，不是"随产品发给所有用户"。
+- **坑①（打包）**：Aeloon 根 `.gitignore` 有一条**裸 `docs` 规则**，会吞掉 `novel_web/docs/`（任意名为 `docs` 的子目录）。提交这些文档须 `git add -f`（父目录被父级规则排除后，子 `.gitignore` 无法救回）。
+
+### 9.2 把 `dev/novel-ui` 装成可跑部署
+
+```bash
+cd ~/Desktop/Aeloon-Pro            # dev/novel-ui 检出
+python3.11 -m venv .venv           # pyproject requires-python >= 3.11
+.venv/bin/pip install -e .         # 装 aeloon-ai 1.0.0(editable) + 全部依赖
+```
+后端（novel_web）用同一部署自包含启动即可（新 venv 已含 litellm/pydantic/tiktoken 等引擎依赖）：
+```bash
+cd ~/Desktop/Aeloon-Pro/novel_web
+OPENAI_MODEL=mock ../.venv/bin/python main.py web --port 8765
+```
+
+### 9.3 ⚠️ 关键架构：Aeloon 是 gateway 架构（live 测插件必读）
+
+- `aeloon agent` **默认连一个常驻 gateway 进程**，**插件由 gateway 加载**，不是 agent 自己。
+- 后果：要让某部署的插件在 live `/novel` 里生效，**gateway 必须从该部署的 venv 启动**。若机器上已有**别的部署**的 gateway 在跑（如 Playground `dev/ui` 占 `:18790`、或另一个 checkout 起的 gateway），你的 `aeloon agent` 会连上**那个**→ 看不到本部署的 `/novel`。
+- 排查命令：
+  ```bash
+  ps aux | grep 'aeloon gateway' | grep -v grep
+  lsof -nP -i :18790
+  lsof -a -p <gateway_pid> -d cwd      # 看该 gateway 属于哪个部署(cwd)
+  ```
+- **坑②（最关键，最易误判）**：`discover_all()` / `build_lightweight_plugin_registry()` 能发现/注册插件 **≠** live agent 能用它。前者是**元数据扫描**（与 venv 里的代码一致即可），后者取决于 **agent 连的是哪个 gateway**。本次就是：元数据层一路绿、但 live `/novel` 不认，根因是 agent 连到了别的部署的常驻 gateway。
+
+### 9.4 live 跑 `/novel` 的两种方式
+
+**A. gateway 模式（贴近真实使用，推荐）**——让 gateway 从 `dev/novel-ui` 部署起：
+```bash
+# 先停掉/避开别的部署占用的 gateway 端口（默认 :18790）
+cd ~/Desktop/Aeloon-Pro && .venv/bin/aeloon gateway        # 端口冲突时加 --port
+# 另一终端
+cd ~/Desktop/Aeloon-Pro && .venv/bin/aeloon agent          # 交互；输入 /novel help
+```
+
+**B. `--standalone` 进程内加载（绕过外部 gateway）**——实测能加载 novel（启动日志 `✓ Plugins loaded: …novel.continuer…`），但有三道限制：
+- 只支持 `llmBackend=local`（云端 config 会被拒：`--standalone only supports llmBackend=local`）。可在隔离 config 里把 `llmBackend` 改成 `local`。
+- 其 `-m "/novel ..."` **一次性模式只 init 不处理消息**（不打印命令回复）；要交互 TTY 才能看到分发结果。
+- 隔离测试可用 `AELOON_HOME=<临时目录>` 自定义 home + `AELOON_TRUST_WORKSPACE=1` 过 workspace trust 门禁；但**隔离 home 缺登录态**（`auth/` + `webui-auth.json`），云端模式会报 `gateway 握手失败：请先登录`——需从真实 `~/.aeloon` 拷 `auth/` 等。
+
+### 9.5 坑③：workspace 安装法（§4）在本机未观察到生效
+
+- 现象：`~/.aeloon/plugins/novel_continuer` 符号链接在，但运行中部署的 `~/.aeloon/plugin_state.json` **没有 `novel.continuer` 条目**，live `/novel` 不认（被当普通聊天发给 LLM）。
+- 可能原因（**待确认**，按怀疑度排序）：
+  1. `.pth` 没写进**实际在跑的那个** Aeloon venv——本机有 Playground / `Aeloon-Pro-devui` 等多个部署，venv 各异，`.pth` 装错 venv 就不生效。
+  2. 符号链接目标路径含**非 ASCII**（`/Users/.../Agent续写项目/...`），`.pth` 对非 ASCII 路径的解析存疑——建议把仓库放到纯 ASCII 路径或改 `.pth` 写法再验。
+  3. **来源优先级覆盖**：workspace 源（优先级 30）会盖过 bundled 源（10），二者同 id `novel.continuer`；若 workspace 那份坏了/没生效，理论上仍可能挡住 bundled。用 bundled 法时**应移除/确认没有**该 workspace 符号链接。
+
+### 9.6 本次实测确切结论
+
+| 项 | 结果 |
+|---|---|
+| `dev/novel-ui` 装成可跑部署 | ✅ `~/Desktop/Aeloon-Pro/.venv`（py3.11 + aeloon-ai 1.0.0 + 全依赖） |
+| 后端 novel_web（用户视角） | ✅ 工作台首页 HTTP 200（标题「续写工作台·本地多 Agent 创作引擎」）+ `/api/workspaces` 正常 + mock 全链路（new/outline/status 通、write 被 readiness 护栏正确拦截） |
+| bundled `/novel` 加载 | ✅ 真实 aeloon 进程启动日志 `✓ Plugins loaded: …novel.continuer…`；`discover_all()` source=bundled；`register()` 注册 /novel + 8 工具 |
+| live 交互 `/novel` 回复 | ⚠️ headless 自动化未打印——因 gateway 架构（§9.3）+ standalone/local/login/TTY 限制（§9.4-B）。交互终端按 §9.4-A 从 `dev/novel-ui` 部署起 gateway+agent 即可正常用 |
