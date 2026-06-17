@@ -112,6 +112,45 @@ class PremiseExpansion(BaseModel):
         return self
 
 
+class WriterStyleCard(BaseModel):
+    """Iter 056: 轻量「作家风格卡」——结构化的简短风格特征描述。
+
+    仅 premise 自创书注入（续写书靠原著 style_examples + 起点前原文）。每字段
+    都很短：卡片随 writer prompt 的可缓存段注入，长 prose 会让每次写作调用膨
+    胀。per-field max_length 同时充当 PUT 编辑端点的长度门（校验走本 model，与
+    PremiseExpansion 同范式）。name/category 是身份元字段（卡头展示 / 预置分
+    组），不进 prompt 正文列表。
+    """
+
+    name: str = Field(default="", max_length=40, description="风格卡名称，如『冷峻克制·硬汉派』")
+    category: str = Field(default="", max_length=40, description="风格定位/流派标签，如『悬疑』『古典武侠』")
+    rhythm: str = Field(default="", max_length=200, description="叙事节奏：快/慢、张弛、场景切换密度")
+    sentence: str = Field(default="", max_length=200, description="句式特征：长短句配比、语序、标点习惯")
+    diction: str = Field(default="", max_length=200, description="用词偏好：书面/口语、雅俗、生僻字、方言色彩")
+    imagery: str = Field(default="", max_length=300, description="意象与比喻：取材范围、密度、感官通道偏好")
+    dialogue: str = Field(default="", max_length=300, description="对话风格：信息密度、潜台词、人物腔调区分度")
+    subtext: str = Field(default="", max_length=300, description="含蓄度：直白抒情 vs 留白克制；情绪外显程度")
+    narration: str = Field(default="", max_length=200, description="叙述视角与距离：全知/限知、与人物的心理贴近度")
+    signatures: List[str] = Field(
+        default_factory=list,
+        max_items=12,
+        description="标志性笔法/惯用手法，每条一句（≤12 条；描述手法，不给字面例句以免污染输出）",
+    )
+    taboo: List[str] = Field(
+        default_factory=list, max_items=12, description="该风格要避免的笔法，每条一句（≤12 条）"
+    )
+
+    @model_validator(mode="after")
+    def _cap_list_item_length(self) -> "WriterStyleCard":
+        # 同 PremiseExpansion：list 项的 max_length 用 max_items 风格表达不了，
+        # 在这里逐项卡死，保证注入到 prompt 的体量有界。
+        for field_name in ("signatures", "taboo"):
+            for item in getattr(self, field_name):
+                if not isinstance(item, str) or len(item) > 300:
+                    raise ValueError(f"{field_name} items must be strings of <=300 chars")
+        return self
+
+
 class ReviewIssue(BaseModel):
     message: str
     rule_id: Optional[str] = None

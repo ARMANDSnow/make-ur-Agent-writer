@@ -249,6 +249,12 @@ def premise_expansion_path() -> Path:
     return data_dir() / "premise_expansion.json"
 
 
+def writer_style_path() -> Path:
+    """Iter 056: 激活的作家风格卡快照。data/ 下，与 premise_expansion.json
+    并列——可编辑中间产物（非流水线产出），仅 premise 自创书使用。"""
+    return data_dir() / "writer_style.json"
+
+
 def continuation_anchor_path() -> Path:
     return manual_overrides_dir() / "continuation_anchor.txt"
 
