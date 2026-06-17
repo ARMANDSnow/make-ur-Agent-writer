@@ -1404,3 +1404,27 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **数据状态**：longzu 工作区有本轮真模型测试遗留——`longzu_1_ch007` 成功提取（V1a）、`longzu_1_ch009` 成功（V2 294s）、`longzu_2_ch005` 失败记录（timeout=5 测试）。可 `extract --force` 覆盖或忽略。其余真实书工作区未触碰，git 干净（仅 docs/product/ 两文件未跟踪，符合预期）。
 
 **下轮候选**：① `write` 流式 idle-deadline（async/watchdog 真流式超时，补齐 write 的 per-call 保护）；② V5 续写 ch1-3；③ flaky `test_busy_workspace` 修（已派背景任务）；④ verify.sh 钉 venv python（免解释器陷阱）；⑤ entity timeline/key_facts schema（052 起顺延）。
+
+## iter056 作家风格卡（2026-06-18，mock 段收官 + 真模型 V1 + 三维审查）
+
+承接 iter055。本轮主轴 = **premise 自创书的轻量「作家风格卡」**（预置库 + 上传样本提取，仅 premise 注入）。详见 `docs/iterations/iteration_056_PLAN.md`（计划 + 三维 subagent 审查修正 + 实现回填 + 真模型 V1）。
+
+**规划期三维对抗审查**（架构/前端/产品风险）暴露并修正：① 注入区非空地（style_examples 已占、premise 也可能有→共存+优先级）；② 缓存段污染（风格卡塞 stable 段→改卡失效 KB 缓存→改为**独立第 3 cache 段**）；③ 字节兼容（block 自带尾分隔 + cache_segments 条件不加空段）；④ polish 漂移（polish 也注入）；⑤ 戒律优先（系统戒律/linter/reviewer > 风格卡）；⑥ 前端 IA（折叠区 + 单漏斗 + cols-3 + pollJob 替代平铺过载）。用户拍板：完整做（含上传提取）+ 强护栏；真模型搭车 V5（但 V5 与风格卡解耦、实际未跑）。
+
+**提交链（`40db504..acdd6a9`，6 提交，只 commit 未 push 铁律⑤）**：轨A `40db504`（WriterStyleCard schema + 预置库 6 张 + writer_style 模块，复刻 premise_expansion 范式）· 轨B `998c4cf`（style_extract task + _mock_json stub + extract + n-gram 反污染 + jobs step）· 轨C `fb3f94a`（_write_prompt 独立缓存段 + polish 注入 + 仅 premise + 字节兼容）· 轨D `c689041`（5 端点 + workbench has_start_point + 前端折叠区 + gitignore 护栏）· PLAN 文档 + 真模型 V1 修正 `acdd6a9`。
+
+**真模型段（用户一并授权，直连中转站 gpt-5.5）**：
+- **V1 提取 + 反污染 ✅**：280 字「冷峻硬汉」样本 → 9/9 标量 + 8 signatures + 8 taboo 全填充（18.6s），质量精准、`_scrubbed=[]`。**抓到并修复 mock 测不出的缺口**（`acdd6a9`）：`complete_json` 不注入 schema + extract prompt 缺英文 key → 首跑 9 维全空；prompt 显式列 JSON 字段后复验全填充。
+- V2 快照 ✅（preview + mock 验证）；V3 注入 / V4 缓存 由 `test_writer_style_inject` 逐字节钉死 + V1 证卡生成（端到端真写未单独跑）；V5 续写欠账与风格卡解耦、未跑。
+
+**关键发现/定性沉淀（勿 re-derive）**：
+1. **`complete_json`(llm_client.py:416) 不注入 JSON schema** —— 仅传 messages、靠 prompt 文字描述字段。任何用 complete_json 的新 response_model **必须在 prompt 显式列 key**（英文 key + 中文说明），否则 LLM 自拟 key → `response_model(**data)` 全回退默认值（额外 key 静默忽略、不触发 json_repair）。这是 premise_expansion.py:52 记录的 iter052「部分字段空落盘」同根因；本轮 WriterStyleCard 11 字段全不匹配 → 全空，已修。
+2. **仅 premise 判定 = `start_point.get_start_chapter_id()`**（镜像 _canon_anchor_block）；风格卡（无起点注入）与 canon_anchor（有起点注入）完全互斥。
+3. **快照非引用**：预置卡激活 = 快照 fields 入 `data/writer_style.json`，预置库升级不影响已激活卡（`preset_version` 仅审计）。
+4. 风格卡**不接 mtime 失效链、不进 chapter fingerprint** —— 改卡只下一章生效、不回炉已写章。
+
+**门禁**：收官全量 **1079 unittest OK**（新增 4 测试文件 50 例：writer_style 22 / extract 7 / inject 7 / web 14）。前端 preview 实测（风格卡区渲染 / gate / 激活高亮 / 编辑器 / 零报错）。零既有 schema 改动（铁律）。
+
+**数据状态**：测试遗留 workspace `style_real`（V1 真模型提取卡）+ `style_preview`（preview 造）——gitignored，可删。真实书 workspace 未触碰。
+
+**下轮候选**：① iter057 立 **capstone 本体**（30+ 章长程续写，自 iter024 起 6 轮顺延、基建就绪）；② V5 续写 ch1-3（iter054 欠账，与风格卡解耦）；③ 风格卡端到端真写质量验证（出文文风对比 + 缓存计费隔离实证）；④ 风格卡增强（per-chapter scope / 多卡，本轮已留 `scope` 字段）；⑤ 沿用 iter055 候选（write idle-deadline / entity timeline schema）。
