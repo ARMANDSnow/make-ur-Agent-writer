@@ -122,3 +122,21 @@ A/B/C 落地后 `extract_all` 已具「断点续跑(`:373` `out_path.exists() an
 1. 每轨改完跑 `python3 -m unittest discover -s tests`（mock，秒级）+ `bash scripts/verify.sh`（exit 0）。
 2. 新增超时/重试/绕分块/续跑 mock 测试随对应轨提交，确保字节兼容（无配置时旧行为不变）。
 3. 真模型段经用户 `CONFIRM_REAL_MODEL_SMOKE` 授权后，按 V1→V5 分步跑；先 <¥3 验加固，再 ≤¥15 补续写 ch1-3。
+
+## 实现回填（2026-06-17 收官 · mock 段）
+
+**入库 7 commit**（`1f024b2` 计划稿 → `9d8d9ef`）：轨A `6c7cd99` · 轨B `907701a` · 轨C `8bd8d4a` · 轨D `674c253` · 轨C对齐48000 `fbd3268` · 轨D补per_chapter_attempts `9d8d9ef`。
+
+**实现 vs 计划差异（均已按拍板收敛）**：
+- **轨A**：按拍板分任务超时落地（default 120 / write 240 / plot_planner 300）。§34 的"0=off"是 key 缺失时的**代码 fallback**，非 default 块值。显式映射 no-op bug 已修，测试钉死 extract 继承 default=120 透传生效、write 覆盖=240、未配（0）不含 timeout key。
+- **轨B**：`_is_transient` 在计划的「类名 + 错误串」之外，额外用 `isinstance(exc, (ConnectionError, TimeoutError))` 兜 stdlib 连接/超时——现存 `test_llm_client_streaming` 用裸 `ConnectionError` 触发重试，且语义上确属 transient（流式断流）。
+- **轨C**：实现初设默认 **0**（保守/字节兼容），收官审核发现与 §52 拍板的 **48000** 不符 → 已对齐 48000（`fbd3268`），根因② 默认即治。
+- **轨D**：① `elapsed_ms` 计在既有 `done`/`failure` 事件（含失败 JSON），而非计划的独立 `progress`(done/total) 事件——`done` 已每章触发、tqdm 提供交互进度，无需另立事件；② `per_chapter_attempts` 已补（`9d8d9ef`，仅挂 `extract` 命令，依 §59）；③ **`extract_window` 薄封装 + `--chapter-ids` 按用户拍板跳过**——与现有 `rebuild-for-start --no-chunk`（窗口 re-extract）+ `extract_all(chapter_ids=)` 高度重叠。
+
+**门禁**：每轨独立 `verify.sh` exit 0；收官全量 **1023 unittest OK + verify.sh exit 0 + Report snapshots OK**（48000 默认未漂移流水线快照）。新增 4 测试文件 ~36 例（timeout 5 / retry 11 / no_chunk 9 / resilience 11）。**零 schema 改动、只 commit 不 push**（铁律遵守）。
+
+**运维发现（回填）**：
+- **verify.sh 解释器陷阱**：脚本内用裸 `python3`，未激活 venv 的 shell 里解析到系统 Python 3.9（无 tiktoken、无 PEP604 运行期）→ 伪报 3 error（`test_book_runner` 导入失败 / `tiktoken` 缺失）。须 `PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` 或先 `source .venv/bin/activate`。
+- **既有 flaky 测试**：`test_web_draft_edit.test_busy_workspace_returns_409` 在全量 discover 高负载下偶发 `workspace_busy`（`jobs.py` job 状态更新 vs `_WORKSPACE_JOBS` 注销的进程内竞态；与 iter055 无关——web-only 子集 + 两次全量重跑均不复现）。
+
+**真模型段（V1-V5）**：**未跑**——需用户 `CONFIRM_REAL_MODEL_SMOKE` 授权，本轮交付止于 mock 段收官。
