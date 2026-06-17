@@ -6,6 +6,7 @@
     "context_limit": 128000,
     "retry_attempts": 5,
     "retry_backoff_seconds": 2,
+    "request_timeout": 120,
     "json_repair": true
   },
   "tasks": {
@@ -36,6 +37,7 @@
       "max_tokens": 8000,
       "max_tokens_env": "WRITE_MAX_TOKENS",
       "context_limit": 128000,
+      "request_timeout": 240,
       "cache_enabled": true
     },
     "review": {
@@ -55,6 +57,7 @@
       "temperature": 0.4,
       "max_tokens": 16000,
       "context_limit": 200000,
+      "request_timeout": 300,
       "api_key_env": "PLANNER_API_KEY",
       "base_url_env": "PLANNER_BASE_URL"
     }

@@ -133,6 +133,14 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
         # builds an LLMClient). Degrade to the documented defaults instead.
         "retry_attempts": _safe_int(default.get("retry_attempts", 1), 1),
         "retry_backoff_seconds": _safe_float(default.get("retry_backoff_seconds", 0.5), 0.5),
+        # iter055 轨A: per-call timeout. 显式映射而非靠 :140-144 透传 —— 那段只透传
+        # task_cfg 的 key，default 块的 request_timeout 不会进 self.config（会让超时
+        # 静默失效）。因 default.update(task_cfg)，task 块可覆盖 default（分任务超时:
+        # extract/review 120 · write 240 · plot_planner 300）。0 = 关闭（字节兼容旧行为）。
+        # LLM_REQUEST_TIMEOUT env 优先，便于实跑现场快速调旋钮。
+        "request_timeout": _env_float(
+            "LLM_REQUEST_TIMEOUT", _safe_float(default.get("request_timeout", 0), 0)
+        ),
         "json_repair": _env_bool("JSON_REPAIR", bool(default.get("json_repair", True))),
         "context_limit": _safe_int(context_limit, _default_context_limit(str(model))),
         "cache_enabled": _env_bool("DISABLE_PROMPT_CACHE", False) is False

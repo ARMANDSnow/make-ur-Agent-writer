@@ -187,6 +187,10 @@ class LLMClient:
                     "temperature": temperature if temperature is not None else self.config.get("temperature", 0.2),
                     "max_tokens": max_tokens,
                 }
+                # iter055 轨A: per-call 超时(覆盖连接+读取)。>0 才加 → 未配(=0)时不含
+                # timeout key，逐字节兼容旧行为。litellm drop_params 不丢顶层 timeout(R9)。
+                if self.config.get("request_timeout"):
+                    kwargs["timeout"] = float(self.config["request_timeout"])
                 if self.config.get("api_key"):
                     kwargs["api_key"] = self.config["api_key"]
                 if self.config.get("base_url"):
@@ -257,6 +261,8 @@ class LLMClient:
                 "temperature": self.config.get("temperature", 0.2),
                 "max_tokens": 1,
             }
+            if self.config.get("request_timeout"):  # iter055 轨A
+                kwargs["timeout"] = float(self.config["request_timeout"])
             if self.config.get("api_key"):
                 kwargs["api_key"] = self.config["api_key"]
             if self.config.get("base_url"):
