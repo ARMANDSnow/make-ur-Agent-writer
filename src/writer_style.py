@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from . import paths, start_point
 from .config import load_config
+from .llm_client import LLMClient
 from .schemas import WriterStyleCard, model_to_dict
 from .state import log_event
 from .utils import read_json_optional, write_json
@@ -232,3 +233,139 @@ def writer_style_prompt_block() -> str:
         "不得违反上方关键风格戒律，与原著风格样例冲突时以系统戒律为准。\n\n"
     )
     return f"{head}{body}{tail}"
+
+
+# ---- 轨 B: 上传样本提取 + 反污染护栏 ----------------------------------------
+
+EXTRACT_SAMPLE_MAX_CHARS = 60000
+_SCRUB_NGRAM = 8  # 连续 ≥8 字与样本重合视作 verbatim 泄露
+
+
+def _empty_fields(fields: Dict[str, Any]) -> List[str]:
+    """空字符串 / 空列表（或全空白项）都算空——9 维特征里哪些缺失。"""
+
+    empty: List[str] = []
+    for key, _label in FIELD_LABELS:
+        value = fields.get(key)
+        if isinstance(value, list):
+            if not [v for v in value if str(v or "").strip()]:
+                empty.append(key)
+        elif not str(value or "").strip():
+            empty.append(key)
+    return empty
+
+
+def _norm(text: Any) -> str:
+    return "".join(str(text or "").split())
+
+
+def _sample_grams(sample: str) -> set:
+    norm = _norm(sample)
+    if len(norm) < _SCRUB_NGRAM:
+        return set()
+    return {norm[i : i + _SCRUB_NGRAM] for i in range(len(norm) - _SCRUB_NGRAM + 1)}
+
+
+def _has_overlap(text: Any, grams: set) -> bool:
+    t = _norm(text)
+    if len(t) < _SCRUB_NGRAM or not grams:
+        return False
+    return any(t[i : i + _SCRUB_NGRAM] in grams for i in range(len(t) - _SCRUB_NGRAM + 1))
+
+
+def _scrub_sample_overlap(fields: Dict[str, Any], sample: str) -> tuple[Dict[str, Any], List[str]]:
+    """反污染二次扫描（P0-A 护栏，不靠 LLM 自律）：任一字段若与上传样本连续重合
+    ≥``_SCRUB_NGRAM`` 字，视作 verbatim 泄露并剥离——标量整字段清空、list 剥该条。
+    返回 (cleaned_fields, 被剥离的字段名列表)。"""
+
+    grams = _sample_grams(sample)
+    if not grams:
+        return fields, []
+    cleaned = dict(fields)
+    scrubbed: List[str] = []
+    for key in ("rhythm", "sentence", "diction", "imagery", "dialogue", "subtext", "narration"):
+        if isinstance(cleaned.get(key), str) and _has_overlap(cleaned[key], grams):
+            cleaned[key] = ""
+            scrubbed.append(key)
+    for key in ("signatures", "taboo"):
+        value = cleaned.get(key)
+        if isinstance(value, list):
+            kept = [it for it in value if not _has_overlap(it, grams)]
+            if len(kept) != len(value):
+                cleaned[key] = kept
+                scrubbed.append(key)
+    return cleaned, scrubbed
+
+
+def extract_style_card(sample: str, *, force: bool = False) -> Dict[str, Any]:
+    """上传样本 → ``style_extract`` LLM task → ``WriterStyleCard`` → 落盘
+    （source="extract"）。仿 ``expand_premise``：mock 下确定性 stub（铁律③）、
+    幂等（存在不覆盖除非 force）、空字段重试一次、反污染二次扫描兜底。"""
+
+    sample = (sample or "").strip()
+    if not sample:
+        raise ValueError("sample must not be empty")
+    path = paths.writer_style_path()
+    if path.exists() and not force:
+        existing = load_card()
+        if existing is not None:
+            log_event("writer_style", "extract_skipped_existing")
+            return existing
+
+    client = LLMClient("style_extract")
+    system_message = {
+        "role": "system",
+        "content": (
+            "你是研究作家文体的文学编辑。从给定写作样本中提炼【可复用的风格特征】，"
+            "输出结构化风格卡（节奏/句式/用词/意象/对话/含蓄度/视角 + 标志性笔法 + 规避笔法）。"
+            "只描述笔法手法，不要摘录或复述样本中的具体情节、人名、地名或句子原文；"
+            "signatures 描述手法而非给字面例句，以免污染后续写作输出。"
+        ),
+    }
+    user_content = "写作样本（仅供分析文体，勿复述其内容）：\n\n" + sample[:EXTRACT_SAMPLE_MAX_CHARS]
+    card = client.complete_json(
+        [system_message, {"role": "user", "content": user_content}],
+        response_model=WriterStyleCard,
+    )
+    fields = model_to_dict(card)
+    empty = _empty_fields(fields)
+    if empty:
+        log_event("writer_style", "extract_empty_retry", fields=empty)
+        retry_content = (
+            f"{user_content}\n\n上一稿以下风格维度缺失，本次必须补全、不得留空："
+            + "、".join(empty)
+        )
+        try:
+            retry_card = client.complete_json(
+                [system_message, {"role": "user", "content": retry_content}],
+                response_model=WriterStyleCard,
+            )
+            retry_fields = model_to_dict(retry_card)
+            if len(_empty_fields(retry_fields)) < len(empty):
+                fields = retry_fields
+                empty = _empty_fields(fields)
+        except Exception as exc:
+            log_event("writer_style", "extract_empty_retry_error", error=str(exc))
+
+    fields, scrubbed = _scrub_sample_overlap(fields, sample)
+    record: Dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "source": "extract",
+        "preset_id": "",
+        "preset_version": 0,
+        "scope": "book",
+        "fields": fields,
+        "generated_by": "style_extract_v1_mock" if client.is_mock else "style_extract_v1",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "edited": False,
+        "edited_at": "",
+    }
+    if empty:
+        record["_incomplete_fields"] = empty
+    if scrubbed:
+        record["_scrubbed_fields"] = scrubbed
+        log_event("writer_style", "extract_scrubbed", fields=scrubbed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, record)
+    log_event("writer_style", "extract_done", scrubbed=scrubbed)
+    return record

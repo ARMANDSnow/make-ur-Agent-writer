@@ -255,6 +255,12 @@ def writer_style_path() -> Path:
     return data_dir() / "writer_style.json"
 
 
+def writer_style_sample_path() -> Path:
+    """Iter 056: 上传样本提取的临时落盘路径（gitignored，提取后即删）。
+    extract job 从此读样本，避免把数万字样本塞进 job params/状态。"""
+    return data_dir() / ".writer_style_sample.tmp"
+
+
 def continuation_anchor_path() -> Path:
     return manual_overrides_dir() / "continuation_anchor.txt"
 

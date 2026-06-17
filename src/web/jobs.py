@@ -650,6 +650,38 @@ def _step_expand_premise(params: Dict[str, Any], progress_cb: Callable[[str, flo
     }
 
 
+def _step_extract_style(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    """iter 056: 从临时样本文件提取作家风格卡（仅 premise 自创书）。
+
+    上传端点先把样本写到 ``data/.writer_style_sample.tmp``（gitignored），本步
+    读取后提取并落 ``data/writer_style.json``，然后删除临时样本——样本不持久化，
+    不进仓库/快照（P0-A 版权护栏）。``force`` 默认 True（提取即为得到新卡）。"""
+    sample_path = paths.writer_style_sample_path()
+    if not sample_path.exists():
+        return _blocked("sample_missing", "no uploaded sample found; upload a writing sample first")
+    try:
+        sample = sample_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        return _blocked("sample_unreadable", f"failed to read sample: {exc}")
+    if not sample:
+        sample_path.unlink(missing_ok=True)
+        return _blocked("sample_empty", "uploaded sample is empty")
+
+    from ..writer_style import extract_style_card
+
+    progress_cb("extract", 0.1)
+    try:
+        record = extract_style_card(sample, force=bool(params.get("force", True)))
+    finally:
+        sample_path.unlink(missing_ok=True)  # 样本不持久化：提取完即删
+    return {
+        "status": "succeeded",
+        "generated_by": record.get("generated_by"),
+        "scrubbed_fields": record.get("_scrubbed_fields", []),
+        "incomplete_fields": record.get("_incomplete_fields", []),
+    }
+
+
 def _step_prepare_greenfield(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     """iter 048a: workbench stage ① — run only the 6 prep steps
     (normalize → apply-bootstrap) as a single composite job, then stop.
@@ -687,6 +719,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
     "prepare-greenfield": _step_prepare_greenfield,
     "expand-premise": _step_expand_premise,
+    "extract-style": _step_extract_style,
 }
 
 

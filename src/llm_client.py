@@ -766,6 +766,23 @@ class LLMClient:
                 "arc_hints": ["mock 第 1 章弧线提示", "mock 第 2 章弧线提示"],
             }
             return response_model(**payload)
+        if name == "WriterStyleCard":
+            # iter 056: deterministic stub so extract tests pin the card and
+            # the prompt injection byte-exactly (铁律③).
+            payload = {
+                "name": "mock 风格卡",
+                "category": "mock 流派",
+                "rhythm": "mock 节奏：张弛交替，场景切换克制。",
+                "sentence": "mock 句式：以短句为主，偶用长句铺陈。",
+                "diction": "mock 用词：书面偏冷，少用流行语。",
+                "imagery": "mock 意象：以光影与温度为主感官通道。",
+                "dialogue": "mock 对话：信息密度高，潜台词多。",
+                "subtext": "mock 含蓄度：克制留白，情绪不外显。",
+                "narration": "mock 叙述：限知视角，与人物心理贴近。",
+                "signatures": ["mock 标志性笔法一", "mock 标志性笔法二"],
+                "taboo": ["mock 规避笔法一"],
+            }
+            return response_model(**payload)
         if name == "PersonasProposal":
             payload = {
                 "_meta": {"review_instructions": "mock review"},
