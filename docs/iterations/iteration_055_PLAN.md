@@ -139,4 +139,26 @@ A/B/C 落地后 `extract_all` 已具「断点续跑(`:373` `out_path.exists() an
 - **verify.sh 解释器陷阱**：脚本内用裸 `python3`，未激活 venv 的 shell 里解析到系统 Python 3.9（无 tiktoken、无 PEP604 运行期）→ 伪报 3 error（`test_book_runner` 导入失败 / `tiktoken` 缺失）。须 `PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` 或先 `source .venv/bin/activate`。
 - **既有 flaky 测试**：`test_web_draft_edit.test_busy_workspace_returns_409` 在全量 discover 高负载下偶发 `workspace_busy`（`jobs.py` job 状态更新 vs `_WORKSPACE_JOBS` 注销的进程内竞态；与 iter055 无关——web-only 子集 + 两次全量重跑均不复现）。
 
-**真模型段（V1-V5）**：**未跑**——需用户 `CONFIRM_REAL_MODEL_SMOKE` 授权，本轮交付止于 mock 段收官。
+## 真模型段实测（2026-06-17 · 用户授权 ≤¥20）
+
+载体 `workspaces/longzu`（110 章，gpt-5.5-low via 中转站，with_proxy=direct 直连）。spend：4 次真实 extract 调用（V1a/V2/诊断/复验）≈ 14 万 tokens，远 < ¥3。
+
+**V1/V3/V4 验证加固生效**：
+
+| 项 | 结果 |
+|---|---|
+| V1 绕分块单调用 | 30K 章(`longzu_1_ch007`)单调用成功 **204s**(attempt=1，reasoning 延迟非重试)« 历史分块 967s；1 call |
+| V3 退避/调用结构 | `llm_calls.jsonl` 记 attempt/tokens(27150→10808)，单调用=1 call |
+| V4 断点续跑 | 同章无 `--force` **6s 秒跳过、0 新 call** |
+
+**V2 抓到核心缺口 → 已修（commit `8973273`）**：litellm **不把 `timeout` 落到流式 SSE read**。流式（生产 `OPENAI_STREAM=1`）下 `timeout=5` 仍跑满 **294s 成功**——Track A 的治本超时在生产路径形同虚设、iter054 的 mid-stream 卡死根因**未治**；非流式则 litellm 遵守 timeout（实测 58s 失败）。这是 mock 测不出（mock 只能验 `timeout=5` 被传入）、真模型一测就现形的关键缺口，正是 V2 的设计目的。
+
+**修复**（用户拍板"批处理关流式 + 调高超时"）：
+- 批处理任务（extract/compress/debate/review/premise/plot_planner）`stream:false` 强制非流式拿回超时；`write` 跟随 env（生产流式 UX，idle-deadline 下轮补）。
+- `complete_text`+`ping` 加 `num_retries=0`（自管重试，禁 litellm 内部重试叠加放大墙钟：单 attempt 19s→5s，卡死检测 58s→22s）。
+- **config 透传修隐患**：`task_cfg` 透传排除所有已显式映射的标量键——原来透传在显式 env 映射之后、用原值压掉 `LLM_REQUEST_TIMEOUT`/`DISABLE_PROMPT_CACHE`/`JSON_REPAIR` 覆盖（给 extract 加 request_timeout 后暴露）。
+- 超时按实测调高（中转站+gpt-5.5-low reasoning 单章 extract 294s）：default 240 / extract 400 / compress 400 / write 480 / plot_planner 600。
+
+**复验通过**：生产 env（`OPENAI_STREAM=1`）下 extract 非流式 + `timeout=5` → **22s `litellm.Timeout` 快失败**（修前流式 294s），`elapsed_ms=22436`。治本对批处理任务真正生效。
+
+**V5（rebuild + 写 ch1-3，≤¥15，补 iter054 欠账）**：待跑——超时修复已落地（用户拍板"等修完再跑"）。需先 `set-start-point longzu_2_ch001`；`write` 仍流式（无 per-call 超时，靠 driver 180min 兜底，idle-deadline 为下轮项）。
