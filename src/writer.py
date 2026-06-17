@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from . import paths, review_tier, source_excerpts, start_point
+from . import paths, review_tier, source_excerpts, start_point, writer_style
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
@@ -827,15 +827,21 @@ def _write_prompt(
         f"{light_style_block}"
         f"previous_review_feedback:\n{feedback}"
     )
+    # iter056: 作家风格卡——仅 premise 自创书（block 内判 start_id）、light 档不注入。
+    # 独立成可缓存段且置于 stable 之后：改卡只失效本段、不动 KB 段缓存（HIGH-1）。
+    # 续写书/无卡→"" → messages 空串拼接逐字节回退；cache_segments 条件不加空段（铁律④）。
+    style_card_context = "" if light_prompt else writer_style.writer_style_prompt_block()
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": stable_context + "\n\n" + dynamic_context},
+        {"role": "user", "content": stable_context + "\n\n" + style_card_context + dynamic_context},
     ]
     cache_segments = [
         {"role": "system", "content": system_prompt, "cache": True},
         {"role": "user", "content": stable_context, "cache": True},
-        {"role": "user", "content": dynamic_context, "cache": False},
     ]
+    if style_card_context:
+        cache_segments.append({"role": "user", "content": style_card_context, "cache": True})
+    cache_segments.append({"role": "user", "content": dynamic_context, "cache": False})
     return messages, cache_segments
 
 
@@ -1076,12 +1082,17 @@ def _polish_draft(
         f"# reviewer 问题\n\n{review_feedback}\n\n"
         f"# 最后一稿全文\n\n{draft}"
     )
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": style_context + dynamic_prompt}]
+    # iter056（HIGH-2）：polish 也注入风格卡，避免同章初稿带卡、终稿不带的漂移。
+    # block 内判 premise/续写；续写书/无卡→"" 逐字节回退（cache_segments 不加空段）。
+    style_card_context = writer_style.writer_style_prompt_block()
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": style_context + style_card_context + dynamic_prompt}]
     cache_segments = [
         {"role": "system", "content": system_prompt, "cache": True},
         {"role": "user", "content": style_context, "cache": True},
-        {"role": "user", "content": dynamic_prompt, "cache": False},
     ]
+    if style_card_context:
+        cache_segments.append({"role": "user", "content": style_card_context, "cache": True})
+    cache_segments.append({"role": "user", "content": dynamic_prompt, "cache": False})
     return _complete_write_text(client, messages, cache_segments).strip()
 
 
