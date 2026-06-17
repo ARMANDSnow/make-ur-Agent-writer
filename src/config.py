@@ -133,6 +133,9 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
         # builds an LLMClient). Degrade to the documented defaults instead.
         "retry_attempts": _safe_int(default.get("retry_attempts", 1), 1),
         "retry_backoff_seconds": _safe_float(default.get("retry_backoff_seconds", 0.5), 0.5),
+        # iter055 轨B: 指数退避上限 + 抖动(缺省与 llm_client 代码 fallback 一致,字节兼容)。
+        "retry_backoff_cap_seconds": _safe_float(default.get("retry_backoff_cap_seconds", 30), 30),
+        "retry_backoff_jitter_seconds": _safe_float(default.get("retry_backoff_jitter_seconds", 1), 1),
         # iter055 轨A: per-call timeout. 显式映射而非靠 :140-144 透传 —— 那段只透传
         # task_cfg 的 key，default 块的 request_timeout 不会进 self.config（会让超时
         # 静默失效）。因 default.update(task_cfg)，task 块可覆盖 default（分任务超时:

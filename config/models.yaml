@@ -4,8 +4,10 @@
     "temperature": 0.2,
     "max_tokens": 2000,
     "context_limit": 128000,
-    "retry_attempts": 5,
+    "retry_attempts": 3,
     "retry_backoff_seconds": 2,
+    "retry_backoff_cap_seconds": 30,
+    "retry_backoff_jitter_seconds": 1,
     "request_timeout": 120,
     "json_repair": true
   },

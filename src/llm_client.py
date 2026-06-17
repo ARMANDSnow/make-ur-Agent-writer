@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+import random
 import re
 import sys as _sys
 import types
@@ -100,6 +101,45 @@ if (
 
 class LLMContextOverflowError(RuntimeError):
     pass
+
+
+# iter055 轨B: 中转站抖动(Cloudflare Tunnel 530/1033、provider 过载 50x、连接/读取
+# 超时)是 transient,应重试;schema/context/JSON 等确定性错立即抛(重试纯浪费且掩盖
+# bug,现状空耗 5 次 ≈ 20s)。鸭子判定(类名 + 错误串关键词)而非 isinstance(litellm.X)
+# —— litellm 跨版本类名漂移且 requirements 未 pin(R8)。
+_TRANSIENT_EXC_NAMES = frozenset(
+    {
+        "Timeout",
+        "APITimeoutError",
+        "APIConnectionError",
+        "ServiceUnavailableError",
+        "RateLimitError",
+        "InternalServerError",
+    }
+)
+_TRANSIENT_ERR_MARKERS = (
+    "530",
+    "1033",
+    "502",
+    "503",
+    "504",
+    "timeout",
+    "tunnel",
+    "cloudflare",
+)
+
+
+def _is_transient(exc: BaseException) -> bool:
+    if isinstance(exc, LLMContextOverflowError):  # context 溢出确定性,绝不重试
+        return False
+    # stdlib 连接/超时(含 ConnectionReset/Aborted/BrokenPipe 等子类、socket.timeout)
+    # 稳定类型,用 isinstance 兜住 —— 流式中途断流即走这里。
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    if type(exc).__name__ in _TRANSIENT_EXC_NAMES:
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _TRANSIENT_ERR_MARKERS)
 
 
 def _normalize_url(value: Any) -> str | None:
@@ -224,8 +264,17 @@ class LLMClient:
                     request_meta = self._request_meta(prepared_messages)
                     cache_downgraded = True
                     continue
-                if attempt < attempts:
-                    time.sleep(float(self.config.get("retry_backoff_seconds", 0.5)) * attempt)
+                # iter055 轨B: 仅 transient 重试,指数退避(base*2^(n-1) 封顶 cap)+ 抖动
+                # 错峰(530/1033 是 provider 过载,线性退避加剧拥堵)。非 transient(schema/
+                # context)立即 break → 不空耗 attempts。cache 降级 continue 路径在上方不受影响。
+                if attempt < attempts and _is_transient(exc):
+                    base = float(self.config.get("retry_backoff_seconds", 0.5))
+                    cap = float(self.config.get("retry_backoff_cap_seconds", 30))
+                    jitter = float(self.config.get("retry_backoff_jitter_seconds", 1))
+                    delay = min(base * (2 ** (attempt - 1)), cap) + random.uniform(0, jitter)
+                    time.sleep(delay)
+                else:
+                    break
         self._log_call("complete_text", "error", started, last_exc, request_meta=request_meta)
         suffix = "stream attempts" if use_stream else "attempt(s)"
         raise RuntimeError(f"LLM text completion failed after {attempts} {suffix}: {last_exc}") from last_exc
