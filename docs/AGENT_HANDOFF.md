@@ -1365,3 +1365,42 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 **环境清理**：054c 临时克隆 `longzu_054c_full`/`longzu_054c_ingest` + 5 个空 `unit_driver_*` 测试遗留 + `/tmp` 本会话脚本/日志（含 `extract_window.py`）**已全部删除**。真实书 workspace（longzu/shudian052/tianlong/alpha/i38drama01）与 longzu 27 章提取均**未被触碰**，git 干净。**改日续跑真模型续写须从头重建**（克隆与 /tmp 驱动已不在）：重跑 ingest-to-start（免费）或按 memory `real-model-run-needs-timeout-retry-driver` 重写超时+重试驱动补提取 → `rebuild-for-start` 收尾 → drive-book 续写 ch1-3。
 
 **iter054 全况**：四轨（054a 消费/采样封口 · 054b 底座 start-aware + 自动化 · 054c 验收 · 054d ingest-to-start 主线机制）**mock 半全部收官**（965→987 单测，每提交独立 verify.sh exit 0）；真模型**核心泄露验收（diff oracle）证毕**；真模型续写冒烟待拥堵缓解续跑。本会话 7 提交（`857fec8..HEAD`：5 feat/fix + 2 docs），全程只 commit 未 push（铁律⑤）。
+
+## iter055 真模型驱动器加固专项（2026-06-17，mock 收官 + 真模型 V1-V4 验证 + 多视角审查）
+
+承接 iter054。本轮主轴 = **真模型驱动器加固**（capstone 顺延；未来 capstone = 自由生成 30+ 章长程续写，故驱动器按长程规格加固）。详见 `docs/iterations/iteration_055_PLAN.md`（含计划稿 + 实现回填 + 真模型段实测）。
+
+**计划审核纠出 3 处错误**（实现前）：① 轨A 靠 models.yaml default 块"自动透传"会**静默失效**（config.py 透传只透 task_cfg key，不含 default 块）→ 改 `get_model_config` 显式映射；② 轨B 误判"默认不重试"（实为 models.yaml default 写死 retry_attempts:5）→ 实为 5→3 下调；③ 全局 120s 误杀长生成 → 分任务超时。用户拍板：分任务超时 + retry 5→3。
+
+**提交链（`1f024b2..a5d81f1`，12 提交，全程只 commit 未 push 铁律⑤）**：
+- 轨A `6c7cd99`：per-call 超时（config.py 显式映射修 no-op bug + complete_text/ping 注入 `timeout`>0 才加 + models.yaml 分任务）。
+- 轨B `907701a`：`_is_transient`（litellm 类名 + 错误串 530/1033/50x/timeout/tunnel/cloudflare + isinstance stdlib ConnectionError/TimeoutError）仅 transient 重试 + 指数退避 cap30/jitter1 + retry 5→3。
+- 轨C `8bd8d4a` + 对齐 `fbd3268`：`chunk_bypass_max_chars`（effective_threshold=max(threshold,bypass)，`.get` 非下标）+ `--no-chunk`；默认 **48000**（24-30K 长章默认单调用，治根因②）。
+- 轨D `674c253` + 补 `9d8d9ef`：每章 `elapsed_ms`（done+failure 事件 + failure JSON）+ `--no-chunk` CLI（extract/rebuild）+ `per_chapter_attempts` 整章重试（仅 extract 命令）。
+- 收官 docs `5fea8db`。
+- **真模型实测修正 `8973273`**（见下，最重要）。
+- 审查修正 `a5d81f1`（见下）。
+
+**真模型段（用户授权 ≤¥20，实花 <¥3；载体 `workspaces/longzu`，gpt-5.5-low via 中转站，with_proxy=direct 直连）**：
+- V1/V3/V4 验证加固生效：30K 章单调用成功 **204s**（attempt=1，reasoning 延迟非重试，«历史分块 967s）；llm_calls 记 attempt/tokens；续跑 **6s 秒跳过、0 call**。
+- **V2 抓到核心缺口 → 修复 `8973273`**：litellm **不把 `timeout` 落到流式 SSE read**——流式（生产 `OPENAI_STREAM=1`）下 `timeout=5` 仍跑满 294s 成功，**轨A 治本超时在生产路径形同虚设、iter054 mid-stream 卡死根因未治**；非流式则 litellm 遵守（实测 58s 失败）。mock 测不出（mock 只验 `timeout` 被传入）。修法（用户拍板"批处理关流式 + 调高超时"）：① 批处理任务（extract/compress/debate/review/premise/plot_planner）`stream:false` 强制非流式拿回超时；② `write` 不设 stream 键，跟随 env（生产流式 UX）；③ complete_text+ping 加 `num_retries=0`（禁 litellm 内部重试叠加放大墙钟，单 attempt 19s→5s）；④ **config 透传排除所有已显式映射的标量键**（修既有隐患：`**task_cfg` 在显式 env 映射之后、用原值压掉 `LLM_REQUEST_TIMEOUT`/`DISABLE_PROMPT_CACHE`/`JSON_REPAIR` 覆盖；extract 加 request_timeout 后暴露）；⑤ 超时按实测调高 default 240/extract 400/compress 400/write 480/plot 600。**复验**：生产 env（OPENAI_STREAM=1）extract 非流式 + timeout=5 → **22s `litellm.Timeout` 快失败**，治本对批处理任务真正生效。
+
+**代码审查（3 subagent 多视角，结论：端到端可跑通、无 blocker、63 项相关测试全绿）→ 2 处修正 `a5d81f1`**：
+- 报错文案 `failed after {attempts}`→`{attempt}/{attempts}`（非 transient 提前 break 时只试 1 次，旧文案让运维误判重试满 3 次）。
+- 整章重试**跳过 transient**：transient 在 call 级（轨B）已重试耗尽，整章再重试与 call 级**相乘**放大卡死窗口（per_chapter_attempts=3 + 分块 4call × call级3 → 最坏数小时）且 tunnel 仍挂不会更快恢复 → 立即失败交 re-run；整章重试只救确定性失败（合并/解析，复用 `_is_transient`）。
+- 审查确认无误（勿 re-derive）：`_is_transient` 分类/context 守卫顺序、退避公式无 off-by-one、config 透传排除集逐一核验**零丢失零误排**、所有 7 个 `extract_all` 调用点兼容（新参带默认值置签名末尾）、15 个 LLMClient 构造点不受影响、CLI dest 名/默认参数/models.yaml↔code key 双向闭环。
+
+**关键发现/定性沉淀（勿 re-derive）**：
+1. **litellm 流式不执行 read 超时** —— 这是 iter054 卡死根因的真正盖子；批处理用非流式拿回超时。`write` 流式的 **idle-deadline（async/watchdog 真流式超时）是下轮项**（write 当前仍无 per-call 超时，靠 driver 180min 兜底）。
+2. **config.py 透传隐患（既有，本轮修）**：`**task_cfg` 在显式 env 映射之后会压掉 env 覆盖；修法=透传排除所有已显式映射的标量键（保留 stream/chunk_*/rolling_*/model_env 等额外键透传）。
+3. **中转站+gpt-5.5-low(reasoning) 慢**：单章 extract 实测 204-294s（reasoning token 多，attempt=1 非重试），超时值据此调高。
+4. **verify.sh 解释器陷阱**：脚本内裸 `python3`，未激活 venv 时落系统 Python 3.9（无 tiktoken/无 PEP604 运行期）伪报 3 error。正确跑法：`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` 或先 `source .venv/bin/activate`。
+5. **既有 flaky 测试** `test_web_draft_edit.test_busy_workspace_returns_409`（jobs.py job 状态更新 vs `_WORKSPACE_JOBS` 注销的进程内竞态，高负载偶发；与 iter055 无关，已派背景任务 `task_5ea88c78`）。
+
+**门禁**：mock 段每轨独立 verify.sh exit 0；收官全量 **1029 unittest OK + verify.sh exit 0 + Report snapshots OK**（48000 默认未漂移流水线快照）。零 schema 改动（铁律）。新增 4 测试文件（timeout 更新/retry 11/no_chunk 9/resilience 12/stream-per-task 4）。
+
+**剩 V5（rebuild + 写 ch1-3，≤¥15，补 iter054 欠账）—— 未跑**（用户选"先不跑，做代码审查 + 结构验证 + 写接力"）。续跑须知：① 需先 `set-start-point longzu_2_ch001` + `rebuild-for-start --no-chunk`（**会改 longzu 工作区起点/重建底座**——或用独立克隆避免动主工作区）；② `write` 仍流式无 per-call 超时（idle-deadline 下轮补，靠 driver 兜底）；③ 批处理步骤（extract/compress/debate/review/plot_planner）现已非流式 + 真超时保护，rebuild 的提取窗口受保护。
+
+**数据状态**：longzu 工作区有本轮真模型测试遗留——`longzu_1_ch007` 成功提取（V1a）、`longzu_1_ch009` 成功（V2 294s）、`longzu_2_ch005` 失败记录（timeout=5 测试）。可 `extract --force` 覆盖或忽略。其余真实书工作区未触碰，git 干净（仅 docs/product/ 两文件未跟踪，符合预期）。
+
+**下轮候选**：① `write` 流式 idle-deadline（async/watchdog 真流式超时，补齐 write 的 per-call 保护）；② V5 续写 ch1-3；③ flaky `test_busy_workspace` 修（已派背景任务）；④ verify.sh 钉 venv python（免解释器陷阱）；⑤ entity timeline/key_facts schema（052 起顺延）。
