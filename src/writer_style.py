@@ -322,7 +322,22 @@ def extract_style_card(sample: str, *, force: bool = False) -> Dict[str, Any]:
             "signatures 描述手法而非给字面例句，以免污染后续写作输出。"
         ),
     }
-    user_content = "写作样本（仅供分析文体，勿复述其内容）：\n\n" + sample[:EXTRACT_SAMPLE_MAX_CHARS]
+    # complete_json 不注入 schema（llm_client.py:416 仅传 messages），故必须在
+    # prompt 里显式给出 JSON 字段——否则 LLM 自拟 key、解析后全回退默认值（空）。
+    # 真模型 V1 实测教训：缺这段格式说明 → 9 维全空 + 空字段重试也救不回。
+    user_content = (
+        "分析下面这段写作样本的文体，提炼可复用的风格特征。"
+        "仅输出一个 JSON 对象（不要 markdown 代码块、不要额外解释），"
+        "必须使用以下英文 key、值用中文填写、不得留空：\n"
+        '{"name": "风格卡名称，如『冷峻硬汉』", "category": "流派/定位，如『悬疑』", '
+        '"rhythm": "叙事节奏：快慢、张弛、场景切换密度", "sentence": "句式特征：长短句配比、语序、标点", '
+        '"diction": "用词偏好：书面/口语、雅俗", "imagery": "意象与比喻：取材、密度、感官通道", '
+        '"dialogue": "对话风格：信息密度、潜台词、腔调", "subtext": "含蓄度：直白抒情还是留白克制", '
+        '"narration": "叙述视角与心理距离", '
+        '"signatures": ["标志性笔法，每条一句，描述手法不给原句"], "taboo": ["要避免的笔法，每条一句"]}\n'
+        "只描述笔法，不复述样本的情节/人名/原句。\n\n"
+        "写作样本：\n" + sample[:EXTRACT_SAMPLE_MAX_CHARS]
+    )
     card = client.complete_json(
         [system_message, {"role": "user", "content": user_content}],
         response_model=WriterStyleCard,
