@@ -170,6 +170,16 @@ class PerChapterRetryTests(unittest.TestCase):
         self.assertTrue(failure_exists)
         self.assertEqual(len([1 for (e, p) in events if e == "chapter_retry"]), 2)
 
+    def test_transient_failure_not_whole_chapter_retried(self) -> None:
+        # iter055 审查修正: transient(如 Cloudflare Tunnel 530)call 级(轨B)已重试耗尽,整章
+        # 不再重试 —— 避免与 call 级相乘放大卡死窗口(tunnel 持续挂时数小时)。立即失败,无 chapter_retry。
+        results, events, failure_exists = self._run(
+            {"side_effect": RuntimeError("Cloudflare Tunnel error 530")}, per_chapter_attempts=3
+        )
+        self.assertEqual(len(results), 0)
+        self.assertTrue(failure_exists)
+        self.assertEqual([p for (e, p) in events if e == "chapter_retry"], [])  # transient 不整章重试
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -288,7 +288,10 @@ class LLMClient:
                     break
         self._log_call("complete_text", "error", started, last_exc, request_meta=request_meta)
         suffix = "stream attempts" if use_stream else "attempt(s)"
-        raise RuntimeError(f"LLM text completion failed after {attempts} {suffix}: {last_exc}") from last_exc
+        # iter055 审查修正: 报实际尝试次数 attempt(非配置上限 attempts)—— 非 transient 提前
+        # break 时只试 1 次,旧文案 "after {attempts}" 会让运维误判重试了满 3 次。attempt/attempts
+        # = 实际/上限(如 "1/3" 提前停 vs "3/3" 耗尽)。
+        raise RuntimeError(f"LLM text completion failed after {attempt}/{attempts} {suffix}: {last_exc}") from last_exc
 
     def ping(self) -> Dict[str, Any]:
         """iter 048a: lightweight model-key connectivity probe for the

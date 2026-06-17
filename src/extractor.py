@@ -16,7 +16,7 @@ except Exception:
 from . import paths
 from .chapter_splitter import chapter_text, load_manifest
 from .config import ROOT, load_config
-from .llm_client import LLMClient
+from .llm_client import LLMClient, _is_transient
 from .schemas import ChapterExtraction, EvidenceSpan, model_to_dict, model_to_json_schema
 from .state import log_event
 from .utils import deep_merge, ensure_dir, read_json, write_json
@@ -264,17 +264,23 @@ def _extract_chapter_with_retry(
     attempts: int,
     chapter_id: str,
 ) -> Dict[str, Any]:
-    """iter055 轨D: 整章级重试。轨B 的 call 级 transient 重试在 complete_text 内救单次请求
-    抖动;此层兜「分块合并失败」等整章故障——重跑全章(re-chunk + re-extract + re-merge),
-    call 级救不了。attempts=1(per_chapter_attempts 缺省)→ 调一次不重试,逐字节兼容旧行为。"""
+    """iter055 轨D: 整章级重试(仅救确定性失败)。轨B 的 call 级 transient 重试在 complete_text
+    内救单次请求抖动;此层只兜「确定性整章故障」(分块合并/解析失败——重跑全章可能换个可解析
+    输出,call 级救不了)。
+
+    iter055 审查修正: transient(tunnel/超时)**不**在此重试——call 级已重试耗尽,整章再重试只会
+    与 call 级相乘放大卡死窗口(tunnel 持续挂时单章最坏数小时),且 tunnel 仍挂不会更快恢复 →
+    立即失败,交操作者 re-run(续跑秒跳过已成功章)。attempts=1(缺省)→ 调一次不重试,字节兼容。"""
     last_exc: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
             return _extract_chapter_data(entry, text, previous_summaries, volume_summary, client, settings)
         except Exception as exc:
             last_exc = exc
-            if attempt < attempts:
+            if attempt < attempts and not _is_transient(exc):
                 log_event("extract", "chapter_retry", chapter_id=chapter_id, attempt=attempt, error=str(exc))
+                continue
+            break  # transient(call 级已尽力)或已到上限 → 不再整章重试
     assert last_exc is not None  # attempts>=1 → 循环未 return 必经 except,last_exc 必有值
     raise last_exc
 
