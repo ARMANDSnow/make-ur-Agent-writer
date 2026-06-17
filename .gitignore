@@ -63,3 +63,7 @@ Thumbs.db
 
 # --- unrelated tools (kept locally, not project scope) ---
 tools/
+
+# iter056: 作家风格卡——提取卡与上传样本不进仓库/快照（P0-A 版权护栏）
+workspaces/*/data/writer_style.json
+workspaces/*/data/.writer_style_sample.tmp

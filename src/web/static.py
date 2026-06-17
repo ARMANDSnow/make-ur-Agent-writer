@@ -417,6 +417,9 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.cols-auto { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.style-preset-card.active { border-color: var(--jade); background: var(--jade-soft); }
+.style-preset-card h4 { margin: 0 0 4px; font-size: var(--fs-md); }
+.style-preset-card .card-body { padding: var(--space-3); }
 .cluster { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .stack { display: flex; flex-direction: column; gap: var(--space-3); }
 
@@ -2213,6 +2216,7 @@ JS_DASHBOARD = """\
       }
       await loadExpansionPanel();
       await renderEntityPanel();
+      await loadStyleCardPanel();
     }
     // iter 050d (M-2): re-running stage ① regenerates KB + entity_graph —
     // an open panel must reload, or its relationship indices and content go
@@ -2229,6 +2233,7 @@ JS_DASHBOARD = """\
       await loadPanelData();
     });
     bindExpansionPanel();
+    bindStyleCardPanel();
     kbArea.addEventListener("input", function () { kbArea.dataset.dirty = "1"; });
     kbSave.addEventListener("click", async function () {
       if (!kbArea.value.trim()) {
@@ -2350,6 +2355,152 @@ JS_DASHBOARD = """\
       } catch (err) {
         if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
         regen.disabled = false;
+      }
+    });
+  }
+  // iter 056: 作家风格卡面板（仅 premise 自创书；list 字段单 textarea 每行一条，
+  // 同 expansion 约定）。提取走 pollJob，与「重新扩写」同构。
+  const STYLE_FIELDS = [
+    { id: "style-name", key: "name", list: false },
+    { id: "style-category", key: "category", list: false },
+    { id: "style-rhythm", key: "rhythm", list: false },
+    { id: "style-sentence", key: "sentence", list: false },
+    { id: "style-diction", key: "diction", list: false },
+    { id: "style-imagery", key: "imagery", list: false },
+    { id: "style-dialogue", key: "dialogue", list: false },
+    { id: "style-subtext", key: "subtext", list: false },
+    { id: "style-narration", key: "narration", list: false },
+    { id: "style-signatures", key: "signatures", list: true },
+    { id: "style-taboo", key: "taboo", list: true },
+  ];
+  function styleEls() {
+    const els = {};
+    for (const f of STYLE_FIELDS) {
+      els[f.key] = document.getElementById(f.id);
+      if (!els[f.key]) return null;
+    }
+    return els;
+  }
+  async function renderPresetGrid() {
+    const grid = document.getElementById("style-preset-grid");
+    if (!grid) return;
+    let presets = [];
+    try { presets = (await fetchJson(wsUrl("/style-presets"))).presets || []; } catch (err) { return; }
+    let activeId = "";
+    try { activeId = (await fetchJson(wsUrl("/writer-style"))).preset_id || ""; } catch (err) {}
+    grid.innerHTML = presets.map(function (p) {
+      const c = p.card || {};
+      const active = p.id === activeId;
+      return '<article class="card style-preset-card' + (active ? ' active' : '') + '">' +
+        '<div class="card-body"><h4>' + escapeHtml(c.name || "") + '</h4>' +
+        '<div><span class="badge no-dot">' + escapeHtml(c.category || "") + '</span>' +
+        (active ? ' <span class="badge">使用中</span>' : '') + '</div>' +
+        '<p class="muted">' + escapeHtml((c.rhythm || "").slice(0, 38)) + '</p></div>' +
+        '<div class="card-footer"><button type="button" class="btn btn-ghost btn-sm" data-style-activate="' +
+        escapeHtml(p.id) + '"' + (active ? " disabled" : "") + '>' + (active ? "已使用" : "用这张") + '</button></div>' +
+        '</article>';
+    }).join("");
+  }
+  async function loadStyleCardPanel() {
+    const fold = document.getElementById("style-card-fold");
+    if (!fold) return;
+    let hasStart = false;
+    try { hasStart = !!(await fetchJson(wsUrl("/workbench"))).has_start_point; } catch (err) {}
+    const body = document.getElementById("style-card-body");
+    if (hasStart) {
+      // 续写书：给 empty-state 占位，避免「功能去哪了」的疑惑（前端审查 P2-F）
+      fold.hidden = false;
+      if (body) body.innerHTML = '<div class="empty-state">✦ 风格卡仅用于自创书<p class="muted">续写作品文风以原著为准。</p></div>';
+      return;
+    }
+    fold.hidden = false;
+    await renderPresetGrid();
+    const els = styleEls();
+    const empty = document.getElementById("style-card-empty");
+    if (!els) return;
+    let data = null;
+    try { data = await fetchJson(wsUrl("/writer-style")); } catch (err) { if (empty) empty.hidden = false; return; }
+    if (empty) empty.hidden = true;
+    const fields = (data && data.fields) || {};
+    for (const f of STYLE_FIELDS) {
+      const el = els[f.key];
+      if (el.dataset.dirty || document.activeElement === el) continue;
+      const v = fields[f.key];
+      el.value = f.list ? ((v || []).join("\\n")) : (v || "");
+    }
+    const box = document.getElementById("style-card-status");
+    const scrubbed = (data && data._scrubbed_fields) || [];
+    if (box && scrubbed.length) {
+      box.innerHTML = '<div class="alert warn">提取时检测到与样本重合的片段已自动剥离：' +
+        escapeHtml(scrubbed.join("、")) + '。可手工补写后保存。</div>';
+    } else if (box) { box.innerHTML = ""; }
+  }
+  function bindStyleCardPanel() {
+    const els = styleEls();
+    if (!els) return;
+    const grid = document.getElementById("style-preset-grid");
+    const save = document.getElementById("style-save");
+    const extractBtn = document.getElementById("style-extract-btn");
+    for (const f of STYLE_FIELDS) {
+      els[f.key].addEventListener("input", function () { els[f.key].dataset.dirty = "1"; });
+    }
+    if (grid) grid.addEventListener("click", async function (ev) {
+      const btn = ev.target.closest("[data-style-activate]");
+      if (!btn) return;
+      const pid = btn.getAttribute("data-style-activate");
+      btn.disabled = true;
+      try {
+        await postJson(wsUrl("/writer-style/activate"), { preset_id: pid });
+        for (const f of STYLE_FIELDS) delete els[f.key].dataset.dirty;
+        showToast("已应用风格卡；下一章写作时生效", "info");
+        await loadStyleCardPanel();
+      } catch (err) {
+        showToast("应用失败：" + err.message, "error");
+        btn.disabled = false;
+      }
+    });
+    if (save) save.addEventListener("click", async function () {
+      const fields = {};
+      for (const f of STYLE_FIELDS) {
+        const raw = els[f.key].value;
+        fields[f.key] = f.list
+          ? raw.split("\\n").map(function (s) { return s.trim(); }).filter(function (s) { return s; })
+          : raw.trim();
+      }
+      const hasContent = STYLE_FIELDS.some(function (f) { return f.list ? fields[f.key].length : fields[f.key]; });
+      if (!hasContent) { showToast("风格卡不能全空", "error"); return; }
+      save.disabled = true;
+      try {
+        await putJson(wsUrl("/writer-style"), { fields: fields });
+        for (const f of STYLE_FIELDS) delete els[f.key].dataset.dirty;
+        showToast("风格卡已保存；下一章写作时生效", "info");
+        await renderPresetGrid();
+      } catch (err) {
+        showToast("保存失败：" + err.message, "error");
+      } finally { save.disabled = false; }
+    });
+    if (extractBtn) extractBtn.addEventListener("click", async function () {
+      const textEl = document.getElementById("style-sample-text");
+      const fileEl = document.getElementById("style-sample-file");
+      const box = document.getElementById("style-extract-status");
+      const fd = new FormData();
+      if (fileEl && fileEl.files && fileEl.files[0]) fd.append("sample", fileEl.files[0]);
+      if (textEl && textEl.value.trim()) fd.append("text", textEl.value);
+      if (!fd.has("sample") && !fd.has("text")) { showToast("请粘贴样本或选择文件", "error"); return; }
+      extractBtn.disabled = true;
+      if (box) box.innerHTML = '<div class="alert info">正在提取风格特征…</div>';
+      try {
+        const resp = await fetch(wsUrl("/writer-style/extract"), { method: "POST", body: fd });
+        const data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+        await pollJob(data.job_id, box, extractBtn, async function () {
+          for (const f of STYLE_FIELDS) delete els[f.key].dataset.dirty;
+          await loadStyleCardPanel();
+          showToast("已提取风格卡；可微调后保存", "info");
+        });
+      } catch (err) {
+        if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + '</div>';
+        extractBtn.disabled = false;
       }
     });
   }

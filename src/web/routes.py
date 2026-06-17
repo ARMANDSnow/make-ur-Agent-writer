@@ -627,6 +627,10 @@ def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
         # the KB — editing (or regenerating) the expansion makes the KB and
         # everything below it stale, same semantics as a KB edit staling the
         # outline. Missing expansion → mtime 0 → chain byte-identical to 050.
+        from ..start_point import get_start_chapter_id
+
+        # iter056: 仅 premise 自创书（无起点）展示风格卡 UI；续写书前端 gate 隐藏。
+        has_start_point = bool(get_start_chapter_id())
         expansion_m = _mtime_ns(paths.premise_expansion_path())
         kb_m = _mtime_ns(paths.kb_path())
         outline_m = _mtime_ns(paths.outline_path())
@@ -668,6 +672,8 @@ def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
             # explicit hint for the stage ① card: KB exists but predates the
             # (edited) expansion — "扩写稿已更新，需重新生成设定".
             "expansion_stale": has_expansion and kb_m > 0 and kb_m < expansion_m,
+            # iter056: premise 自创书（无起点）才展示风格卡；前端据此 gate。
+            "has_start_point": has_start_point,
         },
     )
 
@@ -1056,6 +1062,186 @@ def api_workspace_premise_expansion_save(name: str, body: bytes) -> Tuple[int, s
         raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "edited_at": record.get("edited_at", "")})
+
+
+# iter 056: 作家风格卡——预置库 + 激活 + 编辑 + 上传样本提取（仅 premise 自创书）
+_WRITER_STYLE_FIELDS = {
+    "name", "category", "rhythm", "sentence", "diction",
+    "imagery", "dialogue", "subtext", "narration", "signatures", "taboo",
+}
+
+
+def api_workspace_style_presets(name: str) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/style-presets — 全局只读预置风格卡库。"""
+    error = _workspace_error(name)
+    if error:
+        return error
+    from ..writer_style import load_presets
+
+    return _json(200, {"presets": load_presets()})
+
+
+def api_workspace_writer_style_get(name: str) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/writer-style — 当前激活的风格卡（iter056）。"""
+    error = _workspace_error(name)
+    if error:
+        return error
+    from ..writer_style import load_card
+
+    with use_workspace(name):
+        record = load_card()
+    if record is None:
+        return _json(404, {"error": "no writer style card; activate a preset or extract from a sample"})
+    return _json(
+        200,
+        {
+            "fields": record.get("fields") or {},
+            "source": record.get("source") or "",
+            "preset_id": record.get("preset_id") or "",
+            "generated_by": record.get("generated_by") or "",
+            "edited": bool(record.get("edited")),
+            "edited_at": record.get("edited_at") or "",
+            "_incomplete_fields": record.get("_incomplete_fields") or [],
+            "_scrubbed_fields": record.get("_scrubbed_fields") or [],
+        },
+    )
+
+
+def api_workspace_writer_style_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    """PUT /api/workspace/<name>/writer-style — 编辑/手写风格卡（050 edit-loop）。
+    不接 mtime 失效链：风格卡只喂 writer 逐章 prompt、不喂 KB/大纲生成链，
+    改卡只下一章生效、不回炉已写章节。"""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    fields = payload.get("fields")
+    if not isinstance(fields, dict) or not fields:
+        return _json(400, {"error": "missing or invalid 'fields'"})
+    unknown = set(fields) - _WRITER_STYLE_FIELDS
+    if unknown:
+        return _json(400, {"error": f"unknown fields: {', '.join(sorted(unknown))}"})
+    if _contains_control_chars(fields):
+        return _json(400, {"error": "fields must not contain control characters"})
+    if len(body) > 100_000:
+        return _json(400, {"error": "payload too large (max 100000 bytes)"})
+
+    from ..writer_style import save_card_fields
+
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                try:
+                    record = save_card_fields(fields)
+                except ValueError as exc:
+                    return _json(400, {"error": str(exc)})
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to write writer style: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        raise
+    return _json(200, {"saved": True, "edited_at": record.get("edited_at", "")})
+
+
+def api_workspace_writer_style_activate(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    """POST /api/workspace/<name>/writer-style/activate — 选中预置卡（快照入
+    workspace，非引用 id）。body: ``{"preset_id": "..."}``。"""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    preset_id = payload.get("preset_id") if isinstance(payload, dict) else None
+    if not isinstance(preset_id, str) or not preset_id.strip():
+        return _json(400, {"error": "missing or invalid 'preset_id'"})
+
+    from ..writer_style import activate_preset
+
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                try:
+                    record = activate_preset(preset_id.strip())
+                except ValueError as exc:
+                    return _json(400, {"error": str(exc)})
+                except OSError as exc:
+                    return _json(500, {"error": f"failed to activate preset: {exc}"})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        raise
+    return _json(200, {"saved": True, "preset_id": preset_id.strip(), "fields": record.get("fields")})
+
+
+def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str, str]) -> Tuple[int, str, bytes]:
+    """POST /api/workspace/<name>/writer-style/extract — multipart 上传样本
+    （文件 ``sample`` 或文本 ``text``）→ 临时落盘 → 起 extract-style job（前端
+    pollJob）。样本不持久化：提取后即删（P0-A 版权护栏）。"""
+    error = _workspace_error(name)
+    if error:
+        return error
+    content_type = headers.get("content-type", "")
+    if "multipart/form-data" not in content_type:
+        return _json(415, {"error": "Content-Type must be multipart/form-data"})
+    if len(body) > 2_000_000:
+        return _json(413, {"error": "sample upload exceeds 2000000 bytes"})
+
+    from . import wizard
+
+    try:
+        fields = wizard._parse_multipart(body, content_type)
+    except ValueError as exc:
+        return _json(400, {"error": f"multipart parse failed: {exc}"})
+
+    sample = ""
+    file_field = fields.get("sample")
+    if isinstance(file_field, dict):
+        mime = (file_field.get("content_type") or "").lower()
+        fname = (file_field.get("filename") or "").lower()
+        is_text = (not mime) or mime.startswith("text/") or fname.endswith((".txt", ".md"))
+        if not is_text:
+            return _json(415, {"error": "sample must be a text file (.txt/.md)"})
+        try:
+            sample = (file_field.get("content") or b"").decode("utf-8")
+        except UnicodeDecodeError:
+            return _json(400, {"error": "sample must be valid UTF-8 text"})
+    text_field = fields.get("text")
+    if isinstance(text_field, str) and text_field.strip():
+        sample = text_field
+
+    sample = (sample or "").strip()
+    if len(sample) < 200:
+        return _json(400, {"error": "sample too short (min 200 chars)"})
+    if _contains_control_chars(sample):
+        return _json(400, {"error": "sample must not contain control characters"})
+    sample = sample[:60000]
+
+    try:
+        with use_workspace(name):
+            sample_path = paths.writer_style_sample_path()
+            sample_path.parent.mkdir(parents=True, exist_ok=True)
+            sample_path.write_text(sample, encoding="utf-8")
+        job = jobs.start_job(name, "extract-style", {"force": True})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": "workspace not found"})
+        raise
+    except OSError as exc:
+        return _json(500, {"error": f"failed to stage sample: {exc}"})
+    return _json(202, {"job_id": job.get("job_id"), "name": name})
 
 
 def api_workspace_entity_graph(name: str) -> Tuple[int, str, bytes]:
@@ -1899,6 +2085,32 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "PUT",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/premise-expansion/?$"),
         lambda name, _body=b"", **_: api_workspace_premise_expansion_save(name, _body),
+    ),
+    # iter 056: 作家风格卡（workbench stage ①，仅 premise 自创书）
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/style-presets/?$"),
+        lambda name, **_: api_workspace_style_presets(name),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/?$"),
+        lambda name, **_: api_workspace_writer_style_get(name),
+    ),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/?$"),
+        lambda name, _body=b"", **_: api_workspace_writer_style_save(name, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/activate/?$"),
+        lambda name, _body=b"", **_: api_workspace_writer_style_activate(name, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/extract/?$"),
+        lambda name, _body=b"", _headers=None, **_: api_workspace_writer_style_extract(name, _body, _headers or {}),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/entity-graph/?$"), lambda name, **_: api_workspace_entity_graph(name)),
     (
