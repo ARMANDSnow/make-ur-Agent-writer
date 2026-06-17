@@ -101,6 +101,75 @@ class NoChunkCliTests(unittest.TestCase):
         mock_extract.assert_called_once()
         self.assertFalse(mock_extract.call_args.kwargs.get("no_chunk"))
 
+    def test_extract_parser_has_per_chapter_attempts(self) -> None:
+        parser = main_module.build_parser()
+        self.assertEqual(
+            parser.parse_args(["extract", "--per-chapter-attempts", "3"]).per_chapter_attempts, 3
+        )
+        self.assertIsNone(parser.parse_args(["extract"]).per_chapter_attempts)  # 缺省 None=不整章重试
+
+    def test_extract_handler_forwards_per_chapter_attempts(self) -> None:
+        with patch("main.extract_all") as mock_extract:
+            with patch("sys.argv", ["main.py", "extract", "--per-chapter-attempts", "2"]):
+                main_module.main()
+        mock_extract.assert_called_once()
+        self.assertEqual(mock_extract.call_args.kwargs.get("per_chapter_attempts"), 2)
+
+
+class PerChapterRetryTests(unittest.TestCase):
+    """extract_all(per_chapter_attempts=N): 整章级重试救分块合并失败(call 级救不了)。"""
+
+    def _run(self, chapter_side_effect, **extract_kwargs):
+        events: List[Tuple[str, Dict[str, Any]]] = []
+
+        def capture_log(component, event, **payload):
+            events.append((event, payload))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "extracted").mkdir()
+            with patch("src.extractor.load_manifest", return_value=_MANIFEST), patch(
+                "src.extractor.EXTRACTED_DIR", tmp / "extracted"
+            ), patch("src.extractor.ROLLING_DIR", tmp / "rolling"), patch(
+                "src.extractor.FAILURES_DIR", tmp / "failures"
+            ), patch("src.extractor.chapter_text", return_value="正文"), patch(
+                "src.extractor.LLMClient", MagicMock()
+            ), patch("src.extractor.log_event", side_effect=capture_log), patch(
+                "src.extractor._extract_chapter_data", **chapter_side_effect
+            ):
+                results = extract_all(volume="all", force=True, **extract_kwargs)
+            failure_exists = (tmp / "failures" / "longzu_1_ch001.json").exists()
+        return results, events, failure_exists
+
+    def test_whole_chapter_retry_recovers(self) -> None:
+        # 第一次抛(分块合并失败)、第二次成功 → per_chapter_attempts=2 救回,无失败记录。
+        results, events, failure_exists = self._run(
+            {"side_effect": [RuntimeError("merge boom"), _ok_data()]}, per_chapter_attempts=2
+        )
+        self.assertEqual(len(results), 1)
+        self.assertFalse(failure_exists)
+        retries = [p for (e, p) in events if e == "chapter_retry"]
+        self.assertEqual(len(retries), 1)
+        self.assertEqual(retries[0]["attempt"], 1)
+
+    def test_default_none_means_no_whole_chapter_retry(self) -> None:
+        # 缺省(None)→ attempts=1,第一次抛即失败,不整章重试(逐字节兼容旧行为)。
+        results, events, failure_exists = self._run(
+            {"side_effect": [RuntimeError("merge boom"), _ok_data()]}
+        )
+        self.assertEqual(len(results), 0)
+        self.assertTrue(failure_exists)
+        self.assertEqual([p for (e, p) in events if e == "chapter_retry"], [])
+
+    def test_exhausted_attempts_records_failure(self) -> None:
+        # 全失败耗尽 → 记失败,chapter_retry 发 attempts-1 次。
+        results, events, failure_exists = self._run(
+            {"side_effect": RuntimeError("persistent boom")}, per_chapter_attempts=3
+        )
+        self.assertEqual(len(results), 0)
+        self.assertTrue(failure_exists)
+        self.assertEqual(len([1 for (e, p) in events if e == "chapter_retry"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -253,6 +253,32 @@ def _extract_chapter_data(
     return _merge_chunk_extractions(entry, chunk_data, LLMClient("compress"))
 
 
+def _extract_chapter_with_retry(
+    entry: Dict[str, object],
+    text: str,
+    previous_summaries: List[str],
+    volume_summary: str,
+    client: LLMClient,
+    settings: Dict[str, Any],
+    *,
+    attempts: int,
+    chapter_id: str,
+) -> Dict[str, Any]:
+    """iter055 轨D: 整章级重试。轨B 的 call 级 transient 重试在 complete_text 内救单次请求
+    抖动;此层兜「分块合并失败」等整章故障——重跑全章(re-chunk + re-extract + re-merge),
+    call 级救不了。attempts=1(per_chapter_attempts 缺省)→ 调一次不重试,逐字节兼容旧行为。"""
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _extract_chapter_data(entry, text, previous_summaries, volume_summary, client, settings)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < attempts:
+                log_event("extract", "chapter_retry", chapter_id=chapter_id, attempt=attempt, error=str(exc))
+    assert last_exc is not None  # attempts>=1 → 循环未 return 必经 except,last_exc 必有值
+    raise last_exc
+
+
 def _rolling_path(volume_id: str) -> Path:
     return _rolling_dir() / f"{volume_id}.json"
 
@@ -353,6 +379,7 @@ def extract_all(
     chapter_ids: Optional[Set[str]] = None,
     raise_on_failure: bool = False,
     no_chunk: bool = False,
+    per_chapter_attempts: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     ensure_dir(_extracted_dir())
     ensure_dir(_rolling_dir())
@@ -408,13 +435,15 @@ def extract_all(
         text = chapter_text(entry)
         started_at = time.monotonic()  # iter055 轨D: 每章计时,暴露慢/挂起章(tunnel 卡到超时)
         try:
-            data = _extract_chapter_data(
+            data = _extract_chapter_with_retry(
                 entry,
                 text,
                 list(previous_summaries_by_volume.get(vid, [])),
                 volume_summary.get(vid, ""),
                 client,
                 extract_settings,
+                attempts=max(1, int(per_chapter_attempts or 1)),
+                chapter_id=chapter_id,
             )
             data.setdefault("evidence_spans", [])
             if not data["evidence_spans"]:

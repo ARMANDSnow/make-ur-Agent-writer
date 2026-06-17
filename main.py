@@ -122,6 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-chunk", action="store_true",
         help="iter055: 每章强制单次抽取(绕过分块),诊断分块边界漏抽/合并失真",
     )
+    extract.add_argument(
+        "--per-chapter-attempts", type=int, default=None,
+        help="iter055: 整章级重试次数(救分块合并失败,在 call 级超时重试之上);缺省不整章重试",
+    )
 
     sub.add_parser("compress")
     debate_cmd = sub.add_parser("debate")
@@ -453,7 +457,10 @@ def main() -> None:
         if report["status"] == "fail":
             raise SystemExit(1)
     elif args.command == "extract":
-        extract_all(volume=args.volume, limit=args.limit, force=args.force, no_chunk=args.no_chunk)
+        extract_all(
+            volume=args.volume, limit=args.limit, force=args.force,
+            no_chunk=args.no_chunk, per_chapter_attempts=args.per_chapter_attempts,
+        )
     elif args.command == "compress":
         compress_all()
     elif args.command == "debate":
