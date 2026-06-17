@@ -110,11 +110,11 @@ class ExtractorBypassDecisionTests(unittest.TestCase):
 class ExtractSettingsBypassTests(unittest.TestCase):
     """_extract_settings: 从 models.yaml extract 任务读 chunk_bypass_max_chars。"""
 
-    def test_settings_includes_bypass_key_default_zero(self) -> None:
-        # 真配置(已显式写 chunk_bypass_max_chars: 0)→ 键存在且为 int。
+    def test_settings_reads_configured_default(self) -> None:
+        # 真配置 models.yaml tasks.extract = 48000(覆盖 20-30K longzu 章默认单调用,治根因②
+        # 长章分块拥堵 967s/章);仍 << 128K context,_check_context 兜底超长章。
         settings = _extract_settings()
-        self.assertIn("chunk_bypass_max_chars", settings)
-        self.assertIsInstance(settings["chunk_bypass_max_chars"], int)
+        self.assertEqual(settings["chunk_bypass_max_chars"], 48000)
 
     def test_settings_reads_config_override(self) -> None:
         fake_cfg = {"tasks": {"extract": {"chunk_bypass_max_chars": 99999}}}
@@ -158,7 +158,7 @@ class ExtractAllNoChunkTests(unittest.TestCase):
         self.assertEqual(captured["bypass"], 10 ** 9)
 
     def test_default_keeps_configured_bypass(self) -> None:
-        # 不传 no_chunk → 透传配置原值(默认 0),不被改写。
+        # 不传 no_chunk → 透传配置原值(models.yaml 默认 48000),不被改写。
         manifest = [{
             "chapter_id": "longzu_1_ch001", "volume_id": "longzu_1",
             "source_file": "t.txt", "normalized_file": "norm.txt",
@@ -181,7 +181,7 @@ class ExtractAllNoChunkTests(unittest.TestCase):
                 "src.extractor.LLMClient", MagicMock()
             ), patch("src.extractor._extract_chapter_data", side_effect=capturing):
                 extract_all(volume="all", force=True)
-        self.assertEqual(captured["bypass"], 0)
+        self.assertEqual(captured["bypass"], 48000)
 
 
 if __name__ == "__main__":
