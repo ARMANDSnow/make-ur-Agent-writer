@@ -61,6 +61,9 @@ def _extract_settings() -> Dict[str, Any]:
         "chunk_threshold_chars": int(task_cfg.get("chunk_threshold_chars", 24000)),
         "chunk_count": int(task_cfg.get("chunk_count", 3)),
         "chunk_overlap_chars": int(task_cfg.get("chunk_overlap_chars", 200)),
+        # iter055 轨C: 单调用上限。文本 ≤ 此长度则强制单次抽取(绕过分块)——真实判定阈值
+        # = max(chunk_threshold, bypass)。缺省 0 → max(threshold,0)=threshold,逐字节兼容。
+        "chunk_bypass_max_chars": int(task_cfg.get("chunk_bypass_max_chars", 0)),
     }
 
 
@@ -231,7 +234,10 @@ def _extract_chapter_data(
     client: LLMClient,
     settings: Dict[str, Any],
 ) -> Dict[str, Any]:
-    threshold = int(settings["chunk_threshold_chars"])
+    # iter055 轨C: bypass 把单调用上限抬到 max(threshold, bypass)。bypass=0 → 等于
+    # threshold(逐字节兼容);--no-chunk 时 extract_all 把 bypass 设极大值 → 必走单调用。
+    # settings.get(缺省 0):现存测试手工构造的 settings 无此键,subscript 会 KeyError。
+    threshold = max(int(settings["chunk_threshold_chars"]), int(settings.get("chunk_bypass_max_chars", 0)))
     if len(text) <= threshold:
         extraction = client.complete_json(build_extraction_prompt(entry, text, previous_summaries, volume_summary), ChapterExtraction)
         return model_to_dict(extraction)
@@ -339,6 +345,7 @@ def extract_all(
     force: bool = False,
     chapter_ids: Optional[Set[str]] = None,
     raise_on_failure: bool = False,
+    no_chunk: bool = False,
 ) -> List[Dict[str, Any]]:
     ensure_dir(_extracted_dir())
     ensure_dir(_rolling_dir())
@@ -352,6 +359,11 @@ def extract_all(
 
     client = LLMClient("extract")
     extract_settings = _extract_settings()
+    # iter055 轨C: --no-chunk 把 bypass 抬到极大值 → 每章必走单调用分支(规避分块边界
+    # 漏抽/合并失真,用于诊断与短章实跑)。复用同一 effective_threshold 旋钮,不改下游签名。
+    if no_chunk:
+        extract_settings = dict(extract_settings)
+        extract_settings["chunk_bypass_max_chars"] = 10 ** 9
     rolling_items = int(extract_settings["rolling_summary_items"])
     rolling_chars = int(extract_settings["rolling_summary_chars"])
     overrides = _load_overrides()

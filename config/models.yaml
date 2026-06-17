@@ -20,7 +20,8 @@
       "rolling_summary_items": 12,
       "chunk_threshold_chars": 24000,
       "chunk_count": 3,
-      "chunk_overlap_chars": 200
+      "chunk_overlap_chars": 200,
+      "chunk_bypass_max_chars": 0
     },
     "compress": {
       "temperature": 0.2,
