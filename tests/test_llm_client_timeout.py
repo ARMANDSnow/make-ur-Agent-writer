@@ -3,8 +3,10 @@
 ``request_timeout`` 经 ``get_model_config`` **显式映射**(非靠 models.yaml default 块
 "自动透传" —— 那段 ``**{...}`` 只透传 ``task_cfg`` 的 key、不含 default 块,不显式映射
 则恒 None、超时静默失效)进 ``self.config``,再注入 ``litellm.completion`` 的 ``timeout=``
-kwarg。分任务: extract 继承 default 120 / write 覆盖 240。未配(=0)时不含 timeout key
-(字节兼容 iter055 之前)。``LLM_REQUEST_TIMEOUT`` env 优先(实跑现场调旋钮,如 V2 故意触发)。
+kwarg。分任务超时(iter055 真模型实测调高: 中转站 + gpt-5.5-low reasoning 单章 extract
+实测 294s): extract 400 / write 480 / plot_planner 600 / default 240。未配(=0)时不含
+timeout key(字节兼容 iter055 之前)。``LLM_REQUEST_TIMEOUT`` env 优先(实跑现场调旋钮)。
+批处理任务 stream:false 让非流式 litellm 真执行 timeout(流式下 litellm 不落 read 超时)。
 """
 from __future__ import annotations
 
@@ -44,17 +46,23 @@ class LLMClientTimeoutTests(unittest.TestCase):
                             client.complete_text([{"role": "user", "content": "hi"}], stream=False)
         return client, captured
 
-    def test_extract_task_inherits_default_timeout_120(self) -> None:
+    def test_extract_task_timeout_400(self) -> None:
         client, captured = self._capture_completion_kwargs("extract")
-        # 显式映射真生效: extract 无自有 request_timeout → 继承 default 块 120。
-        self.assertEqual(client.config["request_timeout"], 120)
-        self.assertEqual(captured.get("timeout"), 120.0)
+        # iter055 真模型实测修正: extract 自有 request_timeout 400(实测单章 294s + 余量);
+        # 显式映射 + 非流式(stream:false)让 litellm 真执行此 timeout。
+        self.assertEqual(client.config["request_timeout"], 400)
+        self.assertEqual(captured.get("timeout"), 400.0)
 
-    def test_write_task_overrides_default_to_240(self) -> None:
+    def test_write_task_timeout_480(self) -> None:
         client, captured = self._capture_completion_kwargs("write")
-        # default.update(task_cfg) 让 write 块的 240 覆盖 default 120 —— 分任务超时。
-        self.assertEqual(client.config["request_timeout"], 240)
-        self.assertEqual(captured.get("timeout"), 240.0)
+        # write 8000 tokens 给足 480(write 保流式,此值在 idle-deadline 落地前为名义上限)。
+        self.assertEqual(client.config["request_timeout"], 480)
+        self.assertEqual(captured.get("timeout"), 480.0)
+
+    def test_num_retries_zero_passed(self) -> None:
+        # iter055 真模型实测修正: 自管重试(轨B),禁 litellm 内部重试(免叠加放大墙钟/绕过分类)。
+        _client, captured = self._capture_completion_kwargs("extract")
+        self.assertEqual(captured.get("num_retries"), 0)
 
     def test_zero_timeout_omits_kwarg_byte_compatible(self) -> None:
         # request_timeout=0 → 不注入 timeout key（与 iter055 之前逐字节一致）。
@@ -82,7 +90,7 @@ class LLMClientTimeoutTests(unittest.TestCase):
                 with patch("litellm.completion", side_effect=fake_completion):
                     result = client.ping()
         self.assertTrue(result["ok"])
-        self.assertEqual(captured.get("timeout"), 120.0)
+        self.assertEqual(captured.get("timeout"), 400.0)  # ping 用 extract 任务 → 400
 
 
 if __name__ == "__main__":

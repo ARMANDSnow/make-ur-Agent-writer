@@ -148,10 +148,19 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
         "context_limit": _safe_int(context_limit, _default_context_limit(str(model))),
         "cache_enabled": _env_bool("DISABLE_PROMPT_CACHE", False) is False
         and bool(default.get("cache_enabled", False)),
+        # iter055 真模型实测修正: 透传 task 块的"额外"键(rolling_*/chunk_*/stream/model_env
+        # 等),但排除所有上面已"显式映射"的标量键 —— 否则原值会覆盖掉显式映射里的 env 优先
+        # 逻辑(实测: extract 加 request_timeout 后,这段 spread 用原值压掉 LLM_REQUEST_TIMEOUT
+        # 覆盖;同理 cache_enabled 会压掉 DISABLE_PROMPT_CACHE、json_repair 压掉 JSON_REPAIR)。
         **{
             key: value
             for key, value in task_cfg.items()
-            if key not in {"api_key", "base_url", "model", "max_tokens"}
+            if key not in {
+                "api_key", "base_url", "model", "max_tokens",
+                "request_timeout", "retry_attempts", "retry_backoff_seconds",
+                "retry_backoff_cap_seconds", "retry_backoff_jitter_seconds",
+                "json_repair", "temperature", "context_limit", "cache_enabled",
+            }
         },
     }
 

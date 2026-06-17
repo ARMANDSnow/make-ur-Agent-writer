@@ -176,10 +176,17 @@ class LLMClient:
         main_url = _normalize_url(os.environ.get("OPENAI_BASE_URL"))
         this_url = _normalize_url(self.config.get("base_url"))
         endpoint_streams = this_url is None or this_url == main_url
-        self.stream_default = (
-            _truthy_env(os.environ.get("OPENAI_STREAM"))
-            and endpoint_streams
-        )
+        # iter055 真模型实测修正: per-task stream(models.yaml)优先于 OPENAI_STREAM env。
+        # 批处理任务(extract/compress/debate/review/premise/plot_planner)配 stream:false
+        # —— litellm 不把 timeout 落到流式 read,流式下 per-call 超时失效(V2 实测 timeout=5
+        # 仍跑满 294s);非流式 litellm 遵守 timeout(实测 58s 触发 litellm.Timeout)。write
+        # 保流式(交互 UX,idle-deadline 另补)。未配 stream 的任务回落 OPENAI_STREAM(字节兼容)。
+        cfg_stream = self.config.get("stream")
+        if cfg_stream is None:
+            cfg_stream = _truthy_env(os.environ.get("OPENAI_STREAM"))
+        else:
+            cfg_stream = bool(cfg_stream)
+        self.stream_default = bool(cfg_stream) and endpoint_streams
 
     @property
     def is_mock(self) -> bool:
@@ -231,6 +238,10 @@ class LLMClient:
                 # timeout key，逐字节兼容旧行为。litellm drop_params 不丢顶层 timeout(R9)。
                 if self.config.get("request_timeout"):
                     kwargs["timeout"] = float(self.config["request_timeout"])
+                # iter055 真模型实测修正: 自管重试(轨B transient 分类 + 指数退避),禁 litellm
+                # 内部重试 —— 否则它在我们每次 attempt 内再重试,叠加放大墙钟(实测 timeout=5
+                # 下单 attempt ~19s 而非 ~5s),且绕过我们的分类/退避,拖慢卡死检测。
+                kwargs["num_retries"] = 0
                 if self.config.get("api_key"):
                     kwargs["api_key"] = self.config["api_key"]
                 if self.config.get("base_url"):
@@ -312,6 +323,7 @@ class LLMClient:
             }
             if self.config.get("request_timeout"):  # iter055 轨A
                 kwargs["timeout"] = float(self.config["request_timeout"])
+            kwargs["num_retries"] = 0  # iter055: 自管重试,禁 litellm 内部重试(同 complete_text)
             if self.config.get("api_key"):
                 kwargs["api_key"] = self.config["api_key"]
             if self.config.get("base_url"):
