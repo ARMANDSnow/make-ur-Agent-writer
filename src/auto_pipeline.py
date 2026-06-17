@@ -254,6 +254,7 @@ def rebuild_for_start(
     *,
     window: int = 10,
     reextract: bool = False,
+    no_chunk: bool = False,
     apply: bool = True,
     progress_cb: Optional[ProgressCallback] = None,
 ) -> Dict[str, Any]:
@@ -310,7 +311,8 @@ def rebuild_for_start(
     # outage) rather than bootstrap a base on a silently-degraded set. Chapters
     # that did extract persist on disk, so a re-run resumes only the failures.
     steps["extract"] = extract_all(
-        volume="all", force=reextract, chapter_ids=window_ids, raise_on_failure=True
+        volume="all", force=reextract, chapter_ids=window_ids, raise_on_failure=True,
+        no_chunk=no_chunk,
     )
     _step("compress")
     steps["compress"] = compress_all()

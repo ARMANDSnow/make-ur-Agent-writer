@@ -118,6 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--volume", default="all")
     extract.add_argument("--limit", type=int, default=None)
     extract.add_argument("--force", action="store_true")
+    extract.add_argument(
+        "--no-chunk", action="store_true",
+        help="iter055: 每章强制单次抽取(绕过分块),诊断分块边界漏抽/合并失真",
+    )
 
     sub.add_parser("compress")
     debate_cmd = sub.add_parser("debate")
@@ -166,6 +170,10 @@ def build_parser() -> argparse.ArgumentParser:
     rebuild_cmd.add_argument(
         "--no-apply", action="store_true",
         help="build entity_graph/anchor proposals but don't auto-apply (review then apply-bootstrap)",
+    )
+    rebuild_cmd.add_argument(
+        "--no-chunk", action="store_true",
+        help="iter055: 窗口章节强制单次抽取(绕过分块),配合 --reextract 诊断分块漏抽",
     )
 
     # iter 054d: ingest-to-start (主线机制) — normalize→split then physically
@@ -445,7 +453,7 @@ def main() -> None:
         if report["status"] == "fail":
             raise SystemExit(1)
     elif args.command == "extract":
-        extract_all(volume=args.volume, limit=args.limit, force=args.force)
+        extract_all(volume=args.volume, limit=args.limit, force=args.force, no_chunk=args.no_chunk)
     elif args.command == "compress":
         compress_all()
     elif args.command == "debate":
@@ -488,6 +496,7 @@ def main() -> None:
                 window=args.window,
                 reextract=args.reextract,
                 apply=not args.no_apply,
+                no_chunk=args.no_chunk,
                 progress_cb=_rebuild_progress,
             )
         except (ValueError, ExtractionBatchFailure) as exc:

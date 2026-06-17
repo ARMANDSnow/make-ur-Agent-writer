@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -286,7 +287,7 @@ def _save_rolling_state(
     )
 
 
-def _write_failure(entry: Dict[str, object], text: str, exc: Exception) -> None:
+def _write_failure(entry: Dict[str, object], text: str, exc: Exception, elapsed_ms: Optional[int] = None) -> None:
     failures_dir = _failures_dir()
     ensure_dir(failures_dir)
     chapter_id = str(entry["chapter_id"])
@@ -302,8 +303,14 @@ def _write_failure(entry: Dict[str, object], text: str, exc: Exception) -> None:
         "failed_at": datetime.now(timezone.utc).isoformat(),
         "prompt_summary": text[:500],
     }
+    if elapsed_ms is not None:
+        # iter055 轨D: 失败耗时。≈ per-call 超时值(如 120000ms) ⇒ tunnel 挂起撞超时的特征。
+        failure["elapsed_ms"] = elapsed_ms
     write_json(failures_dir / f"{chapter_id}.json", failure)
-    log_event("extract", "failure", chapter_id=chapter_id, error=str(exc), retry_count=retry_count)
+    log_event(
+        "extract", "failure", chapter_id=chapter_id, error=str(exc),
+        retry_count=retry_count, elapsed_ms=elapsed_ms,
+    )
 
 
 def _clear_failure(chapter_id: str) -> None:
@@ -399,6 +406,7 @@ def extract_all(
             continue
 
         text = chapter_text(entry)
+        started_at = time.monotonic()  # iter055 轨D: 每章计时,暴露慢/挂起章(tunnel 卡到超时)
         try:
             data = _extract_chapter_data(
                 entry,
@@ -418,7 +426,10 @@ def extract_all(
                     applied.extend(overrides[chapter_id].get("manual_overrides_applied", []))
             write_json(out_path, data)
             _clear_failure(chapter_id)
-            log_event("extract", "done", chapter_id=chapter_id, output=str(out_path))
+            log_event(
+                "extract", "done", chapter_id=chapter_id, output=str(out_path),
+                elapsed_ms=int((time.monotonic() - started_at) * 1000),
+            )
             results.append(data)
             previous_summaries_by_volume.setdefault(vid, deque(maxlen=rolling_items)).append(data.get("summary", ""))
             previous_chapter_ids_by_volume.setdefault(vid, deque(maxlen=rolling_items)).append(chapter_id)
@@ -432,7 +443,7 @@ def extract_all(
                 max_chars=rolling_chars,
             )
         except Exception as exc:
-            _write_failure(entry, text, exc)
+            _write_failure(entry, text, exc, elapsed_ms=int((time.monotonic() - started_at) * 1000))
             failed_ids.append(chapter_id)
     # iter054c: surface the batch outcome so orchestrators aren't blind to a
     # silently-degraded extraction set (per-chapter failures are written to
