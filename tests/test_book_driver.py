@@ -182,6 +182,49 @@ class DriverStateMachineTests(_WorkspaceMixin, unittest.TestCase):
         self.ws = self._make_workspace("unit_driver_sm_")
         self._seed_plan(4)
 
+    def test_default_plan_target_covers_full_run(self) -> None:
+        # BLOCKER-1 回归: 不显式传 --plan-target 时,默认须覆盖全程(chapters+resume_from-1)。
+        # 旧 min(10,...) 把默认 plan 钉死在 10 章 → --chapters 30 默认配置规划阶段 block。
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_start(_driver_args(chapters=30, plan_target=None))
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["plan_target"], 30)
+
+    def test_default_plan_target_with_resume_offset(self) -> None:
+        # resume_from=11 + chapters=20 → 末章 30 → 默认 plan_target=30(覆盖到末章)。
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_start(_driver_args(chapters=20, resume_from=11, plan_target=None))
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["plan_target"], 30)
+
+    def test_explicit_plan_target_is_respected(self) -> None:
+        # 显式 --plan-target 不被默认推导覆盖(回归保护)。
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_start(_driver_args(chapters=30, plan_target=15))
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["plan_target"], 15)
+
     def test_segments_split_and_succeed(self) -> None:
         prefix, _, calls_path = self._install_stub(
             self.ws,

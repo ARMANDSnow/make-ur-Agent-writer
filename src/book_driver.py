@@ -761,7 +761,11 @@ def cmd_start(args: Any) -> int:
 
     params = _build_params(args)
     if not params["plan_target"]:
-        params["plan_target"] = min(10, int(params["chapters"]) + int(params["resume_from"]) - 1)
+        # iter057 (BLOCKER-1): 默认 plan_target 必须覆盖全程。readiness 按 `chapters`（全程）
+        # 校验，旧 `min(10, ...)` 把默认 plan 钉死在 10 章 —— `--chapters 30` 不显式传
+        # --plan-target 时只规划 ch1-10，readiness 在 ch11+ 检出 chapter_plan_missing 而
+        # 规划阶段 block，长程默认配置永远跑不动。规划全程，与 readiness 口径对齐。
+        params["plan_target"] = int(params["chapters"]) + int(params["resume_from"]) - 1
     state: Dict[str, Any] = {
         "run_id": time.strftime("%Y%m%d_%H%M%S"),
         "book": params["book"],
