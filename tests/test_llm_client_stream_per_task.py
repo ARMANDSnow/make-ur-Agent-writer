@@ -3,7 +3,8 @@
 V2 真模型实测发现 litellm 不把 timeout 落到流式 SSE read —— 流式下 per-call 超时失效
 (timeout=5 仍跑满 294s 成功);非流式 litellm 遵守 timeout(实测 58s 触发 litellm.Timeout)。
 故批处理任务(extract/compress/debate/review/premise/plot_planner)配 stream:false 走非流式
-拿回超时保护;write 保流式(交互 UX)。per-task stream 优先于 OPENAI_STREAM env;未配则回落 env。
+拿回超时保护。iter057 (P0-B): write 也配 stream:false —— 流式下 request_timeout 不落 SSE read,
+单章卡满 driver 180min,且当前架构无流式真实消费者。per-task stream 优先于 OPENAI_STREAM env;未配则回落 env。
 """
 from __future__ import annotations
 
@@ -42,10 +43,12 @@ class StreamPerTaskTests(unittest.TestCase):
             c = self._client(task)
             self.assertFalse(c.stream_default, f"{task} 应非流式(stream:false 覆盖 env)")
 
-    def test_write_follows_env_streams_in_production(self) -> None:
-        # write 不设 per-task stream → 跟随 OPENAI_STREAM(生产=1 则流式 UX;测试/env 关则
-        # 非流式,字节兼容)。区别于批处理的强制关流。
-        self.assertTrue(self._client("write", stream_env="1").stream_default)
+    def test_write_non_streaming_despite_env(self) -> None:
+        # iter057 (P0-B): write 现配 stream:false —— 拿回 litellm read 超时(流式下
+        # request_timeout 不落 SSE read,单章卡满 driver 180min)。OPENAI_STREAM=1 不再让
+        # write 流式,per-task stream:false 优先于 env。当前架构无流式真实消费者(产出落盘+
+        # 人工审 draft,detach stdout 进 DEVNULL),UX 损失≈零。保流式 idle-deadline 留后续。
+        self.assertFalse(self._client("write", stream_env="1").stream_default)
         self.assertFalse(self._client("write", stream_env="0").stream_default)
 
     def test_unconfigured_task_falls_back_to_env_on(self) -> None:

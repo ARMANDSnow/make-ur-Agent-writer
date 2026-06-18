@@ -46,6 +46,7 @@
       "max_tokens_env": "WRITE_MAX_TOKENS",
       "context_limit": 128000,
       "request_timeout": 480,
+      "stream": false,
       "cache_enabled": true
     },
     "review": {
