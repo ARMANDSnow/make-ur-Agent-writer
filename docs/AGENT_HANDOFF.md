@@ -1435,6 +1435,8 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 
 ## iter056 附：长程续写（capstone）结构性审查（2026-06-18，双 subagent 对抗 + 源码核验）
 
+> **决策（用户拍板 2026-06-18）**：iter056 风格卡本轮**收官**、下列 5 bug **本轮不碰**；统一留作 **iter057 capstone 立项的前置专项**——P0-A 重构 + HIGH-2 实现是迭代级工作，宜与 capstone 设计一起系统做、避免碎修。立 iter057 时**先按本节末「前置顺序」修完 P0-A/P0-B（阻断器）+ 补 HIGH-2/P1-C，再谈 30+ 章真跑**。
+
 V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。双 subagent（状态累积 + 驱动器可靠性）逐行源码 + 实测注入尺寸，发现 5 个「3 章测不出、30+ 章爆」的真 bug，**capstone 前必修**（均已 file:line 核验）：
 
 - 🔴 **P0-A `plan_fingerprint` 全列表耦合**（`plot_planner.py:319-336` 哈希 chapters 全列表 + target_chapters）：开 `--replan-every`（30+ 章实际必开）+ 中途 resume → append 改写 fingerprint → 已写章 `plan_fingerprint_mismatch`（`chapter_status.py:100`）→ 非 `skipped_approved` → `on_blocked=stop` 卡死全程 / `--force` 重复写 + `entity_advance._apply_selected` 非幂等重复突变实体图（**重复计费 + 状态损坏**）。**修**：plan_fingerprint 按章独立、不哈希全列表。
