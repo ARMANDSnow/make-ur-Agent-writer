@@ -64,3 +64,6 @@
 53. [Iteration 052 - 长程驱动器正式化 + F6/F7 清债（30 章 longzu 实跑为验证载体，计划稿）](./iteration_052_PLAN.md)
 54. [Iteration 053 - 中间产物起点校验 + 写手 canon 锚定增强 + longzu 复仇局（实跑剥四层毒源，ch1–5 全 5/5 Approve 收官）](./iteration_053_PLAN.md)
 55. [Iteration 054 - 深起点续写：从操作纪律到机制保证（底座 start-aware 重建 + 泄露硬过滤，计划稿）](./iteration_054_PLAN.md)
+56. [Iteration 055 - 真模型驱动器加固（per-call 超时 + transient 分类重试 + 批处理非流式拿回超时）](./iteration_055_PLAN.md)
+57. [Iteration 056 - 作家风格卡（预置库 + 上传样本提取，仅 premise 注入；搭车了结 iter054 欠账 V5 续写 ch1-3 全 Approve）](./iteration_056_PLAN.md)
+58. [Iteration 057 - 长程续写 capstone 前置：5 个结构性 bug 全修复（P0-A/P0-B/HIGH-2/BLOCKER-1/P1-C，subagent 审核 + 源码核验，1097 tests OK）](./iteration_057_PLAN.md)
