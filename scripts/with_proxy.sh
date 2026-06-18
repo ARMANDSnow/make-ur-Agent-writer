@@ -43,6 +43,12 @@ if _with_proxy_sandbox_alive; then
   _WITH_PROXY_MODE="sandbox-63501"
 else
   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+  # iter056（2026-06-18 实测）：aetherheartpool 中转站走 Clash/VPN 代理不通
+  # （curl -x 127.0.0.1:7897 → HTTP 000），直连可达（--noproxy → 401 鉴权正常）。
+  # direct 已 unset 全部 proxy；额外显式 NO_PROXY 把中转站域名钉死直连——
+  # 即便上游/未来设上 proxy（如 Clash 系统代理），该域名也强制不走代理。
+  export NO_PROXY="aetherheartpool.top,.aetherheartpool.top,${NO_PROXY:-localhost,127.0.0.1,::1,.local}"
+  export no_proxy="${NO_PROXY}"
   _WITH_PROXY_MODE="direct"
 fi
 
