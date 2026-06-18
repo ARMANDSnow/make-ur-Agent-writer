@@ -135,6 +135,59 @@ class ChapterStatusTests(unittest.TestCase):
         self.assertTrue(status["approved"])
         self.assertEqual(status["strict_failures"], [])
 
+    def test_replan_append_keeps_written_chapter_approved(self) -> None:
+        """iter057 P0-A 真实校验链: replan append 后,已写章经**真实** chapter_status
+        仍 approved、无 plan_fingerprint_mismatch。
+
+        bug 真正触发的环节:expected(append 后 live plan 的 plan_fingerprint) vs
+        stored(写章时冻结的 plan_fingerprint)。现有 book_runner replan 测试 mock 掉
+        chapter_status,测不到这里(伪覆盖)。新算法只哈希全局上下文,故两个 plan_fingerprint
+        必相等 → 不 mismatch。修复前(哈希全列表)ch1-3 与 ch1-8 指纹不同 → 此测试红。"""
+        from src.plot_planner import plan_fingerprint
+
+        globals_ctx = {
+            "overall_arc": "原始 arc",
+            "start_chapter_id": "v1_ch003",
+            "start_point_fingerprint": "start-fp-abc",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            drafts = Path(tmp) / "drafts"
+            drafts.mkdir()
+            # 写 ch1 当时的 plan(ch1-3)→ 冻结进 meta 的 plan_fingerprint
+            plan_at_write = {**globals_ctx, "target_chapters": 3,
+                             "chapters": [{"chapter_no": i} for i in (1, 2, 3)]}
+            fp_at_write = plan_fingerprint(plan_at_write)
+            draft = "正文\n"
+            ctx_frozen = {
+                "start_chapter_id": "v1_ch003",
+                "start_point_fingerprint": "start-fp-abc",
+                "chapter_plan_item_fingerprint": "item-fp-ch1",
+                "plan_fingerprint": fp_at_write,
+            }
+            (drafts / "chapter_01.md").write_text(draft, encoding="utf-8")
+            (drafts / "chapter_01.meta.json").write_text(
+                json.dumps({
+                    "verdict": "Approve",
+                    "needs_human_review": False,
+                    "run_context": ctx_frozen,
+                    "draft_sha256": sha256_text(draft),
+                }),
+                encoding="utf-8",
+            )
+            # replan append 5 章 → plan(ch1-8),全局上下文不变
+            plan_after_replan = {**globals_ctx, "target_chapters": 8,
+                                 "chapters": [{"chapter_no": i} for i in range(1, 9)]}
+            fp_after_replan = plan_fingerprint(plan_after_replan)
+            # P0-A 核心不变量:append 前后 plan_fingerprint 相等(只哈希全局上下文)
+            self.assertEqual(fp_after_replan, fp_at_write)
+            # expected = append 后 live plan 的指纹(_run_context 取 stored plan_fingerprint)
+            expected = {**ctx_frozen, "plan_fingerprint": fp_after_replan}
+            status = chapter_status(
+                1, drafts, validate_context=True, expected_context=expected
+            )
+        self.assertEqual(status["strict_failures"], [])
+        self.assertTrue(status["approved"])
+
 
 if __name__ == "__main__":
     unittest.main()

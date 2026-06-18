@@ -317,21 +317,29 @@ def chapter_plan_item_fingerprint(item: Dict[str, Any]) -> str:
 
 
 def plan_fingerprint(data: Dict[str, Any]) -> str:
-    """Stable fingerprint for the plan context consumed by writer/reviewer."""
+    """Stable fingerprint for the GLOBAL plan context consumed by writer/reviewer.
 
-    chapters = []
-    for item in data.get("chapters", []) or []:
-        if isinstance(item, dict):
-            chapters.append(
-                {key: item[key] for key in _ITEM_FINGERPRINT_FIELDS if key in item}
-            )
+    iter057 (P0-A fix): the ``chapters`` whole-list and ``target_chapters`` were
+    removed from the hash. Per-chapter consistency is owned by
+    ``chapter_plan_item_fingerprint`` (checked per chapter in
+    ``book_runner._plan_metadata_failures``); ``plan_fingerprint`` now covers only
+    the plan-wide context that is NOT specific to any single chapter (overall_arc +
+    start-point identity). This makes ``--replan-every`` append-mode safe: an
+    appended tail no longer rewrites the fingerprint frozen in already-written
+    chapters' meta (which used to flip every written chapter to
+    ``plan_fingerprint_mismatch`` → not ``skipped_approved`` → ``BookRunBlocked``
+    on the next segment's re-walk, or ``--force`` re-writes that double-mutate the
+    entity graph). Global edits (overall_arc / start point moved) still flip it, so
+    "start point moved → old plan stale" detection is preserved. schema_version
+    1→2 marks the algorithm change (migrate existing data with
+    ``scripts/migrate_plan_fingerprints.py``).
+    """
+
     payload = {
-        "schema_version": 1,
-        "target_chapters": data.get("target_chapters"),
+        "schema_version": 2,
         "overall_arc": data.get("overall_arc", ""),
         "start_chapter_id": data.get("start_chapter_id", ""),
         "start_point_fingerprint": data.get("start_point_fingerprint", ""),
-        "chapters": chapters,
     }
     return sha256_data(payload)
 

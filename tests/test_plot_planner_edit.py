@@ -135,10 +135,15 @@ class ApplyChapterPlanItemEditTests(unittest.TestCase):
                 item["chapter_plan_item_fingerprint"],
                 chapter_plan_item_fingerprint(item),
             )
-        # The plan-level fingerprint changed (written chapters strict-expire:
-        # accepted semantics) but NON-edited items stay byte-identical so
-        # their item-level fingerprints survive.
-        self.assertNotEqual(on_disk["plan_fingerprint"], before["plan_fingerprint"])
+        # iter057 (P0-A): plan_fingerprint 现只哈希全局上下文(overall_arc/起点),编辑
+        # 单章 title 不再翻转它 —— 单章变化改由 chapter_plan_item_fingerprint 精确捕获。
+        # 这正是修复点:编辑 ch2(或 replan append)不再误伤 ch1/ch3 的 plan_fingerprint。
+        self.assertEqual(on_disk["plan_fingerprint"], before["plan_fingerprint"])
+        # 被编辑章(ch2)的 item 指纹变了(strict-expire 由它承载);未编辑章(ch1) byte-identical。
+        self.assertNotEqual(
+            on_disk["chapters"][1]["chapter_plan_item_fingerprint"],
+            before["chapters"][1]["chapter_plan_item_fingerprint"],
+        )
         self.assertEqual(on_disk["chapters"][0], before["chapters"][0])
         self.assertEqual(
             on_disk["chapters"][0]["chapter_plan_item_fingerprint"],

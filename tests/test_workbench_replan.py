@@ -328,12 +328,12 @@ class WorkbenchReplanTests(unittest.TestCase):
         run_context = meta.get("run_context") or {}
         self.assertEqual(run_context.get("plan_fingerprint"), data["plan_fingerprint"])
 
-    def test_structured_edit_strict_expires_written_chapters(self) -> None:
-        """Editing ANY chapter changes the plan-level fingerprint, which
-        strict-expires every already-written chapter (writer stores the whole
-        plan's fingerprint in each meta.run_context). This is the accepted
-        product semantics — pinned here so a future 'optimization' doesn't
-        silently weaken the gate (the '只哈希未写章' second-truth-source trap)."""
+    def test_structured_edit_only_expires_edited_chapter(self) -> None:
+        """iter057 P0-A: plan_fingerprint 收窄为只哈希全局上下文后,编辑某章只让
+        **该章**(若已写)strict-expire(via chapter_plan_item_fingerprint),不再波及
+        其他已写章。这取代旧的「编辑任意章→所有已写章失效」全局语义——那正是 replan
+        append 卡死每个已写章的根源(用户拍板接受精确化)。按章一致性由 item 指纹守护,
+        plan_fingerprint 只管全局上下文(overall_arc/起点)。"""
         self._drive_to_plan("expirews", target_chapters=5)
         rec = self._run_step(
             "expirews",
@@ -344,13 +344,11 @@ class WorkbenchReplanTests(unittest.TestCase):
             paths.WORKSPACE_DIR / "expirews" / "outputs" / "drafts" / "chapter_01.meta.json"
         )
         self.assertTrue(meta_path.exists(), f"write-book left no meta: {rec.get('error')}")
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        stored_fp = (meta.get("run_context") or {}).get("plan_fingerprint")
-        self.assertTrue(stored_fp)
         data_before = self._plan_data("expirews")
-        self.assertEqual(stored_fp, data_before["plan_fingerprint"])
+        fp_before = data_before["plan_fingerprint"]
+        ch1_item_before = data_before["chapters"][0]["chapter_plan_item_fingerprint"]
 
-        # Edit chapter 3 (NOT the written chapter 1).
+        # 1) 编辑**未写**的 ch3 → 不波及已写的 ch1
         status, _ct, body = routes.dispatch(
             "PUT",
             "/api/workspace/expirews/chapter-plan/3",
@@ -359,19 +357,31 @@ class WorkbenchReplanTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, body.decode("utf-8"))
         resp = json.loads(body)
-        self.assertIn(1, resp["written_chapters_invalidated"])
-
-        data_after = self._plan_data("expirews")
-        # Plan-level fingerprint moved away from what chapter 1's meta holds
-        # → chapter_status strict reports plan_fingerprint mismatch for it.
-        self.assertNotEqual(stored_fp, data_after["plan_fingerprint"])
-        # But chapter 1's ITEM fingerprint is untouched (non-edited items
-        # stay byte-identical), so recovery is a rewrite/re-review of the
-        # affected chapters — not a full re-plan.
+        # ch3 未写 → 失效列表为空(不再误报已写的 ch1)
+        self.assertEqual(resp["written_chapters_invalidated"], [])
+        data_after3 = self._plan_data("expirews")
+        # plan_fingerprint 不变(只哈希全局上下文);ch1 item 指纹不变(ch1 自洽,不重审)
+        self.assertEqual(data_after3["plan_fingerprint"], fp_before)
         self.assertEqual(
-            data_before["chapters"][0]["chapter_plan_item_fingerprint"],
-            data_after["chapters"][0]["chapter_plan_item_fingerprint"],
+            data_after3["chapters"][0]["chapter_plan_item_fingerprint"], ch1_item_before
         )
+
+        # 2) 编辑**已写**的 ch1 → 仅 ch1 strict-expire(item 指纹变),失效列表只含 ch1
+        status, _ct, body = routes.dispatch(
+            "PUT",
+            "/api/workspace/expirews/chapter-plan/1",
+            json.dumps({"fields": {"title": "首章改写"}}, ensure_ascii=False).encode("utf-8"),
+            {"content-type": "application/json"},
+        )
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        resp = json.loads(body)
+        self.assertEqual(resp["written_chapters_invalidated"], [1])
+        data_after1 = self._plan_data("expirews")
+        # ch1 item 指纹变了(strict-expire 由它承载);plan_fingerprint 仍不变。
+        self.assertNotEqual(
+            data_after1["chapters"][0]["chapter_plan_item_fingerprint"], ch1_item_before
+        )
+        self.assertEqual(data_after1["plan_fingerprint"], fp_before)
 
     def test_replan_invalidates_stale_drafts_in_workbench_status(self) -> None:
         """Adversarial review视角 A flagged that re-planning after the user

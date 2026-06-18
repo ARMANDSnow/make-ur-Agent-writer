@@ -107,18 +107,32 @@ class PlanEditEndpointTests(unittest.TestCase):
         self.assertEqual(on_disk["chapters"][1]["title"], "网页改的标题")
         self.assertEqual(data["plan_fingerprint"], on_disk["plan_fingerprint"])
         self.assertEqual(on_disk["plan_fingerprint"], plan_fingerprint(on_disk))
-        self.assertNotEqual(on_disk["plan_fingerprint"], before["plan_fingerprint"])
+        # iter057 (P0-A): 编辑单章不再翻转 plan_fingerprint(只哈希全局上下文);
+        # 编辑由被改章的 chapter_plan_item_fingerprint 捕获。
+        self.assertEqual(on_disk["plan_fingerprint"], before["plan_fingerprint"])
+        self.assertNotEqual(
+            on_disk["chapters"][1]["chapter_plan_item_fingerprint"],
+            before["chapters"][1]["chapter_plan_item_fingerprint"],
+        )
 
     def test_edit_reports_written_chapters_invalidated(self) -> None:
+        # iter057 (P0-A): 编辑某章只让**该章**(若已写)strict-expire,失效列表只含被编辑章,
+        # 不再牵连其他已写章(旧全局语义是 replan 卡死之源)。partial 不算已写。
         self._drive_to_plan("draftws")
         drafts = paths.WORKSPACE_DIR / "draftws" / "outputs" / "drafts"
         drafts.mkdir(parents=True, exist_ok=True)
         (drafts / "chapter_01.md").write_text("# 已写正文\n", encoding="utf-8")
-        # A partial must NOT count as a written chapter.
+        # ch2 仅有 partial → 不算已写章。
         (drafts / "chapter_02.partial.md").write_text("…", encoding="utf-8")
-        status, data = self._put_edit("draftws", 3, {"title": "牵连已写章"})
-        self.assertEqual(status, 200, data)
+        # 编辑已写的 ch1 → 失效列表含 1。
+        _, data = self._put_edit("draftws", 1, {"title": "改首章"})
         self.assertEqual(data["written_chapters_invalidated"], [1])
+        # 编辑只有 partial 的 ch2 → partial 不算已写,列表为空。
+        _, data = self._put_edit("draftws", 2, {"title": "改ch2"})
+        self.assertEqual(data["written_chapters_invalidated"], [])
+        # 编辑未写的 ch3 → 列表为空(不再牵连已写的 ch1)。
+        _, data = self._put_edit("draftws", 3, {"title": "改未写章"})
+        self.assertEqual(data["written_chapters_invalidated"], [])
 
     def test_validation_error_returns_400_with_field_detail(self) -> None:
         self._drive_to_plan("badws")

@@ -141,6 +141,65 @@ class PlotPlannerAppendTests(unittest.TestCase):
         self.assertEqual(result["overall_arc"], "原始 arc")
         self.assertEqual(result["start_chapter_id"], "v1_ch003")
 
+    def test_append_preserves_plan_fingerprint(self) -> None:
+        """iter057 P0-A 核心回归: replan append 新章**不改变** plan_fingerprint。
+
+        旧算法哈希 chapters 全列表 + target_chapters,append 后 plan_fingerprint 必变,
+        已写章 meta 冻结的旧指纹 → plan_fingerprint_mismatch → 非 skipped_approved →
+        下一段 resume 立刻 BookRunBlocked 卡死。新算法只哈希全局上下文(overall_arc/起点),
+        append 仅延长尾巴、不动全局上下文 → 指纹稳定 → 已写章不误伤。修复前此测试红。"""
+        from src import plot_planner, start_point
+
+        self._seed_plan(10)
+        start_point.set_start_point("v1_ch003")
+        plan_path = self.ws_root / "outputs" / "debate" / "chapter_plan.json"
+        seeded = json.loads(plan_path.read_text(encoding="utf-8"))
+        seeded["start_chapter_id"] = "v1_ch003"
+        # 模拟「plan 已生成」:按生产路径 attach 指纹,记录 append 前的全局指纹 + 各章 item 指纹。
+        plot_planner._attach_plan_fingerprints(seeded, start_chapter_id="v1_ch003")
+        plan_path.write_text(json.dumps(seeded, ensure_ascii=False), encoding="utf-8")
+        before_fp = seeded["plan_fingerprint"]
+        before_item_fps = [c["chapter_plan_item_fingerprint"] for c in seeded["chapters"]]
+
+        fake_new = {
+            "target_chapters": 5,
+            "overall_arc": "新 arc (会被原 arc 覆盖)",
+            "chapters": [
+                {
+                    "chapter_no": i,
+                    "title": f"新章 {i}",
+                    "opening_scene": f"新开场 {i}",
+                    "key_events": [f"新事件 {i}.1", f"新事件 {i}.2"],
+                    "relationships_in_play": [],
+                    "ending_hook": f"新 hook {i}",
+                    "target_chinese_chars": 4000,
+                    "plot_purpose": f"新用途 {i}",
+                }
+                for i in range(1, 6)
+            ],
+            "generated_by": "test_mock",
+        }
+        from src.schemas import ChapterPlan
+        with patch.object(
+            plot_planner.LLMClient,
+            "complete_json",
+            lambda self, msgs, model: ChapterPlan(**fake_new),
+        ):
+            result = plot_planner.generate_chapter_plan(
+                target_chapters=5, append_count=5, from_chapter=10
+            )
+
+        # 列表变长(15章)、target_chapters 变大 —— 但 plan_fingerprint 必须不变。
+        self.assertEqual(len(result["chapters"]), 15)
+        self.assertEqual(result["target_chapters"], 15)
+        self.assertEqual(
+            result["plan_fingerprint"], before_fp,
+            "append 不得改变 plan_fingerprint(P0-A:否则已写章全 mismatch 卡死)",
+        )
+        # 已存在章(ch1-10)的 item 指纹 byte-identical(按章一致性仍由 item 指纹守护)。
+        after_item_fps = [c["chapter_plan_item_fingerprint"] for c in result["chapters"][:10]]
+        self.assertEqual(after_item_fps, before_item_fps)
+
     def test_extraction_coverage_gap_hard_blocks(self) -> None:
         # iter 054b: a gap in the K-chapter extraction window before the start
         # must hard-block plan-chapters (was readiness warn only — 053g).

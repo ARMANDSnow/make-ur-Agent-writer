@@ -753,10 +753,14 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
     ``plot_planner.apply_chapter_plan_item_edit`` (the single fingerprint
     truth source — this endpoint never touches fingerprints itself).
 
-    The response reports ``written_chapters_invalidated``: any plan edit
-    changes the plan-level fingerprint, which strict-expires every already
-    written chapter (accepted product semantics, same as regenerating the
-    plan) — the frontend warns before saving when this list is non-empty.
+    The response reports ``written_chapters_invalidated``: iter057 (P0-A)
+    narrowed ``plan_fingerprint`` to global context only, so editing a chapter
+    strict-expires **that chapter itself** (if already written) via its
+    ``chapter_plan_item_fingerprint`` — NOT every written chapter. The list
+    therefore contains the edited chapter only (empty if it isn't written yet);
+    the frontend warns before saving when it is non-empty. This replaces the old
+    全局 strict-expire (which was the root cause of replan-append blocking every
+    written chapter); per-chapter consistency is now owned by item fingerprints.
     """
     error = _workspace_error(name)
     if error:
@@ -789,11 +793,12 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
         with jobs.workspace_reserved(name):
             with use_workspace(name):
                 drafts = paths.drafts_dir()
-                written = sorted(
-                    int(m.group(1))
-                    for p in (drafts.glob("chapter_*.md") if drafts.exists() else [])
-                    if (m := re.fullmatch(r"chapter_(\d+)\.md", p.name))
-                )
+                # iter057 (P0-A): plan_fingerprint 收窄为只哈希全局上下文后,编辑某章
+                # 只让**该章**(若已写)strict-expire——via chapter_plan_item_fingerprint
+                # (被编辑章 item 指纹变)——不再波及其他已写章(它们 draft+plan item 都没变)。
+                # 故失效列表只含被编辑章本身,而非所有已写章(旧全局语义正是 replan 卡死之源)。
+                edited_md = drafts / f"chapter_{chapter_no:02d}.md"
+                written = [chapter_no] if edited_md.exists() else []
                 try:
                     data = apply_chapter_plan_item_edit(chapter_no, fields)
                 except FileNotFoundError as exc:
