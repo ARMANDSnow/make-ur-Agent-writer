@@ -1431,4 +1431,18 @@ P5b 二轮 delta review 再发现 1 个 MED（wizard tmp_path leak on write fail
 
 **数据状态**：测试遗留 workspace `style_real`（V1）+ `style_preview`（preview）——gitignored，可删。**longzu 起点已改为 `longzu_2_ch001`**（V5 续写）、`outputs/drafts/chapter_01-03.md` 为本轮 V5 产出（全 Approve）、旧 Jun13 续写已移到 `outputs/drafts/_backup_jun13_pre_v5/`（如需恢复 longzu 原状须 `clear-start-point` + 还原备份）。
 
-**下轮候选**：① iter057 立 **capstone 本体**（30+ 章长程续写，自 iter024 起 6 轮顺延、基建就绪——**V5 已验证 rebuild + 续写 3 章链路全程打通、质量达标**）；② 风格卡端到端深验（出文文风量化对比 + 缓存计费隔离实证，V3 已初步证有效）；③ 风格卡增强（per-chapter scope / 多卡，本轮已留 `scope` 字段）；④ 沿用 iter055 候选（write idle-deadline / entity timeline schema）。
+**下轮候选**：① iter057 立 **capstone 本体**（30+ 章长程续写）——⚠ **capstone 前必先修长程结构性 bug（见下「长程审查」P0-A/P0-B）**；V5 仅证明 rebuild + 续写 3 章**功能链路打通**，长程稳定性**未验证、且审查证伪**（3 章测不出的 5 个 bug，30+ 章会爆）。② 风格卡端到端深验（文风量化对比 + 缓存计费隔离）；③ 风格卡增强（scope/多卡）；④ iter055 候选（write idle-deadline 等）。
+
+## iter056 附：长程续写（capstone）结构性审查（2026-06-18，双 subagent 对抗 + 源码核验）
+
+V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。双 subagent（状态累积 + 驱动器可靠性）逐行源码 + 实测注入尺寸，发现 5 个「3 章测不出、30+ 章爆」的真 bug，**capstone 前必修**（均已 file:line 核验）：
+
+- 🔴 **P0-A `plan_fingerprint` 全列表耦合**（`plot_planner.py:319-336` 哈希 chapters 全列表 + target_chapters）：开 `--replan-every`（30+ 章实际必开）+ 中途 resume → append 改写 fingerprint → 已写章 `plan_fingerprint_mismatch`（`chapter_status.py:100`）→ 非 `skipped_approved` → `on_blocked=stop` 卡死全程 / `--force` 重复写 + `entity_advance._apply_selected` 非幂等重复突变实体图（**重复计费 + 状态损坏**）。**修**：plan_fingerprint 按章独立、不哈希全列表。
+- 🔴 **P0-B write 流式无 idle-deadline**（`models.yaml` write 无 `stream` 键 → 回落 `OPENAI_STREAM=1` 流式 → `request_timeout:480` 失效，`llm_client.py:179-183` 注释已实测；`_consume_stream` 无 per-chunk 超时）：中转站抖动下单章卡满 driver 180min 兜底 → 30 章累积数小时空等、detach 静默。**修（最省事）**：`models.yaml` write 加 `stream:false`（非流式 litellm 遵守 timeout，注释实测 58s 触发）。
+- 🟠 **HIGH-2 rolling `compressed_older` 半成品**（`chapter_summary.py` 只读 line 22/33/38/140、**零写盘点**）：ch15+ 早期章退化成 ~10 条 12 字残片 → ch25+ 早期伏笔/设定对 writer 失忆 → 长程一致性地基崩。**修**：真正实现周期性 LLM 压缩并写盘累积，或显式把长程记忆托给 KB/entity、重定位 rolling 为纯近场。
+- 🟠 **BLOCKER-1 `plan_target` 默认 10**（`book_driver.py:763`）：`--chapters 30` 用默认参数 → readiness 在 ch11+ 缺 plan → 规划阶段 block（fail-closed 不烧钱，但默认配置长程跑不动）。**修**：plan_target 默认随 chapters，或缺失时硬报错提示 `--plan-target`/`--replan-every` 二选一。
+- 🟠 **P1-C outline 漂移不检测**（`book_driver.py:309` 只查起点指纹 + outline_sha256，无"剧情 vs outline 语义偏离"）：ch15-20+ 实际剧情偏离初始 outline，评审 fidelity 拿失真 outline 当基准 → 正确承接被误拒/漂移被放行。**修**：周期性 outline↔rolling 偏离检测 + fidelity 基准切到滚动上下文。
+
+**认知纠偏**：上下文窗口膨胀**不是 bug**（实测 writer prompt 26K vs redline 107K，所有注入静态截断、无界增长路径不存在）。长程敌人是**信息饥饿/漂移**（ch30 看不到 ch3 伏笔），非溢出。entity render 是常量税（续写期只 append timeline、render 取 active）；成本账本 resume 不重复计费（安全）；编排骨架（断点幂等/预算双层/互斥/终态）在**不开 replan** 窄路径上可靠、单测覆盖到位。
+
+**capstone 前置顺序**：先修 P0-A + P0-B（阻断器）→ 补 HIGH-2 + P1-C（一致性根基）→ `test_book_driver.py` 补「replan + 段间 resume + 流式卡死」三件（当前零覆盖）→ 先 mock 全跑 30 章 + 真模型 ch1-15 → 才谈 30+ 真跑。30 章保守配置需 2-5 次人工 resume；50 章评审全过 ~0.5%；100 章现机制不可能一次跑完。
