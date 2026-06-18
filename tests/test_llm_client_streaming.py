@@ -164,7 +164,9 @@ class LLMClientStreamingTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             with tempfile.TemporaryDirectory() as tmp:
                 with patch("src.llm_client.ROOT", Path(tmp)):
-                    client = LLMClient("write")
+                    # iter057 (P0-B): write 现配 stream:false,不再回落 OPENAI_STREAM。
+                    # env 默认流式行为改用**未配 stream 的 default task** 验证。
+                    client = LLMClient("default")
                     self.assertTrue(client.stream_default)
                     with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
                         mock_prop.return_value = False
