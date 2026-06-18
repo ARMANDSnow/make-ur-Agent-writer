@@ -419,6 +419,22 @@ def check_write_readiness(
                     raw_plan, outline_text=outline_text
                 )
             )
+            # iter057 P1-C: outline↔实际剧情语义漂移(确定性命中率探针,只 warn 不 block)。
+            # 上面的 provenance 守卫发现不了「outline 没变、但剧情走远了」;此处补可见性。
+            # best-effort:任何异常都不得让漂移探针 block readiness(漏报优于误报/误block)。
+            try:
+                from . import outline_drift, chapter_summary, entities
+
+                warnings.extend(
+                    f"outline_{code}"
+                    for code in outline_drift.outline_drift_codes(
+                        outline_text,
+                        chapter_summary.load_rolling_summary(),
+                        entities.load_entity_graph(),
+                    )
+                )
+            except Exception:
+                pass
 
     # iter 053g（053c 实跑根因③）：起点前最近章节的提取覆盖 warn——提取层
     # 是 KB/实体图的底座，没跟上起点时评审会拿旧状态当硬尺连拒正确稿件。
