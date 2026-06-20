@@ -93,8 +93,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote   {pth} -> {REPO_ROOT}")
 
     print("\nNext:")
-    print("  1) start the continuer:   python main.py web --port 8765")
-    print("  2) restart Aeloon (or reload plugins), then in chat:  /novel help")
+    print("  1) restart Aeloon (or reload plugins), then in chat:  /novel help")
+    print("     插件会随 Aeloon 自动拉起续写后端；如需手动/远程：python main.py web --port 8765")
     return 0
 
 
