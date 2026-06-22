@@ -231,5 +231,45 @@ class ChapterPlanInvalidTests(unittest.TestCase):
             self.assertFalse(blocker.startswith("readiness_error:"), blocker)
 
 
+class AutoAdvanceCorruptTests(unittest.TestCase):
+    """#8: a corrupt proposal / entity_graph encountered AFTER a chapter is
+    approved+persisted must make auto-advance a clean no-op, not raise an
+    uncaught JSONDecodeError that fails the job with content already on disk."""
+
+    def setUp(self) -> None:
+        from src import paths
+
+        os.environ["OPENAI_MODEL"] = "mock"
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        os.environ["WORKSPACE_NAME"] = "alpha"
+        self.addCleanup(self._restore)
+        for sub in ("data", "outputs/drafts", "outputs/debate"):
+            (paths.WORKSPACE_DIR / "alpha" / sub).mkdir(parents=True, exist_ok=True)
+
+    def _restore(self) -> None:
+        from src import paths
+
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+
+    def test_corrupt_proposal_and_graph_no_op_not_crash(self) -> None:
+        from src import book_runner, paths
+        from src.entity_advance import proposal_path
+
+        proposal_path(1, paths.drafts_dir()).write_text("{bad json", encoding="utf-8")
+        paths.entity_graph_path().write_text("{bad json", encoding="utf-8")
+        # Must not raise; degrades to a no-op result.
+        result = book_runner._auto_apply_advances(1, min_confidence=0.7)
+        self.assertEqual(result["applied_count"], 0)
+        self.assertTrue(result["auto_apply"])
+
+
 if __name__ == "__main__":
     unittest.main()

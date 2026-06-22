@@ -870,13 +870,19 @@ def _partial_artifact(drafts_dir: Path, chapter_no: int) -> Dict[str, Any] | Non
 
 def _auto_apply_advances(chapter_no: int, *, min_confidence: float) -> Dict[str, Any]:
     drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
-    data = read_json(proposal_path(chapter_no, drafts_dir), {})
+    # iter059 #8: these reads sit BEFORE the try below (which catches
+    # ValueError ⊇ JSONDecodeError). A corrupt proposal/entity_graph file —
+    # encountered AFTER the chapter was approved and the prose persisted — used
+    # to raise an uncaught JSONDecodeError that failed the whole job while the
+    # content was already on disk (the "job failed but content on disk" split).
+    # Degrade each to {} so auto-advance becomes a clean no-op instead.
+    data = read_json_optional(proposal_path(chapter_no, drafts_dir), {})
     proposals = data.get("proposed_advances", data.get("proposals", [])) if isinstance(data, dict) else []
     if not isinstance(proposals, list):
         proposals = []
     selected = select_auto_indexes(proposals, min_confidence=min_confidence)
     plan = _load_raw_chapter_plan()
-    graph = read_json(paths.entity_graph_path() if paths.workspace_name() else Path("data/entity_graph.json"), {})
+    graph = read_json_optional(paths.entity_graph_path() if paths.workspace_name() else Path("data/entity_graph.json"), {})
     conflicts = validate_proposals_against_plan(proposals, chapter_no, plan, graph)
     conflict_indexes = {int(item.get("proposal_index")) for item in conflicts if item.get("proposal_index") is not None}
     safe_selected = [idx for idx in selected if idx not in conflict_indexes]
