@@ -166,6 +166,57 @@ class WizardE2ETests(unittest.TestCase):
         # Drain the spawned job to keep tearDown clean.
         self._wait_for_done("retryable", json.loads(resp2)["job_id"])
 
+    def test_non_utf8_txt_rolls_back_workspace(self) -> None:
+        """iter059 NEW-B: a binary / non-UTF-8 .txt was accepted by the raw
+        write_bytes, then failed deep in the background job, leaving the
+        workspace lingering (409 on same-name retry). Now it's a synchronous
+        400 + rollback, mirroring the corrupt-EPUB UX."""
+        body, ct = _build_multipart(
+            "binbook", "novel.txt", b"\xff\xfe\x00\x01binary-not-utf8\x80\x81", "text/plain"
+        )
+        status, _ct, resp = routes.dispatch(
+            "POST", "/api/wizard/start", body, {"content-type": ct}
+        )
+        self.assertEqual(status, 400, resp.decode("utf-8"))
+        self.assertIn("UTF-8", json.loads(resp)["error"])
+        self.assertFalse((paths.WORKSPACE_DIR / "binbook").exists())
+        # Same-name retry with a valid file works.
+        body2, ct2 = _build_multipart(
+            "binbook", "ok.txt", ("第一章\n测试。\n" * 30).encode(), "text/plain"
+        )
+        status2, _ct2, resp2 = routes.dispatch(
+            "POST", "/api/wizard/start", body2, {"content-type": ct2}
+        )
+        self.assertEqual(status2, 202, resp2.decode("utf-8"))
+        self._wait_for_done("binbook", json.loads(resp2)["job_id"])
+
+    def test_no_chapter_txt_rolls_back_workspace(self) -> None:
+        """iter059 #3: a UTF-8 .txt with no recognizable chapter headings would
+        split into 0 chapters and the job failed with the cryptic "chapter
+        manifest not found" while the workspace lingered. Now: synchronous 400 +
+        rollback so the user can re-upload."""
+        body, ct = _build_multipart(
+            "noheadings",
+            "novel.txt",
+            ("就是一段没有任何章节标题的散文，反复堆叠。\n" * 80).encode("utf-8"),
+            "text/plain",
+        )
+        status, _ct, resp = routes.dispatch(
+            "POST", "/api/wizard/start", body, {"content-type": ct}
+        )
+        self.assertEqual(status, 400, resp.decode("utf-8"))
+        self.assertIn("chapter", json.loads(resp)["error"].lower())
+        self.assertFalse((paths.WORKSPACE_DIR / "noheadings").exists())
+        # And a same-name retry with a properly-headed file works.
+        body2, ct2 = _build_multipart(
+            "noheadings", "ok.txt", ("第一章\n测试。\n" * 30).encode(), "text/plain"
+        )
+        status2, _ct2, resp2 = routes.dispatch(
+            "POST", "/api/wizard/start", body2, {"content-type": ct2}
+        )
+        self.assertEqual(status2, 202, resp2.decode("utf-8"))
+        self._wait_for_done("noheadings", json.loads(resp2)["job_id"])
+
     def test_existing_workspace_409(self) -> None:
         (paths.WORKSPACE_DIR / "occupied" / "data").mkdir(parents=True)
         body, ct = _build_multipart("occupied", "x.txt", b"hi", "text/plain")

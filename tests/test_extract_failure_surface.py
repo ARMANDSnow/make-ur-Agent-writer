@@ -65,7 +65,7 @@ class OnboardingPrepareRaisesTests(unittest.TestCase):
 
     def test_prepare_raises_on_extraction_failure(self) -> None:
         with patch("src.auto_pipeline.normalize_all", return_value=[]), \
-                patch("src.auto_pipeline.split_all", return_value=[]), \
+                patch("src.auto_pipeline.split_all", return_value=[{"chapter_id": "ch_001"}]), \
                 patch(
                     "src.auto_pipeline.extract_all",
                     side_effect=ExtractionBatchFailure(["ch_002"], extracted=1),
@@ -75,7 +75,7 @@ class OnboardingPrepareRaisesTests(unittest.TestCase):
 
     def test_prepare_opts_into_raise_on_failure(self) -> None:
         with patch("src.auto_pipeline.normalize_all", return_value=[]), \
-                patch("src.auto_pipeline.split_all", return_value=[]), \
+                patch("src.auto_pipeline.split_all", return_value=[{"chapter_id": "ch_001"}]), \
                 patch("src.auto_pipeline.extract_all", return_value=[]) as ext, \
                 patch("src.auto_pipeline.compress_all", return_value=[]), \
                 patch("src.auto_pipeline.bootstrap_all", return_value={}):
@@ -85,7 +85,7 @@ class OnboardingPrepareRaisesTests(unittest.TestCase):
     def test_skip_extract_does_not_raise(self) -> None:
         # The skip_extract path never calls extract_all, so it can't raise.
         with patch("src.auto_pipeline.normalize_all", return_value=[]), \
-                patch("src.auto_pipeline.split_all", return_value=[]), \
+                patch("src.auto_pipeline.split_all", return_value=[{"chapter_id": "ch_001"}]), \
                 patch("src.auto_pipeline.compress_all", return_value=[]), \
                 patch("src.auto_pipeline.bootstrap_all", return_value={}), \
                 patch("src.auto_pipeline.extract_all") as ext:

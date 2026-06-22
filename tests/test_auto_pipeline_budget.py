@@ -106,7 +106,9 @@ class RunAutoPipelineEarlyStopTests(unittest.TestCase):
             return _fn
         return {
             "src.auto_pipeline.normalize_all": make("normalize", []),
-            "src.auto_pipeline.split_all": make("split", []),
+            # iter059 #3: split must return >=1 chapter or the new 0-chapter
+            # guard aborts before the steps these tests actually exercise.
+            "src.auto_pipeline.split_all": make("split", [{"chapter_id": "ch_001"}]),
             "src.auto_pipeline.extract_all": make("extract", []),
             "src.auto_pipeline.compress_all": make("compress", []),
             "src.auto_pipeline.bootstrap_all": make("bootstrap", {}),

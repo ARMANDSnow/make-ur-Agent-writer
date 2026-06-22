@@ -94,6 +94,17 @@ def _run_prepare_steps(
 
     _notify("split", 1)
     results["split"] = split_all()
+    if not results["split"]:
+        # iter059 #3: split produced 0 chapters — the uploaded text has no
+        # recognizable chapter headings (第N章 / Chapter N). Fail loudly here
+        # with a clear message rather than letting load_manifest raise the
+        # cryptic "chapter manifest not found" downstream. The wizard's
+        # synchronous probe normally rejects this first (with workspace
+        # rollback); this is the backstop for paths that bypass the wizard.
+        raise ValueError(
+            "uploaded text produced 0 chapters after split; no recognizable "
+            "chapter headings (第N章 / Chapter N) were found"
+        )
 
     _notify("extract", 2)
     if skip_extract:

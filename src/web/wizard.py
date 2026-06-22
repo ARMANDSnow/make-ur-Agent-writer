@@ -52,6 +52,25 @@ DRAMA_TRACKS = frozenset({"霸总", "重生", "推理", "系统", "觉醒"})
 DRAMA_DURATIONS = frozenset({30, 60, 90, 120})
 
 
+class _UploadRejected(Exception):
+    """iter059 #3/NEW-B: a user-input upload failure (bad encoding / no chapter
+    headings) that should rmtree the half-created workspace and return a
+    friendly 400 with a specific message — distinct from the generic
+    corrupt-file handler that deliberately hides internal detail."""
+
+
+def _has_detectable_chapters(text: str) -> bool:
+    """Best-effort probe: does the text contain any line that looks like a
+    chapter heading (zh 第N章/序章/楔子 · en Chapter N/PROLOGUE/…)? Lenient by
+    design — only returns False when there is truly no heading-like line, so a
+    valid upload is never rejected; the auto_pipeline split guard is the
+    authoritative 0-chapter backstop."""
+    from ..chapter_splitter import is_heading
+
+    lines = text.splitlines()
+    return any(is_heading(line, lang) for lang in ("zh", "en") for line in lines)
+
+
 def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     """POST /api/wizard/start handler.
 
@@ -141,7 +160,30 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
                 tmp.write(file_bytes)
             extract_epub(tmp_path, raw_dir / "upload.txt")
         else:
-            (raw_dir / "upload.txt").write_bytes(file_bytes)
+            # iter059 NEW-B: validate UTF-8 at the door. A binary/mis-encoded
+            # .txt used to pass the raw write_bytes, then fail deep in the
+            # background job, leaving the workspace lingering (409 on same-name
+            # retry). Decode→write_text also normalizes to clean UTF-8 on disk.
+            try:
+                text = file_bytes.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise _UploadRejected(
+                    "uploaded .txt is not valid UTF-8; re-save the file as UTF-8 and retry"
+                ) from exc
+            # iter059 #3: reject a headingless .txt now (with rollback) instead
+            # of letting split yield an empty manifest and the job fail with the
+            # cryptic "chapter manifest not found". Mirrors the corrupt-EPUB UX.
+            if not _has_detectable_chapters(text):
+                raise _UploadRejected(
+                    "no chapter headings found (e.g. 第1章 / Chapter 1); "
+                    "the file would split into 0 chapters"
+                )
+            (raw_dir / "upload.txt").write_text(text, encoding="utf-8")
+    except _UploadRejected as exc:
+        # User-input failure: roll back the half-created workspace (so a
+        # same-name retry works) and return the specific reason.
+        shutil.rmtree(target_root, ignore_errors=True)
+        return _json(400, {"error": str(exc)})
     except Exception as exc:
         # Log full traceback server-side; tell the user the file looked
         # bad without leaking internal paths or stack frames.
