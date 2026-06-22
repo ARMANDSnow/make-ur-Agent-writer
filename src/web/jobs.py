@@ -705,7 +705,11 @@ def _step_extract_style(params: Dict[str, Any], progress_cb: Callable[[str, floa
     上传端点先把样本写到 ``data/.writer_style_sample.tmp``（gitignored），本步
     读取后提取并落 ``data/writer_style.json``，然后删除临时样本——样本不持久化，
     不进仓库/快照（P0-A 版权护栏）。``force`` 默认 True（提取即为得到新卡）。"""
-    sample_path = paths.writer_style_sample_path()
+    # iter060 (#11): the upload route stages each request's sample to a unique
+    # path and passes it here; fall back to the legacy fixed path for any old
+    # in-flight job / back-compat.
+    raw_sample_path = params.get("sample_path")
+    sample_path = Path(raw_sample_path) if raw_sample_path else paths.writer_style_sample_path()
     if not sample_path.exists():
         return _blocked("sample_missing", "no uploaded sample found; upload a writing sample first")
     try:

@@ -1245,12 +1245,29 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
         return _json(400, {"error": "sample must not contain control characters"})
     sample = sample[:60000]
 
+    import uuid
+
+    from ..state import write_text_atomic
+
     try:
         with use_workspace(name):
-            sample_path = paths.writer_style_sample_path()
+            # iter060 (#11): stage the sample to a per-request UNIQUE path (was a
+            # fixed .writer_style_sample.tmp). Two concurrent extracts used to
+            # write the same file, so the loser overwrote the winner's sample
+            # before the winner's job read it. write_text_atomic avoids a torn
+            # read; the job is handed its own path via params.
+            sample_path = paths.writer_style_sample_path().with_name(
+                f".writer_style_sample.{uuid.uuid4().hex}.tmp"
+            )
             sample_path.parent.mkdir(parents=True, exist_ok=True)
-            sample_path.write_text(sample, encoding="utf-8")
-        job = jobs.start_job(name, "extract-style", {"force": True})
+            write_text_atomic(sample_path, sample)
+        try:
+            job = jobs.start_job(
+                name, "extract-style", {"force": True, "sample_path": str(sample_path)}
+            )
+        except BaseException:
+            sample_path.unlink(missing_ok=True)  # don't leak the staged sample
+            raise
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):

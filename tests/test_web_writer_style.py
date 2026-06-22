@@ -201,6 +201,79 @@ class ExtractTests(_WebHarness):
         self.assertEqual(status, 415, resp)
 
 
+class ExtractUniqueSampleTests(_WebHarness):
+    """iter060 (#11): each upload stages its sample to a per-request UNIQUE path
+    threaded through the job params — was a fixed .writer_style_sample.tmp
+    written before the job read it, so two concurrent extracts overwrote each
+    other (loser clobbered the winner's sample)."""
+
+    def _mkws(self, ws: str) -> None:
+        (paths.WORKSPACE_DIR / ws / "data").mkdir(parents=True, exist_ok=True)
+
+    def _upload(self, ws: str, sample: str):
+        body, ct = self._multipart(text=sample)
+        return routes.dispatch(
+            "POST", f"/api/workspace/{ws}/writer-style/extract", body, {"content-type": ct}
+        )
+
+    def test_route_threads_unique_sample_path(self) -> None:
+        self._mkws("u1")
+        captured: dict = {}
+        real = jobs.start_job
+
+        def fake(name, step, params=None):  # capture params, don't spawn a worker
+            captured["params"] = params
+            return {"job_id": "a" * 32, "status": "running"}
+
+        jobs.start_job = fake
+        try:
+            status, _ct, resp = self._upload("u1", "样本内容。" * 60)
+        finally:
+            jobs.start_job = real
+        self.assertEqual(status, 202, resp)
+        sp = captured["params"]["sample_path"]
+        # unique per request, not the legacy fixed shared name
+        self.assertNotEqual(Path(sp).name, ".writer_style_sample.tmp")
+        self.assertTrue(Path(sp).name.startswith(".writer_style_sample."))
+        self.assertTrue(Path(sp).exists())  # staged (job faked, so not consumed)
+        self.assertFalse(paths.writer_style_sample_path().exists())  # fixed path unused
+
+    def test_concurrent_uploads_distinct_paths_no_clobber(self) -> None:
+        self._mkws("u2")
+        seen: list = []
+        real = jobs.start_job
+
+        def fake(name, step, params=None):
+            seen.append(params["sample_path"])
+            return {"job_id": "b" * 32, "status": "running"}
+
+        jobs.start_job = fake
+        try:
+            self._upload("u2", "AAAA 第一份样本。" * 60)
+            self._upload("u2", "BBBB 第二份样本。" * 60)
+        finally:
+            jobs.start_job = real
+        self.assertEqual(len(seen), 2)
+        self.assertNotEqual(seen[0], seen[1])  # distinct paths
+        # both samples survive — neither overwrote the other (the TOCTOU fix)
+        self.assertIn("AAAA", Path(seen[0]).read_text(encoding="utf-8"))
+        self.assertIn("BBBB", Path(seen[1]).read_text(encoding="utf-8"))
+
+    def test_handler_consumes_params_sample_path(self) -> None:
+        # The handler reads its sample from params["sample_path"] and deletes it
+        # (sample-not-persisted guard), proving the per-request path is honored.
+        self._mkws("u3")
+        os.environ["WORKSPACE_NAME"] = "u3"
+        try:
+            unique = paths.writer_style_sample_path().with_name(".writer_style_sample.feedface.tmp")
+            unique.write_text("用于风格提炼的写作样本内容。" * 30, encoding="utf-8")
+            result = jobs._step_extract_style({"sample_path": str(unique), "force": True}, lambda *a: None)
+            self.assertEqual(result.get("status"), "succeeded", result)
+            self.assertFalse(unique.exists())  # consumed + deleted
+        finally:
+            os.environ.pop("WORKSPACE_NAME", None)
+
+
 class BusyTests(_WebHarness):
     def test_activate_busy_409(self) -> None:
         ws = self._premise("busy")
