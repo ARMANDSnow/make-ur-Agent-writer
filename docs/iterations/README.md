@@ -69,3 +69,4 @@
 58. [Iteration 057 - 长程续写 capstone 前置：5 个结构性 bug 全修复（P0-A/P0-B/HIGH-2/BLOCKER-1/P1-C，subagent 审核 + 源码核验，1097 tests OK）](./iteration_057_PLAN.md)
 59. [Iteration 058 - 前端用户路径 P0 修复（钱与静默错误）：#1 onboarding 预算失效 / #2 抽取失败静默吞 / #6b NaN·Infinity 穿透校验（源自 FRONTEND_BUG_AUDIT_2026-06，1128 tests OK）](./iteration_058_PLAN.md)
 60. [Iteration 059 - 前端用户路径 P1 修复（崩溃与卡死）：坏 JSON 共因 #4/#5/#10/#13（read_json_optional / chapter_plan_invalid blocker）/ #8 auto-advance / #3+NEW-B 上传 UTF-8+0章预检 / #6a+NEW-A 整数 finite 守卫+上限 / #9 split gate（源自 FRONTEND_BUG_AUDIT_2026-06，1158 tests OK）](./iteration_059_PLAN.md)
+61. [Iteration 060 - P2 收官 + Codex 复审补漏（审计 16 条清零）：#7 起点保存 reservation / #11 writer-style 唯一样本（TOCTOU）/ #14 drama 写端点 write_json 原子+reservation / #12 debate 协作式取消 checkpoint（方案A，方案B→iter061）；Codex 复审 A–F 补对称入口（/readiness 整数上限 / 全 step timeout finite 双层 / web 读面+book_runner 残余坏 JSON 降级，「500 击穿」非「泄露文案」）（源自 FRONTEND_BUG_AUDIT_2026-06，1180 tests OK）](./iteration_060_PLAN.md)

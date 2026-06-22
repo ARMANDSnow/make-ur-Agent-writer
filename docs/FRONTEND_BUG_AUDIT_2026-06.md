@@ -106,22 +106,26 @@ codex 这轮审计**质量很高**：报的 14 条，**13 条完全属实、1 �
 
 ### P2 —— 并发 / 竞态 / 体验
 
-#### #7 起点保存无 workspace reservation · ✅ 实锤
+#### #7 起点保存无 workspace reservation · ✅ 实锤 → ✅ 已修(iter060)
 - **真实复现**：workspace reserved 时，`POST /run`(normalize) → 409（正确挡），`POST /start-point` → 穿过（到 use_workspace 内部才因样本无效 400，**未被 409 挡**）。
 - **根因**：[routes.py:554](src/web/routes.py:554) `api_workspace_set_start_point` 只用 `use_workspace`，缺 `jobs.workspace_reserved`（其余写端点都用了）。
 - **修复方向**：set_start_point 包 `with jobs.workspace_reserved(name)`。
+- **修复（iter060）**：写块包 `jobs.workspace_reserved` + `use_workspace`（照搬 `draft_save` 范式），`workspace_busy`→409。+2 单测（`tests/test_iter060_p2.py`）。
 
-#### #11 writer-style 样本固定临时文件 + 写在抢锁前（TOCTOU）· ✅ 实锤
+#### #11 writer-style 样本固定临时文件 + 写在抢锁前（TOCTOU）· ✅ 实锤 → ✅ 已修(iter060)
 - **真实复现**：两并发 extract → [202, 409]；样本路径是**每 workspace 固定**的 `.writer_style_sample.tmp`（[paths.py:258](src/paths.py:258)），写在 [routes.py:1238](src/web/routes.py:1238)（`use_workspace` 内）**但在 `start_job`（1239）抢锁之前** → 败者的写可覆盖胜者样本，胜者 job 读到错样本。
 - **修复方向**：样本写到 per-job 唯一路径，或把"写样本 + 起 job"包进同一 reservation。
+- **修复（iter060）**：路由改每请求唯一 uuid 路径 + `write_text_atomic` + `sample_path` 入 job params；handler 优先读 params 路径（回落固定名）并提取后删；job 起不来时清理暂存样本（防临时文件泄漏）。+3 单测（`tests/test_web_writer_style.py`）。
 
-#### #14 drama 写端点非原子 + 无 reservation · ✅ 实锤
+#### #14 drama 写端点非原子 + 无 reservation · ✅ 实锤 → ✅ 已修(iter060)
 - **真实复现**：PUT /drama/setup 在 workspace reserved 时仍 **200 穿过**；`api_drama_plan`/`api_drama_setup_save` 用裸 `write_text`（[routes.py:1459](src/web/routes.py:1459) / [routes.py:1494](src/web/routes.py:1494)），非原子（项目已有原子 `write_json`，[utils.py:29](src/utils.py:29)），无 reservation。
 - **修复方向**：改 `write_json`（原子）+ 包 `workspace_reserved`。接真模型后竞态会放大。
+- **修复（iter060）**：两端点写块包 `workspace_reserved` + 改 `write_json`（原子，同 `ensure_ascii=False`/`indent=2`），setup_save 整个读-改-写进 reservation 闭死被并发 `/drama/plan` 冲掉的竞争窗口；`workspace_busy`→409。+2 单测（`tests/test_web_routes_post.py`）。
 
-#### #12 cancel/timeout 仅在 progress checkpoint 检查 · ✅ 属实（代码实锤）
+#### #12 cancel/timeout 仅在 progress checkpoint 检查 · ✅ 属实（代码实锤）→ ✅ 已修(iter060，方案A；方案B→iter061)
 - **根因**：[jobs.py:756](src/web/jobs.py:756) `_check_cancelled` 只在 `_progress` 回调与 handler 前后跑；单次长 LLM 调用期间无检查点 → 取消/超时要等当前调用返回才生效。真模型实测见 §3.3。
 - **修复方向**：在长步骤内部插入协作式取消检查；或给 LLM 调用设可中断超时（已有 `LLM_REQUEST_TIMEOUT` 机制可复用）。
+- **修复（iter060，方案A）**：核验确认 **debate 是唯一无取消粒度的 step**（writer 章内 rewrite loop、book_runner 章间 chapter loop 已有检查点）。`run_debate` 加可选 `progress_cb`，在每 agent LLM 调用前（**try 之外**，否则 `JobCancelled` 被 `except Exception` 吞）+ build_decisions/每选票/build_outline 前插检查点；`_step_debate` 传入。**方案B**（流式中断 + debate 开 `stream`，碰 `llm_client`/stream 配置）触「真模型须超时重试驱动」红线 → **显式推迟 iter061**。+2 单测（`tests/test_iter060_p2.py`）。
 
 ---
 
@@ -150,13 +154,13 @@ codex 这轮审计**质量很高**：报的 14 条，**13 条完全属实、1 �
 
 > 验收统一基线：`python -m unittest discover -s tests` 全绿 + 每条对应的复现脚本从"崩/穿/吞"变成"友好拦/正确拒/可见失败"。
 
-### iter 058 · P0：钱与静默错误（最高优先）
+### iter 058 · P0：钱与静默错误（最高优先）· ✅ 已修(iter058，1128 tests OK)
 - **#1**：`run_auto_pipeline` 增 budget_cny 入参 + 步间成本累计 → 超限 `budget_exceeded`（或 onboarding 暂时下掉预算字段）。改 `auto_pipeline.py` / `jobs.py:597`。
 - **#2**：onboarding/prepare 调 `extract_all(raise_on_failure=True)`，或把失败章升级为 `blocked`。改 `auto_pipeline.py:101` / `jobs.py:358`。
 - **#6b**：`_float_param`/`_optional_float` 加 `math.isfinite` 守卫。改 `routes.py:1925` / `wizard.py:438`。
 - 验收：探针 phase1/phase2 中 #1/#6b 用例返回拒绝；构造抽取失败的 onboarding 报 blocked 而非 succeeded。
 
-### iter 059 · P1：崩溃与卡死
+### iter 059 · P1：崩溃与卡死 · ✅ 已修(iter059，1158 tests OK)
 - **坏 JSON 共因 #4/#5/#10/#13**：统一改 `read_json_optional` / 转 `*_invalid` blocker。改 `chapter_status.py:52/116`、`chapter_summary.py:33`、`book_driver.py:110/718`、`book_runner.py:361/645`、`writer.py` 计划加载。
 - **#8**：`_auto_apply_advances` 把 entity_graph/proposal 读移入 try 或改 optional。改 `book_runner.py:848/854`。
 - **#3 + NEW-B**：上传校验 UTF-8；prepare 后 manifest 0 章 → 友好报错 + 回滚 workspace。改 `wizard.py:143` 附近 + prepare 收尾。
@@ -164,12 +168,22 @@ codex 这轮审计**质量很高**：报的 14 条，**13 条完全属实、1 �
 - **#9**：split gate 改认 `*.txt`。改 `jobs.py:344`。
 - 验收：phase2 全部坏状态用例返回 `*_invalid` blocker / 友好 4xx，无 traceback / 500。
 
-### iter 060 · P2：并发与体验
-- **#7**：set_start_point 包 `workspace_reserved`。改 `routes.py:554`。
-- **#11**：writer-style 样本改 per-job 唯一路径。改 `routes.py:1234` / `paths.py:258`。
-- **#14**：drama 写端点改 `write_json`（原子）+ `workspace_reserved`。改 `routes.py:1459/1494`。
-- **#12**：长步骤内插协作式取消检查 / 可中断超时。改 `jobs.py:756` 调用链 + `book_runner` 写循环。
-- 验收：并发探针不再出现样本互覆盖 / reserved 期间写穿透；cancel 在合理时间内生效。
+### iter 060 · P2：并发与体验 · ✅ 已修(iter060，1180 tests OK)
+- **#7** ✅：set_start_point 包 `workspace_reserved`。改 `routes.py:554`。→ 写块包 `jobs.workspace_reserved`+`use_workspace`（照搬 `draft_save`），`workspace_busy`→409。
+- **#11** ✅：writer-style 样本改 per-job 唯一路径。改 `routes.py:1234` / `paths.py:258`。→ 每请求唯一 uuid 路径 + `write_text_atomic` + `sample_path` 入 job params，handler 优先读 params 路径回落固定名、提取后删、job 起不来清理暂存样本。
+- **#14** ✅：drama 写端点改 `write_json`（原子）+ `workspace_reserved`。改 `routes.py:1459/1494`。→ 两端点改原子 `write_json`+包 `workspace_reserved`，setup_save 整个读-改-写进 reservation 闭死竞争窗口。
+- **#12** ✅（方案A）：长步骤内插协作式取消检查 / 可中断超时。改 `jobs.py:756` 调用链 + `book_runner` 写循环。→ **核验确认 debate 是唯一缺取消粒度的 step**（writer/book_runner 章内外已有检查点），`run_debate` 加 `progress_cb`、每 agent LLM 调用前（try 之外）插检查点，`_step_debate` 传入；**方案B**（流式中断+debate 开 stream）触红线 → **iter061**。
+- 验收：并发探针不再出现样本互覆盖 / reserved 期间写穿透；cancel 在合理时间内生效。✅ 1158→**1180** tests OK（+22）。
+
+### iter 060 附 · Codex 复审补漏 A–F（iter058/059 护栏的对称入口）· ✅ 已收口(iter060)
+
+> 复审动机：iter058 #6b 只给 `/run` 校验了 `budget_cny`/`min_confidence` 有限性、iter059 #6a 只给 write-book/plan-chapters 的整数参数设了上限——**同一类 bug 的其它入口**（`/readiness` 整数、其它 step 的 `timeout_minutes`、web 读面与 `book_runner` 残余裸 `read_json`）仍在原始 buggy 状态。本轮一次收齐。
+
+- **A** ✅ `/readiness` 整数上限：`api_workspace_readiness` 经 `_parse_int` 裸 `int()` 无上限 → `chapters=999999999` 流入 `book_runner` `list(range(...))` 物化近 10 亿元素（write-book 入口 iter059 已 clamp 2000/10000/2000、readiness 对称入口漏了）。handler 内 clamp `chapters`/`resume_from`/`replan_every` 到同上限（仿 `api_workspace_logs_tail`）。
+- **B** ✅ timeout 有限性（双层）：仅 write-book/plan-chapters 校验 `timeout_minutes` → 其它 step 的 `NaN/inf` 穿到 `_timeout_deadline` 产 `nan` deadline、`monotonic()>nan` 恒 False **永不超时**（iter058 #6b 同类 bug 换入口）。`_validated_run_params` 对所有 step 用 `_float_param` 校验（NaN/inf/负→400）+ `_timeout_deadline` 加 `math.isfinite` 兜底。
+- **C/D/E** ✅ web 读面坏 JSON 降级：manifest(543)/草稿详情(1617/1620/1621)/草稿列表(1642/1655/1656)/entity·relationship PUT graph(1323/1398) 裸 `read_json`→`read_json_optional`。**核验校正**：Codex 原报「泄露 `JSONDecodeError` 文案」**不成立**——`server.py:60-73` 对未捕获异常统一返 `{"error":"internal server error"}`、异常串只进 stderr；真实后果是坏 JSON 抛错被兜底成 **HTTP 500 击穿读面**。PUT 两处坏 graph 降级 `{}` 后命中既有 `isinstance` 守卫返 404『run prepare first』、在 `write_json` 前 return，**不覆盖坏文件**。
+- **F** ✅ `book_runner` 残余裸读：5 处（728/741/790/791/858，iter059 R6 主动 scope 外的残余）→`read_json_optional`。790/791 经 try 外路径冒泡出 `run_write_book` 击穿 resume、858 在异常善后中二次抛错顶替原始快照；`read_json` 至此 `book_runner` **全无裸读**。
+- 验收：补漏入口全部返回友好 4xx / 降级，无 500 击穿 / 永不超时；并入 iter060 全量 **1180 tests OK**。**至此审计 16 条全部清零 open。**
 
 ---
 
