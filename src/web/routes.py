@@ -565,17 +565,30 @@ def api_workspace_set_start_point(name: str, body: bytes) -> Tuple[int, str, byt
     value = payload.get("start_point") or payload.get("name")
     if not isinstance(value, str) or not value.strip():
         return _json(400, {"error": "missing or invalid start_point"})
-    with use_workspace(name):
-        start_point.set_start_point(value)
-        _clear_overview_cache()
-        readiness = _safe_readiness(chapters=1, resume_from=1)
-        return _json(
-            200,
-            {
-                "start_point": start_point.get_start_point_metadata(),
-                "readiness": readiness,
-            },
-        )
+    # iter060 (#7): without a reservation /start-point wrote through even while a
+    # job (e.g. write-book auto_advance) held the workspace — the 409 mutex other
+    # write endpoints honor was bypassed, so a start-point flip could race the
+    # running pipeline's reads. Hold the same reservation as draft_save.
+    try:
+        with jobs.workspace_reserved(name):
+            with use_workspace(name):
+                start_point.set_start_point(value)
+                _clear_overview_cache()
+                readiness = _safe_readiness(chapters=1, resume_from=1)
+                return _json(
+                    200,
+                    {
+                        "start_point": start_point.get_start_point_metadata(),
+                        "readiness": readiness,
+                    },
+                )
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
 
 
 def api_workspace_reviews(name: str) -> Tuple[int, str, bytes]:
