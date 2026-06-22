@@ -14,7 +14,7 @@ from .entity_advance import apply_advance_proposals, proposal_path, select_auto_
 from .preflight import run_preflight
 from .proposal_validator import validate_proposals_against_plan
 from .reviewer import review_target
-from .utils import ensure_dir, read_json, read_json_optional, write_json
+from .utils import ensure_dir, read_json_optional, write_json
 from .kb_view import start_safe_knowledge
 from .writer import (
     ChapterPlanInvalid,
@@ -725,7 +725,7 @@ def _cross_cycle_seed_feedback(drafts_dir: Path, chapter_no: int) -> str:
     meta 的 agent_reviews。Fail-open：没有可收割的产物 → 空串，行为与 053
     前一致（铁律④）。"""
     drafts_dir = Path(drafts_dir)
-    review = read_json(
+    review = read_json_optional(
         drafts_dir.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", None
     )
     # 铁律⑨ B-M4：只投 agent_reviews + rewrite_suggestions，**剥离 lint_issues**
@@ -738,7 +738,7 @@ def _cross_cycle_seed_feedback(drafts_dir: Path, chapter_no: int) -> str:
             "rewrite_suggestions": review.get("rewrite_suggestions") or [],
         }
     if not report.get("agent_reviews"):
-        meta = read_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", None)
+        meta = read_json_optional(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", None)
         if isinstance(meta, dict) and meta.get("agent_reviews"):
             report = {"agent_reviews": meta["agent_reviews"]}
     if not report:
@@ -787,8 +787,8 @@ def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[s
     if not meta_path.exists() or not review_path.exists():
         return {}
 
-    meta = read_json(meta_path, {})
-    review = read_json(review_path, {})
+    meta = read_json_optional(meta_path, {})
+    review = read_json_optional(review_path, {})
     if not isinstance(meta, dict) or not isinstance(review, dict):
         return {}
 
@@ -855,7 +855,7 @@ def _partial_artifact(drafts_dir: Path, chapter_no: int) -> Dict[str, Any] | Non
     if not partial_path.exists():
         return None
     failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
-    failure = read_json(failure_path, {}) if failure_path.exists() else {}
+    failure = read_json_optional(failure_path, {}) if failure_path.exists() else {}
     if not isinstance(failure, dict):
         failure = {}
     return {

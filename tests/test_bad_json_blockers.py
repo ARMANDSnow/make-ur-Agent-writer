@@ -271,6 +271,49 @@ class AutoAdvanceCorruptTests(unittest.TestCase):
         self.assertTrue(result["auto_apply"])
 
 
+class BookRunnerResidualCorruptTests(unittest.TestCase):
+    """iter060 (Codex F): the last bare read_json residuals in book_runner —
+    _cross_cycle_seed_feedback (review/meta seed), _sync_meta_with_external_review
+    (meta/review mirror), _partial_artifact (failure snapshot) — must degrade on
+    corrupt JSON, not raise a JSONDecodeError. _sync's reads are reachable via a
+    try-OUTSIDE path so a raise there bubbles out of run_write_book and breaks
+    resume; _partial_artifact runs inside exception cleanup so a raise there
+    replaces the original budget/failed snapshot."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.drafts = Path(self._tmp.name) / "outputs" / "drafts"
+        self.reviews = Path(self._tmp.name) / "outputs" / "reviews"
+        self.drafts.mkdir(parents=True)
+        self.reviews.mkdir(parents=True)
+
+    def test_cross_cycle_seed_feedback_corrupt_degrades_to_empty(self) -> None:
+        from src import book_runner
+
+        (self.reviews / "chapter_01.review.json").write_text("{bad json", encoding="utf-8")
+        (self.drafts / "chapter_01.meta.json").write_text("{bad json", encoding="utf-8")
+        self.assertEqual(book_runner._cross_cycle_seed_feedback(self.drafts, 1), "")
+
+    def test_sync_meta_with_external_review_corrupt_degrades(self) -> None:
+        from src import book_runner
+
+        # Both files exist (passes the existence gate) but are corrupt; the two
+        # reads must degrade to {} -> empty verdict -> clean return, not raise.
+        (self.drafts / "chapter_01.meta.json").write_text("{bad json", encoding="utf-8")
+        (self.reviews / "chapter_01.review.json").write_text("{bad json", encoding="utf-8")
+        self.assertIsInstance(book_runner._sync_meta_with_external_review(self.drafts, 1), dict)
+
+    def test_partial_artifact_corrupt_failure_degrades(self) -> None:
+        from src import book_runner
+
+        (self.drafts / "chapter_01.partial.md").write_text("半成品。", encoding="utf-8")
+        (self.drafts / "chapter_01.failure.json").write_text("{bad json", encoding="utf-8")
+        art = book_runner._partial_artifact(self.drafts, 1)
+        self.assertIsInstance(art, dict)
+        self.assertEqual(art["chapter"], 1)
+
+
 class WebReadSurfaceCorruptTests(unittest.TestCase):
     """iter060 (Codex C/D/E): web read surfaces that still used the strict
     read_json must degrade a corrupt JSON file to its default instead of letting
