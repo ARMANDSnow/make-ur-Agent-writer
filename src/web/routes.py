@@ -540,7 +540,7 @@ def api_workspace_manifest(name: str) -> Tuple[int, str, bytes]:
     if not _workspace_exists(name):
         return _json(404, {"error": f"workspace not found: {name}"})
     with use_workspace(name):
-        manifest = read_json(paths.chapter_manifest_path(), [])
+        manifest = read_json_optional(paths.chapter_manifest_path(), [])
     return _json(200, {"chapters": manifest if isinstance(manifest, list) else []})
 
 
@@ -877,7 +877,7 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
                 if not md_path.exists():
                     return _json(404, {"error": f"chapter_{chapter_no:02d}.md not found"})
                 meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
-                meta = read_json(meta_path, {})
+                meta = read_json_optional(meta_path, {})
                 if not isinstance(meta, dict):
                     meta = {}
                 try:
@@ -1320,7 +1320,7 @@ def api_workspace_entity_save(name: str, entity_id: str, body: bytes) -> Tuple[i
         with jobs.workspace_reserved(name):
             with use_workspace(name):
                 graph_path = paths.entity_graph_path()
-                graph = read_json(graph_path, {})
+                graph = read_json_optional(graph_path, {})
                 if not isinstance(graph, dict) or not graph.get("entities"):
                     return _json(404, {"error": "entity_graph not found; run prepare first"})
                 target = next(
@@ -1395,7 +1395,7 @@ def api_workspace_relationship_save(name: str, index: str, body: bytes) -> Tuple
         with jobs.workspace_reserved(name):
             with use_workspace(name):
                 graph_path = paths.entity_graph_path()
-                graph = read_json(graph_path, {})
+                graph = read_json_optional(graph_path, {})
                 rels = graph.get("relationships") if isinstance(graph, dict) else None
                 if not isinstance(rels, list) or not 0 <= rel_index < len(rels):
                     return _json(404, {"error": f"relationship not found: index {rel_index}"})
@@ -1624,11 +1624,11 @@ def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int
             return _json(404, {"error": f"draft not found: {filename}"})
         text = md_path.read_text(encoding="utf-8", errors="replace")
         if variant == "partial":
-            meta = read_json(paths.drafts_dir() / f"chapter_{chapter_no:02d}.failure.json", {})
+            meta = read_json_optional(paths.drafts_dir() / f"chapter_{chapter_no:02d}.failure.json", {})
             review = {}
         else:
-            meta = read_json(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
-            review = read_json(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
+            meta = read_json_optional(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
+            review = read_json_optional(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
     return _json(
         200,
         {
@@ -1649,7 +1649,7 @@ def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
     chapter_no = int(match.group(1))
     is_partial = bool(match.group(2))
     if is_partial:
-        failure = read_json(path.parent / f"chapter_{chapter_no:02d}.failure.json", {})
+        failure = read_json_optional(path.parent / f"chapter_{chapter_no:02d}.failure.json", {})
         return {
             "chapter": chapter_no,
             "variant": "partial",
@@ -1662,8 +1662,8 @@ def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
             "failure_stage": failure.get("stage") if isinstance(failure, dict) else None,
             "failure_error": failure.get("last_error") if isinstance(failure, dict) else None,
         }
-    meta = read_json(path.with_suffix(".meta.json"), {})
-    review = read_json(path.parent.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", {})
+    meta = read_json_optional(path.with_suffix(".meta.json"), {})
+    review = read_json_optional(path.parent.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", {})
     return {
         "chapter": chapter_no,
         "variant": "final",

@@ -271,5 +271,94 @@ class AutoAdvanceCorruptTests(unittest.TestCase):
         self.assertTrue(result["auto_apply"])
 
 
+class WebReadSurfaceCorruptTests(unittest.TestCase):
+    """iter060 (Codex C/D/E): web read surfaces that still used the strict
+    read_json must degrade a corrupt JSON file to its default instead of letting
+    the JSONDecodeError bubble to a generic 500. Covers manifest, draft
+    detail/list, and the entity/relationship PUT graph reads — GET was degraded
+    in iter059 but the symmetric PUT paths were missed. The PUT paths must reach
+    their existing 404 guard WITHOUT overwriting the corrupt file."""
+
+    def setUp(self) -> None:
+        from src import paths
+        from src.web import jobs
+
+        os.environ["OPENAI_MODEL"] = "mock"
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        os.environ["WORKSPACE_NAME"] = "alpha"
+        jobs.reset_for_tests()
+        self.addCleanup(jobs.reset_for_tests)
+        self.addCleanup(self._restore)
+        for sub in ("小说txt", "data", "outputs/drafts", "outputs/reviews", "logs"):
+            (paths.WORKSPACE_DIR / "alpha" / sub).mkdir(parents=True, exist_ok=True)
+
+    def _restore(self) -> None:
+        from src import paths
+
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+
+    def test_manifest_corrupt_degrades_to_empty(self) -> None:
+        from src import paths
+        from src.web import routes
+
+        paths.chapter_manifest_path().write_text("{bad json", encoding="utf-8")
+        status, _ct, body = routes.dispatch("GET", "/api/workspace/alpha/manifest")
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        self.assertEqual(json.loads(body)["chapters"], [])
+
+    def test_draft_detail_corrupt_meta_review_degrades(self) -> None:
+        from src import paths
+        from src.web import routes
+
+        (paths.drafts_dir() / "chapter_01.md").write_text("正文。", encoding="utf-8")
+        (paths.drafts_dir() / "chapter_01.meta.json").write_text("{bad json", encoding="utf-8")
+        (paths.reviews_dir() / "chapter_01.review.json").write_text("{bad json", encoding="utf-8")
+        status, _ct, body = routes.dispatch("GET", "/api/workspace/alpha/draft/1")
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        data = json.loads(body)
+        self.assertEqual(data["meta"], {})
+        self.assertEqual(data["review"], {})
+
+    def test_draft_list_corrupt_meta_degrades(self) -> None:
+        from src import paths
+        from src.web import routes
+
+        (paths.drafts_dir() / "chapter_01.md").write_text("正文。", encoding="utf-8")
+        (paths.drafts_dir() / "chapter_01.meta.json").write_text("{bad json", encoding="utf-8")
+        status, _ct, body = routes.dispatch("GET", "/api/workspace/alpha/drafts")
+        self.assertEqual(status, 200, body.decode("utf-8"))
+
+    def test_entity_put_corrupt_graph_404_not_500_and_file_preserved(self) -> None:
+        from src import paths
+        from src.web import routes
+
+        graph_path = paths.entity_graph_path()
+        graph_path.write_text("{bad json", encoding="utf-8")
+        req = json.dumps({"fields": {"name": "Hero"}}).encode()
+        status, _ct, body = routes.dispatch("PUT", "/api/workspace/alpha/entity/e1", req)
+        self.assertEqual(status, 404, body.decode("utf-8"))
+        # The corrupt graph must NOT be overwritten with a degraded empty graph.
+        self.assertEqual(graph_path.read_text(encoding="utf-8"), "{bad json")
+
+    def test_relationship_put_corrupt_graph_404_not_500_and_file_preserved(self) -> None:
+        from src import paths
+        from src.web import routes
+
+        graph_path = paths.entity_graph_path()
+        graph_path.write_text("{bad json", encoding="utf-8")
+        req = json.dumps({"state": "新状态", "src_id": "a", "dst_id": "b"}).encode()
+        status, _ct, body = routes.dispatch("PUT", "/api/workspace/alpha/relationship/0", req)
+        self.assertEqual(status, 404, body.decode("utf-8"))
+        self.assertEqual(graph_path.read_text(encoding="utf-8"), "{bad json")
+
+
 if __name__ == "__main__":
     unittest.main()
