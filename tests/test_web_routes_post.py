@@ -196,6 +196,34 @@ class RoutesPostTests(unittest.TestCase):
         self.assertEqual(setup["logline"], "new")
         self.assertEqual(setup["core_setup"]["protagonist"], "new p")
 
+    def test_api_drama_plan_busy_returns_409(self) -> None:
+        # iter060 (#14): /drama/plan now holds workspace_reserved across the
+        # atomic write, so it honors the same 409 mutex as other write endpoints.
+        self._init_drama("drama", track="霸总")
+        with jobs.workspace_reserved("drama"):
+            status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/plan", b"{}")
+        self.assertEqual(status, 409, body.decode())
+        self.assertIn("running_job_id", json.loads(body))
+
+    def test_api_drama_setup_save_busy_returns_409_and_preserves_file(self) -> None:
+        # iter060 (#14): /drama/setup holds the reservation across the whole
+        # read-modify-write, so a busy workspace 409s without a partial write.
+        self._init_drama("drama", setup=True)
+        with jobs.workspace_reserved("drama"):
+            status, _ct, body = routes.dispatch(
+                "PUT",
+                "/api/workspace/drama/drama/setup",
+                json.dumps({"logline": "raced"}, ensure_ascii=False).encode("utf-8"),
+            )
+        self.assertEqual(status, 409, body.decode())
+        self.assertIn("running_job_id", json.loads(body))
+        setup = json.loads(
+            (paths.WORKSPACE_DIR / "drama" / "outputs" / "episodes" / "episode_01.setup.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(setup["logline"], "old")  # untouched under the lock
+
     def test_api_drama_setup_save_hook_marks_progress_done(self) -> None:
         self._init_drama("drama", setup=True)
         status, _ct, body = routes.dispatch(

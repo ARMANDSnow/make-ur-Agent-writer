@@ -1500,9 +1500,23 @@ def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
     except (ValueError, NotImplementedError) as exc:
         return _json(400, {"error": str(exc)})
 
-    setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
-    setup_path.parent.mkdir(parents=True, exist_ok=True)
-    setup_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    # iter060 (#14): hold the workspace reservation across the write and write
+    # atomically (write_json = tmp+replace, same ensure_ascii=False/indent=2) —
+    # was a bare write_text with no reservation, so a crash mid-write left a
+    # truncated setup.json and a concurrent setup-save/job could interleave.
+    from ..utils import write_json
+
+    try:
+        with jobs.workspace_reserved(name):
+            setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
+            write_json(setup_path, result)
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
     _clear_overview_cache()
     return _json(200, result)
 
@@ -1533,35 +1547,49 @@ def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
     if not isinstance(payload, dict):
         return _json(400, {"error": "body must be a JSON object"})
 
-    setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
-    if not setup_path.is_file():
-        return _json(400, {"error": "station 1 must run first"})
+    # iter060 (#14): hold the reservation across the whole read-modify-write so a
+    # concurrent /drama/plan (which rewrites setup.json wholesale) or job can't
+    # interleave, and persist atomically via write_json (was a bare write_text).
+    from ..utils import write_json
+
     try:
-        setup = json.loads(setup_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        return _json(500, {"error": f"failed to read setup: {exc}"})
-    if not isinstance(setup, dict):
-        return _json(500, {"error": "setup file must be a JSON object"})
+        with jobs.workspace_reserved(name):
+            setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
+            if not setup_path.is_file():
+                return _json(400, {"error": "station 1 must run first"})
+            try:
+                setup = json.loads(setup_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                return _json(500, {"error": f"failed to read setup: {exc}"})
+            if not isinstance(setup, dict):
+                return _json(500, {"error": "setup file must be a JSON object"})
 
-    core_keys = {"logline", "protagonist", "antagonist", "emotional_hook"}
-    if any(k in payload for k in core_keys):
-        core = setup.setdefault("core_setup", {})
-        if not isinstance(core, dict):
-            core = {}
-            setup["core_setup"] = core
-        if "logline" in payload:
-            setup["logline"] = payload["logline"]
-        for key in ("protagonist", "antagonist", "emotional_hook"):
-            if key in payload:
-                core[key] = payload[key]
-    if "hook" in payload:
-        if not isinstance(payload["hook"], dict):
-            return _json(400, {"error": "'hook' must be an object"})
-        setup["hook"] = payload["hook"]
+            core_keys = {"logline", "protagonist", "antagonist", "emotional_hook"}
+            if any(k in payload for k in core_keys):
+                core = setup.setdefault("core_setup", {})
+                if not isinstance(core, dict):
+                    core = {}
+                    setup["core_setup"] = core
+                if "logline" in payload:
+                    setup["logline"] = payload["logline"]
+                for key in ("protagonist", "antagonist", "emotional_hook"):
+                    if key in payload:
+                        core[key] = payload[key]
+            if "hook" in payload:
+                if not isinstance(payload["hook"], dict):
+                    return _json(400, {"error": "'hook' must be an object"})
+                setup["hook"] = payload["hook"]
 
-    setup_path.write_text(json.dumps(setup, ensure_ascii=False, indent=2), encoding="utf-8")
-    _clear_overview_cache()
-    return _json(200, {"saved": True})
+            write_json(setup_path, setup)
+            _clear_overview_cache()
+            return _json(200, {"saved": True})
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
 
 
 def api_workspace_readiness(
