@@ -342,7 +342,14 @@ def _step_normalize(params: Dict[str, Any], progress_cb: Callable[[str, float], 
 
 def _step_split(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     norm_dir = paths.normalized_dir()
-    if not norm_dir.exists() or not any(norm_dir.glob("*.md")):
+    # iter059 #9: normalize_all writes `<volume>.txt` (text_normalizer), so a
+    # `*.md`-only gate left single-step split permanently blocked as
+    # `normalized_missing` even after a successful normalize. Recognize the
+    # actual `.txt` output (keep `.md` for forward-compat). The auto-pipeline
+    # path calls split_all() directly and never hit this gate.
+    if not norm_dir.exists() or not (
+        any(norm_dir.glob("*.txt")) or any(norm_dir.glob("*.md"))
+    ):
         return _blocked(
             "normalized_missing",
             "no normalized chapters found; run `normalize` first",

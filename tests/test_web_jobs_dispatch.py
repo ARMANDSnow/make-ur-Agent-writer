@@ -320,6 +320,22 @@ class JobsDispatchTests(unittest.TestCase):
     def test_split_blocked_when_normalized_missing(self) -> None:
         self._assert_blocked("alpha", "split", "normalized_missing")
 
+    def test_split_runs_when_normalized_txt_present(self) -> None:
+        # iter059 #9: normalize_all writes `<volume>.txt`, so the split gate
+        # must recognize `.txt` (it globbed `*.md` only and left single-step
+        # split permanently blocked as normalized_missing). Seed a normalized
+        # `.txt` with chapter headings and assert split runs to success.
+        norm_dir = paths.WORKSPACE_DIR / "alpha" / "data" / "normalized_texts"
+        norm_dir.mkdir(parents=True, exist_ok=True)
+        (norm_dir / "vol1.txt").write_text(
+            "第一章 开端\n正文内容一。\n第二章 转折\n正文内容二。\n",
+            encoding="utf-8",
+        )
+        status, data = self._post_run("alpha", {"step": "split"})
+        self.assertEqual(status, 202, data)
+        job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(job["status"], "succeeded", job.get("error"))
+
     def test_extract_blocked_when_manifest_missing(self) -> None:
         self._assert_blocked("alpha", "extract", "manifest_missing")
 
