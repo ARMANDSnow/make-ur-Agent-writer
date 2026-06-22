@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .utils import read_json, sha256_file
+from .utils import read_json_optional, sha256_file
 
 
 def chapter_status(
@@ -49,7 +49,10 @@ def chapter_status(
 
     exists = md_path.exists()
     failure = failure_path.exists()
-    meta: Dict[str, Any] = read_json(meta_path, {}) if meta_path.exists() else {}
+    # iter059 #5: a corrupt chapter_NN.meta.json must not crash resume/status.
+    # read_json_optional degrades it to {} (approved=False, verdict=None), same
+    # as a missing meta; the bare read_json raised JSONDecodeError.
+    meta: Dict[str, Any] = read_json_optional(meta_path, {}) if meta_path.exists() else {}
     strict_failures: list[str] = []
 
     verdict: Optional[str] = None
@@ -113,7 +116,10 @@ def chapter_status(
             if not review_path.exists():
                 strict_failures.append("external_review_missing")
             else:
-                review = read_json(review_path, {})
+                # iter059 #5: corrupt review JSON degrades to None so it joins
+                # the existing external_review_invalid strict-failure path
+                # (a {} default would be a dict and slip through to reject).
+                review = read_json_optional(review_path, None)
                 if not isinstance(review, dict):
                     strict_failures.append("external_review_invalid")
                 else:
