@@ -233,6 +233,13 @@ def _timeout_deadline(params: Dict[str, Any]) -> tuple[Optional[float], Optional
         timeout_minutes = float(value)
     except (TypeError, ValueError):
         return None, None
+    # iter060 (Codex B): NaN/±inf survive the `<= 0` test below (IEEE-754 makes
+    # every comparison with NaN False), producing a non-None but useless deadline
+    # that _check_cancelled can never trip (`monotonic > nan` is always False).
+    # Treat a non-finite timeout as "no timeout" so it can't silently disable the
+    # guard even if a value reaches here outside the route validation.
+    if not math.isfinite(timeout_minutes):
+        return None, None
     if timeout_minutes <= 0:
         return None, None
     return time.monotonic() + timeout_minutes * 60.0, timeout_minutes

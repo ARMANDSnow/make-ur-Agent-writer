@@ -1845,6 +1845,17 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
 
 
 def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    # iter060 (Codex B): timeout_minutes applies to every step (jobs._timeout_deadline
+    # reads it off the job params), but only write-book/plan-chapters ran any
+    # param validation — so a non-finite/negative timeout slipped through on
+    # every other step and silently disabled the timeout guard (a NaN deadline
+    # makes every `monotonic > deadline` False). Reject it at the boundary for
+    # all steps, mirroring _float_param's finite guard (iter058 #6b).
+    raw_timeout = params.get("timeout_minutes")
+    if raw_timeout is not None and raw_timeout != "":
+        error, _ = _float_param(params, "timeout_minutes", 0.0, minimum=0.0)
+        if error:
+            return error, {}
     if step == "write-book":
         error, out = _validate_write_book_params(params)
         return error, out

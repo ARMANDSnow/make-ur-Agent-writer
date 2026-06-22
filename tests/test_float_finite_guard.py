@@ -121,6 +121,36 @@ class FloatParamUnitTests(unittest.TestCase):
         # Finite path unchanged.
         self.assertEqual(jobs._float_param({"budget_cny": "3.5"}, "budget_cny", 10.0), 3.5)
 
+    def test_jobs_timeout_deadline_rejects_non_finite(self) -> None:
+        # iter060 (Codex B): a NaN/inf timeout used to survive `<= 0` (IEEE-754)
+        # and yield a non-None deadline that _check_cancelled could never trip.
+        # Now it degrades to "no timeout".
+        self.assertEqual(jobs._timeout_deadline({"timeout_minutes": float("nan")}), (None, None))
+        self.assertEqual(jobs._timeout_deadline({"timeout_minutes": float("inf")}), (None, None))
+        # Absent / zero still mean "no timeout" (unchanged).
+        self.assertEqual(jobs._timeout_deadline({}), (None, None))
+        self.assertEqual(jobs._timeout_deadline({"timeout_minutes": 0}), (None, None))
+        # A finite positive value still produces a live deadline.
+        deadline, minutes = jobs._timeout_deadline({"timeout_minutes": 5})
+        self.assertIsNotNone(deadline)
+        self.assertEqual(minutes, 5.0)
+
+    def test_validated_run_params_rejects_non_finite_timeout_on_any_step(self) -> None:
+        # The gap Codex found: only write-book/plan-chapters validated params, so
+        # a NaN/inf/negative timeout on a plain step (e.g. normalize) passed
+        # through to a 202 with a useless deadline. Now rejected at the boundary.
+        for bad in (float("nan"), float("inf"), "nan", "inf", -3):
+            err, _out = routes._validated_run_params("normalize", {"timeout_minutes": bad})
+            self.assertIsNotNone(err, bad)
+            self.assertIn("timeout_minutes", err)
+        # A finite timeout passes straight through (preserved for the job).
+        err, out = routes._validated_run_params("normalize", {"timeout_minutes": 30})
+        self.assertIsNone(err)
+        self.assertEqual(out.get("timeout_minutes"), 30)
+        # No timeout key → unchanged passthrough.
+        err, _out = routes._validated_run_params("normalize", {})
+        self.assertIsNone(err)
+
 
 class _IsolatedWorkspaceCase(unittest.TestCase):
     def setUp(self) -> None:
@@ -168,6 +198,13 @@ class RunEndpointFiniteGuardTests(_IsolatedWorkspaceCase):
         status, _ct, body = self._run("write-book", {"min_confidence": "nan"})
         self.assertEqual(status, 400, body.decode("utf-8"))
         self.assertIn("min_confidence", json.loads(body)["error"])
+
+    def test_timeout_minutes_nan_on_plain_step_returns_400(self) -> None:
+        # iter060 (Codex B): the exact slip — a NaN timeout on a non
+        # write-book/plan-chapters step used to reach 202 running; now 400.
+        status, _ct, body = self._run("normalize", {"timeout_minutes": "nan"})
+        self.assertEqual(status, 400, body.decode("utf-8"))
+        self.assertIn("timeout_minutes", json.loads(body)["error"])
 
 
 class WizardFiniteGuardTests(_IsolatedWorkspaceCase):
