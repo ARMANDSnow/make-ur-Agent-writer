@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from . import paths
 from .config import ROOT
-from .utils import ensure_dir, read_json, write_json
+from .utils import ensure_dir, read_json_optional, write_json
 
 
 # Legacy constant — kept for iter 014-016 test backward compat.
@@ -34,7 +34,11 @@ def load_rolling_summary(path: Path | None = None) -> Dict[str, Any]:
     """Read rolling chapter summaries; missing or malformed files degrade to empty state."""
     if path is None:
         path = _rolling_path()
-    data = read_json(path, _empty_state())
+    # iter059 #10: read_json_optional degrades a corrupt rolling summary to the
+    # empty state, honoring this function's docstring ("malformed files degrade
+    # to empty state"). The bare read_json raised JSONDecodeError, blocking the
+    # whole write mid-run instead of just losing recent-chapter prompt context.
+    data = read_json_optional(path, _empty_state())
     if not isinstance(data, dict):
         return _empty_state()
     chapters = data.get("chapters")

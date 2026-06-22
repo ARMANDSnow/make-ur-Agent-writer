@@ -1,0 +1,51 @@
+"""iter059 P1: corrupt JSON state files must degrade / surface clean blockers,
+not crash with a raw JSONDecodeError traceback.
+
+Covers the bad-JSON cluster from docs/FRONTEND_BUG_AUDIT_2026-06.md §4:
+  #10 rolling summary, #5 draft meta/review, #13 driver state/pid, #4 chapter_plan.
+
+The common root cause was key state files read with the strict ``read_json``
+(exists-but-corrupt -> JSONDecodeError) instead of the degrade-safe
+``read_json_optional``. iter059 converts each hot read at the call site.
+
+Mock-only; no network, no real workspace data.
+"""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+
+class RollingSummaryCorruptTests(unittest.TestCase):
+    """#10: load_rolling_summary degrades a malformed file to empty state,
+    honoring its docstring (was: raised JSONDecodeError mid-write)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / "rolling.json"
+
+    def test_corrupt_rolling_summary_degrades_to_empty(self) -> None:
+        from src import chapter_summary
+
+        self.path.write_text("{not valid json", encoding="utf-8")
+        data = chapter_summary.load_rolling_summary(self.path)
+        self.assertEqual(data, {"chapters": [], "compressed_older": []})
+
+    def test_valid_rolling_summary_still_loads(self) -> None:
+        from src import chapter_summary
+
+        self.path.write_text(
+            json.dumps({"chapters": [{"chapter": 1}], "compressed_older": ["x"]}),
+            encoding="utf-8",
+        )
+        data = chapter_summary.load_rolling_summary(self.path)
+        self.assertEqual(data["chapters"], [{"chapter": 1}])
+        self.assertEqual(data["compressed_older"], ["x"])
+
+
+if __name__ == "__main__":
+    unittest.main()
