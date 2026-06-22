@@ -1846,13 +1846,16 @@ def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[s
 
 def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
     out: Dict[str, Any] = {}
-    for key, default, minimum in (
-        ("chapters", 1, 1),
-        ("resume_from", 1, 1),
-        ("max_retries", 2, 0),
-        ("replan_every", 0, 0),
+    # iter059 #6a: upper bounds so a pathological chapters=999999999 can't be
+    # accepted (resource exhaustion). Caps are well above any real run; the
+    # default path is unchanged. plan-chapters already capped target at 200.
+    for key, default, minimum, maximum in (
+        ("chapters", 1, 1, 2000),
+        ("resume_from", 1, 1, 10000),
+        ("max_retries", 2, 0, 20),
+        ("replan_every", 0, 0, 2000),
     ):
-        error, value = _int_param(params, key, default, minimum=minimum)
+        error, value = _int_param(params, key, default, minimum=minimum, maximum=maximum)
         if error:
             return error, {}
         out[key] = value
@@ -1912,9 +1915,17 @@ def _int_param(params: Dict[str, Any], key: str, default: int, *, minimum: int =
 
 
 def _int_value(value: Any, key: str, *, minimum: int = 0, maximum: Optional[int] = None) -> Tuple[Optional[str], int]:
+    # iter059 #6a/NEW-A: a non-finite native float (Infinity/NaN arriving as a
+    # JSON literal -> json.loads gives float('inf')/float('nan')) must be
+    # rejected at the boundary. int(float('inf')) raises OverflowError, which
+    # the old (TypeError, ValueError)-only except let escape as HTTP 500;
+    # int(float('nan')) raised ValueError -> 400 already, but reject it here
+    # too for a clear message. Mirrors _float_param's math.isfinite guard.
+    if isinstance(value, float) and not math.isfinite(value):
+        return f"{key} must be a finite integer", 0
     try:
         out = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return f"{key} must be an integer", 0
     if out < minimum:
         return f"{key} must be >= {minimum}", 0
