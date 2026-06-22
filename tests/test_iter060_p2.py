@@ -17,6 +17,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from unittest.mock import patch
+
 from src import paths
 from src.web import jobs, routes
 
@@ -79,6 +81,63 @@ class StartPointReservationTests(_IsolatedWorkspaceCase):
         self.assertEqual(status, 200, body.decode("utf-8"))
         data = json.loads(body)
         self.assertEqual(data["start_point"].get("start_chapter_id"), "chapter_001")
+
+
+class DebateCancelCheckpointTests(unittest.TestCase):
+    """#12: run_debate calls the progress/cancel checkpoint BEFORE each LLM call,
+    so a cancel mid-debate aborts between calls instead of after the whole step
+    (~52s/call, audit §3.3). The checkpoint sits OUTSIDE the per-agent
+    try/except, so the cancellation propagates rather than being swallowed."""
+
+    def _harness(self, complete_text, progress_cb):
+        from src.debater import run_debate
+        from src.llm_client import LLMClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "global_knowledge.md").write_text("# kb", encoding="utf-8")
+            (Path(tmp) / "knowledge_index.json").write_text("{}", encoding="utf-8")
+            with patch("src.debater.KB_PATH", Path(tmp) / "global_knowledge.md"), patch(
+                "src.debater.INDEX_PATH", Path(tmp) / "knowledge_index.json"
+            ), patch("src.debater.DEBATE_DIR", Path(tmp)), patch.object(
+                LLMClient, "complete_text", side_effect=complete_text
+            ):
+                return run_debate(progress_cb=progress_cb)
+
+    def test_cancel_at_first_checkpoint_propagates_and_makes_no_llm_call(self) -> None:
+        from src.web.jobs import JobCancelled
+
+        calls = {"llm": 0}
+
+        def complete_text(*_a, **_kw):
+            calls["llm"] += 1
+            return "ok"
+
+        def cancel_now(_step, _fraction):
+            raise JobCancelled("user requested cancel")
+
+        # If the checkpoint were INSIDE the agent try, `except Exception` would
+        # swallow JobCancelled and the debate would run to completion. It raises,
+        # and before any LLM call → the checkpoint is correctly placed/propagated.
+        with self.assertRaises(JobCancelled):
+            self._harness(complete_text, cancel_now)
+        self.assertEqual(calls["llm"], 0)
+
+    def test_no_cancel_completes_and_calls_llm(self) -> None:
+        # Control: a non-raising progress_cb must not perturb the happy path —
+        # the debate completes and makes its LLM calls (mocked).
+        calls = {"llm": 0, "ckpt": 0}
+
+        def complete_text(*_a, **_kw):
+            calls["llm"] += 1
+            return "ok"
+
+        def noop(_step, _fraction):
+            calls["ckpt"] += 1
+
+        result = self._harness(complete_text, noop)
+        self.assertIsInstance(result, dict)
+        self.assertGreater(calls["llm"], 0)
+        self.assertGreater(calls["ckpt"], 0)
 
 
 if __name__ == "__main__":

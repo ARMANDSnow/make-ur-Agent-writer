@@ -4,7 +4,7 @@ import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -105,7 +105,17 @@ def load_agents() -> List[Dict[str, Any]]:
     return cfg.get("debate_agents", [])
 
 
-def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
+def run_debate(
+    topic: str = "",
+    force: bool = False,
+    progress_cb: Optional[Callable[[str, float], None]] = None,
+) -> Dict[str, Any]:
+    # iter060 (#12): optional progress/cancel checkpoint. Calling it raises
+    # JobCancelled/JobTimeout if the job was cancelled, so the long debate
+    # (N agents × M rounds + voting, ~52s per call — audit §3.3) becomes
+    # interruptible BETWEEN LLM calls instead of only at the step boundary.
+    # None -> no-op, so the CLI path is byte-identical.
+    progress = progress_cb or (lambda _step, _fraction: None)
     debate_dir = _debate_dir()
     kb_path = _kb_path()
     index_path = _index_path()
@@ -271,6 +281,13 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
         for agent in agents:
             if (round_index, agent["name"]) in done_keys:
                 continue
+            # iter060 (#12): cancel checkpoint BEFORE the LLM call and OUTSIDE
+            # the try below — inside it, JobCancelled would be swallowed by
+            # `except Exception` and the cancel silently ignored.
+            progress(
+                f"debate-round-{round_index}",
+                min(0.7, 0.1 + 0.6 * (round_index - 1) / max(1, len(ROUNDS))),
+            )
             try:
                 response = client.complete_text(
                     [
@@ -300,12 +317,14 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
             with log_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(item, ensure_ascii=False) + "\n")
 
+    progress("debate-decisions", 0.75)  # iter060 (#12): checkpoint before voting calls
     decisions = build_decisions(agents, transcript, client)
     agent_ballots: Dict[str, List[Dict[str, Any]]] = {}
     for agent in agents:
         if agent["name"] in done_ballots:
             # Reuse previously logged ballot if present.
             continue
+        progress("debate-ballot", 0.85)  # iter060 (#12): checkpoint per ballot LLM call
         ballot_entry = _collect_agent_votes(agent, decisions.get("votes", []), transcript, client)
         agent_ballots[agent["name"]] = ballot_entry["ballots"]
         log_item = {
@@ -337,6 +356,7 @@ def run_debate(topic: str = "", force: bool = False) -> Dict[str, Any]:
                     if ag and ag in done_ballots and ag not in agent_ballots:
                         agent_ballots[ag] = entry.get("ballots", [])
     decisions = _apply_agent_ballots(decisions, agent_ballots, len(transcript))
+    progress("debate-outline", 0.95)  # iter060 (#12): checkpoint before outline LLM call
     outline = build_outline(topic, decisions, transcript, client)
     # 铁律⑨ A-M2：写盘前统一换行——消费侧全用 Path.read_text（universal
     # newlines 会把 \r\n / \r 翻成 \n），LLM 输出一旦带 CR，写盘时哈希的

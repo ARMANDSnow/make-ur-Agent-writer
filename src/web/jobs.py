@@ -434,7 +434,11 @@ def _step_debate(params: Dict[str, Any], progress_cb: Callable[[str, float], Non
     # iter 053a: force = archive trio + fresh debate (passthrough of the CLI
     # `debate --force` semantics).
     force = bool(params.get("force", False))
-    return run_debate(topic=topic, force=force) if topic else run_debate(force=force)
+    return (
+        run_debate(topic=topic, force=force, progress_cb=progress_cb)
+        if topic
+        else run_debate(force=force, progress_cb=progress_cb)
+    )
 
 
 def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
