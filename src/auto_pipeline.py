@@ -63,6 +63,7 @@ def _run_prepare_steps(
     skip_extract: bool = False,
     extract_limit: Optional[int] = 5,
     force: bool = False,
+    budget_check: Optional[Callable[[], None]] = None,
 ) -> Dict[str, Any]:
     """Run the first 6 SOP steps (normalize → apply-bootstrap), shared by
     ``run_auto_pipeline`` (full 9-step run) and the WebUI workbench's
@@ -98,16 +99,27 @@ def _run_prepare_steps(
     if skip_extract:
         results["extract"] = {"skipped": True}
     else:
+        # iter058 #2: onboarding/prepare must NOT build the KB (compress →
+        # bootstrap → debate → write) on a silently-degraded extraction set.
+        # raise_on_failure=True aborts loudly; extracted chapters are already on
+        # disk so a resume re-runs only the failures. Aligns with
+        # rebuild_for_start, which already opts in.
         results["extract"] = extract_all(
-            volume="all", limit=extract_limit, force=force
+            volume="all", limit=extract_limit, force=force, raise_on_failure=True
         )
+        if budget_check is not None:
+            budget_check()  # iter058 #1: stop before compress if extract blew the cap
 
     _notify("compress", 3)
     results["compress"] = compress_all()
+    if budget_check is not None:
+        budget_check()
 
     _notify("bootstrap", 4)
     proposals = bootstrap_all(force=force)
     results["bootstrap"] = proposals
+    if budget_check is not None:
+        budget_check()
 
     # ``bootstrap_all`` returns a dict whose keys are exactly the proposal
     # names ``apply_bootstrap`` knows how to consume. Iterating the keys
@@ -156,6 +168,7 @@ def run_auto_pipeline(
     force: bool = False,
     plan_chapters_target: Optional[int] = None,
     require_start_point: bool = False,
+    budget_cny: float = 0.0,
 ) -> Dict[str, Any]:
     """Run the 9-step SOP end-to-end against the active workspace.
 
@@ -185,6 +198,12 @@ def run_auto_pipeline(
             the planner use its built-in default (typically 5+ for usable
             outline depth). If you set this below ``target_chapters`` the
             writer may run out of plan entries.
+        budget_cny: Optional CNY cost ceiling. 0 (default) = uncapped and
+            byte-identical to the legacy path. When > 0, cost is settled via
+            ``cost_estimator.estimate_cost_since`` after each LLM-spending step
+            and ``book_runner.BudgetExceeded`` is raised on breach (stopping
+            before the next step). iter058 #1: the onboarding wizard's budget
+            field used to be silently dropped here.
 
     Returns:
         A dict keyed by step label whose values are each step's native
@@ -195,6 +214,26 @@ def run_auto_pipeline(
     """
 
     total = len(STEPS)
+
+    # iter058 #1: optional cost ceiling, enforced between LLM-spending steps.
+    # Reuses write-book's exact primitives — estimate_cost_since derives cost_cny
+    # from the token log, so no log-schema change is needed. budget_cny<=0 keeps
+    # the legacy path byte-identical: _budget_check stays None, so no extra work
+    # or progress calls happen. On breach BudgetExceeded propagates (per the
+    # contract above) and the web layer maps it to a budget_exceeded terminal
+    # status. Imports are lazy so the no-budget / CLI path pays nothing.
+    budget_cny = float(budget_cny or 0.0)
+    _budget_check: Optional[Callable[[], None]] = None
+    if budget_cny > 0:
+        from .book_runner import BudgetExceeded, _llm_log_line_count
+        from .cost_estimator import estimate_cost_since
+
+        _initial_log_lines = _llm_log_line_count()
+
+        def _budget_check() -> None:
+            cost = float(estimate_cost_since(_initial_log_lines).get("cost_cny", 0.0))
+            if cost > budget_cny:
+                raise BudgetExceeded(budget_cny=budget_cny, cost_cny=cost)
 
     # iter 048a: steps 1-6 (normalize → apply-bootstrap) live in
     # _run_prepare_steps so the WebUI workbench can run just the prep phase
@@ -208,6 +247,7 @@ def run_auto_pipeline(
         skip_extract=skip_extract,
         extract_limit=extract_limit,
         force=force,
+        budget_check=_budget_check,
     )
 
     def _notify(step: str, index: int) -> None:
@@ -225,6 +265,8 @@ def run_auto_pipeline(
     # deterministic verify.sh failure. force=True archives the old trio and
     # re-debates; the default (force=False) path stays byte-identical (resume).
     results["debate"] = run_debate(force=force)
+    if _budget_check is not None:
+        _budget_check()
 
     _notify("plan-chapters", 7)
     plan_target = plan_chapters_target
@@ -241,9 +283,13 @@ def run_auto_pipeline(
         force=force,
         require_start_point=require_start_point,
     )
+    if _budget_check is not None:
+        _budget_check()
 
     _notify("write", 8)
     results["write"] = write_chapters(chapters=target_chapters, force=force)
+    if _budget_check is not None:
+        _budget_check()
 
     if progress_cb is not None:
         progress_cb("done", 1.0)

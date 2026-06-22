@@ -7,6 +7,14 @@
 - Original source texts in `小说txt/` must not be modified.
 - Recovery anchor: this file plus the test suite.
 
+### Aeloon 集成 → 权威文档 [`docs/AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md)
+
+涉及 Aeloon 集成的迭代**先读 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md)**（唯一权威：三种部署法 / gateway 架构 / 已知坑 ①–④ / 进展时间线 §0.1）。本 handoff 不再重复集成细节，只留指针 + 最新状态。
+
+- **时间线**：iter049（2026-06-10）插件 + MCP 双轨（workspace `.pth`，并入 main）→ 2026-06-16 bundled 内置法（快照分支 `dev/novel-ui`，§9）→ **PR #383（2026-06-19）bundled 进 `dev/ui`，已合入** → **PR #418（2026-06-20）Aeloon「小说续写」入口移到左侧栏「金融研究」下方（§10.3）**。
+- **最新状态（2026-06-20）**：PR [#383](https://github.com/AetherHeart-AI/Aeloon-Pro/pull/383) 已合入 `dev/ui`（修了 ruff `extend-exclude novel_web` + pytest 命名空间包坑④）。入口按钮初版在概览页太隐蔽（长弹窗底部需滚动）→ **PR [#418](https://github.com/AetherHeart-AI/Aeloon-Pro/pull/418) 移到左侧栏（仿金融研究 `ScholarNavItem`，`window.open 127.0.0.1:8765` 新标签）**；rebase 到最新 dev/ui 解了与 #413 sidebar-polish 的冲突、CI 绿、mergeable。要真用仍需前端重建 + 起 8765 后端 + 配模型 key（详见 `AELOON_INTEGRATION.md` §10）。
+- **dev/ui 既有前端测试红（与小说无关）**：`chat-layout` / `ChatCompose.pending-selector` / `ChatWorkspacePane`×2 共 4 个——陈旧单测（Agent 模式、发送/工作区面板等 UI 改了没更新测试），非功能 bug，`dev/ui` 无前端 CI 故没被拦；`repository` 那 2 个已被上游 9448bc8 修复。
+
 ## Iteration Results
 
 ### Iteration 1-5 Implementation
@@ -1468,3 +1476,26 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **验证**：全量 `pytest` **1097 passed**（首跑 1096 passed + 1 failed——`test_openai_stream_env_enables_streaming_by_default` 用 write task 测 env 默认流式，P0-B 改 write→非流式后该断言过时；subagent B 漏看、**被全量回归抓到**，改用未配 stream 的 `default` task 复跑全绿）。分项：BLOCKER-1 `test_book_driver` 31 passed（含 E2E）、P0-A 影响范围（plot_planner/chapter_status/book_runner/workbench/web_plan/migrate）106 passed + 迁移对齐实证、HIGH-2 rolling 19 passed、P1-C+readiness 58 passed。**教训**：subagent 只读审到的「不受影响」测试清单不可全信，全量回归是兜底。
 
 **留后续（完整版，均需真模型验证）**：P0-B 方案B（idle-deadline watchdog 保流式）、HIGH-2 周期性 LLM 压缩（融合伏笔链、控 token）、P1-C LLM 语义判定 + write-time 基准从静态 outline 切到滚动上下文。capstone 30+ 章真跑前仍按上节「前置顺序」：先 mock 全跑 30 章 + 真模型 ch1-15。`test_book_driver.py` 的「replan + 段间 resume + 流式卡死」三件已补 chapter_status 真实校验链层（subprocess 端到端层仍可加固）。
+
+## iter058：前端用户路径 P0 修复——钱与静默错误（2026-06-22，审计取证 → 实施）
+
+**来源**：`docs/FRONTEND_BUG_AUDIT_2026-06.md`——codex 三-subagent 审计报 14 条，Claude 用 3 个 Explore agent 逐行核对 + mock 隔离探针 + 一次真模型最小 onboarding 取证，13 条实锤 + 2 新发现（NEW-A/NEW-B）、无误报。审计 §4 划三轮：**iter058=P0（钱/静默错误）** / iter059=P1（崩溃卡死） / iter060=P2（并发体验）。本轮只做 P0 三条，沿用「复用已验证护栏、零新机制、默认路径 byte-identical、确定性单测兜底、按风险递增」铁律，全确定性不烧钱。
+
+**三 bug 修复落地（执行序 #6b → #2 → #1，每条一轨）**：
+- ✅ **#6b NaN·Infinity 穿透 float 校验**（`routes._float_param` / `wizard._optional_float`）：仅 `<min`/`>max` 比较，IEEE-754 下 NaN 全 False 穿过 → 下游 `nan>0`=False 绕过成本闸、`monotonic()>nan`=False 永不超时。修：`float()` 后插 `math.isfinite` 守卫（一道收 NaN+±Inf），对齐同文件 `_int_value`；两文件加 `import math`。**defense-in-depth**：`jobs._float_param`（同名但裸 float、money/timeout 数学前最后一跳）非有限回落 default。+14 单测/e2e（`tests/test_float_finite_guard.py`）。
+- ✅ **#2 抽取失败静默吞**（`extract_all(raise_on_failure=False)` 默认吞错、两调用方不传）：**混合策略（用户拍板，覆盖 iter054c 的 onboarding-only「尽量多抽」）**——单步 `jobs._step_extract` 传 `raise_on_failure=True` + try/except `ExtractionBatchFailure` → `_blocked("extraction_failures", …)`（友好/可见/可重试、保留已抽章）；onboarding `auto_pipeline._run_prepare_steps` 传 `raise_on_failure=True` → loud raise（不在残缺 KB 上续跑 bootstrap/debate/写作，已抽章留盘 resume 补失败章）。与 `rebuild_for_start` 既有 True 对齐；retry_failures 路径不动。+6 单测（`tests/test_extract_failure_surface.py`）。
+- ✅ **#1 onboarding 预算完全失效**（`run_auto_pipeline` 无 `budget_cny` 参数，`_step_auto_pipeline` 不读不传——真模型实测 ¥0.001 上限被无视、发 9 次真实调用 / 17.6k tokens / 293s 仍 running）：`run_auto_pipeline`/`_run_prepare_steps` 接 `budget_cny`，**复用 write-book 三件套**（`book_runner.BudgetExceeded` / `_llm_log_line_count` / `cost_estimator.estimate_cost_since`，lazy import）在每个 LLM 步后结算成本、超限早停 raise（debate 后超限即跳过 plan 的 6 次 plot_planner 调用 + write）；`_step_auto_pipeline` 读 `budget_cny`（缺省 `_default_budget_cny()`=10 元、显式 0=不设限，镜像 `_step_write_book`）、捕获 `BudgetExceeded` → write-book 同款 `budget_exceeded` 终态（已在 `TERMINAL_STATUSES`），`_summarize_result` 回显 cost/budget。+11 单测（`tests/test_auto_pipeline_budget.py`）。
+
+**关键发现/定性沉淀（勿 re-derive）**：
+1. **零日志格式变更**：审计 §3.1 担心「llm_calls.jsonl 只记 token 不记 cost_cny→预算无从计算」——**核验证伪**：`estimate_cost_since(line_offset)` 早已从 token 按单价（USD/M × 7.2）算出 cost_cny，write-book/review-chapter 都在用。#1 直接复用，不碰日志。
+2. **review-chapter 是 #1 的现成范式**：`_step_review_chapter`（jobs.py:500）已示范「job 起点记 log 偏移 → 事后 `estimate_cost_since` 结算 → 超限置 `budget_exceeded` 终态」；但它「事后结算」是因**单章评审无 inter-chapter checkpoint**——auto-pipeline 有 9 个天然检查点，故本轮做**步间早停**（真止损）。
+3. **默认路径 byte-identical 是硬约束**：`run_auto_pipeline` 加 `budget_cny` 后，`budget_cny≤0` 时 `_budget_check` 保持 `None`、所有检查点 `if … is not None` 短路——`test_auto_pipeline` 逐字断言 9 步进度标签 + `("done",1.0)` 不变。
+4. **/run 的 params 是嵌套的**（`api_run_step` 从 `payload["params"]` 取，非 body 顶层）：首版 #6b e2e 误放顶层 → params 为空 → 202 假绿，自查抓到。`_validate_write_book_params`（走 `routes._float_param`）才是 /run write-book 的校验闸。
+5. **两个同名 `_float_param`**：`routes._float_param`（校验、返 tuple、#6b 主目标）vs `jobs._float_param`（裸 float、内部解析）是不同函数。
+6. **book_runner 不 import auto_pipeline**（无环），故 auto_pipeline lazy `from .book_runner import BudgetExceeded, _llm_log_line_count` 安全，且 jobs.py 早有同款 lazy import 先例。
+
+**门禁**：全量 `.venv/bin/python -m unittest discover -s tests` **1128 passed / 0 failed**（347s；1097 基线 +31）。回归确认 `test_auto_pipeline`（进度契约）、`test_web_wizard_e2e`（mock onboarding 现带 10 元默认上限仍 succeeded）、`test_workbench_e2e`、`test_budget_guard`、extractor/iter055 resilience 全绿。零既有 schema 改动。**只 commit 不 push（push 待用户，用户常从终端自行 commit/resume）；本轮 commit hash 待入库**。
+
+**数据状态**：纯代码 + 测试 + 文档改动，未触碰任何 workspace / 真实数据 / .env。审计探针在 `/tmp/audit_probes/`（throwaway）。
+
+**下轮候选**：① **iter059（P1：崩溃卡死）**——坏 JSON 共因 #4/#5/#10/#13（裸 `read_json`→`read_json_optional`/`*_invalid` blocker，统一改法收四条）、#8 auto-advance 读移入 try、#3+NEW-B 上传 UTF-8 校验 + 0 章 manifest 回滚 workspace、#6a+NEW-A 整数上限 + catch `OverflowError`、#9 split gate 改认 `*.txt`；② iter060（P2：#7 start-point reservation / #11 writer-style 样本竞态 / #14 drama 原子写 / #12 协作式取消）；③ onboarding 专属预算 env 旋钮（按需）；④ #1 真模型复跑坐实 `budget_exceeded` 早停（本轮 mock 确定性为准、未跑真模型）。

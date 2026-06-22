@@ -19,6 +19,7 @@ easier to audit than pulling in ``python-multipart``.
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import tempfile
@@ -449,6 +450,10 @@ def _optional_float(
         out = float(value)
     except (TypeError, ValueError):
         return f"{key} must be a number", default
+    # iter058 #6b: reject NaN/±Infinity — they pass every min/max comparison
+    # below and would disable the budget/timeout guards downstream.
+    if not math.isfinite(out):
+        return f"{key} must be a finite number", default
     if out < minimum:
         return f"{key} must be >= {minimum}", default
     if maximum is not None and out > maximum:

@@ -17,6 +17,7 @@ iter 026 will add POST/PUT entries to ``_ROUTES``; iter 025 ships GET-only.
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import time
@@ -1927,6 +1928,13 @@ def _float_param(params: Dict[str, Any], key: str, default: float, *, minimum: f
         out = float(params.get(key, default))
     except (TypeError, ValueError):
         return f"{key} must be a number", 0.0
+    # iter058 #6b: NaN/±Infinity slip past every `<`/`>` comparison below
+    # (IEEE-754: all comparisons involving NaN are False), so a non-finite
+    # budget_cny/min_confidence would silently disable the downstream cost
+    # and timeout guards. Reject at the boundary — finite-only, mirroring
+    # _int_value's type guard above.
+    if not math.isfinite(out):
+        return f"{key} must be a finite number", 0.0
     if out < minimum:
         return f"{key} must be >= {minimum}", 0.0
     if maximum is not None and out > maximum:

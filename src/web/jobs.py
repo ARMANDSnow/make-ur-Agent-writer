@@ -28,6 +28,7 @@ import time
 import traceback
 import uuid
 import json
+import math
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -37,9 +38,9 @@ from ..auto_bootstrap import bootstrap_all
 from ..chapter_splitter import split_all
 from ..cli_apply_bootstrap import apply_bootstrap
 from ..compressor import compress_all
-from ..book_runner import BookRunBlocked, run_write_book
+from ..book_runner import BookRunBlocked, BudgetExceeded, run_write_book
 from ..debater import run_debate
-from ..extractor import extract_all
+from ..extractor import ExtractionBatchFailure, extract_all
 from ..plot_planner import generate_chapter_plan
 from ..text_normalizer import normalize_all
 from ..writer import write_chapters
@@ -355,11 +356,21 @@ def _step_extract(params: Dict[str, Any], progress_cb: Callable[[str, float], No
             "manifest_missing",
             "chapter manifest not found; run `split` first",
         )
-    return extract_all(
-        volume=params.get("volume", "all"),
-        limit=params.get("limit"),
-        force=bool(params.get("force", False)),
-    )
+    # iter058 #2: surface per-chapter extraction failures instead of silently
+    # returning a short results list (raise_on_failure=False used to swallow
+    # them into data/extraction_failures/ and report success). Chapters that DID
+    # extract are already on disk, so re-running this step resumes only the
+    # failures. The standalone step degrades to a friendly, retryable blocker;
+    # the onboarding pipeline instead aborts loudly (see auto_pipeline).
+    try:
+        return extract_all(
+            volume=params.get("volume", "all"),
+            limit=params.get("limit"),
+            force=bool(params.get("force", False)),
+            raise_on_failure=True,
+        )
+    except ExtractionBatchFailure as exc:
+        return _blocked("extraction_failures", str(exc))
 
 
 def _step_compress(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -595,15 +606,31 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
 
 
 def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    return auto_pipeline.run_auto_pipeline(
-        target_chapters=int(params.get("chapters", 1)),
-        progress_cb=progress_cb,
-        skip_extract=bool(params.get("skip_extract", False)),
-        extract_limit=params.get("extract_limit", 5),
-        force=bool(params.get("force", False)),
-        plan_chapters_target=params.get("plan_chapters_target"),
-        require_start_point=bool(params.get("require_start_point", True)),
-    )
+    # iter058 #1: onboarding used to ignore budget_cny entirely — the wizard put
+    # it in job_params but run_auto_pipeline had no such parameter, so a real
+    # model burned past any cap (audit §3.1: ¥0.001 cap → 9 calls / 293s). Mirror
+    # _step_write_book: default to the shared NOVEL_DEFAULT_BUDGET_CNY cap
+    # (explicit 0 = uncapped, CLI semantics), and map BudgetExceeded to the
+    # write-book-style budget_exceeded terminal status (already in
+    # TERMINAL_STATUSES, so _worker lands it as terminal).
+    budget_cny = _float_param(params, "budget_cny", _default_budget_cny())
+    try:
+        return auto_pipeline.run_auto_pipeline(
+            target_chapters=int(params.get("chapters", 1)),
+            progress_cb=progress_cb,
+            skip_extract=bool(params.get("skip_extract", False)),
+            extract_limit=params.get("extract_limit", 5),
+            force=bool(params.get("force", False)),
+            plan_chapters_target=params.get("plan_chapters_target"),
+            require_start_point=bool(params.get("require_start_point", True)),
+            budget_cny=budget_cny,
+        )
+    except BudgetExceeded as exc:
+        return {
+            "status": "budget_exceeded",
+            "budget_cny": exc.budget_cny,
+            "cost_cny": exc.cost_cny,
+        }
 
 
 def _step_auto_pipeline_greenfield(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -808,7 +835,16 @@ def _summarize_result(step: str, result: Any) -> Any:
     client can render without needing the full payload."""
     if step in {"auto-pipeline-greenfield", "auto-pipeline"} and isinstance(result, dict):
         write_part = result.get("write") or []
-        return {"chapters_written": len(write_part)}
+        summary: Dict[str, Any] = {"chapters_written": len(write_part)}
+        # iter058 #1: a budget_exceeded run returns a status/cost snapshot
+        # instead of the step-keyed dict; surface those so the workbench can
+        # show why it stopped. The success path has no "status" key → the
+        # summary stays exactly {"chapters_written": N}.
+        if result.get("status"):
+            summary["status"] = result.get("status")
+            summary["cost_cny"] = result.get("cost_cny")
+            summary["budget_cny"] = result.get("budget_cny")
+        return summary
     if step == "write-book" and isinstance(result, dict):
         blocked = result.get("blocked") or []
         first_blocked = blocked[0] if blocked and isinstance(blocked[0], dict) else None
@@ -916,4 +952,11 @@ def _float_param(params: Dict[str, Any], key: str, default: float) -> float:
     value = params.get(key, default)
     if value is None or value == "":
         return float(default)
-    return float(value)
+    out = float(value)
+    # iter058 #6b defense-in-depth: routes/wizard reject non-finite input at the
+    # HTTP boundary, but this is the last hop before the budget/timeout math
+    # (where a NaN budget would silently disable the cost gate). Fall back to the
+    # finite default rather than let a non-finite value through.
+    if not math.isfinite(out):
+        return float(default)
+    return out

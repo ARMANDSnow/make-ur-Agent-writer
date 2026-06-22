@@ -67,3 +67,4 @@
 56. [Iteration 055 - 真模型驱动器加固（per-call 超时 + transient 分类重试 + 批处理非流式拿回超时）](./iteration_055_PLAN.md)
 57. [Iteration 056 - 作家风格卡（预置库 + 上传样本提取，仅 premise 注入；搭车了结 iter054 欠账 V5 续写 ch1-3 全 Approve）](./iteration_056_PLAN.md)
 58. [Iteration 057 - 长程续写 capstone 前置：5 个结构性 bug 全修复（P0-A/P0-B/HIGH-2/BLOCKER-1/P1-C，subagent 审核 + 源码核验，1097 tests OK）](./iteration_057_PLAN.md)
+59. [Iteration 058 - 前端用户路径 P0 修复（钱与静默错误）：#1 onboarding 预算失效 / #2 抽取失败静默吞 / #6b NaN·Infinity 穿透校验（源自 FRONTEND_BUG_AUDIT_2026-06，1128 tests OK）](./iteration_058_PLAN.md)
