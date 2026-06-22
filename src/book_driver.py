@@ -49,7 +49,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import paths, start_point
 from .config import ROOT
 from .cost_estimator import estimate_cost_since
-from .utils import append_jsonl, ensure_dir, read_json, read_json_optional, write_json
+from .utils import append_jsonl, ensure_dir, read_json_optional, write_json
 
 DEFAULT_STEP_TIMEOUT_MINUTES = 180
 # preflight 是纯本地计算，单独给一个小超时，免得卡死也要等 3 小时。
@@ -108,7 +108,11 @@ def _pid_alive(pid: int) -> bool:
 
 
 def load_state() -> Optional[Dict[str, Any]]:
-    return read_json(state_path(), None)
+    # iter059 #13: a corrupt driver_state.json must degrade to None (treated as
+    # "no state") rather than raising JSONDecodeError up through every
+    # status/resume/stop command. Disk-derived chapter progress is the source of
+    # truth (see header), so resetting driver state is safe.
+    return read_json_optional(state_path(), None)
 
 
 def _save_state(state: Dict[str, Any]) -> None:
@@ -426,7 +430,10 @@ def _run_steps(state: Dict[str, Any]) -> str:
     #    已有章节写出后重生成 plan 会破坏指纹链，这种情况交给 write-book 的
     #    --replan-every 滚动 append（iter024）或人工决断。
     plan_target = min(int(params.get("plan_target") or last_chapter), last_chapter)
-    plan_data = read_json(paths.chapter_plan_path(), None) or {}
+    # iter059 #13: corrupt chapter_plan.json degrades to {} (plan_len 0 ->
+    # ensure-plan regenerates) instead of crashing the driver run; `or {}`
+    # alone only handled the missing/None case, not a JSONDecodeError.
+    plan_data = read_json_optional(paths.chapter_plan_path(), None) or {}
     plan_len = len(plan_data.get("chapters") or [])
     if plan_len >= plan_target:
         _emit(state, "step_skipped", step="ensure_plan", reason="plan_sufficient", plan_len=plan_len)
@@ -716,7 +723,9 @@ def _refuse_real_run(args: Any) -> bool:
 
 
 def _another_driver_running() -> Optional[Dict[str, Any]]:
-    info = read_json(pid_path(), None)
+    # iter059 #13: corrupt driver.pid -> None -> treated as "no driver running"
+    # (the next launch writes a fresh pid file) instead of a traceback.
+    info = read_json_optional(pid_path(), None)
     if info and _pid_alive(info.get("pid", -1)):
         return info
     return None
@@ -838,9 +847,17 @@ def cmd_resume(args: Any) -> int:
 def cmd_status(args: Any) -> int:
     state = load_state()
     if not state:
-        print("no driver state")
+        # iter059 #13: distinguish a corrupt state file from a genuinely absent
+        # one — the user should know the state was reset, not never written.
+        if state_path().exists():
+            print(
+                "driver_state_invalid: driver_state.json exists but is unreadable; "
+                "the driver state was reset"
+            )
+        else:
+            print("no driver state")
         return 2
-    info = read_json(pid_path(), None) or {}
+    info = read_json_optional(pid_path(), None) or {}
     alive = bool(info) and _pid_alive(info.get("pid", -1))
     display_status = state.get("status")
     if display_status == "running" and not alive:
@@ -885,7 +902,7 @@ def _send_signal_pg(pgid: int, sig: int) -> None:
 
 
 def cmd_stop(args: Any) -> int:
-    info = read_json(pid_path(), None)
+    info = read_json_optional(pid_path(), None)  # iter059 #13: corrupt pid -> None
     state = load_state()
     stopped_something = False
     if info and _pid_alive(info.get("pid", -1)):

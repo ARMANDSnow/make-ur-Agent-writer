@@ -13,10 +13,14 @@ Mock-only; no network, no real workspace data.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 class RollingSummaryCorruptTests(unittest.TestCase):
@@ -80,6 +84,151 @@ class ChapterStatusCorruptTests(unittest.TestCase):
         )
         self.assertIn("external_review_invalid", status["strict_failures"])
         self.assertFalse(status["approved"])
+
+
+class DriverStateCorruptTests(unittest.TestCase):
+    """#13: corrupt driver_state.json / driver.pid must not crash
+    status/resume/stop; cmd_status reports a driver_state_invalid diagnostic."""
+
+    def setUp(self) -> None:
+        from src import book_driver, paths
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        os.environ["WORKSPACE_NAME"] = "alpha"
+        self.addCleanup(self._restore)
+        book_driver.driver_dir().mkdir(parents=True, exist_ok=True)
+
+    def _restore(self) -> None:
+        from src import paths
+
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+
+    def test_corrupt_driver_state_returns_none(self) -> None:
+        from src import book_driver
+
+        book_driver.state_path().write_text("{bad json", encoding="utf-8")
+        self.assertIsNone(book_driver.load_state())
+
+    def test_corrupt_pid_treated_as_no_driver(self) -> None:
+        from src import book_driver
+
+        book_driver.pid_path().write_text("{bad json", encoding="utf-8")
+        self.assertIsNone(book_driver._another_driver_running())
+
+    def test_cmd_status_reports_invalid_when_state_corrupt(self) -> None:
+        from src import book_driver
+
+        book_driver.state_path().write_text("{bad json", encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = book_driver.cmd_status(SimpleNamespace(json=False))
+        self.assertEqual(rc, 2)
+        self.assertIn("driver_state_invalid", buf.getvalue())
+
+    def test_cmd_status_reports_absent_when_state_missing(self) -> None:
+        from src import book_driver
+
+        # No state file at all -> the plain "no driver state" message, not the
+        # invalid diagnostic (existence-vs-parse disambiguation).
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = book_driver.cmd_status(SimpleNamespace(json=False))
+        self.assertEqual(rc, 2)
+        self.assertIn("no driver state", buf.getvalue())
+        self.assertNotIn("driver_state_invalid", buf.getvalue())
+
+
+class ChapterPlanInvalidTests(unittest.TestCase):
+    """#4 (Option B): corrupt / wrong-schema chapter_plan.json surfaces a
+    distinct chapter_plan_invalid blocker, never a raw JSONDecodeError that
+    fails the job or leaks through GET /readiness as readiness_error:..."""
+
+    def setUp(self) -> None:
+        from src import paths
+
+        os.environ["OPENAI_MODEL"] = "mock"
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        os.environ["WORKSPACE_NAME"] = "alpha"
+        self.addCleanup(self._restore)
+        for sub in ("小说txt", "data", "outputs/debate", "outputs/drafts", "logs"):
+            (paths.WORKSPACE_DIR / "alpha" / sub).mkdir(parents=True, exist_ok=True)
+
+    def _restore(self) -> None:
+        from src import paths
+
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+
+    def _write_plan(self, text: str) -> None:
+        from src import paths
+
+        paths.chapter_plan_path().write_text(text, encoding="utf-8")
+
+    def test_load_chapter_plan_raises_on_corrupt_json(self) -> None:
+        from src.writer import ChapterPlanInvalid, _load_chapter_plan
+
+        self._write_plan("{not valid json")
+        with self.assertRaises(ChapterPlanInvalid):
+            _load_chapter_plan()
+
+    def test_load_chapter_plan_raises_on_wrong_schema(self) -> None:
+        from src.writer import ChapterPlanInvalid, _load_chapter_plan
+
+        for bad in ('{"foo": 1}', "[1, 2, 3]"):
+            self._write_plan(bad)
+            with self.assertRaises(ChapterPlanInvalid):
+                _load_chapter_plan()
+
+    def test_blocker_kind_and_label_distinct_from_missing(self) -> None:
+        from src.book_runner import _blocker_kind, _primary_blocker
+
+        self.assertEqual(_blocker_kind("chapter_plan_invalid"), "chapter_plan_invalid")
+        pb = _primary_blocker(["chapter_plan_invalid"])
+        self.assertEqual(pb["kind"], "chapter_plan_invalid")
+        self.assertEqual(pb["label"], "章节计划文件损坏")
+        self.assertEqual(pb["cta_action"], "run_plan_chapters")
+
+    def test_readiness_surfaces_chapter_plan_invalid(self) -> None:
+        from src.book_runner import check_write_readiness
+
+        self._write_plan("{not valid json")
+        result = check_write_readiness(
+            chapters=1, require_start_point=False, require_plan=True
+        )
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("chapter_plan_invalid", result["blockers"])
+        for blocker in result["blockers"]:
+            self.assertFalse(blocker.startswith("readiness_error:"), blocker)
+        self.assertEqual(result["primary_blocker"]["kind"], "chapter_plan_invalid")
+
+    def test_readiness_endpoint_no_raw_jsondecodeerror_leak(self) -> None:
+        # The headline #4 symptom: GET /readiness used to leak
+        # "readiness_error:JSONDecodeError: ..." via _safe_readiness.
+        from src.web import routes
+
+        self._write_plan("{not valid json")
+        status, _ct, body = routes.dispatch("GET", "/api/workspace/alpha/readiness")
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        data = json.loads(body)
+        self.assertEqual(data["status"], "blocked")
+        self.assertIn("chapter_plan_invalid", data["blockers"])
+        for blocker in data["blockers"]:
+            self.assertFalse(blocker.startswith("readiness_error:"), blocker)
 
 
 if __name__ == "__main__":

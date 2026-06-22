@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from pydantic import ValidationError
+
 from . import paths, review_tier, source_excerpts, start_point, writer_style
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
@@ -19,7 +21,7 @@ from .reviewer import review_text
 from .schemas import ChapterPlan, ChapterSummary, EntityAdvanceProposalSet, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
-from .utils import ensure_dir, read_json, sha256_text, write_json
+from .utils import ensure_dir, read_json, read_json_optional, sha256_text, write_json
 
 
 # Legacy constants — kept so iter 014-016 tests that ``patch("src.writer.DRAFTS_DIR", ...)``
@@ -85,7 +87,13 @@ def write_chapters(
     knowledge = start_safe_knowledge(kb_path=kb_path, index_path=index_path)
     outline = outline_path.read_text(encoding="utf-8")
     index = read_json(index_path, {})
-    chapter_plan = _load_chapter_plan()
+    # iter059 #4: require_plan=False paths can reach here with a corrupt plan
+    # (readiness only blocks a corrupt plan when require_plan=True). Degrade to
+    # no-plan context rather than crashing the write mid-run.
+    try:
+        chapter_plan = _load_chapter_plan()
+    except ChapterPlanInvalid:
+        chapter_plan = None
     facts = global_facts_summary()
     style_examples = load_style_examples()
     client = LLMClient("write")
@@ -474,12 +482,31 @@ def _enforce_checklist_for_plan(chapter_plan_item: Optional[Dict[str, Any]]) -> 
     return True if len(rels) <= 4 else "warn_only"
 
 
+class ChapterPlanInvalid(ValueError):
+    """chapter_plan.json exists but is corrupt or has the wrong schema.
+
+    iter059 #4: subclasses ValueError so callers already catching ValueError
+    degrade gracefully; write-book readiness converts it into a distinct
+    chapter_plan_invalid blocker (vs chapter_plan_missing) so the user can tell
+    a damaged plan from an absent one.
+    """
+
+
 def _load_chapter_plan() -> Optional[Dict[int, Dict[str, Any]]]:
     chapter_plan_path = _chapter_plan_path()
     if not chapter_plan_path.exists():
         return None
-    data = read_json(chapter_plan_path, {})
-    plan = ChapterPlan(**data)
+    # iter059 #4: degrade-read + typed error. A corrupt file (JSONDecodeError),
+    # a non-dict, or valid-JSON-but-wrong-schema (pydantic ValidationError) must
+    # raise ChapterPlanInvalid — not a raw traceback that hard-fails the job or
+    # leaks through GET /readiness as readiness_error:JSONDecodeError.
+    data = read_json_optional(chapter_plan_path, None)
+    if not isinstance(data, dict):
+        raise ChapterPlanInvalid("chapter_plan.json is not a JSON object")
+    try:
+        plan = ChapterPlan(**data)
+    except (ValidationError, TypeError) as exc:
+        raise ChapterPlanInvalid(str(exc)) from exc
     return {int(item.chapter_no): model_to_dict(item) for item in plan.chapters}
 
 

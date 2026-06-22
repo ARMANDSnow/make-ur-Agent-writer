@@ -433,9 +433,14 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn(by_name["alpha"]["readiness"]["status"], {"ready", "warn", "blocked"})
         self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
         self.assertIn("error", by_name["beta"]["plan"])
-        self.assertTrue(
-            any("readiness_error" in item for item in by_name["beta"]["readiness"]["blockers"]),
-            by_name["beta"]["readiness"]["blockers"],
+        # iter059 #4: a corrupt chapter_plan.json now surfaces a clean
+        # chapter_plan_invalid blocker instead of leaking the raw
+        # readiness_error:JSONDecodeError. Still blocks only beta, not alpha.
+        beta_blockers = by_name["beta"]["readiness"]["blockers"]
+        self.assertIn("chapter_plan_invalid", beta_blockers)
+        self.assertFalse(
+            any("readiness_error" in item for item in beta_blockers),
+            beta_blockers,
         )
 
     def test_api_status_404_for_unknown(self) -> None:

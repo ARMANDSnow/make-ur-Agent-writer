@@ -17,6 +17,7 @@ from .reviewer import review_target
 from .utils import ensure_dir, read_json, read_json_optional, write_json
 from .kb_view import start_safe_knowledge
 from .writer import (
+    ChapterPlanInvalid,
     _chapter_plan_item,
     _index_path,
     _kb_path,
@@ -79,7 +80,13 @@ def run_write_book(
         commands = "; ".join(readiness.get("recommended_commands") or [])
         suffix = f"; next: {commands}" if commands else ""
         raise BookRunBlocked("; ".join(readiness.get("blockers") or ["write-book is blocked"]) + suffix)
-    plan = _load_chapter_plan()
+    # iter059 #4: readiness (require_plan=True) already blocks a corrupt plan
+    # before here; the require_plan=False path may not, so degrade a corrupt
+    # plan to None rather than raising mid-run.
+    try:
+        plan = _load_chapter_plan()
+    except ChapterPlanInvalid:
+        plan = None
 
     drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
     initial_log_lines = _llm_log_line_count()
@@ -359,8 +366,20 @@ def check_write_readiness(
         recommended.append(f"{cmd_prefix} set-start-point <chapter_id>")
 
     raw_plan = _load_raw_chapter_plan()
-    plan = _load_chapter_plan()
-    if require_plan and not plan:
+    plan = None
+    plan_invalid = False
+    try:
+        plan = _load_chapter_plan()
+    except ChapterPlanInvalid:
+        # iter059 #4 (Option B): a distinct chapter_plan_invalid blocker so the
+        # user can tell a damaged plan from an absent one; same regenerate CTA.
+        plan_invalid = True
+    if require_plan and plan_invalid:
+        blockers.append("chapter_plan_invalid")
+        recommended.append(
+            f"{cmd_prefix} plan-chapters --chapters {max(plan_window, 5)} --force --require-start-point"
+        )
+    elif require_plan and not plan:
         blockers.append("chapter_plan_missing")
         recommended.append(
             f"{cmd_prefix} plan-chapters --chapters {max(plan_window, 5)} --force --require-start-point"
@@ -609,6 +628,7 @@ def _primary_blocker(blockers: List[str]) -> Dict[str, str] | None:
         "start_point_missing": ("未设置续写起点", "scroll_to_start_point", "去设置起点"),
         "outline_missing": ("缺少全书大纲", "go_plan", "去计划页"),
         "chapter_plan_missing": ("缺少章节计划", "run_plan_chapters", "生成章节计划"),
+        "chapter_plan_invalid": ("章节计划文件损坏", "run_plan_chapters", "重新生成计划"),
         "retry_exhausted": ("已有草稿未通过", "retry_write_book", "查看并重试"),
         "preflight_failed": ("工程预检未通过", "show_diagnostics", "查看诊断"),
         "foreshadowing_overdue": ("有 must-resolve 伏笔超期未回收", "show_diagnostics", "查看诊断"),
@@ -627,6 +647,8 @@ def _primary_blocker(blockers: List[str]) -> Dict[str, str] | None:
 def _blocker_kind(blocker: str) -> str:
     if blocker == "start_point_missing":
         return "start_point_missing"
+    if blocker == "chapter_plan_invalid":
+        return "chapter_plan_invalid"
     if blocker == "chapter_plan_missing" or blocker.startswith("chapter_plan:") or "plan_item_missing" in blocker:
         return "chapter_plan_missing"
     if blocker.startswith("outline_missing") or "outline_missing" in blocker:
@@ -642,7 +664,10 @@ def _blocker_kind(blocker: str) -> str:
 
 def _load_raw_chapter_plan() -> Dict[str, Any]:
     path = paths.chapter_plan_path() if paths.workspace_name() else Path("outputs/debate/chapter_plan.json")
-    data = read_json(path, {})
+    # iter059 #4: corrupt plan degrades to {} here (the metadata-failure path
+    # keeps the gate closed); the typed ChapterPlanInvalid is raised separately
+    # by the schema loader _load_chapter_plan, which readiness catches above.
+    data = read_json_optional(path, {})
     return data if isinstance(data, dict) else {}
 
 

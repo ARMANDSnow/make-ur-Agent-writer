@@ -552,7 +552,7 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
     from ..chapter_status import chapter_status
     from ..cost_estimator import estimate_cost_since
     from ..reviewer import review_target
-    from ..writer import _chapter_plan_item, _load_chapter_plan, _run_context
+    from ..writer import ChapterPlanInvalid, _chapter_plan_item, _load_chapter_plan, _run_context
 
     budget_cny = float(_float_param(params, "budget_cny", _review_budget_cny()) or 0.0)
     # Offset BEFORE any spend so the settlement below only counts this job's
@@ -566,7 +566,15 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
             "draft_missing",
             f"chapter_{chapter_no:02d}.md not found; write the chapter first",
         )
-    plan = _load_chapter_plan()
+    # iter059 #4: corrupt chapter_plan.json -> clean chapter_plan_invalid blocker
+    # instead of a JSONDecodeError that fails the review-chapter job.
+    try:
+        plan = _load_chapter_plan()
+    except ChapterPlanInvalid as exc:
+        return _blocked(
+            "chapter_plan_invalid",
+            f"chapter_plan.json is corrupt ({exc}); regenerate it via plan-chapters",
+        )
     if plan is None:
         return _blocked(
             "chapter_plan_missing",
