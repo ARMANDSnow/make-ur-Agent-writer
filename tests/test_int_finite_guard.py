@@ -165,5 +165,57 @@ class RunEndpointIntGuardTests(unittest.TestCase):
             time.sleep(0.05)
 
 
+class ReadinessClampTests(unittest.TestCase):
+    """iter060 (Codex A): GET /readiness clamps chapters/resume_from/replan_every
+    to the write-book caps. The GET query parser (_parse_int) is a bare int()
+    with no ceiling, so chapters=999999999 used to reach check_write_readiness ->
+    list(range(...)) and try to materialise ~1e9 ints. The clamp lives in the
+    handler (like api_workspace_logs_tail) since this is a read-only preview that
+    should mirror what write-book would actually accept."""
+
+    def setUp(self) -> None:
+        os.environ["OPENAI_MODEL"] = "mock"
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        os.environ.pop("WORKSPACE_NAME", None)
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+        self.addCleanup(self._restore_env)
+
+    def _restore_env(self) -> None:
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+
+    def test_huge_params_clamped_not_materialised(self) -> None:
+        # Pre-fix this hangs/OOMs on list(range(1, 1_000_000_000)). Post-fix the
+        # clamp bounds chapters/plan_window to 2000 and resume_from to 10000, so
+        # it returns 200 immediately.
+        status, _ct, resp = routes.dispatch(
+            "GET",
+            "/api/workspace/alpha/readiness?chapters=999999999&resume_from=888888&replan_every=777777",
+        )
+        self.assertEqual(status, 200, resp.decode("utf-8"))
+        data = json.loads(resp)
+        self.assertLessEqual(data["chapters"], 2000)
+        self.assertLessEqual(data["plan_window"], 2000)
+        self.assertLessEqual(data["resume_from"], 10000)
+
+    def test_normal_values_not_over_clamped(self) -> None:
+        status, _ct, resp = routes.dispatch(
+            "GET",
+            "/api/workspace/alpha/readiness?chapters=30&resume_from=5&replan_every=10",
+        )
+        self.assertEqual(status, 200, resp.decode("utf-8"))
+        data = json.loads(resp)
+        self.assertEqual(data["chapters"], 30)
+        self.assertEqual(data["resume_from"], 5)
+        self.assertLessEqual(data["plan_window"], 30)
+
+
 if __name__ == "__main__":
     unittest.main()

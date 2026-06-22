@@ -1544,6 +1544,16 @@ def api_workspace_readiness(
         return _json(400, {"error": "invalid workspace name"})
     if not _workspace_exists(name):
         return _json(404, {"error": f"workspace not found: {name}"})
+    # iter060 (Codex A): the GET query parser (_parse_int) is a bare int() with
+    # no ceiling, so chapters=999999999 would reach check_write_readiness ->
+    # list(range(...)) and try to materialise ~1e9 ints (resource exhaustion).
+    # Clamp here to the same caps write-book enforces (iter059 #6a:
+    # chapters/replan_every<=2000, resume_from<=10000) so readiness reflects what
+    # a real run would accept; mirrors the handler-level clamp in
+    # api_workspace_logs_tail.
+    chapters = max(1, min(int(chapters), 2000))
+    resume_from = max(1, min(int(resume_from), 10000))
+    replan_every = max(0, min(int(replan_every), 2000))
     with use_workspace(name):
         result = _safe_readiness(chapters=chapters, resume_from=resume_from, replan_every=replan_every)
     return _json(200, result)
