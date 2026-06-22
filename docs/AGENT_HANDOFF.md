@@ -1499,3 +1499,30 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：纯代码 + 测试 + 文档改动，未触碰任何 workspace / 真实数据 / .env。审计探针在 `/tmp/audit_probes/`（throwaway）。
 
 **下轮候选**：① **iter059（P1：崩溃卡死）**——坏 JSON 共因 #4/#5/#10/#13（裸 `read_json`→`read_json_optional`/`*_invalid` blocker，统一改法收四条）、#8 auto-advance 读移入 try、#3+NEW-B 上传 UTF-8 校验 + 0 章 manifest 回滚 workspace、#6a+NEW-A 整数上限 + catch `OverflowError`、#9 split gate 改认 `*.txt`；② iter060（P2：#7 start-point reservation / #11 writer-style 样本竞态 / #14 drama 原子写 / #12 协作式取消）；③ onboarding 专属预算 env 旋钮（按需）；④ #1 真模型复跑坐实 `budget_exceeded` 早停（本轮 mock 确定性为准、未跑真模型）。
+
+## iter059：前端用户路径 P1 修复——崩溃与卡死（2026-06-22，实施）
+
+**来源**：`docs/FRONTEND_BUG_AUDIT_2026-06.md` §4 划定的 **iter059=P1 段（崩溃卡死）**，5 组共 9 条。承接 iter058（P0，1128 tests OK）。共同主线：关键状态文件用裸 `read_json`（存在但损坏→`JSONDecodeError`）、上传/整数边界缺校验。沿用 iter058 铁律：复用 `read_json_optional` 护栏、**逐调用点改不动底层**、默认路径 byte-identical、确定性单测兜底、按风险递增分 commit、全程不烧钱。
+
+**5 组修复落地（commit 序：小→大 / 低→高风险）**：
+- ✅ **#9 单步 split gate**（`jobs._step_split`）：gate glob `*.md` 但 `text_normalizer` 产 `*.txt` → 单步 split 永远 `blocked: normalized_missing`（auto-pipeline 直调 `split_all()` 不走 gate 故无感）。改同时认 `*.txt`/`*.md`。
+- ✅ **#10 rolling summary**（`chapter_summary.load_rolling_summary`）：docstring 承诺 "malformed degrade to empty" 但用裸 `read_json` 抛错（文档↔实现矛盾）。→ `read_json_optional`，坏文件降级空态。
+- ✅ **#6a+NEW-A 整数参数**（`routes._int_value` / `_validate_write_book_params`）：只 catch `(TypeError, ValueError)` → `chapters=Infinity`（JSON 字面量→`float('inf')`）走 `int(float('inf'))` 抛 `OverflowError` 漏成 **HTTP 500**；四参数无上限（999999999 被 202 接受）。加 `math.isfinite` 预检（对齐 iter058 #6b）+ `OverflowError`→400；chapters/resume_from/max_retries/replan_every 上限 2000/10000/20/2000。+13 单测/e2e（`tests/test_int_finite_guard.py`）。
+- ✅ **#5 坏 draft meta/review**（`chapter_status`）：裸 `read_json` 读 meta(:52)/review(:116) → 坏文件击穿 resume/status。meta→`read_json_optional(.,{})`（approved=False/verdict=None）；review→`read_json_optional(.,None)`（落既有 `external_review_invalid`，`{}` 默认会是 dict 绕过检查误落 reject）。
+- ✅ **#13 driver state/pid**（`book_driver`）：5 处裸 `read_json`（`load_state`/`_another_driver_running`/`cmd_status`/`cmd_stop` + ensure-plan 的 chapter_plan 读，`or {}` 只兜 None 不兜坏 JSON）→ `read_json_optional`；`cmd_status` 加 `driver_state_invalid` 诊断（state 文件存在但不可读≠缺失）。
+- ✅ **#4 坏 chapter_plan（Option B，用户拍板）**：`writer._load_chapter_plan` 裸 read **且** `ChapterPlan(**data)` 对错 schema 抛 pydantic `ValidationError`（双抛路径，单换 `read_json_optional` 不够）→ 新 `ChapterPlanInvalid(ValueError)`，守 read + 构造；`book_runner.check_write_readiness` catch → **独立** `chapter_plan_invalid` blocker，`_blocker_kind`/`_primary_blocker` 加 kind + 标签「章节计划文件损坏 / 重新生成计划」（与「缺少章节计划」区分「损坏」vs「缺失」）；`_load_raw_chapter_plan`→`read_json_optional`；GET /readiness 不再经 `_safe_readiness` 泄 `readiness_error:JSONDecodeError`。
+- ✅ **#8 auto-advance**（`book_runner._auto_apply_advances`）：proposal(:873)/entity_graph(:879) 读在 try（catch `ValueError⊇JSONDecodeError`）**之外** → 章节已 Approve、正文已落盘后命中坏文件抛未捕获 → job failed 而内容已在盘（割裂态）。两读→`read_json_optional` 降级 no-op（`applied_count=0`）。
+- ✅ **#3+NEW-B 上传校验**（`wizard.start_upload` + `auto_pipeline._run_prepare_steps`）：`.txt` 裸 `write_bytes` 永不抛 → 非 UTF-8/0 章被 202 接受 → 后台 cryptic failed + workspace 滞留 + 同名重传 409。`.txt` 加 `decode("utf-8")` 校验 + `_has_detectable_chapters` 同步 0 章探针 → `_UploadRejected`→rmtree+400（**Option 1 同步预检**，对齐坏 EPUB UX、规避异步线程回滚竞态）；`auto_pipeline` split 后 0 章 `raise ValueError`（在 `extract_all(raise_on_failure)` 前，让「0 章」友好错误优先）作绕过 wizard 的权威后台兜底。+2 e2e 回滚测试（镜像 `test_corrupt_epub_rolls_back_workspace`）。
+
+**关键发现/定性沉淀（勿 re-derive）**：
+1. **`_load_chapter_plan` 双抛**：`read_json` 的 `JSONDecodeError` + `ChapterPlan(**data)` 对错 schema（缺 `target_chapters`/`overall_arc`/`chapters`）的 pydantic `ValidationError`，必须连守；空 `{}` plan 也从崩溃变干净 blocker（改进）。
+2. **#4 调用方扇出（最高风险，已逐一审计）**：`_load_chapter_plan` 6 调用点——`run_write_book`(:82)/`writer.write_chapters`(:88) 兜成 None（require_plan=False 边缘）、readiness 入口 catch→blocker、`jobs._step_review_chapter` 兜成 `chapter_plan_invalid` blocked、replan(:304) 已在 `except Exception` 内；`ChapterPlanInvalid` 子类 `ValueError` 作安全网。
+3. **`read_json` 仍在 `book_runner` 5 处用**（meta/review/failure，728/741/790/791/858）——**不在审计 P1 清单**，本轮不动避免 scope creep；底层 `read_json` 不降级（`write_json` 指纹门控等依赖 fail-loud）。
+4. **两处测试因正确性更新（非回归）**：`test_web_routes_get` 旧断言坏 plan 产 `readiness_error` 泄漏（正是 #4 要修的 bug）→ 改断言干净 `chapter_plan_invalid`；`test_auto_pipeline_budget`/`test_extract_failure_surface` mock `split_all=[]`（占位）撞新 0 章 guard → 改非空 list（split 成功应≥1 章）。
+5. **#3 同步探针 lenient**：仅「无任何 zh/en 标题行」才拒（防误拒合法上传），权威 0 章判定交后台 `auto_pipeline` split guard（绕过 wizard 的路径也覆盖）。
+
+**门禁**：全量 `.venv/bin/python -m unittest discover -s tests` **1158 passed / 0 failed**（1128 基线 +30；test_bad_json_blockers 14 + test_int_finite_guard 13 + split 1 + wizard 2）。零既有 schema 改动，默认路径 byte-identical。**只 commit 不 push（push 待用户）**；本轮 8 个 fix commit + 1 docs commit（含先行补提的 iter058 commit `4785e39`）。
+
+**数据状态**：纯代码 + 测试 + 文档改动，未触碰任何 workspace / 真实数据 / .env。
+
+**下轮候选**：① **iter060（P2：并发与体验）**——#7 `set_start_point` 包 `workspace_reserved` / #11 writer-style 样本 per-job 唯一路径（TOCTOU）/ #14 drama 写端点 `write_json` 原子 + reservation / #12 长步骤协作式取消；② #4 真模型复跑坐实 `chapter_plan_invalid` 端到端；③ `book_runner` 剩余 5 处裸 `read_json`（meta/review/failure）按需收口。

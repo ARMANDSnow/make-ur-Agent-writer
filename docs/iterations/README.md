@@ -68,3 +68,4 @@
 57. [Iteration 056 - 作家风格卡（预置库 + 上传样本提取，仅 premise 注入；搭车了结 iter054 欠账 V5 续写 ch1-3 全 Approve）](./iteration_056_PLAN.md)
 58. [Iteration 057 - 长程续写 capstone 前置：5 个结构性 bug 全修复（P0-A/P0-B/HIGH-2/BLOCKER-1/P1-C，subagent 审核 + 源码核验，1097 tests OK）](./iteration_057_PLAN.md)
 59. [Iteration 058 - 前端用户路径 P0 修复（钱与静默错误）：#1 onboarding 预算失效 / #2 抽取失败静默吞 / #6b NaN·Infinity 穿透校验（源自 FRONTEND_BUG_AUDIT_2026-06，1128 tests OK）](./iteration_058_PLAN.md)
+60. [Iteration 059 - 前端用户路径 P1 修复（崩溃与卡死）：坏 JSON 共因 #4/#5/#10/#13（read_json_optional / chapter_plan_invalid blocker）/ #8 auto-advance / #3+NEW-B 上传 UTF-8+0章预检 / #6a+NEW-A 整数 finite 守卫+上限 / #9 split gate（源自 FRONTEND_BUG_AUDIT_2026-06，1158 tests OK）](./iteration_059_PLAN.md)
