@@ -4,6 +4,12 @@
   "review_during_lint_block": true,
   "segmented_write": false,
 
+  "_entity_advance_note": "iter065 #6c: entity_advance.allow_creation lets a high-confidence advance proposal CREATE a new relationship edge when the pair is absent from entity_graph.json (instead of skipping as relationship_not_found). Default OFF — byte-identical legacy skip behavior. creation_confidence is stricter than the 0.7 advance gate; new edges still pass the hard-conflict pre-filter.",
+  "entity_advance": {
+    "allow_creation": false,
+    "creation_confidence": 0.85
+  },
+
   "continuation_anchor": "
 续写起点：第 3 部《黑月之潮下》之后 / 某事件之前
 关键状态：路明非 [和路明泽交易后杀死白王]；楚子航 [存活]；恺撒 [存活]；绘梨衣 [死亡]

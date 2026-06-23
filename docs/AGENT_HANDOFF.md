@@ -1653,3 +1653,23 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter065）**：**语义闭环（large，本轮推迟）**——(a) 计划履约 reviewer（`chapter_plan_item` 穿进 `review_text` 或后置 beat-matcher）/ (b) outline drift 行为闭环（`writer.py:713` 旧 outline 长期注入，drift 命中率低时重生成/动态注入）/ (c) entity_advance 允许新建关系（现 `relationship_not_found` 跳过）；F3-3 timeout helper；`_blocker_kind` 别名清理；drama 站③④；KB 起点过滤主动 blocker；真模型 capstone 复跑。
+
+---
+
+## iter 065（2026-06-24，收官）——语义闭环 a/c：计划履约 reviewer + entity 新建关系
+
+**来源**：iter064 收口 codex #1–#5 后，唯一剩 P2 #6「续写长程语义闭环」（large，iter064 与用户确认推迟）。#6 三子项：(a) 计划履约 reviewer、(b) outline-drift 行为闭环、(c) entity 新建关系。**与用户确认本轮只做 (a)+(c)**（都是确定性/纯增量、默认字节级不变、mock 全可测、不引入新 serialized block 契约）；**(b) 推迟 iter066**——它是三者中唯一把「原本能跑的长程 run」变成「中途拒绝」的改动（warn→block 在 `rolling_summary` 落后 drafts 时会误判 severe drift），需配 driver/Web 级联专项审查。
+
+**(a) 计划履约 reviewer（确定性、非阻断建议级）**：`src/reviewer.py` 新增 `_plan_compliance_misses(draft, chapter_plan_item)`——取每个 `key_events` 的中文字符 bigram 集合，命中率 < `COVER_THRESHOLD`(0.15) 判「正文中几乎找不到」。`review_text()` 末位加 `chapter_plan_item=None`，`writer.py:266` 传入；None/无 key_events/key_events 非 list → 返回 `[]` 自跳过（铁律④ 字节级不变）。缺失 beat 作 `{section,type,guidance,_advisor:"plan_compliance"}` 进既有 `rewrite_suggestions` 通道（`_review_feedback` 的「改写顾问建议」段渲染，与 verdict 无关；写进 review.json），**仅当本就要重写时喂回写手、永不翻转 verdict / 不 block**。
+
+**与计划的关键偏差（收官审查 P2 驱动，诚实记录）**：计划原写「漏多数 beat 才硬 block（synthetic Reject）」。收官 3 维度 workflow 对抗审查对**真实 `longzu/chapter_plan.json`** 实测证明：计划 beat 是 40–70 字名词密集句，「忠实但戏剧化」换句后 bigram 命中率掉到 0.1–0.4，硬 block 会**误拒忠实好稿、烧光 rewrite 预算**——正是把 (b) warn→block 推迟想避免的同一类误报。故 (a) 落地为**建议级非阻断**（同 (b) 的安全哲学一致；若 (a) 硬 block 上线就与推迟 (b) 自相矛盾）。
+
+**(c) entity 新建关系（confidence-gated CREATE，默认关闭）**：`apply_advance_proposals`/`_apply_selected`（`entity_advance.py`）加 `allow_creation=False`/`creation_confidence=0.85`。`rel is None` 分支在 `allow_creation` 时按三闸创建新关系：**非空 new_state**（修审查 P2：explicit-index 路径绕过 `_is_applyable_proposal`，空 state 会建垃圾边）+ **非 hard-conflict**（复用 canonical `relationship_auditor._hard_conflict_markers`）+ **conf≥creation_confidence**；任一不满足带具体 reason 跳过（`creation_empty_state`/`creation_hard_conflict`/`creation_below_confidence`）。`created` 经可选 mutable 出参收集（保 `_apply_selected` 2-tuple 返回 → 既有测试字节级不变）；result 加 `created_count`/`created`，`applied_count` 减去 created（= 纯 advance 数）。`anchor_chapter` 严格沿用 `f"续写第{chapter_no:02d}章"`。上游 `book_runner._auto_apply_advances` 从 `config/agents.yaml` 的 `entity_advance` 段读配置透传（读取/float 全包 try → 坏配置 fail-closed 回默认）。`cli_apply_advance.render_apply_advance_result` 加 created 显示（前瞻补全；CLI 暂未暴露开关）。
+
+**审查（铁律⑨，高风险=runner + 持久化数据文件改写）**：3 维度（correctness/security-data/reuse-ironlaw）workflow + 对抗逐条核验，**11 raw findings / 9 confirmed**；拆多 agent 独立视角对抗审（未跑 ultra，需用户授权计费）。处置：**2×P2 已修**（plan-compliance 硬 block→建议级；allow_creation 空 new_state 垃圾边→强制非空）；**reuse 已修**（`_hard_conflict_markers` 从派生副本 `proposal_validator` 改从 canonical `relationship_auditor` 导入，杜绝双副本漂移）；**P3 已修**（key_events 为字符串时逐字符误判 → isinstance 守门）；**nit 已修**（render 显示 created）。**未修（诚实登记）**：confidence Infinity/NaN 写入 entity_graph.json 是 **iter065 前既有**风险（legacy advance 路径同存，非本轮引入；select_auto_indexes 已用 `>=` 过滤 NaN）按铁律⑦顺延；plan-compliance bigram 是**粗略词法信号非语义履约判定**（局限在案，建议级已无 block 风险）。铁律①自查：diff 无 `sk-`/`.env`/key 读写；仅 `src/`/`config`/`tests`/`docs` 改动。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1269 tests OK**（基线 1250 +19）；`verify.sh` exit 0（**须 `PATH=$PWD/.venv/bin:$PATH`**，否则裸 python3 缺 pydantic 173 import error 误判 exit 1）；`preflight` 无 FATAL/WARN。
+
+**数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter066）**：**(b) outline-drift warn→block**（本轮推迟的 #6 第三子项）——新 `outline_drift_severe` readiness kind + driver/Web 级联，配专项审查（注意 `rolling_summary` 落后 drafts 的误报风险，0.2 阈值 + MIN_ANCHORS 缓解）；plan-compliance 升级实体锚定/LLM 语义履约（仅当建议级实跑证明不够用时）；confidence 非有限值在 entity_graph 写入的统一 clamp（含 legacy advance，跨 iter）；F3-3 timeout helper；`_blocker_kind` 别名清理；drama 站③④；KB 起点过滤主动 blocker；真模型 capstone 复跑。

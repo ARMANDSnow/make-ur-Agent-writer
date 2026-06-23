@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List
 from . import paths, readiness_catalog, review_tier, source_excerpts, start_point
 from .chapter_summary import prune_from_chapter
 from .chapter_status import chapter_status
+from .config import load_config
 from .cost_estimator import estimate_cost_since
 from .entity_advance import apply_advance_proposals, proposal_path, select_auto_indexes
 from .preflight import run_preflight
@@ -893,6 +894,17 @@ def _auto_apply_advances(chapter_no: int, *, min_confidence: float) -> Dict[str,
             "conflicts": conflicts,
             "no_op_reason": "conflicts_or_empty_selection" if conflicts else "empty_selection",
         }
+    # iter065 #6c: opt-in NEW-relationship creation, read from config/agents.yaml
+    # (default off → byte-identical legacy skip behavior). Only engaged on the
+    # auto_advance path here; manual apply-advance keeps allow_creation=False.
+    allow_creation = False
+    creation_confidence = 0.85
+    try:
+        ea_cfg = load_config("agents.yaml").get("entity_advance", {}) or {}
+        allow_creation = bool(ea_cfg.get("allow_creation", False))
+        creation_confidence = float(ea_cfg.get("creation_confidence", 0.85))
+    except Exception:
+        allow_creation, creation_confidence = False, 0.85
     try:
         result = apply_advance_proposals(
             chapter_no=chapter_no,
@@ -900,6 +912,8 @@ def _auto_apply_advances(chapter_no: int, *, min_confidence: float) -> Dict[str,
             confirm=True,
             auto_apply=False,
             allow_empty=True,
+            allow_creation=allow_creation,
+            creation_confidence=creation_confidence,
         )
     except (FileNotFoundError, IndexError, ValueError) as exc:
         return {

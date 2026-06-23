@@ -244,6 +244,65 @@ def _weighted_panel_score(reviews: List[Dict[str, Any]]) -> float:
     return round(sum(_agent_weighted_score(r) for r in reviews) / len(reviews), 2)
 
 
+# iter065 #6a：计划履约 reviewer（确定性，零 LLM）。writer prompt 把
+# chapter_plan_item.key_events 标成「必须全部发生」(writer.py:809)，但写完后没有
+# 任何独立校验——写手悄悄漏 beat 无人发现。此处补一个确定性的 **建议级（非阻断）**
+# 信号：把「在正文中几乎找不到」的计划 beat 作为 advisor 风格 rewrite_suggestion
+# 暴露（写进 review.json；仅当本就要重写时才喂回写手）。
+#
+# 为什么是建议级而非硬 block（iter065 收官审查 P2 改正）：判定用 beat 的中文字符
+# bigram 命中率；长 beat（计划里常是 40-70 字的名词密集句）被「忠实但戏剧化」地
+# 换句后命中率会大幅下降，硬 block 会误拒好稿、烧光 rewrite 预算——这正是我们把
+# (b) outline-drift warn→block 推迟想避免的同一类误报风险。故只在覆盖率近乎为零
+# （< COVER_THRESHOLD，阈值刻意取低）时产建议，**永不翻转 verdict**：只点「基本
+# 没写到」的 beat，少打扰忠实改写。中文无分词器，bigram 覆盖度是粗略词法信号，
+# 不是语义履约判定（见 Notes 的局限说明）。
+COVER_THRESHOLD = 0.15
+
+
+def _cjk_clean(text: str) -> str:
+    """去标点/空白，只留可比对字符（中文/字母/数字均 isalnum()=True）。"""
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def _char_bigrams(cleaned: str) -> set[str]:
+    if len(cleaned) >= 2:
+        return {cleaned[i : i + 2] for i in range(len(cleaned) - 1)}
+    return {cleaned} if cleaned else set()
+
+
+def _beat_coverage(beat: str, cleaned_draft: str) -> float:
+    """beat 的字符 bigram 在 draft 中的命中率（0..1）。空 beat 视为已覆盖。"""
+    bigrams = _char_bigrams(_cjk_clean(beat))
+    if not bigrams:
+        return 1.0
+    hits = sum(1 for bg in bigrams if bg in cleaned_draft)
+    return hits / len(bigrams)
+
+
+def _plan_compliance_misses(
+    draft: str, chapter_plan_item: Dict[str, Any] | None
+) -> List[str]:
+    """返回「在正文中几乎找不到」的计划 beat 列表（覆盖率 < COVER_THRESHOLD）。
+
+    chapter_plan_item 为 None / 无 key_events / key_events 非 list → 返回 []
+    （自跳过；review.json 与改前字节级一致，铁律④）。这是建议级信号，调用方据此
+    产 rewrite_suggestion，**绝不据此 block 或翻转 verdict**。
+    """
+    if not chapter_plan_item:
+        return []
+    raw = chapter_plan_item.get("key_events")
+    if not isinstance(raw, (list, tuple)):
+        return []  # 非 list（如 LLM 误发字符串）→ 不按字符逐个误判
+    key_events = [str(ev).strip() for ev in raw if str(ev).strip()]
+    if not key_events:
+        return []
+    cleaned_draft = _cjk_clean(draft or "")
+    return [
+        beat for beat in key_events if _beat_coverage(beat, cleaned_draft) < COVER_THRESHOLD
+    ]
+
+
 def review_text(
     text: str,
     target_name: str = "draft",
@@ -257,6 +316,7 @@ def review_text(
     run_context: Dict[str, Any] | None = None,
     draft_sha256: str = "",
     tier: str | None = None,
+    chapter_plan_item: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Iter 022 B4 + iter 023 P3/P5:
 
@@ -618,6 +678,30 @@ def review_text(
                     error=str(exc),
                 )
                 continue
+
+    # iter065 #6a: deterministic plan-compliance signal — NON-blocking. Append
+    # planned beats that are essentially absent from the draft as advisor-style
+    # rewrite suggestions: they ride the existing rewrite_suggestions channel
+    # (rendered by writer._review_feedback's "改写顾问建议" section regardless of
+    # verdict, and visible in review.json), so they nudge the writer ONLY when a
+    # rewrite is already happening and NEVER flip the verdict. A coarse lexical
+    # bigram probe must not hard-reject a faithful-but-dramatized chapter (the
+    # (b)-class false-positive risk we deliberately deferred). Self-skips when
+    # chapter_plan_item is None / has no key_events → byte-identical legacy.
+    try:
+        plan_misses = _plan_compliance_misses(text, chapter_plan_item)
+    except Exception as exc:
+        log_event("review", "plan_compliance_error", target=target_name, error=str(exc))
+        plan_misses = []
+    for beat in plan_misses[:3]:
+        rewrite_suggestions.append(
+            {
+                "section": "本章计划",
+                "type": "add",
+                "guidance": f"计划关键事件在正文中几乎未体现，请确认是否已写出，未写到则补足：{beat[:60]}",
+                "_advisor": "plan_compliance",
+            }
+        )
 
     report = {
         "target": target_name,

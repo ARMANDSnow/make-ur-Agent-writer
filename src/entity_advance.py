@@ -9,6 +9,9 @@ from typing import Any, Dict, Iterable, List
 
 from . import paths
 from .config import ROOT
+# Canonical home of the hard-conflict markers (owns _HARD_CONFLICT_KEYWORDS);
+# proposal_validator only re-wraps it, so import the source to avoid divergence.
+from .relationship_auditor import _hard_conflict_markers
 from .state import log_event
 from .utils import ensure_dir, read_json, write_json
 
@@ -112,6 +115,8 @@ def apply_advance_proposals(
     auto_apply: bool = False,
     min_confidence: float = 0.7,
     allow_empty: bool = False,
+    allow_creation: bool = False,
+    creation_confidence: float = 0.85,
 ) -> Dict[str, Any]:
     """Dry-run or apply selected proposal indexes to data/entity_graph.json.
 
@@ -182,7 +187,15 @@ def apply_advance_proposals(
     if not graph:
         raise FileNotFoundError(f"entity graph not found or empty: {graph_path}")
     before = json.dumps(graph, ensure_ascii=False, indent=2, sort_keys=True)
-    updated, skipped = _apply_selected(graph, selected, chapter_no)
+    created: List[Dict[str, Any]] = []
+    updated, skipped = _apply_selected(
+        graph,
+        selected,
+        chapter_no,
+        allow_creation=allow_creation,
+        creation_confidence=creation_confidence,
+        created=created,
+    )
     after = json.dumps(updated, ensure_ascii=False, indent=2, sort_keys=True)
     diff = "\n".join(
         difflib.unified_diff(
@@ -200,18 +213,29 @@ def apply_advance_proposals(
         "selected": selected_indexes if auto_apply else indexes,
         "confirm": confirm,
         "diff": diff,
-        # Skipped (stale-relationship) proposals don't count as applied.
-        "applied_count": len(selected) - len(skipped),
+        # Skipped (stale-relationship) proposals don't count as applied; iter065
+        # #6c: newly-created relationships are reported under created_count, not
+        # applied_count (which stays = advances on pre-existing edges).
+        "applied_count": len(selected) - len(skipped) - len(created),
         "auto_apply": auto_apply,
         "min_confidence": min_confidence if auto_apply else None,
     }
     if skipped:
         result["skipped"] = skipped
+    if created:
+        result["created_count"] = len(created)
+        result["created"] = created
     return result
 
 
 def _apply_selected(
-    graph: Dict[str, Any], selected: List[Dict[str, Any]], chapter_no: int
+    graph: Dict[str, Any],
+    selected: List[Dict[str, Any]],
+    chapter_no: int,
+    *,
+    allow_creation: bool = False,
+    creation_confidence: float = 0.85,
+    created: List[Dict[str, Any]] | None = None,
 ) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Apply selected proposals to the graph timeline, tolerating stale refs.
 
@@ -226,6 +250,14 @@ def _apply_selected(
     A proposal missing ``src_id``/``dst_id`` is a structural defect (the
     auto_apply path already pre-filters these via ``_is_applyable_proposal``)
     and still raises.
+
+    iter065 #6c: with ``allow_creation=True`` an absent relationship pair is no
+    longer always skipped — a high-confidence proposal (``confidence >=
+    creation_confidence``) whose ``new_state`` carries no hard-conflict marker
+    creates a brand-new relationship edge instead. Created edges are appended to
+    the optional ``created`` list (when provided) so the caller can report them
+    separately from advances. ``allow_creation`` defaults False, so the legacy
+    ``relationship_not_found`` skip path is byte-identical for existing callers.
     """
     updated = json.loads(json.dumps(graph, ensure_ascii=False))
     relationships = updated.setdefault("relationships", [])
@@ -237,6 +269,65 @@ def _apply_selected(
             raise ValueError("proposal missing src_id or dst_id")
         rel = _find_relationship(relationships, src_id, dst_id)
         if rel is None:
+            confidence = float(proposal.get("confidence") or 0.0)
+            new_state = str(proposal.get("new_state") or "").strip()
+            # iter065 #6c: confidence-gated creation of a NEW relationship,
+            # behind allow_creation (default off). Refused (skipped with a
+            # specific reason) when: new_state is empty (no applyable content —
+            # mirrors _is_applyable_proposal's non-empty-state contract, which
+            # the explicit-index creation path would otherwise bypass), the
+            # state carries a hard-conflict marker (敌对/已死/已背叛 ...; reuses the
+            # same fail-closed guard existing-edge advances pass), or confidence
+            # is below the (stricter) creation gate.
+            if allow_creation:
+                conflict = _hard_conflict_markers(new_state)
+                if not new_state:
+                    reason = "creation_empty_state"
+                elif conflict:
+                    reason = "creation_hard_conflict"
+                elif confidence < creation_confidence:
+                    reason = "creation_below_confidence"
+                else:
+                    reason = None
+                if reason is None:
+                    relationships.append(
+                        {
+                            "src_id": src_id,
+                            "dst_id": dst_id,
+                            "relation_type": str(proposal.get("relation_type") or "续写新建"),
+                            "timeline": [
+                                {
+                                    "anchor_chapter": f"续写第{chapter_no:02d}章",
+                                    "state": new_state,
+                                    "trigger_event": str(proposal.get("trigger_event") or "").strip(),
+                                    "confidence": confidence,
+                                    "active": True,
+                                }
+                            ],
+                        }
+                    )
+                    if created is not None:
+                        created.append({"src_id": src_id, "dst_id": dst_id})
+                    log_event(
+                        "entity_advance",
+                        "relationship_created",
+                        src_id=src_id,
+                        dst_id=dst_id,
+                        chapter_no=chapter_no,
+                        confidence=confidence,
+                    )
+                    continue
+                log_event(
+                    "entity_advance",
+                    "proposal_skipped",
+                    reason=reason,
+                    src_id=src_id,
+                    dst_id=dst_id,
+                    chapter_no=chapter_no,
+                    confidence=confidence,
+                )
+                skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": reason})
+                continue
             # iter 051b (F5, carry-over from iter 027 review): the skip is the
             # right call (see docstring), but it used to be invisible — a
             # high-confidence proposal silently vanished with no log trail.
@@ -248,7 +339,7 @@ def _apply_selected(
                 src_id=src_id,
                 dst_id=dst_id,
                 chapter_no=chapter_no,
-                confidence=float(proposal.get("confidence") or 0.0),
+                confidence=confidence,
             )
             skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "relationship_not_found"})
             continue

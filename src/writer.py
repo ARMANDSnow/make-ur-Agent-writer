@@ -275,6 +275,7 @@ def write_chapters(
                     tier=resolved_tier,
                     run_context=run_context,
                     draft_sha256=_draft_file_sha256(draft),
+                    chapter_plan_item=chapter_plan_item,
                 )
                 stage = "budget_check_review"
                 budget_check()

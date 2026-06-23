@@ -354,5 +354,146 @@ class SkippedProposalLoggingTests(unittest.TestCase):
         )
 
 
+class ApplyAdvanceCreatesNewRelationshipTests(unittest.TestCase):
+    """iter065 #6c: with ``allow_creation=True`` a high-confidence proposal for a
+    pair absent from the graph CREATES a new relationship edge instead of being
+    skipped as ``relationship_not_found``. Default off keeps legacy behavior
+    byte-identical (covered by ApplyAdvanceSkipsMissingRelationshipTests).
+    """
+
+    def _apply(self, **kwargs):
+        from src.entity_advance import _apply_selected
+
+        graph = {
+            "entities": [{"id": "ent_x", "name": "X"}, {"id": "ent_y", "name": "Y"}],
+            "relationships": [],
+        }
+        proposal = {
+            "src_id": "ent_x",
+            "dst_id": "ent_y",
+            "new_state": "结为同伴并肩作战",
+            "trigger_event": "并肩",
+            "confidence": kwargs.pop("confidence", 0.9),
+            **kwargs.pop("proposal_extra", {}),
+        }
+        created: list = []
+        with patch("src.entity_advance.log_event"):
+            updated, skipped = _apply_selected(
+                graph, [proposal], 7, created=created, **kwargs
+            )
+        return updated, skipped, created
+
+    def test_default_off_still_skips_byte_identical(self) -> None:
+        updated, skipped, created = self._apply()  # allow_creation defaults False
+        self.assertEqual(created, [])
+        self.assertEqual(updated["relationships"], [])
+        self.assertEqual(
+            skipped,
+            [{"src_id": "ent_x", "dst_id": "ent_y", "reason": "relationship_not_found"}],
+        )
+
+    def test_high_confidence_creates_new_edge(self) -> None:
+        updated, skipped, created = self._apply(
+            allow_creation=True, creation_confidence=0.85, confidence=0.9
+        )
+        self.assertEqual(skipped, [])
+        self.assertEqual(created, [{"src_id": "ent_x", "dst_id": "ent_y"}])
+        self.assertEqual(len(updated["relationships"]), 1)
+        rel = updated["relationships"][0]
+        self.assertEqual((rel["src_id"], rel["dst_id"]), ("ent_x", "ent_y"))
+        self.assertEqual(rel["relation_type"], "续写新建")
+        entry = rel["timeline"][0]
+        # anchor_chapter must match the existing advance format byte-for-byte.
+        self.assertEqual(entry["anchor_chapter"], "续写第07章")
+        self.assertEqual(entry["state"], "结为同伴并肩作战")
+        self.assertTrue(entry["active"])
+        self.assertEqual(entry["confidence"], 0.9)
+
+    def test_proposal_relation_type_is_honored(self) -> None:
+        updated, _skipped, _created = self._apply(
+            allow_creation=True, proposal_extra={"relation_type": "师徒"}
+        )
+        self.assertEqual(updated["relationships"][0]["relation_type"], "师徒")
+
+    def test_below_creation_confidence_is_skipped(self) -> None:
+        updated, skipped, created = self._apply(
+            allow_creation=True, creation_confidence=0.85, confidence=0.8
+        )
+        self.assertEqual(created, [])
+        self.assertEqual(updated["relationships"], [])
+        self.assertEqual(skipped[0]["reason"], "creation_below_confidence")
+
+    def test_hard_conflict_state_refuses_creation(self) -> None:
+        updated, skipped, created = self._apply(
+            allow_creation=True,
+            creation_confidence=0.85,
+            confidence=0.99,
+            proposal_extra={"new_state": "两人已死，彻底敌对"},
+        )
+        self.assertEqual(created, [])
+        self.assertEqual(updated["relationships"], [])
+        self.assertEqual(skipped[0]["reason"], "creation_hard_conflict")
+
+    def test_empty_new_state_refuses_creation(self) -> None:
+        # iter065 review P2: the explicit-index creation path bypasses
+        # _is_applyable_proposal, so the creation branch must itself refuse an
+        # empty new_state instead of persisting a stateless junk edge.
+        updated, skipped, created = self._apply(
+            allow_creation=True,
+            creation_confidence=0.85,
+            confidence=0.99,
+            proposal_extra={"new_state": ""},
+        )
+        self.assertEqual(created, [])
+        self.assertEqual(updated["relationships"], [])
+        self.assertEqual(skipped[0]["reason"], "creation_empty_state")
+
+    def test_public_apply_surfaces_created_count(self) -> None:
+        # End-to-end via the public entry, mirroring book_runner's call shape.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts = root / "drafts"
+            graph_path = root / "entity_graph.json"
+            graph_path.write_text(
+                json.dumps(
+                    {
+                        "entities": [{"id": "ent_x", "name": "X"}, {"id": "ent_y", "name": "Y"}],
+                        "relationships": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            save_entity_advance_proposals(
+                7,
+                [
+                    {
+                        "src_id": "ent_x",
+                        "dst_id": "ent_y",
+                        "new_state": "结为同伴并肩作战",
+                        "trigger_event": "并肩",
+                        "confidence": 0.9,
+                    }
+                ],
+                drafts_dir=drafts,
+            )
+            result = apply_advance_proposals(
+                chapter_no=7,
+                proposal_indexes="0",
+                confirm=True,
+                graph_path=graph_path,
+                drafts_dir=drafts,
+                allow_empty=True,
+                allow_creation=True,
+                creation_confidence=0.85,
+            )
+            graph = json.loads(graph_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.get("created_count"), 1)
+        self.assertEqual(result.get("applied_count"), 0)  # creation != advance
+        self.assertNotIn("skipped", result)
+        self.assertEqual(len(graph["relationships"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
