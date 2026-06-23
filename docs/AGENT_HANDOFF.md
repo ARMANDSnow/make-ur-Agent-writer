@@ -1554,3 +1554,23 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：纯代码 + 测试 + 文档改动，未触碰任何 workspace / 真实数据 / .env。
 
 **下轮候选**：① **#12 方案B（iter061）**——流式中断 + debate 开 `stream`（碰 `llm_client`/stream 配置），需真模型验证流式中断不破坏 SSE read 超时（触「真模型须超时重试驱动」红线，须谨慎驱动）；② #4/#1 真模型复跑坐实端到端（`chapter_plan_invalid` / `budget_exceeded`，前几轮 mock 确定性为准）；③ 审计 16 条已全部清零 open，后续为真模型验证与产品打磨，非 bugfix。
+
+## iter061：#11 路径穿越 P0 热修 + iter060/061 代码审查发现登记（2026-06-23）
+
+> 注：iter061 是一次 **P0 热修**（commit `bce579c`），**未走完整四处登记**——无 `iteration_061_PLAN.md`、不在 `iterations/README.md` / 根 README 状态表；本段是其唯一接力记录，下轮（iter062）若收尾可补全。`bce579c` 同时捎带：`AGENTS.md` 铁律⑨ 升级为内置 `/code-review`+`/security-review` skill、`docs/CLAUDE_CODE_WORKFLOW_OPTIMIZATION_2026-06.md` 调研报告。
+
+**iter061 已落地（`bce579c`）**：iter060 #11 让路由把样本**绝对路径**塞进 `job params.sample_path`，handler 裸 `Path()` 信任并 `read_text`+`unlink`（`jobs.py`）；`/run` 又允许任意 params → 攻击者 `POST {step:extract-style, params:{sample_path:/任意路径}}` 即可让该 step **读取并删除 workspace 外任意文件**（实测外部文件被删、`writer_style.json` 被生成）。**修复**：路由只传随机 token（`uuid4().hex`），handler `re.fullmatch(r"[0-9a-f]{32}", token)` 校验后在 `data_dir` 内 `with_name` 重建路径——路径**永不取自调用方输入**，穿越不可能；非法/缺失 token 回落固定路径（仍在 `data_dir` 内）。+4 测试（含端到端 `/run` 恶意 `sample_path`/token → 外部文件存活）+ 既有 #11 测试改 token 契约。
+
+**iter060+iter061 代码审查（`/code-review high`，3 finder 交叉验证 + 主 agent 复核 `b6a9938..bce579c`）发现 → iter062 待修**：P0 路径穿越已由 iter061 修复（上）；以下为 iter061 **未覆盖**的真实问题。
+
+- **① 孤儿版权样本——取消即泄漏（中，finder×2 确认）**：`_step_extract_style`（`jobs.py`）——#11 改唯一 token 路径后，样本只在 handler `try/finally` 删；但 `progress_cb("extract",0.1)` 在该 `try` **之前**、取消会抛 `JobCancelled`，或 job 排队期被取消（handler 根本没跑）→ 样本永不删。**旧固定路径会被下次上传覆盖（至多 1 个孤儿），唯一路径方案让孤儿无限累积**，全仓无清扫 → 违反"样本不持久化（P0-A 版权护栏）"。**修法**：上传前在 `use_workspace` 内 glob 清扫 stale `.writer_style_sample.*.tmp`（workspace 锁保证至多一个 in-flight）+ handler 把 read 之后全程（含 `progress_cb`）包进 try/finally。
+- **② write-book/plan-chapters 的 timeout 校验后被丢弃（中，finder×2 确认）**：`_validated_run_params`（`routes.py`）对所有 step 校验 `timeout_minutes`，但 write-book/plan-chapters 返回的 `out` dict **不含 `timeout_minutes`**（被 `_validate_write_book_params`/`_validate_plan_chapters_params` 重建时丢）→ `_timeout_deadline` 拿不到、超时永不 arm。**最该有超时的两个最长 step 反而静默无超时**，注释"applies to every step"误导（仅 plain step 走 `return None, params` 透传 + wizard 路径真生效）。**修法**：把合法 `timeout_minutes` 带进这两个 `out`。
+- **③ `/run` 的 timeout 校验无 maximum（低，与②同源）**：顶层 `_float_param(..., minimum=0.0)` 无 `maximum`，而 wizard 两处都 `maximum=1440.0`（24h）。超大有限 timeout（如 `1e9`）= 永不触发的假死线——Codex-B 想堵那类的另一入口（从 NaN 换成超大有限值，双层都不拦）。**修法**：加 `maximum=1440.0` 对齐 wizard。
+- **④ 坏 meta 被覆盖（低）**：`_sync_meta_with_external_review`（`book_runner.py` 790/813）——corrupt `meta.json` 降级 `{}` 后，若 `review.json` 有非空 verdict 则 `write_json(meta_path, meta)` 用最小 meta 覆盖，丢 writer-owned 历史（旧 `read_json` 抛错中止 sync 反而保留文件——但那是 Codex-F 要修的击穿 bug）。数据本已不可读，危害有限。**修法**：meta 降级 {} 时跳过写回、保留现场。
+- **⑤ readiness clamp 静默截断 vs write-book 超限 400（低，一致性）**：同一非法大值，readiness 静默 clamp 到 2000、write-book 直接 400 拒绝；readiness 响应不告知被 clamp。**可选**：readiness 超限加 warning 字段或与 write-book 一致返错。
+- **⑥ iter061 token 非法→回落固定路径（低，后门）**：绕过 route 的 caller（旧客户端/直接 `start_job` 不传 token）会回落固定 `.writer_style_sample.tmp`，重开 #11 clobber 窗口。注意 iter061 自身回归测试依赖该 fallback 在样本缺失时返 `blocked`，删除需同步改测试。
+- **⑦ drama/plan reservation 窗口比注释窄（低）**：reservation 只包 `write_json`，`drama_planner.run`（含 prompt-log append）在锁外；注释"hold the reservation across the write"略夸大。低危（log append-only、result 源自只读输入），登记备查。
+
+**审查确认干净（无需动）**：debate 检查点位置/fraction/取消传播（均在 `except Exception` 外、单调、干净传到 `_worker` 的 `except JobCancelled`）、readiness `int()`（恒喂 int）、drama/起点 reservation 的 `except RuntimeError`→`raise` 只吞 `workspace_busy`/`not_found`、`write_json`/`write_text_atomic` 的 `ensure_dir`、token 正则 + `with_name` 重建的穿越安全性、`read_json`→`read_json_optional` 下游 isinstance 守卫、PUT 坏 graph 在 `write_json` 前 404。
+
+**iter062 建议范围**：**①②③ 同一类资源/泄漏先收**（一条 iter062、三 commit + 测试，仍只 commit 不 push）；④–⑦ 低优先随手或登记备查；**iter061 四处登记补全**（`iteration_061_PLAN.md` / 两处 README）可一并在 iter062 收尾。
