@@ -12,20 +12,23 @@ Design rules:
   logs only — we preserve the existing "never leak tracebacks to the
   client" guarantee (``server.py`` top-level handler) while still handing
   the user a human-readable title + cause + next step.
-* Readiness text is kept verbatim in sync with
-  ``book_runner._primary_blocker`` labels. This module is the single source
-  going forward; we deliberately do **not** merge the three catalogs this
-  round (frontend ``CTA_ACTIONS`` / backend ``_primary_blocker`` / here) —
-  see iteration_062 Notes. Drift is guarded by tests.
+* Readiness cards are **derived** from ``src/readiness_catalog`` (iter063
+  Part C). That core module is the single source of truth shared by
+  ``book_runner._primary_blocker`` and the injected frontend catalog
+  (``window.READINESS_CATALOG``), so the three former copies can no longer
+  drift. ``readiness_catalog`` imports only ``typing`` — pulling it in keeps
+  this module importable without spinning up the server or touching data.
 
-Pure data + pure functions: only ``json`` / ``typing`` imports so tests can
-import it without spinning up the server or touching optional data sources.
+Pure data + pure functions: only ``json`` / ``typing`` / ``readiness_catalog``
+imports so tests can import it without spinning up the server.
 """
 
 from __future__ import annotations
 
 import json
 from typing import Any, Dict
+
+from .. import readiness_catalog
 
 # ---------------------------------------------------------------------------
 # Catalogs
@@ -69,51 +72,44 @@ _CATALOG: Dict[str, Dict[str, Any]] = {
         "cause": "出了点意外，已经记录下来。把下方编号告诉维护者便于排查。",
         "actions": [{"label": "刷新重试", "action": "reload"}],
     },
+    # iter063 A3: onboarding-upload validation. The wizard's simplified
+    # renderErrorCard only shows title + cause (no action buttons), so these
+    # carry the actionable next step inside ``cause`` instead of ``actions``.
+    "upload_no_chapters": {
+        "title": "没找到章节标题",
+        "cause": "文件里没有「第1章」「Chapter 1」这类章节标题，整本会被切成 0 章。请确认原文带章节标题，或换一个文件再上传。",
+        "actions": [],
+    },
+    "upload_not_utf8": {
+        "title": "文件不是 UTF-8 编码",
+        "cause": "无法按 UTF-8 读取该文件。请用编辑器把它另存为 UTF-8 编码后再上传。",
+        "actions": [],
+    },
+    "invalid_workspace_name": {
+        "title": "作品名不合法",
+        "cause": "作品名只能用中文 / 字母 / 数字 / 下划线，中间可含连字符，长度不超过 32 个字符，请换个名字。",
+        "actions": [],
+    },
+    # iter063 A2: draft md saved but meta.json sync failed. The body is on disk,
+    # so "保存失败" would be a lie; the chapter sits at draft_hash_mismatch
+    # (fail-safe) until a re-save lands the meta. Raw exc goes to stderr only.
+    "draft_meta_unsynced": {
+        "title": "正文已保存，元数据待同步",
+        "cause": "正文已写入磁盘，但元数据同步失败；该章会暂时显示「草稿校验未通过」，再保存一次即可修复，已写好的正文不会丢。",
+        "actions": [{"label": "重试保存", "action": "reload"}],
+    },
 }
 
-# Readiness blocker kind -> friendly card. Titles/actions aligned verbatim
-# with book_runner._primary_blocker.labels (src/book_runner.py).
+# Readiness blocker kind -> friendly card. iter063 Part C: derived from the
+# shared src/readiness_catalog (label/cause/cta_*) so card text can't drift
+# from book_runner._primary_blocker or the frontend's injected catalog.
 _READINESS: Dict[str, Dict[str, Any]] = {
-    "start_point_missing": {
-        "title": "未设置续写起点",
-        "cause": "先选定从原作哪一章之后开始续写，之后才能生成章节计划。",
-        "actions": [{"label": "去设置起点", "action": "scroll_to_start_point"}],
-    },
-    "outline_missing": {
-        "title": "缺少全书大纲",
-        "cause": "先生成或检查全书走向，再进入章节续写。",
-        "actions": [{"label": "去计划页", "action": "go_plan"}],
-    },
-    "chapter_plan_missing": {
-        "title": "缺少章节计划",
-        "cause": "续写需要本章计划，可先用默认目标章数生成。",
-        "actions": [{"label": "生成章节计划", "action": "run_plan_chapters"}],
-    },
-    "chapter_plan_invalid": {
-        "title": "章节计划文件损坏",
-        "cause": "章节计划文件无法读取，重新生成即可修复，已写好的正文不受影响。",
-        "actions": [{"label": "重新生成计划", "action": "run_plan_chapters"}],
-    },
-    "retry_exhausted": {
-        "title": "已有草稿未通过",
-        "cause": "本章已有草稿但未达通过门槛，可查看后重试。",
-        "actions": [{"label": "查看并重试", "action": "retry_write_book"}],
-    },
-    "preflight_failed": {
-        "title": "工程预检未通过",
-        "cause": "上游配置或数据预检没通过，先看诊断再续写。",
-        "actions": [{"label": "查看诊断", "action": "show_diagnostics"}],
-    },
-    "foreshadowing_overdue": {
-        "title": "有 must-resolve 伏笔超期未回收",
-        "cause": "存在标记为必须回收的伏笔超期未回收。",
-        "actions": [{"label": "查看诊断", "action": "show_diagnostics"}],
-    },
-    "unknown": {
-        "title": "续写入口受阻",
-        "cause": "续写前置条件未满足，查看诊断了解详情。",
-        "actions": [{"label": "查看诊断", "action": "show_diagnostics"}],
-    },
+    kind: {
+        "title": spec["label"],
+        "cause": spec["cause"],
+        "actions": [{"label": spec["cta_label"], "action": spec["cta_action"]}],
+    }
+    for kind, spec in readiness_catalog.KINDS.items()
 }
 
 DEFAULT_CODE = "server_error"
@@ -191,24 +187,11 @@ def card_for_exception(
 def readiness_kind(blocker: str) -> str:
     """Classify a raw readiness blocker string into a known kind.
 
-    Mirrors book_runner._blocker_kind so the diagnostic list can be
-    translated independently of the primary-blocker path.
+    iter063 Part C: delegates to the shared ``readiness_catalog.classify`` —
+    the same function ``book_runner._blocker_kind`` now uses, so the diagnostic
+    list and the primary-blocker path can never classify differently.
     """
-    if blocker in _READINESS:
-        return blocker
-    # Below: prefixed / substring variants that are not exact catalog keys
-    # (exact keys already returned above).
-    if blocker.startswith("chapter_plan:") or "plan_item_missing" in blocker:
-        return "chapter_plan_missing"
-    if blocker.startswith("outline_missing") or "outline_missing" in blocker:
-        return "outline_missing"
-    if "retry_exhausted" in blocker or "existing_output_not_strict_approved" in blocker:
-        return "retry_exhausted"
-    if blocker.startswith("preflight:"):
-        return "preflight_failed"
-    if blocker.startswith("foreshadowing_must_resolve_overdue") or blocker.startswith("foreshadowing_gate_error"):
-        return "foreshadowing_overdue"
-    return "unknown"
+    return readiness_catalog.classify(blocker)
 
 
 def readiness_card(blocker: str) -> Dict[str, Any]:

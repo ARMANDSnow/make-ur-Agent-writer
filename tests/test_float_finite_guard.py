@@ -151,6 +151,43 @@ class FloatParamUnitTests(unittest.TestCase):
         err, _out = routes._validated_run_params("normalize", {})
         self.assertIsNone(err)
 
+    def test_validate_write_book_params_carries_timeout(self) -> None:
+        # iter063 A5 (= 后端审查②): the rebuilt write-book params used to DROP a
+        # validated timeout_minutes, so jobs._timeout_deadline never armed.
+        err, out = routes._validate_write_book_params({"timeout_minutes": "30"})
+        self.assertIsNone(err)
+        self.assertEqual(out.get("timeout_minutes"), 30.0)
+        # 0 / absent means "no cap" — key omitted (matches _timeout_deadline).
+        err, out = routes._validate_write_book_params({"timeout_minutes": "0"})
+        self.assertIsNone(err)
+        self.assertNotIn("timeout_minutes", out)
+        err, out = routes._validate_write_book_params({})
+        self.assertIsNone(err)
+        self.assertNotIn("timeout_minutes", out)
+
+    def test_validate_plan_chapters_params_carries_timeout(self) -> None:
+        # iter063 A5: plan-chapters is the other long step whose rebuilt params
+        # dropped the timeout.
+        err, out = routes._validate_plan_chapters_params({"target_chapters": 5, "timeout_minutes": "12"})
+        self.assertIsNone(err)
+        self.assertEqual(out.get("timeout_minutes"), 12.0)
+        err, out = routes._validate_plan_chapters_params({"target_chapters": 5})
+        self.assertIsNone(err)
+        self.assertNotIn("timeout_minutes", out)
+
+    def test_timeout_minutes_over_maximum_rejected(self) -> None:
+        # iter063 ③: an unbounded finite timeout (e.g. 1e9 minutes) is a fake
+        # deadline that never fires. Cap at 1440min (24h) like the wizard, on
+        # the boundary and in both long-step validators.
+        for step in ("normalize", "write-book", "plan-chapters"):
+            err, _out = routes._validated_run_params(step, {"timeout_minutes": 1e9})
+            self.assertIsNotNone(err, step)
+            self.assertIn("timeout_minutes", err)
+        # Exactly the cap is allowed.
+        err, out = routes._validate_write_book_params({"timeout_minutes": "1440"})
+        self.assertIsNone(err)
+        self.assertEqual(out.get("timeout_minutes"), 1440.0)
+
 
 class _IsolatedWorkspaceCase(unittest.TestCase):
     def setUp(self) -> None:

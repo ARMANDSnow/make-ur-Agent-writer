@@ -1592,3 +1592,38 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。
 
 **下轮候选（iter063）**：后端代码审查 ①-⑦（① 孤儿版权样本取消即泄漏=中危版权护栏，优先）；iter061 四处登记补全（`iteration_061_PLAN.md` + 索引/状态表）；移动端 drawer/导航响应式；drama 站③④ 实做；后端三份 readiness 目录合并。
+
+## iter063：codex iter062 复审 bug 收口 + 后端审查①-⑦ + readiness 目录合并 + 移动端审计 + iter061 登记（2026-06-23，收官）
+
+> **scope**：iter062 前端重构后，codex 用 3 视角 subagent + Playwright 真浏览器复审发现 7 个回归/遗漏（2×P1/4×P2/1×P3）；本轮全修 + 收掉 iter062 顺延的后端代码审查 ①-⑦ + 三份 readiness 目录合并 + 移动端导航审计 + iter061 四处登记补全。用户明确范围：codex 7 bug + 后端①-⑦全收 + iter061 登记 + 移动端 drawer 响应式 + 三份目录合并；**drama 站③④实做 / KB 起点过滤升级不在本轮**。只 commit 不 push。
+
+**codex 复审 7 bug（全修）**：
+- **A1**（P1）plan-chapters 裸露 `ValueError: stale debate outline`（052 跨时间线护栏的刻意硬阻断，**不能**自动 `--allow-stale-outline` 放行）→ `jobs._step_plan_chapters` 捕获 `"stale debate outline" in msg` 转 `blocked(outline_stale)`；前端 `pollJob` 终态非 succeeded 改渲新 `renderJobFailureCard` 友好卡（**顺带收口所有 blocked/failed job 的裸 `reason · error` 行**，不止 stale outline）。
+- **A2**（P1）剩余裸 `str(exc)`（drama plan/hooks FNF+ValueError、start_job、draft-meta）→ 加 `card`（沿 iter062 4xx/FNF 约定保 `error=str(exc)`，substring 测试不破；draft-meta 改 card + 原 exc 进 stderr）；前端新增 `errTitle(err)`（优先 `payload.card.title`）替换 17 处错误 toast，草稿保存走 `#draft-edit-status` 卡。
+- **A3**（P2）wizard 上传错误卡英文技术化 → `_UploadRejected` 加 `code`，errors 目录加 `upload_no_chapters`/`upload_not_utf8`/`invalid_workspace_name`（仅 `start_upload` 路径；premise/drama-start 仍英文串，留 backlog）。
+- **A4**（P2）workspace `pattern` 在 Chromium `v`-flag 把字符类内**裸 `-`** 当 SyntaxError → 转义 `\-`（CJK 范围 `一-鿿` 本身合法不变，3 处输入框）。preview 实测控制台零 regex error。
+- **A5**（P2，=后端审查②）write-book/plan-chapters `timeout_minutes` 校验后被 rebuild params 丢弃 → 两 validator 携带正值；顶层 `_validated_run_params` 加 `maximum=1440`（③）。
+- **A6**（P2）章节页「点击任意一行」误导 → 「续写行可点击查看详情（原文行仅供参照）」。
+- **A7**（P3）`/chapter/N#edit` 深链不进编辑 tab → `_ALLOWED_TAB_KEYS` 补 `edit`。
+
+**后端代码审查 ①-⑦（②已并入 A5，其余全收）**：
+- **①** 孤儿版权样本取消即泄漏（中危 P0-A 护栏）→ handler 把 read→progress_cb→extract 全程包 try/finally（running-cancel 也 unlink）+ 上传前 glob 清扫 stale `.writer_style_sample.*.tmp`（持 reservation，sweep all-but-mine 无竞态）+ **审查补漏**：`_worker` finally 增 `_cleanup_extract_sample` 按 token 删本 job 样本，覆盖 **queued-cancel**（handler 未跑）。
+- **③** `/run` timeout 无上限 → `maximum=1440`（与 wizard 对齐）。
+- **④** 坏 meta 降级 `{}` 时跳过写回，不用 verdict-only stub 覆盖 writer 历史。
+- **⑤** readiness clamp 静默 → 加 `clamped:{key:{requested,applied}}` 字段（只读探针仍非 400，显式告知）。
+- **⑥** iter061 无效 token 回落固定路径后门 → 无合法 32-hex token 直接 `blocked`，删除 fallback（既有测试本就期望 blocked，契约不破）。
+- **⑦** drama/plan reservation 窗口偏窄 → 把 `drama_planner.run`（含 prompt-log append）一并纳入 `workspace_reserved`，与注释相符。
+
+**Part C 三份 readiness 目录合并**：新建核心层 `src/readiness_catalog.py`（仅 `typing`，`KINDS`+`classify`+`fields_for`，避免 `book_runner`→`web` 反向依赖）；`book_runner._primary_blocker`/`_blocker_kind` 与 `errors._READINESS`/`readiness_kind` 全部派生自它；前端 `_BASE_TPL` 注入 `window.READINESS_CATALOG`（`json.dumps(...).replace("<","\\u003c")` 防 `</script>` 突破），`CTA_ACTIONS` 改 IIFE 从注入目录构建（`plan_fingerprint_stale` 是 jobActionKind 合成的前端专属 kind，本地保留）。漂移由新增测试守（注入 JSON==KINDS、errors/book_runner 派生一致）。
+
+**Part D 移动端审计（结论：已适配，无需新增 @media）**：iter044 已建抽屉（`.sidebar.open`+overlay+`nav-toggle`+`@media 768px`），iter062 新元素（topbar ⌂/breadcrumb 省略号、stepbar `flex-wrap`、单一 CTA、`.error-card` 列布局、novel/drama `.tab-list overflow-x:auto`+状态 pill）在 375px preview 实测全部正常、页面零横向溢出（drama 锁 tab 经横滚可达）。诚实记录：本轮 Part D 是**验证确认**而非新增 CSS（无破即不改，铁律⑦）。
+
+**Part E iter061 登记补全**：新建 `docs/iterations/iteration_061_PLAN.md`（8 段，记 `bce579c` #11 路径穿越热修）+ `iterations/README.md` 索引补 iter061/063 + 本表（README SOP 阶段 16 + 时间戳）。
+
+**审查（铁律⑨）**：`/code-review high`（3 finder 角度）3 发现**全部处理**——F2-1/F2-2（本轮引入的 `renderJobFailureCard`/toast 对非目录 reason 回落 `retry_exhausted` 掩盖真实错误明细）→ 重构保留真实 error line + toast 对齐；F3-1（① queued-cancel 残留窗口）→ dispatch finally per-token 清扫；F2-3（注入未转义 `<`）→ 已加。`/security-review` **无 ≥MEDIUM（本轮）**。**未修风险**：F3-2 drama FNF `error` 含绝对路径（iter062 既有、127.0.0.1 单用户、`technical` 不下发、低危，留 backlog）；F3-3 timeout 校验 3 处重复（debt）；F3-4 `clamped` 未命名空间隔离（低）；F3-5 `_blocker_kind` 薄别名（iter064 可删）。
+
+**门禁**：`OPENAI_MODEL=mock unittest discover -s tests` **1214 tests OK**（基线 1201 +13）；`verify.sh` exit 0；`preflight` 无 FATAL；`node --check` 三 bundle 通过；iter026 锁 6 串全保留。preview 实景验证 A1 卡/A3 中文卡/A4 零 regex/A6 文案/A7 深链/⑤ clamped/移动端均如设计（临时 demo workspace 已清理）。**已知 pre-existing flaky**：`test_web_draft_edit.test_busy_workspace_returns_409` 满量 discover 高负载下偶发 `workspace_busy`（`_drive_to_written_chapter` 后台 job 释放 reservation 的时序），单独跑稳定通过、与本轮无关，登记备查。
+
+**数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`（临时 demo workspace 验证后已删）。
+
+**下轮候选（iter064）**：premise/drama-start 名校验一致化为 card（同 A3）；drama FNF error 路径脱敏（F3-2）；timeout 校验抽 helper（F3-3）；`_blocker_kind` 别名清理（F3-5）；drama 站③④实做；KB 起点过滤升级为主动 blocker；真模型 capstone 复跑。

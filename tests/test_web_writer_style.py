@@ -280,6 +280,66 @@ class ExtractUniqueSampleTests(_WebHarness):
         finally:
             os.environ.pop("WORKSPACE_NAME", None)
 
+    def test_handler_sweeps_orphan_samples_from_cancelled_jobs(self) -> None:
+        # iter063 ①: a sample left by an EARLIER extract job that was cancelled
+        # before its finally ran would otherwise persist forever (the unique-token
+        # path can't be overwritten by a later upload). The next extract job
+        # sweeps all sibling .writer_style_sample.*.tmp — P0-A copyright guardrail.
+        self._mkws("u6")
+        os.environ["WORKSPACE_NAME"] = "u6"
+        try:
+            orphan = paths.writer_style_sample_path().with_name(
+                ".writer_style_sample." + ("deadbeef" * 4) + ".tmp"
+            )
+            orphan.write_text("孤儿样本残留", encoding="utf-8")
+            token = "feedface" * 4
+            staged = paths.writer_style_sample_path().with_name(f".writer_style_sample.{token}.tmp")
+            staged.write_text("用于风格提炼的写作样本内容。" * 30, encoding="utf-8")
+            result = jobs._step_extract_style({"sample_token": token, "force": True}, lambda *a: None)
+            self.assertEqual(result.get("status"), "succeeded", result)
+            self.assertFalse(orphan.exists(), "orphaned sample must be swept")
+            self.assertFalse(staged.exists(), "current sample consumed + deleted")
+        finally:
+            os.environ.pop("WORKSPACE_NAME", None)
+
+    def test_handler_deletes_sample_on_cancel(self) -> None:
+        # iter063 ①: a JobCancelled raised by progress_cb (cancel/timeout) must
+        # still delete the sample — it used to leak because progress_cb ran
+        # before the try/finally that owns the unlink.
+        self._mkws("u7")
+        os.environ["WORKSPACE_NAME"] = "u7"
+        try:
+            token = "abadcafe" * 4
+            staged = paths.writer_style_sample_path().with_name(f".writer_style_sample.{token}.tmp")
+            staged.write_text("写作样本内容。" * 40, encoding="utf-8")
+
+            def _cancel(*_a):
+                raise jobs.JobCancelled("cancelled mid-extract")
+
+            with self.assertRaises(jobs.JobCancelled):
+                jobs._step_extract_style({"sample_token": token, "force": True}, _cancel)
+            self.assertFalse(staged.exists(), "sample deleted even when cancelled")
+        finally:
+            os.environ.pop("WORKSPACE_NAME", None)
+
+    def test_cleanup_extract_sample_handles_queued_cancel(self) -> None:
+        # iter063 ① (审查补漏): a job cancelled while QUEUED never runs the
+        # handler's try/finally, so the worker finally must still delete the
+        # staged sample (P0-A guardrail). Per-token, traversal-safe.
+        self._mkws("u8")
+        os.environ["WORKSPACE_NAME"] = "u8"
+        try:
+            token = "facefeed" * 4
+            staged = paths.writer_style_sample_path().with_name(f".writer_style_sample.{token}.tmp")
+            staged.write_text("queued-then-cancelled 样本", encoding="utf-8")
+            jobs._cleanup_extract_sample("u8", {"sample_token": token})
+            self.assertFalse(staged.exists(), "queued-cancel sample must be cleaned by worker finally")
+            # invalid/traversal token → no-op, no crash, no external delete
+            jobs._cleanup_extract_sample("u8", {"sample_token": "../../../etc/passwd"})
+            jobs._cleanup_extract_sample("u8", {})
+        finally:
+            os.environ.pop("WORKSPACE_NAME", None)
+
     def test_handler_ignores_caller_sample_path_no_external_delete(self) -> None:
         # iter061 P0: a caller-supplied params.sample_path pointing OUTSIDE the
         # workspace must be ignored — the handler rebuilds from a token only, so

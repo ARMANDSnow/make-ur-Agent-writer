@@ -304,6 +304,25 @@ class BookRunnerResidualCorruptTests(unittest.TestCase):
         (self.reviews / "chapter_01.review.json").write_text("{bad json", encoding="utf-8")
         self.assertIsInstance(book_runner._sync_meta_with_external_review(self.drafts, 1), dict)
 
+    def test_sync_meta_corrupt_not_overwritten_when_review_valid(self) -> None:
+        from src import book_runner
+
+        # iter063 ④: a corrupt meta.json degrades to {}; with a VALID review that
+        # has a verdict, the old code wrote a verdict-only stub back, clobbering
+        # writer-owned history. Now the corrupt file is preserved untouched.
+        corrupt = "{bad json — writer history lives here}"
+        (self.drafts / "chapter_01.meta.json").write_text(corrupt, encoding="utf-8")
+        (self.reviews / "chapter_01.review.json").write_text(
+            '{"verdict": "Approve", "panel_score": 8.0}', encoding="utf-8"
+        )
+        result = book_runner._sync_meta_with_external_review(self.drafts, 1)
+        self.assertEqual(result, {})  # sync skipped
+        self.assertEqual(
+            (self.drafts / "chapter_01.meta.json").read_text(encoding="utf-8"),
+            corrupt,
+            "corrupt meta must NOT be overwritten with a verdict-only stub",
+        )
+
     def test_partial_artifact_corrupt_failure_degrades(self) -> None:
         from src import book_runner
 

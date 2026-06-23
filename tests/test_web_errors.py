@@ -80,6 +80,57 @@ class CardForExceptionTest(unittest.TestCase):
         self.assertIn("non-editable field", card["cause"])
 
 
+class ReadinessCatalogSingleSourceTest(unittest.TestCase):
+    """iter063 Part C: errors cards, book_runner._primary_blocker, and the
+    injected frontend catalog must all derive from src/readiness_catalog so the
+    three former copies can't drift."""
+
+    def test_errors_cards_derive_from_catalog(self) -> None:
+        from src import readiness_catalog
+
+        for kind, spec in readiness_catalog.KINDS.items():
+            card = errors.readiness_card(kind)
+            self.assertEqual(card["title"], spec["label"], kind)
+            self.assertEqual(card["cause"], spec["cause"], kind)
+            self.assertEqual(card["actions"][0]["action"], spec["cta_action"], kind)
+            self.assertEqual(card["actions"][0]["label"], spec["cta_label"], kind)
+
+    def test_readiness_kind_delegates_to_catalog(self) -> None:
+        from src import readiness_catalog
+
+        for raw in (
+            "start_point_missing",
+            "chapter_plan:ch3",
+            "preflight:models",
+            "stale debate outline (outline_content_mismatch): x",
+            "foreshadowing_must_resolve_overdue:2",
+            "some_unknown_thing",
+        ):
+            self.assertEqual(errors.readiness_kind(raw), readiness_catalog.classify(raw), raw)
+
+    def test_book_runner_primary_blocker_uses_catalog(self) -> None:
+        from src import book_runner, readiness_catalog
+
+        for kind, spec in readiness_catalog.KINDS.items():
+            if kind == "unknown":
+                continue
+            pb = book_runner._primary_blocker([kind])
+            self.assertEqual(pb["label"], spec["label"], kind)
+            self.assertEqual(pb["cta_action"], spec["cta_action"], kind)
+            self.assertEqual(pb["cta_label"], spec["cta_label"], kind)
+
+    def test_injected_frontend_catalog_matches_python(self) -> None:
+        from src import readiness_catalog
+        from src.web import templates
+
+        self.assertEqual(json.loads(templates._READINESS_CATALOG_JSON), readiness_catalog.KINDS)
+        shell = templates._render_shell(
+            title="t", page_kind="index", main_html="x", breadcrumb_html=""
+        )
+        self.assertIn("window.READINESS_CATALOG = {", shell)
+        self.assertIn(templates._READINESS_CATALOG_JSON, shell)
+
+
 class ReadinessCardTest(unittest.TestCase):
     def test_known_kinds(self) -> None:
         self.assertEqual(errors.readiness_card("start_point_missing")["title"], "未设置续写起点")
@@ -90,6 +141,18 @@ class ReadinessCardTest(unittest.TestCase):
         self.assertEqual(errors.readiness_kind("outline_missing:foo"), "outline_missing")
         self.assertEqual(errors.readiness_kind("chapter_plan:ch3"), "chapter_plan_missing")
         self.assertEqual(errors.readiness_kind("preflight:models"), "preflight_failed")
+
+    def test_outline_stale_classifies_and_has_card(self) -> None:
+        # iter063 A1: both the exact kind and the raw plot_planner message
+        # ("stale debate outline (outline_content_mismatch): …") classify here.
+        self.assertEqual(errors.readiness_kind("outline_stale"), "outline_stale")
+        self.assertEqual(
+            errors.readiness_kind("stale debate outline (outline_content_mismatch): 详情"),
+            "outline_stale",
+        )
+        card = errors.readiness_card("outline_stale")
+        self.assertEqual(card["title"], "大纲与当前起点不一致")
+        self.assertEqual(card["actions"][0]["action"], "go_plan")
 
     def test_unknown_blocker_falls_back(self) -> None:
         self.assertEqual(errors.readiness_kind("some_new_thing"), "unknown")

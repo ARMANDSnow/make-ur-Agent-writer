@@ -649,6 +649,15 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("submit.disabled = writeBookJobRunning || data.status === 'blocked'", js)
         # the bare "alert error + raw err.message" dump pattern is gone
         self.assertNotIn("escapeHtml(err.message)", js)
+        # iter063 A1/A2: terminal job failures render a friendly card; error
+        # toasts prefer the card title.
+        self.assertIn("renderJobFailureCard", js)
+        self.assertIn("function errTitle", js)
+        # iter063 Part C: CTA_ACTIONS is derived from the injected catalog, not a
+        # hardcoded literal (outline_stale etc. now come from window.READINESS_CATALOG).
+        self.assertIn("window.READINESS_CATALOG", js)
+        # the raw "reason · error" failure line is no longer dumped verbatim.
+        self.assertNotIn("jobFailureLine(job).slice(0, 80)", js)
 
     def test_static_wizard_js_has_error_card(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/wizard.js")

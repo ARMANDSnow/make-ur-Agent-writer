@@ -926,15 +926,15 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
                     # "保存失败" would be a lie. The chapter sits at
                     # draft_hash_mismatch (fail-safe) until a re-save lands
                     # the meta sync.
-                    return _json(
-                        500,
-                        {
-                            "error": (
-                                "draft saved but meta sync failed; chapter will "
-                                f"show draft_hash_mismatch until you save again: {exc}"
-                            )
-                        },
+                    # iter063 A2: return the friendly card (was a raw English
+                    # sentence with `{exc}` appended); log the raw exc to stderr
+                    # so the leak-free guarantee holds without losing detail.
+                    import sys as _sys
+                    _sys.stderr.write(
+                        f"[routes] draft meta sync failed (ch={chapter_no}): "
+                        f"{type(exc).__name__}: {exc}\n"
                     )
+                    return _json(500, errors.error_body(errors.build_card("draft_meta_unsynced")))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1515,22 +1515,24 @@ def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
     if error:
         return error
     from .. import drama_planner
-
-    try:
-        result = drama_planner.run(name, mock=True)
-    except FileNotFoundError as exc:
-        return _json(500, {"error": str(exc)})
-    except (ValueError, NotImplementedError) as exc:
-        return _json(400, {"error": str(exc)})
-
-    # iter060 (#14): hold the workspace reservation across the write and write
-    # atomically (write_json = tmp+replace, same ensure_ascii=False/indent=2) —
-    # was a bare write_text with no reservation, so a crash mid-write left a
-    # truncated setup.json and a concurrent setup-save/job could interleave.
     from ..utils import write_json
 
+    # iter060 (#14) + iter063 ⑦: hold the reservation across BOTH the planner run
+    # (which appends to the prompt log) AND the atomic write (write_json =
+    # tmp+replace). iter060 only wrapped the write, so a concurrent /drama/plan or
+    # setup-save could still interleave with the run — the comment over-claimed
+    # the window. Widening it to the run makes the code match the intent.
     try:
         with jobs.workspace_reserved(name):
+            try:
+                result = drama_planner.run(name, mock=True)
+            except FileNotFoundError as exc:
+                # iter063 A2: friendly card + keep error=str(exc) (the missing-
+                # artifact detail is actionable; matches the iter062 4xx/FNF
+                # convention so substring tests stay green).
+                return _json(500, {"error": str(exc), "card": errors.card_for_exception(exc)})
+            except (ValueError, NotImplementedError) as exc:
+                return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
             setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
             write_json(setup_path, result)
     except RuntimeError as exc:
@@ -1553,9 +1555,10 @@ def api_drama_hooks(name: str, body: bytes) -> Tuple[int, str, bytes]:
     try:
         result = hook_designer.run(name, mock=True)
     except FileNotFoundError as exc:
-        return _json(500, {"error": str(exc)})
+        # iter063 A2: friendly card + keep error=str(exc) (see api_drama_plan).
+        return _json(500, {"error": str(exc), "card": errors.card_for_exception(exc)})
     except (ValueError, NotImplementedError) as exc:
-        return _json(400, {"error": str(exc)})
+        return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
     return _json(200, result)
 
 
@@ -1632,11 +1635,26 @@ def api_workspace_readiness(
     # chapters/replan_every<=2000, resume_from<=10000) so readiness reflects what
     # a real run would accept; mirrors the handler-level clamp in
     # api_workspace_logs_tail.
-    chapters = max(1, min(int(chapters), 2000))
-    resume_from = max(1, min(int(resume_from), 10000))
-    replan_every = max(0, min(int(replan_every), 2000))
+    raw_chapters, raw_resume, raw_replan = int(chapters), int(resume_from), int(replan_every)
+    chapters = max(1, min(raw_chapters, 2000))
+    resume_from = max(1, min(raw_resume, 10000))
+    replan_every = max(0, min(raw_replan, 2000))
+    # iter063 ⑤: don't clamp silently. write-book rejects an over-limit value with
+    # 400; readiness is a read-only probe so it clamps and keeps going — but it
+    # now reports what was requested vs applied so the caller (and UI) can tell
+    # the readiness reflects a capped window, not their literal input.
+    clamped: Dict[str, Any] = {}
+    for key, raw, applied in (
+        ("chapters", raw_chapters, chapters),
+        ("resume_from", raw_resume, resume_from),
+        ("replan_every", raw_replan, replan_every),
+    ):
+        if raw != applied:
+            clamped[key] = {"requested": raw, "applied": applied}
     with use_workspace(name):
         result = _safe_readiness(chapters=chapters, resume_from=resume_from, replan_every=replan_every)
+    if clamped and isinstance(result, dict):
+        result["clamped"] = clamped
     return _json(200, result)
 
 
@@ -1910,7 +1928,8 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
     try:
         job = jobs.start_job(name, step, params)
     except ValueError as exc:
-        return _json(400, {"error": str(exc)})
+        # iter063 A2: attach a card so /run failures show a human title.
+        return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1936,7 +1955,10 @@ def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[s
     # all steps, mirroring _float_param's finite guard (iter058 #6b).
     raw_timeout = params.get("timeout_minutes")
     if raw_timeout is not None and raw_timeout != "":
-        error, _ = _float_param(params, "timeout_minutes", 0.0, minimum=0.0)
+        # iter063 ③: cap at 1440min (24h) to match the wizard's two entry points.
+        # An unbounded finite timeout (e.g. 1e9) is a fake deadline that never
+        # fires — the maximum closes the sibling hole to Codex-B's NaN guard.
+        error, _ = _float_param(params, "timeout_minutes", 0.0, minimum=0.0, maximum=1440.0)
         if error:
             return error, {}
     if step == "write-book":
@@ -1990,6 +2012,15 @@ def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], 
         if error:
             return error, {}
         out[key] = value
+    # iter063 A5 (= 后端审查②): carry the validated timeout_minutes into the
+    # rebuilt params. _validated_run_params validated it but this dict-rebuild
+    # used to drop it, so jobs._timeout_deadline never armed — the longest step
+    # silently ran without a timeout. Only carry a positive value (0 = no cap).
+    error, timeout = _float_param(params, "timeout_minutes", 0.0, minimum=0.0, maximum=1440.0)
+    if error:
+        return error, {}
+    if timeout > 0:
+        out["timeout_minutes"] = timeout
     return None, out
 
 
@@ -2005,13 +2036,22 @@ def _validate_plan_chapters_params(params: Dict[str, Any]) -> Tuple[Optional[str
     error, require_start = _bool_param(params, "require_start_point", True)
     if error:
         return error, {}
-    return None, {
+    out: Dict[str, Any] = {
         "target_chapters": target,
         "force": True,
         "append_count": 0,
         "from_chapter": 0,
         "require_start_point": require_start,
     }
+    # iter063 A5 (= 后端审查②): carry the validated timeout_minutes (see
+    # _validate_write_book_params). plan-chapters is the other long step whose
+    # rebuilt params used to drop it.
+    error, timeout = _float_param(params, "timeout_minutes", 0.0, minimum=0.0, maximum=1440.0)
+    if error:
+        return error, {}
+    if timeout > 0:
+        out["timeout_minutes"] = timeout
+    return None, out
 
 
 def _int_param(params: Dict[str, Any], key: str, default: int, *, minimum: int = 0, maximum: Optional[int] = None) -> Tuple[Optional[str], int]:

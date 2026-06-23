@@ -94,7 +94,11 @@ class WizardE2ETests(unittest.TestCase):
             "POST", "/api/wizard/start", body, {"content-type": ct}
         )
         self.assertEqual(status, 400)
-        self.assertIn("invalid workspace name", json.loads(resp)["error"])
+        # iter063 A3: now a Chinese, actionable error card instead of the raw
+        # English "invalid workspace name" the wizard used to show verbatim.
+        data = json.loads(resp)
+        self.assertEqual(data["card"]["code"], "invalid_workspace_name")
+        self.assertIn("作品名", data["error"])
 
     def test_upload_advanced_options_forward_to_job_params(self) -> None:
         body, ct = _build_multipart(
@@ -178,7 +182,10 @@ class WizardE2ETests(unittest.TestCase):
             "POST", "/api/wizard/start", body, {"content-type": ct}
         )
         self.assertEqual(status, 400, resp.decode("utf-8"))
-        self.assertIn("UTF-8", json.loads(resp)["error"])
+        # iter063 A3: Chinese error card; title still mentions UTF-8.
+        data = json.loads(resp)
+        self.assertEqual(data["card"]["code"], "upload_not_utf8")
+        self.assertIn("UTF-8", data["error"])
         self.assertFalse((paths.WORKSPACE_DIR / "binbook").exists())
         # Same-name retry with a valid file works.
         body2, ct2 = _build_multipart(
@@ -205,7 +212,11 @@ class WizardE2ETests(unittest.TestCase):
             "POST", "/api/wizard/start", body, {"content-type": ct}
         )
         self.assertEqual(status, 400, resp.decode("utf-8"))
-        self.assertIn("chapter", json.loads(resp)["error"].lower())
+        # iter063 A3: Chinese, actionable card ("没找到章节标题") instead of the
+        # raw English "no chapter headings…" string.
+        data = json.loads(resp)
+        self.assertEqual(data["card"]["code"], "upload_no_chapters")
+        self.assertIn("章节", data["error"])
         self.assertFalse((paths.WORKSPACE_DIR / "noheadings").exists())
         # And a same-name retry with a properly-headed file works.
         body2, ct2 = _build_multipart(

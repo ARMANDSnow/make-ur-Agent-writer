@@ -23,11 +23,21 @@ embedded scripts continue to escape via ``$$``.
 
 from __future__ import annotations
 
+import json
 from html import escape
 from string import Template
 from typing import Iterable, List, Optional, Sequence
 
+from .. import readiness_catalog
 from .jobs import _default_budget_cny
+
+# iter063 Part C: the readiness catalog is a build-time constant; serialize it
+# once so the injected window.READINESS_CATALOG is identical on every page.
+# Escape ``<`` to ``<`` so the data can never break out of the inline
+# <script> (e.g. a future label containing "</script>") — structurally safe
+# regardless of catalog edits, not relying on the data staying ``<``-free.
+# json.loads round-trips ``<`` back to ``<``, so the catalog is unchanged.
+_READINESS_CATALOG_JSON = json.dumps(readiness_catalog.KINDS, ensure_ascii=False).replace("<", "\\u003c")
 
 
 def _format_budget(value: float) -> str:
@@ -73,6 +83,7 @@ _BASE_TPL = Template(
 window.PAGE_KIND = "$PAGE_KIND";
 window.WORKSPACE_NAME = "$WORKSPACE";
 window.CHAPTER_NO = $CHAPTER_NO;
+window.READINESS_CATALOG = $READINESS_CATALOG;
 </script>
 <script src="/static/app.js"></script>
 $EXTRA_SCRIPTS
@@ -104,6 +115,7 @@ def _render_shell(
         PAGE_KIND=escape(page_kind),
         WORKSPACE=escape(workspace),
         CHAPTER_NO=str(chapter_no) if chapter_no is not None else "null",
+        READINESS_CATALOG=_READINESS_CATALOG_JSON,
         EXTRA_SCRIPTS=extra_scripts,
     )
 
@@ -836,7 +848,7 @@ def render_workspace_chapters(name: str, workspaces: Iterable[str]) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">章节</p>'
         '<h1>章节</h1>'
-        '<p class="muted">原文章次 + 已生成续写草稿。点击任意一行查看详情。</p>'
+        '<p class="muted">原文章次 + 已生成续写草稿。续写行可点击查看详情（原文行仅供参照）。</p>'
         '</div>'
         '</header>'
         '<section class="section">'
@@ -1086,7 +1098,10 @@ def render_wizard() -> str:
         '<div class="field">'
         '<label>workspace 名</label>'
         '<input name="workspace" required '
-        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        # iter063 A4: escape the trailing literal hyphen — Chromium compiles the
+        # HTML pattern with the RegExp `v` flag, where a bare `-` in a char class
+        # is a SyntaxError (red console). CJK ranges 一-鿿 stay valid as-is.
+        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿\\-]{0,30}[a-zA-Z0-9_一-鿿]?" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
         '</div>'
         '<div class="field">'
@@ -1121,7 +1136,10 @@ def render_wizard() -> str:
         '<div class="field">'
         '<label>workspace 名</label>'
         '<input name="workspace" required '
-        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        # iter063 A4: escape the trailing literal hyphen — Chromium compiles the
+        # HTML pattern with the RegExp `v` flag, where a bare `-` in a char class
+        # is a SyntaxError (red console). CJK ranges 一-鿿 stay valid as-is.
+        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿\\-]{0,30}[a-zA-Z0-9_一-鿿]?" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
         '</div>'
         '<div class="field">'
@@ -1158,7 +1176,10 @@ def render_wizard() -> str:
         '<div class="field">'
         '<label>workspace 名</label>'
         '<input name="workspace" required '
-        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        # iter063 A4: escape the trailing literal hyphen — Chromium compiles the
+        # HTML pattern with the RegExp `v` flag, where a bare `-` in a char class
+        # is a SyntaxError (red console). CJK ranges 一-鿿 stay valid as-is.
+        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿\\-]{0,30}[a-zA-Z0-9_一-鿿]?" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
         '</div>'
         '<div class="field">'

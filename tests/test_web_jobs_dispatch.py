@@ -127,6 +127,30 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertTrue(planner.call_args.kwargs["force"])  # always re-plan
         self.assertFalse(planner.call_args.kwargs["require_start_point"])  # honored now
 
+    def test_plan_chapters_stale_outline_is_blocked_not_raw_valueerror(self) -> None:
+        # iter063 A1: plot_planner's deliberate hard block (debate outline built
+        # against a different start point — the 052 cross-timeline accident) must
+        # surface as a blocked readiness card, not a raw ValueError in the UI.
+        with unittest.mock.patch(
+            "src.web.jobs.generate_chapter_plan",
+            side_effect=ValueError(
+                "stale debate outline (outline_content_mismatch): outline.md 与 decisions.json 不是同批产物"
+            ),
+        ), unittest.mock.patch(
+            "src.web.jobs.start_point.get_start_chapter_id",
+            return_value="alpha_ch001",
+        ):
+            status, data = self._post_run(
+                "alpha",
+                {"step": "plan-chapters", "params": {"target_chapters": 5}},
+            )
+            self.assertEqual(status, 202)
+            job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(job["status"], "blocked")
+        self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "outline_stale")
+        # raw message preserved in the blocked error (UI folds it under the card)
+        self.assertIn("stale debate outline", job["result_summary"]["first_blocked"]["error"])
+
     def test_concurrent_same_workspace_409(self) -> None:
         # The first job must remain in flight when we fire the second
         # call, so we use a long-ish step. ``auto-pipeline-greenfield`` needs a

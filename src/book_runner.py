@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from . import paths, review_tier, source_excerpts, start_point
+from . import paths, readiness_catalog, review_tier, source_excerpts, start_point
 from .chapter_summary import prune_from_chapter
 from .chapter_status import chapter_status
 from .cost_estimator import estimate_cost_since
@@ -620,46 +620,27 @@ def _next_unapproved_chapter(
 
 
 def _primary_blocker(blockers: List[str]) -> Dict[str, str] | None:
+    # iter063 Part C: labels/CTA come from the shared readiness_catalog (one
+    # source of truth, also feeding web/errors.py and the injected frontend
+    # catalog) — was a private duplicate of errors._READINESS.
     if not blockers:
         return None
     raw = blockers[0]
-    kind = _blocker_kind(raw)
-    labels = {
-        "start_point_missing": ("未设置续写起点", "scroll_to_start_point", "去设置起点"),
-        "outline_missing": ("缺少全书大纲", "go_plan", "去计划页"),
-        "chapter_plan_missing": ("缺少章节计划", "run_plan_chapters", "生成章节计划"),
-        "chapter_plan_invalid": ("章节计划文件损坏", "run_plan_chapters", "重新生成计划"),
-        "retry_exhausted": ("已有草稿未通过", "retry_write_book", "查看并重试"),
-        "preflight_failed": ("工程预检未通过", "show_diagnostics", "查看诊断"),
-        "foreshadowing_overdue": ("有 must-resolve 伏笔超期未回收", "show_diagnostics", "查看诊断"),
-        "unknown": ("续写入口受阻", "show_diagnostics", "查看诊断"),
-    }
-    label, action, cta_label = labels.get(kind, labels["unknown"])
+    kind = readiness_catalog.classify(raw)
+    fields = readiness_catalog.fields_for(kind)
     return {
         "kind": kind,
-        "label": label,
-        "cta_action": action,
-        "cta_label": cta_label,
+        "label": fields["label"],
+        "cta_action": fields["cta_action"],
+        "cta_label": fields["cta_label"],
         "raw": raw,
     }
 
 
 def _blocker_kind(blocker: str) -> str:
-    if blocker == "start_point_missing":
-        return "start_point_missing"
-    if blocker == "chapter_plan_invalid":
-        return "chapter_plan_invalid"
-    if blocker == "chapter_plan_missing" or blocker.startswith("chapter_plan:") or "plan_item_missing" in blocker:
-        return "chapter_plan_missing"
-    if blocker.startswith("outline_missing") or "outline_missing" in blocker:
-        return "outline_missing"
-    if "retry_exhausted" in blocker or "existing_output_not_strict_approved" in blocker:
-        return "retry_exhausted"
-    if blocker.startswith("preflight:"):
-        return "preflight_failed"
-    if blocker.startswith("foreshadowing_must_resolve_overdue") or blocker.startswith("foreshadowing_gate_error"):
-        return "foreshadowing_overdue"
-    return "unknown"
+    # iter063 Part C: thin alias kept for callers/tests; classification logic
+    # now lives once in readiness_catalog.classify.
+    return readiness_catalog.classify(blocker)
 
 
 def _load_raw_chapter_plan() -> Dict[str, Any]:
@@ -790,6 +771,14 @@ def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[s
     meta = read_json_optional(meta_path, {})
     review = read_json_optional(review_path, {})
     if not isinstance(meta, dict) or not isinstance(review, dict):
+        return {}
+
+    # iter063 ④: a corrupt meta.json degrades to {} via read_json_optional. If we
+    # then merged the verdict into that empty base and wrote it back, we'd clobber
+    # writer-owned history (snapshots, attempt log) with a verdict-only stub.
+    # Preserve the file on disk instead — the chapter stays at draft_hash_mismatch
+    # (fail-safe) until a re-save rebuilds a readable meta.
+    if not meta:
         return {}
 
     verdict = str(review.get("verdict") or "")

@@ -469,6 +469,16 @@ def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, floa
                 "status": "blocked",
                 "blocked": [{"reason": "outline_missing", "error": msg}],
             }
+        # iter063 A1: plot_planner raises this when the existing debate outline
+        # was built against a different start point (a deliberate hard block —
+        # the 052 cross-timeline accident). Surface it as a blocked readiness
+        # card with a "regenerate outline" CTA instead of a raw ValueError
+        # dumped into the UI.
+        if "stale debate outline" in msg:
+            return {
+                "status": "blocked",
+                "blocked": [{"reason": "outline_stale", "error": msg}],
+            }
         raise
 
 
@@ -717,27 +727,46 @@ def _step_extract_style(params: Dict[str, Any], progress_cb: Callable[[str, floa
     # to read+delete a file outside the workspace — the path is never taken from
     # caller-controlled input. Unknown/invalid token -> legacy fixed path.
     token = params.get("sample_token")
-    if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token):
-        sample_path = paths.writer_style_sample_path().with_name(f".writer_style_sample.{token}.tmp")
-    else:
-        sample_path = paths.writer_style_sample_path()
+    # iter063 ⑥: require a valid token. The legacy fixed-path fallback
+    # (.writer_style_sample.tmp) reopened the #11 clobber window — a caller that
+    # bypasses the route (or an old client) could plant the fixed file and have
+    # this step read+delete it. The route always threads a token now, so the
+    # fallback had no legitimate user; an invalid/missing token is just blocked.
+    if not (isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token)):
+        return _blocked("sample_missing", "no uploaded sample found; upload a writing sample first")
+    sample_path = paths.writer_style_sample_path().with_name(f".writer_style_sample.{token}.tmp")
+    # iter063 ①: sweep orphaned per-request samples left by EARLIER extract jobs
+    # that were cancelled (or cancelled while queued) before their handler's
+    # finally could delete them. The unique-token path (iter060 #11) means such
+    # orphans would otherwise accumulate forever, violating the P0-A copyright
+    # guardrail "samples never persist". Safe to sweep all-but-mine: this job
+    # holds the workspace reservation, so no concurrent extract job for this
+    # workspace can own another in-flight sample.
+    try:
+        for stale in sample_path.parent.glob(".writer_style_sample.*.tmp"):
+            if stale != sample_path:
+                stale.unlink(missing_ok=True)
+    except OSError:
+        pass
     if not sample_path.exists():
         return _blocked("sample_missing", "no uploaded sample found; upload a writing sample first")
+    # iter063 ①: the sample read + progress checkpoint + extract are all wrapped
+    # so a JobCancelled raised by progress_cb (or any failure) still unlinks the
+    # sample. finally does NOT swallow the exception, so cancel still propagates.
     try:
-        sample = sample_path.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        return _blocked("sample_unreadable", f"failed to read sample: {exc}")
-    if not sample:
-        sample_path.unlink(missing_ok=True)
-        return _blocked("sample_empty", "uploaded sample is empty")
+        try:
+            sample = sample_path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            return _blocked("sample_unreadable", f"failed to read sample: {exc}")
+        if not sample:
+            return _blocked("sample_empty", "uploaded sample is empty")
 
-    from ..writer_style import extract_style_card
+        from ..writer_style import extract_style_card
 
-    progress_cb("extract", 0.1)
-    try:
+        progress_cb("extract", 0.1)
         record = extract_style_card(sample, force=bool(params.get("force", True)))
     finally:
-        sample_path.unlink(missing_ok=True)  # 样本不持久化：提取完即删
+        sample_path.unlink(missing_ok=True)  # 样本不持久化 (P0-A)：成功/取消/异常都删
     return {
         "status": "succeeded",
         "generated_by": record.get("generated_by"),
@@ -792,6 +821,23 @@ def is_known_step(step: str) -> bool:
 
 
 # ---- worker ----------------------------------------------------------------
+
+
+def _cleanup_extract_sample(workspace: str, params: Dict[str, Any]) -> None:
+    """iter063 ① (审查补漏): the extract-style handler's try/finally only runs
+    if the handler runs. A job cancelled while QUEUED (before the pre-handler
+    ``_check_cancelled`` lets it start) would leak its staged writer-style
+    sample — violating the P0-A copyright guardrail "samples never persist".
+    Delete this job's own token sample from the worker finally too, covering
+    every terminal path incl. queued-cancel. Per-token (not a sweep), so no
+    concurrency risk with other workspaces' in-flight samples."""
+    token = params.get("sample_token")
+    if not (isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token)):
+        return
+    try:
+        (paths.workspace_root(workspace) / "data" / f".writer_style_sample.{token}.tmp").unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
 
 
 def _worker(job_id: str) -> None:
@@ -863,6 +909,11 @@ def _worker(job_id: str) -> None:
             terminal = str(result.get("status"))
         _complete_job(job_id, terminal, step, result)
     finally:
+        # iter063 ① (审查补漏): belt-and-suspenders cleanup of the staged
+        # writer-style sample for queued-cancel (handler never ran). The
+        # handler's own try/finally already covers the running-cancel path.
+        if step == "extract-style":
+            _cleanup_extract_sample(workspace, params)
         with _WORKSPACE_LOCK:
             _WORKSPACE_JOBS.pop(workspace, None)
 

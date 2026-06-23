@@ -204,6 +204,11 @@ class ReadinessClampTests(unittest.TestCase):
         self.assertLessEqual(data["chapters"], 2000)
         self.assertLessEqual(data["plan_window"], 2000)
         self.assertLessEqual(data["resume_from"], 10000)
+        # iter063 ⑤: clamping is reported (requested vs applied), not silent.
+        self.assertIn("clamped", data)
+        self.assertEqual(data["clamped"]["chapters"]["requested"], 999999999)
+        self.assertEqual(data["clamped"]["chapters"]["applied"], data["chapters"])
+        self.assertEqual(data["clamped"]["resume_from"]["requested"], 888888)
 
     def test_normal_values_not_over_clamped(self) -> None:
         status, _ct, resp = routes.dispatch(
@@ -215,6 +220,8 @@ class ReadinessClampTests(unittest.TestCase):
         self.assertEqual(data["chapters"], 30)
         self.assertEqual(data["resume_from"], 5)
         self.assertLessEqual(data["plan_window"], 30)
+        # iter063 ⑤: no clamp happened → no clamped field.
+        self.assertNotIn("clamped", data)
 
 
 if __name__ == "__main__":

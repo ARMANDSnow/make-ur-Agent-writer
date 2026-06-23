@@ -29,6 +29,7 @@ from typing import Any, Dict, Optional, Tuple  # noqa: F401
 from .. import paths
 from ..cli_workspace import init_workspace
 from ..epub_to_txt import extract_epub
+from . import errors
 from . import jobs
 # Iter 027 P2 (review #7): name validation lives in src/web/_naming.py
 # so routes.py and wizard.py share one source of truth.
@@ -56,7 +57,15 @@ class _UploadRejected(Exception):
     """iter059 #3/NEW-B: a user-input upload failure (bad encoding / no chapter
     headings) that should rmtree the half-created workspace and return a
     friendly 400 with a specific message — distinct from the generic
-    corrupt-file handler that deliberately hides internal detail."""
+    corrupt-file handler that deliberately hides internal detail.
+
+    iter063 A3: carries an optional ``code`` so the handler can return a
+    Chinese, actionable error card (errors.py catalog) instead of the raw
+    English message the wizard front-end used to show verbatim."""
+
+    def __init__(self, message: str, *, code: str = "") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _has_detectable_chapters(text: str) -> bool:
@@ -97,7 +106,7 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
 
     name = name_field.strip()
     if not _validate_name(name):
-        return _json(400, {"error": "invalid workspace name"})
+        return _json(400, errors.error_body(errors.build_card("invalid_workspace_name")))
 
     file_bytes: bytes = file_field["content"]
     filename: str = (file_field.get("filename") or "").strip()
@@ -126,8 +135,12 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
         return _json(409, {"error": f"workspace already exists: {name}"})
     try:
         init_workspace(name)
-    except (ValueError, FileExistsError) as exc:
-        return _json(400, {"error": str(exc)})
+    except ValueError:
+        # iter063 A3: name already passed _validate_name above; any residual
+        # ValueError is still a name problem → the actionable Chinese card.
+        return _json(400, errors.error_body(errors.build_card("invalid_workspace_name")))
+    except FileExistsError:
+        return _json(409, {"error": f"workspace already exists: {name}"})
 
     # Defense-in-depth: ensure the final destination really is under
     # workspaces/<name>/ after path resolution.
@@ -168,7 +181,8 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
                 text = file_bytes.decode("utf-8")
             except UnicodeDecodeError as exc:
                 raise _UploadRejected(
-                    "uploaded .txt is not valid UTF-8; re-save the file as UTF-8 and retry"
+                    "uploaded .txt is not valid UTF-8; re-save the file as UTF-8 and retry",
+                    code="upload_not_utf8",
                 ) from exc
             # iter059 #3: reject a headingless .txt now (with rollback) instead
             # of letting split yield an empty manifest and the job fail with the
@@ -176,13 +190,18 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
             if not _has_detectable_chapters(text):
                 raise _UploadRejected(
                     "no chapter headings found (e.g. 第1章 / Chapter 1); "
-                    "the file would split into 0 chapters"
+                    "the file would split into 0 chapters",
+                    code="upload_no_chapters",
                 )
             (raw_dir / "upload.txt").write_text(text, encoding="utf-8")
     except _UploadRejected as exc:
         # User-input failure: roll back the half-created workspace (so a
         # same-name retry works) and return the specific reason.
+        # iter063 A3: prefer the Chinese error card when the reject carries a
+        # code; the raw English message stays as a fallback / `error` field.
         shutil.rmtree(target_root, ignore_errors=True)
+        if exc.code:
+            return _json(400, errors.error_body(errors.build_card(exc.code)))
         return _json(400, {"error": str(exc)})
     except Exception as exc:
         # Log full traceback server-side; tell the user the file looked

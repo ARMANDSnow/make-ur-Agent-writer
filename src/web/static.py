@@ -1256,41 +1256,37 @@ JS_DASHBOARD = """\
 (function () {
   const ws = window.WORKSPACE_NAME || "";
   const pageKind = window.PAGE_KIND || "";
-  const CTA_ACTIONS = {
-    start_point_missing: {
-      label: "未设置续写起点",
-      action: "scroll_to_start_point",
-      cta_label: "去设置起点",
-      hint: "先选定从原作哪一章之后开始续写。",
-    },
-    outline_missing: {
-      label: "缺少全书大纲",
-      action: "go_plan",
-      cta_label: "去计划页",
-      hint: "先生成或检查全书走向，再进入章节续写。",
-    },
-    chapter_plan_missing: {
-      label: "缺少章节计划",
-      action: "run_plan_chapters",
-      cta_label: "生成章节计划",
-      hint: "续写需要本章计划；可以先用默认目标章数生成。",
-    },
-    retry_exhausted: {
-      label: "已有草稿未通过",
-      action: "retry_write_book",
-      cta_label: "查看并重试",
-      hint: "先查看失败原因，再用相同或调整后的参数重试。",
-    },
+  // iter063 Part C: CTA_ACTIONS is DERIVED from the injected readiness catalog
+  // (window.READINESS_CATALOG, sourced from src/readiness_catalog.py) so the
+  // three former copies — here / errors._READINESS / book_runner._primary_blocker
+  // — can no longer drift. label/action/cta_label/hint map from
+  // label/cta_action/cta_label/cause. plan_fingerprint_stale is a frontend-only
+  // synthetic kind (produced by jobActionKind, not a real readiness blocker), so
+  // it stays defined locally.
+  const CTA_ACTIONS = (function () {
+    const out = {};
+    const cat = window.READINESS_CATALOG || {};
+    for (const kind in cat) {
+      if (!Object.prototype.hasOwnProperty.call(cat, kind)) continue;
+      const spec = cat[kind] || {};
+      out[kind] = {
+        label: spec.label,
+        action: spec.cta_action,
+        cta_label: spec.cta_label,
+        hint: spec.cause,
+      };
+    }
     // iter 050 (B3-hint): the whole fingerprint failure family
     // (plan_fingerprint_mismatch / chapter_NN_plan_item_fingerprint_* /
     // start_point_fingerprint_*) maps here via jobActionKind.
-    plan_fingerprint_stale: {
+    out.plan_fingerprint_stale = {
       label: "细纲已变更/过期",
       action: "run_plan_chapters",
       cta_label: "重新生成细纲",
       hint: "细纲在写作后被修改或重新生成。可重写受影响章节，或重新生成细纲后再续写。",
-    },
-  };
+    };
+    return out;
+  })();
   const WRITE_PRESETS = {
     trial: { tier: "low", chapters: 1, max_retries: 1, budget_cny: 2, auto_advance: false },
     production: { tier: "mid", chapters: 1, max_retries: 2, budget_cny: 10, auto_advance: true },
@@ -1589,6 +1585,14 @@ JS_DASHBOARD = """\
       (card.technical ? '<details class="details-fold error-card-tech"><summary>技术详情</summary><pre>' + escapeHtml(card.technical) + "</pre></details>" : "") +
       "</div>";
   }
+  // iter063 A2: prefer the backend card's friendly title for one-line error
+  // toasts. The `error` field may still carry the raw exception text for
+  // back-compat (iter062 4xx/FNF convention), so reach into the card first.
+  function errTitle(err) {
+    if (err && err.payload && err.payload.card && err.payload.card.title) return err.payload.card.title;
+    if (err && err.card && err.card.title) return err.card.title;
+    return (err && err.message) || "出错了";
+  }
   // Translate a raw readiness blocker code into human text for the diagnostic
   // list (reuses CTA_ACTIONS; raw code still shown folded in the details).
   function readinessReasonText(code) {
@@ -1674,7 +1678,9 @@ JS_DASHBOARD = """\
   // ---- shared: chapter detail tab routing (hash deep-link) --------------
   // Keep in sync with chapter-detail and plan-view tab keys.
   const _ALLOWED_TAB_KEYS = [
-    "body", "review", "lint", "advisor", "history",
+    // iter063 A7: "edit" was dropped when iter062 trimmed unimplemented tabs,
+    // which broke the /chapter/N#edit deep-link (it IS implemented). Restore it.
+    "body", "edit", "review", "lint", "advisor", "history",
     "chapters", "outline", "decisions",
     // iter062: storyboard/characters are locked (not implemented) — keep them
     // out so a #storyboard deep-link can't force-switch to a dead tab.
@@ -2243,7 +2249,7 @@ JS_DASHBOARD = """\
         showToast("已 restore：" + data.restored_to, "info");
         await reloadTrashList();
       } catch (err) {
-        showToast("restore 失败：" + err.message, "error");
+        showToast("restore 失败：" + errTitle(err), "error");
         r.disabled = false;
       }
       return;
@@ -2404,7 +2410,7 @@ JS_DASHBOARD = """\
         showToast("知识库已保存；下游大纲 / 细纲将提示重新生成", "info");
         await refreshWorkbench();
       } catch (err) {
-        showToast("保存失败：" + err.message, "error");
+        showToast("保存失败：" + errTitle(err), "error");
       } finally {
         kbSave.disabled = false;
       }
@@ -2493,7 +2499,7 @@ JS_DASHBOARD = """\
         showToast("扩写稿已保存；需重新生成设定（KB / 实体）才会生效", "info");
         await refreshWorkbench();
       } catch (err) {
-        showToast("保存失败：" + err.message, "error");
+        showToast("保存失败：" + errTitle(err), "error");
       } finally {
         save.disabled = false;
       }
@@ -2612,7 +2618,7 @@ JS_DASHBOARD = """\
         showToast("已应用风格卡；下一章写作时生效", "info");
         await loadStyleCardPanel();
       } catch (err) {
-        showToast("应用失败：" + err.message, "error");
+        showToast("应用失败：" + errTitle(err), "error");
         btn.disabled = false;
       }
     });
@@ -2633,7 +2639,7 @@ JS_DASHBOARD = """\
         showToast("风格卡已保存；下一章写作时生效", "info");
         await renderPresetGrid();
       } catch (err) {
-        showToast("保存失败：" + err.message, "error");
+        showToast("保存失败：" + errTitle(err), "error");
       } finally { save.disabled = false; }
     });
     if (extractBtn) extractBtn.addEventListener("click", async function () {
@@ -2731,7 +2737,7 @@ JS_DASHBOARD = """\
           await putJson(wsUrl("/entity/" + encodeURIComponent(btn.dataset.entityId)), { fields: fields });
           showToast("实体已保存：" + fields.name, "info");
         } catch (err) {
-          showToast("保存失败：" + err.message, "error");
+          showToast("保存失败：" + errTitle(err), "error");
         } finally {
           btn.disabled = false;
         }
@@ -2756,7 +2762,7 @@ JS_DASHBOARD = """\
           });
           showToast("关系状态已保存", "info");
         } catch (err) {
-          showToast("保存失败：" + err.message, "error");
+          showToast("保存失败：" + errTitle(err), "error");
           if (err.payload && err.payload.stale_index) await renderEntityPanel();
         } finally {
           btn.disabled = false;
@@ -2807,7 +2813,7 @@ JS_DASHBOARD = """\
         showToast("大纲已保存", "info");
         await refreshWorkbench();
       } catch (err) {
-        showToast("保存失败：" + err.message, "error");
+        showToast("保存失败：" + errTitle(err), "error");
       } finally {
         btn.disabled = false;
       }
@@ -3069,7 +3075,7 @@ JS_DASHBOARD = """\
           (invalidated.length ? "；已写章节（" + invalidated.join(", ") + "）评审状态已过期" : ""));
         refreshWorkbench();
       } catch (err) {
-        showToast("保存失败：" + err.message, "error");
+        showToast("保存失败：" + errTitle(err), "error");
       } finally {
         saveBtn.disabled = false;
       }
@@ -3473,9 +3479,40 @@ JS_DASHBOARD = """\
       showToast("已重新启动：" + (job.step || "job"), "info");
       if (data && data.job_id) setTimeout(function () { initJobs(); }, 500);
     } catch (err) {
-      showToast("重试失败：" + err.message, "error");
+      showToast("重试失败：" + errTitle(err), "error");
       if (btn) btn.disabled = false;
     }
+  }
+  // iter063 A1: render a terminal job failure / blocked state as a friendly
+  // error card (human title + cause + CTA) instead of dumping the raw
+  // "reason · error" line (e.g. "outline_stale · stale debate outline (…)").
+  function renderJobFailureCard(job) {
+    const detail = jobBlockedDetail(job);
+    const reason = (detail && detail.reason) || "";
+    const line = jobFailureLine(job);
+    // A DIRECT readiness-kind match → friendly kind card (title + cause + CTA).
+    const direct = CTA_ACTIONS[reason];
+    if (job.status === "blocked" && direct) {
+      return renderErrorCard({ card: {
+        code: reason,
+        title: direct.label,
+        cause: direct.hint || line || "",
+        actions: direct.action ? [{ label: direct.cta_label, action: direct.action }] : [],
+        trace_id: job.trace_id || "",
+      }});
+    }
+    // failed / aborted / budget_exceeded / blocked-with-unrecognized-reason:
+    // surface the REAL error line as the cause (don't mask it with a generic
+    // retry hint), and offer a retry CTA via jobActionKind where it fits.
+    const titles = { aborted: "任务已取消", budget_exceeded: "预算已用尽", lost: "任务状态丢失", blocked: "续写入口受阻" };
+    const fallback = CTA_ACTIONS[jobActionKind(job)];
+    return renderErrorCard({ card: {
+      code: job.status || "client_error",
+      title: titles[job.status] || "任务未成功",
+      cause: line || (fallback && fallback.hint) || "",
+      actions: fallback && fallback.action ? [{ label: fallback.cta_label, action: fallback.action }] : [],
+      trace_id: job.trace_id || "",
+    }});
   }
   async function pollJob(jobId, box, submit, afterDone) {
     while (true) {
@@ -3488,7 +3525,6 @@ JS_DASHBOARD = """\
         return;
       }
       const pct = Math.round((job.progress || 0) * 100);
-      const failureLine = jobFailureLine(job);
       box.innerHTML =
         '<div class="kv-list compact">' +
         '<div class="k">job</div><div class="v"><code>' + escapeHtml(jobId) + "</code></div>" +
@@ -3496,9 +3532,7 @@ JS_DASHBOARD = """\
         '<div class="k">step</div><div class="v">' + escapeHtml(job.current_step || "?") + "</div>" +
         '<div class="k">progress</div><div class="v">' + pct + "%</div>" +
         "</div>" +
-        '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
-        (failureLine ? '<div class="alert error" style="margin-top:8px">' + escapeHtml(failureLine) +
-          (job.trace_id ? ' <code>trace=' + escapeHtml(job.trace_id) + '</code>' : '') + "</div>" : "");
+        '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
       const terminal = ["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"];
       if (terminal.indexOf(job.status) >= 0) {
         const partial = job.result_summary && job.result_summary.partial;
@@ -3513,8 +3547,13 @@ JS_DASHBOARD = """\
         if (job.status === "succeeded") {
           showToast(stepLabel + " 已完成", "info");
         } else {
-          const reason = jobFailureLine(job).slice(0, 80);
-          showToast(stepLabel + " · " + job.status + (reason ? "：" + reason : ""), "error");
+          // iter063 A1: friendly card (incl. CTA) instead of a raw reason dump.
+          box.innerHTML += renderJobFailureCard(job);
+          // Toast title mirrors the card: a direct readiness-kind label, else
+          // the bare status (don't claim a fallback kind the card doesn't show).
+          const d = jobBlockedDetail(job);
+          const direct = CTA_ACTIONS[(d && d.reason) || ""];
+          showToast(stepLabel + " · " + (direct ? direct.label : job.status), "error");
         }
         if (afterDone) await afterDone();
         return;
@@ -3665,12 +3704,16 @@ JS_DASHBOARD = """\
       try {
         const res = await saveDraft();
         if (res) {
+          if (statusBox) statusBox.innerHTML = "";
           showToast("第 " + num + " 章已保存；评审已过期，请重新评审", "info");
           const data = await fetchJson(wsUrl("/draft/" + num));
           renderChapterDetail(data);
         }
       } catch (err) {
-        showToast("保存失败：" + err.message, "error");
+        // iter063 A2: route through the error card (cause + action) in the
+        // editor's status slot instead of a one-line raw-message toast.
+        if (statusBox) statusBox.innerHTML = renderErrorCard(err);
+        else showToast("保存失败：" + errTitle(err), "error");
       } finally {
         saveBtn.disabled = saveReviewBtn.disabled = false;
       }
@@ -3689,7 +3732,9 @@ JS_DASHBOARD = """\
           renderChapterDetail(data);
         });
       } catch (err) {
-        showToast("保存或评审失败：" + err.message, "error");
+        // iter063 A2: surface the friendly card in the editor status slot.
+        if (statusBox) statusBox.innerHTML = renderErrorCard(err);
+        else showToast("保存或评审失败：" + errTitle(err), "error");
       } finally {
         saveBtn.disabled = saveReviewBtn.disabled = false;
       }
@@ -4092,7 +4137,7 @@ JS_DASHBOARD = """\
           await loadStationHooks();
           await loadDramaProgress();
         } catch (err) {
-          showToast("生成失败：" + err.message, "error");
+          showToast("生成失败：" + errTitle(err), "error");
           genBtn.disabled = false;
         }
       });
@@ -4108,7 +4153,7 @@ JS_DASHBOARD = """\
           await loadStationHooks();
           await loadDramaProgress();
         } catch (err) {
-          showToast("重新生成失败：" + err.message, "error");
+          showToast("重新生成失败：" + errTitle(err), "error");
           regenBtn.disabled = false;
         }
       });
@@ -4132,7 +4177,7 @@ JS_DASHBOARD = """\
           await loadStationHooks();
           await loadDramaProgress();
         } catch (err) {
-          showToast("保存失败：" + err.message, "error");
+          showToast("保存失败：" + errTitle(err), "error");
         }
       });
     }
@@ -4202,7 +4247,7 @@ JS_DASHBOARD = """\
           '</div></div>';
         pane.__hooks = hooks;
       } catch (err) {
-        showToast("生成失败：" + err.message, "error");
+        showToast("生成失败：" + errTitle(err), "error");
         btn.disabled = false;
       }
     });
@@ -4225,7 +4270,7 @@ JS_DASHBOARD = """\
         await loadStationHooks();
         await loadDramaProgress();
       } catch (err) {
-        showToast("保存失败：" + err.message, "error");
+        showToast("保存失败：" + errTitle(err), "error");
         pane.querySelectorAll("[data-hook-pick]").forEach((b) => { b.disabled = false; });
       }
     });
