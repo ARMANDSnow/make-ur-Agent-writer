@@ -433,6 +433,12 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn(by_name["alpha"]["readiness"]["status"], {"ready", "warn", "blocked"})
         self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
         self.assertIn("error", by_name["beta"]["plan"])
+        # iter062: the plan read error is now a friendly card (code=bad_json),
+        # and the raw Python exception type name never reaches the client.
+        plan_err = by_name["beta"]["plan"]["error"]
+        self.assertIsInstance(plan_err, dict)
+        self.assertEqual(plan_err.get("code"), "bad_json")
+        self.assertNotIn("JSONDecodeError", json.dumps(data, ensure_ascii=False))
         # iter059 #4: a corrupt chapter_plan.json now surfaces a clean
         # chapter_plan_invalid blocker instead of leaking the raw
         # readiness_error:JSONDecodeError. Still blocks only beta, not alpha.
@@ -626,6 +632,45 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("submit.disabled = writeBookJobRunning || data.status === 'blocked'", js)
         self.assertIn("readinessTimer = null", js)
 
+    def test_static_js_iter062_error_and_nav(self) -> None:
+        """iter062: friendly error cards, fetch classification, global
+        boundary, workbench step rail — and no bare traceback dumps left."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("renderErrorCard", js)
+        self.assertIn("_normalizeErrorCard", js)
+        self.assertIn("FRONT_ERROR_CATALOG", js)
+        self.assertIn("unhandledrejection", js)
+        self.assertIn("readinessReasonText", js)
+        self.assertIn("renderStepbar", js)
+        self.assertIn("workbench-stepbar", js)
+        # iter026 locked expression must survive the readiness rewrite
+        self.assertIn("submit.disabled = writeBookJobRunning || data.status === 'blocked'", js)
+        # the bare "alert error + raw err.message" dump pattern is gone
+        self.assertNotIn("escapeHtml(err.message)", js)
+
+    def test_static_wizard_js_has_error_card(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/wizard.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("renderErrorCard", js)
+        self.assertNotIn("escapeHtml(String(err))", js)
+
+    def test_static_css_iter062(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.css")
+        self.assertEqual(status, 200)
+        css = body.decode("utf-8")
+        for sel in (".error-card", ".stepbar", ".tab.locked", ".home-btn", ".badge-soon"):
+            self.assertIn(sel, css)
+
+    def test_shell_has_topbar_home_button(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/library")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('class="btn btn-icon home-btn"', html)
+        self.assertIn('href="/library"', html)
+
     def test_static_js_includes_lint_jump_helpers(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
         self.assertEqual(status, 200)
@@ -671,10 +716,13 @@ class RoutesGetTests(unittest.TestCase):
             "decisions",
             "setup",
             "hook",
-            "storyboard",
-            "characters",
         ):
             self.assertIn(f'"{kw}"', js)
+        # iter062: storyboard/characters are locked (not implemented) and were
+        # removed from the whitelist so a #storyboard deep-link can't force a
+        # switch to a dead tab.
+        self.assertNotIn('"storyboard"', js)
+        self.assertNotIn('"characters"', js)
 
     def test_static_js_has_drama_write_identifiers(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
@@ -705,7 +753,9 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
         self.assertIn("async function loadTabPanel", js)
-        self.assertIn("response is not valid JSON", js)
+        # iter062: non-JSON responses are now surfaced via the shared fetch
+        # wrapper's bad_json card instead of an inline "not valid JSON" string.
+        self.assertIn("bad_json", js)
 
     def test_static_js_has_pending_toast_cleanup(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")

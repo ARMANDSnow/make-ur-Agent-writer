@@ -32,7 +32,7 @@ from ..config import get_model_config
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
 from ..utils import read_json, read_json_optional
-from . import auth, diag, jobs, settings as settings_mod, static, templates, wizard
+from . import auth, diag, errors, jobs, settings as settings_mod, static, templates, wizard
 from ._naming import RESERVED_NAMES as _RESERVED_WORKSPACE_NAMES_SHARED  # noqa: F401
 from ._naming import (
     WORKSPACE_NAME_RE as _WORKSPACE_NAME_RE_SHARED,  # noqa: F401
@@ -74,6 +74,18 @@ def _json(status: int, payload: Dict[str, Any]) -> Tuple[int, str, bytes]:
 
 def _html(status: int, html: str) -> Tuple[int, str, bytes]:
     return status, "text/html; charset=utf-8", html.encode("utf-8")
+
+
+def _log_degraded(where: str, exc: BaseException) -> None:
+    """iter062: degraded-path handlers used to embed ``str(exc)`` in the
+    response (a raw-traceback leak the user couldn't read). We now return a
+    friendly ``errors`` card instead — so log the real exception to stderr
+    here so debug detail isn't silently dropped."""
+    import sys
+    import traceback as _tb
+
+    sys.stderr.write(f"[web] degraded path '{where}': {type(exc).__name__}: {exc}\n")
+    _tb.print_exc(file=sys.stderr)
 
 
 def _validate_workspace_name(name: str) -> bool:
@@ -463,10 +475,11 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
             recent = jobs.recent_jobs(name, limit=1)
             overview["recent_job"] = recent[0] if recent else None
         except Exception as exc:
-            overview["error"] = f"{type(exc).__name__}: {exc}"
+            _log_degraded("drama_progress", exc)
+            overview["error"] = errors.card_for_exception(exc)
             overview["readiness"] = {
                 "status": "blocked",
-                "blockers": [f"drama_progress_error:{type(exc).__name__}: {exc}"],
+                "blockers": ["drama_progress_error"],
                 "warnings": [],
                 "recommended_commands": [],
             }
@@ -485,7 +498,8 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
                 plan = read_json(plan_path, {})
             except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                 plan = {}
-                plan_error = f"{type(exc).__name__}: {exc}"
+                _log_degraded("overview_plan", exc)
+                plan_error = errors.card_for_exception(exc)
             if isinstance(plan, dict):
                 overview["plan"] = {
                     "exists": bool(plan) or bool(plan_error),
@@ -506,10 +520,11 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
             recent = jobs.recent_jobs(name, limit=1)
             overview["recent_job"] = recent[0] if recent else None
         except Exception as exc:
-            overview["error"] = f"{type(exc).__name__}: {exc}"
+            _log_degraded("overview", exc)
+            overview["error"] = errors.card_for_exception(exc)
             overview["readiness"] = {
                 "status": "blocked",
-                "blockers": [f"overview_error:{type(exc).__name__}: {exc}"],
+                "blockers": ["overview_error"],
                 "warnings": [],
                 "recommended_commands": ["inspect workspace data and rerun the failing preparation step"],
             }
@@ -729,7 +744,7 @@ def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]
                 try:
                     write_text_atomic(paths.outline_path(), outline)
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write outline: {exc}"})
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -816,13 +831,14 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
                 try:
                     data = apply_chapter_plan_item_edit(chapter_no, fields)
                 except FileNotFoundError as exc:
-                    return _json(404, {"error": str(exc)})
+                    return _json(404, {"error": str(exc), "card": errors.card_for_exception(exc)})
                 except KeyError as exc:
                     return _json(404, {"error": str(exc.args[0]) if exc.args else "chapter not found"})
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc)})
+                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write chapter plan: {exc}"})
+                    _log_degraded("write_chapter_plan", exc)
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -896,7 +912,7 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
                 try:
                     write_text_atomic(md_path, draft + "\n")
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write draft: {exc}"})
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
                 meta["chapter_no"] = chapter_no
                 meta["draft_sha256"] = sha256_text(draft + "\n")
                 meta["edited"] = True
@@ -954,7 +970,7 @@ def api_workspace_kb_get(name: str) -> Tuple[int, str, bytes]:
         try:
             content = kb_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            return _json(500, {"error": f"failed to read kb: {exc}"})
+            return _json(500, errors.error_body(errors.card_for_exception(exc)))
     return _json(200, {"content": content})
 
 
@@ -988,7 +1004,7 @@ def api_workspace_kb_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
                 try:
                     write_text_atomic(paths.kb_path(), content)
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write kb: {exc}"})
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1068,9 +1084,10 @@ def api_workspace_premise_expansion_save(name: str, body: bytes) -> Tuple[int, s
                 try:
                     record = save_expansion_fields(fields)
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc)})
+                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write premise expansion: {exc}"})
+                    _log_degraded("write_premise_expansion", exc)
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1158,9 +1175,10 @@ def api_workspace_writer_style_save(name: str, body: bytes) -> Tuple[int, str, b
                 try:
                     record = save_card_fields(fields)
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc)})
+                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write writer style: {exc}"})
+                    _log_degraded("write_writer_style", exc)
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1191,9 +1209,10 @@ def api_workspace_writer_style_activate(name: str, body: bytes) -> Tuple[int, st
                 try:
                     record = activate_preset(preset_id.strip())
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc)})
+                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to activate preset: {exc}"})
+                    _log_degraded("activate_preset", exc)
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1280,7 +1299,7 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
             return _json(404, {"error": "workspace not found"})
         raise
     except OSError as exc:
-        return _json(500, {"error": f"failed to stage sample: {exc}"})
+        return _json(500, errors.error_body(errors.card_for_exception(exc)))
     return _json(202, {"job_id": job.get("job_id"), "name": name})
 
 
@@ -1371,7 +1390,7 @@ def api_workspace_entity_save(name: str, entity_id: str, body: bytes) -> Tuple[i
                 try:
                     write_json(graph_path, graph)
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write entity_graph: {exc}"})
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1457,7 +1476,7 @@ def api_workspace_relationship_save(name: str, index: str, body: bytes) -> Tuple
                 try:
                     write_json(graph_path, graph)
                 except OSError as exc:
-                    return _json(500, {"error": f"failed to write entity_graph: {exc}"})
+                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1564,7 +1583,7 @@ def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
             try:
                 setup = json.loads(setup_path.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-                return _json(500, {"error": f"failed to read setup: {exc}"})
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
             if not isinstance(setup, dict):
                 return _json(500, {"error": "setup file must be a JSON object"})
 
@@ -1625,6 +1644,7 @@ def _safe_readiness(**kwargs: Any) -> Dict[str, Any]:
     try:
         return check_write_readiness(**kwargs)
     except Exception as exc:
+        _log_degraded("readiness", exc)
         chapters = int(kwargs.get("chapters", 1) or 1)
         resume_from = int(kwargs.get("resume_from", 1) or 1)
         return {
@@ -1632,9 +1652,10 @@ def _safe_readiness(**kwargs: Any) -> Dict[str, Any]:
             "chapters": chapters,
             "resume_from": resume_from,
             "plan_window": chapters,
-            "blockers": [f"readiness_error:{type(exc).__name__}: {exc}"],
+            "blockers": ["readiness_error"],
             "warnings": [],
             "recommended_commands": ["inspect chapter_plan.json and rerun plan-chapters --force --require-start-point"],
+            "error": errors.card_for_exception(exc),
         }
 
 
@@ -2389,13 +2410,16 @@ def dispatch(
         try:
             return handler(**kwargs)
         except FileNotFoundError as exc:
-            return _json(404, {"error": str(exc)})
+            return _json(404, {"error": str(exc), "card": errors.card_for_exception(exc)})
         except ValueError as exc:
-            return _json(400, {"error": str(exc)})
+            return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
         except Exception:
             # Iter 026 code-review #7 hardening: don't leak ``str(exc)``
             # to the client. Log the full exception server-side with a
             # trace_id the user can quote when reporting bugs.
+            # iter062: also hand the client a friendly ``card`` (title +
+            # next step + the same trace_id) — the ``error`` string stays
+            # "internal server error" for backward compatibility.
             import sys
             import traceback as _tb
             import uuid as _uuid
@@ -2403,7 +2427,14 @@ def dispatch(
             trace_id = _uuid.uuid4().hex
             sys.stderr.write(f"[web] dispatch trace_id={trace_id}\n")
             _tb.print_exc(file=sys.stderr)
-            return _json(500, {"error": "internal server error", "trace_id": trace_id})
+            return _json(
+                500,
+                {
+                    "error": "internal server error",
+                    "trace_id": trace_id,
+                    "card": errors.build_card("server_error", trace_id=trace_id),
+                },
+            )
 
     # Path matched but method didn't: 405. Otherwise 404.
     if matched_any_method:

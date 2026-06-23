@@ -212,7 +212,11 @@ class PlanEditFrontendStringTests(unittest.TestCase):
         # helpers must route through it.
         self.assertIn("function _httpError(res, data)", static.JS_DASHBOARD)
         self.assertIn("工作区正被另一任务占用", static.JS_DASHBOARD)
-        self.assertEqual(static.JS_DASHBOARD.count("throw _httpError(res, data)"), 3)
+        # iter062: fetchJson/postJson/putJson now delegate to _fetchWrapped
+        # (network/timeout/bad_json classification), which calls _httpError
+        # once instead of three inline copies. Definition + 3 call sites = 4.
+        self.assertIn("throw _httpError(res, data)", static.JS_DASHBOARD)
+        self.assertEqual(static.JS_DASHBOARD.count("_fetchWrapped("), 4)
 
     def test_b3_hint_fingerprint_cta_mapping(self) -> None:
         from src.web import static

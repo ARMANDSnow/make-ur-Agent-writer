@@ -1574,3 +1574,21 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **审查确认干净（无需动）**：debate 检查点位置/fraction/取消传播（均在 `except Exception` 外、单调、干净传到 `_worker` 的 `except JobCancelled`）、readiness `int()`（恒喂 int）、drama/起点 reservation 的 `except RuntimeError`→`raise` 只吞 `workspace_busy`/`not_found`、`write_json`/`write_text_atomic` 的 `ensure_dir`、token 正则 + `with_name` 重建的穿越安全性、`read_json`→`read_json_optional` 下游 isinstance 守卫、PUT 坏 graph 在 `write_json` 前 404。
 
 **iter062 建议范围**：**①②③ 同一类资源/泄漏先收**（一条 iter062、三 commit + 测试，仍只 commit 不 push）；④–⑦ 低优先随手或登记备查；**iter061 四处登记补全**（`iteration_061_PLAN.md` / 两处 README）可一并在 iter062 收尾。
+
+## iter062：前端 UX 重构（报错收口 + 导航补全 + 假按钮上锁，2026-06-23 收官）
+
+> **scope 注**：iter062 **未**做上面「iter062 建议范围」的后端 ①②③——用户接力指令改为「基于 iter043 重新设计前端」（三类痛点：假按钮/反人类导航/裸代码报错）。故 iter062=**前端 UX 重构**；后端 ①-⑦ + iter061 四处登记补全**顺延 iter063**。本轮只 commit 不 push（待用户验收）。
+
+**已落地（Web，`src/web/`，纯 stdlib，零新依赖）**：
+- **报错友好化（两端）**：新增 `src/web/errors.py` 错误目录——`code_for_exception`（子类序：JSONDecodeError/UnicodeDecodeError 在 ValueError 前、FileNotFoundError/PermissionError 在 OSError 前）/`build_card`/`card_for_exception`（`technical` 默认不下发，只进 stderr）/`readiness_kind`+`readiness_card`（文案与 `book_runner._primary_blocker.labels` 逐字对齐）/`error_body`（保留 `error` 字段向后兼容 + 加 `card`）。后端 ~15 处裸 `str(exc)`/`f"...{exc}"` 收口（含审查补的 outline/draft/kb/entity_graph×2/setup/settings.env 6 处 500 OSError）；degrade 路径（overview/drama/plan）`error`→card dict、blocker 收敛稳定 code、原异常写 `_log_degraded` stderr；顶层 dispatch 500 保留 `error=="internal server error"` + 加带 trace_id card。前端统一 `renderErrorCard`/`_normalizeErrorCard` 替换 ~23 处裸 `escapeHtml(err.message)`；`_fetchWrapped` 分类 网络/超时(AbortController 30s，轮询 URL `POLL_URL_RE` 豁免)/坏 JSON；全局 `window.onerror`+`unhandledrejection` toast。JS_WIZARD/JS_SETTINGS 各自独立 IIFE：wizard 补自洽精简 `renderErrorCard`，settings 改自洽友好文案。
+- **导航**：`_BASE_TPL` topbar 常驻 ⌂ home→`/library`（CSS `.topbar .breadcrumb{margin-right:auto}` 把 actions 推右、home+面包屑左聚）；工作台 `renderStepbar` 可点回看步骤条（has_kb/has_outline/has_plan/stage → done/current/locked，done/current 锚 `#stage-*-card` + `scroll-behavior:smooth`，locked aria-disabled 不可点）+ stage pill 旁单一「下一步」CTA；章节详情加「回概览」。
+- **假按钮**：drama ③④ tab `disabled aria-disabled`+🔒+`badge-soon`「即将上线」，`bindHashTabs` click 早退 disabled + 从 `_ALLOWED_TAB_KEYS` 移除 storyboard/characters（防 `#storyboard` deep-link 强切）。readiness 诊断区/书架卡/overview 阻断项经 `readinessReasonText` 翻人话（原始 code 折叠在括号）；禁用「开始续写」加 title 说明（`submit.disabled = writeBookJobRunning || data.status === 'blocked'` 逐字保留——iter026 锁）。
+- **CSS**（复用现有 token，无新 hex）：`.error-card*` / `.stepbar`+`.step.*` / `.tab.locked` / `.home-btn` / `.badge-soon`。
+
+**审查（铁律⑨，web 高风险 → 2 视角 subagent 并行 + /security-review；ultra 需用户授权未跑）发现并全修**：P0 wizard cancel 误用 dashboard-only `_httpError`（本轮引入，→ 自洽 carrying error）；P1 `bindCtaActions()` 仅 continue 调用致它页错误卡 CTA 死按钮（→ 提 `boot()` 无条件调用）；P2 errors.py `readiness_kind` 死代码删除、6 处残余 500 OSError 同类收口、overview hint/blockers 人话化 + `<h2>` 补 escapeHtml（闭 pre-existing latent XSS sink）。**/security-review 无 ≥MEDIUM 漏洞**，本轮净改进安全姿态。
+
+**门禁**：`OPENAI_MODEL=mock unittest discover -s tests` **1201 tests OK**；web 子集 225 OK；verify.sh exit 0；preflight 无 FATAL；node --check 三 bundle 通过；iter026 锁 6 标识符/表达式全保留。新增 `tests/test_web_errors.py`(14) + `test_web_routes_get.py` +5 测试；更新 tab whitelist / loadTabPanel / overview 坏 plan / `_httpError` 计数断言。preview 实景验证 home/步骤条/上锁tab/readiness人话/错误卡均如设计（建临时 demo workspace 后已清理）。
+
+**数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。
+
+**下轮候选（iter063）**：后端代码审查 ①-⑦（① 孤儿版权样本取消即泄漏=中危版权护栏，优先）；iter061 四处登记补全（`iteration_061_PLAN.md` + 索引/状态表）；移动端 drawer/导航响应式；drama 站③④ 实做；后端三份 readiness 目录合并。

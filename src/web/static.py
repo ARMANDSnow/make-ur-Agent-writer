@@ -1167,6 +1167,69 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   .lp-cards { grid-template-columns: 1fr; }
   .lp-metrics { grid-template-columns: 1fr; }
 }
+
+/* ====================================================================== *
+ * iter062: friendly error cards + workbench step rail + locked tabs +
+ * topbar home button. All built on existing tokens (paper/ink/jade/amber/
+ * sienna), no new colours.
+ * ====================================================================== */
+
+/* topbar home: cluster nav-toggle + home + breadcrumb on the left, push
+ * the page actions to the far right (override the bare space-between). */
+.topbar .home-btn { flex: 0 0 auto; }
+.topbar .breadcrumb { margin-right: auto; }
+html { scroll-behavior: smooth; }
+
+/* friendly error card (replaces bare .alert.error traceback dumps) */
+.error-card {
+  background: var(--sienna-soft);
+  border: 1px solid var(--sienna);
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.error-card-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+.error-card-icon { color: var(--sienna); font-size: var(--fs-xl); line-height: 1.2; flex: 0 0 auto; }
+.error-card-copy { min-width: 0; }
+.error-card-title { font-weight: 600; color: var(--ink-1); margin: 0; }
+.error-card-cause { color: var(--ink-2); margin: 4px 0 0; font-size: var(--fs-sm); }
+.error-card-actions { margin: 0; }
+.error-card-trace { margin: 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.error-card-trace code { color: var(--ink-2); }
+.error-card-tech { margin: 0; }
+.error-card-tech > summary { cursor: pointer; font-size: var(--fs-xs); color: var(--ink-3); }
+.error-card-tech pre {
+  background: var(--bg-sunken); border-radius: var(--radius-1);
+  padding: var(--space-2) var(--space-3); font-size: var(--fs-xs);
+  color: var(--ink-2); margin: var(--space-2) 0 0;
+}
+
+/* workbench clickable step rail */
+.stepbar { list-style: none; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; }
+.stepbar .step { display: flex; align-items: center; font-size: var(--fs-sm); color: var(--ink-3); }
+.stepbar .step a { color: var(--ink-2); border: 0; display: inline-flex; align-items: center; gap: var(--space-2); }
+.stepbar .step a:hover { color: var(--jade); border: 0; }
+.stepbar .step.done, .stepbar .step.done a { color: var(--jade-strong); }
+.stepbar .step.current, .stepbar .step.current a { color: var(--amber-strong); font-weight: 600; }
+.stepbar .step.locked { color: var(--ink-3); cursor: not-allowed; }
+.stepbar .step:not(:last-child)::after { content: "›"; color: var(--ink-3); margin-left: var(--space-3); }
+.stepbar .step-glyph {
+  display: inline-flex; width: 18px; height: 18px; border-radius: 50%;
+  align-items: center; justify-content: center; font-size: var(--fs-xs);
+  background: var(--bg-sunken); color: var(--ink-3);
+}
+.stepbar .step.done .step-glyph { background: var(--jade); color: #fff; }
+.stepbar .step.current .step-glyph { background: var(--amber-soft); color: var(--amber-strong); box-shadow: inset 0 0 0 2px var(--amber); }
+
+/* locked tab (drama ③④) + coming-soon pill */
+.tab.locked, .tab[disabled] { opacity: .55; cursor: not-allowed; }
+.tab.locked:hover { background: transparent; }
+.badge-soon {
+  font-size: var(--fs-xs); color: var(--amber-strong); background: var(--gold-soft);
+  border-radius: var(--radius-pill); padding: 0 var(--space-2); margin-left: var(--space-1);
+}
 """
 
 
@@ -1254,31 +1317,56 @@ JS_DASHBOARD = """\
     err.payload = data;
     return err;
   }
-  async function fetchJson(url) {
-    const res = await fetch(url);
-    const data = await res.json().catch(() => ({}));
+  // iter062: one fetch wrapper that classifies failures into friendly codes
+  // (network / timeout / bad_json) so every caller's catch can renderErrorCard.
+  // Polling endpoints opt out of the 30s timeout (long jobs are expected).
+  const POLL_URL_RE = /(\\/job\\/|\\/jobs\\/recent|\\/readiness|\\/logs\\/tail|\\/status|\\/cost)/;
+  async function _fetchWrapped(url, opts) {
+    opts = opts || {};
+    let controller = null, timer = null;
+    const isPoll = opts.poll || POLL_URL_RE.test(url);
+    if (!isPoll && typeof AbortController !== "undefined") {
+      controller = new AbortController();
+      opts = Object.assign({}, opts, { signal: controller.signal });
+      timer = setTimeout(function () { controller.abort(); }, 30000);
+    }
+    let res;
+    try {
+      res = await fetch(url, opts);
+    } catch (e) {
+      const aborted = e && e.name === "AbortError";
+      const err = new Error((aborted ? FRONT_ERROR_CATALOG.timeout : FRONT_ERROR_CATALOG.network).title);
+      err.code = aborted ? "timeout" : "network";
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      if (!res.ok) { const he = new Error("HTTP " + res.status); he.status = res.status; throw he; }
+      const be = new Error(FRONT_ERROR_CATALOG.bad_json.title); be.code = "bad_json"; throw be;
+    }
     if (!res.ok) throw _httpError(res, data);
     return data;
   }
-  async function postJson(url, payload) {
-    const res = await fetch(url, {
+  async function fetchJson(url, opts) {
+    return _fetchWrapped(url, opts);
+  }
+  async function postJson(url, payload, opts) {
+    return _fetchWrapped(url, Object.assign({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload || {}),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw _httpError(res, data);
-    return data;
+    }, opts || {}));
   }
-  async function putJson(url, payload) {
-    const res = await fetch(url, {
+  async function putJson(url, payload, opts) {
+    return _fetchWrapped(url, Object.assign({
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload || {}),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw _httpError(res, data);
-    return data;
+    }, opts || {}));
   }
   function wsUrl(suffix) {
     return "/api/workspace/" + encodeURIComponent(ws) + suffix;
@@ -1425,6 +1513,20 @@ JS_DASHBOARD = """\
         scrollAndFocus("write-book-form", "resume_from");
         return;
       }
+      if (action === "reload") {
+        window.location.reload();
+        return;
+      }
+      if (action === "go_jobs") {
+        window.location.href = ws ? wsHref("/jobs") : "/library";
+        return;
+      }
+      if (action === "go_workbench") {
+        window.location.href = ws ? wsHref("/workbench") : "/library";
+        return;
+      }
+      // show_diagnostics (and any unknown action) falls through to open the
+      // readiness diagnostics panel below.
       const details = document.querySelector("#readiness-panel details");
       if (details) {
         details.open = true;
@@ -1456,6 +1558,52 @@ JS_DASHBOARD = """\
       '</div>'
     );
   }
+  // iter062: friendly error cards. The backend hands every error response a
+  // ``card`` ({code,title,cause,actions,trace_id,technical}); frontend-only
+  // failures (network/timeout/bad JSON) carry an ``err.code`` we look up here.
+  var FRONT_ERROR_CATALOG = {
+    network: { code: "network", title: "连不上本地服务", cause: "本地服务可能没在运行，或端口被占用。请确认服务已启动后重试。", actions: [{ label: "刷新重试", action: "reload" }] },
+    timeout: { code: "timeout", title: "请求超时", cause: "服务端响应太慢，任务可能仍在后台长跑。可去任务页查看进度。", actions: [{ label: "去任务页", action: "go_jobs" }] },
+    bad_json: { code: "bad_json", title: "返回数据异常", cause: "服务端返回的内容不是预期格式，刷新后通常即可恢复。", actions: [{ label: "刷新重试", action: "reload" }] },
+  };
+  function _normalizeErrorCard(p) {
+    if (p && p.payload && p.payload.card) return p.payload.card;
+    if (p && p.card) return p.card;
+    if (p && p.code && FRONT_ERROR_CATALOG[p.code]) return FRONT_ERROR_CATALOG[p.code];
+    var msg = (p && p.payload && p.payload.error) || (p && p.message) ||
+      (p && p.error) || (typeof p === "string" ? p : "") || "未知错误";
+    return { code: "client_error", title: "出错了", cause: msg, actions: [], trace_id: "", technical: "" };
+  }
+  function renderErrorCard(payload) {
+    var card = _normalizeErrorCard(payload);
+    var actions = (card.actions || []).map(function (a) {
+      if (a.href) return '<a class="btn btn-secondary btn-sm" href="' + escapeHtml(a.href) + '">' + escapeHtml(a.label) + "</a>";
+      return '<button type="button" class="btn btn-secondary btn-sm" data-cta-action="' + escapeHtml(a.action || "") + '">' + escapeHtml(a.label) + "</button>";
+    }).join("");
+    return '<div class="error-card" role="alert">' +
+      '<div class="error-card-head"><span class="error-card-icon" aria-hidden="true">⚠</span>' +
+      '<div class="error-card-copy"><p class="error-card-title">' + escapeHtml(card.title || "出错了") + "</p>" +
+      '<p class="error-card-cause">' + escapeHtml(card.cause || "") + "</p></div></div>" +
+      (actions ? '<div class="error-card-actions cluster">' + actions + "</div>" : "") +
+      (card.trace_id ? '<p class="error-card-trace">编号 <code>' + escapeHtml(card.trace_id) + "</code> " + copyButton(card.trace_id) + "</p>" : "") +
+      (card.technical ? '<details class="details-fold error-card-tech"><summary>技术详情</summary><pre>' + escapeHtml(card.technical) + "</pre></details>" : "") +
+      "</div>";
+  }
+  // Translate a raw readiness blocker code into human text for the diagnostic
+  // list (reuses CTA_ACTIONS; raw code still shown folded in the details).
+  function readinessReasonText(code) {
+    var k = String(code || "").split(":")[0];
+    var cfg = CTA_ACTIONS[k];
+    if (cfg && cfg.label) return cfg.label;
+    var named = {
+      overview_error: "概览数据读取失败",
+      drama_progress_error: "短剧进度读取失败",
+      readiness_error: "续写入口检查失败",
+      chapter_plan_invalid: "章节计划文件损坏",
+      preflight_failed: "工程预检未通过",
+    };
+    return named[k] || code || "未知阻断项";
+  }
   function copyButton(text) {
     return (
       '<button class="copy-btn" type="button" data-copy="' + escapeHtml(text) + '">复制</button>'
@@ -1475,6 +1623,18 @@ JS_DASHBOARD = """\
     });
   }
   bindCopy(document);
+
+  // iter062: last-resort global boundary. Uncaught JS errors / rejected
+  // promises surface as a lightweight toast instead of a silently frozen page.
+  window.addEventListener("error", function () {
+    try { showToast("页面出了点问题，可刷新重试", "error"); } catch (e) {}
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    try {
+      const c = _normalizeErrorCard(ev && ev.reason);
+      showToast(c.title || "出错了", "error");
+    } catch (e) {}
+  });
 
   function showToast(msg, kind, options) {
     const stack = document.getElementById("toast-stack");
@@ -1516,7 +1676,9 @@ JS_DASHBOARD = """\
   const _ALLOWED_TAB_KEYS = [
     "body", "review", "lint", "advisor", "history",
     "chapters", "outline", "decisions",
-    "setup", "hook", "storyboard", "characters",
+    // iter062: storyboard/characters are locked (not implemented) — keep them
+    // out so a #storyboard deep-link can't force-switch to a dead tab.
+    "setup", "hook",
   ];
   function bindHashTabs() {
     function activate(tab) {
@@ -1533,6 +1695,8 @@ JS_DASHBOARD = """\
     document.addEventListener("click", function (ev) {
       const tab = ev.target.closest(".tab");
       if (!tab) return;
+      // iter062: locked tabs (e.g. drama ③④) are inert — no activation/route.
+      if (tab.disabled || tab.getAttribute("aria-disabled") === "true") return;
       activate(tab);
       if (tab.dataset.tab) {
         history.replaceState(null, "", "#" + tab.dataset.tab);
@@ -1558,22 +1722,13 @@ JS_DASHBOARD = """\
     if (lazy.dataset.loaded === "1") return;
     const url = lazy.dataset.lazy;
     try {
-      const res = await fetch(url);
-      let data;
-      try {
-        data = await res.json();
-      } catch (parseErr) {
-        throw new Error("response is not valid JSON (status " + res.status + ")");
-      }
-      if (!res.ok) {
-        throw new Error(data.error || "HTTP " + res.status);
-      }
+      const data = await fetchJson(url);
       lazy.dataset.loaded = "1";
       const renderer = window["__renderPanel_" + tabName];
       if (renderer) renderer(lazy, data);
       else lazy.innerHTML = '<pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
     } catch (err) {
-      lazy.innerHTML = '<div class="alert error">' + escapeHtml(err.message || String(err)) + '</div>';
+      lazy.innerHTML = renderErrorCard(err);
     }
   }
 
@@ -1608,7 +1763,7 @@ JS_DASHBOARD = """\
       }
       shelf.innerHTML = items.map(renderWorkspaceCard).join("");
     } catch (err) {
-      shelf.innerHTML = '<div class="alert error">加载失败: ' + escapeHtml(err.message) + "</div>";
+      shelf.innerHTML = renderErrorCard(err);
     }
   }
   function renderWorkspaceCard(w) {
@@ -1632,7 +1787,7 @@ JS_DASHBOARD = """\
       '</div>' +
       "</div>" +
       body +
-      (type !== "drama" && blockers.length ? '<p class="alert error" style="margin-top:12px">' + escapeHtml(blockers[0]) + "</p>" : "") +
+      (type !== "drama" && blockers.length ? '<p class="alert error" style="margin-top:12px">' + escapeHtml(readinessReasonText(blockers[0])) + "</p>" : "") +
       "</a>"
     );
   }
@@ -1679,7 +1834,7 @@ JS_DASHBOARD = """\
       const item = (data.workspaces || []).find((w) => w.name === ws) || {};
       renderOverview(item);
     } catch (err) {
-      if (summary) summary.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      if (summary) summary.innerHTML = renderErrorCard(err);
     }
     loadOverviewDetails();
     initDeleteWorkspace();
@@ -1712,12 +1867,12 @@ JS_DASHBOARD = """\
       } else if (status === "warn") {
         hint = "可以续写，但有可关注的提示。";
       } else {
-        hint = blockers[0] || "存在阻断项，需先处理。";
+        hint = blockers.length ? readinessReasonText(blockers[0]) : "存在阻断项，需先处理。";
         cta = '<a class="btn btn-secondary" href="/w/' + encodeURIComponent(ws) + '/continue">查看待办</a>';
       }
       nextAction.innerHTML =
         '<p class="eyebrow ornament">下一步</p>' +
-        '<h2>' + hint + '</h2>' +
+        '<h2>' + escapeHtml(hint) + '</h2>' +
         '<p class="hint">起点：' + escapeHtml(start) + '　·　计划：' + ((item.plan || {}).chapters || 0) + ' 章</p>' +
         '<div class="cta-row">' + cta +
         (commands.length ? '<a class="btn btn-ghost" href="#commands">查看建议命令</a>' : "") + '</div>';
@@ -1731,7 +1886,9 @@ JS_DASHBOARD = """\
       if (blockers.length) {
         parts.push(
           '<div class="alert error"><strong>阻断：</strong>' +
-          blockers.map(escapeHtml).join("<br>") + "</div>"
+          blockers.map(function (b) {
+            return escapeHtml(readinessReasonText(b)) + ' <span class="muted">(' + escapeHtml(b) + ')</span>';
+          }).join("<br>") + "</div>"
         );
       }
       if (warnings.length) {
@@ -1759,13 +1916,13 @@ JS_DASHBOARD = """\
       statusBox.innerHTML = skeleton(4);
       fetchJson(wsUrl("/status"))
         .then((d) => { statusBox.innerHTML = renderKV(d); })
-        .catch((e) => { statusBox.innerHTML = '<div class="alert error">' + escapeHtml(e.message) + "</div>"; });
+        .catch((e) => { statusBox.innerHTML = renderErrorCard(e); });
     }
     if (costBox) {
       costBox.innerHTML = skeleton(3);
       fetchJson(wsUrl("/cost"))
         .then((d) => { costBox.innerHTML = renderKV(d); })
-        .catch((e) => { costBox.innerHTML = '<div class="alert error">' + escapeHtml(e.message) + "</div>"; });
+        .catch((e) => { costBox.innerHTML = renderErrorCard(e); });
     }
   }
   function renderKV(obj) {
@@ -1802,7 +1959,7 @@ JS_DASHBOARD = """\
           : "前 2 站已完成。分镜与角色设定将在后续版本上线";
       }
     } catch (err) {
-      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      box.innerHTML = renderErrorCard(err);
       if (headline) headline.textContent = "载入失败";
     }
   }
@@ -1868,7 +2025,7 @@ JS_DASHBOARD = """\
           "/library"
         );
       } catch (err) {
-        errBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        errBox.innerHTML = renderErrorCard(err);
         confirmBtn.disabled = false;
       }
     });
@@ -1892,7 +2049,7 @@ JS_DASHBOARD = """\
       renderOutlineMarkdown(olBox, data.outline_md || "");
       renderDecisions(dcBox, data.decisions || {});
     } catch (err) {
-      if (chBox) chBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      if (chBox) chBox.innerHTML = renderErrorCard(err);
       if (olBox) olBox.innerHTML = "";
       if (dcBox) dcBox.innerHTML = "";
     }
@@ -2072,7 +2229,7 @@ JS_DASHBOARD = """\
         '<th>entry</th><th>原 name</th><th>删除时间</th><th>大小</th><th>文件</th><th></th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table>';
     } catch (err) {
-      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      box.innerHTML = renderErrorCard(err);
     }
   }
   document.addEventListener("click", async function (ev) {
@@ -2142,7 +2299,7 @@ JS_DASHBOARD = """\
         showToast("已永久删除：" + entry, "info");
         await reloadTrashList();
       } catch (e) {
-        err.innerHTML = '<div class="alert error">' + escapeHtml(e.message) + "</div>";
+        err.innerHTML = renderErrorCard(e);
         btn.disabled = false;
       }
     });
@@ -2353,7 +2510,7 @@ JS_DASHBOARD = """\
           await refreshWorkbench();
         });
       } catch (err) {
-        if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        if (box) box.innerHTML = renderErrorCard(err);
         regen.disabled = false;
       }
     });
@@ -2499,7 +2656,7 @@ JS_DASHBOARD = """\
           showToast("已提取风格卡；可微调后保存", "info");
         });
       } catch (err) {
-        if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + '</div>';
+        if (box) box.innerHTML = renderErrorCard(err);
         extractBtn.disabled = false;
       }
     });
@@ -2626,7 +2783,7 @@ JS_DASHBOARD = """\
           if (step === "prepare-greenfield" && settingsPanelInvalidate) settingsPanelInvalidate();
         });
       } catch (err) {
-        if (box) box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        if (box) box.innerHTML = renderErrorCard(err);
         if (submit) submit.disabled = false;
       }
     });
@@ -2660,6 +2817,29 @@ JS_DASHBOARD = """\
     const el = document.getElementById(id);
     if (el) el.disabled = !on;
   }
+  // iter062: clickable step rail. done/current steps anchor to their stage
+  // card (smooth-scroll via CSS); locked steps are inert with a lock glyph.
+  function renderStepbar(st) {
+    const bar = document.getElementById("workbench-stepbar");
+    if (!bar) return;
+    const steps = [
+      { key: "prepare", label: "① 设定", target: "stage-prepare-card", done: !!st.has_kb, locked: false },
+      { key: "outline", label: "② 大纲", target: "stage-outline-card", done: !!st.has_outline, locked: !st.has_kb },
+      { key: "plan", label: "③ 细纲", target: "stage-plan-card", done: !!st.has_plan, locked: !st.has_outline },
+      { key: "write", label: "④ 正文", target: "stage-write-card", done: st.stage === "done", locked: !st.has_plan },
+    ];
+    bar.innerHTML = steps.map(function (s) {
+      const current = st.stage === s.key;
+      const cls = "step" + (s.locked ? " locked" : s.done ? " done" : current ? " current" : "");
+      const mark = s.locked ? '<span class="step-glyph lock" aria-hidden="true">🔒</span>'
+        : s.done ? '<span class="step-glyph tick" aria-hidden="true">✓</span>'
+        : '<span class="step-glyph" aria-hidden="true">·</span>';
+      if (s.locked) {
+        return '<li class="' + cls + '" aria-disabled="true">' + mark + escapeHtml(s.label) + "</li>";
+      }
+      return '<li class="' + cls + '"><a href="#' + s.target + '">' + mark + escapeHtml(s.label) + "</a></li>";
+    }).join("");
+  }
   async function refreshWorkbench() {
     let st;
     try {
@@ -2670,8 +2850,18 @@ JS_DASHBOARD = """\
     const pill = document.getElementById("workbench-stage-pill");
     if (pill) {
       const labels = { prepare: "① 设定", outline: "② 大纲", plan: "③ 细纲", write: "④ 正文", done: "✓ 已出稿" };
-      pill.innerHTML = '<span class="badge">当前：' + escapeHtml(labels[st.stage] || st.stage || "?") + "</span>";
+      // iter062: surface a single "next step" primary CTA next to the badge.
+      const next = !st.has_kb ? { l: "生成设定", t: "stage-prepare-card" }
+        : !st.has_outline ? { l: "生成大纲", t: "stage-outline-card" }
+        : !st.has_plan ? { l: "生成细纲", t: "stage-plan-card" }
+        : st.stage !== "done" ? { l: "开始续写", t: "stage-write-card" }
+        : null;
+      const cta = next
+        ? ' <a class="btn btn-primary btn-sm" href="#' + next.t + '">下一步：' + escapeHtml(next.l) + "</a>"
+        : ' <a class="btn btn-secondary btn-sm" href="' + wsHref("/chapters") + '">查看章节</a>';
+      pill.innerHTML = '<span class="badge">当前：' + escapeHtml(labels[st.stage] || st.stage || "?") + "</span>" + cta;
     }
+    renderStepbar(st);
     // iter 051a: KB older than the (edited) expansion → tell the user to
     // re-run stage ① instead of silently writing on stale settings.
     const expansionStaleHint = document.getElementById("expansion-stale-hint");
@@ -2937,7 +3127,7 @@ JS_DASHBOARD = """\
         box.innerHTML = '<div class="alert info">已保存起点：' + escapeHtml(sp) + "</div>";
         await refreshReadiness();
       } catch (err) {
-        box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        box.innerHTML = renderErrorCard(err);
       }
     });
   }
@@ -2960,7 +3150,7 @@ JS_DASHBOARD = """\
           await refreshReadiness();
         });
       } catch (err) {
-        box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        box.innerHTML = renderErrorCard(err);
         submit.disabled = false;
       }
     });
@@ -3024,7 +3214,7 @@ JS_DASHBOARD = """\
         });
       } catch (err) {
         writeBookJobRunning = false;
-        jobBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        jobBox.innerHTML = renderErrorCard(err);
         submit.disabled = false;
       }
     });
@@ -3063,10 +3253,11 @@ JS_DASHBOARD = """\
       panel.innerHTML = renderReadinessPanel(data);
       if (pill) pill.innerHTML = statusBadge(data.status || "blocked");
       if (submit) submit.disabled = writeBookJobRunning || data.status === 'blocked';
+      if (submit) submit.title = writeBookJobRunning ? "有任务进行中，请等待完成" : (data.status === 'blocked' ? "前置未就绪，请先处理上方阻断项" : "");
     } catch (err) {
       if (requestSeq !== readinessRequestSeq) return;
-      panel.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
-      if (submit) submit.disabled = true;
+      panel.innerHTML = renderErrorCard(err);
+      if (submit) { submit.disabled = true; submit.title = "续写入口检查失败，请稍后重试"; }
     }
   }
   function renderReadinessPanel(data) {
@@ -3095,7 +3286,9 @@ JS_DASHBOARD = """\
       '<div class="k">plan_window</div><div class="v">' + escapeHtml(String(data.plan_window || "?")) + "</div>" +
       "</div>";
     const details = [];
-    if (blockers.length) details.push('<div class="alert error">' + blockers.map(escapeHtml).join("<br>") + "</div>");
+    if (blockers.length) details.push('<div class="alert error">' + blockers.map(function (b) {
+      return escapeHtml(readinessReasonText(b)) + ' <span class="muted">(' + escapeHtml(b) + ')</span>';
+    }).join("<br>") + "</div>");
     if (warnings.length) details.push('<div class="alert warn">' + warnings.map(escapeHtml).join("<br>") + "</div>");
     if (commands.length) {
       details.push('<div class="command-list">' +
@@ -3127,7 +3320,7 @@ JS_DASHBOARD = """\
       }
       box.innerHTML = groups.join("") || '<p class="muted">尚无历史任务</p>';
     } catch (err) {
-      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      box.innerHTML = renderErrorCard(err);
     }
   }
   function renderSidebarJob(job) {
@@ -3269,7 +3462,7 @@ JS_DASHBOARD = """\
         '<a class="btn btn-secondary" download="chapter_' + String(data.chapter || chapter).padStart(2, "0") + '.partial.md" href="' + href + '">下载完整</a>' +
         '<button type="button" class="btn btn-ghost" data-modal-close>关闭</button>';
     }).catch(function (err) {
-      body.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      body.innerHTML = renderErrorCard(err);
     });
   }
   async function retryJob(job, btn) {
@@ -3290,7 +3483,7 @@ JS_DASHBOARD = """\
       try {
         job = await fetchJson(wsUrl("/job/" + jobId));
       } catch (err) {
-        box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        box.innerHTML = renderErrorCard(err);
         if (submit) submit.disabled = false;
         return;
       }
@@ -3345,7 +3538,7 @@ JS_DASHBOARD = """\
       for (const r of (reviews.chapters || [])) reviewByCh.set(r.chapter, r);
       renderChapters(box, drafts.drafts || [], manifest.chapters || [], reviewByCh);
     } catch (err) {
-      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      box.innerHTML = renderErrorCard(err);
     }
     bindChapterFilter();
   }
@@ -3446,7 +3639,7 @@ JS_DASHBOARD = """\
       renderChapterDetail(data);
     } catch (err) {
       document.getElementById("chapter-body").innerHTML =
-        '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+        renderErrorCard(err);
     }
   }
   // iter 050 (B1/B2): in-place draft edit + optional re-review job.
@@ -3727,7 +3920,7 @@ JS_DASHBOARD = """\
       }).join("");
       box.innerHTML = statsHtml + tableScroll(head + rows + "</tbody></table>");
     } catch (err) {
-      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      box.innerHTML = renderErrorCard(err);
     }
   }
 
@@ -3746,7 +3939,7 @@ JS_DASHBOARD = """\
       renderCacheByModel(cacheBox, data.cache_by_model || []);
       renderSubscores(subBox, data.subscores || []);
     } catch (err) {
-      costBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      costBox.innerHTML = renderErrorCard(err);
       cacheBox.innerHTML = "";
       subBox.innerHTML = "";
     }
@@ -3828,7 +4021,7 @@ JS_DASHBOARD = """\
           " · " + escapeHtml(s.status) + "</span>";
       }).join("");
     } catch (err) {
-      box.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      box.innerHTML = renderErrorCard(err);
     }
   }
 
@@ -3842,7 +4035,7 @@ JS_DASHBOARD = """\
       pane.innerHTML = renderStationSetup(station, data.wizard_input);
       bindStationSetupActions();
     } catch (err) {
-      pane.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      pane.innerHTML = renderErrorCard(err);
     }
   }
 
@@ -3959,7 +4152,7 @@ JS_DASHBOARD = """\
       pane.innerHTML = renderStationHooks(station);
       bindStationHooksActions();
     } catch (err) {
-      pane.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      pane.innerHTML = renderErrorCard(err);
     }
   }
 
@@ -4098,7 +4291,7 @@ JS_DASHBOARD = """\
         };
       }
     } catch (err) {
-      recentBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      recentBox.innerHTML = renderErrorCard(err);
     }
     try {
       const data = await fetchJson(wsUrl("/logs/tail?n=30"));
@@ -4107,13 +4300,17 @@ JS_DASHBOARD = """\
         ? '<pre class="logs-tail">' + lines.map((l) => escapeHtml(JSON.stringify(l))).join("\\n") + "</pre>"
         : '<p class="muted">llm_calls.jsonl 尚无内容。</p>';
     } catch (err) {
-      logsBox.innerHTML = '<div class="alert error">' + escapeHtml(err.message) + "</div>";
+      logsBox.innerHTML = renderErrorCard(err);
     }
   }
 
   // ---- dispatch ---------------------------------------------------------
   function boot() {
     initShellControls();
+    // iter062: error cards render on every page now, so their CTA buttons
+    // (data-cta-action) must be live everywhere — bind once globally, not only
+    // on /continue. Idempotent (ctaActionsBound guard), document-delegated.
+    bindCtaActions();
     const pending = sessionStorage.getItem("__pending_toast");
     if (pending) {
       sessionStorage.removeItem("__pending_toast");
@@ -4174,6 +4371,30 @@ JS_WIZARD = """\
       hint: "取消请求已生效；可以重新开始或返回书架。",
     },
   };
+
+  // iter062: self-contained friendly error card for the wizard bundle (the
+  // dashboard bundle has its own richer renderErrorCard; this one renders the
+  // same .error-card CSS but without the CTA/copy wiring the wizard lacks).
+  var FRONT_ERROR_CATALOG = {
+    network: { title: "连不上本地服务", cause: "本地服务可能没在运行，或端口被占用。请确认服务已启动后重试。" },
+    timeout: { title: "请求超时", cause: "服务端响应太慢，任务可能仍在后台长跑。" },
+    bad_json: { title: "返回数据异常", cause: "服务端返回的内容不是预期格式，刷新后通常即可恢复。" },
+  };
+  function renderErrorCard(p) {
+    var card = (p && p.payload && p.payload.card) || (p && p.card) ||
+      (p && p.code && FRONT_ERROR_CATALOG[p.code]) || null;
+    if (!card) {
+      var msg = (p && p.payload && p.payload.error) || (p && p.error) || (p && p.message) ||
+        (typeof p === "string" ? p : "") || "请稍后重试";
+      card = { title: "出错了", cause: msg };
+    }
+    return '<div class="error-card" role="alert">' +
+      '<div class="error-card-head"><span class="error-card-icon" aria-hidden="true">⚠</span>' +
+      '<div class="error-card-copy"><p class="error-card-title">' + escapeHtml(card.title || "出错了") + '</p>' +
+      '<p class="error-card-cause">' + escapeHtml(card.cause || "") + '</p></div></div>' +
+      (card.trace_id ? '<p class="error-card-trace">编号 <code>' + escapeHtml(card.trace_id) + '</code></p>' : '') +
+      "</div>";
+  }
 
   loadServerMode();
 
@@ -4241,13 +4462,21 @@ JS_WIZARD = """\
           method: "POST",
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        if (!res.ok) {
+          // JS_WIZARD has no _httpError (that lives in the dashboard bundle);
+          // build a carrying error so renderErrorCard reads payload.card.
+          const e = new Error(data.error || ("HTTP " + res.status));
+          e.status = res.status;
+          e.payload = data;
+          throw e;
+        }
         cancelRequestedJobs.add(jobId);
         const notice = document.getElementById("cancel-notice");
         if (notice) notice.innerHTML = '<div class="alert info">取消请求已发送，等待 worker 响应。</div>';
       } catch (err) {
+        if (!err.status && !err.code) err.code = "network";
         const notice = document.getElementById("cancel-notice");
-        if (notice) notice.innerHTML = '<div class="alert error">取消失败: ' + escapeHtml(String(err.message || err)) + "</div>";
+        if (notice) notice.innerHTML = renderErrorCard(err);
         btn.disabled = false;
       }
     });
@@ -4262,17 +4491,17 @@ JS_WIZARD = """\
       submitBtn.disabled = true;
       try {
         const res = await fetch("/api/wizard/start", { method: "POST", body: fd });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          errBox.innerHTML = '<div class="alert error">上传失败 (' + res.status + "): " +
-            escapeHtml(data.error || "") + "</div>";
+          errBox.innerHTML = renderErrorCard(data);
           submitBtn.disabled = false;
           return;
         }
         show(panelProgress);
         poll(data.name, data.job_id);
       } catch (err) {
-        errBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
+        err.code = err.code || "network";
+        errBox.innerHTML = renderErrorCard(err);
         submitBtn.disabled = false;
       }
     });
@@ -4297,10 +4526,9 @@ JS_WIZARD = """\
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          if (errBox) errBox.innerHTML = '<div class="alert error">创建失败 (' + res.status + "): " +
-            escapeHtml(data.error || "") + "</div>";
+          if (errBox) errBox.innerHTML = renderErrorCard(data);
           submitBtn.disabled = false;
           return;
         }
@@ -4309,7 +4537,8 @@ JS_WIZARD = """\
           "/w/" + encodeURIComponent(data.name) + "/workbench"
         );
       } catch (err) {
-        if (errBox) errBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
+        err.code = err.code || "network";
+        if (errBox) errBox.innerHTML = renderErrorCard(err);
         submitBtn.disabled = false;
       }
     });
@@ -4337,10 +4566,9 @@ JS_WIZARD = """\
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          dramaErrBox.innerHTML = '<div class="alert error">创建失败 (' + res.status + "): " +
-            escapeHtml(data.error || "") + "</div>";
+          dramaErrBox.innerHTML = renderErrorCard(data);
           submitBtn.disabled = false;
           return;
         }
@@ -4349,7 +4577,8 @@ JS_WIZARD = """\
           "/w/" + encodeURIComponent(data.name) + "/write?step=setup"
         );
       } catch (err) {
-        dramaErrBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
+        err.code = err.code || "network";
+        dramaErrBox.innerHTML = renderErrorCard(err);
         submitBtn.disabled = false;
       }
     });
@@ -4368,7 +4597,8 @@ JS_WIZARD = """\
           return;
         }
       } catch (err) {
-        progressBody.innerHTML = '<div class="alert error">轮询失败: ' + escapeHtml(String(err)) + "</div>";
+        if (!err.status && !err.code) err.code = "network";
+        progressBody.innerHTML = renderErrorCard(err);
         return;
       }
       await new Promise((r) => setTimeout(r, 1000));
@@ -4451,7 +4681,7 @@ JS_SETTINGS = """\
     const data = await res.json();
     initial = data.settings || {};
   } catch (err) {
-    errBox.innerHTML = '<div class="alert error">读取失败: ' + escapeHtml(String(err)) + "</div>";
+    errBox.innerHTML = '<div class="alert error">读取设置失败，请确认本地服务在运行后刷新重试。</div>';
     return;
   }
   for (const [k, v] of Object.entries(initial)) {
@@ -4494,7 +4724,7 @@ JS_SETTINGS = """\
           escapeHtml((data.updated_keys || []).join(", ")) + "，请重启 web 服务以让新模型生效</div>";
       }
     } catch (err) {
-      errBox.innerHTML = '<div class="alert error">网络错误: ' + escapeHtml(String(err)) + "</div>";
+      errBox.innerHTML = '<div class="alert error">保存失败，请确认网络与本地服务后重试。</div>';
     }
   });
   function escapeHtml(s) {

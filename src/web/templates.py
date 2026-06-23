@@ -56,6 +56,7 @@ _BASE_TPL = Template(
   <div class="main">
     <header class="topbar">
       <button type="button" class="btn btn-icon nav-toggle" data-sidebar-toggle aria-label="打开侧栏">☰</button>
+      <a class="btn btn-icon home-btn" href="/library" aria-label="返回书架" title="返回书架">⌂</a>
       <nav class="breadcrumb">$BREADCRUMB</nav>
       <div class="topbar-actions-wrap">
         <button type="button" class="btn btn-icon topbar-menu-toggle" data-topbar-menu-toggle aria-label="打开页面操作">⋯</button>
@@ -409,8 +410,13 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         '<div class="tab-list">'
         '<button class="tab active" data-tab="setup">① 核心设定</button>'
         '<button class="tab" data-tab="hook">② 钩子</button>'
-        '<button class="tab" data-tab="storyboard">③ 分镜</button>'
-        '<button class="tab" data-tab="characters">④ 角色</button>'
+        # iter062: ③④ are not implemented yet — render them as explicitly
+        # locked (disabled + aria-disabled + lock + "即将上线") instead of
+        # clickable tabs that only reveal an empty state (a false affordance).
+        '<button class="tab locked" data-tab="storyboard" disabled aria-disabled="true" '
+        'title="即将上线">🔒 ③ 分镜 <span class="badge-soon">即将上线</span></button>'
+        '<button class="tab locked" data-tab="characters" disabled aria-disabled="true" '
+        'title="即将上线">🔒 ④ 角色 <span class="badge-soon">即将上线</span></button>'
         '</div>'
         '<div class="tab-panel active" id="tab-setup" data-station-pane="setup">'
         '<p class="muted">载入中…</p></div>'
@@ -581,6 +587,10 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '</div>'
         '<div id="workbench-stage-pill"></div>'
         '</header>'
+
+        # iter062: clickable step rail — jump back to any done/current stage;
+        # locked stages are non-interactive. Filled by refreshWorkbench().
+        '<ol class="stepbar" id="workbench-stepbar" aria-label="四阶段进度"></ol>'
 
         '<section class="continue-flow">'
         # stage ① 设定 (prepare-greenfield)
@@ -868,6 +878,7 @@ def render_workspace_chapter_detail(name: str, chapter_no: int, workspaces: Iter
         '</div>'
         '<div class="topbar-actions">'
         f'<a class="btn btn-ghost btn-sm" href="/w/{escape(name)}/chapters">← 返回章节列表</a>'
+        f'<a class="btn btn-ghost btn-sm" href="/w/{escape(name)}/">回概览</a>'
         '</div>'
         '</header>'
         '<section class="tabs">'

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from ..config import ROOT
+from . import errors
 
 
 _ENV_PATH = ROOT / ".env"
@@ -100,7 +101,7 @@ def put_settings(body: bytes) -> Tuple[int, str, bytes]:
     try:
         _write_env_atomic(_ENV_PATH, merged)
     except OSError as exc:
-        return _json(500, {"error": f"failed to write .env: {exc}"})
+        return _json(500, errors.error_body(errors.card_for_exception(exc)))
 
     return _json(200, {"saved": True, "restart_required": True, "updated_keys": sorted(updates.keys())})
 
