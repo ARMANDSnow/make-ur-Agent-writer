@@ -32,7 +32,7 @@ Dragon Raja AI Continuer MVP：基于 LLM 多 agent 协作的中文小说续写�
 6. **真模型 smoke 必须等用户授权**：`scripts/{real,debate,write}_smoke.sh` 涉及真 API 调用，必须用户回"可以跑了"才能执行
 7. **scope 收敛**：不要把"顺手修一下"扩展到计划外文件。真模型暴露的真实 bug 例外（iter 008 修 reviewer/writer 是这种情况）但要在文档里诚实记录
 8. **SOP 实时性**（iter 021 新增）：每轮 iter 收官时必须同步 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) 表格的状态字段（✅/⚠️/❌）+ "最近一次更新" 时间戳 + `docs/AGENT_HANDOFF.md` 末尾追加 Phase Status。这个表是用户判断"哪里打通了 / 哪里还没"的单一真实来源
-9. **迭代末尾 subagent 审核**（iter 031 后新增）：每轮 iter 收官前，必须调用至少 1 个 subagent 对本轮改动做结构性/程序性只读审核；Web / runner / 多 workspace / 真模型入口等高风险改动建议拆成 2 个独立视角并行审。审核范围、结论、未修风险必须写进当轮 iteration 的 `Acceptance Result` 或 `Notes`，再提交。subagent 不得跑真模型 smoke、不得触碰 `.env`、`data/`、`outputs/`、`小说txt/`。
+9. **迭代末尾代码审查**（iter 031 引入，2026-06 升级为内置 skill）：每轮 iter 收官前，必须对本轮改动做结构性/程序性只读审查。**优先用内置 skill**：跑 `/code-review high`（正确性 bug + 复用/简化/效率）+ `/security-review`（API key / `.env` 泄漏自查，对口第 1 条）。Web / runner / 多 workspace / 真模型入口等高风险改动，加跑 `/code-review ultra`（云端多 agent，需用户授权、计费）或拆 2 个独立视角 subagent 并行审。审查范围、结论、未修风险必须写进当轮 iteration 的 `Acceptance Result` 或 `Notes`，再提交。审查为只读：不得跑真模型 smoke、不得触碰 `.env`、`data/`、`outputs/`、`小说txt/`。
 
 ## 迭代记录格式
 

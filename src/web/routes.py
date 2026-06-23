@@ -1256,14 +1256,18 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
             # write the same file, so the loser overwrote the winner's sample
             # before the winner's job read it. write_text_atomic avoids a torn
             # read; the job is handed its own path via params.
+            # iter061 (P0): pass only the random token, not a caller-influenced
+            # path — the handler rebuilds the path inside data_dir from it, so
+            # /run can't be abused to read+delete an arbitrary file.
+            sample_token = uuid.uuid4().hex
             sample_path = paths.writer_style_sample_path().with_name(
-                f".writer_style_sample.{uuid.uuid4().hex}.tmp"
+                f".writer_style_sample.{sample_token}.tmp"
             )
             sample_path.parent.mkdir(parents=True, exist_ok=True)
             write_text_atomic(sample_path, sample)
         try:
             job = jobs.start_job(
-                name, "extract-style", {"force": True, "sample_path": str(sample_path)}
+                name, "extract-style", {"force": True, "sample_token": sample_token}
             )
         except BaseException:
             sample_path.unlink(missing_ok=True)  # don't leak the staged sample

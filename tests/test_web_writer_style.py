@@ -216,7 +216,7 @@ class ExtractUniqueSampleTests(_WebHarness):
             "POST", f"/api/workspace/{ws}/writer-style/extract", body, {"content-type": ct}
         )
 
-    def test_route_threads_unique_sample_path(self) -> None:
+    def test_route_threads_unique_sample_token(self) -> None:
         self._mkws("u1")
         captured: dict = {}
         real = jobs.start_job
@@ -231,20 +231,23 @@ class ExtractUniqueSampleTests(_WebHarness):
         finally:
             jobs.start_job = real
         self.assertEqual(status, 202, resp)
-        sp = captured["params"]["sample_path"]
-        # unique per request, not the legacy fixed shared name
-        self.assertNotEqual(Path(sp).name, ".writer_style_sample.tmp")
-        self.assertTrue(Path(sp).name.startswith(".writer_style_sample."))
-        self.assertTrue(Path(sp).exists())  # staged (job faked, so not consumed)
-        self.assertFalse(paths.writer_style_sample_path().exists())  # fixed path unused
+        params = captured["params"]
+        # iter061 P0: the route passes only a random token, never a path — the
+        # exploitable sample_path key must be gone.
+        self.assertNotIn("sample_path", params)
+        token = params["sample_token"]
+        self.assertRegex(token, r"^[0-9a-f]{32}$")
+        staged = paths.WORKSPACE_DIR / "u1" / "data" / f".writer_style_sample.{token}.tmp"
+        self.assertTrue(staged.exists())  # staged (job faked, so not consumed)
+        self.assertFalse((paths.WORKSPACE_DIR / "u1" / "data" / ".writer_style_sample.tmp").exists())
 
-    def test_concurrent_uploads_distinct_paths_no_clobber(self) -> None:
+    def test_concurrent_uploads_distinct_tokens_no_clobber(self) -> None:
         self._mkws("u2")
         seen: list = []
         real = jobs.start_job
 
         def fake(name, step, params=None):
-            seen.append(params["sample_path"])
+            seen.append(params["sample_token"])
             return {"job_id": "b" * 32, "status": "running"}
 
         jobs.start_job = fake
@@ -254,24 +257,72 @@ class ExtractUniqueSampleTests(_WebHarness):
         finally:
             jobs.start_job = real
         self.assertEqual(len(seen), 2)
-        self.assertNotEqual(seen[0], seen[1])  # distinct paths
+        self.assertNotEqual(seen[0], seen[1])  # distinct tokens
+        data_dir = paths.WORKSPACE_DIR / "u2" / "data"
+        f0 = data_dir / f".writer_style_sample.{seen[0]}.tmp"
+        f1 = data_dir / f".writer_style_sample.{seen[1]}.tmp"
         # both samples survive — neither overwrote the other (the TOCTOU fix)
-        self.assertIn("AAAA", Path(seen[0]).read_text(encoding="utf-8"))
-        self.assertIn("BBBB", Path(seen[1]).read_text(encoding="utf-8"))
+        self.assertIn("AAAA", f0.read_text(encoding="utf-8"))
+        self.assertIn("BBBB", f1.read_text(encoding="utf-8"))
 
-    def test_handler_consumes_params_sample_path(self) -> None:
-        # The handler reads its sample from params["sample_path"] and deletes it
-        # (sample-not-persisted guard), proving the per-request path is honored.
+    def test_handler_consumes_token_sample(self) -> None:
+        # The handler rebuilds the path inside data_dir from the token, reads the
+        # sample and deletes it (sample-not-persisted guard).
         self._mkws("u3")
         os.environ["WORKSPACE_NAME"] = "u3"
         try:
-            unique = paths.writer_style_sample_path().with_name(".writer_style_sample.feedface.tmp")
-            unique.write_text("用于风格提炼的写作样本内容。" * 30, encoding="utf-8")
-            result = jobs._step_extract_style({"sample_path": str(unique), "force": True}, lambda *a: None)
+            token = "feedface" * 4  # 32 hex chars
+            staged = paths.writer_style_sample_path().with_name(f".writer_style_sample.{token}.tmp")
+            staged.write_text("用于风格提炼的写作样本内容。" * 30, encoding="utf-8")
+            result = jobs._step_extract_style({"sample_token": token, "force": True}, lambda *a: None)
             self.assertEqual(result.get("status"), "succeeded", result)
-            self.assertFalse(unique.exists())  # consumed + deleted
+            self.assertFalse(staged.exists())  # consumed + deleted
         finally:
             os.environ.pop("WORKSPACE_NAME", None)
+
+    def test_handler_ignores_caller_sample_path_no_external_delete(self) -> None:
+        # iter061 P0: a caller-supplied params.sample_path pointing OUTSIDE the
+        # workspace must be ignored — the handler rebuilds from a token only, so
+        # the external file is neither read nor deleted.
+        self._mkws("u4")
+        os.environ["WORKSPACE_NAME"] = "u4"
+        external = Path(self._tmp.name) / "victim_outside_workspace.txt"
+        external.write_text("do not delete me", encoding="utf-8")
+        try:
+            result = jobs._step_extract_style({"sample_path": str(external), "force": True}, lambda *a: None)
+        finally:
+            os.environ.pop("WORKSPACE_NAME", None)
+        self.assertTrue(external.exists(), "external file must NOT be deleted")
+        self.assertEqual(result.get("status"), "blocked", result)  # fixed-path fallback absent
+
+    def test_handler_rejects_traversal_token_no_external_delete(self) -> None:
+        # A non-hex / traversal token must not resolve outside data_dir.
+        self._mkws("u5")
+        os.environ["WORKSPACE_NAME"] = "u5"
+        external = Path(self._tmp.name) / "victim2.txt"
+        external.write_text("safe", encoding="utf-8")
+        try:
+            result = jobs._step_extract_style(
+                {"sample_token": f"../../../../{external}", "force": True}, lambda *a: None
+            )
+        finally:
+            os.environ.pop("WORKSPACE_NAME", None)
+        self.assertTrue(external.exists())
+        self.assertEqual(result.get("status"), "blocked", result)
+
+    def test_run_endpoint_rejects_arbitrary_sample_path(self) -> None:
+        # End-to-end: POST /run with a malicious params.sample_path must not let
+        # extract-style read+delete a file outside the workspace.
+        self._mkws("u6")
+        external = Path(self._tmp.name) / "secret_outside.txt"
+        external.write_text("top secret", encoding="utf-8")
+        body = json.dumps(
+            {"step": "extract-style", "params": {"sample_path": str(external)}}
+        ).encode()
+        status, _ct, resp = routes.dispatch("POST", "/api/workspace/u6/run", body)
+        self.assertEqual(status, 202, resp)
+        self._wait_for_done("u6", json.loads(resp)["job_id"])
+        self.assertTrue(external.exists(), "external file must survive the job")
 
 
 class BusyTests(_WebHarness):

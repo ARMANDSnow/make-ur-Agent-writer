@@ -29,6 +29,7 @@ import traceback
 import uuid
 import json
 import math
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -709,11 +710,17 @@ def _step_extract_style(params: Dict[str, Any], progress_cb: Callable[[str, floa
     上传端点先把样本写到 ``data/.writer_style_sample.tmp``（gitignored），本步
     读取后提取并落 ``data/writer_style.json``，然后删除临时样本——样本不持久化，
     不进仓库/快照（P0-A 版权护栏）。``force`` 默认 True（提取即为得到新卡）。"""
-    # iter060 (#11): the upload route stages each request's sample to a unique
-    # path and passes it here; fall back to the legacy fixed path for any old
-    # in-flight job / back-compat.
-    raw_sample_path = params.get("sample_path")
-    sample_path = Path(raw_sample_path) if raw_sample_path else paths.writer_style_sample_path()
+    # iter060 (#11) + iter061 (P0): the upload route stages each request's sample
+    # to a unique path inside data/ and passes only its random TOKEN here. We
+    # rebuild the path INSIDE data_dir from a validated 32-hex token, so a caller
+    # can NOT POST /run with params.sample_path=<arbitrary path> and get this step
+    # to read+delete a file outside the workspace — the path is never taken from
+    # caller-controlled input. Unknown/invalid token -> legacy fixed path.
+    token = params.get("sample_token")
+    if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token):
+        sample_path = paths.writer_style_sample_path().with_name(f".writer_style_sample.{token}.tmp")
+    else:
+        sample_path = paths.writer_style_sample_path()
     if not sample_path.exists():
         return _blocked("sample_missing", "no uploaded sample found; upload a writing sample first")
     try:
