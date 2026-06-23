@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import sys
 
+from src import run_params
 from src.auto_bootstrap import (
     bootstrap_all,
     bootstrap_continuation_anchor,
@@ -394,6 +395,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _validate_cli_run_params(raw: dict, *, fields: tuple) -> None:
+    """iter064 #1: enforce the same numeric caps + finite guards the WebUI
+    applies (src/run_params.py) before the CLI hands raw argparse ints/floats to
+    the runner. Without this, ``--chapters 999999999`` reaches book_runner's
+    ``list(range(...))`` (OOM) and ``--budget-cny nan`` silently disables the
+    cost gate (``current_cost > nan`` is always False). Hard-reject with
+    ``SystemExit(2)`` — argparse's usage-error convention, distinct from the
+    runner's 1/3/4 status exit codes."""
+    error, _ = run_params.validate_run_params(raw, fields=fields)
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(2)
+
+
 def main() -> None:
     _consume_book_pre_arg()
     args = build_parser().parse_args()
@@ -532,7 +547,20 @@ def main() -> None:
         results = init_book_pipeline(skip_extract=args.skip_extract, extract_limit=args.extract_limit, force=args.force)
         print(_render_init_book_results(results), end="")
     elif args.command == "plan-chapters":
-        from src.plot_planner import generate_chapter_plan
+        from src import readiness_catalog
+        from src.plot_planner import OutlineStale, generate_chapter_plan
+
+        # iter064 #1: args.chapters here means target_chapters (capped 1..200,
+        # matching the WebUI plan-chapters validator), not the write-book
+        # chapters cap, so validate it under that field name.
+        _validate_cli_run_params(
+            {
+                "target_chapters": args.chapters,
+                "append_count": args.append_count,
+                "from_chapter": args.from_chapter,
+            },
+            fields=("target_chapters", "append_count", "from_chapter"),
+        )
 
         # Iter 024: if --append is set without explicit --from-chapter,
         # auto-resolve to current plan length so common usage doesn't
@@ -543,23 +571,44 @@ def main() -> None:
             from src.utils import read_json as _rj
             _p = _paths.chapter_plan_path() if _paths.workspace_name() else Path("outputs/debate/chapter_plan.json")
             from_chapter = len((_rj(_p, {}) or {}).get("chapters", []))
-        data = generate_chapter_plan(
-            target_chapters=args.chapters,
-            force=args.force,
-            append_count=args.append_count,
-            from_chapter=from_chapter,
-            require_start_point=args.require_start_point,
-            allow_stale_outline=args.allow_stale_outline,
-        )
+        try:
+            data = generate_chapter_plan(
+                target_chapters=args.chapters,
+                force=args.force,
+                append_count=args.append_count,
+                from_chapter=from_chapter,
+                require_start_point=args.require_start_point,
+                allow_stale_outline=args.allow_stale_outline,
+            )
+        except OutlineStale as exc:
+            # iter064 #2: surface the same friendly outline_stale card the WebUI
+            # shows (sourced from readiness_catalog) instead of a raw traceback,
+            # then exit 4 to match the other "blocked" CLI arms.
+            fields = readiness_catalog.KINDS.get(exc.kind, {})
+            print(
+                f"[plan-chapters] blocked ({exc.kind}): "
+                f"{fields.get('label', '大纲与当前起点不一致')}",
+                file=sys.stderr,
+            )
+            print(f"  {fields.get('cause', str(exc))}", file=sys.stderr)
+            if fields.get("cta_label"):
+                print(f"  下一步：{fields['cta_label']}", file=sys.stderr)
+            print(f"  详情：{exc}", file=sys.stderr)
+            raise SystemExit(4)
         mode = f"append +{args.append_count} from ch{from_chapter}" if args.append_count > 0 else "fresh"
         print(f"chapter_plan.json written ({mode}): {len(data['chapters'])} chapters")
         print(f"overall_arc: {str(data['overall_arc'])[:200]}")
     elif args.command == "write":
+        _validate_cli_run_params(vars(args), fields=("chapters", "resume_from"))
         write_chapters(chapters=args.chapters, force=args.force, resume_from=args.resume_from)
     elif args.command == "write-book":
         from src.book_runner import BookRunBlocked, run_write_book
         import json as _json
 
+        _validate_cli_run_params(
+            vars(args),
+            fields=("chapters", "resume_from", "max_retries", "replan_every", "budget_cny", "min_confidence"),
+        )
         try:
             result = run_write_book(
                 chapters=args.chapters,
@@ -589,6 +638,9 @@ def main() -> None:
         from src.book_runner import check_write_readiness
         import json as _json
 
+        _validate_cli_run_params(
+            vars(args), fields=("chapters", "resume_from", "replan_every")
+        )
         result = check_write_readiness(
             chapters=args.chapters,
             resume_from=args.resume_from,

@@ -536,6 +536,43 @@ class PlotPlannerGateTests(unittest.TestCase):
                 self._generate(Path(tmp), decisions)
         self.assertIn("outline_content_mismatch", str(ctx.exception))
 
+    def test_stale_outline_raises_typed_exception(self) -> None:
+        # iter064 #2: the hard block is now a typed OutlineStale (⊂ ValueError so
+        # the assertRaises(ValueError) cases above still pass), carrying codes +
+        # kind="outline_stale" so the WebUI and CLI map it to the same card.
+        from src.plot_planner import OutlineStale
+
+        decisions = self._matching_decisions()
+        decisions["start_chapter_id"] = "chOLD"
+        decisions["start_point_fingerprint"] = "fp-old"
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(OutlineStale) as ctx:
+                self._generate(Path(tmp), decisions)
+        self.assertEqual(ctx.exception.kind, "outline_stale")
+        self.assertIn("outline_start_chapter_id_mismatch", ctx.exception.codes)
+
+    def test_cli_plan_chapters_maps_stale_to_friendly_exit4(self) -> None:
+        # iter064 #2: the CLI must surface OutlineStale as the readiness card +
+        # exit 4 (parity with the WebUI blocked result), never a raw traceback.
+        import io
+        from contextlib import redirect_stderr
+
+        import main
+        from src.plot_planner import OutlineStale
+
+        def _boom(*a, **k):
+            raise OutlineStale(["outline_start_chapter_id_mismatch"])
+
+        err = io.StringIO()
+        with patch("src.plot_planner.generate_chapter_plan", _boom), patch(
+            "sys.argv", ["main.py", "plan-chapters", "--chapters", "3"]
+        ), redirect_stderr(err):
+            with self.assertRaises(SystemExit) as cm:
+                main.main()
+        self.assertEqual(cm.exception.code, 4)
+        self.assertIn("大纲与当前起点不一致", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+
     def test_allow_stale_outline_passes_with_audit_trail(self) -> None:
         decisions = self._matching_decisions()
         decisions["start_chapter_id"] = "chOLD"

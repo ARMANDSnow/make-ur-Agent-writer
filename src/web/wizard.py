@@ -19,7 +19,6 @@ easier to audit than pulling in ``python-multipart``.
 from __future__ import annotations
 
 import json
-import math
 import re
 import shutil
 import tempfile
@@ -27,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple  # noqa: F401
 
 from .. import paths
+from .. import run_params
 from ..cli_workspace import init_workspace
 from ..epub_to_txt import extract_epub
 from . import errors
@@ -505,21 +505,12 @@ def _optional_float(
     minimum: float,
     maximum: Optional[float] = None,
 ) -> Tuple[Optional[str], float]:
-    if value is None or value == "":
-        return None, default
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return f"{key} must be a number", default
-    # iter058 #6b: reject NaN/±Infinity — they pass every min/max comparison
-    # below and would disable the budget/timeout guards downstream.
-    if not math.isfinite(out):
-        return f"{key} must be a finite number", default
-    if out < minimum:
-        return f"{key} must be >= {minimum}", default
-    if maximum is not None and out > maximum:
-        return f"{key} must be <= {maximum}", default
-    return None, out
+    # iter064 #1: thin wrapper over src/run_params.validate_float with
+    # allow_blank=True (None/"" -> default). Keeps the iter058 #6b finite guard
+    # in one place shared with the WebUI routes and the CLI/driver.
+    return run_params.validate_float(
+        value, key, default, minimum=minimum, maximum=maximum, allow_blank=True
+    )
 
 
 

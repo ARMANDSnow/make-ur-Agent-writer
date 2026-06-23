@@ -26,9 +26,28 @@ imports so tests can import it without spinning up the server.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict
 
 from .. import readiness_catalog
+
+# iter064 #4: a POSIX absolute path is `/` + at least two `/`-separated
+# segments. Requiring the leading slash and >=2 segments keeps normal prose
+# (`3/4`, `a/b`, `TCP/IP` — none have two slashes) untouched while catching the
+# directory tree an exception message may embed (e.g. hook_designer's
+# `setup_path`). Segments are `[^/]+` (everything but a slash, INCLUDING spaces)
+# so a path with a space in a parent dir — `/Users/x/My Docs/foo/a.txt` — is
+# fully matched and redacted, not truncated at the first space (iter064 收官审查
+# P1). Matching greedily across runs only ever over-redacts, which is fail-safe.
+_ABS_PATH_RE = re.compile(r"/(?:[^/]+/){1,}[^/]+")
+
+
+def _redact_paths(text: str) -> str:
+    """Replace absolute filesystem paths with ``…/<basename>`` so a raw
+    exception string can't leak the user's directory tree into the
+    client-visible ``cause``. The basename survives (it's the useful part);
+    only the leading directories are hidden."""
+    return _ABS_PATH_RE.sub(lambda m: "…/" + m.group(0).rsplit("/", 1)[-1], text)
 
 # ---------------------------------------------------------------------------
 # Catalogs
@@ -180,8 +199,11 @@ def card_for_exception(
     raw exception text is for stderr logs, not the client.
     """
     code = code_for_exception(exc)
+    # technical keeps the raw text (path included): it's opt-in, maintainer-only,
+    # and goes to stderr — never the client. detail flows into the user-visible
+    # cause, so redact absolute paths there (iter064 #4).
     technical = f"{type(exc).__name__}: {exc}" if expose_technical else ""
-    return build_card(code, detail=str(exc), trace_id=trace_id, technical=technical)
+    return build_card(code, detail=_redact_paths(str(exc)), trace_id=trace_id, technical=technical)
 
 
 def readiness_kind(blocker: str) -> str:
@@ -203,3 +225,19 @@ def error_body(card: Dict[str, Any]) -> Dict[str, Any]:
     """JSON body for an error response: keep ``error`` (title) for backward
     compatibility, add ``card`` for the new frontend component."""
     return {"error": card.get("title", "出错了"), "card": card}
+
+
+def exception_body(exc: BaseException, *, expose_technical: bool = False) -> Dict[str, Any]:
+    """JSON body for an exception-derived error response: ``{error, card}``.
+
+    iter064 #4: handlers used to inline ``{"error": str(exc), "card":
+    card_for_exception(exc)}``. The card's cause is now path-redacted, but the
+    sibling ``error`` key was still raw ``str(exc)`` — so an absolute path in the
+    message (e.g. hook_designer's ``setup_path``) leaked to the client through
+    that field even though the card was clean. Redact BOTH here so every call
+    site closes the leak. Non-path messages are unchanged (``_redact_paths`` is a
+    no-op without a leading-slash path), preserving backward compatibility."""
+    return {
+        "error": _redact_paths(str(exc)),
+        "card": card_for_exception(exc, expose_technical=expose_technical),
+    }

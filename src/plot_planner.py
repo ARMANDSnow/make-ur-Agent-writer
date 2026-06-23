@@ -61,6 +61,26 @@ def _stale_outline_message(codes: List[str]) -> str:
     return f"stale debate outline ({', '.join(codes)}): {detail}"
 
 
+class OutlineStale(ValueError):
+    """iter064 #2: the debate outline was built against a different start point
+    (the 052 cross-timeline accident) — a deliberate hard block.
+
+    Subclasses ``ValueError`` so the existing ``except (FileNotFoundError,
+    ValueError)`` handlers and the iter053a guard tests still catch it, and the
+    message stays byte-identical to the former ``ValueError(_stale_outline_
+    message(...))``. Carries the structured ``codes`` + a stable ``kind`` so the
+    WebUI (``web/jobs.py``) and the CLI (``main.py``) both map it to the
+    ``readiness_catalog`` ``outline_stale`` card via ``isinstance`` instead of
+    string-matching, and surface a friendly "regenerate outline" CTA rather than
+    a raw traceback."""
+
+    kind = "outline_stale"
+
+    def __init__(self, codes: List[str]) -> None:
+        self.codes = list(codes)
+        super().__init__(_stale_outline_message(self.codes))
+
+
 def generate_chapter_plan(
     target_chapters: int = 18,
     force: bool = False,
@@ -129,7 +149,7 @@ def generate_chapter_plan(
                 f"({', '.join(hard_codes)})，审计痕已写入 chapter_plan.json。"
             )
         else:
-            raise ValueError(_stale_outline_message(hard_codes))
+            raise OutlineStale(hard_codes)
     elif start_point.OUTLINE_METADATA_MISSING in stale_codes:
         log_event("plot_planner", "outline_start_metadata_missing")
         print(

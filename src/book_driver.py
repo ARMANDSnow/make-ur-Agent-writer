@@ -46,7 +46,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import paths, start_point
+from . import paths, run_params, start_point
 from .config import ROOT
 from .cost_estimator import estimate_cost_since
 from .utils import append_jsonl, ensure_dir, read_json_optional, write_json
@@ -686,6 +686,28 @@ def _detach() -> Optional[int]:
 
 
 def _build_params(args: Any) -> Dict[str, Any]:
+    # iter064 #1: validate the numeric args with the same caps the WebUI + CLI
+    # enforce (src/run_params.py) BEFORE they reach plan_segments() — which
+    # materializes range(resume_from, resume_from + chapters) inside the driver
+    # process, so a pathological --chapters would OOM here, before any
+    # subprocess. A NaN --budget-cny (nan is truthy, so `nan or 0.0` keeps it)
+    # would survive into the cost gate. Validate the same effective values the
+    # dict below builds, then hard-reject with SystemExit(2).
+    error, _ = run_params.validate_run_params(
+        {
+            "chapters": getattr(args, "chapters", 1),
+            "resume_from": getattr(args, "resume_from", 1) or 1,
+            "segment_size": getattr(args, "segment_size", 5) or 5,
+            "replan_every": getattr(args, "replan_every", 0) or 0,
+            "max_retries": getattr(args, "max_retries", 2) or 2,
+            "budget_cny": getattr(args, "budget_cny", None) or 0.0,
+            "plan_target": getattr(args, "plan_target", 0) or 0,
+        },
+        fields=("chapters", "resume_from", "segment_size", "replan_every", "max_retries", "budget_cny", "plan_target"),
+    )
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(2)
     cmd_prefix = getattr(args, "cmd_prefix", None)
     return {
         "book": paths.workspace_name(),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import shutil
 import time
 from datetime import datetime, timezone
@@ -97,6 +98,13 @@ def run_write_book(
     max_retries = max(0, int(max_retries))
     replan_every = max(0, int(replan_every))
     budget_cny = float(budget_cny or 0.0)
+    # iter064 #1: last-line defense for programmatic callers that bypass the
+    # CLI/Web validators (src/run_params.py). A non-finite budget (NaN/Inf)
+    # makes `current_cost > budget_cny` always False (IEEE-754), silently
+    # disabling the cost gate — degrade it to 0.0 ("no budget cap", the
+    # documented default) so the math below stays well-defined.
+    if not math.isfinite(budget_cny):
+        budget_cny = 0.0
     resolved_tier = review_tier.resolve_tier(tier)
 
     def budget_check_cb() -> float:

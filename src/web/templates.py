@@ -29,6 +29,7 @@ from string import Template
 from typing import Iterable, List, Optional, Sequence
 
 from .. import readiness_catalog
+from ._naming import WORKSPACE_NAME_HTML_PATTERN
 from .jobs import _default_budget_cny
 
 # iter063 Part C: the readiness catalog is a build-time constant; serialize it
@@ -1098,10 +1099,12 @@ def render_wizard() -> str:
         '<div class="field">'
         '<label>workspace 名</label>'
         '<input name="workspace" required '
-        # iter063 A4: escape the trailing literal hyphen — Chromium compiles the
-        # HTML pattern with the RegExp `v` flag, where a bare `-` in a char class
-        # is a SyntaxError (red console). CJK ranges 一-鿿 stay valid as-is.
-        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿\\-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
+        # the client check can't drift from the backend WORKSPACE_NAME_RE again.
+        # The constant keeps the iter063 A4 escaped hyphen (Chromium `v` flag)
+        # and forbids a trailing hyphen (the optional non-capturing group),
+        # which the old `[...]?` final char wrongly allowed (e.g. `foo-`).
+        f'pattern="{WORKSPACE_NAME_HTML_PATTERN}" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
         '</div>'
         '<div class="field">'
@@ -1136,10 +1139,12 @@ def render_wizard() -> str:
         '<div class="field">'
         '<label>workspace 名</label>'
         '<input name="workspace" required '
-        # iter063 A4: escape the trailing literal hyphen — Chromium compiles the
-        # HTML pattern with the RegExp `v` flag, where a bare `-` in a char class
-        # is a SyntaxError (red console). CJK ranges 一-鿿 stay valid as-is.
-        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿\\-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
+        # the client check can't drift from the backend WORKSPACE_NAME_RE again.
+        # The constant keeps the iter063 A4 escaped hyphen (Chromium `v` flag)
+        # and forbids a trailing hyphen (the optional non-capturing group),
+        # which the old `[...]?` final char wrongly allowed (e.g. `foo-`).
+        f'pattern="{WORKSPACE_NAME_HTML_PATTERN}" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
         '</div>'
         '<div class="field">'
@@ -1176,10 +1181,12 @@ def render_wizard() -> str:
         '<div class="field">'
         '<label>workspace 名</label>'
         '<input name="workspace" required '
-        # iter063 A4: escape the trailing literal hyphen — Chromium compiles the
-        # HTML pattern with the RegExp `v` flag, where a bare `-` in a char class
-        # is a SyntaxError (red console). CJK ranges 一-鿿 stay valid as-is.
-        'pattern="[a-zA-Z0-9_一-鿿][a-zA-Z0-9_一-鿿\\-]{0,30}[a-zA-Z0-9_一-鿿]?" '
+        # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
+        # the client check can't drift from the backend WORKSPACE_NAME_RE again.
+        # The constant keeps the iter063 A4 escaped hyphen (Chromium `v` flag)
+        # and forbids a trailing hyphen (the optional non-capturing group),
+        # which the old `[...]?` final char wrongly allowed (e.g. `foo-`).
+        f'pattern="{WORKSPACE_NAME_HTML_PATTERN}" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
         '</div>'
         '<div class="field">'

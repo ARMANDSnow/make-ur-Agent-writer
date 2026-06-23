@@ -28,6 +28,20 @@ WORKSPACE_NAME_RE = re.compile(
     r"(?:[a-zA-Z0-9_一-鿿-]{0,30}[a-zA-Z0-9_一-鿿])?$"
 )
 
+# iter064 #5: canonical HTML ``pattern`` body for the wizard's workspace-name
+# input (src/web/templates.py). Single-sourced here so the client-side check
+# can never diverge from WORKSPACE_NAME_RE again (iter063 A4 left the frontend
+# accepting a trailing ``-`` that the backend rejects). Differences vs the RE:
+#   * no ``^``/``$`` anchors — HTML input ``pattern`` is implicitly anchored;
+#   * the hyphen is escaped as ``\-`` — Chromium compiles the pattern with the
+#     RegExp ``v`` flag, where a bare ``-`` in a char class is a SyntaxError;
+#   * the optional NON-capturing group (not an optional final char) forbids a
+#     trailing hyphen, exactly mirroring the RE body.
+WORKSPACE_NAME_HTML_PATTERN = (
+    r"[a-zA-Z0-9_一-鿿]"
+    r"(?:[a-zA-Z0-9_一-鿿\-]{0,30}[a-zA-Z0-9_一-鿿])?"
+)
+
 # ``legacy`` is a paths.py sentinel — setting WORKSPACE_NAME to it
 # resolves to repo-root mode (returns None). ``_trash`` is the reserved
 # soft-delete holding area. User-creatable workspaces with either name

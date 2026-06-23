@@ -17,7 +17,6 @@ iter 026 will add POST/PUT entries to ``_ROUTES``; iter 025 ships GET-only.
 from __future__ import annotations
 
 import json
-import math
 import re
 import threading
 import time
@@ -25,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .. import paths, review_tier, start_point
+from .. import paths, review_tier, run_params, start_point
 from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
 from ..config import get_model_config
@@ -831,11 +830,11 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
                 try:
                     data = apply_chapter_plan_item_edit(chapter_no, fields)
                 except FileNotFoundError as exc:
-                    return _json(404, {"error": str(exc), "card": errors.card_for_exception(exc)})
+                    return _json(404, errors.exception_body(exc))
                 except KeyError as exc:
                     return _json(404, {"error": str(exc.args[0]) if exc.args else "chapter not found"})
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+                    return _json(400, errors.exception_body(exc))
                 except OSError as exc:
                     _log_degraded("write_chapter_plan", exc)
                     return _json(500, errors.error_body(errors.card_for_exception(exc)))
@@ -1084,7 +1083,7 @@ def api_workspace_premise_expansion_save(name: str, body: bytes) -> Tuple[int, s
                 try:
                     record = save_expansion_fields(fields)
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+                    return _json(400, errors.exception_body(exc))
                 except OSError as exc:
                     _log_degraded("write_premise_expansion", exc)
                     return _json(500, errors.error_body(errors.card_for_exception(exc)))
@@ -1175,7 +1174,7 @@ def api_workspace_writer_style_save(name: str, body: bytes) -> Tuple[int, str, b
                 try:
                     record = save_card_fields(fields)
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+                    return _json(400, errors.exception_body(exc))
                 except OSError as exc:
                     _log_degraded("write_writer_style", exc)
                     return _json(500, errors.error_body(errors.card_for_exception(exc)))
@@ -1209,7 +1208,7 @@ def api_workspace_writer_style_activate(name: str, body: bytes) -> Tuple[int, st
                 try:
                     record = activate_preset(preset_id.strip())
                 except ValueError as exc:
-                    return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+                    return _json(400, errors.exception_body(exc))
                 except OSError as exc:
                     _log_degraded("activate_preset", exc)
                     return _json(500, errors.error_body(errors.card_for_exception(exc)))
@@ -1530,9 +1529,9 @@ def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
                 # iter063 A2: friendly card + keep error=str(exc) (the missing-
                 # artifact detail is actionable; matches the iter062 4xx/FNF
                 # convention so substring tests stay green).
-                return _json(500, {"error": str(exc), "card": errors.card_for_exception(exc)})
+                return _json(500, errors.exception_body(exc))
             except (ValueError, NotImplementedError) as exc:
-                return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+                return _json(400, errors.exception_body(exc))
             setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
             write_json(setup_path, result)
     except RuntimeError as exc:
@@ -1556,9 +1555,9 @@ def api_drama_hooks(name: str, body: bytes) -> Tuple[int, str, bytes]:
         result = hook_designer.run(name, mock=True)
     except FileNotFoundError as exc:
         # iter063 A2: friendly card + keep error=str(exc) (see api_drama_plan).
-        return _json(500, {"error": str(exc), "card": errors.card_for_exception(exc)})
+        return _json(500, errors.exception_body(exc))
     except (ValueError, NotImplementedError) as exc:
-        return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+        return _json(400, errors.exception_body(exc))
     return _json(200, result)
 
 
@@ -1929,7 +1928,7 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
         job = jobs.start_job(name, step, params)
     except ValueError as exc:
         # iter063 A2: attach a card so /run failures show a human title.
-        return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+        return _json(400, errors.exception_body(exc))
     except RuntimeError as exc:
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
@@ -1975,12 +1974,10 @@ def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], 
     # iter059 #6a: upper bounds so a pathological chapters=999999999 can't be
     # accepted (resource exhaustion). Caps are well above any real run; the
     # default path is unchanged. plan-chapters already capped target at 200.
-    for key, default, minimum, maximum in (
-        ("chapters", 1, 1, 2000),
-        ("resume_from", 1, 1, 10000),
-        ("max_retries", 2, 0, 20),
-        ("replan_every", 0, 0, 2000),
-    ):
+    # iter064 #1: the cap numbers now live in src/run_params.INT_CAPS so the
+    # CLI/driver enforce the exact same bounds (single source of truth).
+    for key in run_params.WRITE_BOOK_INT_FIELDS:
+        default, minimum, maximum = run_params.INT_CAPS[key]
         error, value = _int_param(params, key, default, minimum=minimum, maximum=maximum)
         if error:
             return error, {}
@@ -2059,42 +2056,20 @@ def _int_param(params: Dict[str, Any], key: str, default: int, *, minimum: int =
 
 
 def _int_value(value: Any, key: str, *, minimum: int = 0, maximum: Optional[int] = None) -> Tuple[Optional[str], int]:
-    # iter059 #6a/NEW-A: a non-finite native float (Infinity/NaN arriving as a
-    # JSON literal -> json.loads gives float('inf')/float('nan')) must be
-    # rejected at the boundary. int(float('inf')) raises OverflowError, which
-    # the old (TypeError, ValueError)-only except let escape as HTTP 500;
-    # int(float('nan')) raised ValueError -> 400 already, but reject it here
-    # too for a clear message. Mirrors _float_param's math.isfinite guard.
-    if isinstance(value, float) and not math.isfinite(value):
-        return f"{key} must be a finite integer", 0
-    try:
-        out = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return f"{key} must be an integer", 0
-    if out < minimum:
-        return f"{key} must be >= {minimum}", 0
-    if maximum is not None and out > maximum:
-        return f"{key} must be <= {maximum}", 0
-    return None, out
+    # iter064 #1: thin wrapper over the core-level validator (src/run_params.py)
+    # so the WebUI and the CLI/driver share one source of truth for the
+    # finite/range guard (iter059 #6a/NEW-A). Behavior unchanged — the
+    # finite-guard regression tests call this directly.
+    return run_params.validate_int(value, key, minimum=minimum, maximum=maximum)
 
 
 def _float_param(params: Dict[str, Any], key: str, default: float, *, minimum: float = 0.0, maximum: Optional[float] = None) -> Tuple[Optional[str], float]:
-    try:
-        out = float(params.get(key, default))
-    except (TypeError, ValueError):
-        return f"{key} must be a number", 0.0
-    # iter058 #6b: NaN/±Infinity slip past every `<`/`>` comparison below
-    # (IEEE-754: all comparisons involving NaN are False), so a non-finite
-    # budget_cny/min_confidence would silently disable the downstream cost
-    # and timeout guards. Reject at the boundary — finite-only, mirroring
-    # _int_value's type guard above.
-    if not math.isfinite(out):
-        return f"{key} must be a finite number", 0.0
-    if out < minimum:
-        return f"{key} must be >= {minimum}", 0.0
-    if maximum is not None and out > maximum:
-        return f"{key} must be <= {maximum}", 0.0
-    return None, out
+    # iter064 #1: thin wrapper over src/run_params.validate_float. allow_blank
+    # stays False to preserve the original params-dict semantics (iter058 #6b:
+    # reject NaN/±Infinity that otherwise disable the cost/timeout gates).
+    return run_params.validate_float(
+        params.get(key, default), key, default, minimum=minimum, maximum=maximum, allow_blank=False
+    )
 
 
 def _bool_param(params: Dict[str, Any], key: str, default: bool) -> Tuple[Optional[str], bool]:
@@ -2450,9 +2425,9 @@ def dispatch(
         try:
             return handler(**kwargs)
         except FileNotFoundError as exc:
-            return _json(404, {"error": str(exc), "card": errors.card_for_exception(exc)})
+            return _json(404, errors.exception_body(exc))
         except ValueError as exc:
-            return _json(400, {"error": str(exc), "card": errors.card_for_exception(exc)})
+            return _json(400, errors.exception_body(exc))
         except Exception:
             # Iter 026 code-review #7 hardening: don't leak ``str(exc)``
             # to the client. Log the full exception server-side with a

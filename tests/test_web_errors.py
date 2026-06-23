@@ -79,6 +79,49 @@ class CardForExceptionTest(unittest.TestCase):
         self.assertEqual(card["code"], "invalid_value")
         self.assertIn("non-editable field", card["cause"])
 
+    def test_absolute_path_redacted_from_cause(self) -> None:
+        # iter064 #4: a ValueError carrying an absolute path (e.g. hook_designer's
+        # setup_path) must not leak the directory tree into the client-visible
+        # cause. The basename survives; the leading directories are hidden.
+        exc = ValueError(
+            "setup must be a JSON object: "
+            "/Users/me/工作区/foo/outputs/episodes/episode_01.setup.json"
+        )
+        card = errors.card_for_exception(exc)
+        self.assertEqual(card["code"], "invalid_value")
+        self.assertNotIn("/Users/me", card["cause"])
+        self.assertNotIn("/outputs/episodes", card["cause"])
+        self.assertIn("episode_01.setup.json", card["cause"])
+        self.assertIn("…/", card["cause"])
+
+    def test_redact_paths_leaves_prose_untouched(self) -> None:
+        # Requires a leading `/` + >=2 segments, so normal prose stays intact.
+        for text in ("ratio is 3/4", "a/b", "TCP/IP", "no slash here", ""):
+            self.assertEqual(errors._redact_paths(text), text)
+
+    def test_redact_paths_handles_spaces_in_parent_dirs(self) -> None:
+        # iter064 收官审查 P1: a space in a parent directory must NOT truncate the
+        # match and leak the rest of the tree. The whole path collapses to …/leaf.
+        out = errors._redact_paths("/Users/x/My Docs/foo/report.txt")
+        self.assertNotIn("My Docs", out)
+        self.assertNotIn("/foo", out)
+        self.assertIn("…/report.txt", out)
+
+    def test_exception_body_redacts_both_error_and_card(self) -> None:
+        # iter064 #4: the {error, card} response body must redact the path in
+        # BOTH fields — the raw `error` key used to leak it even when the card
+        # was clean (12 drama/web handlers inlined `{"error": str(exc), ...}`).
+        exc = ValueError("setup must be a JSON object: /Users/me/ws/foo/episode_01.setup.json")
+        body = errors.exception_body(exc)
+        self.assertNotIn("/Users/me", body["error"])
+        self.assertNotIn("/Users/me", body["card"]["cause"])
+        self.assertIn("episode_01.setup.json", body["error"])  # basename survives
+
+    def test_exception_body_preserves_non_path_message(self) -> None:
+        # Backward compat: a message without a path is unchanged in `error`.
+        body = errors.exception_body(ValueError("topic is required"))
+        self.assertEqual(body["error"], "topic is required")
+
 
 class ReadinessCatalogSingleSourceTest(unittest.TestCase):
     """iter063 Part C: errors cards, book_runner._primary_blocker, and the

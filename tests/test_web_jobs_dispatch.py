@@ -151,6 +151,27 @@ class JobsDispatchTests(unittest.TestCase):
         # raw message preserved in the blocked error (UI folds it under the card)
         self.assertIn("stale debate outline", job["result_summary"]["first_blocked"]["error"])
 
+    def test_plan_chapters_typed_outline_stale_is_blocked(self) -> None:
+        # iter064 #2: the real planner now raises the typed OutlineStale; the
+        # dispatcher must key on the type and emit the same blocked card.
+        from src.plot_planner import OutlineStale
+
+        with unittest.mock.patch(
+            "src.web.jobs.generate_chapter_plan",
+            side_effect=OutlineStale(["outline_start_chapter_id_mismatch"]),
+        ), unittest.mock.patch(
+            "src.web.jobs.start_point.get_start_chapter_id",
+            return_value="alpha_ch001",
+        ):
+            status, data = self._post_run(
+                "alpha",
+                {"step": "plan-chapters", "params": {"target_chapters": 5}},
+            )
+            self.assertEqual(status, 202)
+            job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(job["status"], "blocked")
+        self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "outline_stale")
+
     def test_concurrent_same_workspace_409(self) -> None:
         # The first job must remain in flight when we fire the second
         # call, so we use a long-ish step. ``auto-pipeline-greenfield`` needs a

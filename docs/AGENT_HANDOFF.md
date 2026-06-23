@@ -1627,3 +1627,29 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`（临时 demo workspace 验证后已删）。
 
 **下轮候选（iter064）**：premise/drama-start 名校验一致化为 card（同 A3）；drama FNF error 路径脱敏（F3-2）；timeout 校验抽 helper（F3-3）；`_blocker_kind` 别名清理（F3-5）；drama 站③④实做；KB 起点过滤升级为主动 blocker；真模型 capstone 复跑。
+
+---
+
+## iter 064（2026-06-23，收官）——Codex findings 收口：CLI/Web 健壮性对齐 + 硬化
+
+**来源**：codex 一轮只读调研提 2×P1 + 4×P2。起轮用 6 个只读 agent 逐条核验代码，**6 条全部 confirmed**。第 6 条「语义闭环」large 级，与用户确认推迟 iter065+。前 5 条有界硬化主题 = **操作者侧 CLI↔Web 健壮性对齐**（同一业务 Web 有守门/友好出口、CLI/driver 没有）。
+
+**#1（P1）CLI/driver 数值守门统一**：新建核心层 `src/run_params.py`（仅 `math`/`typing`，镜像 `readiness_catalog` 无 web 反依赖）——`INT_CAPS`/`FLOAT_CAPS` cap 表 + `validate_int`/`validate_float`/`validate_run_params`。Web 改薄包装复用：`routes._int_value`/`_float_param` 转调（保留原名签名，回归门 `test_int/float_finite_guard.py` 不动即绿）、`_validate_write_book_params` cap 改读 `INT_CAPS`、`wizard._optional_float` 转调（`allow_blank=True`）；`routes`/`wizard` 移除空出的 `import math`。`jobs._float_param` 防御纵深层契约不同**保持不动**（scope 收敛）。CLI：`main.py` 加 `_validate_cli_run_params`，write-book/write-readiness/write/plan-chapters 四 arm 顶部**硬拒绝 `SystemExit(2)`**（plan-chapters 的 `args.chapters` 按 `target_chapters`1..200 校验）。driver：`book_driver._build_params` build 前校验——驱动器虽 subprocess 重调 CLI，但 `plan_segments(chapters,...)` 在驱动器进程内分段，huge chapters spawn 前就 OOM，故 driver 自身必须守门。runner：`book_runner` 加 `math.isfinite` budget 末线（非 finite→0.0「无上限」，程序化调用方防御）。**坐实**：`write-book --chapters 999999999`→exit 2 不再 OOM；`--budget-cny nan`→exit 2。
+
+**#2（P1）plan-chapters stale-outline 出口统一**：`plot_planner` 定义 `OutlineStale(ValueError)`（带 `codes`/`kind`，message 字节级不变 → `test_iter053a` 的 `assertRaises(ValueError)` 全绿）。`jobs.py` 改 `isinstance(exc, OutlineStale) or "stale debate outline" in msg`（**踩坑**：`test_web_jobs_dispatch` 故意注入裸 ValueError 模拟，纯 isinstance 漏 → 保留字符串兜底防御纵深，typed 路径用 `exc.kind`）。`main.py` plan-chapters 加 `except OutlineStale` 复用 `readiness_catalog.KINDS["outline_stale"]` 友好文案 + `SystemExit(4)`（不再裸 traceback）。
+
+**#3（P2）移动端 `.topbar-actions` CSS 作用域**：grep 确认 `.topbar-actions-wrap` 仅壳层下拉（templates:72 包 74；内容用法 341/892 在 wrap 外；JS closeTopbarMenu 也只认 wrap）。`static.py` 三个移动选择器加 `.topbar-actions-wrap ` 前缀，内容按钮（概览删除作品 / 章节详情返回链接）移动端落回桌面 flex（static:290）→ 可见。纯 CSS，无需改 JS。
+
+**#4（P2）错误卡路径脱敏**：`errors._redact_paths`（正则 `/(?:[^/]+/){1,}[^/]+`，前导 `/`+≥2 段；prose `3/4`/`a/b`/`TCP/IP` 无第二斜杠不误伤）在 `card_for_exception` 对 `detail` 脱敏（`technical` 保留原始供 stderr）。**收官审查补漏**：codex 只点 `card.cause`，但 routes.py **12 处** handler 返回 `{"error": str(exc), "card": ...}`——裸 `error` 键仍泄漏路径（**= 既有 F3-2 drama FNF**）→ 新增 `errors.exception_body(exc)`（两字段都脱敏）替换全部 12 处，彻底堵死。**P1（审查发现）**：正则原用 `[^/\s]` 排空格，父目录含空格的路径会从空格截断泄漏后续树 → 改 `[^/]`（含空格，过度脱敏 fail-safe）。**方案选择**：不改 `hook_designer.py` 源头（中央脱敏完整 + 保 stderr 全路径调试）；wizard 3 处 `{"error": str(exc)}` 是受控 `_UploadRejected` 用户文案无路径，不在范围。
+
+**#5（P2）workspace HTML pattern 单源**：`_naming.py` 暴露 `WORKSPACE_NAME_HTML_PATTERN`（转义 `\-` 满足 Chromium `v` flag；非捕获可选组禁尾部连字符）。`templates.py` **3 处** workspace 名输入（不止 codex 点的 1 处）统一 f-string 引用，前后端 `foo-` 一致拒绝。
+
+**#6 文档**：`docs/AELOON_INTEGRATION.md` §11.4 登记 vendored baseline=iter062、iter063/064 待下次同步（该文件含用户并行 PR #541 在途改动，**不并入 iter064 代码提交**，留用户 Aeloon 提交）。
+
+**审查（铁律⑨）**：3 维度 workflow（correctness/security/reuse）+ 对抗验证。**correctness 零发现；reuse/simplify 两条均 is_real=false**（确认导入全用上、无死代码、`math.isfinite` 仍在 `book_runner` 用、`_validate_cli_run_params` vs `_build_params` 不同入参形态不应合并）；**security 1×P1 已修**（空格路径脱敏不全）+ 自查发现并修 12 处裸 `error` 键泄漏。**未修风险**：F3-3 timeout 校验 3 处重复 debt（顺延）；`_blocker_kind` 别名（F3-5，顺延）。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**，裸 python3 缺 pydantic 报 169 import error）`unittest discover -s tests` **1250 tests OK**（基线 1214 +36）；`verify.sh` exit 0；`preflight` 无 FATAL。
+
+**数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter065）**：**语义闭环（large，本轮推迟）**——(a) 计划履约 reviewer（`chapter_plan_item` 穿进 `review_text` 或后置 beat-matcher）/ (b) outline drift 行为闭环（`writer.py:713` 旧 outline 长期注入，drift 命中率低时重生成/动态注入）/ (c) entity_advance 允许新建关系（现 `relationship_not_found` 跳过）；F3-3 timeout helper；`_blocker_kind` 别名清理；drama 站③④；KB 起点过滤主动 blocker；真模型 capstone 复跑。

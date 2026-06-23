@@ -42,7 +42,7 @@ from ..compressor import compress_all
 from ..book_runner import BookRunBlocked, BudgetExceeded, run_write_book
 from ..debater import run_debate
 from ..extractor import ExtractionBatchFailure, extract_all
-from ..plot_planner import generate_chapter_plan
+from ..plot_planner import OutlineStale, generate_chapter_plan
 from ..text_normalizer import normalize_all
 from ..writer import write_chapters
 from .workspace_ctx import use_workspace
@@ -473,11 +473,14 @@ def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, floa
         # was built against a different start point (a deliberate hard block —
         # the 052 cross-timeline accident). Surface it as a blocked readiness
         # card with a "regenerate outline" CTA instead of a raw ValueError
-        # dumped into the UI.
-        if "stale debate outline" in msg:
+        # dumped into the UI. iter064 #2: prefer the typed OutlineStale (⊂
+        # ValueError, shared with the CLI path); keep the substring as a defense
+        # so any plain ValueError carrying the message still maps correctly.
+        if isinstance(exc, OutlineStale) or "stale debate outline" in msg:
+            reason = exc.kind if isinstance(exc, OutlineStale) else "outline_stale"
             return {
                 "status": "blocked",
-                "blocked": [{"reason": "outline_stale", "error": msg}],
+                "blocked": [{"reason": reason, "error": msg}],
             }
         raise
 

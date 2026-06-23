@@ -4,6 +4,7 @@ must be the single source of truth for routes.py and wizard.py.
 
 from __future__ import annotations
 
+import re
 import unittest
 
 from src.web import _naming, routes, wizard
@@ -64,6 +65,37 @@ class CrossModuleSyncTests(unittest.TestCase):
 
     def test_reserved_names_in_sync(self) -> None:
         self.assertEqual(routes._RESERVED_WORKSPACE_NAMES, _naming.RESERVED_NAMES)
+
+
+class HtmlPatternBackendSyncTests(unittest.TestCase):
+    """iter064 #5: the wizard's client-side HTML ``pattern`` must accept/reject
+    the exact same names as the backend ``WORKSPACE_NAME_RE``. Before this fix
+    the frontend's optional final char (``[...]?``) wrongly accepted a trailing
+    hyphen (``foo-``) that the backend rejects — a name that passes the browser
+    but 400s on submit."""
+
+    def test_html_pattern_matches_backend_re(self) -> None:
+        # HTML input ``pattern`` is implicitly anchored; add ^...$ to compare.
+        anchored = re.compile("^(?:" + _naming.WORKSPACE_NAME_HTML_PATTERN + ")$")
+        cases = [
+            ("f", True),
+            ("foo-bar", True),
+            ("foo_bar", True),
+            ("foo-", False),   # trailing hyphen — old frontend wrongly allowed it
+            ("-foo", False),
+            ("a" * 32, True),
+            ("a" * 33, False),
+            ("龙族", True),
+            ("三国-演义", True),
+        ]
+        for name, ok in cases:
+            self.assertEqual(bool(anchored.match(name)), ok, f"html pattern: {name!r}")
+            self.assertEqual(bool(_naming.WORKSPACE_NAME_RE.match(name)), ok, f"backend RE: {name!r}")
+
+    def test_html_pattern_keeps_chromium_v_flag_escape(self) -> None:
+        # iter063 A4: a bare `-` in the char class is a `v`-flag SyntaxError in
+        # Chromium. The single-sourced constant must keep the hyphen escaped.
+        self.assertIn(r"\-", _naming.WORKSPACE_NAME_HTML_PATTERN)
 
 
 if __name__ == "__main__":
