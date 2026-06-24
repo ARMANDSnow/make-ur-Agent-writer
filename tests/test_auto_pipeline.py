@@ -67,7 +67,10 @@ class AutoPipelineTests(unittest.TestCase):
         )
         self.assertEqual(seen[0], ("normalize", 0.0))
         self.assertEqual(seen[-1], ("done", 1.0))
-        step_labels = [name for name, _ in seen if name != "done"]
+        # iter068 (Cluster B): sub-progress labels (extract:chXXX / compress:llm /
+        # bootstrap:entity_graph) carry a ":" so the public STEPS contract — the
+        # bare boundary labels in order — still holds after filtering them out.
+        step_labels = [name for name, _ in seen if ":" not in name and name != "done"]
         self.assertEqual(step_labels, list(STEPS))
 
     def test_propagates_underlying_exception(self) -> None:

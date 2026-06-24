@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import paths
 from .config import ROOT
@@ -359,7 +359,26 @@ def bootstrap_personas(force: bool = False, root: Path = None) -> Dict[str, Any]
     return {"name": "personas", "status": "written", "path": str(path), "data": data}
 
 
-def bootstrap_all(force: bool = False, root: Path = None) -> Dict[str, Dict[str, Any]]:
+# iter068 (Cluster B): the six proposals, in apply order. Driving bootstrap_all
+# from this list (instead of a dict literal) lets us fire a progress/cancel
+# checkpoint between each proposal without losing the exact key order
+# _run_prepare_steps relies on (it iterates proposals.keys() to apply them).
+# A regression test pins this tuple against the returned dict's keys.
+_BOOTSTRAP_STEPS: Tuple[Tuple[str, Callable[..., Dict[str, Any]]], ...] = (
+    ("global_facts", bootstrap_global_facts),
+    ("entity_graph", bootstrap_entity_graph),
+    ("continuation_anchor", bootstrap_continuation_anchor),
+    ("style_examples", bootstrap_style_examples),
+    ("personas", bootstrap_personas),
+    ("source_excerpts", bootstrap_source_excerpts),
+)
+
+
+def bootstrap_all(
+    force: bool = False,
+    root: Path = None,
+    progress_cb: Optional[Callable[[str, float], None]] = None,
+) -> Dict[str, Dict[str, Any]]:
     """Run all six bootstrap proposals.
 
     Iter 026 code-review #3: ``source_excerpts`` was historically omitted
@@ -369,17 +388,21 @@ def bootstrap_all(force: bool = False, root: Path = None) -> Dict[str, Dict[str,
     the standalone CLI ``bootstrap-source-excerpts`` subcommand still
     worked. Including it here keeps the orchestration aligned with the
     rest of the pipeline.
+
+    iter068 (Cluster B): a progress/cancel checkpoint fires before each
+    proposal so a queued cancel stops between proposals instead of after all
+    six. ``progress_cb`` is None for CLI/tests → byte-identical legacy path.
+    The returned dict preserves ``_BOOTSTRAP_STEPS`` order.
     """
 
     root = _resolve_root(root)
-    return {
-        "global_facts": bootstrap_global_facts(force=force, root=root),
-        "entity_graph": bootstrap_entity_graph(force=force, root=root),
-        "continuation_anchor": bootstrap_continuation_anchor(force=force, root=root),
-        "style_examples": bootstrap_style_examples(force=force, root=root),
-        "personas": bootstrap_personas(force=force, root=root),
-        "source_excerpts": bootstrap_source_excerpts(force=force, root=root),
-    }
+    total = len(_BOOTSTRAP_STEPS)
+    out: Dict[str, Dict[str, Any]] = {}
+    for index, (name, fn) in enumerate(_BOOTSTRAP_STEPS):
+        if progress_cb is not None:
+            progress_cb(f"bootstrap:{name}", index / total)
+        out[name] = fn(force=force, root=root)
+    return out
 
 
 def proposal_summary(data: Dict[str, Any]) -> str:

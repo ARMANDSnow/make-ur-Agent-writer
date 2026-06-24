@@ -611,11 +611,13 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="step-mark">1</div>'
         '<div class="card" id="stage-prepare-card">'
         '<div class="card-header"><h3 class="ornament">设定</h3>'
-        '<span class="muted">从开书的一句话立意提取知识库与实体设定</span></div>'
+        # iter068 (Cluster A): id hooks so refreshWorkbench() can rewrite the
+        # copy for an existing-book continuation (重建续写底座) vs greenfield.
+        '<span class="muted" id="prepare-subtitle">从开书的一句话立意提取知识库与实体设定</span></div>'
         '<div class="card-body">'
         '<form id="prepare-form" class="form-grid-2">'
         '<div class="field"><label>立意</label>'
-        '<div class="muted">开书时填写的一句话已写入 seed.txt；点右侧生成设定（KB / 实体）。</div></div>'
+        '<div class="muted" id="prepare-hint">开书时填写的一句话已写入 seed.txt；点右侧生成设定（KB / 实体）。</div></div>'
         '<div class="form-actions" style="align-items:flex-end">'
         '<button type="submit" id="prepare-submit" class="btn btn-secondary">生成设定</button>'
         '</div>'

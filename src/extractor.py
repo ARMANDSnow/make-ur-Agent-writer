@@ -5,7 +5,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Set
+from typing import Any, Callable, Deque, Dict, List, Optional, Set
 
 try:
     from tqdm import tqdm
@@ -386,6 +386,7 @@ def extract_all(
     raise_on_failure: bool = False,
     no_chunk: bool = False,
     per_chapter_attempts: Optional[int] = None,
+    progress_cb: Optional[Callable[[str, float], None]] = None,
 ) -> List[Dict[str, Any]]:
     ensure_dir(_extracted_dir())
     ensure_dir(_rolling_dir())
@@ -413,8 +414,18 @@ def extract_all(
     results: List[Dict[str, Any]] = []
     failed_ids: List[str] = []
 
-    for entry in tqdm(manifest, desc="extract"):
+    # iter068 (Cluster B): per-chapter progress so the WebUI shows "抽取 3/5"
+    # instead of stalling at the coarse "extract" stage boundary. Fired at the
+    # TOP of every iteration — including cached/skipped chapters — so the cancel
+    # checkpoint (jobs._progress raises before the next chapter's LLM call) is
+    # evenly spaced and never skipped by a cache hit. progress_cb is None for
+    # CLI / tests, keeping the legacy path byte-identical (tqdm still drives the
+    # terminal bar).
+    total_entries = len(manifest)
+    for index, entry in enumerate(tqdm(manifest, desc="extract")):
         chapter_id = str(entry["chapter_id"])
+        if progress_cb is not None:
+            progress_cb(f"extract:{chapter_id}", index / total_entries if total_entries else 1.0)
         out_path = _output_path(chapter_id)
         vid = str(entry["volume_id"])
         if vid not in previous_summaries_by_volume:

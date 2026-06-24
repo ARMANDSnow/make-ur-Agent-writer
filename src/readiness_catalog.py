@@ -31,19 +31,45 @@ KINDS: Dict[str, Dict[str, str]] = {
         "cta_action": "scroll_to_start_point",
         "cta_label": "去设置起点",
     },
+    "kb_missing": {
+        # iter068 (Cluster E): emitted by web/jobs._step_debate when
+        # global_knowledge.md is absent. Previously classified to "unknown" (a
+        # generic 受阻 card); now a dedicated card whose CTA returns the user to
+        # stage ①「设定」where compress/prepare/rebuild rebuild the KB.
+        "label": "尚未生成知识库",
+        "cause": "续写底座（知识库 KB）还没生成，先在工作台「设定」步骤生成 KB / 实体设定。",
+        "cta_action": "run_prepare",
+        "cta_label": "去生成设定",
+    },
+    "extraction_coverage_missing": {
+        # iter068 (Cluster E): start-point window not extracted. plot_planner
+        # hard-raises a ValueError for this (iter054b) and book_runner surfaces
+        # it as a blocker when require_start_point; both classify here. The fix
+        # is rebuild-for-start (补提取起点窗口 → 重建底座), NOT just a re-plan.
+        "label": "起点窗口未提取",
+        "cause": "起点前最近章节缺提取，KB / 实体图会锚在旧状态；重建续写底座可补齐。",
+        "cta_action": "run_rebuild_for_start",
+        "cta_label": "重建续写底座",
+    },
     "outline_missing": {
+        # iter068 (Cluster E): CTA was ``go_plan`` → the read-only /plan page
+        # ("本页不发起新调用"), which can't actually generate an outline. Point
+        # at ``run_debate`` (the stage-outline-card「生成大纲」button that runs
+        # the debate job) so the CTA actually fixes the blocker.
         "label": "缺少全书大纲",
         "cause": "先生成或检查全书走向，再进入章节续写。",
-        "cta_action": "go_plan",
-        "cta_label": "去计划页",
+        "cta_action": "run_debate",
+        "cta_label": "去生成大纲",
     },
     "outline_stale": {
         # iter063 A1: existing debate outline built against a different start
         # point — regenerating the plan is blocked on purpose (052 accident).
+        # iter068: CTA → run_debate (regenerate the outline) instead of the
+        # read-only /plan page.
         "label": "大纲与当前起点不一致",
         "cause": "现有大纲是按之前的起点生成的，需要先重新生成大纲，再规划章节，已写好的正文不受影响。",
-        "cta_action": "go_plan",
-        "cta_label": "去计划页重新生成大纲",
+        "cta_action": "run_debate",
+        "cta_label": "重新生成大纲",
     },
     "chapter_plan_missing": {
         "label": "缺少章节计划",
@@ -98,6 +124,12 @@ def classify(blocker: str) -> str:
     b = blocker or ""
     if b in KINDS:
         return b
+    # iter068 (Cluster E): start-window extraction gap. book_runner emits
+    # ``extraction:start_window_unextracted:<ids>`` and plot_planner raises
+    # ``extraction coverage gap before start point: …`` — both mean the same
+    # rebuild-for-start fix.
+    if b.startswith("extraction:start_window_unextracted") or "extraction coverage gap before start point" in b:
+        return "extraction_coverage_missing"
     if b.startswith("chapter_plan:") or "plan_item_missing" in b:
         return "chapter_plan_missing"
     if b.startswith("outline_missing") or "outline_missing" in b:

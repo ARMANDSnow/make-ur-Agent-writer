@@ -89,6 +89,17 @@ def _run_prepare_steps(
         if progress_cb is not None:
             progress_cb(step, index / total)
 
+    # iter068 (Cluster B): map a step's inner [0,1] progress onto its slot in
+    # the overall bar so extract/compress/bootstrap report sub-progress
+    # (``extract:ch003`` …) instead of a long stall at the coarse boundary.
+    # Sub-labels carry a ``:`` so the STEPS-contract test can filter them out
+    # (the 6 bare boundary _notify labels above are unchanged). Returns None
+    # when there's no outer progress_cb → byte-identical legacy path.
+    def _sub(stage_index: int):
+        if progress_cb is None:
+            return None
+        return lambda lbl, frac: progress_cb(lbl, (stage_index + frac) / total)
+
     _notify("normalize", 0)
     results["normalize"] = normalize_all()
 
@@ -116,18 +127,19 @@ def _run_prepare_steps(
         # disk so a resume re-runs only the failures. Aligns with
         # rebuild_for_start, which already opts in.
         results["extract"] = extract_all(
-            volume="all", limit=extract_limit, force=force, raise_on_failure=True
+            volume="all", limit=extract_limit, force=force, raise_on_failure=True,
+            progress_cb=_sub(2),
         )
         if budget_check is not None:
             budget_check()  # iter058 #1: stop before compress if extract blew the cap
 
     _notify("compress", 3)
-    results["compress"] = compress_all()
+    results["compress"] = compress_all(progress_cb=_sub(3))
     if budget_check is not None:
         budget_check()
 
     _notify("bootstrap", 4)
-    proposals = bootstrap_all(force=force)
+    proposals = bootstrap_all(force=force, progress_cb=_sub(4))
     results["bootstrap"] = proposals
     if budget_check is not None:
         budget_check()
@@ -314,6 +326,7 @@ def rebuild_for_start(
     no_chunk: bool = False,
     apply: bool = True,
     progress_cb: Optional[ProgressCallback] = None,
+    budget_check: Optional[Callable[[], None]] = None,
 ) -> Dict[str, Any]:
     """iter 054b: one-shot 底座 rebuild after set-start-point moves the start.
 
@@ -362,6 +375,12 @@ def rebuild_for_start(
             progress_cb(label, done / total)
         done += 1
 
+    # iter068 (Cluster B): map extract's inner progress onto its slot (stage 0)
+    # in this 4/6-step bar so the WebUI shows ``extract:ch003`` sub-progress.
+    extract_progress = (
+        (lambda lbl, frac: progress_cb(lbl, frac / total)) if progress_cb is not None else None
+    )
+
     steps: Dict[str, Any] = {}
     _step("extract")
     # iter054c: abort loudly if any window chapter fails to extract (e.g. relay
@@ -369,14 +388,24 @@ def rebuild_for_start(
     # that did extract persist on disk, so a re-run resumes only the failures.
     steps["extract"] = extract_all(
         volume="all", force=reextract, chapter_ids=window_ids, raise_on_failure=True,
-        no_chunk=no_chunk,
+        no_chunk=no_chunk, progress_cb=extract_progress,
     )
+    # iter068 (Cluster D): in-loop budget settle between LLM-spending stages so a
+    # real model stops early on breach instead of running the whole window first.
+    if budget_check is not None:
+        budget_check()
     _step("compress")
     steps["compress"] = compress_all()
+    if budget_check is not None:
+        budget_check()
     _step("bootstrap-graph")
     steps["bootstrap_graph"] = bootstrap_entity_graph(force=True)
+    if budget_check is not None:
+        budget_check()
     _step("bootstrap-anchor")
     steps["bootstrap_anchor"] = bootstrap_continuation_anchor(force=True)
+    if budget_check is not None:
+        budget_check()
     if apply:
         _step("apply-entity-graph")
         steps["apply_entity_graph"] = apply_bootstrap("entity_graph", confirm=True)

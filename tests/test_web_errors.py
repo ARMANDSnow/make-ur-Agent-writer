@@ -195,7 +195,9 @@ class ReadinessCardTest(unittest.TestCase):
         )
         card = errors.readiness_card("outline_stale")
         self.assertEqual(card["title"], "大纲与当前起点不一致")
-        self.assertEqual(card["actions"][0]["action"], "go_plan")
+        # iter068 (Cluster E): CTA now points at run_debate (regenerate the
+        # outline) instead of the read-only /plan page.
+        self.assertEqual(card["actions"][0]["action"], "run_debate")
 
     def test_unknown_blocker_falls_back(self) -> None:
         self.assertEqual(errors.readiness_kind("some_new_thing"), "unknown")

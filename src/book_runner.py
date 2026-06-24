@@ -470,10 +470,21 @@ def check_write_readiness(
     if missing_extraction:
         preview = ",".join(missing_extraction[:5])
         more = f"(+{len(missing_extraction) - 5} more)" if len(missing_extraction) > 5 else ""
-        warnings.append(f"extraction:start_window_unextracted:{preview}{more}")
+        signal = f"extraction:start_window_unextracted:{preview}{more}"
+        # iter068 (Cluster E): for an existing-book continuation
+        # (require_start_point) the start-window提取 gap is a hard BLOCKER, not a
+        # warning — the KB/entity_graph base锚在旧状态会让评审拿旧尺连拒正确稿件
+        # (053c 根因③ / 052 假基线). plot_planner already hard-raises the same gap
+        # (iter054b); surfacing it on the continue page proactively lets the user
+        # rebuild-for-start BEFORE spending on debate/plan. greenfield
+        # (require_start_point=False) keeps the 053g fail-open warn lane (铁律④).
+        if require_start_point:
+            blockers.append(signal)
+        else:
+            warnings.append(signal)
         recommended.append(
-            f"{cmd_prefix} extract --volume <起点所在卷>  # 起点前最近章节缺提取，"
-            "KB/实体图将锚在旧状态"
+            f"{cmd_prefix} rebuild-for-start  # 起点前最近章节缺提取，"
+            "重建续写底座（补提取窗口 → 重建 KB/实体图/锚点）"
         )
 
     drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")

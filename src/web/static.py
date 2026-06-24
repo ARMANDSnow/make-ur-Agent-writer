@@ -1525,6 +1525,20 @@ JS_DASHBOARD = """\
         window.location.href = ws ? wsHref("/workbench") : "/library";
         return;
       }
+      // iter068 (Cluster E): the generate-* CTAs. The forms that actually run
+      // these jobs live on the workbench stage cards — on the workbench page we
+      // smooth-scroll to the card; elsewhere (continue page, which has no
+      // stage-prepare-card / stage-outline-card) we navigate to the workbench
+      // with the anchor. kb_missing / extraction_coverage_missing both route to
+      // stage ① (生成设定 / 重建续写底座); outline_missing/stale to stage ②.
+      if (action === "run_prepare" || action === "run_rebuild_for_start") {
+        gotoStage("stage-prepare-card", "prepare-form");
+        return;
+      }
+      if (action === "run_debate") {
+        gotoStage("stage-outline-card", "outline-form");
+        return;
+      }
       // show_diagnostics (and any unknown action) falls through to open the
       // readiness diagnostics panel below.
       const details = document.querySelector("#readiness-panel details");
@@ -1540,6 +1554,29 @@ JS_DASHBOARD = """\
     form.scrollIntoView({ behavior: "smooth", block: "start" });
     const field = form.elements && form.elements[fieldName];
     if (field && field.focus) setTimeout(function () { field.focus(); }, 250);
+  }
+  // iter068 (Cluster E): scroll to a workbench stage card if it's on the current
+  // page (workbench), else navigate to the workbench with the anchor (continue
+  // page has no stage cards). Centralizes the cross-page "go fix it" routing.
+  function gotoStage(cardId, formId) {
+    const el = document.getElementById(formId) || document.getElementById(cardId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    window.location.href = ws ? (wsHref("/workbench") + "#" + cardId) : "/library";
+  }
+  // iter068 (Cluster E): map a catalog cta_action to the page/anchor that can
+  // fix it, shared by the job-drawer CTA link. Mirrors bindCtaActions' routing.
+  function ctaActionHref(action) {
+    switch (action) {
+      case "go_plan": return wsHref("/plan");
+      case "run_debate": return wsHref("/workbench") + "#stage-outline-card";
+      case "run_prepare":
+      case "run_rebuild_for_start": return wsHref("/workbench") + "#stage-prepare-card";
+      case "run_plan_chapters": return wsHref("/workbench") + "#stage-plan-card";
+      default: return wsHref("/continue");
+    }
   }
   function skeleton(rows) {
     let out = '<div class="skeleton-block">';
@@ -2337,23 +2374,35 @@ JS_DASHBOARD = """\
   // iter 048b: four-stage workbench. Each stage fires its step job and the
   // next card is gated on the previous stage's artifact (GET /workbench).
   async function initWorkbench() {
-    bindWorkbenchStage("prepare-form", "prepare-submit", "prepare-status", "prepare-greenfield", function () {
-      return { force: true };
-    });
+    // iter068 (Cluster A): an existing book (has_start_point) must rebuild its
+    // continuation base — NOT run greenfield onboarding. The stage ① job, and
+    // the require_start_point gate on plan-chapters / write-book, all follow
+    // lastWorkbenchStatus.has_start_point so the workbench never silently
+    // bypasses the start-point consistency gate for a real continuation.
+    const hasStartPoint = function () {
+      return !!(lastWorkbenchStatus && lastWorkbenchStatus.has_start_point);
+    };
+    bindWorkbenchStage("prepare-form", "prepare-submit", "prepare-status",
+      function () { return hasStartPoint() ? "rebuild-for-start" : "prepare-greenfield"; },
+      function () {
+        // rebuild = 补齐底座（reextract 默认 false，只补缺口）；greenfield = 强制重提。
+        return hasStartPoint() ? { window: 10 } : { force: true };
+      });
     bindWorkbenchStage("outline-form", "outline-submit", "outline-status", "debate", function () {
       return {};
     });
     bindWorkbenchStage("plan-chapters-form", "plan-chapters-submit", "plan-chapters-status", "plan-chapters", function (form) {
-      // require_start_point:false — greenfield premise has no prior start
-      // point (continue page hard-codes true; workbench must not reuse it).
-      return { target_chapters: Number(form.elements.target_chapters.value || 5), require_start_point: false };
+      // require_start_point follows has_start_point: an existing book MUST enforce
+      // the gate (else plan drifts off the real start); a greenfield premise has
+      // no prior start point so it stays false.
+      return { target_chapters: Number(form.elements.target_chapters.value || 5), require_start_point: hasStartPoint() };
     });
     bindWorkbenchStage("write-book-form", "write-book-submit", "write-book-status", "write-book", function (form) {
       return {
         chapters: Number(form.elements.chapters.value || 1),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
         budget_cny: form.elements.budget_cny ? Number(form.elements.budget_cny.value || 10) : 10,
-        require_start_point: false,
+        require_start_point: hasStartPoint(),
         require_plan: true,
       };
     });
@@ -2782,15 +2831,22 @@ JS_DASHBOARD = """\
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       if (submit) submit.disabled = true;
-      if (box) box.innerHTML = '<div class="alert info">正在运行 ' + escapeHtml(step) + "…</div>";
+      // iter068 (Cluster A): step may be a function so the same form can dispatch
+      // a different job by current state — stage ① runs rebuild-for-start for an
+      // existing book (has_start_point) but prepare-greenfield for a greenfield
+      // premise. Resolved here at submit time, after refreshWorkbench populated
+      // lastWorkbenchStatus.
+      const stepName = typeof step === "function" ? step() : step;
+      if (box) box.innerHTML = '<div class="alert info">正在运行 ' + escapeHtml(stepName) + "…</div>";
       try {
         const params = paramsFn ? paramsFn(form) : {};
-        const data = await postJson(wsUrl("/run"), { step: step, params: params });
+        const data = await postJson(wsUrl("/run"), { step: stepName, params: params });
         await pollJob(data.job_id, box, submit, async () => {
           await refreshWorkbench();
           // iter 050d (M-2): stage ① rewrites KB/entity_graph — reload the
-          // settings panel if it's open so indices don't go stale.
-          if (step === "prepare-greenfield" && settingsPanelInvalidate) settingsPanelInvalidate();
+          // settings panel if it's open so indices don't go stale. Both the
+          // greenfield and rebuild-for-start variants touch those artifacts.
+          if ((stepName === "prepare-greenfield" || stepName === "rebuild-for-start") && settingsPanelInvalidate) settingsPanelInvalidate();
         });
       } catch (err) {
         if (box) box.innerHTML = renderErrorCard(err);
@@ -2861,7 +2917,7 @@ JS_DASHBOARD = """\
     if (pill) {
       const labels = { prepare: "① 设定", outline: "② 大纲", plan: "③ 细纲", write: "④ 正文", done: "✓ 已出稿" };
       // iter062: surface a single "next step" primary CTA next to the badge.
-      const next = !st.has_kb ? { l: "生成设定", t: "stage-prepare-card" }
+      const next = !st.has_kb ? { l: st.has_start_point ? "重建续写底座" : "生成设定", t: "stage-prepare-card" }
         : !st.has_outline ? { l: "生成大纲", t: "stage-outline-card" }
         : !st.has_plan ? { l: "生成细纲", t: "stage-plan-card" }
         : st.stage !== "done" ? { l: "开始续写", t: "stage-write-card" }
@@ -2897,6 +2953,22 @@ JS_DASHBOARD = """\
     // fetch and refresh whatever sections have data. has_plan implies
     // has_outline in our gate, and outline_md回填 is gated on "user not editing".
     lastWorkbenchStatus = st;
+    // iter068 (Cluster A): stage ① copy + submit label follow has_start_point —
+    // an existing book rebuilds its continuation base, a greenfield premise
+    // generates settings from scratch. Reset both branches so switching
+    // workspaces never leaves stale copy.
+    const prepareSubmit = document.getElementById("prepare-submit");
+    const prepareSubtitle = document.getElementById("prepare-subtitle");
+    const prepareHint = document.getElementById("prepare-hint");
+    if (st.has_start_point) {
+      if (prepareSubmit) prepareSubmit.textContent = "重建续写底座";
+      if (prepareSubtitle) prepareSubtitle.textContent = "已有续写起点：补提取起点窗口并重建 KB / 实体图 / 锚点";
+      if (prepareHint) prepareHint.textContent = "将对起点前最近章节补齐提取，并据此重建续写底座（补齐底座，不强制全量重提）。";
+    } else {
+      if (prepareSubmit) prepareSubmit.textContent = "生成设定";
+      if (prepareSubtitle) prepareSubtitle.textContent = "从开书的一句话立意提取知识库与实体设定";
+      if (prepareHint) prepareHint.textContent = "开书时填写的一句话已写入 seed.txt；点右侧生成设定（KB / 实体）。";
+    }
     if (st.has_outline) {
       // iter 050 (D4): explicit loading placeholder on first paint so an
       // empty box never reads as "no plan exists".
@@ -3410,7 +3482,10 @@ JS_DASHBOARD = """\
   function renderJobPageCta(kind) {
     if (!kind) return "";
     const cfg = ctaConfig(kind, {});
-    const target = kind === "outline_missing" ? wsHref("/plan") : wsHref("/continue");
+    // iter068 (Cluster E): route by the catalog cta_action to the page/anchor
+    // that actually fixes the blocker, instead of hardcoding /plan vs /continue
+    // (the old code sent outline_missing to the read-only /plan page).
+    const target = ctaActionHref(cfg.action);
     return '<a class="btn btn-secondary btn-sm" href="' + target + '">' + escapeHtml(cfg.cta_label) + "</a>";
   }
   function renderJobDrawer(job) {
@@ -3518,7 +3593,32 @@ JS_DASHBOARD = """\
       trace_id: job.trace_id || "",
     }});
   }
+  // iter068 (Cluster C): one document-level delegate for the cancel buttons
+  // pollJob renders. Bound once (guard flag). Cancel state is server-driven —
+  // the next 1s poll reflects job.cancel_requested — so we only disable the
+  // button locally to prevent double-submits. POSTs the existing cancel API.
+  let jobCancelDelegateBound = false;
+  function ensureJobCancelDelegate() {
+    if (jobCancelDelegateBound) return;
+    jobCancelDelegateBound = true;
+    document.addEventListener("click", async function (ev) {
+      const btn = ev.target && ev.target.closest ? ev.target.closest("[data-cancel-job]") : null;
+      if (!btn) return;
+      ev.preventDefault();
+      const jobId = btn.getAttribute("data-cancel-job") || "";
+      if (!jobId) return;
+      btn.disabled = true;
+      try {
+        await postJson(wsUrl("/job/" + jobId + "/cancel"));
+        showToast("已请求取消，等待当前 LLM 调用结束", "info");
+      } catch (err) {
+        btn.disabled = false;
+        showToast("取消失败：" + errTitle(err), "error");
+      }
+    });
+  }
   async function pollJob(jobId, box, submit, afterDone) {
+    ensureJobCancelDelegate();
     while (true) {
       let job;
       try {
@@ -3529,6 +3629,15 @@ JS_DASHBOARD = """\
         return;
       }
       const pct = Math.round((job.progress || 0) * 100);
+      // iter068 (Cluster C): a cancel control + jobs-page link on the live card,
+      // so a long run can be stopped from wherever it's polled (workbench /
+      // continue), not just the wizard. Honest copy about the cooperative-cancel
+      // boundary — a synchronous litellm call can't be hard-killed mid-flight.
+      const cancelPending = !!job.cancel_requested;
+      let waited = "";
+      if (typeof job.started_at === "number" && isFinite(job.started_at)) {
+        waited = " · 已等待 " + Math.max(0, Math.round(Date.now() / 1000 - job.started_at)) + " 秒";
+      }
       box.innerHTML =
         '<div class="kv-list compact">' +
         '<div class="k">job</div><div class="v"><code>' + escapeHtml(jobId) + "</code></div>" +
@@ -3536,7 +3645,14 @@ JS_DASHBOARD = """\
         '<div class="k">step</div><div class="v">' + escapeHtml(job.current_step || "?") + "</div>" +
         '<div class="k">progress</div><div class="v">' + pct + "%</div>" +
         "</div>" +
-        '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+        '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="form-actions" style="margin-top:8px">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-cancel-job="' + escapeHtml(jobId) + '"' + (cancelPending ? " disabled" : "") + ">取消任务</button>" +
+        ' <a class="btn btn-ghost btn-sm" href="' + wsHref("/jobs") + '">任务页</a>' +
+        "</div>" +
+        (cancelPending
+          ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(job.current_step || "?") + "」" + waited + "；最多再等当前一次 LLM 调用结束。</div>"
+          : "");
       const terminal = ["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"];
       if (terminal.indexOf(job.status) >= 0) {
         const partial = job.result_summary && job.result_summary.partial;

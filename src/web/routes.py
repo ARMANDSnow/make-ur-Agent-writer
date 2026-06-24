@@ -1966,7 +1966,61 @@ def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[s
     if step == "plan-chapters":
         error, out = _validate_plan_chapters_params(params)
         return error, out
+    if step in ("prepare-greenfield", "rebuild-for-start"):
+        error, out = _validate_prepare_params(step, params)
+        return error, out
     return None, params
+
+
+def _validate_prepare_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    """iter068 (Cluster D): prepare-greenfield / rebuild-for-start 参数守门。
+
+    **关键 fail-open 修复**：``budget_cny`` 只在调用方**显式传入**时才校验并落字段。
+    若像 ``_validate_write_book_params`` 那样无条件 ``out["budget_cny"]=budget``，
+    缺省会被规范化成 0 —— jobs 层 ``_float_param(params,"budget_cny",
+    _default_budget_cny())`` 见 key 在且为 0，便当成「显式无限额」，绕过
+    NOVEL_DEFAULT_BUDGET_CNY 默认 cap。故：缺省→不写字段→jobs 层兜默认 cap；
+    显式 0→uncapped（CLI 语义）。其余参数从空 ``out`` 重建（mirror 既有
+    validator），未显式传的交给 handler 默认值。"""
+    out: Dict[str, Any] = {}
+    # 两个 step 可能携带的布尔开关；未传则不写，handler 读其自身默认。
+    for key in ("force", "skip_extract", "reextract", "no_chunk", "apply"):
+        if key in params:
+            error, value = _bool_param(params, key, False)
+            if error:
+                return error, {}
+            out[key] = value
+    # extract_limit（prepare-greenfield）：显式 None = 不设上限；否则 >=1。
+    if "extract_limit" in params:
+        raw_limit = params.get("extract_limit")
+        if raw_limit is None:
+            out["extract_limit"] = None
+        else:
+            error, limit = _int_param(params, "extract_limit", 5, minimum=1, maximum=100000)
+            if error:
+                return error, {}
+            out["extract_limit"] = limit
+    # window（仅 rebuild-for-start）：起点窗口章数。
+    if step == "rebuild-for-start" and "window" in params:
+        error, window = _int_param(params, "window", 10, minimum=1, maximum=200)
+        if error:
+            return error, {}
+        out["window"] = window
+    # budget_cny：validate-only-if-present（上述 fail-open 守门）。
+    raw_budget = params.get("budget_cny")
+    if raw_budget is not None and str(raw_budget).strip() != "":
+        error, budget = _float_param(params, "budget_cny", 0.0, minimum=0.0)
+        if error:
+            return error, {}
+        out["budget_cny"] = budget
+    # carry 已校验的 timeout_minutes（mirror write-book/plan-chapters，否则
+    # jobs._timeout_deadline 不武装）。0 = 无 cap，不落字段。
+    error, timeout = _float_param(params, "timeout_minutes", 0.0, minimum=0.0, maximum=1440.0)
+    if error:
+        return error, {}
+    if timeout > 0:
+        out["timeout_minutes"] = timeout
+    return None, out
 
 
 def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:

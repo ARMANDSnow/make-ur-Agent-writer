@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from pathlib import Path
 
@@ -58,18 +58,28 @@ def build_knowledge_index(extractions: List[Dict[str, Any]]) -> Dict[str, Any]:
     return index
 
 
-def compress_all() -> Dict[str, Any]:
+def compress_all(progress_cb: Optional[Callable[[str, float], None]] = None) -> Dict[str, Any]:
+    # iter068 (Cluster B): compress is a single long LLM call with no inner
+    # loop, so progress is coarse — but firing a checkpoint BEFORE the LLM call
+    # lets a queued cancel/timeout (jobs._progress raises) stop the run before
+    # spending on the compress request. progress_cb is None for CLI/tests.
+    def _tick(label: str, frac: float) -> None:
+        if progress_cb is not None:
+            progress_cb(label, frac)
+
     kb_dir = _kb_dir()
     ensure_dir(kb_dir)
     extractions = load_extractions()
     if not extractions:
         raise FileNotFoundError("no extracted JSON files found; run `python main.py extract --volume all` first")
     index = build_knowledge_index(extractions)
+    _tick("compress:index", 0.2)
     client = LLMClient("compress")
     # iter 051a: prepare-greenfield prefers the premise expansion when it
     # exists. Missing artifact → empty block → prompt/KB byte-identical to
     # pre-051 (铁律④ graceful degrade; pinned by tests).
     expansion = expansion_prompt_block()
+    _tick("compress:llm", 0.4)
     if client.is_mock:
         text = _mock_knowledge_markdown(extractions, index)
         if expansion:
@@ -92,6 +102,7 @@ def compress_all() -> Dict[str, Any]:
                 },
             ]
         )
+    _tick("compress:write", 0.9)
     write_text_atomic(kb_dir / "global_knowledge.md", text.strip() + "\n")
     write_json(kb_dir / "knowledge_index.json", index)
     # iter 047c: (re)build the foreshadowing TTL registry from the fresh index so

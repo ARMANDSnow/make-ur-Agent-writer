@@ -469,6 +469,15 @@ def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, floa
                 "status": "blocked",
                 "blocked": [{"reason": "outline_missing", "error": msg}],
             }
+        # iter068 (Cluster E): plot_planner hard-raises this for a start-window
+        # extraction gap (iter054b). Map it to a structured extraction_coverage_
+        # missing card whose CTA is rebuild-for-start, instead of letting it fall
+        # through to ``raise`` → a generic ``failed`` job.
+        if "extraction coverage gap before start point" in msg:
+            return {
+                "status": "blocked",
+                "blocked": [{"reason": "extraction_coverage_missing", "error": msg}],
+            }
         # iter063 A1: plot_planner raises this when the existing debate outline
         # was built against a different start point (a deliberate hard block —
         # the 052 cross-timeline accident). Surface it as a blocked readiness
@@ -507,6 +516,34 @@ def _default_budget_cny() -> float:
     from ..config import budget_cny_from_env
 
     return budget_cny_from_env("NOVEL_DEFAULT_BUDGET_CNY", 10.0)
+
+
+def _budget_guard(params: Dict[str, Any]) -> "tuple[float, Optional[Callable[[], None]], int]":
+    """iter068 (Cluster D): shared budget-check factory for the prepare /
+    rebuild composite steps (was copy-pasted in both). Returns
+    ``(budget_cny, budget_check_or_None, initial_log_lines)``:
+
+    * ``budget_cny`` — the resolved cap (omitted → NOVEL_DEFAULT_BUDGET_CNY,
+      explicit 0 → uncapped, CLI semantics);
+    * ``budget_check`` — a closure that settles cost via ``estimate_cost_since``
+      and raises ``BudgetExceeded`` on breach, or ``None`` when uncapped;
+    * ``initial_log_lines`` — the llm-log offset captured BEFORE any spend, so a
+      caller can settle the final cost for its result summary.
+    """
+    from ..book_runner import _llm_log_line_count
+    from ..cost_estimator import estimate_cost_since
+
+    budget_cny = _float_param(params, "budget_cny", _default_budget_cny())
+    initial_log_lines = _llm_log_line_count()
+    budget_check: Optional[Callable[[], None]] = None
+    if budget_cny > 0:
+
+        def budget_check() -> None:
+            cost = float(estimate_cost_since(initial_log_lines).get("cost_cny", 0.0))
+            if cost > budget_cny:
+                raise BudgetExceeded(budget_cny=budget_cny, cost_cny=cost)
+
+    return budget_cny, budget_check, initial_log_lines
 
 
 def _review_budget_cny() -> float:
@@ -788,15 +825,88 @@ def _step_prepare_greenfield(params: Dict[str, Any], progress_cb: Callable[[str,
     apply-bootstrap. ``total=6, emit_done=True`` remaps the shared prep
     fractions onto a self-contained 0→100% bar so the stage ① card fills
     cleanly instead of stalling at 5/9 (which a naive ``index/9`` reuse
-    would produce). See ``auto_pipeline._run_prepare_steps``."""
-    return auto_pipeline._run_prepare_steps(
-        progress_cb=progress_cb,
-        total=6,
-        emit_done=True,
-        skip_extract=bool(params.get("skip_extract", False)),
-        extract_limit=params.get("extract_limit", 5),
-        force=bool(params.get("force", False)),
-    )
+    would produce). See ``auto_pipeline._run_prepare_steps``.
+
+    iter068 (Cluster D, P0 安全): prepare used to call _run_prepare_steps
+    WITHOUT budget_check — a real model could burn past any cap during
+    extract/compress/bootstrap (the same hole iter058 #1 closed for
+    auto-pipeline). Mirror run_auto_pipeline's _budget_check closure:
+    default to NOVEL_DEFAULT_BUDGET_CNY (explicit 0 = uncapped, CLI
+    semantics), settle cost via estimate_cost_since between LLM-spending
+    steps, and map BudgetExceeded to the budget_exceeded terminal status."""
+    _budget_cny, _budget_check, _ = _budget_guard(params)
+    try:
+        return auto_pipeline._run_prepare_steps(
+            progress_cb=progress_cb,
+            total=6,
+            emit_done=True,
+            skip_extract=bool(params.get("skip_extract", False)),
+            extract_limit=params.get("extract_limit", 5),
+            force=bool(params.get("force", False)),
+            budget_check=_budget_check,
+        )
+    except BudgetExceeded as exc:
+        return {
+            "status": "budget_exceeded",
+            "budget_cny": exc.budget_cny,
+            "cost_cny": exc.cost_cny,
+        }
+
+
+def _step_rebuild_for_start(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    """iter068 (Cluster A): workbench stage ① for an EXISTING book — rebuild the
+    continuation base after the start point moved (补提取起点窗口 → recompress →
+    bootstrap entity_graph/anchor --force → apply). Wraps the same
+    ``auto_pipeline.rebuild_for_start`` the CLI ``rebuild-for-start`` uses, so
+    the WebUI and CLI never drift on step ordering.
+
+    Greenfield (no start point) has nothing to rebuild against. We PRE-CHECK the
+    start point and return a friendly blocked card rather than blanket-catching
+    ValueError — a blanket catch would also swallow a genuine apply/bootstrap
+    ValueError and mislabel it ``start_point_missing``. Budget mirrors
+    _step_prepare_greenfield: default to NOVEL_DEFAULT_BUDGET_CNY (explicit
+    0 = uncapped), settle in-loop between rebuild stages via budget_check, and
+    map BudgetExceeded → the budget_exceeded terminal status."""
+    if not start_point.get_start_chapter_id():
+        return _blocked(
+            "start_point_missing",
+            "rebuild-for-start 需要先设置续写起点（set-start-point）；自创书请走「生成设定」",
+        )
+
+    # Offset captured BEFORE any spend so the settlement below only counts this
+    # job's calls (mirrors run_auto_pipeline / _step_review_chapter).
+    budget_cny, _budget_check, initial_log_lines = _budget_guard(params)
+    try:
+        result = auto_pipeline.rebuild_for_start(
+            window=int(params.get("window", 10)),
+            reextract=bool(params.get("reextract", False)),
+            no_chunk=bool(params.get("no_chunk", False)),
+            apply=bool(params.get("apply", True)),
+            progress_cb=progress_cb,
+            budget_check=_budget_check,
+        )
+    except BudgetExceeded as exc:
+        return {
+            "status": "budget_exceeded",
+            "budget_cny": exc.budget_cny,
+            "cost_cny": exc.cost_cny,
+        }
+    except ExtractionBatchFailure as exc:
+        # 起点窗口某些章节抽取失败（如 relay 530 中断）；已抽的留盘，重跑只补失败项。
+        # 不在劣化的提取集上重建底座（与 rebuild_for_start raise_on_failure 一致）。
+        preview = ", ".join(exc.failed_ids[:5])
+        return _blocked(
+            "extraction_failures",
+            f"起点窗口提取失败 {len(exc.failed_ids)} 章（{exc.extracted} 成功）：{preview}",
+        )
+
+    if isinstance(result, dict):
+        from ..cost_estimator import estimate_cost_since
+
+        result["status"] = "succeeded"
+        result["cost_cny"] = float(estimate_cost_since(initial_log_lines).get("cost_cny", 0.0))
+        result["budget_cny"] = budget_cny
+    return result
 
 
 # Hard-coded whitelist. Adding a step here = a code review event.
@@ -814,6 +924,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "draft-once-dev": _step_draft_once_dev,
     "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
     "prepare-greenfield": _step_prepare_greenfield,
+    "rebuild-for-start": _step_rebuild_for_start,
     "expand-premise": _step_expand_premise,
     "extract-style": _step_extract_style,
 }
@@ -976,6 +1087,38 @@ def _summarize_result(step: str, result: Any) -> Any:
         return {
             "status": result.get("status", "succeeded"),
             "blocked": len(blocked),
+            "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
+        }
+    if step == "prepare-greenfield" and isinstance(result, dict):
+        # iter068 (Cluster D): the old generic {"keys": [...]} summary hid what
+        # the round-trip cost / produced. Surface budget + counts so the stage ①
+        # card shows 抽了几章 / 应用了哪些 proposal / 是否撞预算.
+        blocked = result.get("blocked") or []
+        if result.get("status") in ("budget_exceeded", "blocked"):
+            return {
+                "status": result.get("status"),
+                "cost_cny": result.get("cost_cny"),
+                "budget_cny": result.get("budget_cny"),
+                "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
+            }
+        extract_part = result.get("extract")
+        applied = result.get("apply-bootstrap") or {}
+        return {
+            "status": "succeeded",
+            "extracted": len(extract_part) if isinstance(extract_part, list) else None,
+            "applied": sorted(applied.keys()) if isinstance(applied, dict) else None,
+        }
+    if step == "rebuild-for-start" and isinstance(result, dict):
+        blocked = result.get("blocked") or []
+        window_ids = result.get("window_chapter_ids")
+        applied_steps = result.get("steps") if isinstance(result.get("steps"), dict) else {}
+        return {
+            "status": result.get("status"),
+            "cost_cny": result.get("cost_cny"),
+            "budget_cny": result.get("budget_cny"),
+            "start_chapter_id": result.get("start_chapter_id"),
+            "window": len(window_ids) if isinstance(window_ids, list) else None,
+            "applied": ("apply_entity_graph" in applied_steps and "apply_anchor" in applied_steps),
             "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
         }
     if isinstance(result, list):

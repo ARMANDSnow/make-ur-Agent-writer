@@ -149,15 +149,25 @@ class PremisePrepareDiagTests(unittest.TestCase):
                 emit_done=True,
                 force=True,
             )
-        labels = [s for s, _ in seen if s != "done"]
+        # iter068 (Cluster B): filter out the ":"-prefixed sub-progress labels;
+        # the 6 bare boundary labels + fractions are the contract.
+        bare = [(s, f) for s, f in seen if ":" not in s]
+        labels = [s for s, _ in bare if s != "done"]
         self.assertEqual(
             labels,
             ["normalize", "split", "extract", "compress", "bootstrap", "apply-bootstrap"],
         )
-        self.assertEqual(seen[0], ("normalize", 0.0))
-        self.assertEqual(seen[5][0], "apply-bootstrap")
-        self.assertAlmostEqual(seen[5][1], 5 / 6)
-        self.assertEqual(seen[-1], ("done", 1.0))
+        self.assertEqual(bare[0], ("normalize", 0.0))
+        self.assertEqual(bare[5][0], "apply-bootstrap")
+        self.assertAlmostEqual(bare[5][1], 5 / 6)
+        self.assertEqual(bare[-1], ("done", 1.0))
+        # iter068 (Cluster B): per-step sub-progress must actually fire (these
+        # double as the cooperative cancel/timeout checkpoints). Each sub-label
+        # carries a ":" and its fraction stays inside that step's [i, i+1)/total
+        # slot so the overall bar is monotonic.
+        subs = [(s, f) for s, f in seen if ":" in s]
+        self.assertTrue(any(s.startswith("bootstrap:") for s, _ in subs))
+        self.assertTrue(all(0.0 <= f <= 1.0 for _, f in seen))
         self.assertEqual(
             set(results),
             {"normalize", "split", "extract", "compress", "bootstrap", "apply-bootstrap"},
@@ -176,9 +186,11 @@ class PremisePrepareDiagTests(unittest.TestCase):
                 emit_done=False,
                 force=True,
             )
-        self.assertEqual(seen[0], ("normalize", 0.0))
-        self.assertEqual(seen[5][0], "apply-bootstrap")
-        self.assertAlmostEqual(seen[5][1], 5 / 9)
+        # iter068 (Cluster B): filter sub-progress labels before the index checks.
+        bare = [(s, f) for s, f in seen if ":" not in s]
+        self.assertEqual(bare[0], ("normalize", 0.0))
+        self.assertEqual(bare[5][0], "apply-bootstrap")
+        self.assertAlmostEqual(bare[5][1], 5 / 9)
         self.assertNotIn("done", [s for s, _ in seen])
 
     def test_run_auto_pipeline_9_step_contract_intact(self) -> None:
@@ -196,7 +208,8 @@ class PremisePrepareDiagTests(unittest.TestCase):
             )
         self.assertEqual(seen[0], ("normalize", 0.0))
         self.assertEqual(seen[-1], ("done", 1.0))
-        labels = [s for s, _ in seen if s != "done"]
+        # iter068 (Cluster B): exclude ":"-prefixed sub-progress labels.
+        labels = [s for s, _ in seen if ":" not in s and s != "done"]
         self.assertEqual(labels, list(auto_pipeline.STEPS))
 
     # ---- 全 task test-Key diagnostics matrix -----------------------------
