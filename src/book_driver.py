@@ -834,27 +834,41 @@ def cmd_resume(args: Any) -> int:
         return _REAL_RUN_REFUSAL_EXIT
 
     params = state["params"]
-    # iter066 #3: validate the numeric resume-overrides BEFORE mutating any
-    # params, so a NaN / out-of-range --budget-cny or --step-timeout-minutes
-    # hard-rejects (return 2) without half-writing state. resume bypasses
-    # _build_params' validate_run_params, so before this a `nan` budget reached
-    # the cost gate where `spent >= nan` is always False (gate silently off).
+    # iter066 #3 / iter067 F2: validate the EFFECTIVE numeric values (the
+    # explicit override if passed, else the value already persisted in
+    # driver_state.json) BEFORE mutating any params, so a NaN / out-of-range
+    # value hard-rejects (return 2) without half-writing state. resume bypasses
+    # _build_params' validate_run_params, so before this a `nan` budget — whether
+    # passed via --budget-cny OR sitting in a pre-iter064 / hand-edited state —
+    # reached the cost gate where `spent >= nan` is always False (gate silently
+    # off). iter066 only guarded the override; iter067 also re-validates the
+    # persisted value when no override is given.
     budget_override = getattr(args, "budget_cny", None)
-    if budget_override is not None:
-        err, budget_override = run_params.validate_float(
-            budget_override, "budget_cny", 0.0, minimum=0.0
-        )
-        if err:
-            print(err, file=sys.stderr)
-            return 2
+    effective_budget = (
+        budget_override if budget_override is not None else params.get("budget_cny")
+    )
+    # allow_blank: a legacy/missing persisted budget (None) means "no limit" =
+    # 0.0, the same sentinel _run_steps uses (`params.get("budget_cny") or 0.0`).
+    err, clean_budget = run_params.validate_float(
+        effective_budget, "budget_cny", 0.0, minimum=0.0, allow_blank=True
+    )
+    if err:
+        print(err, file=sys.stderr)
+        return 2
     timeout_override = getattr(args, "step_timeout_minutes", None)
-    if timeout_override is not None:
-        err, timeout_override = run_params.validate_int(
-            timeout_override, "step_timeout_minutes", minimum=0, maximum=1440
-        )
-        if err:
-            print(err, file=sys.stderr)
-            return 2
+    effective_timeout = (
+        timeout_override
+        if timeout_override is not None
+        else params.get("step_timeout_minutes")
+    )
+    if effective_timeout is None:
+        effective_timeout = DEFAULT_STEP_TIMEOUT_MINUTES
+    err, clean_timeout = run_params.validate_int(
+        effective_timeout, "step_timeout_minutes", minimum=0, maximum=1440
+    )
+    if err:
+        print(err, file=sys.stderr)
+        return 2
     # resume 可覆盖的参数：明确传了才覆盖；pause_after_segment 默认清零，
     # 否则每次 resume 都会在同一段再暂停一次。
     pause = getattr(args, "pause_after_segment", None)
@@ -867,11 +881,11 @@ def cmd_resume(args: Any) -> int:
         print("--force-debate conflicts with stored --skip-debate params", file=sys.stderr)
         return 2
     params["force_debate"] = force_debate
-    # iter066 #3: write the VALIDATED (cleaned) values, not the raw args.
-    if timeout_override is not None:
-        params["step_timeout_minutes"] = timeout_override
-    if budget_override is not None:
-        params["budget_cny"] = budget_override
+    # iter066 #3 / iter067 F2: write the VALIDATED (cleaned) effective values
+    # unconditionally — so a bad value already persisted in state (no override
+    # given) is overwritten with its cleaned form, not left to flow into the run.
+    params["step_timeout_minutes"] = clean_timeout
+    params["budget_cny"] = clean_budget
     on_blocked = getattr(args, "on_blocked", None)
     if on_blocked is not None:
         params["on_blocked"] = on_blocked

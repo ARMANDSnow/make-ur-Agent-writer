@@ -74,7 +74,14 @@ def validate_int(
     literal) before ``int()`` — ``int(float('inf'))`` raises ``OverflowError``,
     ``int(float('nan'))`` raises ``ValueError``. Returns ``(error, 0)`` on any
     failure; callers gate on ``error`` and never consume the 0.
+
+    iter067 F1: reject ``bool`` before ``int()`` — ``bool`` is an ``int``
+    subclass, so ``int(True)==1``/``int(False)==0`` would silently pass every
+    range check. A YAML/JSON ``false`` reaching a numeric param (e.g. a
+    mistyped step-timeout) must hard-fail, not coerce to 0.
     """
+    if isinstance(value, bool):
+        return f"{key} must be an integer", 0
     if isinstance(value, float) and not math.isfinite(value):
         return f"{key} must be a finite integer", 0
     try:
@@ -107,6 +114,13 @@ def validate_float(
     """
     if allow_blank and (value is None or value == ""):
         return None, float(default)
+    # iter067 F1: reject ``bool`` before ``float()`` — ``bool`` is an ``int``
+    # subclass, so ``float(False)==0.0``/``float(True)==1.0`` pass isfinite +
+    # range and would coerce silently. A mistyped ``creation_confidence: false``
+    # in agents.yaml must hard-fail (caller falls back to its safe default), not
+    # lower the creation gate to 0.0 (fail-open). Closes book_runner.py:911.
+    if isinstance(value, bool):
+        return f"{key} must be a number", float(default)
     try:
         out = float(value)
     except (TypeError, ValueError):

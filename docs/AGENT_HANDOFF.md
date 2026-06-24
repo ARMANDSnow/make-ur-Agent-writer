@@ -1695,3 +1695,23 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：纯代码+测试+文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮（iter067）**：#6 plan_compliance 建议被 writer `[:5]` 截断（reviewer prepend）/ #7 standalone review 不传 chapter_plan_item（含 CLI review-chapter）/ #8 Web 路径脱敏（jobs.py:899 + wizard.py×4，复用 `errors._redact_paths`）；jobs.py:891 BookRunBlocked 同类一并评估。计划文件 `~/.claude/plans/codex-findings-p1-src-book-runner-py-lin-agile-bunny.md`。codex #6 (b) outline-drift warn→block 仍独立顺延。
+
+## iter 067（2026-06-24，收官）——codex iter066 复审 residual 收口：fail-closed 数值/JSON 守门补全
+
+**来源**：codex 在 iter066 commit 后做二次只读复审，又提 3 个 **residual fail-open 缝隙**（iter066 修了 #1–#5 主体，但每条都漏了一个钻入口）。读码逐条核验**全部属实**。用户指令：核实后起 iter067 一起修。共因主题=「fail-closed 数值守门要同时堵三类入口：本次输入 / 持久化历史态 / 类型混淆（bool）」。
+
+**F1（creation_confidence-bool）**：`src/run_params.py` 的 `validate_int`/`validate_float` 在 coerce 前各加 `isinstance(value, bool)` 守门（`validate_float` 放在 `allow_blank` 早返回之后，保 `None`/`""` 仍走默认）。根因：`bool` 是 `int` 子类，`float(False)==0.0`/`float(True)==1.0` 过 isfinite+`[0,1]` 范围，`validate_float(False)` 返回 `(None, 0.0)`；配 `agents.yaml` 的 `allow_creation: true` + 误写 `creation_confidence: false`（YAML 裸 false=布尔 False），`book_runner.py:911` 创建闸被悄悄降到 0.0 = 任意 confidence 过闸全开。中心化一处堵死连带封 13 处调用方；`book_runner` 无需改——既有 `creation_confidence = 0.85 if cc_err else cc_val` 自动回落安全默认。
+
+**F2（resume-persisted-budget）**：`book_driver.cmd_resume` 把「仅校验显式覆盖」改为「校验生效值」——`effective = override if override is not None else params.get(...)`，对 budget/timeout 始终 `validate_*`，失败 `return 2`，清洗值**无条件写回** params。根因：iter066 #3 只守显式 `--budget-cny`/`--step-timeout-minutes`；不传覆盖时 `driver_state.json` 里 pre-iter064/手改的 NaN budget 原样流过 `_run_steps:356` `nan or 0.0`=`nan` → 成本闸 `spent>=nan` 恒 False 失效。三处边界靠 `is not None`（非 falsy）守住：override `0.0`/`0` 是合法覆盖、持久化 `0.0` budget=无上限（`allow_blank=True` 只判 `None`/`""` 不吃 0.0）、老 state timeout `None`→`DEFAULT_STEP_TIMEOUT_MINUTES`。验证仍在写回前 → 失败不半改 state。
+
+**F3（write_json-allow_nan）**：`src/utils.py` `write_json` 改 `json.dumps(..., allow_nan=False)`，且**先序列化再建 tmp 文件**（被拒 payload 不留 `.tmp.*` 残留）。根因：默认 `allow_nan=True` 会把 entity_graph 里别处既有的 NaN/Infinity（非标准 JSON）经 `_apply_selected` 深拷贝在 confirm 时原样回写；iter066 #4 只清洗了「当前 proposal 的 confidence」。这是全局后端兜底（entity_graph/driver_state/chapter_plan/*.meta 全覆盖）。腐败图 confirm 抛 `ValueError` → auto_advance 经 `book_runner.py:931` 既有 `except (FileNotFoundError, IndexError, ValueError)` 优雅降级 `apply_advance_failed`（安全 no-op）；手动 `apply-advance` CLI 显式报错。
+
+**审查（铁律⑨）**：`/code-review high`——2 个独立只读 Explore 视角并行：① write_json `allow_nan=False` 全局回归面反查（grep 所有除零均值/比率落盘点：`_weighted_panel_score`/beat coverage/outline_drift hit_rate/lang_detect/book_runner 进度比例**全部分母有 0 守卫**，confidence 聚合走 `coerce_finite_confidence`/Pydantic `ge·le`，结论「no non-finite write_json path found」）；② F1/F2 逻辑边界（13 调用方零依赖 bool→1/0、`is not None` 守 0.0 无上限语义、allow_blank 不误判、老 state 不被误拒）。主对话 line-by-line。**survived findings = 0**。`/security-review`：diff secret 扫描无 `sk-`/key；未碰 `.env`/`data/`/`outputs/`/`小说txt/`/`settings.local`；本轮 fail-closed 硬化净提升安全姿态。**未修风险无**——F3 对既有腐败图采「拒绝写入」非自动清洗（腐败图会阻断后续 advance 至手动修，预期 fail-closed 取舍），auto-heal 列 iter068 debt。
+
+**测试 seed 教训**：F2/F3 的「既有损坏数据」fixture 必须用 stdlib `json.dumps`（默认 `allow_nan=True`）直写裸文件——`_save_state`/`write_json` 现在自身就拒 NaN，无法用来制造 on-disk 腐败 fixture。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1294 tests OK**（基线 1281 +13：run_params bool ×2、write_json ×5、book_driver F2 ×4、entity_advance F3 ×2）；`verify.sh` exit 0（**须 `PATH=$PWD/.venv/bin:$PATH`**）；`preflight` 无 FATAL/WARN；`git diff --check` clean。
+
+**数据状态**：纯代码+测试+文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter068）**：entity_graph 读时 auto-heal 既有 NaN（让 advance 不被腐败图阻断）/ codex 早前 P3 Web path redaction（jobs.py async + wizard OSError 原始串，复用 `errors._redact_paths`）/ #6 plan_compliance writer `[:5]` 截断 / #7 standalone review 缺 chapter_plan_item / codex #6 (b) outline-drift warn→block / cmd_resume 与 `_build_params` 抽公共校验函数。

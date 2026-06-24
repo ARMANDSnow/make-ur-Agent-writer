@@ -60,6 +60,15 @@ class ValidateIntTests(unittest.TestCase):
         self.assertIsNotNone(err)
         self.assertIn("integer", err)
 
+    def test_bool_rejected(self) -> None:
+        # iter067 F1: bool is an int subclass — int(True)==1/int(False)==0 used
+        # to pass every range check. A YAML/JSON `false` reaching a numeric param
+        # must hard-fail, not coerce to 0.
+        for bad in (True, False):
+            err, _ = run_params.validate_int(bad, "step_timeout_minutes", minimum=0, maximum=1440)
+            self.assertIsNotNone(err, bad)
+            self.assertIn("integer", err)
+
 
 class ValidateFloatTests(unittest.TestCase):
     def test_finite_in_range_passes(self) -> None:
@@ -88,6 +97,21 @@ class ValidateFloatTests(unittest.TestCase):
         err, _ = run_params.validate_float("1.1", "min_confidence", 0.7, minimum=0.0, maximum=1.0)
         self.assertIsNotNone(err)
         self.assertIn("<= 1.0", err)
+
+    def test_bool_rejected(self) -> None:
+        # iter067 F1: float(False)==0.0 / float(True)==1.0 pass isfinite + the
+        # [0,1] range, so a mistyped `creation_confidence: false` in agents.yaml
+        # used to silently lower the creation gate to 0.0 (fail-open). Must
+        # error so the caller falls back to its safe default. Closes
+        # book_runner.py creation_confidence (iter066 #1 residual).
+        for bad in (True, False):
+            err, val = run_params.validate_float(
+                bad, "creation_confidence", 0.85, minimum=0.0, maximum=1.0
+            )
+            self.assertIsNotNone(err, bad)
+            self.assertIn("number", err)
+            # The throwaway value is the safe default, never 0.0/1.0.
+            self.assertEqual(val, 0.85)
 
 
 class ValidateRunParamsTests(unittest.TestCase):

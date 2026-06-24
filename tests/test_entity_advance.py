@@ -111,6 +111,84 @@ class EntityAdvanceTests(unittest.TestCase):
         self.assertEqual(timeline[1]["active"], True)
 
 
+class ApplyAdvanceCorruptGraphFailClosedTests(unittest.TestCase):
+    """iter067 F3: a confirm write must never persist a non-finite float. A
+    pre-existing NaN/Infinity sitting elsewhere in entity_graph.json used to be
+    cloned through _apply_selected and written straight back (default json.dumps
+    has allow_nan=True). write_json now uses allow_nan=False, so confirm raises
+    ValueError instead of re-emitting invalid JSON — book_runner's auto_advance
+    catches ValueError and degrades to apply_advance_failed (safe no-op)."""
+
+    def _seed(self, root: Path):
+        drafts = root / "drafts"
+        graph_path = root / "entity_graph.json"
+        # Write the file directly with the stdlib encoder (allow_nan=True) so the
+        # on-disk graph carries a bare NaN token, the exact corruption hazard.
+        graph_path.write_text(
+            json.dumps(
+                {
+                    "relationships": [
+                        {
+                            "src_id": "a",
+                            "dst_id": "b",
+                            "relation_type": "同盟",
+                            "timeline": [
+                                {"state": "旧状态", "active": True, "confidence": float("nan")}
+                            ],
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        save_entity_advance_proposals(
+            1,
+            [
+                {
+                    "src_id": "a",
+                    "dst_id": "b",
+                    "old_active_state": "旧状态",
+                    "new_state": "新状态",
+                    "trigger_event": "共同选择",
+                    "confidence": 0.8,
+                }
+            ],
+            drafts_dir=drafts,
+        )
+        return drafts, graph_path
+
+    def test_confirm_on_corrupt_graph_raises_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts, graph_path = self._seed(root)
+            with self.assertRaises(ValueError):
+                apply_advance_proposals(
+                    chapter_no=1,
+                    proposal_indexes="0",
+                    confirm=True,
+                    graph_path=graph_path,
+                    drafts_dir=drafts,
+                )
+
+    def test_dry_run_on_corrupt_graph_does_not_write(self) -> None:
+        # Dry run never persists, so it must not raise even with a corrupt graph
+        # (the file is left exactly as seeded for the user to repair).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts, graph_path = self._seed(root)
+            before = graph_path.read_text(encoding="utf-8")
+            result = apply_advance_proposals(
+                chapter_no=1,
+                proposal_indexes="0",
+                confirm=False,
+                graph_path=graph_path,
+                drafts_dir=drafts,
+            )
+            self.assertIn("新状态", result["diff"])
+            self.assertEqual(graph_path.read_text(encoding="utf-8"), before)
+
+
 class ApplyAdvanceSkipsMissingRelationshipTests(unittest.TestCase):
     """Regression: a proposal referencing a relationship absent from the graph
     (e.g. the real-model ``ent_wuliang_east <-> ent_wuliang_west`` emitted while

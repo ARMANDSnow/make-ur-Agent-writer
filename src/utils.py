@@ -36,13 +36,19 @@ def write_json(path: Path, data: Any) -> None:
     import os
     import threading
 
+    # iter067 F3: fail-closed against non-finite floats. Default json.dumps has
+    # allow_nan=True, emitting bare NaN/Infinity tokens (invalid JSON that
+    # read_json's json.loads happily re-parses), so a corrupt entity_graph.json
+    # round-tripped through _apply_selected would be written straight back, and
+    # a NaN budget could be persisted into driver_state.json. allow_nan=False
+    # raises ValueError instead. Serialize BEFORE creating the tmp file so a
+    # rejected payload leaves no partial/tmp artifact behind.
+    payload = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
     ensure_dir(path.parent)
     tmp = path.with_suffix(
         path.suffix + f".tmp.{os.getpid()}.{threading.get_ident()}"
     )
-    tmp.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    tmp.write_text(payload, encoding="utf-8")
     os.replace(tmp, path)
 
 

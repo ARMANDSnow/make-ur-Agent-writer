@@ -722,5 +722,90 @@ class Iter066NumericGuardTests(_WorkspaceMixin, unittest.TestCase):
         self.assertEqual(captured["state"]["params"]["budget_cny"], 8.0)
 
 
+class Iter067ResidualGuardTests(_WorkspaceMixin, unittest.TestCase):
+    """iter067 F2: resume must re-validate the EFFECTIVE budget/timeout, not
+    only the explicit overrides. iter066 #3 guarded `--budget-cny nan`, but a
+    NaN / out-of-range value already persisted in driver_state.json (pre-iter064
+    run, or a hand-edited file) flowed straight through when no override was
+    given, re-disabling the cost gate (`spent >= nan` is always False)."""
+
+    def setUp(self) -> None:
+        self._preserve_signals()
+        self.ws = self._make_workspace("unit_iter067_guard_")
+        self._seed_plan(4)
+
+    def _seed_raw_state(self, **param_overrides) -> None:
+        # Write driver_state.json directly with the stdlib encoder (allow_nan
+        # True by default) to reproduce an on-disk corrupt state. _save_state now
+        # routes through write_json(allow_nan=False) (iter067 F3) and would
+        # itself reject a NaN, so seeding the hazard must bypass it.
+        params = {
+            "book": self.ws.name,
+            "chapters": 2,
+            "resume_from": 1,
+            "budget_cny": 5.0,
+            "step_timeout_minutes": 180,
+            "skip_debate": True,
+        }
+        params.update(param_overrides)
+        state = {
+            "run_id": "t",
+            "book": self.ws.name,
+            "status": "paused",
+            "attempt": 1,
+            "step_seq": 1,
+            "segments": [],
+            "params": params,
+        }
+        path = book_driver.state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    def test_resume_persisted_nan_budget_rejected_without_override(self) -> None:
+        self._seed_raw_state(budget_cny=float("nan"))
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            rc = book_driver.cmd_resume(_driver_args(action="resume"))
+        self.assertEqual(rc, 2)
+
+    def test_resume_persisted_bad_timeout_rejected_without_override(self) -> None:
+        self._seed_raw_state(step_timeout_minutes=99999)
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            rc = book_driver.cmd_resume(_driver_args(action="resume"))
+        self.assertEqual(rc, 2)
+
+    def test_resume_valid_override_repairs_persisted_nan_budget(self) -> None:
+        self._seed_raw_state(budget_cny=float("nan"))
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_resume(
+                    _driver_args(action="resume", budget_cny=8.0)
+                )
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["budget_cny"], 8.0)
+
+    def test_resume_clean_persisted_state_passes_without_override(self) -> None:
+        # Happy path: a valid persisted state resumes with no override, and the
+        # cleaned effective values are written back unchanged.
+        self._seed_raw_state()
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_resume(_driver_args(action="resume"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["budget_cny"], 5.0)
+        self.assertEqual(captured["state"]["params"]["step_timeout_minutes"], 180)
+
+
 if __name__ == "__main__":
     unittest.main()
