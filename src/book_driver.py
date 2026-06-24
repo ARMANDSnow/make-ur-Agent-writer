@@ -834,6 +834,27 @@ def cmd_resume(args: Any) -> int:
         return _REAL_RUN_REFUSAL_EXIT
 
     params = state["params"]
+    # iter066 #3: validate the numeric resume-overrides BEFORE mutating any
+    # params, so a NaN / out-of-range --budget-cny or --step-timeout-minutes
+    # hard-rejects (return 2) without half-writing state. resume bypasses
+    # _build_params' validate_run_params, so before this a `nan` budget reached
+    # the cost gate where `spent >= nan` is always False (gate silently off).
+    budget_override = getattr(args, "budget_cny", None)
+    if budget_override is not None:
+        err, budget_override = run_params.validate_float(
+            budget_override, "budget_cny", 0.0, minimum=0.0
+        )
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+    timeout_override = getattr(args, "step_timeout_minutes", None)
+    if timeout_override is not None:
+        err, timeout_override = run_params.validate_int(
+            timeout_override, "step_timeout_minutes", minimum=0, maximum=1440
+        )
+        if err:
+            print(err, file=sys.stderr)
+            return 2
     # resume 可覆盖的参数：明确传了才覆盖；pause_after_segment 默认清零，
     # 否则每次 resume 都会在同一段再暂停一次。
     pause = getattr(args, "pause_after_segment", None)
@@ -846,14 +867,14 @@ def cmd_resume(args: Any) -> int:
         print("--force-debate conflicts with stored --skip-debate params", file=sys.stderr)
         return 2
     params["force_debate"] = force_debate
-    for key, attr in (
-        ("step_timeout_minutes", "step_timeout_minutes"),
-        ("budget_cny", "budget_cny"),
-        ("on_blocked", "on_blocked"),
-    ):
-        value = getattr(args, attr, None)
-        if value is not None:
-            params[key] = value
+    # iter066 #3: write the VALIDATED (cleaned) values, not the raw args.
+    if timeout_override is not None:
+        params["step_timeout_minutes"] = timeout_override
+    if budget_override is not None:
+        params["budget_cny"] = budget_override
+    on_blocked = getattr(args, "on_blocked", None)
+    if on_blocked is not None:
+        params["on_blocked"] = on_blocked
     cmd_prefix = getattr(args, "cmd_prefix", None)
     if cmd_prefix:
         params["cmd_prefix"] = shlex.split(cmd_prefix)

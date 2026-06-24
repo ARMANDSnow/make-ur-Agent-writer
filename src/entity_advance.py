@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -72,6 +73,25 @@ def _parse_indexes(raw_indexes: str | Iterable[int]) -> List[int]:
     return [int(item) for item in raw_indexes]
 
 
+def coerce_finite_confidence(value: Any, default: float = 0.0) -> float:
+    """iter066 #4: parse a proposal ``confidence`` into a finite float for the
+    WRITE path (entity-graph timeline). A non-finite (``NaN``/``±inf``) or
+    unparseable value collapses to ``default`` (0.0), so the persisted value is
+    always standard JSON and a creation-path confidence always falls below the
+    creation gate (fail-closed).
+
+    Do NOT use this in ``select_auto_indexes`` — there a bad confidence must be
+    *skipped*, not coerced to 0.0 (which ``--min-confidence 0`` would select).
+    """
+    try:
+        out = float(value or 0.0)
+    except (TypeError, ValueError):
+        return float(default)
+    if not math.isfinite(out):
+        return float(default)
+    return out
+
+
 def select_auto_indexes(
     proposals: List[Dict[str, Any]], min_confidence: float = 0.7
 ) -> List[int]:
@@ -91,6 +111,11 @@ def select_auto_indexes(
         try:
             conf = float(proposal.get("confidence", 0.0))
         except (TypeError, ValueError):
+            continue
+        # iter066 #4: a parseable-but-non-finite confidence (``inf``) would pass
+        # ``inf >= min_confidence``; skip it like the unparseable case rather
+        # than coercing to 0.0 (which ``--min-confidence 0`` would then select).
+        if not math.isfinite(conf):
             continue
         if conf >= float(min_confidence):
             chosen.append(idx)
@@ -261,15 +286,22 @@ def _apply_selected(
     """
     updated = json.loads(json.dumps(graph, ensure_ascii=False))
     relationships = updated.setdefault("relationships", [])
+    # iter066 #2: known entity ids, to reject creation of an edge that
+    # references a "ghost" entity absent from graph["entities"] (fail-closed).
+    entity_ids = {
+        str(e.get("id"))
+        for e in updated.get("entities", []) or []
+        if isinstance(e, dict) and e.get("id")
+    }
     skipped: List[Dict[str, Any]] = []
     for proposal in selected:
-        src_id = str(proposal.get("src_id") or "")
-        dst_id = str(proposal.get("dst_id") or "")
+        src_id = str(proposal.get("src_id") or "").strip()
+        dst_id = str(proposal.get("dst_id") or "").strip()
         if not src_id or not dst_id:
             raise ValueError("proposal missing src_id or dst_id")
         rel = _find_relationship(relationships, src_id, dst_id)
         if rel is None:
-            confidence = float(proposal.get("confidence") or 0.0)
+            confidence = coerce_finite_confidence(proposal.get("confidence"))
             new_state = str(proposal.get("new_state") or "").strip()
             # iter065 #6c: confidence-gated creation of a NEW relationship,
             # behind allow_creation (default off). Refused (skipped with a
@@ -285,6 +317,11 @@ def _apply_selected(
                     reason = "creation_empty_state"
                 elif conflict:
                     reason = "creation_hard_conflict"
+                elif src_id not in entity_ids or dst_id not in entity_ids:
+                    # iter066 #2: never persist an edge to an entity the graph
+                    # doesn't know — a whitespace/typo/ghost id would otherwise
+                    # be written straight into entity_graph.json.
+                    reason = "creation_unknown_entity"
                 elif confidence < creation_confidence:
                     reason = "creation_below_confidence"
                 else:
@@ -353,7 +390,7 @@ def _apply_selected(
                 src_id=src_id,
                 dst_id=dst_id,
                 chapter_no=chapter_no,
-                confidence=float(proposal.get("confidence") or 0.0),
+                confidence=coerce_finite_confidence(proposal.get("confidence")),
             )
             skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "timeline_not_a_list"})
             continue
@@ -365,7 +402,7 @@ def _apply_selected(
                 "anchor_chapter": f"续写第{chapter_no:02d}章",
                 "state": str(proposal.get("new_state") or "").strip(),
                 "trigger_event": str(proposal.get("trigger_event") or "").strip(),
-                "confidence": float(proposal.get("confidence") or 0.0),
+                "confidence": coerce_finite_confidence(proposal.get("confidence")),
                 "active": True,
             }
         )

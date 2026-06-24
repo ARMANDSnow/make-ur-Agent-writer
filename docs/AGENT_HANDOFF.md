@@ -1673,3 +1673,25 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：纯代码 + 测试 + 文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter066）**：**(b) outline-drift warn→block**（本轮推迟的 #6 第三子项）——新 `outline_drift_severe` readiness kind + driver/Web 级联，配专项审查（注意 `rolling_summary` 落后 drafts 的误报风险，0.2 阈值 + MIN_ANCHORS 缓解）；plan-compliance 升级实体锚定/LLM 语义履约（仅当建议级实跑证明不够用时）；confidence 非有限值在 entity_graph 写入的统一 clamp（含 legacy advance，跨 iter）；F3-3 timeout helper；`_blocker_kind` 别名清理；drama 站③④；KB 起点过滤主动 blocker；真模型 capstone 复跑。
+
+## iter 066（2026-06-24，收官）——codex iter065 复审 findings 收口（上）：fail-closed 数值/类型守门
+
+**来源**：codex 对 iter064/065 做只读复审，提 8 findings（3×P1/4×P2/1×P3）。3 个 Explore subagent 逐条追数据流 + 主代码核读**全部属实**（6 完全/2 部分）。共因=输入边界没 fail-closed：`bool()`/`float()` 裸转配置与 proposal 字段，NaN/inf/空白/坏类型在 IEEE-754 下静默穿透阈值门。与用户确认**分 2 轮**：本轮 5 条 fail-closed 数值/类型守门（含全部 3×P1），iter067 收 #6/#7/#8（语义信号+Web 脱敏）。用户定 3 决策：#5 cap 解耦（CLI→2000/WebUI 留 200）、#4 扩到 legacy advance、#2 两端都须在 entities；并对 plan 给 6 条精炼（已并入）。
+
+**#4（P2，confidence 非有限值）**：`entity_advance.py` 新增 `coerce_finite_confidence(value, default=0.0)`（`math.isfinite` 失败→默认）**仅用于写 timeline**——创建分支、legacy advance 写入、`timeline_not_a_list` 日志参数三处。`select_auto_indexes` **不用** coerce 而加 `if not math.isfinite(conf): continue`：`float("inf")` 解析成功后 `inf>=min_confidence` 恒 True 会被选中（nan 已被 `>=` 挡，inf 是漏网点）；coerce→0.0 会让 `--min-confidence 0` 复选坏值（契约倒退）。消掉 iter065 登记的「confidence 非有限值写入既有风险、legacy 同存、顺延」。
+
+**#2（P1，src/dst 校验）**：`_apply_selected` src_id/dst_id 加 `.strip()`（`"  "` 落入 `missing src_id` raise）；创建分支新增 `creation_unknown_entity` 档——`entity_ids = {str(e.get("id")) for e in updated.get("entities",[]) ...}`（复用 `entities.py:101` 模式，循环外建一次），src/dst 任一不在则拒绝创建。reason 优先级在 empty_state/hard_conflict 后、below_confidence 前。新校验只在 `if allow_creation:` 内，allow_creation=False 时 iter052 稀疏边 `relationship_not_found` 路径字节级不变。
+
+**#1（P1，配置 fail-closed）**：`book_runner.py` 加 `from . import run_params`；`allow_creation = ea_cfg.get("allow_creation") is True`（`bool("false")` 为 True 的坑——带引号 YAML 反开创建）；`creation_confidence` 用 `validate_float(..., minimum=0.0, maximum=1.0)` 清洗值，err 回 0.85。整块仍在既有 try/except 内。
+
+**#3（P1，resume 守门）**：`book_driver.cmd_resume` 把 budget_cny/step_timeout_minutes 校验**前置到动 `state["params"]` 之前**（原 pause/force_debate 写入之前），任一 err→`print(err,file=sys.stderr); return 2`，此时 state 完全未触碰；通过后写 validate 的**清洗值**。budget_cny 走 `validate_float(minimum=0.0)`、step_timeout_minutes 走 `validate_int(minimum=0,maximum=1440)`。根因：resume 绕过 `_build_params` 的 `validate_run_params`，`--budget-cny nan` 让 `spent>=nan` 恒 False 成本闸失效。
+
+**#5（P2，cap 解耦）**：`run_params.INT_CAPS["target_chapters"]` 200→2000（与 chapters/plan_target 对齐）。修长程 driver：默认 `plan_target=chapters+resume_from-1` 可达 249，driver 调 `plan-chapters --chapters <plan_target>` 撞旧 200 上限→`blocked` self-block。WebUI 单次上限由 `routes._validate_plan_chapters_params` **内联 200、不读 INT_CAPS** 自动保持（解耦零 blast radius）；`main.py:553` 注释更新。
+
+**审查（铁律⑨，runner 高风险）**：拆 2 个独立视角只读 Explore subagent 并行审（未跑 ultra）。**正确性+契约**：五条实现正确完整、无 bug、无契约破坏（确认 allow_creation=False 稀疏边字节对齐）、测试覆盖三路径+state 不半改不变式 → 可提交。**安全+复用**：无 `sk-`/`.env`/密钥；日志与 JSON 经 coerce 硬化（不再写 NaN/Infinity 字面量）；`cmd_resume` 的 `print(err)` 来自 run_params 只含参数名+约束不回显原值；`coerce_finite_confidence` 与 `validate_float` 的 isfinite「重复」语义正当（透明清理 vs 守门）→ 安全可提交。**未修（诚实登记）**：cmd_resume 校验与 `_build_params` 可在未来覆盖命令增多时抽公共函数（scope 收敛顺延）。铁律①自查：diff 无 key/.env 读写，仅 src/main/tests/docs。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1281 tests OK**（基线 1269 +12）；`verify.sh` exit 0（**须 `PATH=$PWD/.venv/bin:$PATH`**）；`preflight` 无 FATAL。
+
+**数据状态**：纯代码+测试+文档；未碰 `.env`/`data/`/`outputs/`/`小说txt/`。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮（iter067）**：#6 plan_compliance 建议被 writer `[:5]` 截断（reviewer prepend）/ #7 standalone review 不传 chapter_plan_item（含 CLI review-chapter）/ #8 Web 路径脱敏（jobs.py:899 + wizard.py×4，复用 `errors._redact_paths`）；jobs.py:891 BookRunBlocked 同类一并评估。计划文件 `~/.claude/plans/codex-findings-p1-src-book-runner-py-lin-agile-bunny.md`。codex #6 (b) outline-drift warn→block 仍独立顺延。

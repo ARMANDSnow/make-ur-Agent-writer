@@ -38,7 +38,7 @@ INT_CAPS: Dict[str, Tuple[int, int, Optional[int]]] = {
     "resume_from": (1, 1, 10000),
     "max_retries": (2, 0, 20),
     "replan_every": (0, 0, 2000),
-    "target_chapters": (5, 1, 200),
+    "target_chapters": (5, 1, 2000),  # iter066 #5: aligned with chapters/plan_target (was 200); WebUI keeps its own 200 inline in routes._validate_plan_chapters_params
     "append_count": (0, 0, 2000),
     "from_chapter": (0, 0, 10000),
     "segment_size": (5, 1, 2000),

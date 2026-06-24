@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from . import paths, readiness_catalog, review_tier, source_excerpts, start_point
+from . import paths, readiness_catalog, review_tier, run_params, source_excerpts, start_point
 from .chapter_summary import prune_from_chapter
 from .chapter_status import chapter_status
 from .config import load_config
@@ -901,8 +901,21 @@ def _auto_apply_advances(chapter_no: int, *, min_confidence: float) -> Dict[str,
     creation_confidence = 0.85
     try:
         ea_cfg = load_config("agents.yaml").get("entity_advance", {}) or {}
-        allow_creation = bool(ea_cfg.get("allow_creation", False))
-        creation_confidence = float(ea_cfg.get("creation_confidence", 0.85))
+        # iter066 #1: fail-closed config parsing. ``bool("false")`` is True (any
+        # non-empty string is truthy), so a hand-edited ``allow_creation:
+        # "false"`` (quoted) would silently ENABLE creation — require real bool
+        # True. ``float("nan")`` also parses, and ``nan < creation_confidence``
+        # is always False, so a bad creation_confidence would open the gate;
+        # validate_float's isfinite + [0,1] range guard closes it.
+        allow_creation = ea_cfg.get("allow_creation") is True
+        cc_err, cc_val = run_params.validate_float(
+            ea_cfg.get("creation_confidence", 0.85),
+            "creation_confidence",
+            0.85,
+            minimum=0.0,
+            maximum=1.0,
+        )
+        creation_confidence = 0.85 if cc_err else cc_val
     except Exception:
         allow_creation, creation_confidence = False, 0.85
     try:

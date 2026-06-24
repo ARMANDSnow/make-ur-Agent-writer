@@ -448,6 +448,38 @@ class ApplyAdvanceCreatesNewRelationshipTests(unittest.TestCase):
         self.assertEqual(updated["relationships"], [])
         self.assertEqual(skipped[0]["reason"], "creation_empty_state")
 
+    def test_nonfinite_confidence_refuses_creation(self) -> None:
+        # iter066 #4: inf/nan confidence coerces to 0.0 on the write path, so it
+        # falls below the creation gate instead of passing `nan < gate == False`.
+        for bad in (float("inf"), float("nan"), float("-inf")):
+            updated, skipped, created = self._apply(
+                allow_creation=True, creation_confidence=0.85, confidence=bad
+            )
+            self.assertEqual(created, [], bad)
+            self.assertEqual(updated["relationships"], [], bad)
+            self.assertEqual(skipped[0]["reason"], "creation_below_confidence", bad)
+
+    def test_ghost_entity_refuses_creation(self) -> None:
+        # iter066 #2: src/dst must both exist in graph["entities"]; an id the
+        # graph never knew (here ent_ghost) is refused, not persisted as a ghost.
+        updated, skipped, created = self._apply(
+            allow_creation=True, proposal_extra={"src_id": "ent_ghost"}
+        )
+        self.assertEqual(created, [])
+        self.assertEqual(updated["relationships"], [])
+        self.assertEqual(skipped[0]["reason"], "creation_unknown_entity")
+
+    def test_whitespace_id_is_stripped_and_raises(self) -> None:
+        # iter066 #2: a whitespace-only id strips to empty and raises (structural
+        # defect) instead of slipping through the non-empty check as `"  "`.
+        from src.entity_advance import _apply_selected
+
+        graph = {"entities": [{"id": "ent_y"}], "relationships": []}
+        proposal = {"src_id": "  ", "dst_id": "ent_y", "new_state": "x", "confidence": 0.9}
+        with patch("src.entity_advance.log_event"):
+            with self.assertRaises(ValueError):
+                _apply_selected(graph, [proposal], 1, allow_creation=True)
+
     def test_public_apply_surfaces_created_count(self) -> None:
         # End-to-end via the public entry, mirroring book_runner's call shape.
         with tempfile.TemporaryDirectory() as tmp:
@@ -493,6 +525,29 @@ class ApplyAdvanceCreatesNewRelationshipTests(unittest.TestCase):
         self.assertEqual(result.get("applied_count"), 0)  # creation != advance
         self.assertNotIn("skipped", result)
         self.assertEqual(len(graph["relationships"]), 1)
+
+
+class ApplySelectedLegacyConfidenceTests(unittest.TestCase):
+    """iter066 #4: the legacy advance path (existing edge) must write a FINITE
+    confidence to the timeline — a nan/inf collapses to 0.0, never a non-standard
+    JSON literal (``NaN``/``Infinity``) that downstream JSON parsers choke on."""
+
+    def test_legacy_advance_coerces_nonfinite_confidence(self) -> None:
+        from src.entity_advance import _apply_selected
+
+        graph = {
+            "entities": [{"id": "ent_a"}, {"id": "ent_b"}],
+            "relationships": [
+                {"src_id": "ent_a", "dst_id": "ent_b", "timeline": [{"state": "旧", "active": True}]}
+            ],
+        }
+        proposal = {"src_id": "ent_a", "dst_id": "ent_b", "new_state": "新", "confidence": float("inf")}
+        with patch("src.entity_advance.log_event"):
+            updated, skipped = _apply_selected(graph, [proposal], 3)
+        self.assertEqual(skipped, [])
+        entry = updated["relationships"][0]["timeline"][-1]
+        self.assertEqual(entry["state"], "新")
+        self.assertEqual(entry["confidence"], 0.0)  # inf coerced → standard JSON
 
 
 if __name__ == "__main__":

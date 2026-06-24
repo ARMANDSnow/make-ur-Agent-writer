@@ -78,6 +78,24 @@ class SelectAutoIndexesTests(unittest.TestCase):
         # Malformed entries are dropped silently; only valid >= threshold rows count.
         self.assertEqual(select_auto_indexes(proposals, min_confidence=0.7), [0, 3])
 
+    def test_skips_non_finite_confidence(self) -> None:
+        # iter066 #4: an unparseable confidence was already skipped; a PARSEABLE
+        # but non-finite one (inf) used to pass `inf >= min_confidence` and get
+        # selected. Both inf and nan must now be skipped like malformed rows.
+        proposals = [
+            {"confidence": float("inf")},
+            {"confidence": 0.9},
+            {"confidence": float("nan")},
+        ]
+        self.assertEqual(select_auto_indexes(proposals, min_confidence=0.7), [1])
+
+    def test_inf_not_selected_even_with_zero_min_confidence(self) -> None:
+        # The fail-closed-vs-coerce distinction: had we coerced inf→0.0 here,
+        # `--min-confidence 0` (0.0 >= 0.0) would re-select it. Skipping is right.
+        self.assertEqual(
+            select_auto_indexes([{"confidence": float("inf")}], min_confidence=0.0), []
+        )
+
 
 class ApplyAdvanceAutoCliTests(unittest.TestCase):
     def test_auto_apply_confirm_writes_graph_for_high_confidence(self) -> None:

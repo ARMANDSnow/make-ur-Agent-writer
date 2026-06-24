@@ -550,9 +550,13 @@ def main() -> None:
         from src import readiness_catalog
         from src.plot_planner import OutlineStale, generate_chapter_plan
 
-        # iter064 #1: args.chapters here means target_chapters (capped 1..200,
-        # matching the WebUI plan-chapters validator), not the write-book
-        # chapters cap, so validate it under that field name.
+        # iter064 #1 / iter066 #5: args.chapters here means target_chapters,
+        # validated under that field name (not the write-book chapters cap). The
+        # cap is 1..2000, aligned with chapters/plan_target so a long drive-book
+        # run (plan_target = chapters + resume_from - 1) no longer self-blocks
+        # when it shells out to `plan-chapters --chapters <plan_target>`. The
+        # WebUI keeps its own 1..200 single-request cap independently in
+        # routes._validate_plan_chapters_params (decoupled on purpose).
         _validate_cli_run_params(
             {
                 "target_chapters": args.chapters,

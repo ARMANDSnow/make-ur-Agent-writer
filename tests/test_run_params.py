@@ -116,10 +116,15 @@ class ValidateRunParamsTests(unittest.TestCase):
         self.assertIsNotNone(err)
         self.assertIn("budget_cny", err)
 
-    def test_target_chapters_capped_at_200(self) -> None:
-        err, _ = run_params.validate_run_params({"target_chapters": 201}, fields=("target_chapters",))
+    def test_target_chapters_capped_at_2000(self) -> None:
+        # iter066 #5: cap raised 200->2000 (aligned with chapters/plan_target so
+        # long drive-book runs don't self-block). 200 is still enforced for the
+        # WebUI single request, but inline in routes._validate_plan_chapters_params.
+        ok_err, _ = run_params.validate_run_params({"target_chapters": 201}, fields=("target_chapters",))
+        self.assertIsNone(ok_err)
+        err, _ = run_params.validate_run_params({"target_chapters": 2001}, fields=("target_chapters",))
         self.assertIsNotNone(err)
-        self.assertIn("<= 200", err)
+        self.assertIn("<= 2000", err)
 
     def test_unknown_field_raises(self) -> None:
         with self.assertRaises(KeyError):
@@ -155,8 +160,9 @@ class CliRunParamGuardTests(unittest.TestCase):
         err = self._run_cli_expect_exit(["write-readiness", "--chapters", "999999999"], 2)
         self.assertIn("chapters", err)
 
-    def test_plan_chapters_target_over_200_exits_2(self) -> None:
-        err = self._run_cli_expect_exit(["plan-chapters", "--chapters", "999"], 2)
+    def test_plan_chapters_target_over_2000_exits_2(self) -> None:
+        # iter066 #5: CLI plan-chapters cap is now 2000 (was 200); 999 is valid.
+        err = self._run_cli_expect_exit(["plan-chapters", "--chapters", "9999"], 2)
         self.assertIn("target_chapters", err)
 
     def test_helper_passes_valid_params(self) -> None:

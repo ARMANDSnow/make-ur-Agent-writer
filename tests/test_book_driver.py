@@ -631,5 +631,96 @@ class DriverE2ETests(_WorkspaceMixin, unittest.TestCase):
         self.assertEqual(len(report["segments"]), 2)
 
 
+class Iter066NumericGuardTests(_WorkspaceMixin, unittest.TestCase):
+    """iter066 #3/#5: resume numeric-override guard + long-run plan_target."""
+
+    def setUp(self) -> None:
+        self._preserve_signals()
+        self.ws = self._make_workspace("unit_iter066_guard_")
+        self._seed_plan(4)
+
+    # ---- #5: long-run default plan_target must not self-block ----
+    def test_long_run_plan_target_exceeds_old_200_cap(self) -> None:
+        from src import run_params
+
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_start(
+                    _driver_args(chapters=200, resume_from=50, plan_target=None)
+                )
+        self.assertEqual(rc, 0)
+        plan_target = captured["state"]["params"]["plan_target"]
+        self.assertEqual(plan_target, 249)  # 200 + 50 - 1, exceeds the old 200 cap
+        # The driver shells out `plan-chapters --chapters <plan_target>`; that
+        # value must validate under the (now 2000) target_chapters cap, else the
+        # long run self-blocks at the plan step (the finding's failure mode).
+        err, _ = run_params.validate_run_params(
+            {"target_chapters": plan_target}, fields=("target_chapters",)
+        )
+        self.assertIsNone(err)
+
+    # ---- #3: resume numeric overrides are guarded; state not half-written ----
+    def _seed_state(self) -> None:
+        book_driver._save_state(
+            {
+                "run_id": "t",
+                "book": self.ws.name,
+                "status": "paused",
+                "attempt": 1,
+                "step_seq": 1,
+                "segments": [],
+                "params": {
+                    "book": self.ws.name,
+                    "chapters": 2,
+                    "resume_from": 1,
+                    "budget_cny": 5.0,
+                    "step_timeout_minutes": 180,
+                    "skip_debate": True,
+                },
+            }
+        )
+
+    def test_resume_nan_budget_rejected_state_untouched(self) -> None:
+        self._seed_state()
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            rc = book_driver.cmd_resume(
+                _driver_args(action="resume", budget_cny=float("nan"))
+            )
+        self.assertEqual(rc, 2)
+        # state persisted by _save_state was never overwritten with the bad value
+        self.assertEqual(book_driver.load_state()["params"]["budget_cny"], 5.0)
+
+    def test_resume_out_of_range_timeout_rejected(self) -> None:
+        self._seed_state()
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            rc = book_driver.cmd_resume(
+                _driver_args(action="resume", step_timeout_minutes=99999)
+            )
+        self.assertEqual(rc, 2)
+        self.assertEqual(book_driver.load_state()["params"]["step_timeout_minutes"], 180)
+
+    def test_resume_valid_budget_override_applied(self) -> None:
+        self._seed_state()
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_resume(
+                    _driver_args(action="resume", budget_cny=8.0)
+                )
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["budget_cny"], 8.0)
+
+
 if __name__ == "__main__":
     unittest.main()

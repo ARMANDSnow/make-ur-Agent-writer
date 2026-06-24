@@ -505,5 +505,68 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertTrue(cd_timeline[-1]["active"])
 
 
+class AutoApplyConfigFailClosedTests(unittest.TestCase):
+    """iter066 #1: book_runner reads allow_creation / creation_confidence from
+    agents.yaml. A quoted ``"false"`` (``bool("false")`` is True) must NOT enable
+    creation; a non-finite creation_confidence must fall back, not open the gate.
+    """
+
+    def _run_auto_apply(self, ea_cfg):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts = root / "drafts"
+            drafts.mkdir()
+            graph_path = root / "entity_graph.json"
+            graph_path.write_text(
+                json.dumps({"entities": [{"id": "ent_x"}, {"id": "ent_y"}], "relationships": []}),
+                encoding="utf-8",
+            )
+            (drafts / "chapter_01.entity_advance_proposals.json").write_text(
+                json.dumps(
+                    {
+                        "proposed_advances": [
+                            {
+                                "src_id": "ent_x",
+                                "dst_id": "ent_y",
+                                "new_state": "结盟",
+                                "trigger_event": "e",
+                                "confidence": 0.95,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("src.book_runner.paths.workspace_name", return_value="unit"), patch(
+                "src.book_runner.paths.drafts_dir", return_value=drafts
+            ), patch(
+                "src.book_runner.paths.entity_graph_path", return_value=graph_path
+            ), patch(
+                "src.book_runner._load_raw_chapter_plan", return_value={}
+            ), patch(
+                "src.book_runner.validate_proposals_against_plan", return_value=[]
+            ), patch(
+                "src.book_runner.load_config", return_value={"entity_advance": ea_cfg}
+            ), patch(
+                "src.book_runner.apply_advance_proposals",
+                return_value={"applied_count": 0, "created_count": 0},
+            ) as mock_apply:
+                _auto_apply_advances(1, min_confidence=0.7)
+            return mock_apply
+
+    def test_quoted_false_does_not_enable_creation(self) -> None:
+        mock_apply = self._run_auto_apply({"allow_creation": "false"})
+        _, kwargs = mock_apply.call_args
+        self.assertFalse(kwargs["allow_creation"])
+
+    def test_nan_creation_confidence_falls_back_to_default(self) -> None:
+        mock_apply = self._run_auto_apply(
+            {"allow_creation": True, "creation_confidence": "nan"}
+        )
+        _, kwargs = mock_apply.call_args
+        self.assertTrue(kwargs["allow_creation"])
+        self.assertEqual(kwargs["creation_confidence"], 0.85)
+
+
 if __name__ == "__main__":
     unittest.main()
