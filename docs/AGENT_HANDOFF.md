@@ -1741,3 +1741,25 @@ V5 续写 3 章全 Approve **只证短链路功能打通，非长程稳定**。�
 **数据状态**：代码+测试+文档 + 软删 longzu1_clean（→_trash 可逆）+ 新建 longzu_half 验证 workspace（均 gitignored，不进 commit）；未碰 `.env`/`小说txt/` 原文。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter069）**：硬中断取消（async/子进程隔离）/ settings_missing 真信号 + readiness fixture 迁移 / workbench prepare 预算·timeout UI 控件（后端守门已就位前端仍用默认）/ rebuild 进度卡显示 window 章号明细 / 真模型 capstone 验证半本起点（铁律⑥需授权）/ iter067 顺延的 entity_graph 读时 auto-heal + Web path redaction + plan_compliance 截断。
+
+## iter 069（2026-06-25，收官）——前端 UX 改版：三功能入口 + 顶栏精简 + 命名/叙事一致性
+
+**来源**：用户报告书架/首页 5 类 UX 痛点（顶栏桌面端冗余按钮、首页重复入口、首页混入作品内导航、误以为只能跑 mock、premise「一句话开新书」后端早实现却被埋在向导 upload 面板底部）。先用 26-agent 多视角工作流（PM/IA · 视觉设计 · 代码 bug · 测试 + 完整性批判 + 对抗验证）审核计划，按审核结论 + 用户 2 项决策定稿 v2 再实现。计划档 `~/.claude/plans/ux-1-1-1-3-http-localhost-8765-http-loc-snug-bird.md`。
+
+**用户 2 项决策（反转原计划）**：① **⌂ 保持指向 `/library`**（审核核实全站面包屑无一处指向首页 `/`、"跳转交给面包屑回首页"是空承诺；登录后用户的"家"是书架而非营销首页）→ 原「改动 4：⌂→首页」**取消**；② **按「有无原文」重命名 + 统一 drama 术语**（novel→导入续写、premise→一句话开新书、drama→短剧剧本）。
+
+**改动（仅 `src/web/templates.py` + `src/web/static.py` + `tests/test_web_routes_get.py`，纯前端展示层，不动 9 阶段管线）**：hero「开始续写」→「开始创作」统一入口 + 叙事 lead 扩成兼容续写+开新书；首页新增第 3 张「一句话开新书」卡（badge 正式开放 / footer `/wizard?type=premise`）；`_render_shell` APP_CLASS 加 `page_kind=="landing"` 显式分支叠 `.lp-chrome`（**绝不复用 `sidebar_html` 三元**——否则泄漏到 wizard/settings 隐藏其 ☰/⋯）；顶栏精简删「＋ 新建」只留「⚙ 设置」；删底部 lp-secondary 重复链接 + 清死 CSS；trust 计数 2→3 + 术语；wizard 副标题「两类」→「三类」（修 premise 加入后计划自带的事实错误）+ novel/drama radio 与卡片改名；premise 表单从 upload 面板抽成独立 `#panel-premise`（含 card-header + 独立 `#premise-error`，`#upload-error` 留 upload 面板）；wizard JS 加 `panelPremise`/`premiseErrBox`、`show()` 数组纳入 panelPremise（三面板互斥）、applyTypeFromQuery+typeForm premise 三分流、premiseForm 三处错误渲染改指 premiseErrBox；真模型可发现性据实静态文案（需配 API key + 重启服务，不承诺一键，独立于被 JS innerHTML 覆盖的 `#wizard-mode-card`）。
+
+**前端真实 E2E（preview MCP，mock，桌面 1280 / 中宽 800 / 移动 375）抓出并当场修掉 2 个计划静态推演没覆盖的真 bug**：
+- **CSS 源顺序**：计划把 `.lp-cards{repeat(2)}` 放进既有 `@media(max-width:1024px)` 块，但它在基础 `.lp-cards{repeat(3)}` **之前**，同特异性下后者按源顺序胜出 → 800px 实测仍 3 列（挤）。**修复**：把 2 列媒体查询移到基础规则**之后**。复测 1280→3 / 800→2 / 375→1 列全对。
+- **移动端 ⚙设置 不可达**：lp-chrome 原拟隐藏 ☰/⌂/⋯，但移动端 ⋯（`.topbar-menu-toggle`）是打开 `.topbar-actions` 下拉（内含唯一动作 ⚙设置）的唯一入口（桌面端 ⋯ 本就被 `:288` 隐藏、⚙设置 直接显示）→ 隐藏 ⋯ 致移动端 landing ⚙设置 不可达。**修复**：lp-chrome 收窄到只隐藏 `.nav-toggle`+`.home-btn`。
+
+E2E 全绿：三功能入口 + hero「开始创作」+ 叙事；3 卡等宽等高；顶栏仅「⚙ 设置」（a11y 树确认 ⌂/☰/⋯ 因 `display:none` 不在树内，无需 aria-hidden）；wizard 3 选 1 副标题「三类」+ 真模型据实指引；深链 `?type=premise`/`?type=drama` 各唯一显示对应面板（互斥）；premise 提交（`requestSubmit`）→ 创建 workspace → 跳 `/w/<name>/workbench`；workspace 页 ⌂ `href="/library"` 可见、面包屑「书架」可点；移动端 landing 1 列、⋯ 可见点开 ⚙设置 可达、wizard `app no-context`（无 lp-chrome）⌂/⋯ 可见 ☰ 隐藏；console 无 error/warn。（工具备注：`preview_click` 在本环境不稳定触发表单 submit/下拉 toggle 的 JS handler，改用 `requestSubmit()`/`.click()` 派发真实事件验证；后端 `POST /api/wizard/premise-start` 实测 202。）
+
+**审查（铁律⑨）**：`/code-review high`（4 视角 finder：逐行正确性 / 删除行为+跨文件 / 复用-简化-效率 / 铁律合规）——**0 个需修 bug**。Agent A 逐行零 bug；Agent B 6 候选全 REFUTED（均为「若未来误删 #upload-error/#premise-error」「若 page_kind 改错」「若响应式重排卡片」推测，本轮测试已断言两容器存在 + E2E 证否；library 空状态提示指向「＋ 新建」对 /library 正确——该页保留按钮，landing 无 empty_hint）；Agent C 仅 2 条低价值风格建议（clearErrorBox helper / premiseForm guard 去留）按铁律⑦ scope 收敛不做。合规：无铁律违反（无龙族原文、测试全 mock、scope 未扩散）。`/security-review`（对口铁律①）——**无 HIGH/MEDIUM**：premiseErrBox 错误渲染经 `renderErrorCard`→`escapeHtml`（转义 `&<>"'`）无 XSS；真模型指引静态文案不泄 key、不渲染 .env；premise 重定向用 `encodeURIComponent`；workspace 输入 pattern 仍单源 `WORKSPACE_NAME_HTML_PATTERN` 未削弱；搬运不改任何转义/数据流。**未修风险**：JS 错误容器守卫风格不一致（novelForm/dramaForm 无 `if` 守卫、premiseForm 有）属既存小债，因 `#upload-error`/`#drama-error` 始终随面板渲染、无 NPE 触发路径，本轮不扩 scope（铁律⑦），测试断言 `#upload-error` 存活兜底。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1319 tests OK**（基线 1319，`test_web_routes_get`/`test_topbar_actions_scope` 扩断言、无净增模块）；`verify.sh` exit 0（**须 `PATH=$PWD/.venv/bin:$PATH`**，裸 python3 缺 pydantic 假失败）；`preflight` 无 FATAL/WARN。
+
+**数据状态**：仅代码+测试+文档；E2E 产生的 `workspaces/e2e069_*` 临时 workspace 已清理；未碰 `.env`/`小说txt/` 原文。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter070）**：premise「一句话开新书」首次访问 / 空状态 / onboarding 完整体验（mock 下扩写为占位的引导）/ settings 页给 `OPENAI_MODEL` 专属说明分区 + 模型变更触发 `#restart-banner` / JS 错误容器守卫风格统一（既存小债）/ 真模型走查 premise·novel 生成内容（铁律⑥需授权，用户本轮已授权但留作可选最终步）/ iter068 顺延的硬中断取消 + iter067 顺延的 entity_graph auto-heal + Web path redaction。

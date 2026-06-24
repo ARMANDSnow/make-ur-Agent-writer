@@ -974,8 +974,16 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 
 .lp-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-5);
+}
+/* iter069: 3 cards degrade to 2 columns on tablets, then to 1 column at
+   <=768px (in the mobile block below). This rule MUST sit after the base
+   3-col rule above — equal specificity, so source order decides the winner;
+   placing it inside the earlier responsive @media block let the later base
+   rule override it and stranded a cramped 3-up row at ~800px. */
+@media (max-width: 1024px) {
+  .lp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .lp-card {
   display: flex;
@@ -1069,7 +1077,6 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   color: var(--ink-3);
 }
 .lp-chips { justify-content: center; flex-wrap: wrap; }
-.lp-secondary { font-size: var(--fs-sm); }
 
 @keyframes lp-fade-up {
   from { opacity: 0; transform: translateY(12px); }
@@ -1079,8 +1086,9 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .fade-up-1 { animation-delay: .08s; }
 .fade-up-2 { animation-delay: .16s; }
 .fade-up-3 { animation-delay: .24s; }
+.fade-up-4 { animation-delay: .32s; }
 @media (prefers-reduced-motion: reduce) {
-  .fade-up, .fade-up-1, .fade-up-2, .fade-up-3 { animation: none; }
+  .fade-up, .fade-up-1, .fade-up-2, .fade-up-3, .fade-up-4 { animation: none; }
 }
 
 @media (max-width: 768px) {
@@ -1182,6 +1190,19 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
  * the page actions to the far right (override the bare space-between). */
 .topbar .home-btn { flex: 0 0 auto; }
 .topbar .breadcrumb { margin-right: auto; }
+/* iter069: landing (page_kind=="landing" → .app.lp-chrome) hides the shared
+   topbar nav cluster so the hero keeps only ⚙ 设置. We hide ONLY ☰ (nav-toggle)
+   and ⌂ (home-btn): ⌂ is the sole element shown at every breakpoint, and ☰ is
+   redundant on a sidebar-less landing. We deliberately do NOT hide ⋯
+   (.topbar-menu-toggle): on desktop it's already hidden by the bare :288 rule
+   and ⚙ 设置 shows inline, but on <=768px ⋯ is the ONLY way to open the
+   .topbar-actions dropdown that holds ⚙ 设置 — hiding it would strand the lone
+   landing action on mobile. .lp-chrome X (0-2-0) beats the desktop default and
+   the <=768px home-btn rules (all 0-1-0); display:none also drops these from
+   the a11y tree (no aria-hidden needed). Scoped to landing via APP_CLASS so
+   wizard/settings keep their ⌂ / ⋯. */
+.lp-chrome .nav-toggle,
+.lp-chrome .home-btn { display: none; }
 html { scroll-behavior: smooth; }
 
 /* friendly error card (replaces bare .alert.error traceback dumps) */
@@ -4508,6 +4529,7 @@ JS_WIZARD = """\
   const panelType = document.getElementById("panel-type");
   const panelUpload = document.getElementById("panel-upload");
   const panelDrama = document.getElementById("panel-drama");
+  const panelPremise = document.getElementById("panel-premise");
   const panelProgress = document.getElementById("panel-progress");
   const typeForm = document.getElementById("type-form");
   const novelForm = document.getElementById("wizard-form");
@@ -4515,6 +4537,7 @@ JS_WIZARD = """\
   const premiseForm = document.getElementById("premise-form");
   const errBox = document.getElementById("upload-error");
   const dramaErrBox = document.getElementById("drama-error");
+  const premiseErrBox = document.getElementById("premise-error");
   const progressBody = document.getElementById("progress-body");
   const modeCard = document.getElementById("wizard-mode-card");
   const cancelRequestedJobs = new Set();
@@ -4570,13 +4593,16 @@ JS_WIZARD = """\
     if (t === "drama") {
       if (typeForm) { try { typeForm.elements.ws_type.value = "drama"; } catch (e) {} }
       show(panelDrama);
+    } else if (t === "premise") {
+      if (typeForm) { try { typeForm.elements.ws_type.value = "premise"; } catch (e) {} }
+      show(panelPremise);
     } else if (t === "novel") {
       show(panelUpload);
     }
   })();
 
   function show(panel) {
-    [panelType, panelUpload, panelDrama, panelProgress].forEach((p) => {
+    [panelType, panelUpload, panelDrama, panelPremise, panelProgress].forEach((p) => {
       if (p) p.hidden = (p !== panel);
     });
   }
@@ -4602,6 +4628,7 @@ JS_WIZARD = """\
       ev.preventDefault();
       const t = typeForm.elements.ws_type.value;
       if (t === "drama") show(panelDrama);
+      else if (t === "premise") show(panelPremise);
       else show(panelUpload);
     });
   }
@@ -4675,7 +4702,7 @@ JS_WIZARD = """\
   if (premiseForm) {
     premiseForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      if (errBox) errBox.innerHTML = "";
+      if (premiseErrBox) premiseErrBox.innerHTML = "";
       const fd = new FormData(premiseForm);
       const payload = {
         workspace: (fd.get("workspace") || "").trim(),
@@ -4693,7 +4720,7 @@ JS_WIZARD = """\
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          if (errBox) errBox.innerHTML = renderErrorCard(data);
+          if (premiseErrBox) premiseErrBox.innerHTML = renderErrorCard(data);
           submitBtn.disabled = false;
           return;
         }
@@ -4703,7 +4730,7 @@ JS_WIZARD = """\
         );
       } catch (err) {
         err.code = err.code || "network";
-        if (errBox) errBox.innerHTML = renderErrorCard(err);
+        if (premiseErrBox) premiseErrBox.innerHTML = renderErrorCard(err);
         submitBtn.disabled = false;
       }
     });

@@ -108,7 +108,11 @@ def _render_shell(
 ) -> str:
     return _BASE_TPL.substitute(
         TITLE=escape(title),
-        APP_CLASS="" if sidebar_html else "no-context",
+        APP_CLASS=(
+            "no-context lp-chrome"
+            if page_kind == "landing"
+            else ("" if sidebar_html else "no-context")
+        ),
         SIDEBAR=sidebar_html,
         BREADCRUMB=breadcrumb_html,
         TOPBAR_ACTIONS=topbar_actions_html,
@@ -1061,10 +1065,12 @@ def render_wizard() -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">新建作品</p>'
         '<h1>选择作品类型</h1>'
-        '<p class="muted">小说续写或短剧剧本，两类工作流是隔离的。</p>'
+        '<p class="muted">导入续写、一句话开新书、短剧剧本，三类工作流相互隔离。</p>'
         '</div>'
         '</header>'
         '<div class="alert info wizard-mode-card" id="wizard-mode-card">当前 server 模式：检测中…</div>'
+        '<p class="muted" style="margin:-4px 0 4px">想用真实模型？需在 '
+        '<a href="/settings">设置</a> 中配置 API key 并重启服务（默认 mock 为本地免费试跑）。</p>'
 
         '<section class="card" id="panel-type">'
         '<div class="card-header"><h3 class="ornament">第 0 步 · 类型</h3></div>'
@@ -1072,11 +1078,15 @@ def render_wizard() -> str:
         '<form id="type-form" class="stack">'
         '<label class="field-check">'
         '<input type="radio" name="ws_type" value="novel" checked> '
-        '<strong>小说续写</strong>　·　导入 epub/txt，AI 续写长篇章节'
+        '<strong>导入续写</strong>　·　导入 epub/txt，AI 续写长篇章节'
         '</label>'
         '<label class="field-check">'
         '<input type="radio" name="ws_type" value="drama"> '
         '<strong>短剧剧本</strong>　·　创建 drama workspace，进入 4 站审查向导'
+        '</label>'
+        '<label class="field-check">'
+        '<input type="radio" name="ws_type" value="premise"> '
+        '<strong>一句话开新书</strong>　·　没有原文，一句话立意原创开新书'
         '</label>'
         '<div class="form-actions">'
         '<a class="btn btn-ghost" href="/library">取消</a>'
@@ -1136,7 +1146,13 @@ def render_wizard() -> str:
         '</div>'
         '</form>'
 
-        '<p class="muted" style="text-align:center;margin:18px 0 6px">— 或者，没有原文？一句话开书 —</p>'
+        '<div id="upload-error"></div>'
+        '</div>'
+        '</section>'
+
+        '<section class="card" id="panel-premise" hidden>'
+        '<div class="card-header"><h3 class="ornament">第 1 步 · 一句话开书</h3></div>'
+        '<div class="card-body">'
         '<form id="premise-form" class="stack">'
         '<div class="field">'
         '<label>workspace 名</label>'
@@ -1164,7 +1180,7 @@ def render_wizard() -> str:
         '<button type="submit" class="btn btn-secondary">一句话开书 → 进工作台</button>'
         '</div>'
         '</form>'
-        '<div id="upload-error"></div>'
+        '<div id="premise-error"></div>'
         '</div>'
         '</section>'
 
@@ -1326,18 +1342,18 @@ def render_landing() -> str:
         '<div class="lp-hero-brand">' + _LP_LOGO_SVG +
         '<span class="lp-wordmark">续写工作台</span></div>'
         '<p class="eyebrow ornament">本地多 Agent 创作引擎</p>'
-        '<h1 class="lp-title">让 AI 接着你的故事，安全地写下去</h1>'
-        '<p class="lp-lead muted">导入你的小说，多 Agent 协同续写、自审、重写'
-        '——全程在 127.0.0.1 本地运行，数据不出你的电脑。</p>'
+        '<h1 class="lp-title">让 AI 接着你的故事，或从零开新书</h1>'
+        '<p class="lp-lead muted">导入你的小说接着写，或一句话立意从零开新书'
+        '——多 Agent 协同创作、自审、重写，全程在 127.0.0.1 本地运行，数据不出你的电脑。</p>'
         '<div class="cluster lp-hero-cta">'
-        '<a class="btn btn-primary" href="/wizard">开始续写</a>'
+        '<a class="btn btn-primary" href="/wizard">开始创作</a>'
         '<a class="btn btn-secondary" href="/library">打开已有作品</a>'
         '</div>'
         '</header>'
         '<section class="lp-cards">'
         '<article class="card lp-card fade-up fade-up-1">'
         '<div class="card-body">'
-        '<div class="lp-card-head"><h2>小说续写</h2>'
+        '<div class="lp-card-head"><h2>导入续写</h2>'
         '<span class="badge badge-novel no-dot">正式开放</span></div>'
         '<p class="muted">导入 epub / txt，AI 续写长篇章节，每章自动评审与重写。</p>'
         '<ul class="lp-feats">'
@@ -1346,11 +1362,11 @@ def render_landing() -> str:
         '<li>成本、缓存、子分数全程可观测</li>'
         '</ul></div>'
         '<div class="card-footer lp-card-footer">'
-        '<a class="btn btn-primary" href="/wizard">进入小说续写</a></div>'
+        '<a class="btn btn-primary" href="/wizard">进入导入续写</a></div>'
         '</article>'
         '<article class="card lp-card fade-up fade-up-2">'
         '<div class="card-body">'
-        '<div class="lp-card-head"><h2>剧本生成</h2>'
+        '<div class="lp-card-head"><h2>短剧剧本</h2>'
         '<span class="badge badge-drama no-dot">Beta · 部分开放</span></div>'
         '<p class="muted">输入题材与赛道，生成短剧分集剧本（4 站审查流水线）。</p>'
         '<ul class="lp-feats">'
@@ -1359,17 +1375,30 @@ def render_landing() -> str:
         '<li class="lp-feat-beta">Beta：当前开放前 2 站，后续站点陆续解锁</li>'
         '</ul></div>'
         '<div class="card-footer lp-card-footer">'
-        '<a class="btn btn-secondary" href="/wizard?type=drama">体验剧本 Beta</a></div>'
+        '<a class="btn btn-secondary" href="/wizard?type=drama">体验短剧 Beta</a></div>'
+        '</article>'
+        '<article class="card lp-card fade-up fade-up-3">'
+        '<div class="card-body">'
+        '<div class="lp-card-head"><h2>一句话开新书</h2>'
+        '<span class="badge badge-novel no-dot">正式开放</span></div>'
+        '<p class="muted">没有原文也能开书：一句话立意，AI 扩成结构化设定与首章。</p>'
+        '<ul class="lp-feats">'
+        '<li>一句话立意，自动扩成设定稿（可在工作台编辑）</li>'
+        '<li>多 Agent 自审：评审 → 打分 → 重写闭环</li>'
+        '<li>成本、缓存、子分数全程可观测</li>'
+        '</ul></div>'
+        '<div class="card-footer lp-card-footer">'
+        '<a class="btn btn-secondary" href="/wizard?type=premise">进入开新书</a></div>'
         '</article>'
         '</section>'
-        '<section class="lp-trust fade-up fade-up-3">'
+        '<section class="lp-trust fade-up fade-up-4">'
         '<div class="lp-metrics">'
         '<div class="tile"><span class="v">100%</span>'
         '<span class="k">本地运行</span><span class="sub">数据不出 127.0.0.1</span></div>'
         '<div class="tile"><span class="v">4+</span>'
         '<span class="k">协同 Agent</span><span class="sub">评审 · 重写 · 审查闭环</span></div>'
-        '<div class="tile"><span class="v">2</span>'
-        '<span class="k">创作模式</span><span class="sub">小说续写 + 剧本生成</span></div>'
+        '<div class="tile"><span class="v">3</span>'
+        '<span class="k">创作模式</span><span class="sub">导入续写 + 一句话开新书 + 短剧剧本</span></div>'
         '</div>'
         '<div class="cluster lp-chips">'
         '<span class="badge badge-muted no-dot">全本地运行</span>'
@@ -1377,8 +1406,6 @@ def render_landing() -> str:
         '<span class="badge badge-muted no-dot">多 Agent 自审重写</span>'
         '<span class="badge badge-muted no-dot">开源可自托管</span>'
         '</div>'
-        '<p class="muted lp-secondary">已有作品？直接 '
-        '<a href="/library">打开书架 →</a></p>'
         '</section>'
         '</div>'
     )
@@ -1387,10 +1414,7 @@ def render_landing() -> str:
         page_kind="landing",
         main_html=main,
         breadcrumb_html=_crumbs([("续写工作台", None)]),
-        topbar_actions_html=(
-            '<a class="btn btn-ghost" href="/settings">⚙ 设置</a>'
-            '<a class="btn btn-primary" href="/wizard">＋ 新建</a>'
-        ),
+        topbar_actions_html='<a class="btn btn-ghost" href="/settings">⚙ 设置</a>',
         sidebar_html="",
         extra_scripts="",
     )

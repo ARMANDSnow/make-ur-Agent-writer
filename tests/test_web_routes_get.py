@@ -150,11 +150,26 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         # Root is now the investor landing page, not the bookshelf.
-        self.assertIn("进入小说续写", html)
-        self.assertIn("剧本生成", html)
+        # iter069: three peer entries named by "有无原文" + unified drama term.
+        self.assertIn("开始创作", html)            # hero CTA (was 开始续写)
+        self.assertIn("进入导入续写", html)         # novel card footer (was 进入小说续写)
+        self.assertIn("一句话开新书", html)         # new premise card
+        self.assertIn("进入开新书", html)           # premise card footer
+        self.assertIn('href="/wizard?type=premise"', html)
+        self.assertIn("短剧剧本", html)            # drama card title (was 剧本生成)
         self.assertIn('window.PAGE_KIND = "landing"', html)
         self.assertIn('href="/wizard"', html)
-        self.assertIn('href="/library"', html)
+        self.assertIn('href="/library"', html)     # hero "打开已有作品"
+        # trust now counts 3 creation modes
+        self.assertIn("导入续写 + 一句话开新书 + 短剧剧本", html)
+        # removed / renamed surfaces must be gone from the landing.
+        # NB: scope to the hero anchor markup — bare "开始续写" also appears in the
+        # embedded READINESS_CATALOG JSON ("…之后开始续写…"), present on every page.
+        self.assertNotIn(">开始续写</a>", html)      # hero CTA renamed to 开始创作
+        self.assertNotIn("lp-secondary", html)      # duplicate bookshelf link removed
+        self.assertNotIn("＋ 新建", html)           # topbar trimmed to ⚙ 设置 only
+        # landing topbar cluster hidden via page_kind=="landing" gate
+        self.assertIn("lp-chrome", html)
 
     def test_trash_page_renders(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/trash")
@@ -171,8 +186,10 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('id="panel-type"', html)
         self.assertIn('name="ws_type" value="novel"', html)
         self.assertIn('name="ws_type" value="drama"', html)
+        self.assertIn('name="ws_type" value="premise"', html)   # iter069: 3rd type
         self.assertIn('id="panel-upload" hidden', html)
         self.assertIn('id="panel-drama" hidden', html)
+        self.assertIn('id="panel-premise" hidden', html)        # premise extracted to own panel
         self.assertIn('id="wizard-mode-card"', html)
         self.assertIn('name="budget_cny"', html)
         self.assertIn('name="timeout_minutes"', html)
@@ -180,7 +197,26 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("会发生什么", html)
         self.assertIn("复仇 → 救赎", html)
         self.assertIn("data-back-to-type", html)
+        # iter069: panel-type subtitle now lists three workflows, not two
+        self.assertIn("三类工作流", html)
+        self.assertNotIn("两类工作流", html)
+        # real-model discoverability link (honest about key + restart cost)
+        self.assertIn("想用真实模型", html)
+        self.assertIn("配置 API key 并重启服务", html)
+        self.assertIn('href="/settings"', html)
+        # both error containers exist, each scoped to its own panel
+        self.assertIn('id="upload-error"', html)    # stays in upload panel (novelForm uses it)
+        self.assertIn('id="premise-error"', html)   # new, in premise panel
+        # wizard is NOT landing → must not inherit the lp-chrome topbar hide
+        self.assertNotIn("lp-chrome", html)
+        # wizard JS wiring for the premise panel
         self.assertIn("/api/preflight", routes.static.JS_WIZARD)
+        self.assertIn("panelPremise", routes.static.JS_WIZARD)
+        self.assertIn("premiseErrBox", routes.static.JS_WIZARD)
+        self.assertIn('getElementById("premise-error")', routes.static.JS_WIZARD)
+        self.assertIn('t === "premise"', routes.static.JS_WIZARD)
+        # three-panel mutual exclusion: premise sits in the show() switch array
+        self.assertIn("panelPremise, panelProgress", routes.static.JS_WIZARD)
 
     def test_api_preflight_reports_runtime_mode_without_settings_secrets(self) -> None:
         saved = os.environ.get("OPENAI_MODEL")
