@@ -67,7 +67,7 @@ _BASE_TPL = Template(
   <div class="main">
     <header class="topbar">
       <button type="button" class="btn btn-icon nav-toggle" data-sidebar-toggle aria-label="打开侧栏">☰</button>
-      <a class="btn btn-icon home-btn" href="/library" aria-label="返回书架" title="返回书架">⌂</a>
+      <a class="btn btn-icon home-btn" href="/" data-leave-guard aria-label="回首页" title="回首页">⌂</a>
       <nav class="breadcrumb">$BREADCRUMB</nav>
       <div class="topbar-actions-wrap">
         <button type="button" class="btn btn-icon topbar-menu-toggle" data-topbar-menu-toggle aria-label="打开页面操作">⋯</button>
@@ -188,7 +188,7 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
         )
     return (
         '<aside class="sidebar">'
-        '<a class="brand" href="/library"><span>✦</span> 续写工作台</a>'
+        '<a class="brand" href="/library" data-leave-guard><span>✦</span> 续写工作台</a>'
         '<div class="sidebar-section">'
         '<h4>书架</h4>'
         f'{work_html}'
@@ -245,6 +245,11 @@ def _crumbs(parts: Sequence[tuple[str, Optional[str]]]) -> str:
             pieces.append('<span class="sep">/</span>')
         if href is None:
             pieces.append(f'<span class="here">{escape(label)}</span>')
+        elif i == 0:
+            # iter070: the first crumb ("书架"→/library) is an in-app "leave this
+            # workspace" exit; mark it so the leave-guard delegate can intercept
+            # it while a job runs. Later crumbs stay within the workspace.
+            pieces.append(f'<a href="{href}" data-leave-guard>{escape(label)}</a>')
         else:
             pieces.append(f'<a href="{href}">{escape(label)}</a>')
     return "".join(pieces)
@@ -257,7 +262,7 @@ def _crumbs(parts: Sequence[tuple[str, Optional[str]]]) -> str:
 
 def render_index(workspaces: Iterable[str]) -> str:
     names: List[str] = list(workspaces)
-    empty_hint = "" if names else "还没有作品。点击右上角「＋ 新建」上传 epub/txt。"
+    empty_hint = "" if names else "还没有作品。点击右上角「＋ 新建」，从开新书 / 导入续写 / 短剧三选一开始。"
     main = (
         '<header class="page-header">'
         '<div class="titles">'
@@ -1362,7 +1367,7 @@ def render_landing() -> str:
         '<li>成本、缓存、子分数全程可观测</li>'
         '</ul></div>'
         '<div class="card-footer lp-card-footer">'
-        '<a class="btn btn-primary" href="/wizard">进入导入续写</a></div>'
+        '<a class="btn btn-primary" href="/wizard?type=novel">进入导入续写</a></div>'
         '</article>'
         '<article class="card lp-card fade-up fade-up-2">'
         '<div class="card-body">'

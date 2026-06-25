@@ -1763,3 +1763,25 @@ E2E 全绿：三功能入口 + hero「开始创作」+ 叙事；3 卡等宽等�
 **数据状态**：仅代码+测试+文档；E2E 产生的 `workspaces/e2e069_*` 临时 workspace 已清理；未碰 `.env`/`小说txt/` 原文。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter070）**：premise「一句话开新书」首次访问 / 空状态 / onboarding 完整体验（mock 下扩写为占位的引导）/ settings 页给 `OPENAI_MODEL` 专属说明分区 + 模型变更触发 `#restart-banner` / JS 错误容器守卫风格统一（既存小债）/ 真模型走查 premise·novel 生成内容（铁律⑥需授权，用户本轮已授权但留作可选最终步）/ iter068 顺延的硬中断取消 + iter067 顺延的 entity_graph auto-heal + Web path redaction。
+
+## iter 070（2026-06-25，收官）——首页导航重设计（⌂→首页 + 离开守卫）+ 桌面死按钮修复 + 三入口平等 + 书架接缝收口
+
+**来源**：用户在 iter069 后继续实测，报 4 类导航/入口痛点。先用 **4 个只读 subagent 做全前端 UX 审计**（导航 chrome/响应式 · 入口与向导流程 · 假按钮/死控件 · 命名/工程词泄漏）核实，再与用户逐项讨论、用 AskUserQuestion 定 **3 项决策**后实现。计划档 `~/.claude/plans/a-iter070-radiant-wind.md`。仅 `src/web/templates.py`+`src/web/static.py`+`tests/test_web_routes_get.py`，纯前端展示层，不动 9 阶段管线。
+
+**用户 3 项决策**：① 离开守卫**给三选一**（任务后端独立线程跑、离开不中断它——诚实告知；回首页/取消任务/留下）；② **⌂ 改指首页**（落地 iter069 按决策 A 推迟的方案 B；brand+面包屑保留指书架）；③ 守卫**仅应用内导航**（不加 beforeunload）。书架按 **option A**（保持单一书架，只收文案/徽章接缝，不拆分、不加筛选）。
+
+**改动（4 任务）**：**①** ⌂ href `/library`→`/` + aria「回首页」+ `data-leave-guard`；brand（:191）+ `_crumbs` 首项（i==0 有 href，:240-250）加 `data-leave-guard`（各自保留 href）；新 `ensureLeaveGuardDelegate`/`checkLeaveGuard`/`showLeaveGuardModal`（文档级委托挂 `initShellControls` 末尾，**同步 preventDefault** → 异步查 `/jobs/recent` → `pending/running` 任务弹三选一模态，复用 `showDeleteModal` 结构 + `postJson(wsUrl("/job/"+id+"/cancel"))` best-effort 409 吞掉 + `setPendingToastAndNavigate`；fail-open + `!window.WORKSPACE_NAME` 短路）。**②** CSS 候选 A：`.nav-toggle,.topbar-menu-toggle{display:none}` 从 topbar 块顶移到 `.btn` 之后（同特异性 (0,1,0) 靠**源序**胜出，修死按钮；不碰移动重显/no-context/lp-chrome）+ lp-chrome 过时注释更正。**③** 导入续写卡 `/wizard`→`/wizard?type=novel`（hero 保持裸 `/wizard`）。**④** option A：空状态文案去 epub/txt 中性化（:260 + emptyState body）；`.badge-drama` 边框 `--amber-soft`→`--amber` + typeBadge drama 加 `🎬`（消与 `.badge.running/.pending` 撞色）。
+
+**两个实现坑严格规避**：① **异步 preventDefault**——拦 `<a>` 必须同步先 `preventDefault` 再 async 查（否则 await 期间浏览器已跳）；② **`historicalJobStatus` 漏 `succeeded`**（探索发现：`static.py` terminal 集合缺 succeeded，与 `jobs.py:61` 不一致）→ 守卫**显式只认 `pending/running`、不复用** `historicalJobStatus`（否则刚成功的 job 被误判活跃而错误拦截）。**CSS 候选 A vs B**：B 要牵动移动重显/no-context/lp-chrome 共 4 组（媒查不增特异性，移动重显须跟着升），回归面大；A 只动 1 行、移动逻辑字面未变，故选 A。
+
+**前端 E2E（preview MCP，mock，web-mock 8765）**：桌面 1280 → `.nav-toggle`/`.topbar-menu-toggle` computed `display:none`、`.home-btn` `display:flex`（截图证顶栏只剩 ⌂+面包屑+内联 actions，☰/⋯ 消失）；移动 375 → ☰/⋯ 重显（跨断点正确）；workspace 页 stub `/jobs/recent` 返 running job → 点 ⌂ **被同步拦截不跳转**（`pathname` 仍 `/w/longzu/`）、弹三选一模态「当前作品有任务正在运行」+「离开本页不会停止它们」+ 三按钮（截图存证）；landing 三卡 href `?type=novel/drama/premise` 对等、hero 裸 `/wizard`、「打开已有作品」→`/library`；`window.WORKSPACE_NAME=""` 短路；console 无 error/warn。`node --check` 渲染 app.js（159046 bytes）语法 OK；渲染 app.css 程序化核对死按钮规则唯一+在 `.btn` 后+旧位删+`.badge-drama` 边框 `var(--amber)`。未实景验证项（诚实记录）：drama 徽章 🎬+边框（本机无 drama workspace，静态测试覆盖）/ 空书架文案（本机 3 workspace 非空，`assertNotIn("epub")` 覆盖）/ cancel-and-leave 端到端（模态渲染 + cancel 调用已分别验证）。
+
+**审查（铁律⑨）**：`/code-review high`（3 finder：逐行正确性 / 移除行为+跨文件 / 复用-简化-效率-高度-规约）——**0 个需修 bug、0 规则违反、0 达标简化项**。一致核实：⌂ 改向后书架仍可达、aria 同步、CSS 移位源序正确、`pending|running` 排除 succeeded、escapeHtml/fail-open/409 吞掉/ESC·遮罩关闭健全、`_crumbs` 仅 guard `/library` 首项（landing 首项无 href 安全跳过）、委托范式与 `ensureJobCancelDelegate`/`bindCtaActions` 一致、测试断言逐字符匹配。仅 2 个可忽略边角（双击叠模态 / 中途导航残留 keydown）——与既有 `showDeleteModal` 等**同款特性**、属现状约定，按铁律⑦不扩 scope。`/security-review`——**无 ≥MEDIUM**：模态 innerHTML 插值（WORKSPACE_NAME/step/leaveLabel/n）全 `escapeHtml`；`location.href=href` 的 href 来自自有静态模板串（`/`、`/library`）无开放重定向；cancel 的 job_id 受后端 `[a-f0-9]{32}` 校验；step 来自 `STEP_HANDLERS` 常量枚举；项目为 stdlib `string.Template`（非 Jinja2）、workspace 名受 `WORKSPACE_NAME_HTML_PATTERN` 约束 + 模态内再 escapeHtml。
+
+**未修风险**（诚实登记，铁律⑦）：leave-guard 模态与既有所有内联模态共享 2 个可忽略特性——(a) 极快双击叠两模态（都能 ESC/导航关闭）、(b) 中途导航走它路时该模态 document keydown 监听到下页 unload 才 GC。两者在 `showDeleteModal`/purge/partial 模态同样存在，是"每模态各写内联、无通用 helper"约定的固有属性，本轮不为单一新模态引入新机制（避免与既有不一致），留作全局模态重构债。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1324 tests OK**（基线 1319 +5 iter070 用例，无净增模块）；聚焦集 `test_web_routes_get` 69 OK。
+
+**数据状态**：仅代码+测试+文档；preview 用了用户既有的 longzu/alpha/tianlong workspace（只读渲染，未触发任务、未改数据），起的 web-mock 服务已 `preview_stop`、端口已还；未碰 `.env`/`小说txt/` 原文。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter071）**：`debate --force` CLI 文案泄漏（给 Web 用户看不可执行命令）/ 复制按钮非安全上下文降级（局域网 HTTP 访问 `navigator.clipboard` 静默失效）/ 批量命名中文化（`workspace→作品`、章节表/统计表英文表头 + `approve/reject` 徽章值中译、短剧"续写"用词收口）/ 书架类型筛选-分组（option B/C，作品量大时）/ 全局模态去重 helper（消双击叠加 + keydown 残留既存小债）/ 首页↔书架框架断点的产品判断 + iter069 顺延项。

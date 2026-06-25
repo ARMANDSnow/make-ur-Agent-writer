@@ -285,7 +285,6 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .breadcrumb a:hover { color: var(--jade); }
 .breadcrumb .sep { color: var(--ink-3); }
 .breadcrumb .here { color: var(--ink-1); font-weight: 600; }
-.nav-toggle, .topbar-menu-toggle { display: none; }
 .topbar-actions-wrap { display: flex; align-items: center; position: relative; }
 .topbar-actions { display: flex; gap: var(--space-2); align-items: center; }
 
@@ -359,6 +358,13 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   color: var(--ink-2);
 }
 .btn-sm { min-height: 28px; padding: var(--space-1) var(--space-3); font-size: var(--fs-xs); }
+/* iter070: hide ☰ (nav-toggle) and ⋯ (topbar-menu-toggle) on desktop. This rule
+   MUST sit AFTER `.btn { display: inline-flex }` above — both are single-class
+   selectors (0,1,0), so when this was at the top of the topbar block `.btn` won
+   on source order and the two toggles leaked as dead buttons on desktop. Placed
+   here it wins on source order. The <=768px media query re-shows them (same
+   0,1,0, later in the file) so mobile/landing behaviour is unchanged. */
+.nav-toggle, .topbar-menu-toggle { display: none; }
 
 /* badges / status pills */
 .badge {
@@ -381,7 +387,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .badge.blocked, .badge.failed, .badge.aborted, .badge.reject, .badge.lost { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
 .badge.running, .badge.pending { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
 .badge-novel { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
-.badge-drama { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
+.badge-drama { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber); }
 .badge-muted { color: var(--ink-3); background: var(--bg-sunken); border-color: var(--rule); }
 
 /* card */
@@ -1194,8 +1200,10 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
    topbar nav cluster so the hero keeps only ⚙ 设置. We hide ONLY ☰ (nav-toggle)
    and ⌂ (home-btn): ⌂ is the sole element shown at every breakpoint, and ☰ is
    redundant on a sidebar-less landing. We deliberately do NOT hide ⋯
-   (.topbar-menu-toggle): on desktop it's already hidden by the bare :288 rule
-   and ⚙ 设置 shows inline, but on <=768px ⋯ is the ONLY way to open the
+   (.topbar-menu-toggle): on desktop it's already hidden by the base
+   `.nav-toggle,.topbar-menu-toggle{display:none}` rule (relocated in iter070 to
+   sit after `.btn` so source order wins), and ⚙ 设置 shows inline, but on
+   <=768px ⋯ is the ONLY way to open the
    .topbar-actions dropdown that holds ⚙ 设置 — hiding it would strand the lone
    landing action on mobile. .lp-chrome X (0-2-0) beats the desktop default and
    the <=768px home-btn rules (all 0-1-0); display:none also drops these from
@@ -1449,6 +1457,7 @@ JS_DASHBOARD = """\
         closeTopbarMenu();
       }
     });
+    ensureLeaveGuardDelegate();
   }
   function statusBadge(status) {
     const cls = (status || "blocked").toLowerCase();
@@ -1462,7 +1471,7 @@ JS_DASHBOARD = """\
   }
   function typeBadge(type) {
     if (type === "drama") {
-      return '<span class="badge no-dot badge-drama">短剧</span>';
+      return '<span class="badge no-dot badge-drama">🎬 短剧</span>';
     }
     return '<span class="badge no-dot badge-novel">小说</span>';
   }
@@ -1812,7 +1821,7 @@ JS_DASHBOARD = """\
       if (!items.length) {
         shelf.innerHTML = emptyState(
           "书架还是空的",
-          shelf.dataset.empty || "上传一本 epub/txt 开始你的第一本书。",
+          shelf.dataset.empty || "从一句话开新书、导入小说续写或新建短剧，开始你的第一部作品。",
           '<a class="btn btn-primary" href="/wizard">＋ 新建作品</a>'
         );
         if (stats) stats.innerHTML = "";
@@ -2098,6 +2107,101 @@ JS_DASHBOARD = """\
       }
     });
     setTimeout(() => input.focus(), 0);
+  }
+
+  // iter070: leave-guard. The three in-app "leave this workspace" links (⌂→/,
+  // brand & first breadcrumb→/library) carry data-leave-guard. On click we
+  // SYNCHRONOUSLY preventDefault — an async job check can't beat the browser's
+  // navigation otherwise — then ask /jobs/recent whether this workspace has a
+  // pending/running job. None → navigate immediately. Active → a 3-way modal
+  // (stay / cancel+leave / leave with jobs continuing in the background). We
+  // only treat pending/running as active: historicalJobStatus() omits
+  // "succeeded", so reusing it would falsely block a just-finished run. No
+  // beforeunload — tab close / refresh stay unguarded (jobs survive anyway).
+  let leaveGuardDelegateBound = false;
+  function ensureLeaveGuardDelegate() {
+    if (leaveGuardDelegateBound) return;
+    leaveGuardDelegateBound = true;
+    document.addEventListener("click", function (ev) {
+      const link = ev.target && ev.target.closest ? ev.target.closest("[data-leave-guard]") : null;
+      if (!link) return;
+      if (!window.WORKSPACE_NAME) return;  // no workspace context → nothing to guard
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button === 1) return;
+      const href = link.getAttribute("href") || "/";
+      ev.preventDefault();  // synchronous — must precede the async check
+      checkLeaveGuard(href);
+    });
+  }
+  async function checkLeaveGuard(href) {
+    let active = [];
+    try {
+      const data = await fetchJson(wsUrl("/jobs/recent?n=10"));
+      active = (data.jobs || []).filter(function (j) {
+        return j.status === "pending" || j.status === "running";
+      });
+    } catch (err) {
+      window.location.href = href;  // fail open — don't trap the user on a fetch error
+      return;
+    }
+    if (!active.length) {
+      window.location.href = href;
+      return;
+    }
+    showLeaveGuardModal(href, active);
+  }
+  function showLeaveGuardModal(href, activeJobs) {
+    const n = activeJobs.length;
+    const leaveLabel = href === "/" ? "回首页" : "去书架";
+    const steps = activeJobs.map(function (j) { return j.step || "任务"; }).join("、");
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="leave-guard-title">' +
+      '<div class="modal-header" id="leave-guard-title">当前作品有任务正在运行</div>' +
+      '<div class="modal-body">' +
+      '<p>《' + escapeHtml(window.WORKSPACE_NAME) + '》还有 ' + n + ' 个任务在跑（' +
+      escapeHtml(steps) + '）。<strong>离开本页不会停止它们</strong>，任务会在后台继续，' +
+      '稍后可在任务页查看进度。</p>' +
+      '<div id="leave-guard-error"></div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-ghost" data-modal-close>留在本页</button>' +
+      '<button type="button" class="btn btn-danger" id="leave-guard-cancel-leave">取消任务并离开</button>' +
+      '<button type="button" class="btn btn-primary" id="leave-guard-leave">' +
+      escapeHtml(leaveLabel) + '（后台继续）</button>' +
+      '</div>' +
+      '</div>';
+    document.body.appendChild(backdrop);
+    const errBox = backdrop.querySelector("#leave-guard-error");
+    const leaveBtn = backdrop.querySelector("#leave-guard-leave");
+    const cancelLeaveBtn = backdrop.querySelector("#leave-guard-cancel-leave");
+    function closeModal() {
+      document.removeEventListener("keydown", onKeyDown);
+      backdrop.remove();
+    }
+    function onKeyDown(ev) {
+      if (ev.key === "Escape") closeModal();
+    }
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) closeModal();
+    });
+    document.addEventListener("keydown", onKeyDown);
+    leaveBtn.addEventListener("click", function () {
+      window.location.href = href;  // jobs keep running server-side
+    });
+    cancelLeaveBtn.addEventListener("click", async function () {
+      cancelLeaveBtn.disabled = true;
+      errBox.innerHTML = '<div class="alert info">正在请求取消…</div>';
+      // best-effort: a job may finish between the check and the cancel (cancel
+      // API returns 409); swallow per-job errors and leave regardless — the
+      // user's intent is to navigate away.
+      await Promise.all(activeJobs.map(function (j) {
+        return postJson(wsUrl("/job/" + j.job_id + "/cancel")).catch(function () {});
+      }));
+      window.setPendingToastAndNavigate(
+        { kind: "info", msg: "已请求取消 " + n + " 个任务" }, href
+      );
+    });
   }
 
   // ===== page: plan viewer ==============================================

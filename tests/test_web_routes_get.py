@@ -713,8 +713,57 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/library")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
-        self.assertIn('class="btn btn-icon home-btn"', html)
+        # iter070: ⌂ now goes to the landing home (/), not the bookshelf, and is
+        # a leave-guard exit. The bookshelf stays reachable via the brand below.
+        self.assertIn('class="btn btn-icon home-btn" href="/" data-leave-guard', html)
         self.assertIn('href="/library"', html)
+
+    def test_iter070_landing_import_card_carries_type(self) -> None:
+        """iter070: the 导入续写 card jumps straight to the novel wizard panel,
+        at parity with the drama/premise cards (no redundant type pick)."""
+        status, _ct, body = routes.dispatch("GET", "/")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('href="/wizard?type=novel"', html)
+        self.assertIn('href="/wizard?type=drama"', html)
+        self.assertIn('href="/wizard?type=premise"', html)
+
+    def test_iter070_library_empty_hint_is_type_neutral(self) -> None:
+        """iter070: the empty-shelf copy no longer assumes a novel/epub import."""
+        status, _ct, body = routes.dispatch("GET", "/library")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertNotIn("epub", html)
+
+    def test_iter070_workspace_shell_marks_leave_guard_exits(self) -> None:
+        """iter070: ⌂, the sidebar brand, and the first breadcrumb crumb are the
+        in-app 'leave this workspace' exits tagged for the leave-guard."""
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('class="btn btn-icon home-btn" href="/" data-leave-guard', html)
+        self.assertIn('class="brand" href="/library" data-leave-guard', html)
+        self.assertIn('<a href="/library" data-leave-guard>', html)  # first crumb
+
+    def test_iter070_static_js_has_leave_guard(self) -> None:
+        """iter070: leave-guard delegate + modal; active = pending/running only
+        (not the succeeded-omitting helper); drama badge carries its 🎬 marker."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("ensureLeaveGuardDelegate", js)
+        self.assertIn("showLeaveGuardModal", js)
+        self.assertIn('j.status === "pending" || j.status === "running"', js)
+        self.assertIn("🎬 短剧", js)
+
+    def test_iter070_static_css_drama_badge_border(self) -> None:
+        """iter070: drama badge gets a solid --amber border so it stops
+        colliding with the running/pending status pill colour."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.css")
+        self.assertEqual(status, 200)
+        css = body.decode("utf-8")
+        self.assertIn("border-color: var(--amber); }", css)
+        self.assertIn(".badge-drama", css)
 
     def test_static_js_includes_lint_jump_helpers(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
