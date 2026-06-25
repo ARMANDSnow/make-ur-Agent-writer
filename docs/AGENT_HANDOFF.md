@@ -1811,3 +1811,29 @@ E2E 全绿：三功能入口 + hero「开始创作」+ 叙事；3 卡等宽等�
 **数据状态**：仅代码+测试+文档；preview 用了用户既有的 alpha/longzu/tianlong workspace（只读渲染 + stub fetch，未真起任务、未改数据），web-mock 服务起在 8765（可 `preview_stop`）。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter072）**：批量命名中文化（jobs 页/侧栏/toast 的 raw step → 复用 `stepLabel`；`workspace→作品`、章节表/统计表英文表头 + `approve/reject` 徽章值中译、短剧"续写"用词收口）/ 全局模态去重 + focus-trap helper（消双击叠加 + keydown 残留 + 完整焦点陷阱，统一所有内联模态）/ `recent_jobs` 排序修正（pending 在通用列表也排前，需同步 4 消费方）/ `debate --force` CLI 文案泄漏 / 复制按钮非安全上下文降级 / 书架类型筛选-分组 / `workspace_busy`+`workspace_running_job` 重复函数合并 + iter069/070 顺延项。
+
+---
+
+## Phase Status — iter 072（2026-06-25，收官）
+
+**主题**：codex iter071 复审 residual 收口（2×P2 + 4×P3 + 1×a11y）+ 把 iter070/071 deferred 的「全局 focus-trap + 模态去重 / recent_jobs pending 优先 / 复制非 HTTPS 降级 / debate --force CLI 文案」一并清掉。前端展示层 + jobs 后端真源/出口收窄，不动 9 阶段管线。
+
+**来源**：用户转述 codex findings（带 file:line）→ 3 个 Explore subagent 并行精确探查（leave-guard 前端系统 / jobs 后端 race+snapshot / 模态·复制·debate 入口）→ Plan-mode 起草 + AskUserQuestion 定 2 scope（focus-trap 抽可复用 helper 应用所有模态 / 附带纳入 pending 优先+复制降级+debate 文案，批量中文化不纳入）→ 实现 → `/code-review high`（3 finder + 对抗）→ `/security-review`。
+
+**8 项 findings 收口**：
+- **#1（P2）侧栏切作品绕过守卫**：`_sidebar`（templates.py:160）作品列表项无 `data-leave-guard` → 非当前作品项补 guard（当前作品项 + section 内导航是同 workspace 跳转，不加）。委托 `static.py:2146` 已基于 `closest([data-leave-guard])`+`WORKSPACE_NAME` gate，加属性即生效。
+- **#2（P3）模态目的地文案错**：`static.py:2180` `href==="/" ? "回首页" : "去书架"` 二元判断使 /trash/settings/wizard/`/w/{name}/` 全显「去书架」→ 抽 `leaveDestinationLabel(href)` 全映射（/w/{name}/→「切到《name》」用 `indexOf/slice` 解析避免内嵌 JS 正则字面量的转义斜杠触发 Python SyntaxWarning）。
+- **#3（P2）/jobs/active 发布顺序 race**：`start_job`（jobs.py:1166）先写 `_WORKSPACE_JOBS` 后写 `_JOBS`、两分离锁间有窗口，`active_jobs` 只扫 `_JOBS` → workspace 已 busy 但 `/jobs/active` 短暂返回空 → 在 `_WORKSPACE_LOCK` 内先嵌套 `_JOBS_LOCK` 写 `_JOBS` 再写 `_WORKSPACE_JOBS`（grep 全模块两锁同现处均 WORKSPACE→JOBS 单向、987→1001 为顺序非嵌套、无反序、嵌套安全无死锁；不变式 slot 置位 ⟹ `_JOBS` 必已含）。
+- **#4（P3）active endpoint 暴露完整 record**：`api_workspace_active_jobs`（routes.py:1698）返回全字段含用户 POST `params` → 新增 `jobs.public_job_view()` 8 字段白名单（job_id/workspace/step/status/current_step/progress/started_at/finished_at，剔除 params/trace_id/result_summary/cancel_*），endpoint 投影；`active_jobs()` 内部返回不变，仅收窄 HTTP 出口。
+- **#5（P3）recent_jobs 坏 timestamp 致 500 + pending 优先**：`recent_jobs`（jobs.py:153）sort key `float(finished||started||0)` 遇 `"bad"` 抛 ValueError → jobs 页/侧栏/overview 全 500 → 新增 `_as_ts()`（try/except + `math.isfinite` 把坏值/NaN/inf 归零，对齐 `_float_param`/`_timeout_deadline` 模式）；sort key 改 `(active, _as_ts(finished) or _as_ts(started))` reverse → pending/running 置顶 + 组内倒序。波及 routes 474/519 overview、1695 recent endpoint，前端信任服务端序无重排。
+- **#6（a11y）模态无 Tab trap/焦点恢复**：4 模态构造器各自 closeModal/close+Escape+初始 focus，`openPartialPreview` 更完全缺 → 抽 `mountModal(backdrop,opts)`（记录触发元素 / Tab·Shift+Tab 循环 / Esc 关 / 关闭恢复焦点到触发元素 / `_activeModalTeardown` 去重防叠层 / `close` 幂等 `closed` 标志）应用全部 4 模态（delete/leave-guard/purge/partial），`openPartialPreview` 顺带补齐 Esc+焦点。还清 iter071 deferred 的全局 focus-trap+模态去重债。
+- **#7 复制非 HTTPS 降级**：`bindCopy`（static.py:1686）仅 `if(navigator.clipboard)`，局域网 http 下 undefined 静默失效 → 抽 `copyText`/`legacyCopy`（execCommand textarea 回退 + 失败显「手动复制」），代码审查补强双击防卡标签（`btn._copyLabel` 一次性记真标签 + `clearTimeout` 在途定时器）。
+- **#8 debate --force CLI 文案泄漏**：`renderPlanSummary`（static.py:2280/2284）红框/info 框写 `请重跑 debate（--force）` → 确认 Web 已有应用内「② 大纲·生成大纲」(debate step) 入口，文案改指向它不暴露 CLI。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1341 tests OK**（基线 iter071 1333 +8：`Iter072JobsResidualTests` 5（_as_ts 非有限/坏值、pending 优先、public_view 白名单、start_job 写序探针）+ `test_web_routes_get` 3（侧栏 guard、active 字段收窄、JS residual）；iter071 的 `..._immune_to_recent_truncation` 因 #5 行为变更据实改名 `..._surfaces_in_both_sources` + 更新 focus 断言为 `mountModal(... initialFocus: stayBtn)`，净增 8）。`node --check` 渲染 app.js OK。`preflight` exit 0。`verify.sh` **本机不可跑**——脚本第 41 行硬编码裸 `python3 -m unittest`，该解释器缺 pydantic → 259 个 `ImportError: Failed to import test module`（跨 debater/extractor/book_runner 等未触及模块，与本轮无关；裸 `python3 -c "import pydantic"` 即 ModuleNotFoundError）；等价闸门 = 上面 venv discover 1341 OK（与记忆 `novel-tests-need-venv-python` 一致）。
+
+**代码审查（铁律⑨）**：`/code-review high` 3 finder（line-by-line / concurrency-backend / removed-behavior+cross-file）+ 对抗核实。headline 风险（死锁、回滚、白名单、坏行 500、stale test、dangling closeModal 引用）全 clean。3 个 LOW：① `copyText` 双击卡标签 → **已修**；② `_as_ts` 放行 NaN/inf 破坏排序总序 → **已修**（isfinite 守门 + 新测）；③ `recent_jobs` pending 优先**透传**到 overview「最近任务」卡（routes 474/519，limit=1）使其从"最新完成"变"优先在跑"——判定为符合本轮意图的改进，留 Notes 记录不改。`/security-review`（聚焦 4 源文件工作树 diff）**0 HIGH / 0 MEDIUM**，且净正向：`public_job_view` 收窄对外字段（剔除用户 POST `params`）、`_as_ts` 硬化坏输入、锁序收紧守卫可观测性；唯一新建裸串路径 `leaveDestinationLabel` 在唯一 sink `escapeHtml(leaveLabel)` 转义，XSS 链闭合。未碰 `.env`/`data/`/`小说txt/`。
+
+**数据状态**：仅代码+测试+文档（4 源文件 + 2 测试文件 + 3 处文档）。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter073）**：批量命名中文化（本轮用户明确不纳入，单独成轮）/ overview「最近任务」卡 type-aware 文案 + 测试 pin「最新完成 vs 在跑」/ `/jobs/recent` 端点字段收窄（drawer 依赖 result_summary/error/trace_id，需配套前端）/ `workspace_busy`+`workspace_running_job` 重复函数合并 / 书架类型筛选-分组 / drama 站③④ / 真模型 capstone + iter069/070 顺延项。

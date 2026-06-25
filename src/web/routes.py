@@ -1702,7 +1702,10 @@ def api_workspace_active_jobs(name: str) -> Tuple[int, str, bytes]:
     error = _workspace_error(name)
     if error:
         return error
-    return _json(200, {"jobs": jobs.active_jobs(name)})
+    # iter072 (#4): project to the public allowlist — the raw record carries
+    # the user's POST ``params`` plus internal diagnostics the leave-guard
+    # never needs; only id/status/step/progress/timestamps go off-box.
+    return _json(200, {"jobs": [jobs.public_job_view(j) for j in jobs.active_jobs(name)]})
 
 
 def api_workspace_drafts(name: str) -> Tuple[int, str, bytes]:

@@ -787,13 +787,14 @@ class RoutesGetTests(unittest.TestCase):
     def test_iter071_static_js_leave_guard_uses_active_endpoint_and_focuses(self) -> None:
         """iter071 (codex F2 + F3): the guard checks /jobs/active (untruncated
         in-memory source) instead of /jobs/recent?n=10, and the modal moves focus
-        to the safe 留在本页 button."""
+        to the safe 留在本页 button. iter072 (#6): the focus now flows through the
+        shared mountModal helper via initialFocus: stayBtn."""
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
         self.assertIn('wsUrl("/jobs/active")', js)
         self.assertNotIn('wsUrl("/jobs/recent?n=10")', js)  # old truncatable source gone
-        self.assertIn("stayBtn.focus()", js)
+        self.assertIn("mountModal(backdrop, { initialFocus: stayBtn })", js)
 
     def test_iter071_api_active_jobs_endpoint(self) -> None:
         """iter071 (codex F2): /jobs/active returns the live pending/running jobs
@@ -854,6 +855,68 @@ class RoutesGetTests(unittest.TestCase):
         css = body.decode("utf-8")
         self.assertIn("border-color: var(--amber); }", css)
         self.assertIn(".badge-drama", css)
+
+    def test_iter072_sidebar_switch_workspace_carries_leave_guard(self) -> None:
+        """iter072 (#1): switching to *another* workspace leaves the current one,
+        so non-active sidebar items must carry data-leave-guard. The active item
+        just re-opens the current overview (same context) and stays unguarded."""
+        html = templates._sidebar(["alpha", "beta"], active_workspace="alpha")
+        # non-active workspace → guarded
+        self.assertIn('href="/w/beta/" data-leave-guard>', html)
+        # active workspace → NOT guarded (re-opens same workspace)
+        self.assertIn('href="/w/alpha/">', html)
+        self.assertNotIn('href="/w/alpha/" data-leave-guard', html)
+
+    def test_iter072_active_endpoint_excludes_internal_fields(self) -> None:
+        """iter072 (#4): /jobs/active is projected through public_job_view, so the
+        user's POST params + internal diagnostics never leak off-box."""
+        jobs.reset_for_tests()
+        try:
+            with jobs._JOBS_LOCK:
+                jobs._JOBS["a" * 32] = {
+                    "job_id": "a" * 32,
+                    "workspace": "alpha",
+                    "step": "write-book",
+                    "params": {"secret": "do-not-leak"},
+                    "status": "running",
+                    "started_at": 10.0,
+                    "trace_id": "tid",
+                    "result_summary": {"x": 1},
+                    "cancel_requested": False,
+                }
+            status, data = self._get_json("/api/workspace/alpha/jobs/active")
+            self.assertEqual(status, 200)
+            job = data["jobs"][0]
+            self.assertEqual(job["job_id"], "a" * 32)
+            self.assertEqual(job["status"], "running")
+            self.assertNotIn("params", job)
+            self.assertNotIn("trace_id", job)
+            self.assertNotIn("result_summary", job)
+            self.assertNotIn("cancel_requested", job)
+        finally:
+            jobs.reset_for_tests()
+
+    def test_iter072_static_js_residual_fixes(self) -> None:
+        """iter072: destination-aware leave label, shared mountModal focus-trap,
+        clipboard fallback, and no leaked CLI command."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        # #2 destination-aware label replaces the binary 回首页/去书架 split
+        self.assertIn("function leaveDestinationLabel", js)
+        self.assertIn("去回收站", js)
+        self.assertIn("去设置", js)
+        self.assertIn("切到《", js)
+        self.assertNotIn('href === "/" ? "回首页" : "去书架"', js)
+        # #6 shared focus-trap helper applied to the modals
+        self.assertIn("function mountModal", js)
+        self.assertIn("previousActive.focus()", js)
+        self.assertIn("_activeModalTeardown", js)
+        # #7 clipboard non-secure-context fallback
+        self.assertIn("function copyText", js)
+        self.assertIn('document.execCommand("copy")', js)
+        # #8 no raw CLI command leaked to web users
+        self.assertNotIn("debate（--force）", js)
 
     def test_static_js_includes_lint_jump_helpers(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")

@@ -1688,17 +1688,53 @@ JS_DASHBOARD = """\
       '<button class="copy-btn" type="button" data-copy="' + escapeHtml(text) + '">复制</button>'
     );
   }
+  // iter072 (#7): copy with a non-secure-context fallback. navigator.clipboard
+  // is undefined on plain HTTP (LAN beta over http://192.168.x.x), so the
+  // modern path silently no-ops there. Fall back to a hidden <textarea> +
+  // execCommand('copy'); if even that fails, the button says "手动复制" so the
+  // user knows to select it themselves rather than being left guessing.
+  function legacyCopy(value) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "-9999px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+  function copyText(value, btn) {
+    function done(ok) {
+      if (!btn) return;
+      // Remember the real label once and clear any in-flight restore, so a rapid
+      // double-click can't capture a transient "✓"/"手动复制" as the label and
+      // leave the button stuck on it.
+      if (!("_copyLabel" in btn)) btn._copyLabel = btn.textContent;
+      if (btn._copyTimer) clearTimeout(btn._copyTimer);
+      btn.textContent = ok ? "✓" : "手动复制";
+      btn._copyTimer = setTimeout(function () { btn.textContent = btn._copyLabel; }, ok ? 900 : 1600);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(
+        function () { done(true); },
+        function () { done(legacyCopy(value)); }
+      );
+      return;
+    }
+    done(legacyCopy(value));
+  }
   function bindCopy(root) {
     (root || document).addEventListener("click", function (ev) {
       const btn = ev.target.closest("[data-copy]");
       if (!btn) return;
-      const value = btn.getAttribute("data-copy") || "";
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(value).then(
-          function () { btn.textContent = "✓"; setTimeout(() => { btn.textContent = "复制"; }, 900); },
-          function () {}
-        );
-      }
+      copyText(btn.getAttribute("data-copy") || "", btn);
     });
   }
   bindCopy(document);
@@ -2053,6 +2089,58 @@ JS_DASHBOARD = """\
     });
   }
 
+  // iter072 (#6): one focus-trap + dedup helper behind every modal. It records
+  // the element that had focus, traps Tab/Shift+Tab inside the modal, closes on
+  // Escape, restores focus to the trigger on close, and tears down any
+  // already-open modal first so a double trigger can't stack two backdrops and
+  // leak a keydown listener (settles iter071's deferred "全局 focus-trap + 模态
+  // 去重" a11y debt). Caller queries its fields off `backdrop` first, then calls
+  // mountModal (which appends to body + sets initial focus) and wires the
+  // returned close() to its buttons / backdrop click.
+  let _activeModalTeardown = null;
+  function mountModal(backdrop, opts) {
+    opts = opts || {};
+    if (_activeModalTeardown) _activeModalTeardown();  // dedup: never stack modals
+    const previousActive = document.activeElement;
+    function focusables() {
+      return Array.prototype.slice.call(backdrop.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter(function (el) { return el.offsetParent !== null; });
+    }
+    function onKeyDown(ev) {
+      if (ev.key === "Escape") { ev.preventDefault(); close(); return; }
+      if (ev.key !== "Tab") return;
+      const els = focusables();
+      if (!els.length) return;
+      const first = els[0], last = els[els.length - 1];
+      const act = document.activeElement;
+      if (ev.shiftKey && (act === first || !backdrop.contains(act))) {
+        ev.preventDefault(); last.focus();
+      } else if (!ev.shiftKey && (act === last || !backdrop.contains(act))) {
+        ev.preventDefault(); first.focus();
+      }
+    }
+    let closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKeyDown);
+      backdrop.remove();
+      if (_activeModalTeardown === close) _activeModalTeardown = null;
+      if (previousActive && typeof previousActive.focus === "function") {
+        try { previousActive.focus(); } catch (e) { /* trigger gone — ignore */ }
+      }
+    }
+    document.body.appendChild(backdrop);
+    document.addEventListener("keydown", onKeyDown);
+    _activeModalTeardown = close;
+    setTimeout(function () {
+      const target = opts.initialFocus || focusables()[0];
+      if (target && typeof target.focus === "function") target.focus();
+    }, 0);
+    return close;
+  }
+
   function showDeleteModal(name) {
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
@@ -2075,17 +2163,10 @@ JS_DASHBOARD = """\
       '<button type="button" class="btn btn-danger" id="modal-confirm-btn" disabled>确认删除</button>' +
       '</div>' +
       '</div>';
-    document.body.appendChild(backdrop);
     const input = backdrop.querySelector("#modal-confirm-input");
     const confirmBtn = backdrop.querySelector("#modal-confirm-btn");
     const errBox = backdrop.querySelector("#modal-error");
-    function closeModal() {
-      document.removeEventListener("keydown", onKeyDown);
-      backdrop.remove();
-    }
-    function onKeyDown(ev) {
-      if (ev.key === "Escape") closeModal();
-    }
+    const closeModal = mountModal(backdrop, { initialFocus: input });
     input.addEventListener("input", function () {
       confirmBtn.disabled = input.value !== name;
     });
@@ -2094,7 +2175,6 @@ JS_DASHBOARD = """\
         closeModal();
       }
     });
-    document.addEventListener("keydown", onKeyDown);
     confirmBtn.addEventListener("click", async function () {
       confirmBtn.disabled = true;
       errBox.innerHTML = '<div class="alert info">正在移动到 trash…</div>';
@@ -2110,7 +2190,6 @@ JS_DASHBOARD = """\
         confirmBtn.disabled = false;
       }
     });
-    setTimeout(() => input.focus(), 0);
   }
 
   // iter071: map internal step ids (jobs.py STEP_HANDLERS keys) to the Chinese
@@ -2128,6 +2207,32 @@ JS_DASHBOARD = """\
   };
   function stepLabel(step) {
     return STEP_LABELS[step] || step || "任务";
+  }
+
+  // iter072 (#2): the leave-guard's primary button must name where it goes.
+  // iter071 only split "/" (回首页) vs everything-else (去书架), so /trash,
+  // /settings, /wizard and a sidebar workspace switch all mislabelled as
+  // "去书架". Map each real destination; /w/{name}/ becomes "切到《name》".
+  function leaveDestinationLabel(href) {
+    if (href === "/") return "回首页";
+    if (href === "/library") return "去书架";
+    if (href === "/trash") return "去回收站";
+    if (href === "/settings") return "去设置";
+    if (href === "/wizard") return "去新建";
+    // /w/{name}/... → switch workspace. Parse with string ops (the JS lives in
+    // a non-raw Python string, where an escaped slash inside a regex literal
+    // would trip a Python SyntaxWarning).
+    const h = href || "";
+    if (h.indexOf("/w/") === 0) {
+      const rest = h.slice(3);
+      const slash = rest.indexOf("/");
+      let nm = slash >= 0 ? rest.slice(0, slash) : rest;
+      if (nm) {
+        try { nm = decodeURIComponent(nm); } catch (e) { /* stray % — use raw */ }
+        return "切到《" + nm + "》";
+      }
+    }
+    return "离开本页";
   }
 
   // iter070: leave-guard. The three in-app "leave this workspace" links (⌂→/,
@@ -2177,7 +2282,7 @@ JS_DASHBOARD = """\
   }
   function showLeaveGuardModal(href, activeJobs) {
     const n = activeJobs.length;
-    const leaveLabel = href === "/" ? "回首页" : "去书架";
+    const leaveLabel = leaveDestinationLabel(href);
     // iter071 (codex F5): show Chinese step names (续写正文…), never raw ids.
     const steps = activeJobs.map(function (j) { return stepLabel(j.step); }).join("、");
     const backdrop = document.createElement("div");
@@ -2203,22 +2308,16 @@ JS_DASHBOARD = """\
       escapeHtml(leaveLabel) + '</button>' +
       '</div>' +
       '</div>';
-    document.body.appendChild(backdrop);
     const errBox = backdrop.querySelector("#leave-guard-error");
     const leaveBtn = backdrop.querySelector("#leave-guard-leave");
     const cancelLeaveBtn = backdrop.querySelector("#leave-guard-cancel-leave");
     const stayBtn = backdrop.querySelector("[data-modal-close]");
-    function closeModal() {
-      document.removeEventListener("keydown", onKeyDown);
-      backdrop.remove();
-    }
-    function onKeyDown(ev) {
-      if (ev.key === "Escape") closeModal();
-    }
+    // iter072 (#6): focus starts on the least-destructive "留在本页" (iter071
+    // F3 intent), and the shared helper adds the Tab trap + focus-restore.
+    const closeModal = mountModal(backdrop, { initialFocus: stayBtn });
     backdrop.addEventListener("click", function (ev) {
       if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) closeModal();
     });
-    document.addEventListener("keydown", onKeyDown);
     leaveBtn.addEventListener("click", function () {
       window.location.href = href;  // jobs keep running server-side
     });
@@ -2235,11 +2334,6 @@ JS_DASHBOARD = """\
         { kind: "info", msg: "已请求取消 " + n + " 个任务" }, href
       );
     });
-    // iter071 (codex F3): move focus into the modal (the least-destructive
-    // "留在本页" button) so keyboard users aren't stranded on the background
-    // link and an accidental Enter stays put rather than leaving / cancelling.
-    // Mirrors the delete modal's setTimeout(input.focus, 0).
-    if (stayBtn) setTimeout(() => stayBtn.focus(), 0);
   }
 
   // ===== page: plan viewer ==============================================
@@ -2273,15 +2367,18 @@ JS_DASHBOARD = """\
     // iter 053a: outline↔start-point staleness warning (audit A5).
     const oc = data.outline_consistency || {};
     let outlineWarn = '';
+    // iter072 (#8): point Web users at the in-app action ("② 大纲 · 生成大纲" on
+    // the workbench) instead of leaking a non-executable CLI command
+    // (`debate --force`) they have no terminal to run.
     if (oc.checked && oc.stale) {
       outlineWarn =
         '<div class="alert error" style="margin-top:8px"><strong>辩论大纲陈旧：</strong>' +
         '大纲生成时的起点与当前起点不一致（' + escapeHtml((oc.codes || []).join(', ')) + '）。' +
-        '请重跑 debate（--force）后再规划，否则章纲会跨时间线。</div>';
+        '请在工作台「② 大纲」重新生成大纲后再规划，否则章纲会跨时间线。</div>';
     } else if (oc.checked && oc.metadata_missing) {
       outlineWarn =
         '<div class="alert info" style="margin-top:8px">辩论大纲没有起点指纹' +
-        '（指纹机制之前的存量产物）。建议重跑 debate（--force）刷新指纹。</div>';
+        '（指纹机制之前的存量产物）。在工作台「② 大纲」重新生成一次大纲即可刷新指纹。</div>';
     }
     box.innerHTML =
       '<span class="badge no-dot">起点 <code>' + escapeHtml(plan.start_chapter_id || "—") + '</code></span>' +
@@ -2482,24 +2579,16 @@ JS_DASHBOARD = """\
       '<button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
       '<button type="button" class="btn btn-danger" id="modal-purge-btn" disabled>确认永久删除</button>' +
       '</div></div>';
-    document.body.appendChild(backdrop);
     const input = backdrop.querySelector("#modal-purge-input");
     const btn = backdrop.querySelector("#modal-purge-btn");
     const err = backdrop.querySelector("#modal-purge-error");
-    function close() {
-      document.removeEventListener("keydown", onKey);
-      backdrop.remove();
-    }
-    function onKey(ev) {
-      if (ev.key === "Escape") close();
-    }
+    const close = mountModal(backdrop, { initialFocus: input });
     input.addEventListener("input", function () {
       btn.disabled = input.value !== entry;
     });
     backdrop.addEventListener("click", function (ev) {
       if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
     });
-    document.addEventListener("keydown", onKey);
     btn.addEventListener("click", async function () {
       btn.disabled = true;
       err.innerHTML = '<div class="alert info">正在 purge…</div>';
@@ -2513,7 +2602,6 @@ JS_DASHBOARD = """\
         btn.disabled = false;
       }
     });
-    setTimeout(function () { input.focus(); }, 0);
   }
 
   // ===== page: continue (start-point + plan + write-book cockpit) =========
@@ -3693,10 +3781,11 @@ JS_DASHBOARD = """\
       '<div class="modal-footer">' +
       '<button type="button" class="btn btn-ghost" data-modal-close>关闭</button>' +
       '</div></div>';
-    document.body.appendChild(backdrop);
     const body = backdrop.querySelector(".modal-body");
     const footer = backdrop.querySelector(".modal-footer");
-    function close() { backdrop.remove(); }
+    // iter072 (#6): previously this modal had no Escape and no focus handling
+    // at all; the shared helper grants it the trap + restore for free.
+    const close = mountModal(backdrop);
     backdrop.addEventListener("click", function (ev) {
       if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
     });

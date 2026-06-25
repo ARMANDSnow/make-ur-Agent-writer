@@ -73,6 +73,47 @@ def _now() -> float:
     return time.time()
 
 
+def _as_ts(value: Any) -> float:
+    """Coerce a persisted timestamp to float, tolerating corrupt rows.
+
+    ``recent_jobs`` sorts by ``finished_at``/``started_at`` read straight
+    from ``web_jobs.jsonl``; a hand-edited or truncated line can carry a
+    non-numeric value (e.g. ``"bad"`` or an ISO string). A bare ``float()``
+    would raise ValueError and 500 every consumer (jobs page, sidebar
+    recent, overview). Treat anything non-numeric as 0.0 (oldest) so the row
+    sinks in the sort rather than crashing it. NaN/inf survive float() but would
+    silently corrupt the sort order (NaN compares False to everything; inf would
+    pin a stale row to the top), so neutralize non-finite values too — mirrors
+    the math.isfinite guards on the budget/timeout math elsewhere in this file."""
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return out if math.isfinite(out) else 0.0
+
+
+# Fields safe to surface on the public /jobs/active HTTP response. The raw
+# job record also carries ``params`` (the user's POST body) plus internal
+# diagnostics (trace_id, result_summary, cancel_*); the leave-guard only
+# reads id/status/step, so we allowlist the display-relevant fields and never
+# leak the rest off-box.
+_PUBLIC_JOB_FIELDS = (
+    "job_id",
+    "workspace",
+    "step",
+    "status",
+    "current_step",
+    "progress",
+    "started_at",
+    "finished_at",
+)
+
+
+def public_job_view(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Project a job record down to the allowlisted public fields."""
+    return {key: job.get(key) for key in _PUBLIC_JOB_FIELDS}
+
+
 def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "job_id": uuid.uuid4().hex,
@@ -150,11 +191,14 @@ def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
         if not job_id:
             continue
         latest_by_id[job_id] = row
-    jobs = sorted(
-        latest_by_id.values(),
-        key=lambda item: float(item.get("finished_at") or item.get("started_at") or 0),
-        reverse=True,
-    )
+    def _sort_key(item: Dict[str, Any]) -> tuple[int, float]:
+        # iter072 (#5): pending/running first (active=1 wins under reverse),
+        # then most-recent timestamp. ``_as_ts`` swallows corrupt timestamps
+        # so one bad jsonl row can't 500 the whole list.
+        active = 1 if item.get("status") in {"pending", "running"} else 0
+        return (active, _as_ts(item.get("finished_at")) or _as_ts(item.get("started_at")))
+
+    jobs = sorted(latest_by_id.values(), key=_sort_key, reverse=True)
     out: list[Dict[str, Any]] = []
     for job in jobs[:limit]:
         snapshot = dict(job)
@@ -1170,10 +1214,19 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
         if not (paths.WORKSPACE_DIR / workspace).is_dir():
             raise RuntimeError(f"workspace_not_found:{workspace}")
         record = _new_job_record(workspace, step, params)
+        # iter072 (#3): register in _JOBS *before* reserving the workspace
+        # slot, so the invariant "_WORKSPACE_JOBS[ws] set ⟹ _JOBS already has
+        # the record" holds with no gap. Previously _WORKSPACE_JOBS was
+        # written first and _JOBS_LOCK acquired only after releasing
+        # _WORKSPACE_LOCK; a concurrent /jobs/active (which scans _JOBS only)
+        # could land in that window — see the workspace busy yet report zero
+        # active jobs — and let the leave-guard slip. Nesting _JOBS_LOCK
+        # inside _WORKSPACE_LOCK is lock-order-safe: every other site that
+        # touches both takes WORKSPACE→JOBS, never the reverse.
+        with _JOBS_LOCK:
+            _JOBS[record["job_id"]] = record
         _WORKSPACE_JOBS[workspace] = record["job_id"]
 
-    with _JOBS_LOCK:
-        _JOBS[record["job_id"]] = record
     _persist_job(record)
 
     # Iter 027 P2 (review #8 fix): if thread.start() fails (OS thread

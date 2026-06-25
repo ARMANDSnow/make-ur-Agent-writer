@@ -160,8 +160,15 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
     for name in workspaces:
         is_active = name == active_workspace
         cls = "sidebar-item active" if is_active else "sidebar-item"
+        # iter072 (#1): switching to *another* workspace leaves the current
+        # one, so a non-active item must carry data-leave-guard like the
+        # ⌂/brand/topbar exits — otherwise a running job is silently abandoned
+        # (no three-choice modal). The active item just re-opens the current
+        # workspace overview (same context) and stays unguarded; the per-
+        # workspace section links below are likewise in-workspace navigation.
+        guard = "" if is_active else " data-leave-guard"
         items.append(
-            f'<a class="{cls}" href="/w/{escape(name)}/">'
+            f'<a class="{cls}" href="/w/{escape(name)}/"{guard}>'
             f'<span><span class="dot"></span> {escape(name)}</span>'
             f'</a>'
         )
