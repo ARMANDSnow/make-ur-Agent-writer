@@ -79,5 +79,103 @@ class RecentJobsLostStatusTests(unittest.TestCase):
         self.assertIn("worker process restarted", recent[0]["error"])
 
 
+class ActiveJobsTests(unittest.TestCase):
+    """iter071 (codex F2): active_jobs() is the leave-guard's authoritative,
+    untruncated source of in-flight jobs. recent_jobs() can drop a just-enqueued
+    pending job (started_at=None sorts to key 0 → last) once enough terminal rows
+    pile up past ?n; active_jobs() reads the in-memory pool directly so it can't."""
+
+    def setUp(self) -> None:
+        os.environ["OPENAI_MODEL"] = "mock"
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        os.environ.pop("WORKSPACE_NAME", None)
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+        _stub_workspace(paths.WORKSPACE_DIR, "beta")
+        jobs.reset_for_tests()
+
+    def tearDown(self) -> None:
+        jobs.reset_for_tests()
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+        self._tmp.cleanup()
+
+    def _seed(self, **fields) -> None:
+        with jobs._JOBS_LOCK:
+            jobs._JOBS[fields["job_id"]] = dict(fields)
+
+    def _log_path(self, workspace: str) -> Path:
+        return paths.WORKSPACE_DIR / workspace / "logs" / "web_jobs.jsonl"
+
+    def test_returns_only_this_workspace_pending_and_running(self) -> None:
+        self._seed(job_id="a" * 32, workspace="alpha", step="write-book", status="pending", started_at=None)
+        self._seed(job_id="b" * 32, workspace="alpha", step="extract", status="running", started_at=10.0)
+        self._seed(job_id="c" * 32, workspace="alpha", step="debate", status="succeeded", started_at=5.0)
+        self._seed(job_id="d" * 32, workspace="beta", step="write-book", status="running", started_at=9.0)
+
+        active_ids = {j["job_id"] for j in jobs.active_jobs("alpha")}
+
+        # pending + running for alpha only; terminal (succeeded) and beta excluded
+        self.assertEqual(active_ids, {"a" * 32, "b" * 32})
+
+    def test_pending_with_null_started_at_is_immune_to_recent_truncation(self) -> None:
+        """Core F2 regression: 12 terminal rows + 1 live pending (started_at=None).
+        recent_jobs?n=10 truncates the pending away; active_jobs still reports it."""
+        rows = [
+            {
+                "job_id": f"t{i:031d}",
+                "workspace": "alpha",
+                "step": "write-book",
+                "status": "succeeded",
+                "started_at": float(i),
+                "finished_at": float(100 + i),
+            }
+            for i in range(12)
+        ]
+        pending = {
+            "job_id": "p" * 32,
+            "workspace": "alpha",
+            "step": "write-book",
+            "status": "pending",
+            "started_at": None,
+            "finished_at": None,
+        }
+        rows.append(pending)
+        self._log_path("alpha").write_text(
+            "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8"
+        )
+        self._seed(**pending)
+
+        recent10 = {j["job_id"] for j in jobs.recent_jobs("alpha", limit=10)}
+        self.assertNotIn("p" * 32, recent10)  # the bug: truncated out
+        active = {j["job_id"] for j in jobs.active_jobs("alpha")}
+        self.assertIn("p" * 32, active)  # the fix: always reported
+
+    def test_empty_after_process_restart_fails_open(self) -> None:
+        """After a restart _JOBS is empty → [] → leave-guard fails open. The
+        log's old 'running' row is no longer actually running."""
+        self._log_path("alpha").write_text(
+            json.dumps(
+                {
+                    "job_id": "r" * 32,
+                    "workspace": "alpha",
+                    "step": "write-book",
+                    "status": "running",
+                    "started_at": 10.0,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        jobs.reset_for_tests()  # simulate process restart (in-memory pool cleared)
+
+        self.assertEqual(jobs.active_jobs("alpha"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

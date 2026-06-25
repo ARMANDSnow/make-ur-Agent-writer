@@ -169,6 +169,31 @@ def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
     return out
 
 
+def active_jobs(workspace: str) -> list[Dict[str, Any]]:
+    """Return the workspace's live pending/running jobs from the in-memory pool.
+
+    iter071 (codex F2): the leave-guard must answer "is a job in flight here?"
+    completely. ``recent_jobs`` can't: it sorts by ``finished_at || started_at
+    || 0`` and truncates to ``limit``, so a just-enqueued pending job (whose
+    ``started_at`` is still ``None`` → sort key 0) sinks to the bottom and falls
+    off ``?n=10`` once there are enough terminal rows. ``start_job`` registers a
+    job in ``_JOBS`` the instant it's enqueued (status ``pending``), so scanning
+    ``_JOBS`` is the authoritative, untruncated source — no log read, no sort,
+    no recency window. A workspace holds at most one active job (the
+    ``_WORKSPACE_JOBS`` slot + 409 on the second start), so this returns 0 or 1
+    item; we keep the list shape to match ``recent_jobs`` / the ``{jobs: [...]}``
+    contract the leave-guard already consumes. After a process restart ``_JOBS``
+    is empty → ``[]`` → the guard fails open, which is correct: those jobs are no
+    longer running, so warning "leaving won't stop them" would be a lie."""
+    with _JOBS_LOCK:
+        return [
+            dict(job)
+            for job in _JOBS.values()
+            if job.get("workspace") == workspace
+            and job.get("status") in {"pending", "running"}
+        ]
+
+
 def _update(job_id: str, **fields: Any) -> None:
     snapshot: Optional[Dict[str, Any]] = None
     with _JOBS_LOCK:

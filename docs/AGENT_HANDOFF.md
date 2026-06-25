@@ -1785,3 +1785,29 @@ E2E 全绿：三功能入口 + hero「开始创作」+ 叙事；3 卡等宽等�
 **数据状态**：仅代码+测试+文档；preview 用了用户既有的 longzu/alpha/tianlong workspace（只读渲染，未触发任务、未改数据），起的 web-mock 服务已 `preview_stop`、端口已还；未碰 `.env`/`小说txt/` 原文。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter071）**：`debate --force` CLI 文案泄漏（给 Web 用户看不可执行命令）/ 复制按钮非安全上下文降级（局域网 HTTP 访问 `navigator.clipboard` 静默失效）/ 批量命名中文化（`workspace→作品`、章节表/统计表英文表头 + `approve/reject` 徽章值中译、短剧"续写"用词收口）/ 书架类型筛选-分组（option B/C，作品量大时）/ 全局模态去重 helper（消双击叠加 + keydown 残留既存小债）/ 首页↔书架框架断点的产品判断 + iter069 顺延项。
+
+---
+
+## Phase Status — iter 071（2026-06-25，收官）
+
+**主题**：codex 对 iter070 leave-guard 改动只读复审，提 4 findings（1 Medium + 1 P2 + 2 Low）；claude 逐项核实**全属实**，按优先级一轮收口；用户在 claude 的 preview MCP 真实点击验证中看到模态截图，当场又指出该模态自身 2 个 UX 问题（F5/F6），同源纳入本轮。纯前端展示层 + 一个只读后端端点，不动 9 阶段管线。
+
+**来源**：用户转述 codex findings（带 file:line）→ claude 先读码核实 4/4 属实 → 用 1 个 Explore subagent 精确探查 `_topbar_actions` 调用点 / `/jobs/recent` 路由 / `recent_jobs` 的 4 个消费方 / 是否有 active 端点，定下"不动 recent_jobs、新增 active_jobs 真源"的零回归修法 → 实现 → preview MCP 真实点击 E2E（用户中途追加 F5/F6）→ 4 视角对抗式 workflow 审查。
+
+**6 项 findings 收口**：
+- **F1（Medium）topbar 三出口绕过守卫**：`_topbar_actions`（templates.py:205）的回收站/设置/新建无 `data-leave-guard`，运行任务时从这 3 个离开 workspace 不弹守卫 → 3 链接各加 guard（非 workspace 页 `WORKSPACE_NAME=""` 由 `ensureLeaveGuardDelegate` 短路、零副作用；`extra` 透传不动）。
+- **F2（P2）守卫漏刚入队 pending**：`checkLeaveGuard` 查 `/jobs/recent?n=10`，但 `recent_jobs`（jobs.py:153）按 `finished_at||started_at||0` 倒序截断，刚入队 pending（`started_at=None`→键 0）排末尾被 ≥10 终态挤掉 → **不动 recent_jobs**（4 个依赖排序消费方：continue 侧栏 static:3513/jobs 表 static:4531/overview novel+drama routes:474,519），新增 `jobs.active_jobs(workspace)` 直读内存 `_JOBS`（`start_job` 入队即原子写 `_JOBS`+`_WORKSPACE_JOBS`、每 workspace 至多 1 活跃、零截断零排序）+ 新路由 `GET /api/workspace/{name}/jobs/active`（复用 `_workspace_error`），前端切到它（进程重启 `_JOBS` 空→[]→fail-open 放行，正确）。
+- **F3（Low）模态焦点弱**：`showLeaveGuardModal` appendChild 后未移焦 → 取 `[data-modal-close]`（"留在本页"最安全）`setTimeout(focus,0)`，对齐 delete 模态范式（不引入完整 focus-trap，留全局 a11y 债）。
+- **F4（Low）空书架测试/文档过度宣称**：iter070 的 `assertNotIn("epub")` 命中带 fixture 的 `/library`（`names` 非空、空文案不渲染、空跑通过）→ 旧测试改名 `..._populated_shelf_has_no_epub_copy` 并诚实化 + 新增 `render_index([])` 直测真渲空书架中性文案；订正 iter070 文档第 55 行。
+- **F5（用户 E2E）step id 泄漏**：模态正文显示 `write-book` 等内部 step id → 新增共享 `stepLabel()`（覆盖全部 16 个 `STEP_HANDLERS` 键，`write-book→续写正文`/`extract→抽取设定`…，未知 id 回退），模态用 `stepLabel(j.step)`。本轮只接模态这一 surface；jobs 页/侧栏/toast 同类中文化属"批量命名中文化"大项另起一轮。
+- **F6（用户 E2E）三按钮丑、大小不一**：footer `flex;justify-content:flex-end` 致 3 个长短不一标签按内容撑开、480px 里各自换行 → 新增 `.modal-footer-equal .btn{flex:1 1 0;min-width:0;white-space:nowrap}`（仅作用于这一三按钮 footer，不动共享 `.modal-footer`/delete 模态）+ 标签缩短（取消任务并离开→取消并离开、去 leave 按钮 `（后台继续）` 后缀）。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1333 tests OK**（基线 iter070 1324 +9：`ActiveJobsTests` 3 + `test_web_routes_get` 6 个 iter071 用例；重命名 1 旧用例净增 0）。`node --check` 渲染 app.js OK。`verify.sh` exit 0（须 `PATH=$PWD/.venv/bin`）。
+
+**前端 E2E（preview MCP，web-mock 端口 8765，真实点击 + DOM 取证 + 桌面/移动截图）**：`/w/alpha/` 6 出口（⌂/brand/面包屑首项 + 回收站/设置/新建）全 `data-leave-guard`；stub `/jobs/active` 返回活跃 job 后真实点击回收站/设置/新建/⌂ **均弹三选一模态且不导航**（trace 证命中 `/api/workspace/alpha/jobs/active`、`defaultPrevented=true`）；恢复真实 fetch（alpha 无活跃→`{jobs:[]}`）点回收站**直达 `/trash` 不困人**；`/trash`(`WORKSPACE_NAME=""`)即便 stub 活跃也短路直接导航 `/settings` 不弹模态；焦点 `document.activeElement`="留在本页"、Esc/遮罩/留在本页均关；正文显「续写正文」「抽取设定」无 `write-book`；桌面 1280 三按钮等宽 **138px**/移动 375 等宽 **87px** 全单行；桌面 `.nav-toggle` 仍 `display:none`、移动 ☰/⋯ 重显（iter070 未回归）；`「回首页」`离开按钮真实导航 `/`；console warn 级**无 error/warn**。未实景验证：「取消并离开」cancel POST 端到端（需真实 running job，mock 秒级完成难命中；best-effort cancel + fail-through 接线 iter070 既验 + 本轮静态保留）。
+
+**代码审查（铁律⑨）**：5-agent 对抗式 workflow（正确性/安全/回归/规约 4 独立视角 → HIGH/MEDIUM 逐条对抗式核验 → 综合，244K subagent tokens）→ **0 个 HIGH/MEDIUM/LOW 真问题，7 条非阻塞 NIT（全既有/已登记），放行可提交**。关键事实经核验：`STEP_LABELS`↔16 键对齐、`/jobs/active` 注册不遮蔽、F1 三链接落位、F6 scoped、前端切端点。`/security-review` 对口：无 ≥MEDIUM、模态插值全 `escapeHtml`、`/jobs/active` 复用 name 校验、未碰 `.env`/`data/`/`小说txt/`。
+
+**数据状态**：仅代码+测试+文档；preview 用了用户既有的 alpha/longzu/tianlong workspace（只读渲染 + stub fetch，未真起任务、未改数据），web-mock 服务起在 8765（可 `preview_stop`）。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter072）**：批量命名中文化（jobs 页/侧栏/toast 的 raw step → 复用 `stepLabel`；`workspace→作品`、章节表/统计表英文表头 + `approve/reject` 徽章值中译、短剧"续写"用词收口）/ 全局模态去重 + focus-trap helper（消双击叠加 + keydown 残留 + 完整焦点陷阱，统一所有内联模态）/ `recent_jobs` 排序修正（pending 在通用列表也排前，需同步 4 消费方）/ `debate --force` CLI 文案泄漏 / 复制按钮非安全上下文降级 / 书架类型筛选-分组 / `workspace_busy`+`workspace_running_job` 重复函数合并 + iter069/070 顺延项。

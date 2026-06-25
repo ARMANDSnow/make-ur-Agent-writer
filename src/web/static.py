@@ -922,6 +922,10 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   background: var(--bg-sunken);
   display: flex; justify-content: flex-end; gap: var(--space-2);
 }
+/* iter071 (codex F6): the 3-way leave-guard footer — equal-width, single-line
+   buttons so the choices read as a tidy, consistent row instead of ragged
+   content-sized boxes that wrap at different points. */
+.modal-footer-equal .btn { flex: 1 1 0; min-width: 0; white-space: nowrap; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1024px) {
@@ -2109,6 +2113,23 @@ JS_DASHBOARD = """\
     setTimeout(() => input.focus(), 0);
   }
 
+  // iter071: map internal step ids (jobs.py STEP_HANDLERS keys) to the Chinese
+  // the user should actually see — raw ids like "write-book" must never leak
+  // into user-facing copy (the leave-guard modal surfaced this). Unknown ids
+  // fall back to the id so a new backend step is still legible, not blank.
+  const STEP_LABELS = {
+    "normalize": "规范化原文", "split": "切分章节", "extract": "抽取设定",
+    "compress": "构建知识库", "bootstrap": "生成实体提案", "apply-bootstrap": "应用实体提案",
+    "debate": "生成大纲", "plan-chapters": "规划章节", "write-book": "续写正文",
+    "review-chapter": "评审章节", "draft-once-dev": "试写一章",
+    "auto-pipeline-greenfield": "一键开新书", "prepare-greenfield": "准备开新书",
+    "rebuild-for-start": "重建续写底座", "expand-premise": "扩写设定",
+    "extract-style": "提取文风",
+  };
+  function stepLabel(step) {
+    return STEP_LABELS[step] || step || "任务";
+  }
+
   // iter070: leave-guard. The three in-app "leave this workspace" links (⌂→/,
   // brand & first breadcrumb→/library) carry data-leave-guard. On click we
   // SYNCHRONOUSLY preventDefault — an async job check can't beat the browser's
@@ -2135,7 +2156,12 @@ JS_DASHBOARD = """\
   async function checkLeaveGuard(href) {
     let active = [];
     try {
-      const data = await fetchJson(wsUrl("/jobs/recent?n=10"));
+      // iter071 (codex F2): /jobs/active reads the in-memory pool directly, so a
+      // just-enqueued pending job (started_at=None) can't be truncated out the
+      // way /jobs/recent?n=10 could once enough terminal rows piled up. The
+      // endpoint already returns only pending/running; the filter is a harmless
+      // double guard against any future shape drift.
+      const data = await fetchJson(wsUrl("/jobs/active"));
       active = (data.jobs || []).filter(function (j) {
         return j.status === "pending" || j.status === "running";
       });
@@ -2152,9 +2178,15 @@ JS_DASHBOARD = """\
   function showLeaveGuardModal(href, activeJobs) {
     const n = activeJobs.length;
     const leaveLabel = href === "/" ? "回首页" : "去书架";
-    const steps = activeJobs.map(function (j) { return j.step || "任务"; }).join("、");
+    // iter071 (codex F5): show Chinese step names (续写正文…), never raw ids.
+    const steps = activeJobs.map(function (j) { return stepLabel(j.step); }).join("、");
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
+    // iter071 (codex F6): modal-footer-equal makes the three choices equal-width
+    // and single-line; labels are kept short ("取消并离开"/"去书架") so they don't
+    // wrap into the ragged, mismatched buttons the 3-way modal showed before. The
+    // "任务后台继续" caveat lives in the body copy, so the leave button needn't
+    // repeat it.
     backdrop.innerHTML =
       '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="leave-guard-title">' +
       '<div class="modal-header" id="leave-guard-title">当前作品有任务正在运行</div>' +
@@ -2164,17 +2196,18 @@ JS_DASHBOARD = """\
       '稍后可在任务页查看进度。</p>' +
       '<div id="leave-guard-error"></div>' +
       '</div>' +
-      '<div class="modal-footer">' +
+      '<div class="modal-footer modal-footer-equal">' +
       '<button type="button" class="btn btn-ghost" data-modal-close>留在本页</button>' +
-      '<button type="button" class="btn btn-danger" id="leave-guard-cancel-leave">取消任务并离开</button>' +
+      '<button type="button" class="btn btn-danger" id="leave-guard-cancel-leave">取消并离开</button>' +
       '<button type="button" class="btn btn-primary" id="leave-guard-leave">' +
-      escapeHtml(leaveLabel) + '（后台继续）</button>' +
+      escapeHtml(leaveLabel) + '</button>' +
       '</div>' +
       '</div>';
     document.body.appendChild(backdrop);
     const errBox = backdrop.querySelector("#leave-guard-error");
     const leaveBtn = backdrop.querySelector("#leave-guard-leave");
     const cancelLeaveBtn = backdrop.querySelector("#leave-guard-cancel-leave");
+    const stayBtn = backdrop.querySelector("[data-modal-close]");
     function closeModal() {
       document.removeEventListener("keydown", onKeyDown);
       backdrop.remove();
@@ -2202,6 +2235,11 @@ JS_DASHBOARD = """\
         { kind: "info", msg: "已请求取消 " + n + " 个任务" }, href
       );
     });
+    // iter071 (codex F3): move focus into the modal (the least-destructive
+    // "留在本页" button) so keyboard users aren't stranded on the background
+    // link and an accidental Enter stays put rather than leaving / cancelling.
+    // Mirrors the delete modal's setTimeout(input.focus, 0).
+    if (stayBtn) setTimeout(() => stayBtn.focus(), 0);
   }
 
   // ===== page: plan viewer ==============================================

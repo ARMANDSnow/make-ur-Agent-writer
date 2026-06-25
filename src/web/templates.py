@@ -203,10 +203,16 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
 
 
 def _topbar_actions(extra: str = "") -> str:
+    # iter071 (codex F1): 回收站/设置/新建 also LEAVE the current workspace, so
+    # they must carry data-leave-guard like ⌂/brand/first-crumb — otherwise a
+    # running job is silently abandoned (no three-choice modal) when the user
+    # exits via these three. On non-workspace pages WORKSPACE_NAME is "" and the
+    # delegate short-circuits (static.py ~2128), so the attribute is a no-op
+    # there. `extra` (page-local actions that stay in-workspace) is untouched.
     base = (
-        '<a class="btn btn-ghost" href="/trash">♻ 回收站</a>'
-        '<a class="btn btn-ghost" href="/settings">⚙ 设置</a>'
-        '<a class="btn btn-primary" href="/wizard">＋ 新建</a>'
+        '<a class="btn btn-ghost" href="/trash" data-leave-guard>♻ 回收站</a>'
+        '<a class="btn btn-ghost" href="/settings" data-leave-guard>⚙ 设置</a>'
+        '<a class="btn btn-primary" href="/wizard" data-leave-guard>＋ 新建</a>'
     )
     return extra + base
 

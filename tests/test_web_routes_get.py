@@ -11,7 +11,9 @@ from pathlib import Path
 
 from src import paths
 from src.plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
+from src.web import jobs
 from src.web import routes
+from src.web import templates
 from src.web import workspace_meta
 from src.web.workspace_ctx import use_workspace
 
@@ -728,12 +730,27 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('href="/wizard?type=drama"', html)
         self.assertIn('href="/wizard?type=premise"', html)
 
-    def test_iter070_library_empty_hint_is_type_neutral(self) -> None:
-        """iter070: the empty-shelf copy no longer assumes a novel/epub import."""
+    def test_iter070_library_populated_shelf_has_no_epub_copy(self) -> None:
+        """iter070/iter071 (codex F4): this route runs with alpha/beta fixtures,
+        so `names` is non-empty and the empty-shelf hint never renders — it only
+        guards against an 'epub' assumption leaking onto a POPULATED shelf. The
+        actual empty-shelf copy is exercised by the unit test below."""
         status, _ct, body = routes.dispatch("GET", "/library")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertNotIn("epub", html)
+
+    def test_iter071_empty_shelf_renders_neutral_hint(self) -> None:
+        """iter071 (codex F4): render an empty shelf directly (no fixtures) so the
+        empty-shelf branch is actually taken (it emits the hint into the
+        data-empty attribute the client reads), and assert that copy carries no
+        novel/epub-only assumption. The iter070 route test above could not reach
+        this branch."""
+        html = templates.render_index([])
+        self.assertIn("还没有作品", html)  # the empty hint reached the DOM (data-empty=…)
+        self.assertIn("从开新书 / 导入续写 / 短剧三选一开始", html)  # type-neutral copy
+        self.assertNotIn("epub", html)
+        self.assertNotIn("第一本书", html)  # old novel-only phrasing gone
 
     def test_iter070_workspace_shell_marks_leave_guard_exits(self) -> None:
         """iter070: ⌂, the sidebar brand, and the first breadcrumb crumb are the
@@ -755,6 +772,79 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("showLeaveGuardModal", js)
         self.assertIn('j.status === "pending" || j.status === "running"', js)
         self.assertIn("🎬 短剧", js)
+
+    def test_iter071_topbar_actions_carry_leave_guard(self) -> None:
+        """iter071 (codex F1): 回收站/设置/新建 also LEAVE the workspace, so on a
+        workspace page they must carry data-leave-guard like ⌂/brand/first-crumb,
+        otherwise a running job is abandoned silently when exiting via them."""
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('href="/trash" data-leave-guard', html)
+        self.assertIn('href="/settings" data-leave-guard', html)
+        self.assertIn('href="/wizard" data-leave-guard', html)
+
+    def test_iter071_static_js_leave_guard_uses_active_endpoint_and_focuses(self) -> None:
+        """iter071 (codex F2 + F3): the guard checks /jobs/active (untruncated
+        in-memory source) instead of /jobs/recent?n=10, and the modal moves focus
+        to the safe 留在本页 button."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn('wsUrl("/jobs/active")', js)
+        self.assertNotIn('wsUrl("/jobs/recent?n=10")', js)  # old truncatable source gone
+        self.assertIn("stayBtn.focus()", js)
+
+    def test_iter071_api_active_jobs_endpoint(self) -> None:
+        """iter071 (codex F2): /jobs/active returns the live pending/running jobs
+        from the in-memory pool, untruncated — a just-enqueued pending job
+        (started_at=None) is always reported."""
+        jobs.reset_for_tests()
+        try:
+            with jobs._JOBS_LOCK:
+                jobs._JOBS["a" * 32] = {
+                    "job_id": "a" * 32,
+                    "workspace": "alpha",
+                    "step": "write-book",
+                    "status": "pending",
+                    "started_at": None,
+                }
+            status, data = self._get_json("/api/workspace/alpha/jobs/active")
+            self.assertEqual(status, 200)
+            self.assertEqual([j["job_id"] for j in data["jobs"]], ["a" * 32])
+            self.assertEqual(data["jobs"][0]["status"], "pending")
+        finally:
+            jobs.reset_for_tests()
+
+    def test_iter071_modal_localizes_step_names(self) -> None:
+        """iter071 (codex F5): the leave-guard modal must show Chinese step names
+        (续写正文…), never raw ids like write-book, via the stepLabel() helper that
+        covers every jobs.py STEP_HANDLERS key."""
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("function stepLabel", js)
+        self.assertIn('"write-book": "续写正文"', js)
+        self.assertIn("stepLabel(j.step)", js)  # modal renders via the localizer
+        self.assertNotIn('return j.step || "任务"', js)  # raw-id path removed
+        # every known backend step has a Chinese label (no raw id can leak)
+        for step in jobs.STEP_HANDLERS:
+            self.assertIn(f'"{step}":', js)
+
+    def test_iter071_modal_footer_is_equal_width_and_labels_short(self) -> None:
+        """iter071 (codex F6): the 3-way footer uses modal-footer-equal (equal,
+        single-line buttons) and short labels, replacing the ragged content-sized
+        buttons that wrapped at different points."""
+        _s, _c, jbody = routes.dispatch("GET", "/static/app.js")
+        js = jbody.decode("utf-8")
+        self.assertIn("modal-footer modal-footer-equal", js)
+        self.assertIn("取消并离开", js)
+        self.assertNotIn("取消任务并离开", js)  # long label shortened
+        self.assertNotIn("（后台继续）", js)  # caveat moved to body copy
+        _s2, _c2, cbody = routes.dispatch("GET", "/static/app.css")
+        css = cbody.decode("utf-8")
+        self.assertIn(".modal-footer-equal .btn", css)
+        self.assertIn("flex: 1 1 0", css)
 
     def test_iter070_static_css_drama_badge_border(self) -> None:
         """iter070: drama badge gets a solid --amber border so it stops

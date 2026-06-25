@@ -1695,6 +1695,16 @@ def api_workspace_recent_jobs(name: str, limit: int = 5) -> Tuple[int, str, byte
     return _json(200, {"jobs": jobs.recent_jobs(name, limit=limit)})
 
 
+def api_workspace_active_jobs(name: str) -> Tuple[int, str, bytes]:
+    # iter071 (codex F2): authoritative "is a job in flight?" for the leave-guard.
+    # Unlike /jobs/recent this never truncates or sorts by timestamp, so a freshly
+    # enqueued pending job (started_at=None) is always reported.
+    error = _workspace_error(name)
+    if error:
+        return error
+    return _json(200, {"jobs": jobs.active_jobs(name)})
+
+
 def api_workspace_drafts(name: str) -> Tuple[int, str, bytes]:
     error = _workspace_error(name)
     if error:
@@ -2366,6 +2376,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/jobs/recent/?$"),
         lambda name, _query=None, **_: api_workspace_recent_jobs(name, limit=_parse_n(_query)),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/jobs/active/?$"),
+        lambda name, **_: api_workspace_active_jobs(name),
     ),
     # iter 026: POST /run (start a job) + GET /job/<id> (poll progress)
     (
