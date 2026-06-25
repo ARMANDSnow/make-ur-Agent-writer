@@ -2130,6 +2130,10 @@ JS_DASHBOARD = """\
       if (previousActive && typeof previousActive.focus === "function") {
         try { previousActive.focus(); } catch (e) { /* trigger gone — ignore */ }
       }
+      // iter073 (codex E): optional close hook so callers can reset state on
+      // EVERY close path (stay button, backdrop click, AND Esc — which fires
+      // this internal close directly). Backward-compatible: unset = no-op.
+      if (typeof opts.onClose === "function") opts.onClose();
     }
     document.body.appendChild(backdrop);
     document.addEventListener("keydown", onKeyDown);
@@ -2245,6 +2249,14 @@ JS_DASHBOARD = """\
   // "succeeded", so reusing it would falsely block a just-finished run. No
   // beforeunload — tab close / refresh stay unguarded (jobs survive anyway).
   let leaveGuardDelegateBound = false;
+  // iter073 (codex E): guard the leave-check against an async race. Each click
+  // bumps leaveGuardSeq and captures it; a /jobs/active response is honored only
+  // if its seq is still the latest, so a slow first click can't navigate to its
+  // (now-stale) destination after a second click. leaveGuardModalOpen collapses
+  // rapid double-clicks to a single modal — the open modal keeps its ORIGINAL
+  // destination and never silently jumps elsewhere.
+  let leaveGuardSeq = 0;
+  let leaveGuardModalOpen = false;
   function ensureLeaveGuardDelegate() {
     if (leaveGuardDelegateBound) return;
     leaveGuardDelegateBound = true;
@@ -2255,10 +2267,12 @@ JS_DASHBOARD = """\
       if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button === 1) return;
       const href = link.getAttribute("href") || "/";
       ev.preventDefault();  // synchronous — must precede the async check
-      checkLeaveGuard(href);
+      if (leaveGuardModalOpen) return;  // a modal is up; resolve it first
+      const seq = ++leaveGuardSeq;
+      checkLeaveGuard(href, seq);
     });
   }
-  async function checkLeaveGuard(href) {
+  async function checkLeaveGuard(href, seq) {
     let active = [];
     try {
       // iter071 (codex F2): /jobs/active reads the in-memory pool directly, so a
@@ -2267,17 +2281,21 @@ JS_DASHBOARD = """\
       // endpoint already returns only pending/running; the filter is a harmless
       // double guard against any future shape drift.
       const data = await fetchJson(wsUrl("/jobs/active"));
+      if (seq !== leaveGuardSeq) return;  // a newer click superseded this one
       active = (data.jobs || []).filter(function (j) {
         return j.status === "pending" || j.status === "running";
       });
     } catch (err) {
+      if (seq !== leaveGuardSeq) return;
       window.location.href = href;  // fail open — don't trap the user on a fetch error
       return;
     }
+    if (seq !== leaveGuardSeq) return;
     if (!active.length) {
       window.location.href = href;
       return;
     }
+    leaveGuardModalOpen = true;
     showLeaveGuardModal(href, active);
   }
   function showLeaveGuardModal(href, activeJobs) {
@@ -2314,7 +2332,12 @@ JS_DASHBOARD = """\
     const stayBtn = backdrop.querySelector("[data-modal-close]");
     // iter072 (#6): focus starts on the least-destructive "留在本页" (iter071
     // F3 intent), and the shared helper adds the Tab trap + focus-restore.
-    const closeModal = mountModal(backdrop, { initialFocus: stayBtn });
+    // iter073 (codex E): onClose resets the single-modal guard on every
+    // non-navigating close (stay / backdrop / Esc) so future leave clicks work.
+    const closeModal = mountModal(backdrop, {
+      initialFocus: stayBtn,
+      onClose: function () { leaveGuardModalOpen = false; },
+    });
     backdrop.addEventListener("click", function (ev) {
       if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) closeModal();
     });

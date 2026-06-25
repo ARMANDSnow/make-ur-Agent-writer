@@ -794,7 +794,10 @@ class RoutesGetTests(unittest.TestCase):
         js = body.decode("utf-8")
         self.assertIn('wsUrl("/jobs/active")', js)
         self.assertNotIn('wsUrl("/jobs/recent?n=10")', js)  # old truncatable source gone
-        self.assertIn("mountModal(backdrop, { initialFocus: stayBtn })", js)
+        # iter073 (codex E): the call gained an onClose arg + multi-line form, so
+        # assert the focus intent (initialFocus: stayBtn) rather than the exact
+        # one-line signature.
+        self.assertIn("initialFocus: stayBtn", js)
 
     def test_iter071_api_active_jobs_endpoint(self) -> None:
         """iter071 (codex F2): /jobs/active returns the live pending/running jobs
@@ -1073,6 +1076,78 @@ class RoutesGetTests(unittest.TestCase):
         for bad in ("-foo", "foo-", "-", "--"):
             status, _data = self._get_json(f"/api/workspace/{bad}/status")
             self.assertEqual(status, 400, f"name {bad!r} should be rejected")
+
+
+class Iter073LeaveGuardRaceTests(unittest.TestCase):
+    """iter073 (codex E): the leave-guard JS must carry a request-sequence token
+    + single-modal guard so a slow /jobs/active response can't navigate to a
+    stale destination, and a second click while a modal is open can't silently
+    change the destination or jump to the wrong page. String assertions over the
+    served bundle (no jsdom); JS syntax is gated separately by ``node --check``."""
+
+    def test_leave_guard_has_sequence_and_modal_guards(self) -> None:
+        from src.web import static
+
+        js = static.JS_DASHBOARD
+        # module-level race state
+        self.assertIn("let leaveGuardSeq = 0;", js)
+        self.assertIn("let leaveGuardModalOpen = false;", js)
+        # second click while a modal is open is a no-op (keeps original dest)
+        self.assertIn("if (leaveGuardModalOpen) return;", js)
+        # each click captures a seq and the async handler honors only the latest
+        self.assertIn("const seq = ++leaveGuardSeq;", js)
+        self.assertIn("if (seq !== leaveGuardSeq) return;", js)
+        # the open guard is reset on every non-navigating close (stay/backdrop/Esc)
+        self.assertIn("onClose", js)
+        self.assertIn("leaveGuardModalOpen = false;", js)
+
+
+class Iter073JobApiDetailTests(unittest.TestCase):
+    """iter073 (codex D1+D3): /job/<id> returns a finite-safe detail projection
+    — non-finite floats become null (valid JSON), a future internal field can't
+    auto-leak, and the frontend-needed params survive."""
+
+    def setUp(self) -> None:
+        os.environ["OPENAI_MODEL"] = "mock"
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        os.environ.pop("WORKSPACE_NAME", None)
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+        jobs.reset_for_tests()
+
+    def tearDown(self) -> None:
+        jobs.reset_for_tests()
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+        self._tmp.cleanup()
+
+    def test_job_status_finite_safe_detail_projection(self) -> None:
+        rec = jobs._new_job_record("alpha", "write-book", {"chapters": 1})
+        rec["status"] = "succeeded"
+        rec["progress"] = float("nan")
+        rec["result_summary"] = {"cost_cny": float("inf")}
+        rec["trace_id"] = "tid"
+        rec["_secret"] = "nope"
+        with jobs._JOBS_LOCK:
+            jobs._JOBS[rec["job_id"]] = rec
+        status, ct, body = routes.dispatch(
+            "GET", f"/api/workspace/alpha/job/{rec['job_id']}"
+        )
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        text = body.decode("utf-8")
+        # bare NaN/Infinity tokens would be invalid JSON for a strict parser
+        self.assertNotIn("NaN", text)
+        self.assertNotIn("Infinity", text)
+        data = json.loads(text)
+        self.assertIsNone(data["progress"])
+        self.assertIsNone(data["result_summary"]["cost_cny"])
+        self.assertIn("params", data)  # detail keeps params (frontend retry)
+        self.assertNotIn("_secret", data)  # future internal field not leaked
 
 
 if __name__ == "__main__":

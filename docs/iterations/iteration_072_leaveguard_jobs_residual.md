@@ -41,6 +41,7 @@ iter071 收口了 leave-guard 的「全出口覆盖 + 活跃任务真源 + 模�
 - **verify.sh**：本机环境**不可跑**——脚本第 41 行硬编码裸 `python3 -m unittest`，该解释器缺 pydantic，触发 259 个 `ImportError: Failed to import test module`（与本轮无关，跨 debater/extractor/book_runner 等未触及模块；裸 `python3 -c "import pydantic"` 即抛 ModuleNotFoundError）。等价闸门 = 上面 1341 OK 的 venv discover。`python3 main.py preflight` = exit 0。
 - **铁律⑨ 代码审查**：`/code-review high`，3 finder（line-by-line / concurrency-backend / removed-behavior+cross-file）+ 对抗式核实。headline 风险（死锁、回滚、白名单、坏行 500、stale test）全 clean。3 个 LOW：① `copyText` 双击卡标签 → **已修**；② `_as_ts` 放行 NaN/inf → **已修**（isfinite 守门 + 新测）；③ `recent_jobs` pending 优先**透传**到 overview "最近任务"卡（routes 474/519，limit=1）使其从"最新完成"变"优先在跑"——判定为符合本轮意图的改进，**留作 Notes 记录不改**（一个在跑任务正是用户在卡片上想看到的）。
 - **铁律⑨ 安全审查**：`/security-review`，聚焦本轮 4 源文件工作树 diff。**0 HIGH / 0 MEDIUM**，且净正向：`public_job_view` 收窄对外字段（剔除 `params` 用户 POST body）、`_as_ts` 硬化坏输入、锁序收紧守卫可观测性。唯一新建裸串路径 `leaveDestinationLabel` 在唯一 sink `escapeHtml(leaveLabel)` 处转义，XSS 链闭合。未碰 `.env`/`data/`/`小说txt/`。
+- **前端 E2E（iter73 回填）**：iter072 收官时 Acceptance line 26 列了 preview E2E（侧栏切作品弹窗主按钮 / 设置「去设置」/ 模态 Tab 循环 + Esc 焦点恢复 / 复制回退），但当轮 Acceptance Result 漏记是否实跑——据实补记：**未实跑 preview E2E**，以 `node --check`（渲染后的 app.js）+ 单测对模态/焦点行为的字符串与逻辑断言（`mountModal` Tab/Esc/焦点恢复在单测覆盖）代偿，E2E 顺延。iter073 再次触及 `static.py`（leave-guard 竞态守卫 E 项），同样以 `node --check` + `STATIC_JS` 字符串断言代偿（leave-guard 的"快速双击"是时序竞态，preview 工具难稳定复现，故不强行 E2E、据实顺延，见 iter073 Notes）。
 
 ## 文件变更汇总
 

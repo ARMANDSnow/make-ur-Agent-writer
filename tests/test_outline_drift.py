@@ -6,7 +6,8 @@
 
 import unittest
 
-from src.outline_drift import outline_drift_codes
+from src.outline_drift import outline_drift_codes, outline_drift_severity
+from src.readiness_catalog import classify
 
 
 def _graph(*names: str) -> dict:
@@ -65,6 +66,65 @@ class OutlineDriftTests(unittest.TestCase):
         }
         rolling = _rolling("路明非 与 陈墨瞳", "卡塞尔 学院 诺顿")
         self.assertEqual(outline_drift_codes(outline, rolling, graph), [])
+
+
+class OutlineDriftSeverityTests(unittest.TestCase):
+    """iter073 (codex I): severity tiers — none / warn / severe. Severe requires
+    BOTH a very low hit rate (< 0.2) AND >= 5 anchors (high confidence)."""
+
+    _SIX = ("路明非", "陈墨瞳", "卡塞尔", "诺顿", "楚子航", "恺撒")
+    _OUTLINE6 = "本卷 路明非 陈墨瞳 卡塞尔 诺顿 楚子航 恺撒 齐聚展开"
+
+    def test_severe_when_hit_rate_below_20pct_and_enough_anchors(self) -> None:
+        # 6 anchors, only 路明非 surfaces → 1/6 ≈ 0.167 < 0.2, anchors 6 >= 5.
+        rolling = _rolling("路明非 独自发呆", "继续发呆")
+        self.assertEqual(
+            outline_drift_severity(self._OUTLINE6, rolling, _graph(*self._SIX)),
+            "severe",
+        )
+
+    def test_warn_when_hit_rate_between_20_and_40pct(self) -> None:
+        # 2/6 ≈ 0.333 → drift but not severe.
+        rolling = _rolling("路明非 陈墨瞳 在场", "无关内容")
+        self.assertEqual(
+            outline_drift_severity(self._OUTLINE6, rolling, _graph(*self._SIX)),
+            "warn",
+        )
+
+    def test_none_when_hit_rate_at_or_above_threshold(self) -> None:
+        # 3/6 = 0.5 >= 0.4 → no drift.
+        rolling = _rolling("路明非 陈墨瞳 卡塞尔 现身", "无关")
+        self.assertEqual(
+            outline_drift_severity(self._OUTLINE6, rolling, _graph(*self._SIX)),
+            "none",
+        )
+
+    def test_low_hit_rate_but_too_few_anchors_is_warn_not_severe(self) -> None:
+        # 4 anchors, 0 hits → 0.0 < 0.2 but anchors 4 < 5 → warn (low confidence).
+        outline = "路明非 陈墨瞳 卡塞尔 诺顿 对决"
+        rolling = _rolling("完全无关的内容", "依旧无关")
+        self.assertEqual(
+            outline_drift_severity(outline, rolling, _graph("路明非", "陈墨瞳", "卡塞尔", "诺顿")),
+            "warn",
+        )
+
+    def test_too_few_anchors_is_none(self) -> None:
+        outline = "路明非 陈墨瞳 双雄"
+        rolling = _rolling("无关")
+        self.assertEqual(
+            outline_drift_severity(outline, rolling, _graph("路明非", "陈墨瞳")),
+            "none",
+        )
+
+    def test_empty_outline_is_none(self) -> None:
+        self.assertEqual(
+            outline_drift_severity("", _rolling("x"), _graph(*self._SIX)), "none"
+        )
+
+    def test_blocker_code_classifies_to_outline_drift_severe(self) -> None:
+        # book_runner emits ``outline_severe_drift:<code>`` → readiness_catalog
+        # must give it the dedicated CTA card, not the generic "unknown".
+        self.assertEqual(classify("outline_severe_drift:semantic_drift:hit10pct:x"), "outline_drift_severe")
 
 
 if __name__ == "__main__":

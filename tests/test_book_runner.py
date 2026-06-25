@@ -1,6 +1,7 @@
 import json
 import unittest
 import tempfile
+from contextlib import ExitStack
 from unittest.mock import patch
 
 from pathlib import Path
@@ -261,6 +262,46 @@ class BookRunnerReadinessTests(unittest.TestCase):
         ):
             result = run_write_book(chapters=1, budget_cny=1.0)
         self.assertEqual(result["status"], "budget_exceeded")
+
+    def _readiness_with_severe_drift(self, *, require_start_point: bool):
+        """iter073 (codex I): drive check_write_readiness with a real outline.md
+        present and a patched SEVERE drift severity, so the warn→block escalation
+        is exercised."""
+        outline = self.root / "outline.md"
+        outline.write_text("本卷 路明非 陈墨瞳 卡塞尔 诺顿 楚子航 齐聚", encoding="utf-8")
+        managers = self._common_patches(_strict_plan())
+        with ExitStack() as stack:
+            for mgr in managers:
+                stack.enter_context(mgr)
+            stack.enter_context(patch("src.book_runner.paths.outline_path", return_value=outline))
+            # book_runner does ``from . import outline_drift`` lazily, so patch
+            # the source module (same object).
+            stack.enter_context(
+                patch("src.outline_drift.outline_drift_severity", return_value="severe")
+            )
+            stack.enter_context(
+                patch(
+                    "src.outline_drift.outline_drift_codes",
+                    return_value=["semantic_drift:hit10pct:missing=陈墨瞳"],
+                )
+            )
+            stack.enter_context(patch("src.book_runner._outline_drift_block_enabled", return_value=True))
+            # neutralize the start-window extraction gate so it can't add noise
+            stack.enter_context(
+                patch("src.book_runner.start_point.extraction_coverage_failures", return_value=[])
+            )
+            return check_write_readiness(chapters=1, require_start_point=require_start_point)
+
+    def test_severe_outline_drift_blocks_continuation(self) -> None:
+        readiness = self._readiness_with_severe_drift(require_start_point=True)
+        self.assertEqual(readiness["status"], "blocked")
+        self.assertTrue(any("outline_severe_drift" in b for b in readiness["blockers"]))
+        self.assertEqual(readiness["primary_blocker"]["kind"], "outline_drift_severe")
+
+    def test_severe_outline_drift_only_warns_for_greenfield(self) -> None:
+        readiness = self._readiness_with_severe_drift(require_start_point=False)
+        self.assertFalse(any("outline_severe_drift" in b for b in readiness["blockers"]))
+        self.assertTrue(any("outline_semantic_drift" in w for w in readiness["warnings"]))
 
     def test_retry_archives_failed_attempt_before_rewrite(self) -> None:
         statuses = [

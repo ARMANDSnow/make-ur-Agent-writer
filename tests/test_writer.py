@@ -486,6 +486,53 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             self.assertEqual(meta["draft_sha256"], expected)
             self.assertEqual(mock_review.call_args.kwargs["draft_sha256"], expected)
 
+    def test_main_review_uses_plan_derived_checklist_mode(self) -> None:
+        """iter073 (codex A): a broad-cast chapter (>4 relationships_in_play)
+        must pass enforce_relationship_checklist='warn_only' to the MAIN review,
+        not a hardcoded True — else the missing relationship checklist
+        false-Rejects 10-20-character chapters. Mirrors the shadow path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            drafts, outline, kb, idx = _write_fixture(tmp)
+            plan_item = {
+                "chapter_no": 1,
+                "title": "t",
+                "opening_scene": "开场",
+                "key_events": ["事件甲", "事件乙"],
+                "relationships_in_play": [f"A-B-{i}" for i in range(6)],  # >4 → warn_only
+                "ending_hook": "钩子",
+                "plot_purpose": "推进",
+            }
+
+            def fake_load_config(name: str):
+                if name == "agents.yaml":
+                    return _agent_config(polish_pass=False)
+                raise AssertionError(name)
+
+            with patch("src.writer.DRAFTS_DIR", drafts), patch("src.writer.OUTLINE_PATH", outline), patch(
+                "src.writer.KB_PATH", kb
+            ), patch("src.writer.INDEX_PATH", idx), patch("src.writer.load_config", side_effect=fake_load_config), patch(
+                "src.writer._load_chapter_plan", return_value={1: plan_item}
+            ), patch(
+                "src.writer.NovelLinter"
+            ) as linter_cls, patch(
+                "src.writer.review_text",
+                return_value={"verdict": "Approve", "lint_issues": [], "agent_reviews": []},
+            ) as mock_review, patch(
+                "src.writer._complete_write_text", return_value="足够干净的正文"
+            ), patch(
+                "src.writer._summarize_chapter",
+                return_value={"summary": "s", "key_events": ["e"], "ending_state": "end"},
+            ), patch(
+                "src.writer._propose_entity_advance", return_value=[]
+            ):
+                linter_cls.return_value.lint.return_value = []
+                write_chapters(chapters=1, force=True, max_attempts=1)
+
+            self.assertEqual(
+                mock_review.call_args.kwargs["enforce_relationship_checklist"], "warn_only"
+            )
+
     def test_write_chapters_falls_back_when_chapter_plan_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)

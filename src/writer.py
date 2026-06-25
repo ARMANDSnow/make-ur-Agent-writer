@@ -268,7 +268,12 @@ def write_chapters(
                     out_path.name,
                     precomputed_lint_issues=lint_issues,
                     rewrite_round=attempt - 1,
-                    enforce_relationship_checklist=True,
+                    # iter073 (codex A): use the plan-derived mode (True | "warn_only"),
+                    # NOT a hardcoded True. The shadow path (above) already does this;
+                    # the main review hardcoding True defeated the broad-cast warn_only
+                    # relaxation, so 10-20-character chapters got false-Rejected by the
+                    # missing relationship checklist.
+                    enforce_relationship_checklist=enforce_checklist_mode,
                     knowledge=knowledge[:6000] if knowledge else "",
                     source_chapters=review_source,
                     scene_excerpts=scene_excerpts_text,

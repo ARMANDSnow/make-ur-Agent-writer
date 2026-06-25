@@ -67,7 +67,12 @@ def _json(status: int, payload: Dict[str, Any]) -> Tuple[int, str, bytes]:
     # (and a few sets/datetimes show up via reviewer plumbing). The default
     # ``str`` coercion turns them into stable repo-relative-ish strings
     # without needing per-handler post-processing.
-    body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    # iter073 (codex D1): ``_finite_json_safe`` strips NaN/±Inf floats →
+    # ``None`` so every response is RFC-8259-valid JSON; ``allow_nan`` default
+    # would otherwise emit bare ``NaN``/``Infinity`` that breaks JSON.parse.
+    body = json.dumps(
+        jobs._finite_json_safe(payload), ensure_ascii=False, default=str
+    ).encode("utf-8")
     return status, "application/json; charset=utf-8", body
 
 
@@ -472,7 +477,7 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
                 "recommended_commands": [],
             }
             recent = jobs.recent_jobs(name, limit=1)
-            overview["recent_job"] = recent[0] if recent else None
+            overview["recent_job"] = jobs.public_job_view(recent[0]) if recent else None
         except Exception as exc:
             _log_degraded("drama_progress", exc)
             overview["error"] = errors.card_for_exception(exc)
@@ -517,7 +522,7 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
             overview["review_blocked"] = max(total - accepted, 0)
             overview["readiness"] = _safe_readiness(chapters=1, resume_from=1)
             recent = jobs.recent_jobs(name, limit=1)
-            overview["recent_job"] = recent[0] if recent else None
+            overview["recent_job"] = jobs.public_job_view(recent[0]) if recent else None
         except Exception as exc:
             _log_degraded("overview", exc)
             overview["error"] = errors.card_for_exception(exc)
@@ -1692,7 +1697,10 @@ def api_workspace_recent_jobs(name: str, limit: int = 5) -> Tuple[int, str, byte
     error = _workspace_error(name)
     if error:
         return error
-    return _json(200, {"jobs": jobs.recent_jobs(name, limit=limit)})
+    return _json(
+        200,
+        {"jobs": [jobs.public_job_summary_view(j) for j in jobs.recent_jobs(name, limit=limit)]},
+    )
 
 
 def api_workspace_active_jobs(name: str) -> Tuple[int, str, bytes]:
@@ -2163,7 +2171,8 @@ def api_job_status(name: str, job_id: str) -> Tuple[int, str, bytes]:
     if job.get("workspace") != name:
         # Don't leak existence of a job belonging to another workspace.
         return _json(404, {"error": "job not found"})
-    return _json(200, job)
+    # iter073 (codex D3): explicit detail allowlist instead of raw passthrough.
+    return _json(200, jobs.public_job_detail_view(job))
 
 
 def api_job_cancel(name: str, job_id: str) -> Tuple[int, str, bytes]:

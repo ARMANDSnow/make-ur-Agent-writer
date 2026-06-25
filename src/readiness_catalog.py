@@ -71,6 +71,16 @@ KINDS: Dict[str, Dict[str, str]] = {
         "cta_action": "run_debate",
         "cta_label": "重新生成大纲",
     },
+    "outline_drift_severe": {
+        # iter073 (codex I): the outline's core entities are essentially absent
+        # across the last 10-chapter rolling window — the story has drifted far
+        # from the (verbatim-injected) outline. Regenerate before continuing;
+        # CTA mirrors outline_stale (run_debate).
+        "label": "剧情已显著偏离大纲",
+        "cause": "最近若干章的实际剧情与全书大纲严重不符，过时大纲会逐字喂进每章续写误导承接；建议重新生成大纲后再续写，已写好的正文不受影响（如确认要无视，改 config/agents.yaml 的 outline_drift_block.enabled=false）。",
+        "cta_action": "run_debate",
+        "cta_label": "重新生成大纲",
+    },
     "chapter_plan_missing": {
         "label": "缺少章节计划",
         "cause": "续写需要本章计划，可先用默认目标章数生成。",
@@ -136,6 +146,8 @@ def classify(blocker: str) -> str:
         return "outline_missing"
     if "stale debate outline" in b:
         return "outline_stale"
+    if b.startswith("outline_severe_drift"):  # iter073 (codex I)
+        return "outline_drift_severe"
     if "retry_exhausted" in b or "existing_output_not_strict_approved" in b:
         return "retry_exhausted"
     if b.startswith("preflight:"):

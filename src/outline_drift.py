@@ -7,7 +7,9 @@ plan_outline_lineage_failures)只校验 **provenance**(起点指纹 / outline_sh
 会误导后续承接。
 
 本模块用**确定性信号**——outline 提及的实体锚点在最近 K 章 rolling(实际写出的剧情)的
-命中率——暴露漂移,只产出 **warn**(调用方绝不 block)。
+命中率——暴露漂移。``outline_drift_codes`` 只产出 **warn**(调用方据此 warn,不 block);
+iter073(codex I)新增 ``outline_drift_severity`` 区分 none/warn/**severe**,book_runner
+仅对 severe + 续写场景(``require_start_point``)升级为 blocker,新书 + 普通 drift 仍只 warn。
 
 ⚠ 范围澄清(subagent 审核纠偏):reviewer **不消费 outline**(fidelity 基准是源书原文
 风格,非 outline),故漂移的真实危害在 **write-time 喂过时图纸**,不是 review 误拒。完整版
@@ -25,6 +27,13 @@ DRIFT_HIT_RATE_THRESHOLD = 0.4
 RECENT_K = 10
 # 锚点少于此不判定:样本太小,命中率噪声大,易误报。
 MIN_ANCHORS = 3
+# iter073 (codex I): SEVERE drift = 命中率低于 warn 阈值的一半。这是「严重」边界:
+# outline 的核心实体在最近 RECENT_K 章聚合窗口里几乎全部缺席(近似代表持续偏离,
+# 非单章 blip)。配合下面更高的锚点要求 = 高置信。注意:这是「最近 K 章聚合信号」,
+# 不是严格逐章连续检测。
+DRIFT_SEVERE_HIT_RATE = 0.2
+# severe 判定的高置信门槛:锚点须 ≥ 此数,否则只当 warn(小样本不硬 block)。
+DRIFT_SEVERE_MIN_ANCHORS = 5
 
 
 def _anchor_terms(entity_graph: Dict[str, Any]) -> List[str]:
@@ -87,3 +96,45 @@ def outline_drift_codes(
     missing = [a for a in anchors if a not in recent_text][:5]
     pct = int(round(hit_rate * 100))
     return [f"semantic_drift:hit{pct}pct:missing={'/'.join(missing)}"]
+
+
+def outline_drift_severity(
+    outline_text: str | None,
+    rolling: Dict[str, Any],
+    entity_graph: Dict[str, Any],
+    *,
+    recent_k: int = RECENT_K,
+    threshold: float = DRIFT_HIT_RATE_THRESHOLD,
+    severe_threshold: float = DRIFT_SEVERE_HIT_RATE,
+    min_anchors: int = MIN_ANCHORS,
+    severe_min_anchors: int = DRIFT_SEVERE_MIN_ANCHORS,
+) -> str:
+    """iter073 (codex I): classify outline↔剧情 drift as ``"none" | "warn" |
+    "severe"``.
+
+    Mirrors ``outline_drift_codes`` exactly for the none/warn boundary (so the
+    warn lane is byte-identical), and adds a ``"severe"`` tier the book_runner
+    escalates to a hard blocker for existing-book continuations. ``"severe"`` =
+    the outline's core entities are essentially absent across the last
+    ``recent_k``-chapter rolling window (hit_rate < ``severe_threshold``) AND we
+    have enough anchors to trust the signal (``>= severe_min_anchors``). This is
+    a coarse aggregate signal, not strict per-chapter consecutiveness — see the
+    module docstring; only the strongest case (whole-outline abandonment over a
+    sustained window) blocks, to keep the false-positive risk minimal.
+    """
+    if not outline_text:
+        return "none"
+    candidates = {t for t in _anchor_terms(entity_graph) if len(t) >= 2}
+    anchors = sorted(t for t in candidates if t in outline_text)
+    if len(anchors) < min_anchors:
+        return "none"
+    recent_text = _recent_rolling_text(rolling, recent_k)
+    if not recent_text.strip():
+        return "none"
+    hits = [a for a in anchors if a in recent_text]
+    hit_rate = len(hits) / len(anchors)
+    if hit_rate >= threshold:
+        return "none"
+    if hit_rate < severe_threshold and len(anchors) >= severe_min_anchors:
+        return "severe"
+    return "warn"

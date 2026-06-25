@@ -118,6 +118,17 @@
     }
   ],
 
+  "_plan_compliance_block_note": "iter073 (codex B): when a chapter's planned key_events are essentially all absent from the draft (coarse CJK bigram coverage < 0.15 each), inject a synthetic Reject so a chapter that silently abandons its plan can't Approve. miss_ratio=1.0 = block only when ALL key_events are missing (whole-plan abandonment) — the strongest signal, minimal false-positive risk. Turn enabled off to restore iter065 advisory-only behavior.",
+  "plan_compliance_block": {
+    "enabled": true,
+    "miss_ratio": 1.0
+  },
+
+  "_outline_drift_block_note": "iter073 (codex I): escalate SEVERE sustained outline drift (the outline's core entities essentially absent across the last 10-chapter rolling window — hit_rate < 0.2 AND >= 5 anchors) from warn to a hard readiness blocker, but only for existing-book continuations (require_start_point) where a stale outline is fed verbatim into each chapter prompt. Greenfield + ordinary drift stay warn. Turn enabled off to roll back to warn-only.",
+  "outline_drift_block": {
+    "enabled": true
+  },
+
   "drama_agents": {
     "drama_planner": {
       "role": "站 ① 核心设定 agent",

@@ -165,6 +165,18 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
     }
 
 
+def is_mock_mode(task: str = "default") -> bool:
+    """iter073: canonical mock detection for client-less callers.
+
+    Resolves the effective model exactly as ``get_model_config`` does (so an
+    unset ``OPENAI_MODEL`` with a ``mock`` models.yaml default still reads as
+    mock) and checks the ``mock`` prefix — matching ``LLMClient.is_mock``. Use
+    this instead of a raw ``os.getenv("OPENAI_MODEL")`` check, which disagrees
+    in the env-empty + default-mock case.
+    """
+    return str(get_model_config(task).get("model") or "").lower().startswith("mock")
+
+
 def _default_context_limit(model: str) -> int:
     lower = model.lower()
     for prefix, limit in DEFAULT_CONTEXT_LIMITS.items():

@@ -75,17 +75,26 @@ class PlanComplianceMissesTests(unittest.TestCase):
 
 
 class PlanComplianceIntegrationTests(unittest.TestCase):
-    """经 review_text：建议入 rewrite_suggestions、不翻转 verdict、自跳过。"""
+    """经 review_text：建议入 rewrite_suggestions、**enabled=false 时不翻转
+    verdict**、自跳过。
+
+    iter073 (codex B): hard-block now ships default-ON. These advisory tests pin
+    the iter065 contract (advisory-only, no verdict flip) by explicitly running
+    with the block disabled — the blocking behavior gets its own test class
+    below.
+    """
 
     @staticmethod
     def _approve(self, messages):  # noqa: ANN001 - mock signature
         return '{"agent_name":"agent","verdict":"Approve","plot":8,"prose":8,"fidelity":8,"issues":[],"suggestions":[]}'
 
-    def _run(self, draft, chapter_plan_item):
+    def _run(self, draft, chapter_plan_item, block_cfg=(False, 1.0)):
         with patch(
             "src.reviewer.load_review_agents",
             return_value=[{"name": "agent", "system_prompt": "review"}],
         ), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
+            "src.reviewer._plan_compliance_block_cfg", return_value=block_cfg
+        ), patch(
             "src.llm_client.LLMClient.complete_text", self._approve
         ):
             return review_text(
@@ -113,13 +122,87 @@ class PlanComplianceIntegrationTests(unittest.TestCase):
         self.assertEqual(report["verdict"], "Approve")
 
     def test_missing_beats_surface_as_advisory_without_blocking(self) -> None:
-        # The key fix (iter065 review P2): missing beats add an advisor-style
-        # suggestion but DO NOT flip an otherwise-Approving panel to Reject.
+        # iter065 review P2 (preserved under block-disabled): missing beats add
+        # an advisor-style suggestion but DO NOT flip an otherwise-Approving
+        # panel to Reject.
         report = self._run(_UNRELATED_DRAFT, {"key_events": [_BEAT_A, _BEAT_B]})
         suggs = self._plan_suggestions(report)
         self.assertTrue(suggs)
         self.assertEqual(suggs[0]["section"], "本章计划")
-        self.assertEqual(report["verdict"], "Approve")  # never blocks
+        self.assertEqual(report["verdict"], "Approve")  # disabled → never blocks
+
+
+class PlanComplianceBlockTests(unittest.TestCase):
+    """iter073 (codex B): with the hard-block enabled, a chapter that abandons
+    its planned key_events (all beats essentially absent at miss_ratio=1.0) flips
+    to Reject via a synthetic review; partial / covered chapters never block."""
+
+    @staticmethod
+    def _approve(self, messages):  # noqa: ANN001 - mock signature
+        return '{"agent_name":"agent","verdict":"Approve","plot":8,"prose":8,"fidelity":8,"issues":[],"suggestions":[]}'
+
+    def _run(self, draft, chapter_plan_item, block_cfg=(True, 1.0)):
+        with patch(
+            "src.reviewer.load_review_agents",
+            return_value=[{"name": "agent", "system_prompt": "review"}],
+        ), patch("src.reviewer.load_advisor_agents", return_value=[]), patch(
+            "src.reviewer._plan_compliance_block_cfg", return_value=block_cfg
+        ), patch(
+            "src.llm_client.LLMClient.complete_text", self._approve
+        ):
+            return review_text(
+                draft,
+                "plan_compliance_block_case.md",
+                precomputed_lint_issues=[],
+                chapter_plan_item=chapter_plan_item,
+            )
+
+    @staticmethod
+    def _has_block_review(report) -> bool:
+        return any(
+            isinstance(r, dict)
+            and r.get("agent_name") == "plan_compliance"
+            and r.get("verdict") == "Reject"
+            for r in report.get("agent_reviews", [])
+        )
+
+    def test_all_beats_missing_blocks(self) -> None:
+        report = self._run(_UNRELATED_DRAFT, {"key_events": [_BEAT_A, _BEAT_B]})
+        self.assertEqual(report["verdict"], "Reject")
+        self.assertTrue(self._has_block_review(report))
+
+    def test_partial_miss_does_not_block(self) -> None:
+        # only _BEAT_B missing → 1 < ceil(2*1.0)=2 → no whole-plan abandonment
+        draft = "路明非在青铜与火之歌的余烬里缓缓苏醒过来，独自走了很远。"
+        report = self._run(draft, {"key_events": [_BEAT_A, _BEAT_B]})
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertFalse(self._has_block_review(report))
+
+    def test_covered_does_not_block(self) -> None:
+        report = self._run(_COVERED_DRAFT, {"key_events": [_BEAT_A, _BEAT_B]})
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertFalse(self._has_block_review(report))
+
+    def test_disabled_does_not_block_even_when_all_missing(self) -> None:
+        report = self._run(
+            _UNRELATED_DRAFT, {"key_events": [_BEAT_A, _BEAT_B]}, block_cfg=(False, 1.0)
+        )
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertFalse(self._has_block_review(report))
+
+    def test_ratio_half_blocks_on_partial(self) -> None:
+        # miss_ratio=0.5 → ceil(2*0.5)=1 → a single missing beat is enough
+        draft = "路明非在青铜与火之歌的余烬里缓缓苏醒过来，独自走了很远。"
+        report = self._run(
+            draft, {"key_events": [_BEAT_A, _BEAT_B]}, block_cfg=(True, 0.5)
+        )
+        self.assertEqual(report["verdict"], "Reject")
+        self.assertTrue(self._has_block_review(report))
+
+    def test_none_plan_item_self_skips_block(self) -> None:
+        report = self._run(_UNRELATED_DRAFT, None)
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertFalse(self._has_block_review(report))
 
 
 if __name__ == "__main__":

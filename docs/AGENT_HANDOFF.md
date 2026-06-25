@@ -1837,3 +1837,28 @@ E2E 全绿：三功能入口 + hero「开始创作」+ 叙事；3 卡等宽等�
 **数据状态**：仅代码+测试+文档（4 源文件 + 2 测试文件 + 3 处文档）。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter073）**：批量命名中文化（本轮用户明确不纳入，单独成轮）/ overview「最近任务」卡 type-aware 文案 + 测试 pin「最新完成 vs 在跑」/ `/jobs/recent` 端点字段收窄（drawer 依赖 result_summary/error/trace_id，需配套前端）/ `workspace_busy`+`workspace_running_job` 重复函数合并 / 书架类型筛选-分组 / drama 站③④ / 真模型 capstone + iter069/070 顺延项。
+
+## Phase Status — iter 073（2026-06-25，收官）
+
+**主题**：真模型长程实测前一轮硬化——codex 复审的一批已确认 P1（review 误拒 / 计划履约不阻断 / Web jobs 排序与字段 / leave-guard 竞态 / 非有限 JSON）+ outline-drift severe→block + 第二批 docs/校验。给真模型实跑铺地基。
+
+**来源**：用户转述 codex findings（带 file:line）→ 3 Explore subagent 并行探查（reviewer/writer broad-cast+plan / web jobs 排序+字段+JSON / leave-guard+第二批）→ Plan subagent 起草 + Plan-mode AskUserQuestion 定 2 决策（B 默认开 ratio=1.0 / outline-drift 纳入但严格 gate）→ 实现（据 codex 二次复审修正 5 点：D1 持久化也清洗 / D3 详情页保 params 轻量档 / B 先迁移测试再加 block / E modal-open 语义 + 测试 / 持续措辞不过度承诺 / timeout=0 语义）→ `/code-review high`（5 角度 + 对抗）→ `/security-review`。
+
+**收口项**：
+- **A（误拒）** broad-cast warn_only 没进主/外审：`writer.py:271` 主审 + `book_runner` 两处外审硬编码 `enforce_relationship_checklist=True` → 改 `_enforce_checklist_for_plan(item)` 派生（无 plan→True 严格，字节兼容），10-20 人物章不再被关系清单缺失误 Reject。
+- **B（不阻断）** plan-compliance 永不翻 verdict：config `plan_compliance_block`（默认 `enabled=true, miss_ratio=1.0`）+ `_plan_compliance_block_cfg(is_mock)`；`plan_misses` 上移到 panel 聚合前，severe（≥ceil(total*ratio) beats 字面零重合，ratio=1.0=全缺=整章抛弃）注入 `_synthetic` Reject 走既有 `hard_synthetic_reject`；advisory 复用同一 `plan_misses`。**先迁移旧 9 测试 patch `(False,1.0)` 锁 enabled=false 语义、再加 block**。**mock-skip**（`client.is_mock`）防误触 mock 流水线（铁律④）。
+- **B3** `review_target` 加 keyword-only `chapter_plan_item`，外审 + Web 重评审（`_step_review_chapter`）也跑 plan-compliance。
+- **C（排序）** `recent_jobs` 旧 lost 压新成功（overview limit=1 长显失联）：reconcile lost 提到 sort 之前（一次性快照 `_JOBS`），lost 视为 terminal(active=0) 不再压更新 succeeded。
+- **D1（非有限 JSON）** `_finite_json_safe` 递归 NaN/±Inf→None，`routes._json` 响应 + `jobs._persist_job` 落盘双侧清洗（只清响应、日志仍落脏会被 recent_jobs 读回再外发）。
+- **D2/D3（raw record）** 三档投影：overview→最小 `public_job_view`（剔 params/trace/result_summary，多 workspace 首页收益最大）/ `/jobs/recent`→`public_job_summary_view`（保 params 给 jobs 表 retry，丢 cancel_*）/ `/job/<id>`→`public_job_detail_view`（加 cancel_*）。用户选轻量档（详情保 params 零改前端 retry）。
+- **E（竞态）** leave-guard：`leaveGuardSeq` 每点击 ++ 捕获、异步返回校验 `seq===leaveGuardSeq` 丢弃旧响应；`leaveGuardModalOpen` 单模态（保持原 href 绝不静默跳错）；`mountModal` 加 `onClose` 复位（Esc 走内部 close 故需 hook）。
+- **I（outline drift）** `outline_drift_severity` 三态（severe=hit<0.2 且 anchors≥5，最近 10 章聚合「近似持续偏离」非严格逐章连续）；book_runner severe + `require_start_point` + `_outline_drift_block_enabled()`（默认开、mock-skip via `is_mock_mode`）→ `outline_severe_drift:` blocker（`run_write_book` 入口 `BookRunBlocked` 硬停），新书 + 普通 drift 仍 warn；`readiness_catalog` 加 `outline_drift_severe` kind（CTA run_debate）。
+- **F/G/H** README venv 命令 + 测试数 590→1369 / iter072 E2E 缺记回填（据实「未实跑 preview，node --check + 字符串断言代偿，顺延」）/ `drive-book start` step-timeout `validate_int(0,1440)` 与 resume 对齐（0=默认 180 非禁用，测试钉死）。
+
+**门禁**：`OPENAI_MODEL=mock`（**必须 `.venv/bin/python3`**）`unittest discover -s tests` **1369 tests OK**（基线 iter072 1341 +28）。`node --check` 渲染 `JS_DASHBOARD`/`JS_WIZARD` OK。`preflight` exit 0。`verify.sh` 本机裸 `python3` 缺 pydantic 不可跑（与本轮无关，等价闸 = venv discover 1369 OK）。前端 E2E：leave-guard 竞态属时序竞态 preview 难稳定复现 → `node --check` + `STATIC_JS` 字符串/逻辑断言代偿，据实顺延。
+
+**代码审查（铁律⑨）**：`/code-review high` 5 角度（line-by-line / removed-behavior / cross-file / reuse-simplify-efficiency / altitude-conventions）+ 对抗核实。**3 actionable 全修**：① Web `_step_review_chapter` 第三处 `review_target` 漏改致 verdict 分叉 → 对齐 book_runner；② `outline_severe_drift` CTA 文案「--force 覆盖」错（force 清不掉它）→ 指向 `config/agents.yaml` 开关；③ mock 判定双机制（`client.is_mock` vs 裸 env）在「env 空+default mock」分歧、违铁律④ → 新增 `config.is_mock_mode()` 统一。+ 1 efficiency（`recent_jobs` 一次性快照 `_JOBS`）+ 修 `outline_drift` 过时 docstring。未采纳留 Notes：`_synthetic_reject` 工厂（动既有块，scope 收敛）/ `_finite_json_safe` 全 payload 递归（correctness 优先）/ `outline_drift_severity` 与 `_codes` 各算一遍（非热点）。`/security-review` **0 HIGH / 0 MEDIUM**，净降暴露——三档 job 投影是改前「raw 全字段」的严格子集（不可能新增外泄），overview 收紧剔 params；leave-guard JS 只处理 int/bool + `window.location.href` 导航（非 innerHTML sink）。未碰 `.env`/`data/`/`小说txt/`。
+
+**数据状态**：仅代码+测试+文档（9 源文件 + 8 测试文件 + 4 处文档 + config）。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter074）**：公开 job API 彻底零 params（后端 `/job/<id>/retry` 端点 + 章节号 result_summary 派生）/ `_synthetic_reject` 工厂统一两处合成 Reject / outline_drift LLM 语义版 / drive-book 前置预算守门 / 批量命名中文化 / drama 站③④ / 真模型 capstone。

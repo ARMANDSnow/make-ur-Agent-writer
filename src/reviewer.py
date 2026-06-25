@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -303,6 +304,43 @@ def _plan_compliance_misses(
     ]
 
 
+def _plan_key_events_count(chapter_plan_item: Dict[str, Any] | None) -> int:
+    """有效 key_events 数（与 ``_plan_compliance_misses`` 同款 None/非 list/空守卫）。"""
+    if not chapter_plan_item:
+        return 0
+    raw = chapter_plan_item.get("key_events")
+    if not isinstance(raw, (list, tuple)):
+        return 0
+    return sum(1 for ev in raw if str(ev).strip())
+
+
+def _plan_compliance_block_cfg(is_mock: bool = False) -> tuple[bool, float]:
+    """iter073 (codex B): 读 plan-compliance 硬阻断开关。
+
+    默认 ``(False, 1.0)``——配置缺失/损坏时退回 iter065 的「只建议不阻断」语义
+    （字节级一致）。``miss_ratio`` clamp 到 [0,1]；调用方据此把「严重缺失」翻成
+    合成 Reject（见 review_text）。
+
+    ``is_mock``：mock 模式下**永不硬阻断**——mock 写手是确定性 fixture，不遵循
+    章节计划，逐字覆盖度探针会对每一章误判 Reject、击穿 mock 流水线（铁律④）。
+    这是真模型质量闸；单测 patch 本函数强制开启、不受 mock 影响。
+    """
+    if is_mock:
+        return False, 1.0
+    try:
+        cfg = load_config("agents.yaml").get("plan_compliance_block") or {}
+    except Exception:
+        return False, 1.0
+    if not isinstance(cfg, dict):
+        return False, 1.0
+    enabled = bool(cfg.get("enabled", False))
+    try:
+        ratio = float(cfg.get("miss_ratio", 1.0))
+    except (TypeError, ValueError):
+        ratio = 1.0
+    return enabled, max(0.0, min(1.0, ratio))
+
+
 def review_text(
     text: str,
     target_name: str = "draft",
@@ -577,6 +615,51 @@ def review_text(
             }
         )
 
+    # iter073 (codex B): plan-compliance HARD block (config-gated, default on
+    # with miss_ratio=1.0). The writer prompt marks key_events as「必须全部发生」,
+    # but iter065 only surfaced misses as advisory — a chapter silently
+    # abandoning the whole plan could still Approve. Hoist the (deterministic,
+    # zero-LLM) miss computation ABOVE the panel aggregation and, only when
+    # severe (>= ceil(total * miss_ratio) beats essentially absent → at ratio
+    # 1.0 that means ALL beats), inject a synthetic Reject so the existing
+    # hard_synthetic_reject path flips the verdict. The per-beat advisory (below)
+    # is unchanged and reuses this same plan_misses. Self-skips when
+    # chapter_plan_item is None / has no key_events → byte-identical legacy.
+    try:
+        plan_misses = _plan_compliance_misses(text, chapter_plan_item)
+    except Exception as exc:
+        log_event("review", "plan_compliance_error", target=target_name, error=str(exc))
+        plan_misses = []
+    _plan_block_enabled, _plan_block_ratio = _plan_compliance_block_cfg(is_mock=client.is_mock)
+    _key_events_total = _plan_key_events_count(chapter_plan_item)
+    if (
+        _plan_block_enabled
+        and _key_events_total > 0
+        and plan_misses
+        and len(plan_misses) >= max(1, math.ceil(_key_events_total * _plan_block_ratio))
+    ):
+        reviews.append(
+            {
+                "agent_name": "plan_compliance",
+                "verdict": "Reject",
+                "scores": {"plot": 5, "prose": 5, "fidelity": 4},
+                "score": 5,
+                "issues": [
+                    {
+                        "message": (
+                            "计划关键事件几乎全部未在正文中体现"
+                            f"（{len(plan_misses)}/{_key_events_total}），疑似整体抛弃章节计划。"
+                        ),
+                        "rule_id": "plan_compliance_block",
+                        "severity": "block",
+                        "anchor": (plan_misses[0] or "")[:80],
+                    }
+                ],
+                "suggestions": [],
+                "_synthetic": True,
+            }
+        )
+
     # Iter 042: full 5-agent panels use tier-aware aggregation
     # (approve_count + panel_score). Test-only custom panels with fewer
     # than 5 agents keep the old substantive verdict semantics so legacy
@@ -679,20 +762,14 @@ def review_text(
                 )
                 continue
 
-    # iter065 #6a: deterministic plan-compliance signal — NON-blocking. Append
-    # planned beats that are essentially absent from the draft as advisor-style
+    # iter065 #6a: deterministic plan-compliance signal — NON-blocking advisory.
+    # Append planned beats essentially absent from the draft as advisor-style
     # rewrite suggestions: they ride the existing rewrite_suggestions channel
     # (rendered by writer._review_feedback's "改写顾问建议" section regardless of
-    # verdict, and visible in review.json), so they nudge the writer ONLY when a
-    # rewrite is already happening and NEVER flip the verdict. A coarse lexical
-    # bigram probe must not hard-reject a faithful-but-dramatized chapter (the
-    # (b)-class false-positive risk we deliberately deferred). Self-skips when
-    # chapter_plan_item is None / has no key_events → byte-identical legacy.
-    try:
-        plan_misses = _plan_compliance_misses(text, chapter_plan_item)
-    except Exception as exc:
-        log_event("review", "plan_compliance_error", target=target_name, error=str(exc))
-        plan_misses = []
+    # verdict, and visible in review.json), nudging the writer ONLY when a
+    # rewrite is already happening. iter073: reuse the ``plan_misses`` already
+    # computed above (single source) — the hard-block decision lives there; a
+    # coarse lexical bigram probe must not advisory-spam beyond that.
     for beat in plan_misses[:3]:
         rewrite_suggestions.append(
             {
@@ -764,7 +841,11 @@ def review_target(
     source_chapters: str = "",
     scene_excerpts: str = "",
     tier: str | None = None,
+    chapter_plan_item: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
+    # iter073 (codex B3): forward chapter_plan_item so the external review runs
+    # the same deterministic plan-compliance check as the main review (it
+    # self-skips when None → byte-identical for callers that don't pass it).
     def _review_file(path: Path) -> Dict[str, Any]:
         meta_path = path.with_suffix(".meta.json")
         run_context: Dict[str, Any] = {}
@@ -789,6 +870,7 @@ def review_target(
             tier=tier,
             run_context=run_context,
             draft_sha256=draft_sha256,
+            chapter_plan_item=chapter_plan_item,
         )
 
     if target.is_file():

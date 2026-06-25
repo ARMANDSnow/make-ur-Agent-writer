@@ -308,5 +308,115 @@ class Iter072JobsResidualTests(unittest.TestCase):
             jobs._WORKSPACE_JOBS = saved_ws
 
 
+class Iter073RecentAndProjectionTests(unittest.TestCase):
+    """iter073 (codex C + D): recent_jobs reconciles lost-ness BEFORE sorting so
+    a stale lost row can't pin above a newer success (the overview limit=1 bug);
+    finite-JSON sanitize on both response + persistence; explicit list/detail
+    field projections."""
+
+    def setUp(self) -> None:
+        os.environ["OPENAI_MODEL"] = "mock"
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved_ws_dir = paths.WORKSPACE_DIR
+        self._saved_env = os.environ.get("WORKSPACE_NAME")
+        os.environ.pop("WORKSPACE_NAME", None)
+        paths.WORKSPACE_DIR = Path(self._tmp.name)
+        _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+        jobs.reset_for_tests()
+
+    def tearDown(self) -> None:
+        jobs.reset_for_tests()
+        paths.WORKSPACE_DIR = self._saved_ws_dir
+        if self._saved_env is None:
+            os.environ.pop("WORKSPACE_NAME", None)
+        else:
+            os.environ["WORKSPACE_NAME"] = self._saved_env
+        self._tmp.cleanup()
+
+    def _log_path(self, workspace: str) -> Path:
+        return paths.WORKSPACE_DIR / workspace / "logs" / "web_jobs.jsonl"
+
+    def _write_rows(self, rows) -> None:
+        self._log_path("alpha").write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+            encoding="utf-8",
+        )
+
+    def _lost_then_succeeded_rows(self):
+        # An old running row with no live _JOBS record (worker gone) + a newer
+        # succeeded row. Pre-iter073, the running row sorted active=1 above the
+        # success, got sliced into the top, THEN relabelled lost → the overview
+        # (limit=1) showed a stale lost task forever.
+        self._write_rows([
+            {"job_id": "L" * 32, "workspace": "alpha", "step": "write-book",
+             "status": "running", "started_at": 10.0, "finished_at": None},
+            {"job_id": "S" * 32, "workspace": "alpha", "step": "write-book",
+             "status": "succeeded", "started_at": 50.0, "finished_at": 60.0},
+        ])
+
+    def test_lost_row_does_not_outrank_newer_succeeded(self) -> None:
+        self._lost_then_succeeded_rows()  # no _JOBS seed → L reconciles to lost
+        recent = jobs.recent_jobs("alpha", limit=10)
+        self.assertEqual(recent[0]["job_id"], "S" * 32)
+        by_id = {j["job_id"]: j for j in recent}
+        self.assertEqual(by_id["L" * 32]["status"], "lost")
+
+    def test_overview_limit1_picks_newer_succeeded_over_lost(self) -> None:
+        self._lost_then_succeeded_rows()
+        recent = jobs.recent_jobs("alpha", limit=1)
+        self.assertEqual(len(recent), 1)
+        self.assertEqual(recent[0]["job_id"], "S" * 32)
+
+    def test_finite_json_safe(self) -> None:
+        self.assertIsNone(jobs._finite_json_safe(float("nan")))
+        self.assertIsNone(jobs._finite_json_safe(float("inf")))
+        self.assertIsNone(jobs._finite_json_safe(float("-inf")))
+        self.assertEqual(
+            jobs._finite_json_safe({"a": float("nan"), "b": [float("inf"), 1.5]}),
+            {"a": None, "b": [None, 1.5]},
+        )
+        self.assertEqual(jobs._finite_json_safe("x"), "x")
+        self.assertEqual(jobs._finite_json_safe(5), 5)
+        self.assertEqual(jobs._finite_json_safe(2.5), 2.5)
+
+    def test_persist_job_sanitizes_non_finite(self) -> None:
+        rec = jobs._new_job_record("alpha", "write-book", {})
+        rec["progress"] = float("nan")
+        rec["result_summary"] = {"cost_cny": float("inf")}
+        jobs._persist_job(rec)
+        text = self._log_path("alpha").read_text(encoding="utf-8")
+        # bare NaN/Infinity tokens are invalid JSON; a strict parser would choke
+        self.assertNotIn("NaN", text)
+        self.assertNotIn("Infinity", text)
+        row = json.loads(text)
+        self.assertIsNone(row["progress"])
+        self.assertIsNone(row["result_summary"]["cost_cny"])
+
+    def test_public_job_summary_view_keeps_params_drops_cancel(self) -> None:
+        rec = jobs._new_job_record("alpha", "write-book", {"chapters": 1})
+        rec["trace_id"] = "tid"
+        rec["result_summary"] = {"k": 1}
+        rec["error"] = "boom"
+        rec["cancel_reason"] = "user"
+        rec["_secret"] = "nope"
+        view = jobs.public_job_summary_view(rec)
+        # the jobs-table retry reposts {step, params}, so params MUST survive
+        for kept in ("params", "error", "result_summary", "trace_id", "step", "status"):
+            self.assertIn(kept, view)
+        for dropped in ("cancel_requested", "cancel_reason", "_secret"):
+            self.assertNotIn(dropped, view)
+
+    def test_public_job_detail_view_allowlist(self) -> None:
+        rec = jobs._new_job_record("alpha", "write-book", {"chapters": 1})
+        rec["trace_id"] = "tid"
+        rec["result_summary"] = {"k": 1}
+        rec["_secret"] = "nope"
+        view = jobs.public_job_detail_view(rec)
+        for kept in ("params", "trace_id", "result_summary", "cancel_requested", "cancel_reason", "error"):
+            self.assertIn(kept, view)
+        # a future internal field added to the record must NOT auto-leak
+        self.assertNotIn("_secret", view)
+
+
 if __name__ == "__main__":
     unittest.main()

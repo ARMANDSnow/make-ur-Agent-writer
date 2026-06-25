@@ -708,6 +708,21 @@ def _build_params(args: Any) -> Dict[str, Any]:
     if error:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(2)
+    # iter073 (codex H): validate step_timeout_minutes on START, matching the
+    # bounds cmd_resume already enforces (minimum=0, maximum=1440). It's not in
+    # INT_CAPS, so it rides a standalone validate_int rather than the
+    # validate_run_params field set above (which would KeyError). NOTE 0 is NOT
+    # "no limit": _run_steps does ``int(... or DEFAULT)`` → 0 falls back to
+    # DEFAULT_STEP_TIMEOUT_MINUTES (180). Kept minimum=0 to stay aligned with
+    # resume; the 0→default semantics is pinned by a test.
+    raw_timeout = getattr(args, "step_timeout_minutes", None)
+    effective_timeout = raw_timeout if raw_timeout is not None else DEFAULT_STEP_TIMEOUT_MINUTES
+    err_t, clean_timeout = run_params.validate_int(
+        effective_timeout, "step_timeout_minutes", minimum=0, maximum=1440
+    )
+    if err_t:
+        print(f"error: {err_t}", file=sys.stderr)
+        raise SystemExit(2)
     cmd_prefix = getattr(args, "cmd_prefix", None)
     return {
         "book": paths.workspace_name(),
@@ -726,7 +741,7 @@ def _build_params(args: Any) -> Dict[str, Any]:
         "allow_missing_plan": bool(getattr(args, "allow_missing_plan", False)),
         "skip_external_review": bool(getattr(args, "skip_external_review", False)),
         "pause_after_segment": int(getattr(args, "pause_after_segment", None) or 0),
-        "step_timeout_minutes": int(getattr(args, "step_timeout_minutes", None) or DEFAULT_STEP_TIMEOUT_MINUTES),
+        "step_timeout_minutes": clean_timeout,
         "on_blocked": getattr(args, "on_blocked", "stop") or "stop",
         "cmd_prefix": shlex.split(cmd_prefix) if cmd_prefix else None,
     }

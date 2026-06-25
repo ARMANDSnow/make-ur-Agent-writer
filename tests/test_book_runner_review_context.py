@@ -128,6 +128,12 @@ class BookRunnerReviewContextTests(unittest.TestCase):
                 self.assertIn("KB-CONTEXT-MARKER", captured[0]["knowledge"])
                 self.assertEqual(captured[0]["source_chapters"], "SOURCE-CONTEXT-MARKER")
                 self.assertEqual(captured[0]["scene_excerpts"], "SCENE-CONTEXT-MARKER")
+                # iter073 (codex B3): external review now runs plan-compliance —
+                # the plan item must reach review_text.
+                self.assertEqual(captured[0].get("chapter_plan_item"), plan_item)
+                # iter073 (codex A2): empty relationships_in_play → strict True
+                # (≤4), derived from the plan rather than hardcoded.
+                self.assertIs(captured[0].get("enforce_relationship_checklist"), True)
 
 
 if __name__ == "__main__":

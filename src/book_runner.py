@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List
 from . import paths, readiness_catalog, review_tier, run_params, source_excerpts, start_point
 from .chapter_summary import prune_from_chapter
 from .chapter_status import chapter_status
-from .config import load_config
+from .config import is_mock_mode, load_config
 from .cost_estimator import estimate_cost_since
 from .entity_advance import apply_advance_proposals, proposal_path, select_auto_indexes
 from .preflight import run_preflight
@@ -21,6 +21,7 @@ from .kb_view import start_safe_knowledge
 from .writer import (
     ChapterPlanInvalid,
     _chapter_plan_item,
+    _enforce_checklist_for_plan,
     _index_path,
     _kb_path,
     _load_chapter_plan,
@@ -171,8 +172,13 @@ def run_write_book(
             ):
                 review_target(
                     md_path,
-                    enforce_relationship_checklist=True,
+                    # iter073 (codex A2): derive warn_only for broad-cast chapters
+                    # (>4 relationships) so the external review matches the main
+                    # review instead of hardcoding strict True.
+                    enforce_relationship_checklist=_enforce_checklist_for_plan(item),
                     tier=resolved_tier,
+                    # iter073 (codex B3): plan-compliance also runs in external review.
+                    chapter_plan_item=item,
                     **_build_review_context(item),
                 )
                 _sync_meta_with_external_review(drafts_dir, chapter_no)
@@ -231,8 +237,11 @@ def run_write_book(
                 if require_external_review and md_path.exists():
                     review_target(
                         md_path,
-                        enforce_relationship_checklist=True,
+                        # iter073 (codex A2 + B3): warn_only for broad-cast chapters
+                        # + plan-compliance in external review, matching main review.
+                        enforce_relationship_checklist=_enforce_checklist_for_plan(item),
                         tier=resolved_tier,
+                        chapter_plan_item=item,
                         **_build_review_context(item),
                     )
                     _sync_meta_with_external_review(drafts_dir, chapter_no)
@@ -447,20 +456,41 @@ def check_write_readiness(
                     raw_plan, outline_text=outline_text
                 )
             )
-            # iter057 P1-C: outline↔实际剧情语义漂移(确定性命中率探针,只 warn 不 block)。
-            # 上面的 provenance 守卫发现不了「outline 没变、但剧情走远了」;此处补可见性。
-            # best-effort:任何异常都不得让漂移探针 block readiness(漏报优于误报/误block)。
+            # iter057 P1-C: outline↔实际剧情语义漂移(确定性命中率探针)。上面的
+            # provenance 守卫发现不了「outline 没变、但剧情走远了」;此处补可见性。
+            # iter073 (codex I): SEVERE 持续漂移(大纲核心实体在最近 RECENT_K 章聚合
+            # 窗口里几乎全部缺席,hit_rate<20% 且锚点≥5)对续写(require_start_point)
+            # 升级为硬 blocker——过时大纲会逐字喂进每章 prompt 误导承接;新书保留
+            # fail-open warn(铁律④),普通漂移仍只 warn。block 受 config 开关控制便于
+            # 回退。best-effort:任何异常都不得让探针 block readiness(漏报优于误 block)。
             try:
                 from . import outline_drift, chapter_summary, entities
 
-                warnings.extend(
-                    f"outline_{code}"
-                    for code in outline_drift.outline_drift_codes(
-                        outline_text,
-                        chapter_summary.load_rolling_summary(),
-                        entities.load_entity_graph(),
-                    )
+                _rolling = chapter_summary.load_rolling_summary()
+                _egraph = entities.load_entity_graph()
+                _drift_codes = outline_drift.outline_drift_codes(
+                    outline_text, _rolling, _egraph
                 )
+                _severity = outline_drift.outline_drift_severity(
+                    outline_text, _rolling, _egraph
+                )
+                if (
+                    _severity == "severe"
+                    and require_start_point
+                    and _outline_drift_block_enabled()
+                ):
+                    _drift_code = (_drift_codes or ["semantic_drift"])[0]
+                    blockers.append(f"outline_severe_drift:{_drift_code}")
+                    # NB: --force does NOT clear this blocker (allow_existing_blockers
+                    # only suppresses existing_output_not_strict_approved). To
+                    # override, regenerate the outline (run-debate) or disable the
+                    # gate in config/agents.yaml (outline_drift_block.enabled=false).
+                    recommended.append(
+                        f"{cmd_prefix} run-debate  # 剧情已显著偏离大纲，重新生成大纲后再续写"
+                        "（已写好的正文不受影响）；如确认要无视，改 config/agents.yaml 的 outline_drift_block.enabled=false"
+                    )
+                else:
+                    warnings.extend(f"outline_{code}" for code in _drift_codes)
             except Exception:
                 pass
 
@@ -971,6 +1001,30 @@ def _main_cmd_prefix() -> str:
     if name:
         return f"python3 main.py --book {name}"
     return "python3 main.py"
+
+
+def _outline_drift_block_enabled() -> bool:
+    """iter073 (codex I): whether SEVERE outline drift escalates to a blocker.
+
+    Default OFF on config error / absence so a missing or corrupt agents.yaml
+    can never *introduce* a block (fail-open, 铁律④). Ships enabled in the
+    repo config; flip it off there to roll back to warn-only before a run.
+
+    Never blocks in mock mode: the mock rolling summary is a deterministic
+    fixture that needn't track the outline, so a severe-drift block would
+    false-positive on mock continuations and break the mock pipeline (铁律④).
+    The gate is a real-model quality guard; readiness tests patch this fn to
+    force it on regardless of mock. ``is_mock_mode`` resolves the effective
+    model (matching ``LLMClient.is_mock``), so an unset ``OPENAI_MODEL`` with a
+    mock models.yaml default still reads as mock — a raw env check would not.
+    """
+    if is_mock_mode("write"):
+        return False
+    try:
+        cfg = load_config("agents.yaml").get("outline_drift_block") or {}
+    except Exception:
+        return False
+    return bool(cfg.get("enabled", False)) if isinstance(cfg, dict) else False
 
 
 def _dedupe(items: List[str]) -> List[str]:

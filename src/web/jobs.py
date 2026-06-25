@@ -92,6 +92,27 @@ def _as_ts(value: Any) -> float:
     return out if math.isfinite(out) else 0.0
 
 
+def _finite_json_safe(value: Any) -> Any:
+    """Recursively replace non-finite floats (NaN/±Inf) with ``None``.
+
+    ``json.dumps`` defaults to ``allow_nan=True`` and emits bare ``NaN`` /
+    ``Infinity`` tokens — invalid per RFC 8259, so a strict browser
+    ``JSON.parse`` (or any downstream consumer) chokes. A generic step
+    (progress fraction, cost estimate, panel score) can let a non-finite
+    float slip into a job record, so sanitize both the HTTP response
+    (``routes._json``) and the persisted ``web_jobs.jsonl`` row
+    (``_persist_job``) — otherwise the dirty value just round-trips back out
+    of ``recent_jobs`` on the next read. Only floats are touched; dict/list/
+    tuple recurse, everything else passes through unchanged."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_json_safe(v) for v in value]
+    return value
+
+
 # Fields safe to surface on the public /jobs/active HTTP response. The raw
 # job record also carries ``params`` (the user's POST body) plus internal
 # diagnostics (trace_id, result_summary, cancel_*); the leave-guard only
@@ -112,6 +133,39 @@ _PUBLIC_JOB_FIELDS = (
 def public_job_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project a job record down to the allowlisted public fields."""
     return {key: job.get(key) for key in _PUBLIC_JOB_FIELDS}
+
+
+# iter073 (codex D2/D3): explicit allowlists for the list + detail endpoints,
+# so /jobs/recent and /job/<id> stop raw-passthrough'ing the whole record (a
+# future internal field would auto-leak). The summary (list) view keeps
+# ``params`` because the jobs-table drawer's "用相同参数重试" button reposts
+# ``{step, params}`` straight from the list object (and jobChapterNumber falls
+# back to params.resume_from) — dropping it would silently retry with empty
+# params. It drops only the internal cancel_* flags, which no list consumer
+# renders. The detail view adds cancel_* for the /job/<id> poll banner. The
+# real params-drop is at the **overview** endpoint (public_job_view), the
+# multi-workspace home that otherwise leaked every workspace's POST body.
+# trace_id stays on both as a copy-able correlation id.
+_PUBLIC_JOB_SUMMARY_FIELDS = _PUBLIC_JOB_FIELDS + (
+    "error",
+    "trace_id",
+    "result_summary",
+    "params",
+)
+_PUBLIC_JOB_DETAIL_FIELDS = _PUBLIC_JOB_SUMMARY_FIELDS + (
+    "cancel_requested",
+    "cancel_reason",
+)
+
+
+def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Project for /jobs/recent (sidebar + jobs table) — drops internal cancel_*."""
+    return {key: job.get(key) for key in _PUBLIC_JOB_SUMMARY_FIELDS}
+
+
+def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Project for /job/<id> — adds cancel_* (poll banner) on top of summary."""
+    return {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
 
 
 def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -142,7 +196,7 @@ def _persist_job(job: Dict[str, Any]) -> None:
         path = _job_log_path(str(job.get("workspace") or ""))
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(job, ensure_ascii=False) + "\n")
+            fh.write(json.dumps(_finite_json_safe(job), ensure_ascii=False) + "\n")
     except OSError:
         return
 
@@ -192,25 +246,39 @@ def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
             continue
         latest_by_id[job_id] = row
     def _sort_key(item: Dict[str, Any]) -> tuple[int, float]:
-        # iter072 (#5): pending/running first (active=1 wins under reverse),
-        # then most-recent timestamp. ``_as_ts`` swallows corrupt timestamps
+        # iter073 (codex C): sort AFTER lost-reconciliation (below). A
+        # pending/running row whose worker is gone is reconciled to "lost"
+        # (terminal) first, so it no longer counts as active=1 and can't pin a
+        # stale row above a newer succeeded job — that was the overview limit=1
+        # bug (旧 lost 长期压过新成功). Genuinely-live pending/running keep
+        # active=1 (iter072 #5 intent). ``_as_ts`` swallows corrupt timestamps
         # so one bad jsonl row can't 500 the whole list.
         active = 1 if item.get("status") in {"pending", "running"} else 0
         return (active, _as_ts(item.get("finished_at")) or _as_ts(item.get("started_at")))
 
-    jobs = sorted(latest_by_id.values(), key=_sort_key, reverse=True)
-    out: list[Dict[str, Any]] = []
-    for job in jobs[:limit]:
-        snapshot = dict(job)
+    # Reconcile lost-ness BEFORE sorting/slicing. Snapshot the in-memory pool
+    # ONCE (not get_job per row): the persisted row is already in hand, so
+    # get_job's persisted-fallback glob would be wasted, and an in-memory record
+    # is always at least as fresh as the jsonl row (use it as-is, running OR
+    # already-terminal). One lock acquire keeps a hot poll endpoint cheap and
+    # gives a consistent instant. No live record ⇒ the worker restarted before
+    # reaching a terminal state ⇒ lost.
+    with _JOBS_LOCK:
+        live_pool = dict(_JOBS)
+    reconciled: list[Dict[str, Any]] = []
+    for job_id, row in latest_by_id.items():
+        snapshot = dict(row)
         if snapshot.get("status") in {"pending", "running"}:
-            live = get_job(str(snapshot.get("job_id")))
+            live = live_pool.get(job_id)
             if live is not None:
-                snapshot = live
+                snapshot = dict(live)
             else:
                 snapshot["status"] = "lost"
                 snapshot["error"] = "worker process restarted before this job reached a terminal state"
-        out.append(snapshot)
-    return out
+        reconciled.append(snapshot)
+
+    reconciled.sort(key=_sort_key, reverse=True)
+    return reconciled[:limit]
 
 
 def active_jobs(workspace: str) -> list[Dict[str, Any]]:
@@ -683,7 +751,13 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
     from ..chapter_status import chapter_status
     from ..cost_estimator import estimate_cost_since
     from ..reviewer import review_target
-    from ..writer import ChapterPlanInvalid, _chapter_plan_item, _load_chapter_plan, _run_context
+    from ..writer import (
+        ChapterPlanInvalid,
+        _chapter_plan_item,
+        _enforce_checklist_for_plan,
+        _load_chapter_plan,
+        _run_context,
+    )
 
     budget_cny = float(_float_param(params, "budget_cny", _review_budget_cny()) or 0.0)
     # Offset BEFORE any spend so the settlement below only counts this job's
@@ -719,8 +793,13 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
     progress_cb("review", 0.1)
     review_target(
         md_path,
-        enforce_relationship_checklist=True,
+        # iter073 (codex review): match book_runner's external review — derive
+        # warn_only for broad-cast chapters + run plan-compliance — so a chapter
+        # reviewed via the Web review-chapter job gets the same verdict as via
+        # run_write_book (no strict-Reject divergence / no missed plan block).
+        enforce_relationship_checklist=_enforce_checklist_for_plan(item),
         tier=params.get("tier"),
+        chapter_plan_item=item,
         **_build_review_context(item),
     )
     progress_cb("sync-meta", 0.8)

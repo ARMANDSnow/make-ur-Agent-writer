@@ -225,6 +225,54 @@ class DriverStateMachineTests(_WorkspaceMixin, unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(captured["state"]["params"]["plan_target"], 15)
 
+    # ---- iter073 (codex H): start-side step-timeout validation parity ----
+    def test_start_out_of_range_timeout_rejected(self) -> None:
+        # _build_params now validates step_timeout_minutes on START too (resume
+        # already did): out-of-range → SystemExit(2), same bounds as resume.
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with self.assertRaises(SystemExit) as cm:
+                book_driver.cmd_start(_driver_args(step_timeout_minutes=99999))
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_start_negative_timeout_rejected(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with self.assertRaises(SystemExit) as cm:
+                book_driver.cmd_start(_driver_args(step_timeout_minutes=-1))
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_start_valid_timeout_accepted(self) -> None:
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_start(_driver_args(step_timeout_minutes=600))
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["step_timeout_minutes"], 600)
+
+    def test_start_timeout_zero_falls_back_to_default(self) -> None:
+        # 0 passes validation (minimum=0, aligned with resume) but is NOT "no
+        # limit": _run_steps does ``int(0 or DEFAULT)`` → DEFAULT (180).
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_start(_driver_args(step_timeout_minutes=0))
+        self.assertEqual(rc, 0)
+        stored = captured["state"]["params"]["step_timeout_minutes"]
+        self.assertEqual(stored, 0)
+        self.assertEqual(
+            int(stored or book_driver.DEFAULT_STEP_TIMEOUT_MINUTES),
+            book_driver.DEFAULT_STEP_TIMEOUT_MINUTES,
+        )
+
     def test_segments_split_and_succeed(self) -> None:
         prefix, _, calls_path = self._install_stub(
             self.ws,
