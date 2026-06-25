@@ -11,7 +11,7 @@ from . import paths, review_tier, source_excerpts, start_point, writer_style
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
-from .entities import load_entity_graph, render_active_state
+from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .entity_advance import active_relationships, save_entity_advance_proposals
 from .kb_view import start_safe_knowledge
 from .linter import NovelLinter, count_chinese_chars
@@ -718,7 +718,9 @@ def _write_prompt(
         f"机器索引统计:\n{_index_stats(index)}\n\n"
         f"辩论大纲:\n{outline[:outline_limit]}"
     )
-    entity_state = render_active_state(load_entity_graph())
+    entity_state = render_active_state(
+        load_entity_graph(), max_chars=PROMPT_ENTITY_STATE_LIMIT
+    )
     if entity_state:
         stable_context = (
             f"{stable_context}\n\n"

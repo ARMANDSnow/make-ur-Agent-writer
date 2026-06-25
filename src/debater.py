@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from . import paths, start_point
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
-from .entities import load_entity_graph, render_active_state
+from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .kb_view import start_safe_knowledge
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
@@ -884,7 +884,9 @@ def build_outline(
 ) -> str:
     if client.is_mock:
         return _hardcoded_outline(topic, decisions)
-    entity_state = render_active_state(load_entity_graph())
+    entity_state = render_active_state(
+        load_entity_graph(), max_chars=PROMPT_ENTITY_STATE_LIMIT
+    )
     entity_block = (
         f"{entity_state}\n"
         "严格遵守'当前活跃关系'：大纲中的人物互动、人物对彼此的认知、关系推进必须匹配上面 active 状态。\n\n"

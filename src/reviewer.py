@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from . import review_tier
 from . import paths
 from .config import ROOT, load_config
-from .entities import load_entity_graph, render_active_state
+from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .linter import NovelLinter
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
@@ -415,7 +415,9 @@ def review_text(
     agents = rendered_agents
     client = LLMClient("review")
     facts = global_facts_summary()
-    entity_state = render_active_state(load_entity_graph())
+    entity_state = render_active_state(
+        load_entity_graph(), max_chars=PROMPT_ENTITY_STATE_LIMIT
+    )
     entity_block = f"{entity_state}\n" if entity_state else ""
     # Iter 022 B4: KB + source-chapter blocks if caller supplied them.
     # These are truncated to keep prompt size sane; the caller is

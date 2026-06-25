@@ -11,6 +11,38 @@ from .config import ROOT
 from .utils import read_json_optional
 
 
+# Long-horizon safety cap for entity-state injected into writer / reviewer /
+# debater / plot_planner prompts. ~16K chars ≈ ~18K tokens at the structured-
+# text ratio (~1.13 tok/char), comfortably under each task's 128K context after
+# the other prompt blocks, and ~2.7× a typical book's active cast (real龙族
+# start ≈ 5.9K chars) so realistic graphs render byte-identically. See
+# ``render_active_state``'s ``max_chars`` docstring for the failure mode this
+# guards against.
+PROMPT_ENTITY_STATE_LIMIT = 16000
+
+
+def _truncate_state_text(text: str, max_chars: int) -> str:
+    """Cap ``text`` to ``max_chars`` at a line boundary, appending a marker.
+
+    Used only when ``render_active_state(max_chars=...)`` overflows — a rare
+    pathological-growth guard, so we favor a clean, deterministic cut (drop the
+    trailing relationship lines, which grow fastest, and keep the entities/tag
+    index that lead the render) over anything cleverer.
+    """
+    marker = "\n[实体关系状态过长，已按预算截断以避免 context 溢出；完整状态见 entity_graph.json]\n"
+    max_chars = int(max_chars)
+    if max_chars <= 0:
+        return ""
+    if len(marker) >= max_chars:
+        return marker[:max_chars]
+    budget = max_chars - len(marker)
+    cut = text[:budget]
+    boundary = cut.rfind("\n")
+    if boundary > 0:
+        cut = cut[:boundary]
+    return cut + marker
+
+
 def load_entity_graph(root: Path | None = None) -> Dict[str, Any]:
     """Load optional entity graph data; missing files degrade to an empty graph.
 
@@ -76,7 +108,11 @@ def _relationship_is_spoiler(rel: Dict[str, Any], is_after_start, *, viewpoint: 
 
 
 def render_active_state(
-    graph: Dict[str, Any], respect_start_point: bool = True, *, viewpoint: str | None = None
+    graph: Dict[str, Any],
+    respect_start_point: bool = True,
+    *,
+    viewpoint: str | None = None,
+    max_chars: int | None = None,
 ) -> str:
     """Render entity list, shared-tag index, and active relationship states.
 
@@ -85,6 +121,19 @@ def render_active_state(
     ``chapter_id`` strictly after the start are filtered as spoilers.
     Timeline entries without a ``chapter_id`` are kept (no info to filter
     on — schema upgrade for richer filtering is iter 022 work).
+
+    ``max_chars``: optional safety cap (defaults to None = no cap, byte-
+    identical to the legacy behavior). When set and exceeded, the rendered
+    text is truncated at a line boundary with a marker. This is the
+    long-horizon insurance for the four prompt-injecting callers (writer /
+    reviewer / debater / plot_planner): every one of them used to inject the
+    full entity-state string with no truncation, so a graph that grows over
+    many chapters (or a large initial extraction, or ``allow_creation=True``)
+    could push the write/review prompt past ``LLMContextOverflowError``'s
+    ``context_limit*0.9`` redline — a deterministic, non-retried hard failure
+    that would halt a long run. The cap is generous (~2.7× a typical book's
+    active cast) so realistic graphs stay byte-identical; it only engages on
+    pathological growth, where a marker-truncated state beats a crash.
     """
     if not graph:
         return ""
@@ -140,4 +189,7 @@ def render_active_state(
         if state:
             lines.append(f"- **{src} <-> {dst}** ({relation_type}): {state}")
 
-    return "\n".join(lines) + "\n"
+    text = "\n".join(lines) + "\n"
+    if max_chars is not None and len(text) > int(max_chars):
+        text = _truncate_state_text(text, int(max_chars))
+    return text

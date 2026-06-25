@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from . import paths
 from .config import ROOT
 from .continuation_anchor import load_continuation_anchor
-from .entities import load_entity_graph, render_active_state
+from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .schemas import ChapterPlan, ChapterPlanItem, model_to_dict, model_to_json_schema
@@ -157,7 +157,9 @@ def generate_chapter_plan(
             "或 decisions.json 缺失）。建议重跑 `python main.py debate --force` "
             "刷新大纲指纹后再规划。"
         )
-    entity_state = render_active_state(load_entity_graph())
+    entity_state = render_active_state(
+        load_entity_graph(), max_chars=PROMPT_ENTITY_STATE_LIMIT
+    )
     style_examples = load_style_examples()[:3000]
     facts = global_facts_summary()
     # Iter 021: plot_planner used to plan a 30-chapter arc without ever
