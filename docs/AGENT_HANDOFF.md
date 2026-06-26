@@ -1862,3 +1862,34 @@ E2E 全绿：三功能入口 + hero「开始创作」+ 叙事；3 卡等宽等�
 **数据状态**：仅代码+测试+文档（9 源文件 + 8 测试文件 + 4 处文档 + config）。aeloon 并行文件（`docs/AELOON_INTEGRATION.md`/`CLAUDE.md`/`aeloon超前部分实现指南/`/`scripts/aeloon_sync_check.sh`）**不并入本轮 commit**（铁律⑦）。**只 commit 不 push，等用户验收（铁律⑤）**。
 
 **下轮候选（iter074）**：公开 job API 彻底零 params（后端 `/job/<id>/retry` 端点 + 章节号 result_summary 派生）/ `_synthetic_reject` 工厂统一两处合成 Reject / outline_drift LLM 语义版 / drive-book 前置预算守门 / 批量命名中文化 / drama 站③④ / 真模型 capstone。
+
+## 真模型长程实测前置排查（session，2026-06-26）——长流程 bug 排查 + 20+ 章可行性 + 运维教训
+
+> 用户 goal：「找任何影响长流程续写的 bug + 验证 20+ 章可行性，直到确定可上真模型」。本 session **未收成正式 iter**（真跑被环境问题打断、用户主动暂停）。结论 + 教训如下，给下一个真模型 capstone 轮直接用。
+
+**判定**：结构 GO——四向排查未发现会让长流程**崩溃/静默损坏**的引擎 bug；真模型环境就绪（gpt-5.5-low 调用全 `status=ok`）。唯一暴露的引擎隐患（entity_state 无界注入）已加保险。**缺口**：未实际跑通 20+ 章真模型（被运维问题阻断，非引擎问题）。
+
+**排查证据**：
+- **编排骨架扛 25 章**：mock `write-book --chapters 25 --replan-every 5` 全 written+Approve，4 次自动 replan 零崩溃；prompt token 7798→11281 后**持平**（rolling 注入有界，ch5 后 ~34 tok/章）。
+- **resume 实证**：对已完成 25 章 workspace 重跑 → 全 `skipped_approved`，**0 次新 llm_calls（零重复花费）**。
+- **真实 prompt ground truth**（longzu 246 次真模型 write 调用）：prompt_tokens **min 4667 / max 48971 / avg 19766**，红线=128000×0.9-8000=**107200** → 余量 ~58K。context 溢出**非实际阻断**。
+- rolling 压缩/prune/render **正确无 bug**（按 chapter_no 排序去重、prune 只在 retry 调用是对的、注入封顶 `recent[-5:]+compact[-40:]+residual[-10:]`）。
+- lint cascade（iter020 ch10 死因 `not_x_but_y`）**已 iter023 改 warning-only**（error_threshold=999）。
+
+**唯一引擎修复（已 commit `178ab62` "Guard entity state prompt size"）**：`entities.render_active_state` 加 `max_chars=None`（默认字节不变）+ 行边界截断；writer/reviewer/debater/plot_planner **四处**统一传 `PROMPT_ENTITY_STATE_LIMIT=16000`。此前四处全量无截断注入 entity_state，若 `allow_creation=True` 或巨型抽取使图增长，prompt 撞红线 → `LLMContextOverflowError`**确定性不重试硬 halt**。提交版比初版**加固**：`_truncate_state_text` 补了 `max_chars<=0` 与 `len(marker)>=max_chars`（cap 比 marker 还小）两道边界守门 + 第 7 个测试 `..._tiny_cap_still_respects_limit`。改动 6 文件：`src/{entities,writer,reviewer,debater,plot_planner}.py` + `tests/test_entities.py`（entity 单测 7 绿；全量 `unittest discover` **1372 OK**，基线 1369 +3，零回归）。
+
+**教训①——mock 测不出真模型长流程风险（最重要）**：mock 下 `_propose_entity_advance` 因 `client.is_mock` 返回 `[]`（entity 图不递增）、reviewer `_mock_text` 永远 Approve。所以 mock 跑通 25 章是**假安心**——它不触发真正会 halt 长流程的两件事：(a) entity 增长撑 context、(b) panel 投票拒绝。**真模型 capstone 不可省**。
+
+**教训②——真正会 halt 长流程的是 panel 投票，不是崩溃**：某章 `max_retries` 内达不到 `min_approve_count`（review_tier：HIGH=5/5+8.5 / MID=4/5+7.5 / LOW=3/5+6.5）→ book_runner `break` 整书停（但 graceful、产物保留、可零成本 resume）。长跑选 **MID 档**（HIGH 全票 halt 概率高）+ `max-retries 3`。`allow_creation` 默认 False → 自动跑中 entity 图其实**不增长**（只更新已有关系 active state，render 不增），所以 context 溢出在默认配置下**不是**实际威胁。
+
+**教训③——endpoint 慢（~2.5 min/call）是真实约束**：debate=43 步（6 轮×6 agent + 6 裁决 + 1 大纲合成）≈ **90-108 min**；write 每章 ~10-15 次调用 ≈ **30-40 min/章**，10 章 ≈ **5-7 小时**。真跑是数小时级，**必须脱离会话跑**。
+
+**教训④——绝不用 Claude Code 后台任务（`run_in_background`/Monitor）托管真模型长跑**：本 session 真跑三次都在中途**进程被静默杀**——LLM 调用全 `status=ok`、无 traceback、无 RC、harness 报 `No task found`，伴随 MCP 断连重连（环境 churn）。这是 **Claude Code 后台任务生命周期问题，不是 endpoint / .env / 引擎 bug**——**用户从自己终端发起的进程根本不是 Claude Code 后台任务，定义上就碰不到这个死法**。正确跑法：**`drive-book --detach`**（产品自带 double-fork + `os.setsid` + `caffeinate`，专为脱离会话设计；macOS **无 `setsid` 命令**、`nohup` 不换 session 照样被杀，故必须用产品的 Python 级 detach），由**用户从自己终端发起**，`drive-book status` 查、关终端不死、可 resume。⚠️ 注：`drive-book --detach` 在数小时真跑中的存活本 session **未端到端验证**（真跑被上述托管问题打断），但其 detach 机制（os.setsid 脱离会话）设计上即为此场景，下一轮 capstone 应实测确认。推荐命令：
+```bash
+python3 main.py --book <name> drive-book start \
+  --chapters 10 --segment-size 1 --plan-target 10 \
+  --tier mid --max-retries 3 --budget-cny 150 \
+  --step-timeout-minutes 90 --detach --confirm-real-run
+```
+
+**教训⑤——从零搭 mock workspace 跑长流程的最短路径**（复现自 `tests/test_book_driver.py:DriverE2ETests`）：复制源 txt → `normalize/split`（确定性免费）→ `extract --limit 2 --force` → `compress` → `bootstrap-personas`+`apply-bootstrap --confirm` → `debate` → `plan-chapters` → `write-book`。`MOCK_WRITER_CHARS=4000` 让 mock writer 产出够长草稿过 `short_chapter_length` 闸；不设则 write prompt 含 `previous_review_feedback:` 的「review」字样命中 `_mock_text` 的 review 分支返回 JSON 当正文 → 0 中文字 → 卡死（mock 测试 artifact，非真 bug）。复用别的 workspace 的 `data/` 不污染（源派生 + 起点纯净态 + outputs 不复制即可），但**别复制 `outputs/`**（含续写 drafts + 跨章 rolling 这类运行态）。
