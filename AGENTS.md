@@ -102,14 +102,14 @@ logs/                     # 全部 gitignored
 
 ## 当前阶段 & SOP 状态
 
-**最后更新**：iter 044（2026-06-05）
+**最后更新**：iter 074（2026-07-01）
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：044（收尾轮：D-5 cancel/onboarding + D-7 mobile + D-8 UI debt + docs）
-**已完成阶段**：1-4 主链路全打通；5.3 / 8.3 / 9.3 已进入 `write-book` 生产 runner；Web 本地 Beta 入口 iter 029-032 已打通，iter 033-038 补齐 Insights/Plan/Trash/type-aware/drama 前 2 站与沙箱测试清零；iter 039-042 跑通真实续写 happy path 与 `high/mid/low` reviewer tier；iter 043 §A 完成 WebUI UX audit，§B 落地 readiness CTA、jobs drawer、type-aware IA、write-book preset/tier 与 drama shell；iter 044 收掉 onboarding budget/timeout/cancel、移动 drawer/table 响应式、Insights `scores || sub_scores` 兼容与 subscore 样式债。实时细节以 README SOP + `docs/AGENT_HANDOFF.md` 末尾为准。
-**关键证据**：`write-readiness -> write-book` 是当前推荐生产入口；Web 进入 `/` 书架 → 侧栏 → `/w/{name}/{overview,continue,plan,chapters,chapter/{n},reviews,insights,jobs}` 多页 IA；write-book 支持 preset + `tier=low/mid/high`；wizard 支持高级选项与协作式 cancel；移动端有 sidebar drawer、topbar actions 折叠与表格横向滚动；drama `/w/{name}/write` 站 ①/② mock fixture-driven；`unittest discover` 为 `590 tests OK (skipped=6)`；iter 042 `longzu` ch2 meta/review 一致 `Approve`，`tier=mid`，`panel_score=7.58`，`approve_count=4`，成本 ¥0.909，Web job succeeded。
-**后续候选（iter045+）**：`_workspace_html_guard` 抽象（本轮未发现低风险明显收益点）/ F1 二次 prompt 调优（仅在 mid 档真实卡住时开）/ drama 站 ③ 分镜 / 站 ④ 角色 / AI 绘画 client / Comfy 导出 / drama_reviewer / 章节 diff / 全文搜索 / 真模型 capstone / KB 起点过滤安全视图 / auto-advance 缺失关系 proposal 上游校验。
+**当前 iter**：074（章节版本 diff — 读者/编辑向质量复核工具；iter074-077 路线图第一步，计划稿 `~/.claude/plans/logical-snuggling-gray.md`）
+**已完成阶段**：1-4 主链路全打通；5.3/8.3/9.3 进入 `write-book` 生产 runner；Web 本地 Beta 多页 IA（iter 029-044，含 wizard/cancel/mobile 响应式）；iter 045-052 产品力补齐 + Aeloon 插件/MCP 双轨集成（iter049）+ 全程可编辑闭环（iter050）+ premise 扩写质量（iter051）+ 长程驱动器 `drive-book` 正式化（iter052，detach/断点续跑/预算双层）；iter 053-057 续写机制保证 + 驱动器加固 + 作家风格卡 + capstone 前置 5 bug 全修；iter 058-064 前端 P0/P1/P2 收口 + UX 重构 + CLI/Web 健壮性对齐；iter 065-073 语义闭环（plan-compliance reviewer + entity CREATE）+ 长流程 fail-closed 数值/JSON 硬化 + leave-guard 异步竞态 + outline-drift severe block + job API 三档投影 + entity_state 注入护栏；iter 074 章节版本 diff。实时细节以 README「最近一次更新」叙述 + `docs/AGENT_HANDOFF.md` 末尾 Phase Status 为准。
+**关键证据**：工程主链路 **STRUCTURE GO**（2026-06-26 真模型前置排查未发现会崩溃/静默损坏的引擎 bug，唯一隐患 entity_state 无界注入已修 commit `178ab62`）；`write-readiness -> write-book` 与长程 `drive-book --detach` 是推荐生产入口；Web `/` 书架 → 侧栏 → `/w/{name}/{overview,continue,plan,chapters,chapter/{n},reviews,insights,jobs}` 多页 IA，章节详情页「历史」tab 支持当前草稿 vs 重试快照的多版本 diff（iter074）；`unittest discover`（.venv）为 **1385 tests OK**；真模型实证 longzu 续写 ch1-5 全 Approve（iter053-056）、shudian premise 书 7/7 Approve（panel 均值 8.38，iter052）。**缺口**：20+ 章真模型长程 capstone 未端到端跑通（被运维问题阻断非引擎 bug，`drive-book --detach` 数小时存活待实测）。
+**后续候选（iter075+，路线图）**：iter075 全文搜索（`src/search.py` 内存扫描 + 复用 `chapter_splitter`）→ iter076 长跑可靠性硬化（面板拒稿不 halt 整书 + 每章预算预留 + 每阶段超时 + 心跳文件 + crash 自恢复，= 用户「过夜不跑废」诉求正解、capstone 前置门）→ iter077 真模型 capstone 实跑（10-20 章，需用户授权）。其它：Aeloon 深色模式对齐（跨仓库字节级 + `aeloon_sync_check.sh` 验）/ drama 站③分镜·④角色 / AI 绘画 client / Comfy 导出 / drama_reviewer / char-level diff / KB 起点过滤安全视图 / auto-advance 缺失关系上游校验。
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
 
 ## 常用 git 操作
