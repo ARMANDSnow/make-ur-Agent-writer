@@ -1893,3 +1893,20 @@ python3 main.py --book <name> drive-book start \
 ```
 
 **教训⑤——从零搭 mock workspace 跑长流程的最短路径**（复现自 `tests/test_book_driver.py:DriverE2ETests`）：复制源 txt → `normalize/split`（确定性免费）→ `extract --limit 2 --force` → `compress` → `bootstrap-personas`+`apply-bootstrap --confirm` → `debate` → `plan-chapters` → `write-book`。`MOCK_WRITER_CHARS=4000` 让 mock writer 产出够长草稿过 `short_chapter_length` 闸；不设则 write prompt 含 `previous_review_feedback:` 的「review」字样命中 `_mock_text` 的 review 分支返回 JSON 当正文 → 0 中文字 → 卡死（mock 测试 artifact，非真 bug）。复用别的 workspace 的 `data/` 不污染（源派生 + 起点纯净态 + outputs 不复制即可），但**别复制 `outputs/`**（含续写 drafts + 跨章 rolling 这类运行态）。
+
+## iter 074 Phase Status（2026-07-01，收官）——章节版本 diff（读者/编辑向质量复核工具）
+
+**背景**：工程主链路 iter073 后 STRUCTURE GO，用户定后续路线图（`~/.claude/plans/logical-snuggling-gray.md`）：先交付主线读者/编辑向产品功能 → iter076 长跑可靠性硬化（用户「过夜不跑废」诉求正解）→ iter077 真模型 capstone（需授权）。本轮=路线图第一步。Plan-mode 3+3 Explore 探查可行性 + 2 轮 AskUserQuestion 定「新产品功能 / 章节 diff」+ 用户否掉 Aeloon 深色模式（sync 边界冲突）。
+
+**做了什么**：
+- **新增纯函数 `src/web/chapter_diff.py`**：`list_chapter_versions`（current+snapshots newest-first、无快照/坏 meta/缺 md graceful 降级）/ `resolve_version_text`（**路径穿越 fail-closed by construction**：`_STAMP_RE`=`^\d{8}_\d{6}$` 锚定 + `resolve().relative_to(<drafts>/snapshots)` 抗符号链接）/ `compute_diff`（`difflib.unified_diff` → `meta/hunk/add/del/ctx` 分类 + `identical`）。
+- **2 GET 端点**（`routes.py`）：`/api/workspace/<name>/chapter/<n>/versions` + `/chapter/<n>/diff?v1=&v2=`（v2 缺省 current）。handler 第三重闸：v1/v2 必须落在 `list_chapter_versions` 的 `valid_ids` 集合，未知/穿越 id 触盘前 400。复用 `_archive_chapter_artifacts` 快照布局 + `read_json_optional` + edit 追踪 meta 字段。
+- **前端**（`static.py`）：填充章节详情页「历史」tab 的 `#tab-diff` 占位（原 4297「将在后续版本开放」文案）为「多版本对比」——版本选择器 + `loadChapterDiffVersions/runChapterDiff`（默认最新快照→当前草稿、`<2 版本`中性文案、`onclick=` 无监听器堆积）+ diff CSS（`--jade-soft` add/`--sienna-soft` del，暗色天然兼容）。
+
+**验收**：canonical **1385** tests OK（.venv，1369+13+，394s）；新增 `tests/test_web_chapter_diff.py` 13 例。实时 HTTP e2e（只读现有 `tianlong` ch4：`/versions` 4 版本 newest-first、`/diff` 分类行、`/diff?v1=../../../etc/passwd`→**400 fail-closed**）+ 浏览器截图（diff 红/绿 155 行渲染）。`preflight` exit 0；`verify.sh` 本机裸 python3 既有 import 错误（缺 pydantic/tiktoken）与本轮无关。
+
+**铁律⑨ 审查**：2 独立视角 subagent 并行 + 安全自查。后端**无安全漏洞/崩溃/路由冲突/重复**（路径穿越三重闸、坏 meta 降级）；前端**无 XSS**（全 `escapeHtml`）；`sk-|.env|api_key|token` 零命中。**2 LOW 效率残留已记录未改**（scope 收敛）：① 在途 fetch 若重渲染，旧回调写脱离 DOM（无害）；② history tab 未开也随每次 render 预取（延续 eager 惯例）。可选优化：generation token / tab-active 懒加载。
+
+**数据状态**：代码+测试+文档（`chapter_diff.py` + `routes.py` + `static.py` + `test_web_chapter_diff.py` + 迭代 doc + README 行 186 + 索引）。**顺带提交无渲染影响的 Aeloon drift**（`docs/AELOON_INTEGRATION.md` + `aeloon超前部分实现指南/深色模式实现指南.md` + `scripts/aeloon_sync_check.sh`，均 doc/工具不改 CSS）。**只 commit 不 push，等用户验收（铁律⑤）**。
+
+**下轮候选（iter075）**：**全文搜索**（`src/search.py` 内存扫描 + 复用 `chapter_splitter.load_manifest/chapter_text`，跨章实体/伏笔/关键词检索）。**iter076 长跑可靠性硬化**（面板拒稿不 halt 整书 / 每章预算预留 / 每阶段超时 / 心跳文件 / crash 自恢复）是 **iter077 真模型 capstone 实跑**（10-20 章，需用户授权）的前置门。**Aeloon 深色模式对齐**留 backlog（跨仓库字节级对齐 + 跑 `aeloon_sync_check.sh` 验 ✅）。char-level diff / diff 缓存 / 版本选择器懒加载 / diff 面板复用到大纲·KB 对比为本功能延伸候选。

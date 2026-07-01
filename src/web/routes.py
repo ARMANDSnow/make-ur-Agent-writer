@@ -31,7 +31,7 @@ from ..config import get_model_config
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
 from ..utils import read_json, read_json_optional
-from . import auth, diag, errors, jobs, settings as settings_mod, static, templates, wizard
+from . import auth, chapter_diff as chapter_diff_mod, diag, errors, jobs, settings as settings_mod, static, templates, wizard
 from ._naming import RESERVED_NAMES as _RESERVED_WORKSPACE_NAMES_SHARED  # noqa: F401
 from ._naming import (
     WORKSPACE_NAME_RE as _WORKSPACE_NAME_RE_SHARED,  # noqa: F401
@@ -1763,6 +1763,64 @@ def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int
     )
 
 
+def api_workspace_chapter_versions(name: str, chapter: str) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/chapter/<n>/versions — list a chapter's
+    on-disk versions (current draft + retry snapshots) for the diff picker
+    (iter 074)."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        chapter_no = int(chapter)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "chapter must be an integer"})
+    if not 1 <= chapter_no <= 9999:
+        return _json(400, {"error": "chapter out of range"})
+    with use_workspace(name):
+        versions = chapter_diff_mod.list_chapter_versions(paths.drafts_dir(), chapter_no)
+    return _json(200, {"chapter": chapter_no, "versions": versions})
+
+
+def api_workspace_chapter_diff(
+    name: str, chapter: str, v1: str = "", v2: str = ""
+) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/chapter/<n>/diff?v1=&v2= — unified diff
+    between two enumerated versions (iter 074).
+
+    Both ids must appear in ``list_chapter_versions`` (rejects unknown /
+    path-traversal ids); ``resolve_version_text`` re-gates by regex + a
+    stays-inside-snapshots check as defense-in-depth."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    try:
+        chapter_no = int(chapter)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "chapter must be an integer"})
+    if not 1 <= chapter_no <= 9999:
+        return _json(400, {"error": "chapter out of range"})
+    v1 = (v1 or "").strip()
+    v2 = (v2 or chapter_diff_mod.CURRENT_VERSION_ID).strip()
+    with use_workspace(name):
+        drafts_dir = paths.drafts_dir()
+        versions = chapter_diff_mod.list_chapter_versions(drafts_dir, chapter_no)
+        valid_ids = {entry["id"] for entry in versions}
+        if v1 not in valid_ids or v2 not in valid_ids:
+            return _json(400, {"error": "unknown version id"})
+        old_text = chapter_diff_mod.resolve_version_text(drafts_dir, chapter_no, v1)
+        new_text = chapter_diff_mod.resolve_version_text(drafts_dir, chapter_no, v2)
+    if old_text is None or new_text is None:
+        return _json(404, {"error": "version content not found"})
+    labels = {entry["id"]: entry["label"] for entry in versions}
+    result = chapter_diff_mod.compute_diff(
+        old_text,
+        new_text,
+        old_label=labels.get(v1, v1),
+        new_label=labels.get(v2, v2),
+    )
+    return _json(200, {"chapter": chapter_no, "v1": v1, "v2": v2, **result})
+
+
 def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
     match = re.match(r"chapter_(\d+)(\.partial)?\.md$", path.name)
     if not match:
@@ -2367,6 +2425,22 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
             name,
             chapter,
             variant=(_query or {}).get("variant", [""])[0],
+        ),
+    ),
+    # iter 074: chapter version diff — enumerate versions + unified diff
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/chapter/(?P<chapter>\d+)/versions/?$"),
+        lambda name, chapter, **_: api_workspace_chapter_versions(name, chapter),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/chapter/(?P<chapter>\d+)/diff/?$"),
+        lambda name, chapter, _query=None, **_: api_workspace_chapter_diff(
+            name,
+            chapter,
+            v1=(_query or {}).get("v1", [""])[0],
+            v2=(_query or {}).get("v2", [""])[0],
         ),
     ),
     (

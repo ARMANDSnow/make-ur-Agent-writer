@@ -832,6 +832,22 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .advisor-item .section { font-family: var(--font-serif); font-size: var(--fs-lg); margin-top: 2px; }
 .advisor-item .guidance { color: var(--ink-2); margin-top: var(--space-2); white-space: pre-wrap; }
 
+/* iter 074: chapter version diff (history tab) */
+.diff-panel { margin-top: var(--space-5); }
+.diff-panel > h4 { font-size: var(--fs-sm); margin: 0 0 var(--space-3); }
+.diff-controls { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--ink-2); }
+.diff-controls label { display: inline-flex; align-items: center; gap: var(--space-2); }
+.diff-controls select { max-width: 260px; }
+.diff-controls .diff-arrow { color: var(--ink-3); }
+.diff-output { margin-top: var(--space-3); }
+.diff-view { border: 1px solid var(--rule); border-radius: var(--radius-2); overflow: auto; font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.6; background: var(--bg-card); }
+.diff-line { padding: 1px var(--space-3); white-space: pre-wrap; word-break: break-word; }
+.diff-line.diff-add { background: var(--jade-soft); }
+.diff-line.diff-del { background: var(--sienna-soft); }
+.diff-line.diff-hunk { color: var(--ink-3); background: var(--bg-sunken); }
+.diff-line.diff-meta { color: var(--ink-3); background: var(--bg-sunken); font-style: italic; }
+.diff-line.diff-ctx { color: var(--ink-2); }
+
 /* ---------- Review / advisor readability polish (global) ---------- */
 .subscore-bar .track { height: 8px; }
 .subscore-bar .val { font-family: var(--font-serif); font-size: var(--fs-sm); color: var(--ink-1); }
@@ -4283,7 +4299,7 @@ JS_DASHBOARD = """\
         )).join("") + "</div>";
       }
     }
-    // history tab
+    // history tab (iter 074: + 多版本草稿 diff)
     const histBox = document.getElementById("tab-history");
     if (histBox) {
       histBox.innerHTML =
@@ -4294,8 +4310,90 @@ JS_DASHBOARD = """\
         '<div class="k">snapshot_path</div><div class="v"><code>' + escapeHtml(meta.snapshot_path || "(无)") + "</code></div>" +
         '<div class="k">path</div><div class="v"><code>' + escapeHtml(data.path || "") + "</code></div>" +
         "</div>" +
-        '<p class="muted" style="margin-top:12px">多版本草稿对比（diff）将在后续版本开放。</p>';
+        '<div class="diff-panel">' +
+        '<h4>多版本对比</h4>' +
+        '<div class="diff-controls">' +
+        '<label>基准 <select id="diff-v1"></select></label>' +
+        '<span class="diff-arrow">→</span>' +
+        '<label>对比 <select id="diff-v2"></select></label>' +
+        '<button type="button" id="diff-run" class="btn btn-secondary btn-sm">对比</button>' +
+        '</div>' +
+        '<div id="diff-output" class="diff-output muted">载入版本…</div>' +
+        '</div>';
+      loadChapterDiffVersions(num);
     }
+  }
+  // iter 074: chapter version diff (current draft vs archived retry snapshots)
+  async function loadChapterDiffVersions(num) {
+    const out = document.getElementById("diff-output");
+    const s1 = document.getElementById("diff-v1");
+    const s2 = document.getElementById("diff-v2");
+    if (!out || !s1 || !s2) return;
+    let versions;
+    try {
+      const data = await fetchJson(wsUrl("/chapter/" + num + "/versions"));
+      versions = data.versions || [];
+    } catch (err) {
+      out.className = "diff-output";
+      out.innerHTML = renderErrorCard(err);
+      return;
+    }
+    const controls = document.querySelector(".diff-controls");
+    if (versions.length < 2) {
+      if (controls) controls.style.display = "none";
+      out.className = "diff-output muted";
+      out.textContent = versions.length
+        ? "本章只有当前草稿一个版本，暂无历史快照可对比。"
+        : "本章暂无草稿版本。";
+      return;
+    }
+    if (controls) controls.style.display = "";
+    const optHtml = versions.map(function (v) {
+      return '<option value="' + escapeHtml(v.id) + '">' + escapeHtml(v.label) +
+        (v.verdict ? "（" + escapeHtml(v.verdict) + "）" : "") + "</option>";
+    }).join("");
+    s1.innerHTML = optHtml;
+    s2.innerHTML = optHtml;
+    s1.value = versions[1].id;  // newest snapshot as baseline
+    s2.value = versions[0].id;  // current draft
+    const runBtn = document.getElementById("diff-run");
+    if (runBtn) runBtn.onclick = function () { runChapterDiff(num); };
+    runChapterDiff(num);
+  }
+  async function runChapterDiff(num) {
+    const out = document.getElementById("diff-output");
+    const s1 = document.getElementById("diff-v1");
+    const s2 = document.getElementById("diff-v2");
+    if (!out || !s1 || !s2) return;
+    const v1 = s1.value;
+    const v2 = s2.value;
+    if (v1 === v2) {
+      out.className = "diff-output muted";
+      out.textContent = "请选择两个不同的版本。";
+      return;
+    }
+    out.className = "diff-output muted";
+    out.textContent = "对比中…";
+    let data;
+    try {
+      data = await fetchJson(wsUrl("/chapter/" + num + "/diff?v1=" +
+        encodeURIComponent(v1) + "&v2=" + encodeURIComponent(v2)));
+    } catch (err) {
+      out.className = "diff-output";
+      out.innerHTML = renderErrorCard(err);
+      return;
+    }
+    if (data.identical) {
+      out.className = "diff-output muted";
+      out.textContent = "两个版本内容一致。";
+      return;
+    }
+    out.className = "diff-output";
+    const rows = (data.diff_lines || []).map(function (ln) {
+      return '<div class="diff-line diff-' + escapeHtml(ln.type || "ctx") + '">' +
+        escapeHtml(ln.text || "") + "</div>";
+    }).join("");
+    out.innerHTML = '<div class="diff-view">' + rows + "</div>";
   }
   function renderAgentReview(a) {
     // iter042 schema evolution: current reviewer output writes `scores`;
