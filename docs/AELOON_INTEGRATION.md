@@ -2,6 +2,8 @@
 
 > 本文档说明如何把「龙族 AI 续写系统」接入 Aeloon-Pro：**引入的配置**、**是否要合并到 Aeloon main 分支**、以及**详细部署步骤**。
 > 落地档案见 [`iteration_049_PLAN.md`](iterations/iteration_049_PLAN.md)；插件速查见 [`integrations/aeloon_plugin/README.md`](../integrations/aeloon_plugin/README.md)。
+>
+> 📌 **本文档是 Aeloon 集成的唯一权威参考**——涉及 Aeloon 的迭代请先读此档，`AGENT_HANDOFF.md` / iter 计划不再重复集成细节。最近更新 **2026-06-23**（§0.1 时间线新增 PR #541；§11 **引擎 iter058-062 同步进 `dev/ui`** + 可复用的 vendored 同步方法 `scripts/aeloon_sync_check.sh`）。早前：§10 PR #383 进 `dev/ui`、§10.3 PR #418 入口移侧栏（2026-06-20）。
 
 ---
 
@@ -11,6 +13,20 @@
 - 两条接入轨，二选一或并用：**Aeloon 原生插件**（`/novel` 命令 + LLM 工具，推荐）与 **MCP server**（`tools.mcpServers` 配置）。
 - 两条轨都要求续写系统作为**独立 HTTP 服务**运行（`python main.py web`）。插件/MCP 只是瘦客户端。
 - **已装 Aeloon、想从零把续写系统用起来？** 直接看下方「🚀 面向 Aeloon 用户」一节——关键是**依赖分边**：插件侧（跑在 Aeloon 进程内）**零额外依赖**，续写引擎的重依赖（litellm 等）在它**自己的独立进程**，两边天然隔离。
+
+---
+
+## 0.1 集成进展时间线（速览）
+
+| 时间 | 里程碑 | 形态 / 分支 | 状态 |
+|---|---|---|---|
+| 2026-06-10 (iter049) | 插件 + MCP **双轨**集成 | workspace 安装（`.pth`+符号链接）/ MCP server；并入 `main` | ✅ 758 tests；元数据层（discover/load/register）实测通过 |
+| 2026-06-16 | **bundled 内置插件**法（§9） | 孤立快照分支 `dev/novel-ui`（`aeloon/plugins/NovelContinuation/` + vendored `novel_web/`） | ✅ 加载实测通过；live `/novel` 受 gateway 架构限制（§9.3–9.4） |
+| 2026-06-19 (PR #383) | bundled 进 **`dev/ui`** + Aeloon UI 入口按钮（§10） | `feat/novel-ui-integration` → `dev/ui`（vendored iter057） | ✅ **已合入 dev/ui**（按钮初版在概览卡） |
+| 2026-06-20 (PR #418) | 入口**从概览页移到左侧栏「金融研究」下方**（§10.3） | `feat/novel-sidebar-entry` → `dev/ui` | ✅ rebase 解冲突后 mergeable、CI 绿；上游已自行移除 #383 概览卡 |
+| 2026-06-23 (PR #541) | **引擎 iter058-062 同步进 `dev/ui`**（§11）：报错收口 + float/int 有限性守门 + 坏 JSON 降级 | `chore/novel-web-sync-iter062` → `dev/ui`（vendored 基线 iter057 → **iter062**） | ✅ **已合入 dev/ui**；27 文件，三方判定 9 覆盖+1 新增+2 自动合并+2 人工收口；ruff CI 绿（novel_web 被排除） |
+
+> 三种部署法**并存**、用途不同：**workspace**（§4，本地单机最干净、零改 Aeloon）/ **MCP**（§5，备选/并用）/ **bundled**（§9–10，随分支交付、原生被 discovery 发现）。**已知坑**汇总见 §9.1(坑①)、§9.3(坑②)、§9.5(坑③)、§10.2(坑④)。
 
 ---
 
@@ -318,6 +334,7 @@ NOVEL_BASE_URL=http://127.0.0.1:8765 python -m integrations.mcp_server.server
 - **改插件代码即时生效**：`~/.aeloon/plugins/novel_continuer` 是**符号链接**指向仓库，`.pth` 指向仓库根——`git pull` 续写仓库后，重启 Aeloon 即用上新代码，**无需重装**。
 - **续写系统升级**：照常更新本仓库；插件/MCP 通过稳定的 HTTP 契约调用，多数升级无需动 Aeloon 侧。
 - **Aeloon 升级**：SDK 在 `dev/ui` 与 `main` 间零差异；如未来 Aeloon 改 `_sdk` 契约，受影响的只有薄胶水 `plugin.py` / `tool_adapter.py`。
+- **bundled / vendored 子树升级（`dev/ui` 交付，§9–11）**：`novel_web/` 是本仓库 `src` / `integrations` / `config` / `prompts` / `tests` 的整树副本，**本仓库是单一真源，不在 Aeloon 里重写**。升级已工具化——用 [`scripts/aeloon_sync_check.sh`](../scripts/aeloon_sync_check.sh) 对「基线 tag `aeloon-handoff-iterNNN`」做三方判定（🟢直接覆盖 / 🆕新增复制 / 🟢可自动合并 / 🔴需人工冲突 / 🗑️建议删除），`--apply` 落地安全桶、冲突手工收口（**务必保护 aeloon 定制：云 token / 深色模式 / gateway / 模型降级告警**）→ 在 `dev/ui` 起新分支提 PR → **merge 后把基线 tag 前移到本次同步 commit**。完整一次实操见 §11。
 
 ---
 
@@ -413,3 +430,82 @@ cd ~/Desktop/Aeloon-Pro && .venv/bin/aeloon agent          # 交互；输入 /no
 | 后端 novel_web（用户视角） | ✅ 工作台首页 HTTP 200（标题「续写工作台·本地多 Agent 创作引擎」）+ `/api/workspaces` 正常 + mock 全链路（new/outline/status 通、write 被 readiness 护栏正确拦截） |
 | bundled `/novel` 加载 | ✅ 真实 aeloon 进程启动日志 `✓ Plugins loaded: …novel.continuer…`；`discover_all()` source=bundled；`register()` 注册 /novel + 8 工具 |
 | live 交互 `/novel` 回复 | ⚠️ headless 自动化未打印——因 gateway 架构（§9.3）+ standalone/local/login/TTY 限制（§9.4-B）。交互终端按 §9.4-A 从 `dev/novel-ui` 部署起 gateway+agent 即可正常用 |
+
+---
+
+## 10. 实测补遗（2026-06-19）：bundled 进 `dev/ui`（PR #383）+ Aeloon UI 入口按钮
+
+> §9 的 bundled 法落在快照分支 `dev/novel-ui`；本节是把它正式带进 Aeloon 的 **UI 分支 `dev/ui`** 的 PR [#383](https://github.com/AetherHeart-AI/Aeloon-Pro/pull/383)（head `feat/novel-ui-integration` → base `dev/ui`，vendoring 来源续写项目 tag `aeloon-handoff-iter057`），并首次在 **Aeloon 界面里**加了续写入口按钮。
+
+### 10.1 PR #383 带进 dev/ui 的内容
+
+- `aeloon/plugins/NovelContinuation/`（4 文件，薄 shim，复用 `novel_web/integrations/aeloon_plugin` 的 `NovelPlugin` 单一真源）+ vendored `novel_web/`（整套续写引擎，iter057，含长程 5 bug 修复与作家风格卡）。
+- **运行模型不变**（与 §9 一致）：插件是薄 HTTP 客户端，驱动常驻续写后端 `python novel_web/main.py web --port 8765`（默认 base_url `127.0.0.1:8765`），引擎重依赖隔离在该进程。
+
+### 10.2 修掉的两处 CI 红（host 仓库把 vendored 子树也扫了）
+
+vendoring 把 `novel_web/` 整树带进 Aeloon 仓库后，Aeloon 的 CI（`.github/workflows/ci.yml`）把它也纳入扫描，触发两红：
+
+- **ruff**：`ruff check .` / `ruff format --check .` 全树扫 → `novel_web/` 报 144 错（host 与续写项目的 lint 习惯不同）。**修法**：`pyproject.toml [tool.ruff] extend-exclude = ["novel_web"]`——vendored 子树由其上游项目自身 CI 负责 lint，host 不扫。
+- **pytest（坑④，PEP420 命名空间包遮蔽）**：收集期 `import tests.test_memory_report` 报 `ModuleNotFoundError` 中断整轮。根因：插件 shim 旧版 `sys.path.append(novel_web)` 把 `novel_web/` **永久**留在 `sys.path`，使 `novel_web/tests`（有 `__init__.py` = 正规包）按 PEP420 规则**无视 sys.path 顺序直接遮蔽**根 `tests`（无 `__init__.py` = namespace 包）。**修法**：shim 改成只在 import `NovelPlugin` 期间临时加路径、`finally` 移除（其传递依赖此时已 eager 全进 `sys.modules`，运行时走父包 `__path__`，移除路径不受影响）。
+  > **通用教训**：任何把 vendored 子树塞进 host `sys.path` 的 shim，若子树含**同名顶层包**（`tests`/`src`/`integrations`…）就会遮蔽 host 包——**把路径作用域限定在 import 那一刻**是通解。
+
+### 10.3 Aeloon UI「小说续写」入口（#383 概览 → #418 移到左侧栏）
+
+§1 说过插件 SDK 无自定义面板/iframe 扩展点（聊天里只能走深链）；但 **Aeloon 的 `dev/ui` 前端（React SPA）本身可以加入口**。演进：
+
+- **#383（初版，已弃）**：加在概览页「快捷操作」卡（`OverviewActionsCard`）。实测埋在「工作台」长弹窗**最底部**（y≈1930、视口~740），默认在屏幕外、需滚动 → **可发现性差**，同事找不到。
+- **PR [#418](https://github.com/AetherHeart-AI/Aeloon-Pro/pull/418)（最终形态）**：**移到左侧栏紧邻「金融研究」下方**——`ui/frontend/src/app/App.tsx` 仿金融研究同款 `ScholarNavItem`（`PenToolIcon` + collapsed/expanded 两态 + 折叠态 `Tooltip`，与金融研究放在**同一个 `<section space-y-2>`** 内、8px 紧贴），常驻、一眼可见。
+  - 行为：`onClick = window.open("http://127.0.0.1:8765","_blank","noopener,noreferrer")` **新标签**打开续写工作台（金融研究是同标签 `location.assign("/market")`；这里用新标签，避免 8765 后端未启动时冲掉当前 Aeloon 会话）。
+  - 上游 dev/ui 近期重构（#413 sidebar polish 等）已**自行移除** #383 的概览「快捷操作」卡，故 #418 rebase 后只净新增侧栏入口这一处（`git diff` 仅 `App.tsx +23`）。
+- ⚠️ 注意：`dev/ui` **无前端 CI**（3 个 workflow 全 Python，不扫 TS）→ TS 改动无 CI 兜底，靠本地 `npx tsc --noEmit` + `vitest` 把关；按钮要显示需**前端重建/重部署**；点了要真打开须先起后端（§10.1）。dev/ui 另有 4 个**既有前端测试红**（`chat-layout`/`ChatCompose.pending-selector`/`ChatWorkspacePane`×2，与小说改动无关，stash 验证过）。
+
+### 10.4 当前状态 & "合并后能用吗"
+
+- PR #383（含概览按钮初版）四项 CI 全绿、**已合入 `dev/ui`**；入口随后由 **PR #418 移到左侧栏**（§10.3，rebase 解冲突后 mergeable、CI 绿）。
+- **合并 ≠ 立即可用**，还需：① 前端重建（按钮才显示）② 起 `8765` 后端 ③ 配模型 key（真生成内容）。
+- 两条路成熟度不同：**网页工作台**（按钮指向的这条）最稳——mock 全链路 + 首页 HTTP 200 已验（§9.6）；**聊天 `/novel`** 的 live 链路仍按 §9.3–9.4，需在目标部署环境（从 dev/ui 部署起 gateway+agent）验证，本机历史上未真正跑通。
+
+---
+
+## 11. vendored 引擎同步：方法 + iter058-062 实操（PR #541，2026-06-23）
+
+§10 首次把 `novel_web/` 整树带进 `dev/ui`（基线 `aeloon-handoff-iter057`）。之后本仓库继续迭代（iter058-062），需把引擎改动同步进那份 vendored 副本——**不是在 Aeloon 里重写，而是做文件级映射/合并**。本节固化这套可复用方法。
+
+### 11.1 为什么不重写：副本关系
+
+`Aeloon-Pro/novel_web/` 与本仓库**同路径整树副本**，约 65/84 个 `.py` 逐字节相同。本仓库是单一真源；Aeloon 侧只在少数文件焊了集成胶水（云 token / 深色 / gateway / `background.py` 自启 / 模型降级）。所以同步单位是「拷贝 / 三方合并文件」，**让 Claude 照着重写=把 `cp` 干成重写，既慢又制造分叉**。
+
+### 11.2 判定工具：[`scripts/aeloon_sync_check.sh`](../scripts/aeloon_sync_check.sh)
+
+用「上次 vendored 的基线 tag」做三方判定（aeloon 现状 vs 本仓库 TARGET vs 基线），逐文件给判定并打印可执行命令：
+
+| 判定 | 含义 | 动作 |
+|---|---|---|
+| ✅ 已同步 | aeloon == 你的 TARGET 版 | 无 |
+| 🟢 直接覆盖 | 你单边改、aeloon 仍=基线 | 写入 TARGET 版（零冲突） |
+| 🆕 新增复制 | TARGET 新增、aeloon 没有 | 新建复制 |
+| 🟢 可自动合并 | 两边都改但三方 merge 无冲突 | 自动写回（深色/胶水保留） |
+| 🔴 需人工冲突 | 两边都改且 merge 冲突 | 人工收口 |
+| 🗑️ 建议删除 / ⚠️ 人工决策 | 删除/双删分叉等 | 人判断，不自动执行 |
+
+要点：① 对照 `git show TARGET:f`（已提交内容），脏工作区 WIP 不混入；② 范围默认 `src integrations config prompts`，加 `SYNC_SCOPE=tests` 单独同步测试；③ `--apply` 只动「覆盖/新增/可自动合并」三个安全桶，冲突/删除永不自动执行。
+
+### 11.3 iter058-062 实操记录（PR [#541](https://github.com/AetherHeart-AI/Aeloon-Pro/pull/541)）
+
+- **范围**：`aeloon-handoff-iter057..HEAD(5715c0e=iter062)`，只搬上游改动，无 aeloon 胶水逆向回流。
+- **判定结果**：src/web 共 **9 直接覆盖 + 1 新增（`web/errors.py`）+ 2 自动合并（`static.py`/`templates.py`，深色保留）+ 2 人工冲突**；tests **6 覆盖 + 7 新增**。共 27 文件。
+- **冲突收口**（保护 aeloon 定制）：
+  - `web/routes.py`：保留 `import os`（`AELOON_MODEL_REF` 云模型）+ 新增 `import math`（有限性守门）。
+  - `web/settings.py`：保留 `from ..config import env_path`（云感知 .env 路径）+ 新增 `from . import errors`（报错收口）；丢弃 body 未使用的 `ROOT`。
+- **验证**：aeloon venv 跑 `novel_web` 全量 **1236 tests，仅 2 个既有失败**（`test_aeloon_cloud_model_ref_*`，dev/ui 基线即失败、非本次引入，`config.py`/`llm_client.py` 不在同步范围）。
+- **CI**：`novel_web` 已被 Aeloon CI 的 ruff（`extend-exclude`）与 pytest（`testpaths=["tests"]`）**双排除**，故本类 PR 不受 vendored 子树影响；本 PR ruff CI 绿、已 merge（merge commit `e5d192e4`）。
+- **收尾**：merge 后基线 tag 前移 → `aeloon-handoff-iter062`（指向 `5715c0e`），并把脚本 `SYNC_BASE` 默认值同步为 `aeloon-handoff-iter062`。**下次同步从此基线起判定。**
+
+> ⚠️ 既有技术债（与本次同步无关、待单独排查）：`dev/ui` 上 `test_aeloon_cloud_model_ref_*` 两个测试在 mock 环境下失败（云模型 ref 回落成 `mock`）。它们测 `config.py`/`llm_client.py` 的 aeloon 云模型逻辑，不进 CI，但是 dev/ui 上真实的坏测试。
+
+### 11.4 待同步基线状态（iter063+）
+
+- **当前 `dev/ui` vendored 基线 = iter062**（`aeloon-handoff-iter062` → `5715c0e`，PR #541）。
+- **iter063 起的上游改动尚未同步**：iter063（codex 复审收口 + readiness 目录合并 + 移动端响应式）、iter064（CLI/Web 数值守门统一 `src/run_params.py` + `OutlineStale` 出口统一 + 错误卡路径脱敏 + workspace pattern 单源 + 移动端 `.topbar-actions` 作用域）。下次同步范围 = `aeloon-handoff-iter062..HEAD`，按 §11.2 三方判定。
+- 注意：iter064 新增 `src/run_params.py`（被 `routes`/`wizard`/`book_runner`/`book_driver`/`main` 引用），同步时是 🆕 新增复制；`web/errors.py` 的 `_redact_paths` 与 `web/templates.py` 的 `WORKSPACE_NAME_HTML_PATTERN` 改动需走自动合并（保护 aeloon 深色/胶水定制）。
