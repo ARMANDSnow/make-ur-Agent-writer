@@ -136,6 +136,7 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
     ("workbench", "工作台", "workbench"),
     ("plan", "计划", "plan"),
     ("chapters", "章节", "chapters"),
+    ("search", "搜索", "search"),  # iter075: 跨章全文检索（章节的姊妹操作）
     ("reviews", "评审", "reviews"),
     ("insights", "数据", "insights"),
     ("jobs", "任务", "jobs"),
@@ -900,6 +901,56 @@ def render_workspace_chapters(name: str, workspaces: Iterable[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Page: full-text search (iter075)
+# ---------------------------------------------------------------------------
+
+
+def render_workspace_search(name: str, workspaces: Iterable[str]) -> str:
+    # 三态容器均由 static.py 的 initSearch() 在客户端渲染：初始引导 → 检索中 →
+    # 有结果 / 无结果 / 错误卡。后端只出骨架，正文/高亮全在前端 DOM 安全构建。
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">检索</p>'
+        '<h1>全文搜索</h1>'
+        '<p class="muted">跨章检索原文 · 续写草稿 · 知识库正文，用于连贯性核查与长书导航。'
+        '大小写不敏感，按字面匹配（正则符号视作普通字符）。</p>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="search-hero">'
+        '<div class="search-box-wrap">'
+        '<span class="search-icon" aria-hidden="true">✦</span>'
+        '<input type="search" id="search-input" class="search-box" '
+        'placeholder="输入关键词，如「路明非」「言灵」「诺诺」…" autofocus '
+        'autocomplete="off" spellcheck="false">'
+        '</div>'
+        '<div class="search-sources cluster" id="search-sources">'
+        '<label><input type="checkbox" value="original" checked> 原文</label>'
+        '<label><input type="checkbox" value="draft" checked> 续写</label>'
+        '<label><input type="checkbox" value="kb" checked> 知识库</label>'
+        '</div>'
+        '</div>'
+        '<p class="search-summary muted" id="search-summary"></p>'
+        '<div id="search-results" class="search-results">'
+        '<div class="empty-state"><span class="ornament">✦</span>'
+        '<h3>输入关键词开始检索</h3>'
+        '<p class="muted">支持跨章定位实体、伏笔与关键词。</p></div>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 搜索",
+        page_kind="search",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("搜索", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="search"),
+        workspace=name,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Page: chapter detail
 # ---------------------------------------------------------------------------
 
@@ -1100,7 +1151,7 @@ def render_wizard() -> str:
         '</label>'
         '<label class="field-check">'
         '<input type="radio" name="ws_type" value="drama"> '
-        '<strong>短剧剧本</strong>　·　创建 drama workspace，进入 4 站审查向导'
+        '<strong>短剧剧本</strong>　·　创建短剧作品，进入 4 站审查向导'
         '</label>'
         '<label class="field-check">'
         '<input type="radio" name="ws_type" value="premise"> '
@@ -1127,7 +1178,7 @@ def render_wizard() -> str:
         '</div>'
         '<form id="wizard-form" enctype="multipart/form-data" class="stack">'
         '<div class="field">'
-        '<label>workspace 名</label>'
+        '<label>作品名</label>'
         '<input name="workspace" required '
         # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
         # the client check can't drift from the backend WORKSPACE_NAME_RE again.
@@ -1173,7 +1224,7 @@ def render_wizard() -> str:
         '<div class="card-body">'
         '<form id="premise-form" class="stack">'
         '<div class="field">'
-        '<label>workspace 名</label>'
+        '<label>作品名</label>'
         '<input name="workspace" required '
         # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
         # the client check can't drift from the backend WORKSPACE_NAME_RE again.
@@ -1215,7 +1266,7 @@ def render_wizard() -> str:
         '</div>'
         '<form id="drama-form" class="stack">'
         '<div class="field">'
-        '<label>workspace 名</label>'
+        '<label>作品名</label>'
         '<input name="workspace" required '
         # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
         # the client check can't drift from the backend WORKSPACE_NAME_RE again.

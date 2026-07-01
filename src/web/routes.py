@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .. import paths, review_tier, run_params, start_point
+from .. import paths, review_tier, run_params, search as search_mod, start_point
 from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
 from ..config import get_model_config
@@ -225,6 +225,14 @@ def render_workspace_chapters(name: str) -> Tuple[int, str, bytes]:
     if guard:
         return guard
     return _html(200, templates.render_workspace_chapters(name, list_workspaces()))
+
+
+def render_workspace_search_page(name: str) -> Tuple[int, str, bytes]:
+    # iter075: 全文搜索是 novel-only（drama 无正文语料）。
+    guard = _workspace_html_guard_novel_only(name)
+    if guard:
+        return guard
+    return _html(200, templates.render_workspace_search(name, list_workspaces()))
 
 
 def render_workspace_chapter_detail(name: str, chapter: str) -> Tuple[int, str, bytes]:
@@ -1821,6 +1829,41 @@ def api_workspace_chapter_diff(
     return _json(200, {"chapter": chapter_no, "v1": v1, "v2": v2, **result})
 
 
+def api_workspace_search(
+    name: str, q: str = "", sources: Optional[str] = None
+) -> Tuple[int, str, bytes]:
+    """GET /api/workspace/<name>/search?q=&sources= — 跨章全文检索（iter075）。
+
+    ``sources``：逗号分隔的来源子集（original/draft/kb），缺省时搜全部三语料。前端
+    据用户勾选传入，让后端**按范围检索**——``truncated`` 因而反映真实范围，且不做无谓
+    全扫（评审 iter075 #3）。空 q → 200 + 空结果（空搜索是正常态，前端显示引导态，不是
+    400）。search 模块内部已 fail-open；这里再包最外层兜底把任何未预期异常收成 200 空
+    结果，确保连贯性核查工具永不把页面打挂（铁律④）。"""
+    error = _workspace_error(name)
+    if error:
+        return error
+    q = (q or "").strip()
+    empty = {
+        "query": "",
+        "total_matches": 0,
+        "hit_count": 0,
+        "hits": [],
+        "truncated": False,
+        "truncated_reasons": [],
+    }
+    if not q:
+        return _json(200, empty)
+    # 参数缺省 → None（搜全部）；显式传入 → 逗号拆分（可能为空列表 = 一个都不搜）。
+    src_list = None if sources is None else [s for s in sources.split(",") if s]
+    try:
+        with use_workspace(name):
+            result = search_mod.search_workspace(q, sources=src_list)
+    except Exception as exc:
+        _log_degraded("api_workspace_search", exc)
+        return _json(200, {**empty, "query": q})
+    return _json(200, result.to_dict())
+
+
 def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
     match = re.match(r"chapter_(\d+)(\.partial)?\.md$", path.name)
     if not match:
@@ -2289,6 +2332,8 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/write/?$"), lambda name, **_: render_workspace_write_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/continue/?$"), lambda name, **_: render_workspace_continue(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/chapters/?$"), lambda name, **_: render_workspace_chapters(name)),
+    # iter075: 全文搜索页
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/search/?$"), lambda name, **_: render_workspace_search_page(name)),
     (
         "GET",
         re.compile(r"^/w/(?P<name>[^/]+)/chapter/(?P<chapter>\d+)/?$"),
@@ -2441,6 +2486,16 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
             chapter,
             v1=(_query or {}).get("v1", [""])[0],
             v2=(_query or {}).get("v2", [""])[0],
+        ),
+    ),
+    # iter075: 全文搜索 API
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/search/?$"),
+        lambda name, _query=None, **_: api_workspace_search(
+            name,
+            q=(_query or {}).get("q", [""])[0],
+            sources=(_query or {}).get("sources", [None])[0],
         ),
     ),
     (

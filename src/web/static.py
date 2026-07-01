@@ -832,21 +832,67 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .advisor-item .section { font-family: var(--font-serif); font-size: var(--fs-lg); margin-top: 2px; }
 .advisor-item .guidance { color: var(--ink-2); margin-top: var(--space-2); white-space: pre-wrap; }
 
-/* iter 074: chapter version diff (history tab) */
-.diff-panel { margin-top: var(--space-5); }
-.diff-panel > h4 { font-size: var(--fs-sm); margin: 0 0 var(--space-3); }
+/* iter 074: chapter version diff (history tab) — iter075 观感打磨（不改数据流/端点） */
+.diff-panel { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--rule); }
+.diff-panel > h4 { font-size: var(--fs-sm); margin: 0 0 var(--space-3); color: var(--ink-2); letter-spacing: .02em; }
 .diff-controls { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--ink-2); }
 .diff-controls label { display: inline-flex; align-items: center; gap: var(--space-2); }
-.diff-controls select { max-width: 260px; }
+.diff-controls select {
+  max-width: 260px; padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--rule-strong); border-radius: var(--radius-1);
+  background: var(--bg-card); color: var(--ink-1); font-size: var(--fs-sm);
+}
+.diff-controls select:focus { outline: none; border-color: var(--jade); box-shadow: 0 0 0 2px var(--jade-soft); }
 .diff-controls .diff-arrow { color: var(--ink-3); }
 .diff-output { margin-top: var(--space-3); }
-.diff-view { border: 1px solid var(--rule); border-radius: var(--radius-2); overflow: auto; font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.6; background: var(--bg-card); }
-.diff-line { padding: 1px var(--space-3); white-space: pre-wrap; word-break: break-word; }
-.diff-line.diff-add { background: var(--jade-soft); }
-.diff-line.diff-del { background: var(--sienna-soft); }
+.diff-view {
+  border: 1px solid var(--rule); border-radius: var(--radius-2); overflow: auto;
+  font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.65;
+  background: var(--bg-card); max-height: 480px; box-shadow: var(--shadow-card);
+}
+.diff-line { padding: 1px var(--space-3); white-space: pre-wrap; word-break: break-word; border-left: 3px solid transparent; }
+.diff-line.diff-add { background: var(--jade-soft); border-left-color: var(--jade); }
+.diff-line.diff-del { background: var(--sienna-soft); border-left-color: var(--sienna); }
 .diff-line.diff-hunk { color: var(--ink-3); background: var(--bg-sunken); }
 .diff-line.diff-meta { color: var(--ink-3); background: var(--bg-sunken); font-style: italic; }
 .diff-line.diff-ctx { color: var(--ink-2); }
+
+/* iter075: 全文搜索页 */
+.search-hero { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }
+.search-box-wrap { position: relative; display: flex; align-items: center; }
+.search-box-wrap .search-icon { position: absolute; left: var(--space-4); color: var(--jade); font-size: var(--fs-lg); pointer-events: none; opacity: .7; }
+.search-box {
+  width: 100%;
+  padding: var(--space-3) var(--space-4) var(--space-3) calc(var(--space-6) + var(--space-2));
+  font-size: var(--fs-lg); font-family: var(--font-serif);
+  border: 1px solid var(--rule-strong); border-radius: var(--radius-2);
+  background: var(--bg-card); color: var(--ink-1);
+}
+.search-box::placeholder { color: var(--ink-3); }
+.search-box:focus { outline: none; border-color: var(--jade); box-shadow: 0 0 0 3px var(--jade-soft); }
+.search-sources { gap: var(--space-4); font-size: var(--fs-sm); color: var(--ink-2); }
+.search-sources label { display: inline-flex; align-items: center; gap: var(--space-1); cursor: pointer; }
+.search-summary { margin: 0 0 var(--space-4); font-size: var(--fs-sm); }
+.search-results { display: flex; flex-direction: column; gap: var(--space-4); }
+.search-hit { padding: var(--space-4); }
+.search-hit-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); flex-wrap: wrap; }
+.search-hit-title { font-family: var(--font-serif); font-size: var(--fs-lg); color: var(--ink-1); text-decoration: none; }
+a.search-hit-title:hover { color: var(--jade); text-decoration: underline; }
+.search-hit-title.muted-link { color: var(--ink-2); }
+.search-hit-count { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.search-snippet {
+  font-family: var(--font-serif); font-size: var(--fs-md); line-height: 1.9;
+  color: var(--ink-2); margin: var(--space-2) 0 0; white-space: pre-wrap; word-break: break-word;
+}
+.search-snippet + .search-snippet { padding-top: var(--space-2); border-top: 1px dashed var(--rule); }
+.search-snippet mark {
+  background: var(--amber-soft); color: var(--amber-strong);
+  padding: 0 2px; border-radius: var(--radius-1); font-weight: 600;
+}
+/* source badge 三色：original=金(参照)、draft=品牌绿(可编辑)、kb=砖红(参考) */
+.badge.source-original { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
+.badge.source-draft { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
+.badge.source-kb { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
 
 /* ---------- Review / advisor readability polish (global) ---------- */
 .subscore-bar .track { height: 8px; }
@@ -3973,6 +4019,134 @@ JS_DASHBOARD = """\
     }
   }
 
+  // ===== page: full-text search (iter075) =================================
+  // XSS 安全高亮的根：后端只回原始片段文本 + 整数 offsets；这里全程用 DOM
+  // (createElement/createTextNode) 构建，绝不 innerHTML 拼正文/用户输入。即使
+  // 正文含 <script>/<img onerror> 也只当纯文本渲染。
+  const SEARCH_SOURCE_LABELS = { original: "原文", draft: "续写", kb: "知识库" };
+
+  function buildSnippet(snippet) {
+    const frag = document.createDocumentFragment();
+    const text = String((snippet && snippet.text) || "");
+    const offs = (snippet && Array.isArray(snippet.offsets)) ? snippet.offsets : [];
+    let cursor = 0;
+    for (let i = 0; i < offs.length; i++) {
+      const pair = offs[i];
+      if (!Array.isArray(pair) || pair.length < 2) continue;
+      const start = pair[0], end = pair[1];
+      if (typeof start !== "number" || typeof end !== "number") continue;
+      if (start < cursor || end > text.length || start >= end) continue;  // 越界防御
+      if (start > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, start)));
+      const mark = document.createElement("mark");
+      mark.appendChild(document.createTextNode(text.slice(start, end)));
+      frag.appendChild(mark);
+      cursor = end;
+    }
+    if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)));
+    return frag;
+  }
+
+  function renderSearchHit(hit) {
+    const card = document.createElement("article");
+    card.className = "search-hit card";
+    const head = document.createElement("div");
+    head.className = "search-hit-head";
+    const badge = document.createElement("span");
+    badge.className = "badge source-" + String(hit.source);
+    badge.textContent = SEARCH_SOURCE_LABELS[hit.source] || String(hit.source || "");
+    head.appendChild(badge);
+    let titleEl;
+    if (hit.source === "draft" && hit.chapter_no != null) {
+      titleEl = document.createElement("a");
+      titleEl.href = wsHref("/chapter/" + encodeURIComponent(hit.chapter_no));
+      titleEl.className = "search-hit-title";
+    } else {
+      titleEl = document.createElement("span");
+      titleEl.className = "search-hit-title muted-link";
+    }
+    titleEl.textContent = String(hit.title || "");   // textContent，永不 innerHTML
+    head.appendChild(titleEl);
+    const count = document.createElement("span");
+    count.className = "search-hit-count";
+    count.textContent = (hit.match_count || 0) + " 处";
+    head.appendChild(count);
+    card.appendChild(head);
+    const snippets = Array.isArray(hit.snippets) ? hit.snippets : [];
+    for (let i = 0; i < snippets.length; i++) {
+      const p = document.createElement("p");
+      p.className = "search-snippet";
+      p.appendChild(buildSnippet(snippets[i]));
+      card.appendChild(p);
+    }
+    return card;
+  }
+
+  async function initSearch() {
+    const input = document.getElementById("search-input");
+    const box = document.getElementById("search-results");
+    const summary = document.getElementById("search-summary");
+    const sourcesBox = document.getElementById("search-sources");
+    if (!input || !box || !summary) return;
+    let timer = null, seq = 0;
+
+    function selectedSources() {
+      return Array.prototype.slice
+        .call(sourcesBox ? sourcesBox.querySelectorAll("input:checked") : [])
+        .map(function (c) { return c.value; });
+    }
+    function showEmpty(title, body) {
+      box.innerHTML = "";                       // 静态文案，无用户输入拼接
+      const div = document.createElement("div");
+      div.className = "empty-state";
+      const orn = document.createElement("span");
+      orn.className = "ornament"; orn.textContent = "✦";
+      const h = document.createElement("h3"); h.textContent = title;   // textContent 安全
+      const p = document.createElement("p"); p.className = "muted"; p.textContent = body || "";
+      div.appendChild(orn); div.appendChild(h); div.appendChild(p);
+      box.appendChild(div);
+    }
+
+    async function run() {
+      const q = input.value.trim();
+      summary.textContent = "";
+      if (!q) { showEmpty("输入关键词开始检索", "支持跨章定位实体、伏笔与关键词。"); return; }
+      const active = selectedSources();
+      if (!active.length) { showEmpty("请选择检索范围", "勾选上方原文 / 续写 / 知识库其中之一。"); return; }
+      const mine = ++seq;                        // 竞态守卫：只认最新一次查询
+      summary.textContent = "检索中…";
+      let data;
+      try {
+        // sources 传给后端做范围检索：total_matches / truncated 因而反映真实范围。
+        data = await fetchJson(wsUrl("/search?q=" + encodeURIComponent(q) +
+          "&sources=" + encodeURIComponent(active.join(","))));
+      } catch (err) {
+        if (mine === seq) { box.innerHTML = renderErrorCard(err); summary.textContent = ""; }
+        return;
+      }
+      if (mine !== seq) return;                  // 已被更新的查询覆盖，丢弃旧响应
+      const hits = data.hits || [];              // 后端已按 sources 过滤，无需客户端二次过滤
+      if (!hits.length) {
+        summary.textContent = "";
+        showEmpty("未找到「" + q + "」", "换个关键词，或调整上方语料范围试试。");
+        return;
+      }
+      let s = "共 " + (data.total_matches || 0) + " 处命中 · " + hits.length + " 个单元";
+      if (data.truncated) s += "（结果较多，已按上限截断）";
+      summary.textContent = s;
+      const frag = document.createDocumentFragment();
+      hits.forEach(function (h) { frag.appendChild(renderSearchHit(h)); });
+      box.innerHTML = "";
+      box.appendChild(frag);
+    }
+
+    function debouncedRun() { clearTimeout(timer); timer = setTimeout(run, 250); }  // 250ms 防抖
+    input.addEventListener("input", debouncedRun);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { clearTimeout(timer); run(); }
+    });
+    if (sourcesBox) sourcesBox.addEventListener("change", debouncedRun);   // 勾选变即重渲（含防抖）
+  }
+
   // ===== page: chapters list ==============================================
   async function initChapters() {
     const box = document.getElementById("chapters-table");
@@ -4863,6 +5037,7 @@ JS_DASHBOARD = """\
     if (pageKind === "continue") return initContinue();
     if (pageKind === "workbench") return initWorkbench();
     if (pageKind === "chapters") return initChapters();
+    if (pageKind === "search") return initSearch();
     if (pageKind === "chapter_detail") return initChapterDetail();
     if (pageKind === "reviews") return initReviews();
     if (pageKind === "plan") return initPlan();
