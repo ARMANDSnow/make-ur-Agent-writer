@@ -15,6 +15,22 @@ from typing import Any, Dict, Optional
 from .utils import read_json_optional, sha256_file
 
 
+def _has_hard_synthetic_reject(report: Any) -> bool:
+    """iter076 HIGH#1：与 ``reviewer.has_hard_synthetic_reject`` 同语义的内联版
+    （chapter_status 保持零重依赖——不 import reviewer；改语义时两处同步）。"""
+    if not isinstance(report, dict):
+        return False
+    if isinstance(report.get("hard_reject"), bool):
+        return report["hard_reject"]
+    reviews = report.get("agent_reviews")
+    if not isinstance(reviews, list):
+        return False
+    return any(
+        isinstance(r, dict) and r.get("_synthetic") and r.get("verdict") == "Reject"
+        for r in reviews
+    )
+
+
 def chapter_status(
     chapter_no: int,
     drafts_dir: Path,
@@ -76,6 +92,20 @@ def chapter_status(
         and not needs_review
         and verdict == "Approve"
     )
+    # iter076 HIGH#1：hard/soft 拒稿区分 + caveat 放行标记的透出。
+    # - hard_reject：meta 即主审 report 的拷贝（writer.py meta=dict(report)），synthetic
+    #   硬拦直接可派生；开外审时下方分支再 OR 外审 report（外审也跑 plan-compliance）。
+    # - caveat_approved：panel_block_policy=caveat_continue 放行过的章（verdict 仍
+    #   Reject、needs_review 仍 True——早晨复查入口不变），book_runner 据此在 resume
+    #   时跳过而不是重写。独立于 approved / strict_failures（用户手改过的 caveat 章
+    #   同样跳过——那是操作者主动行为）。
+    hard_reject = _has_hard_synthetic_reject(meta)
+    caveat_approved = (
+        exists
+        and not failure
+        and isinstance(meta, dict)
+        and bool(meta.get("caveat_approved"))
+    )
     draft_sha = ""
     if exists:
         try:
@@ -123,6 +153,7 @@ def chapter_status(
                 if not isinstance(review, dict):
                     strict_failures.append("external_review_invalid")
                 else:
+                    hard_reject = hard_reject or _has_hard_synthetic_reject(review)
                     if review.get("verdict") != "Approve":
                         strict_failures.append("external_review_reject")
                     if review.get("needs_human_review"):
@@ -157,4 +188,6 @@ def chapter_status(
         "rewrite_count": rewrite_count,
         "draft_sha256": draft_sha,
         "strict_failures": strict_failures,
+        "hard_reject": hard_reject,
+        "caveat_approved": caveat_approved,
     }

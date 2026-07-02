@@ -204,6 +204,28 @@ class PlanComplianceBlockTests(unittest.TestCase):
         self.assertEqual(report["verdict"], "Approve")
         self.assertFalse(self._has_block_review(report))
 
+    def test_report_hard_reject_field_reflects_synthetic_block(self) -> None:
+        # iter076 HIGH#1：report 顶层 hard_reject 与 synthetic 硬拦一致——
+        # panel_block_policy 靠它区分 hard/soft。
+        blocked = self._run(_UNRELATED_DRAFT, {"key_events": [_BEAT_A, _BEAT_B]})
+        self.assertTrue(blocked["hard_reject"])
+        clean = self._run(_COVERED_DRAFT, {"key_events": [_BEAT_A, _BEAT_B]})
+        self.assertFalse(clean["hard_reject"])
+
+    def test_has_hard_synthetic_reject_helper(self) -> None:
+        # 新 artifact 走顶层字段；老 artifact 从 agent_reviews 派生；坏形状 False。
+        from src.reviewer import has_hard_synthetic_reject
+
+        self.assertTrue(has_hard_synthetic_reject({"hard_reject": True}))
+        self.assertFalse(has_hard_synthetic_reject({"hard_reject": False, "agent_reviews": [
+            {"_synthetic": True, "verdict": "Reject"}]}))   # 顶层字段优先
+        legacy = {"agent_reviews": [{"_synthetic": True, "verdict": "Reject"}]}
+        self.assertTrue(has_hard_synthetic_reject(legacy))
+        soft = {"agent_reviews": [{"agent_name": "a", "verdict": "Reject"}]}
+        self.assertFalse(has_hard_synthetic_reject(soft))
+        self.assertFalse(has_hard_synthetic_reject(None))
+        self.assertFalse(has_hard_synthetic_reject({"agent_reviews": "oops"}))
+
 
 if __name__ == "__main__":
     unittest.main()

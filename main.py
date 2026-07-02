@@ -383,6 +383,11 @@ def build_parser() -> argparse.ArgumentParser:
     drive_cmd.add_argument("--skip-external-review", action="store_true")
     drive_cmd.add_argument("--pause-after-segment", type=int, default=None)
     drive_cmd.add_argument("--step-timeout-minutes", type=int, default=None)
+    # iter076 HIGH#3：分档超时——debate 可以给 3h、write 段不该；缺省 fallback
+    # --step-timeout-minutes。review 在 write-book 内部，由 write 档兜底。
+    drive_cmd.add_argument("--debate-timeout-minutes", type=int, default=None)
+    drive_cmd.add_argument("--plan-timeout-minutes", type=int, default=None)
+    drive_cmd.add_argument("--write-timeout-minutes", type=int, default=None)
     drive_cmd.add_argument("--on-blocked", choices=["stop", "force-once"], default=None)
     drive_cmd.add_argument("--detach", action="store_true")
     drive_cmd.add_argument("--confirm-real-run", action="store_true")

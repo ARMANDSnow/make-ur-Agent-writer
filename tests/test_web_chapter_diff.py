@@ -156,6 +156,17 @@ class ChapterDiffModuleTests(unittest.TestCase):
         finally:
             outside.unlink(missing_ok=True)
 
+    def test_resolve_current_symlink_escape_returns_none(self) -> None:
+        # 审查 B L6：current 分支与 snapshot 分支对称的收容复检——drafts 里的
+        # chapter md 若是指向外部的 symlink，resolve_version_text 必须 fail-closed。
+        outside = Path(self._tmp.name).parent / f"outside_cur_{os.getpid()}.md"
+        outside.write_text("外部内容\n", encoding="utf-8")
+        try:
+            (self.drafts / "chapter_01.md").symlink_to(outside)
+            self.assertIsNone(chapter_diff.resolve_version_text(self.drafts, 1, "current"))
+        finally:
+            outside.unlink(missing_ok=True)
+
     def test_compute_diff_input_cap_skips_difflib(self) -> None:
         # 超过每侧输入上限 → 不跑 difflib，回 meta 说明行 + truncated。
         with mock.patch.object(chapter_diff, "MAX_DIFF_INPUT_CHARS", 10):

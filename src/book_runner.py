@@ -11,7 +11,7 @@ from . import paths, readiness_catalog, review_tier, run_params, source_excerpts
 from .chapter_summary import prune_from_chapter
 from .chapter_status import chapter_status
 from .config import is_mock_mode, load_config
-from .cost_estimator import estimate_cost_since
+from .cost_estimator import estimate_cost_since, estimate_next_chapter_cost
 from .entity_advance import apply_advance_proposals, proposal_path, select_auto_indexes
 from .preflight import run_preflight
 from .proposal_validator import validate_proposals_against_plan
@@ -40,6 +40,95 @@ class BudgetExceeded(RuntimeError):
         self.budget_cny = float(budget_cny)
         self.cost_cny = float(cost_cny)
         super().__init__(f"budget_cny exceeded: {self.cost_cny:.4f} > {self.budget_cny:.4f}")
+
+
+def _panel_block_policy() -> Dict[str, Any]:
+    """iter076 HIGH#1：读 agents.yaml 的 ``panel_block_policy``。
+
+    缺失/坏值一律回落保守默认（halt / halt / 0 = 与历史行为一致：重试耗尽即停
+    全书）。枚举值宽容 ``-``/``_`` 与大小写差异。"""
+    raw = load_config("agents.yaml").get("panel_block_policy") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    def _enum(key: str, allowed: tuple, default: str) -> str:
+        val = str(raw.get(key) or default).strip().lower().replace("-", "_")
+        return val if val in allowed else default
+
+    try:
+        max_rejections = max(0, int(raw.get("max_panel_rejections") or 0))
+    except (TypeError, ValueError):
+        max_rejections = 0
+    return {
+        "on_soft_reject": _enum("on_soft_reject", ("halt", "caveat_continue"), "halt"),
+        "max_panel_rejections": max_rejections,
+        "on_hard_reject": _enum(
+            "on_hard_reject", ("halt", "force_once", "caveat_continue"), "halt"
+        ),
+    }
+
+
+def _budget_reserve_cfg() -> Dict[str, float]:
+    """iter076 HIGH#2：读 agents.yaml 的 ``budget_reserve``，坏值回落默认
+    （safety_factor=1.5 / default_chapter_cost_cny=2.0）。"""
+    raw = load_config("agents.yaml").get("budget_reserve") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    def _finite(key: str, default: float, *, minimum_exclusive: float | None = None) -> float:
+        try:
+            val = float(raw.get(key, default))
+        except (TypeError, ValueError):
+            return default
+        if not math.isfinite(val):
+            return default
+        if minimum_exclusive is not None and val <= minimum_exclusive:
+            return default
+        return val
+
+    # 审查 B L4：负 default = 坏值**回落默认 2.0**（与 agents.yaml note 口径一致），
+    # 不再 clamp 成 0（0 是合法显式值=「首章不预留」，负数是配置手误）。
+    default_cost = _finite("default_chapter_cost_cny", 2.0)
+    if default_cost < 0:
+        default_cost = 2.0
+    return {
+        "safety_factor": _finite("safety_factor", 1.5, minimum_exclusive=0.0),
+        "default_chapter_cost_cny": default_cost,
+    }
+
+
+def _count_existing_caveats(drafts_dir: Path) -> int:
+    """盘面上已被 caveat 放行的章数。
+
+    审查 A2a：caveat 预算必须**跨 run 累计**——``caveats`` 列表随 run 重建、
+    resume 时 caveat 章走 skipped_caveat 不计数，若不把盘面存量计入，
+    crash→supervisor 自动 resume 每轮都重置配额，max_panel_rejections 形同虚设
+    （cap=2 的过夜跑重启 3 次理论可放行 8 章）。"""
+    count = 0
+    try:
+        for meta_path in Path(drafts_dir).glob("chapter_*.meta.json"):
+            meta = read_json_optional(meta_path, {})
+            if isinstance(meta, dict) and meta.get("caveat_approved"):
+                count += 1
+    except OSError:
+        pass
+    return count
+
+
+def _mark_caveat_approved(drafts_dir: Path, chapter_no: int, *, reason: str) -> None:
+    """iter076 HIGH#1：把重试耗尽仍被拒的章标记为 caveat 放行。
+
+    只追加字段：verdict 仍 Reject、needs_human_review 仍 True（早晨复查入口不变、
+    web 投影不受影响）、正文与 draft_sha256 不动。chapter_status 据 ``caveat_approved``
+    在 resume 时跳过该章。"""
+    meta_path = Path(drafts_dir) / f"chapter_{chapter_no:02d}.meta.json"
+    meta = read_json_optional(meta_path, {})
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["caveat_approved"] = True
+    meta["caveat_reason"] = reason
+    meta["caveat_at"] = datetime.now(timezone.utc).isoformat()
+    write_json(meta_path, meta)
 
 
 def run_write_book(
@@ -108,6 +197,18 @@ def run_write_book(
     if not math.isfinite(budget_cny):
         budget_cny = 0.0
     resolved_tier = review_tier.resolve_tier(tier)
+    # iter076 HIGH#1：面板拒稿整书策略（默认保守 = 现行为）。caveats 记录本 run 内
+    # 被 caveat 放行的章，进 summary 供 CLI/jobs 透出；盘面存量另计（审查 A2a：
+    # 配额跨 run 累计，supervisor 自动 resume 不重置）。
+    panel_policy = _panel_block_policy()
+    caveats: List[Dict[str, Any]] = []
+    preexisting_caveats = (
+        _count_existing_caveats(drafts_dir)
+        if panel_policy["max_panel_rejections"] > 0
+        else 0
+    )
+    # iter076 HIGH#2：每章预算预留配置（仅 budget_cny>0 时用到）。
+    reserve_cfg = _budget_reserve_cfg()
 
     def budget_check_cb() -> float:
         if budget_cny <= 0:
@@ -143,6 +244,7 @@ def run_write_book(
                         "chapters": written,
                         "blocked": blocked,
                         "advances": advances,
+                        "caveats": caveats,
                         "costs": costs,
                         "budget_cny": budget_cny,
                         "cost_cny": exc.cost_cny,
@@ -161,6 +263,12 @@ def run_write_book(
         )
         if status.get("approved") and not force:
             written.append({"chapter": chapter_no, "action": "skipped_approved", "status": status})
+            continue
+        # iter076 HIGH#1：caveat 放行过的章 resume 时跳过不重写（先于下方的
+        # BookRunBlocked 检查——caveat 章的盘面就是「存在的非 approved 产物」，
+        # 但那是策略放行的结果而非 stale）。force 重写仍可覆盖。
+        if status.get("caveat_approved") and not force:
+            written.append({"chapter": chapter_no, "action": "skipped_caveat", "status": status})
             continue
         md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
         if md_path.exists() and not force:
@@ -201,11 +309,64 @@ def run_write_book(
                     f"chapter_{chapter_no:02d} has existing non-approved or stale outputs; "
                     "inspect them or rerun write-book with --force"
                 )
+        # iter076 HIGH#2：章前预算预留——真正要**整章重写**的章，动笔前确认
+        # 「剩余预算 ≥ safety_factor × 下一章预估成本」，不足则干净收场（已写各章
+        # 完好、复用 exit 3 的 budget_exceeded 管道），而不是写到一半耗尽留半成品。
+        # 位置（审查 A3）：skip 判断与 reviewed_existing 补外审分支**之后**——skip 章
+        # 零花费、补外审只花外审零头，都不该被整章额度的预留闸误停；「已超支」由
+        # 章循环开头的首道闸兜。此处 budget_check_cb 仍可能发现已超支（如上一章
+        # 评审后越线，审查 B L5）——接住并走与首道闸一致的干净收场。
+        if budget_cny > 0:
+            try:
+                current_cost = budget_check_cb()
+            except BudgetExceeded as exc:
+                progress("budget_exceeded", 1.0)
+                return _snapshot(
+                    "budget_exceeded",
+                    {
+                        "chapters": written,
+                        "blocked": blocked,
+                        "advances": advances,
+                        "caveats": caveats,
+                        "costs": costs,
+                        "budget_cny": budget_cny,
+                        "cost_cny": exc.cost_cny,
+                    },
+                )
+            estimated_next = estimate_next_chapter_cost(
+                costs, reserve_cfg["default_chapter_cost_cny"]
+            )
+            reserve_needed = reserve_cfg["safety_factor"] * estimated_next
+            remaining = budget_cny - current_cost
+            if remaining < reserve_needed:
+                progress("budget_exceeded", 1.0)
+                return _snapshot(
+                    "budget_exceeded",
+                    {
+                        "chapters": written,
+                        "blocked": blocked,
+                        "advances": advances,
+                        "caveats": caveats,
+                        "costs": costs,
+                        "budget_cny": budget_cny,
+                        "cost_cny": current_cost,
+                        "reserve_stop": True,
+                        "estimated_next_chapter_cny": round(estimated_next, 4),
+                        "reserve_needed_cny": round(reserve_needed, 4),
+                        "remaining_cny": round(remaining, 4),
+                    },
+                )
         reports: List[Dict[str, Any]] = []
         status = {}
         attempt_summaries: List[Dict[str, Any]] = []
         try:
-            for attempt in range(max_retries + 1):
+            # iter076 HIGH#1：for range(max_retries+1) → while——hard reject 且
+            # on_hard_reject=force_once 时在耗尽后追加**一轮** bonus 重写（每章
+            # 一次），其余语义与原 for 循环逐字节一致。
+            attempt = 0
+            attempts_allowed = max_retries + 1
+            bonus_granted = False
+            while attempt < attempts_allowed:
                 _current_retry = attempt
                 seed_feedback = ""
                 if attempt > 0 or (force and md_path.exists()):
@@ -258,12 +419,27 @@ def run_write_book(
                 attempt_summaries.append({"attempt": attempt, "status": status})
                 if status.get("approved"):
                     break
+                # iter076 HIGH#1：最后一轮仍是 hard reject 且策略 force_once →
+                # 追加一轮 bonus（每章仅一次），仍不过下方按 hard halt 收场。
+                if (
+                    attempt == attempts_allowed - 1
+                    and not bonus_granted
+                    and bool(status.get("hard_reject"))
+                    and panel_policy["on_hard_reject"] == "force_once"
+                ):
+                    bonus_granted = True
+                    attempts_allowed += 1
+                    attempt_summaries.append(
+                        {"attempt": attempt, "bonus_granted": True, "reason": "hard_reject_force_once"}
+                    )
+                attempt += 1
         except BudgetExceeded as exc:
             progress("budget_exceeded", 1.0)
             payload: Dict[str, Any] = {
                 "chapters": written,
                 "blocked": blocked,
                 "advances": advances,
+                "caveats": caveats,
                 "costs": costs,
                 "budget_cny": exc.budget_cny,
                 "cost_cny": exc.cost_cny,
@@ -278,6 +454,7 @@ def run_write_book(
                 "chapters": written,
                 "blocked": blocked,
                 "advances": advances,
+                "caveats": caveats,
                 "costs": costs,
                 "error": f"{type(exc).__name__}: {exc}",
             }
@@ -295,8 +472,44 @@ def run_write_book(
             }
         )
         if not status.get("approved"):
-            blocked.append({"chapter": chapter_no, "reason": "retry_exhausted", "status": status})
-            break
+            # iter076 HIGH#1：重试耗尽后按 panel_block_policy 分诊——soft（面板
+            # 投票分歧）可 caveat 放行继续写后续章（过夜不 halt），hard（synthetic
+            # 确定性硬拦）默认必停；caveat 超出 max_panel_rejections 预算回落 halt。
+            hard = bool(status.get("hard_reject"))
+            on_reject = panel_policy["on_hard_reject"] if hard else panel_policy["on_soft_reject"]
+            can_caveat = (
+                on_reject == "caveat_continue"
+                and (len(caveats) + preexisting_caveats)
+                < panel_policy["max_panel_rejections"]
+            )
+            if can_caveat:
+                _mark_caveat_approved(
+                    drafts_dir,
+                    chapter_no,
+                    reason="panel_hard_reject" if hard else "panel_soft_reject",
+                )
+                if written and written[-1].get("chapter") == chapter_no:
+                    written[-1]["action"] = "written_with_caveats"
+                caveats.append(
+                    {
+                        "chapter": chapter_no,
+                        "hard_reject": hard,
+                        "verdict": status.get("verdict"),
+                        "rewrite_count": status.get("rewrite_count"),
+                    }
+                )
+                progress(f"chapter-{chapter_no}/caveat_continue", _last_progress)
+                # fall through：auto_advance / costs / replan 照常——实体推进与
+                # 滚动摘要必须跟上正文，否则后续章拿到断档上下文。
+            else:
+                blocked.append(
+                    {
+                        "chapter": chapter_no,
+                        "reason": "hard_reject" if hard else "retry_exhausted",
+                        "status": status,
+                    }
+                )
+                break
         if auto_advance:
             advances.append(_auto_apply_advances(chapter_no, min_confidence=min_confidence))
         if budget_cny > 0:
@@ -310,6 +523,7 @@ def run_write_book(
                         "chapters": written,
                         "blocked": blocked,
                         "advances": advances,
+                        "caveats": caveats,
                         "costs": costs,
                         "budget_cny": budget_cny,
                         "cost_cny": cost.get("cost_cny", 0.0),
@@ -342,13 +556,17 @@ def run_write_book(
                         "chapters": written,
                         "blocked": blocked,
                         "advances": advances,
+                        "caveats": caveats,
                         "costs": costs,
                     },
                 )
 
     final_status = "blocked" if blocked else "succeeded"
     progress(final_status, 1.0)
-    return _snapshot(final_status, {"chapters": written, "blocked": blocked, "advances": advances, "costs": costs})
+    return _snapshot(
+        final_status,
+        {"chapters": written, "blocked": blocked, "advances": advances, "caveats": caveats, "costs": costs},
+    )
 
 
 def check_write_readiness(

@@ -169,7 +169,14 @@ def resolve_version_text(
 
     drafts_dir = Path(drafts_dir)
     if version_id == CURRENT_VERSION_ID:
-        return _read_text(drafts_dir / _chapter_md_name(chapter_no))
+        md = drafts_dir / _chapter_md_name(chapter_no)
+        # iter076（审查 B L6）：current 分支补与 snapshot 分支对称的收容复检——
+        # 关掉 list→resolve 之间 symlink 换链的 check-vs-use 窗口。
+        try:
+            md.resolve().relative_to(drafts_dir.resolve())
+        except (OSError, ValueError):
+            return None
+        return _read_text(md)
     if not _STAMP_RE.match(version_id or ""):
         return None
     md = _snapshot_dir(drafts_dir, chapter_no, version_id) / _chapter_md_name(chapter_no)

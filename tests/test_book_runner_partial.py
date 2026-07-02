@@ -162,8 +162,14 @@ class BookRunnerPartialArtifactTests(unittest.TestCase):
             ), patch(
                 "src.book_runner.chapter_status", return_value=_status(1, exists=False, approved=False)
             ), patch(
+                # iter076 HIGH#2：章前预留闸多消费一次 estimate（第 2 个值）。本测试
+                # 的场景是「写章**中途**超支 → 留 partial」——预留配置打到 0 放行，
+                # 第 3 个值才是 writer 段内 budget_check 的超支触发点。
+                "src.book_runner._budget_reserve_cfg",
+                return_value={"safety_factor": 1.0, "default_chapter_cost_cny": 0.0},
+            ), patch(
                 "src.book_runner.estimate_cost_since",
-                side_effect=[{"cost_cny": 0.2}, {"cost_cny": 1.2}],
+                side_effect=[{"cost_cny": 0.2}, {"cost_cny": 0.2}, {"cost_cny": 1.2}],
             ), patch(
                 "src.book_runner._llm_log_line_count", return_value=0
             ), patch(

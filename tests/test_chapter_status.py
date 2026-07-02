@@ -69,6 +69,45 @@ class ChapterStatusTests(unittest.TestCase):
         self.assertEqual(status["verdict"], "Reject")
         self.assertEqual(status["rewrite_count"], 3)
 
+    def test_hard_reject_and_caveat_fields(self) -> None:
+        # iter076 HIGH#1：hard_reject 从 meta（=主审 report 拷贝）派生；caveat_approved
+        # 需要 md 存在 + 无 failure + meta 标记。
+        with tempfile.TemporaryDirectory() as tmp:
+            drafts = Path(tmp)
+            (drafts / "chapter_02.md").write_text("body\n", encoding="utf-8")
+            (drafts / "chapter_02.meta.json").write_text(
+                json.dumps(
+                    {
+                        "verdict": "Reject",
+                        "needs_human_review": True,
+                        "agent_reviews": [{"_synthetic": True, "verdict": "Reject"}],
+                        "caveat_approved": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            status = chapter_status(2, drafts)
+            self.assertTrue(status["hard_reject"])       # 老 artifact 从 agent_reviews 派生
+            self.assertTrue(status["caveat_approved"])
+            self.assertFalse(status["approved"])          # caveat ≠ approved
+            # 顶层 hard_reject 字段优先（新 artifact）
+            (drafts / "chapter_02.meta.json").write_text(
+                json.dumps({"verdict": "Reject", "hard_reject": False,
+                            "agent_reviews": [{"_synthetic": True, "verdict": "Reject"}]}),
+                encoding="utf-8",
+            )
+            status = chapter_status(2, drafts)
+            self.assertFalse(status["hard_reject"])
+            self.assertFalse(status["caveat_approved"])
+            # failure 文件在场 → caveat 放行失效（半成品不能被跳过）
+            (drafts / "chapter_02.meta.json").write_text(
+                json.dumps({"verdict": "Reject", "caveat_approved": True}), encoding="utf-8"
+            )
+            (drafts / "chapter_02.failure.json").write_text("{}", encoding="utf-8")
+            status = chapter_status(2, drafts)
+            self.assertFalse(status["caveat_approved"])
+
     def test_strict_mode_rejects_legacy_approved_meta(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             drafts = Path(tmp)

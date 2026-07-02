@@ -129,6 +129,19 @@
     "enabled": true
   },
 
+  "_budget_reserve_note": "iter076 HIGH#2（过夜长跑硬化）：每章预算预留。仅在 write-book 传了 --budget-cny（>0）时生效：写一章**之前**先估下一章成本（本 run 已完成章成本的滑动均值，run 内无历史时用 default_chapter_cost_cny），若 剩余预算 < safety_factor × 预估 则干净收场（status=budget_exceeded + reserve_stop=true，已写各章完好），而不是写到一半耗尽留半成品。行为变化：带预算的 run 可能比原来早停一章——这正是本项的目的。safety_factor<=0 或 default<0 视为坏值回落默认。",
+  "budget_reserve": {
+    "safety_factor": 1.5,
+    "default_chapter_cost_cny": 2.0
+  },
+
+  "_panel_block_policy_note": "iter076 HIGH#1（过夜长跑硬化）：一章重试耗尽仍未过审时 write-book 的整书策略。hard = synthetic 硬拦（plan_compliance 整章抛弃计划 / deterministic_relations 关系硬冲突，report.hard_reject=true）；soft = 其余一切未过审（面板投票 Reject 为主，也涵盖评审基建故障如 review 解析失败/外审 JSON 损坏——过夜韧性语义下同样放行，caveat_reason 统一记 panel_soft_reject）。on_soft_reject: halt=现行为（停全书等人工）| caveat_continue=把该章标记 caveat_approved（verdict 仍 Reject、needs_human_review 仍 true，早晨复查）后继续写后续章。max_panel_rejections: caveat_continue 下整本书最多容忍几章 caveat 放行（soft 与 hard 的 caveat_continue **共用**这一个预算），超限回落 halt；默认 0 = 即使选了 caveat_continue 也一章都不放（要生效必须两个键一起设）。on_hard_reject: halt | force_once（在 max-retries 之外再给一轮 bonus 重写，仍 hard 则停）| caveat_continue（危险：hard 意味着正文与计划/关系图确定性矛盾，带病续写会污染下游，仅显式选择时用）。默认全保守 = 与 iter075 之前行为逐字节一致；capstone 过夜跑时建议 on_soft_reject=caveat_continue + max_panel_rejections=2。注意与 drive-book 段级 --on-blocked stop|force-once 正交：本策略在段内先行，只有本策略仍 halt（exit 4）时 driver 的段级逃生门才触发。另注意 meta.json 的 caveat_approved 与 verdict 同属本地可编辑产物（无新增信任边界）：手工改 meta 即可让 resume 跳过该章，视同操作者主动行为。",
+  "panel_block_policy": {
+    "on_soft_reject": "halt",
+    "max_panel_rejections": 0,
+    "on_hard_reject": "halt"
+  },
+
   "drama_agents": {
     "drama_planner": {
       "role": "站 ① 核心设定 agent",

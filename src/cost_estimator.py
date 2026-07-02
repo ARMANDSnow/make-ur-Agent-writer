@@ -136,6 +136,41 @@ def estimate_cost_since(line_offset: int = 0, root: Path | None = None) -> Dict[
     return out
 
 
+def estimate_next_chapter_cost(
+    cumulative_costs: list, default_cny: float, *, window: int = 3
+) -> float:
+    """iter076 HIGH#2：估算「下一章」的成本（CNY），供章前预算预留闸用。
+
+    ``cumulative_costs`` 是 book_runner 的 ``costs`` 列表——每章完成后 append 的
+    ``estimate_cost_since(run 起点)`` 结果，**cost_cny 是累计值不是单章值**，因此
+    先相邻差分还原每章成本，再取最近 ``window`` 章的均值。无可用历史（run 内
+    第一章 / 字段缺失 / 差分出负数脏值）→ 回落 ``default_cny``。任何形状异常
+    不抛（fail-open 回 default，铁律④）。"""
+    try:
+        cumulative = []
+        for item in cumulative_costs or []:
+            if isinstance(item, dict) and "cost_cny" in item:
+                try:
+                    val = float(item.get("cost_cny") or 0.0)
+                except (TypeError, ValueError):
+                    continue   # 单条脏账目跳过，不拖垮整段历史
+                if math.isfinite(val):
+                    cumulative.append(val)
+        per_chapter = []
+        prev = 0.0
+        for val in cumulative:
+            delta = val - prev
+            prev = val
+            if delta > 0:
+                per_chapter.append(delta)
+        if not per_chapter:
+            return max(0.0, float(default_cny))
+        recent = per_chapter[-max(1, int(window)):]
+        return sum(recent) / len(recent)
+    except Exception:
+        return max(0.0, float(default_cny))
+
+
 def render_cost_estimate(estimate: Dict[str, Any]) -> str:
     return "\n".join(
         [

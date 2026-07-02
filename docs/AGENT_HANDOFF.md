@@ -1928,3 +1928,19 @@ python3 main.py --book <name> drive-book start \
 **数据状态**：`src/search.py` + `routes.py`/`templates.py`/`static.py` + `test_search.py`/`test_web_search.py` + 迭代 doc + README 行 186 + 索引。**只 commit 不 push，等用户验收（铁律⑤）**。未碰 `.env`/`data/`/`outputs/`/`小说txt/`。
 
 **下轮候选（iter076）**：**长跑可靠性硬化**（面板拒稿不 halt 整书 + 每章预算预留 + 每阶段超时 + 心跳文件 + crash 自恢复 = 用户「过夜不跑废」诉求正解），是 iter077 真模型 capstone（10-20 章，需授权）前置门。全文搜索延伸候选：SQLite FTS5（>500 章/>50M 字触发）/ 搜索结果分页 / 高亮跨片段 / KB 起点过滤视图 / char-level diff。
+
+---
+
+## Phase Status — iter 076（2026-07-02 收官）：长跑可靠性硬化 + iter074/075 codex 修复批（capstone 前置门）
+
+**已完成（本轮）**：五个 HIGH 全落地——① `panel_block_policy`（soft 拒稿 `caveat_continue` 放行/hard `force_once` bonus/默认全保守=原行为；reviewer report 顶层 `hard_reject`；caveat 章 `skipped_caveat` resume 跳过；配额跨 run 累计计入盘面存量）；② 每章预算预留（`estimate_next_chapter_cost` 累计值差分+滑动均值 × `budget_reserve.safety_factor`，不足 → `budget_exceeded+reserve_stop` 干净停；闸位于 skip/补外审分支后零花费路径不误停）；③ drive-book 分档超时 `--debate/--plan/--write-timeout-minutes`（fallback step，双侧校验）；④ driver 30s 切片心跳 `logs/driver/driver_heartbeat.json`（epoch 整型秒）+ watchdog `--driver` 模式（心跳判活/abort 标记/TERM→30s→KILL 升级/abort 后留场/pid 命令行校验防误杀）；⑤ `scripts/drive_book_supervised.sh` crash 自动重启（决策表×paused_reason×标记新鲜度、指数退避、MAX_RESTARTS=5+MAX_ROUNDS=48 双上限、supervise.pid 互斥、真模型无预算 WARN、确认闸）。前置 A 部分（commit `476318c`）修 codex 六项主发现+低风险批（收容闸/keep_blank_values/前端 stale guard×2/total_matches/diff 上限/path 相对化/URL 恢复/a11y/≥2 字门槛）。
+
+**铁律⑨**：双视角独立 subagent 并行审（正确性 + 安全）——3 MED（A3 预留闸误停补外审 / B-M1 慢崩绕过重启上限 / B-M2=A5b watchdog 一发即退无 KILL）+ A2a（caveat 配额跨 run 重置）+ LOW 批全修并回归钉死；残留仅理论性条目（meta symlink 内容 oracle / soft 标签失真 / GNU stat 探测）附理由记录于 iteration doc。铁律①②零命中。
+
+**验收证据**：`.venv` unittest discover **1475 tests OK**（iter075 1415 → B 部分 +53 → 审查修复 +7）；verify.sh 仅 3 个既有环境性 error（系统 py3.9 口径同 iter074/075）；preflight 无 FATAL；mock 25 章回归三关全过（succeeded+25/25 Approve+心跳新鲜 / resume 零新 LLM 调用 369 行不变 / supervisor `--resume-first` 真 driver 集成 exit 0 零花费）。
+
+**教训**：mock planner 固定输出 5 章（忽略 --chapters）——mock 长程回归必须走 `--segment-size 25 --replan-every 5` 滚动 append 路径（真模型无此形态）；心跳语义分层要反复讲清：心跳测 **driver 进程**、child 卡死由 step 超时兜（此时心跳仍在跳）。
+
+**下轮候选（iter077）**：**真模型 capstone 实跑**（10-20 章，铁律⑥需用户授权）。建议配置：`on_soft_reject=caveat_continue + max_panel_rejections=2 + tier=mid + --budget-cny <软阈>`；入口 `nohup bash scripts/drive_book_supervised.sh --book longzu --confirm-real-smoke -- --chapters 20 --tier mid --budget-cny 300 ... &` + 另终端 `bash scripts/watchdog.sh --book longzu --driver`。其它 backlog（Aeloon 深色模式 / drama ③④ / SQLite FTS / char-level diff / mock planner --chapters）不变。
+
+**数据状态**：只 commit 不 push，等用户验收（铁律⑤）。commit：`fix(iter076a)`=`476318c`（codex 修复批）+ `feat(iter076)`（本轮硬化+审查修复，待本 Phase Status 同 commit 落盘）。

@@ -548,6 +548,12 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(data["variant"], "final")
         self.assertIn("mock draft", data["content"])
         self.assertEqual(data["review"]["verdict"], "Approve")
+        # iter076（codex 低风险 + 审查 B L1）：path 投影必须是 workspace 相对路径，
+        # 且在 use_workspace 块内计算（否则跨书浏览时绝对路径泄露复活）。
+        self.assertEqual(data["path"], "outputs/drafts/chapter_01.md")
+        # 列表端同口径
+        status, data = self._get_json("/api/workspace/alpha/drafts")
+        self.assertEqual(data["drafts"][0]["path"], "outputs/drafts/chapter_01.md")
 
         status, data = self._get_json("/api/workspace/alpha/draft/99999")
         self.assertEqual(status, 400)

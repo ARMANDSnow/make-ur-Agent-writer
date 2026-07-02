@@ -789,6 +789,10 @@ def review_text(
         "agent_reviews": reviews,
         "rewrite_suggestions": rewrite_suggestions,
         "verdict": verdict,
+        # iter076 HIGH#1：显式区分确定性硬拦（plan_compliance / deterministic_relations
+        # 的 synthetic Reject）与面板投票 soft Reject——book_runner 的 panel_block_policy
+        # 只对 soft 放行 caveat_continue，hard 默认必停。
+        "hard_reject": hard_synthetic_reject,
         "tier": resolved_tier,
         "panel_score": panel_score,
         "approve_count": approve_count,
@@ -801,6 +805,28 @@ def review_text(
     write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
     log_event("review", verdict.lower(), target=target_name)
     return report
+
+
+def has_hard_synthetic_reject(report: Any) -> bool:
+    """iter076 HIGH#1：判定一份 review report（或其 meta 拷贝）是否含确定性硬拦。
+
+    hard = 非面板投票产生的合成 Reject（``plan_compliance`` 整章抛弃计划 /
+    ``deterministic_relations`` 关系硬冲突）。新 artifact 直接带顶层
+    ``hard_reject``；老 artifact 从 ``agent_reviews`` 的 ``_synthetic``+verdict
+    派生。形状异常一律 False（fail-open，铁律④）。chapter_status 里有一份同
+    语义的内联派生（避免为这 8 行把 reviewer 的重依赖拖进轻量 triage 模块），
+    改语义时两处同步。"""
+    if not isinstance(report, dict):
+        return False
+    if isinstance(report.get("hard_reject"), bool):
+        return report["hard_reject"]
+    reviews = report.get("agent_reviews")
+    if not isinstance(reviews, list):
+        return False
+    return any(
+        isinstance(r, dict) and r.get("_synthetic") and r.get("verdict") == "Reject"
+        for r in reviews
+    )
 
 
 def _build_advisor_context_block(

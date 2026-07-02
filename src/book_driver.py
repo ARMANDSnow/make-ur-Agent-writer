@@ -56,6 +56,13 @@ DEFAULT_STEP_TIMEOUT_MINUTES = 180
 PREFLIGHT_TIMEOUT_MINUTES = 10
 _KILL_GRACE_SECONDS = 30.0
 _REAL_RUN_REFUSAL_EXIT = 64  # 与 real_smoke.sh 确认闸同款退出码
+# iter076 HIGH#4：driver 心跳节拍（秒）。心跳测的是 **driver 进程**卡死/被收割
+# ——child（write-book 等）卡死由各 step 的 wall-clock 超时兜（那时心跳仍在跳）。
+_HEARTBEAT_INTERVAL_SECONDS = 30
+# iter076 HIGH#3：可分档超时的 step 种类（各自 CLI 旗标 --<kind>-timeout-minutes，
+# 缺省 fallback --step-timeout-minutes）。review 不是独立 step（在 write-book 内部），
+# 由 write 档兜底。
+_TIMEOUT_KINDS = ("debate", "plan", "write")
 
 TERMINAL_EXIT_CODES = {
     "succeeded": 0,
@@ -88,6 +95,10 @@ def events_path() -> Path:
 
 def pid_path() -> Path:
     return driver_dir() / "driver.pid"
+
+
+def heartbeat_path() -> Path:
+    return driver_dir() / "driver_heartbeat.json"
 
 
 # ---- small helpers -----------------------------------------------------------
@@ -194,6 +205,74 @@ def _any_draft_exists() -> bool:
     return any(drafts.glob("chapter_*.md"))
 
 
+def _step_timeout(params: Dict[str, Any], kind: str) -> int:
+    """iter076 HIGH#3：按 step 种类取超时（分钟）。
+
+    优先 ``<kind>_timeout_minutes``（debate/plan/write），未配置或 0 →
+    fallback ``step_timeout_minutes`` → 默认 180。0 不是「无上限」——与
+    step_timeout_minutes 的 0→default 语义一致（有测试钉死）。"""
+    try:
+        specific = int(params.get(f"{kind}_timeout_minutes") or 0)
+    except (TypeError, ValueError):
+        specific = 0
+    if specific > 0:
+        return specific
+    try:
+        base = int(params.get("step_timeout_minutes") or 0)
+    except (TypeError, ValueError):
+        base = 0
+    return base if base > 0 else DEFAULT_STEP_TIMEOUT_MINUTES
+
+
+def _write_heartbeat(
+    state: Dict[str, Any], *, step: str, step_elapsed_s: float, step_timeout_minutes: int
+) -> None:
+    """iter076 HIGH#4：原子写 driver 心跳文件（~30s 一拍 + step 边界各一拍）。
+
+    ``epoch`` 是 shell 友好的整型秒（scripts/watchdog.sh --driver 用 grep 提取判活，
+    零 jq 依赖）。写失败/成本读失败绝不拖垮驱动器。"""
+    try:
+        cost = _spent_cny(state)   # 内部已兜底：账本不可读时报 0 并留痕
+    except Exception:
+        cost = -1.0
+    payload = {
+        "ts": _now(),
+        "epoch": int(time.time()),
+        "run_id": state.get("run_id"),
+        "attempt": state.get("attempt"),
+        "phase": state.get("phase"),
+        "step": step,
+        "step_seq": state.get("step_seq"),
+        "step_elapsed_s": int(step_elapsed_s),
+        "step_timeout_minutes": step_timeout_minutes,
+        "cost_cny": round(cost, 4),
+        "pid": os.getpid(),
+    }
+    global _HEARTBEAT_WRITE_WARNED
+    try:
+        ensure_dir(driver_dir())
+        write_json(heartbeat_path(), payload)
+    except OSError as exc:
+        # 审查 B L2：心跳写持续失败会让 epoch 冻结 → watchdog 反杀健康 driver。
+        # 失效要可见（052 铁律⑨ A-M1 同姿势）：首次失败 stderr 留痕，不刷屏。
+        if not _HEARTBEAT_WRITE_WARNED:
+            _HEARTBEAT_WRITE_WARNED = True
+            print(
+                f"[drive-book] WARN heartbeat write failed (watchdog may see a stale epoch): {exc!r}",
+                file=sys.stderr,
+            )
+
+
+_HEARTBEAT_WRITE_WARNED = False
+
+
+def _paused(state: Dict[str, Any], reason: str) -> str:
+    """iter076 HIGH#5 配套：paused 出口统一落 ``paused_reason``——supervisor 据此
+    区分「step 超时该自动 resume」与「--pause-after-segment 是人工意图该尊重」。"""
+    state["paused_reason"] = reason
+    return "paused"
+
+
 # ---- subprocess step runner ---------------------------------------------------
 
 
@@ -266,16 +345,42 @@ def _run_step(
         state["child_pid"] = child.pid
         _save_state(state)
         try:
+            # iter076 HIGH#4：整段 wait 改为 ~30s 切片 poll，每片写一拍心跳——
+            # 数小时的 write 段内 driver_state 不动，watchdog 靠心跳判 driver 活性。
             # float minutes so tests can use sub-minute timeouts.
-            child.wait(timeout=max(1, int(float(timeout_minutes) * 60)))
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _emit(state, "step_timeout", step=step_name, timeout_minutes=timeout_minutes)
-            _terminate_child(child)
-            child.wait()
+            started = time.monotonic()
+            deadline = started + max(1, int(float(timeout_minutes) * 60))
+            _write_heartbeat(
+                state, step=step_name, step_elapsed_s=0, step_timeout_minutes=timeout_minutes
+            )
+            while True:
+                slice_s = min(float(_HEARTBEAT_INTERVAL_SECONDS), max(0.2, deadline - time.monotonic()))
+                try:
+                    child.wait(timeout=slice_s)
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        timed_out = True
+                        _emit(state, "step_timeout", step=step_name, timeout_minutes=timeout_minutes)
+                        _terminate_child(child)
+                        child.wait()
+                        break
+                    _write_heartbeat(
+                        state,
+                        step=step_name,
+                        step_elapsed_s=time.monotonic() - started,
+                        step_timeout_minutes=timeout_minutes,
+                    )
         finally:
             _CURRENT_CHILD = None
     state["child_pid"] = None
+    # step 边界补一拍：段间/纯本地 step（零 LLM 调用）期间 watchdog 仍有新鲜信号。
+    _write_heartbeat(
+        state,
+        step=step_name,
+        step_elapsed_s=time.monotonic() - started,
+        step_timeout_minutes=timeout_minutes,
+    )
 
     try:
         text = log_path.read_text(encoding="utf-8", errors="replace")
@@ -349,7 +454,6 @@ def _archive_stale_chapter_plan() -> Optional[Path]:
 
 def _run_steps(state: Dict[str, Any]) -> str:
     params = state["params"]
-    timeout = int(params.get("step_timeout_minutes") or DEFAULT_STEP_TIMEOUT_MINUTES)
     chapters = int(params["chapters"])
     resume_from = int(params.get("resume_from") or 1)
     last_chapter = resume_from + chapters - 1
@@ -360,7 +464,7 @@ def _run_steps(state: Dict[str, Any]) -> str:
     if _STOP_REQUESTED:
         return "stopped"
     if res.timed_out:
-        return "paused"
+        return _paused(state, "step_timeout")
     if res.exit_code != 0:
         state["last_error"] = "preflight failed (FATAL)"
         return "blocked"
@@ -383,11 +487,13 @@ def _run_steps(state: Dict[str, Any]) -> str:
         archived = _archive_stale_chapter_plan()
         if archived is not None:
             _emit(state, "stale_plan_archived", step="debate", archived_to=str(archived))
-        res = _run_step(state, "debate", ["debate", "--force"], timeout_minutes=timeout)
+        res = _run_step(
+            state, "debate", ["debate", "--force"], timeout_minutes=_step_timeout(params, "debate")
+        )
         if _STOP_REQUESTED:
             return "stopped"
         if res.timed_out:
-            return "paused"
+            return _paused(state, "step_timeout")
         if res.exit_code != 0:
             state["last_error"] = "debate --force failed"
             return "failed"
@@ -416,11 +522,13 @@ def _run_steps(state: Dict[str, Any]) -> str:
             )
         _emit(state, "step_skipped", step="debate", reason="outline_exists")
     else:
-        res = _run_step(state, "debate", ["debate"], timeout_minutes=timeout)
+        res = _run_step(
+            state, "debate", ["debate"], timeout_minutes=_step_timeout(params, "debate")
+        )
         if _STOP_REQUESTED:
             return "stopped"
         if res.timed_out:
-            return "paused"
+            return _paused(state, "step_timeout")
         if res.exit_code != 0:
             state["last_error"] = "debate failed"
             return "failed"
@@ -449,11 +557,13 @@ def _run_steps(state: Dict[str, Any]) -> str:
         plan_args = ["plan-chapters", "--chapters", str(plan_target), "--force"]
         if params.get("require_start_point"):
             plan_args.append("--require-start-point")
-        res = _run_step(state, "ensure_plan", plan_args, timeout_minutes=timeout)
+        res = _run_step(
+            state, "ensure_plan", plan_args, timeout_minutes=_step_timeout(params, "plan")
+        )
         if _STOP_REQUESTED:
             return "stopped"
         if res.timed_out:
-            return "paused"
+            return _paused(state, "step_timeout")
         if res.exit_code != 0:
             state["last_error"] = "plan-chapters failed"
             return "blocked"
@@ -478,7 +588,7 @@ def _run_steps(state: Dict[str, Any]) -> str:
         if _STOP_REQUESTED:
             return "stopped"
         if res.timed_out:
-            return "paused"
+            return _paused(state, "step_timeout")
         if res.exit_code == 4:
             state["last_error"] = "; ".join((res.payload or {}).get("blockers") or ["write-readiness blocked"])
             return "blocked"
@@ -536,7 +646,9 @@ def _run_steps(state: Dict[str, Any]) -> str:
             if forced:
                 seg_args.append("--force")
 
-            res = _run_step(state, f"write_seg{idx}", seg_args, timeout_minutes=timeout)
+            res = _run_step(
+                state, f"write_seg{idx}", seg_args, timeout_minutes=_step_timeout(params, "write")
+            )
             payload = res.payload or {}
             seg["exit_code"] = res.exit_code
             seg["chapters_result"] = _segment_chapter_rows(payload)
@@ -550,7 +662,7 @@ def _run_steps(state: Dict[str, Any]) -> str:
             if res.timed_out:
                 seg["status"] = "timeout"
                 _save_state(state)
-                return "paused"
+                return _paused(state, "step_timeout")
             if res.exit_code == 0:
                 seg["status"] = "succeeded"
                 break
@@ -587,7 +699,7 @@ def _run_steps(state: Dict[str, Any]) -> str:
 
         if pause_after and idx >= pause_after:
             _emit(state, "paused_after_segment", segment=idx)
-            return "paused"
+            return _paused(state, "pause_after_segment")
 
     return "succeeded"
 
@@ -619,6 +731,7 @@ def run_driver(state: Dict[str, Any]) -> str:
     state["pid"] = os.getpid()
     state["pgid"] = os.getpgid(0)
     state["status"] = "running"
+    state["paused_reason"] = None   # iter076：新一轮运行清掉上次的暂停原因
     _save_state(state)
     _emit(state, "driver_start", pid=os.getpid(), params=state["params"])
 
@@ -723,6 +836,21 @@ def _build_params(args: Any) -> Dict[str, Any]:
     if err_t:
         print(f"error: {err_t}", file=sys.stderr)
         raise SystemExit(2)
+    # iter076 HIGH#3：分档超时（debate/plan/write）。None = 未配置（fallback
+    # step_timeout_minutes），与 step_timeout 同款 0-1440 校验（0 也回落 fallback）。
+    kind_timeouts: Dict[str, Optional[int]] = {}
+    for kind in _TIMEOUT_KINDS:
+        raw_kind = getattr(args, f"{kind}_timeout_minutes", None)
+        if raw_kind is None:
+            kind_timeouts[kind] = None
+            continue
+        err_k, clean_kind = run_params.validate_int(
+            raw_kind, f"{kind}_timeout_minutes", minimum=0, maximum=1440
+        )
+        if err_k:
+            print(f"error: {err_k}", file=sys.stderr)
+            raise SystemExit(2)
+        kind_timeouts[kind] = clean_kind
     cmd_prefix = getattr(args, "cmd_prefix", None)
     return {
         "book": paths.workspace_name(),
@@ -742,6 +870,9 @@ def _build_params(args: Any) -> Dict[str, Any]:
         "skip_external_review": bool(getattr(args, "skip_external_review", False)),
         "pause_after_segment": int(getattr(args, "pause_after_segment", None) or 0),
         "step_timeout_minutes": clean_timeout,
+        "debate_timeout_minutes": kind_timeouts["debate"],
+        "plan_timeout_minutes": kind_timeouts["plan"],
+        "write_timeout_minutes": kind_timeouts["write"],
         "on_blocked": getattr(args, "on_blocked", "stop") or "stop",
         "cmd_prefix": shlex.split(cmd_prefix) if cmd_prefix else None,
     }
@@ -884,6 +1015,24 @@ def cmd_resume(args: Any) -> int:
     if err:
         print(err, file=sys.stderr)
         return 2
+    # iter076 HIGH#3：分档超时同款「显式覆盖 + 持久值双校验」（iter066/067 模式）。
+    clean_kind_timeouts: Dict[str, Optional[int]] = {}
+    for kind in _TIMEOUT_KINDS:
+        kind_key = f"{kind}_timeout_minutes"
+        kind_override = getattr(args, kind_key, None)
+        effective_kind = (
+            kind_override if kind_override is not None else params.get(kind_key)
+        )
+        if effective_kind is None:
+            clean_kind_timeouts[kind] = None
+            continue
+        err, clean_kind = run_params.validate_int(
+            effective_kind, kind_key, minimum=0, maximum=1440
+        )
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+        clean_kind_timeouts[kind] = clean_kind
     # resume 可覆盖的参数：明确传了才覆盖；pause_after_segment 默认清零，
     # 否则每次 resume 都会在同一段再暂停一次。
     pause = getattr(args, "pause_after_segment", None)
@@ -901,6 +1050,8 @@ def cmd_resume(args: Any) -> int:
     # given) is overwritten with its cleaned form, not left to flow into the run.
     params["step_timeout_minutes"] = clean_timeout
     params["budget_cny"] = clean_budget
+    for kind in _TIMEOUT_KINDS:
+        params[f"{kind}_timeout_minutes"] = clean_kind_timeouts[kind]
     on_blocked = getattr(args, "on_blocked", None)
     if on_blocked is not None:
         params["on_blocked"] = on_blocked
@@ -912,6 +1063,7 @@ def cmd_resume(args: Any) -> int:
     state["step_seq"] = int(state.get("step_seq") or 1)
     state["last_error"] = None
     state["finished_at"] = None
+    state["paused_reason"] = None   # iter076：resume 即消费掉暂停原因
     _emit(state, "driver_resume", previous_status=state.get("status"))
     return _launch(state, bool(getattr(args, "detach", False)))
 
@@ -940,6 +1092,15 @@ def cmd_status(args: Any) -> int:
     segments = state.get("segments") or []
     done = sum(1 for s in segments if s.get("status") == "succeeded")
     budget = float((state.get("params") or {}).get("budget_cny") or 0.0)
+    # iter076 HIGH#4：心跳文件年龄（driver 活性的主信号；state.heartbeat_at 只在
+    # 写 state 时刷新，长 step 期间不动）。
+    hb = read_json_optional(heartbeat_path(), None) or {}
+    hb_age = None
+    if hb.get("epoch"):
+        try:
+            hb_age = round(time.time() - float(hb["epoch"]), 1)
+        except (TypeError, ValueError):
+            hb_age = None
     payload = {
         "run_id": state.get("run_id"),
         "status": display_status,
@@ -948,6 +1109,8 @@ def cmd_status(args: Any) -> int:
         "pid": info.get("pid"),
         "pid_alive": alive,
         "heartbeat_at": state.get("heartbeat_at"),
+        "heartbeat_age_seconds": hb_age,
+        "paused_reason": state.get("paused_reason"),
         "llm_log_age_seconds": llm_age,
         "segments_done": done,
         "segments_total": state.get("segments_total"),

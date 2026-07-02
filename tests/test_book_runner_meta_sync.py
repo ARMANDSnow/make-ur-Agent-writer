@@ -163,8 +163,14 @@ class BookRunnerMetaSyncTests(unittest.TestCase):
                 ), patch("src.book_runner.paths.drafts_dir", return_value=drafts), patch(
                     "src.book_runner._llm_log_line_count", return_value=0
                 ), patch(
+                    # iter076 HIGH#2：章前预留闸会多消费一次 estimate（第 2 个值），
+                    # 本测试的场景是「外审同步后的 post-review 预算停」——预留配置
+                    # 打到 0 让新闸放行，剧本第 3 个值才是原本的超支触发点。
+                    "src.book_runner._budget_reserve_cfg",
+                    return_value={"safety_factor": 1.0, "default_chapter_cost_cny": 0.0},
+                ), patch(
                     "src.book_runner.estimate_cost_since",
-                    side_effect=[{"cost_cny": 0.0}, {"cost_cny": 9.9}],
+                    side_effect=[{"cost_cny": 0.0}, {"cost_cny": 0.0}, {"cost_cny": 9.9}],
                 ), patch("src.book_runner.write_chapters", side_effect=fake_write_chapters), patch(
                     "src.book_runner.review_target", side_effect=fake_review_target
                 ), patch(

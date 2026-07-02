@@ -1758,23 +1758,23 @@ def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int
         else:
             meta = read_json_optional(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
             review = read_json_optional(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
-    # iter076（codex 审查低风险项）：path 类字段相对化投影——meta 只浅拷贝改投影
-    # 字段，磁盘上的 meta.json 原样不动。
-    meta_out = dict(meta) if isinstance(meta, dict) else {}
-    for key in ("snapshot_path", "failure_path"):
-        if meta_out.get(key):
-            meta_out[key] = _ws_relative(meta_out[key])
-    return _json(
-        200,
-        {
+        # iter076（codex 审查低风险项 + 审查 B L1）：path 类字段相对化投影——meta
+        # 只浅拷贝改投影字段，磁盘上的 meta.json 原样不动。必须在 use_workspace
+        # 块**内**做：_ws_relative 依赖线程上下文的 workspace_root()，出块后对
+        # 非当前 workspace 的书会 relative_to 失败而原样返回绝对路径（泄露复活）。
+        meta_out = dict(meta) if isinstance(meta, dict) else {}
+        for key in ("snapshot_path", "failure_path"):
+            if meta_out.get(key):
+                meta_out[key] = _ws_relative(meta_out[key])
+        payload = {
             "chapter": chapter_no,
             "variant": variant or "final",
             "path": _ws_relative(str(md_path)),
             "content": text,
             "meta": meta_out,
             "review": review if isinstance(review, dict) else {},
-        },
-    )
+        }
+    return _json(200, payload)
 
 
 def api_workspace_chapter_versions(name: str, chapter: str) -> Tuple[int, str, bytes]:

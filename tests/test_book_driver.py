@@ -36,7 +36,7 @@ WORKSPACES_DIR = ROOT / "workspaces"
 # stub 子进程：把收到的 argv 记账到 DRIVER_STUB_CALLS，然后按
 # DRIVER_STUB_QUEUE 里第一条 cmd 命中的剧本输出/退出。未排剧本 → exit 97。
 _STUB_SOURCE = """\
-import json, os, sys
+import json, os, sys, time
 calls_path = os.environ["DRIVER_STUB_CALLS"]
 queue_path = os.environ["DRIVER_STUB_QUEUE"]
 with open(calls_path, "a", encoding="utf-8") as fh:
@@ -48,6 +48,7 @@ for i, entry in enumerate(queue):
         queue.pop(i)
         with open(queue_path, "w", encoding="utf-8") as fh:
             json.dump(queue, fh, ensure_ascii=False)
+        time.sleep(float(entry.get("sleep_s", 0)))  # iter076: 超时/心跳剧本用
         for line in entry.get("stdout", []):
             print(line)
         sys.exit(int(entry.get("exit", 0)))
@@ -853,6 +854,210 @@ class Iter067ResidualGuardTests(_WorkspaceMixin, unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(captured["state"]["params"]["budget_cny"], 5.0)
         self.assertEqual(captured["state"]["params"]["step_timeout_minutes"], 180)
+
+
+class DriverTimeoutTierHeartbeatTests(_WorkspaceMixin, unittest.TestCase):
+    """iter076 HIGH#3/#4/#5 配套：分档超时、心跳文件、paused_reason。"""
+
+    def setUp(self) -> None:
+        self._preserve_signals()
+        self.ws = self._make_workspace("unit_driver_t76_")
+        self._seed_plan(4)
+
+    # ---- HIGH#3: _step_timeout fallback 链 ----
+    def test_step_timeout_kind_fallback_chain(self) -> None:
+        default = book_driver.DEFAULT_STEP_TIMEOUT_MINUTES
+        self.assertEqual(book_driver._step_timeout({}, "write"), default)
+        self.assertEqual(book_driver._step_timeout({"step_timeout_minutes": 60}, "debate"), 60)
+        p = {"step_timeout_minutes": 60, "write_timeout_minutes": 90}
+        self.assertEqual(book_driver._step_timeout(p, "write"), 90)
+        self.assertEqual(book_driver._step_timeout(p, "debate"), 60)   # 未配置档回落 step
+        # 0 不是「无上限」：与 step_timeout 的 0→default 语义一致
+        p0 = {"step_timeout_minutes": 0, "debate_timeout_minutes": 0}
+        self.assertEqual(book_driver._step_timeout(p0, "debate"), default)
+        # 坏值 fail-open 到 fallback 链
+        self.assertEqual(book_driver._step_timeout({"write_timeout_minutes": "bogus"}, "write"), default)
+
+    def test_start_persists_kind_timeouts(self) -> None:
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_start(
+                    _driver_args(debate_timeout_minutes=240, write_timeout_minutes=90)
+                )
+        self.assertEqual(rc, 0)
+        params = captured["state"]["params"]
+        self.assertEqual(params["debate_timeout_minutes"], 240)
+        self.assertEqual(params["write_timeout_minutes"], 90)
+        self.assertIsNone(params["plan_timeout_minutes"])
+
+    def test_start_out_of_range_kind_timeout_rejected(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=False):
+            with self.assertRaises(SystemExit) as cm:
+                book_driver.cmd_start(_driver_args(write_timeout_minutes=99999))
+        self.assertEqual(cm.exception.code, 2)
+
+    def _seed_state_with_kind_timeout(self) -> None:
+        book_driver._save_state(
+            {
+                "run_id": "t",
+                "book": self.ws.name,
+                "status": "paused",
+                "attempt": 1,
+                "step_seq": 1,
+                "segments": [],
+                "params": {
+                    "book": self.ws.name,
+                    "chapters": 2,
+                    "resume_from": 1,
+                    "budget_cny": 5.0,
+                    "step_timeout_minutes": 180,
+                    "write_timeout_minutes": 120,
+                    "skip_debate": True,
+                },
+            }
+        )
+
+    def test_resume_kind_timeout_override_and_persisted_validation(self) -> None:
+        self._seed_state_with_kind_timeout()
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_resume(
+                    _driver_args(action="resume", write_timeout_minutes=60)
+                )
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["write_timeout_minutes"], 60)
+        # 越界覆盖 → 拒绝且持久值不动
+        self._seed_state_with_kind_timeout()
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            rc = book_driver.cmd_resume(
+                _driver_args(action="resume", debate_timeout_minutes=99999)
+            )
+        self.assertEqual(rc, 2)
+        self.assertEqual(book_driver.load_state()["params"]["write_timeout_minutes"], 120)
+
+    # ---- HIGH#4: 心跳文件 ----
+    def test_heartbeat_file_written_with_shell_friendly_epoch(self) -> None:
+        prefix, _, _ = self._install_stub(
+            self.ws,
+            [
+                {"cmd": "preflight", "exit": 0, "stdout": []},
+                {"cmd": "write-readiness", "exit": 0, "stdout": [_ready_json()]},
+                {"cmd": "write-book", "exit": 0, "stdout": [_wb_json((1, "written", "Approve"))]},
+            ],
+        )
+        before = int(time.time())
+        rc = book_driver.main(
+            _driver_args(chapters=1, segment_size=1, write_timeout_minutes=77, cmd_prefix=prefix)
+        )
+        self.assertEqual(rc, 0)
+        hb = read_json(book_driver.heartbeat_path())
+        self.assertIsInstance(hb["epoch"], int)
+        self.assertGreaterEqual(hb["epoch"], before)
+        self.assertLessEqual(hb["epoch"], int(time.time()) + 1)
+        # 末拍来自最后一个 step（write_seg1），带分档后的超时值（HIGH#3 集成断言）
+        self.assertEqual(hb["step"], "write_seg1")
+        self.assertEqual(hb["step_timeout_minutes"], 77)
+        for key in ("ts", "run_id", "attempt", "phase", "step_seq", "cost_cny", "pid"):
+            self.assertIn(key, hb)
+
+    def test_heartbeat_ticks_during_long_step(self) -> None:
+        # 长 step 期间（child 睡 2.5s、心跳间隔 patch 到 1s）心跳至少刷 2 次。
+        prefix, _, _ = self._install_stub(
+            self.ws,
+            [
+                {"cmd": "preflight", "exit": 0, "sleep_s": 2.5, "stdout": []},
+            ],
+        )
+        epochs: list = []
+
+        original_write_json = book_driver.write_json
+
+        def spy_write_json(path, payload):
+            if Path(path).name == "driver_heartbeat.json":
+                epochs.append(payload.get("step_elapsed_s"))
+            return original_write_json(path, payload)
+
+        with patch.object(book_driver, "_HEARTBEAT_INTERVAL_SECONDS", 1):
+            with patch.object(book_driver, "write_json", side_effect=spy_write_json):
+                state = {
+                    "run_id": "hb",
+                    "attempt": 1,
+                    "step_seq": 1,
+                    "params": {"cmd_prefix": None},
+                }
+                state["params"]["cmd_prefix"] = shlex.split(prefix)
+                res = book_driver._run_step(state, "preflight", ["preflight"], timeout_minutes=5)
+        self.assertFalse(res.timed_out)
+        # 首拍(0s) + ≥1 次中间拍 + 末拍
+        self.assertGreaterEqual(len(epochs), 3)
+        self.assertEqual(epochs[0], 0)
+        self.assertTrue(any(e >= 1 for e in epochs[1:]))
+
+    # ---- HIGH#5 配套: paused_reason ----
+    def test_paused_reason_step_timeout(self) -> None:
+        prefix, _, _ = self._install_stub(
+            self.ws,
+            [
+                {"cmd": "preflight", "exit": 0, "stdout": []},
+                {"cmd": "write-readiness", "exit": 0, "stdout": [_ready_json()]},
+                {"cmd": "write-book", "exit": 0, "sleep_s": 20, "stdout": []},
+            ],
+        )
+        with patch.object(book_driver, "_HEARTBEAT_INTERVAL_SECONDS", 1):
+            with patch("src.book_driver._step_timeout", return_value=1 / 60):
+                rc = book_driver.main(
+                    _driver_args(chapters=1, segment_size=1, cmd_prefix=prefix)
+                )
+        self.assertEqual(rc, 0)   # paused 是预期路径 → exit 0
+        state = book_driver.load_state()
+        self.assertEqual(state["status"], "paused")
+        self.assertEqual(state["paused_reason"], "step_timeout")
+
+    def test_paused_reason_pause_after_segment_and_resume_clears(self) -> None:
+        prefix, queue_path, _ = self._install_stub(
+            self.ws,
+            [
+                {"cmd": "preflight", "exit": 0, "stdout": []},
+                {"cmd": "write-readiness", "exit": 0, "stdout": [_ready_json()]},
+                {"cmd": "write-book", "exit": 0, "stdout": [_wb_json((1, "written", "Approve"))]},
+            ],
+        )
+        rc = book_driver.main(
+            _driver_args(chapters=2, segment_size=1, pause_after_segment=1, cmd_prefix=prefix)
+        )
+        self.assertEqual(rc, 0)
+        state = book_driver.load_state()
+        self.assertEqual(state["status"], "paused")
+        self.assertEqual(state["paused_reason"], "pause_after_segment")
+        # resume 消费掉 paused_reason；收口 succeeded 后 reason 保持清空
+        queue_path.write_text(
+            json.dumps(
+                [
+                    {"cmd": "preflight", "exit": 0, "stdout": []},
+                    {"cmd": "write-book", "exit": 0, "stdout": [_wb_json((1, "skipped_approved", "Approve"))]},
+                    {"cmd": "write-book", "exit": 0, "stdout": [_wb_json((2, "written", "Approve"))]},
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        rc = book_driver.main(_driver_args(action="resume", cmd_prefix=None))
+        self.assertEqual(rc, 0)
+        state = book_driver.load_state()
+        self.assertEqual(state["status"], "succeeded")
+        self.assertIsNone(state["paused_reason"])
 
 
 if __name__ == "__main__":
