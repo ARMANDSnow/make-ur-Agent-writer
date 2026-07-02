@@ -1044,5 +1044,10 @@ def _snapshot(status: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     path = snap_dir / f"write_book_{status}_{time.strftime('%Y%m%d_%H%M%S')}.json"
     result = {"status": status, **payload}
     write_json(path, result)
-    result["snapshot_path"] = str(path)
+    # iter076（codex 审查低风险项）：快照路径以 workspace 相对形式外发（消费方仅
+    # jobs/前端展示），不再把本机绝对路径写进 job result_summary。
+    try:
+        result["snapshot_path"] = str(path.relative_to(root))
+    except ValueError:
+        result["snapshot_path"] = str(path)
     return result

@@ -922,6 +922,7 @@ def render_workspace_search(name: str, workspaces: Iterable[str]) -> str:
         '<div class="search-box-wrap">'
         '<span class="search-icon" aria-hidden="true">✦</span>'
         '<input type="search" id="search-input" class="search-box" '
+        'aria-label="全文搜索关键词" '
         'placeholder="输入关键词，如「路明非」「言灵」「诺诺」…" autofocus '
         'autocomplete="off" spellcheck="false">'
         '</div>'

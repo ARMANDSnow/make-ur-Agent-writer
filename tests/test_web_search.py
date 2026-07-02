@@ -120,6 +120,25 @@ class SearchRouteTests(unittest.TestCase):
         _s, alld = self._get_json(f"/api/workspace/{self.WS}/search?q=路明非")
         self.assertIn("original", {h["source"] for h in alld["hits"]})
 
+    def test_blank_sources_param_searches_nothing(self) -> None:
+        # iter076（codex 审查 iter075 #2）：``?sources=``（显式空值）≠ 未传——
+        # keep_blank_values 后到达 handler → 空列表 → 0 结果，而非误判全搜。
+        self._seed()
+        status, data = self._get_json(f"/api/workspace/{self.WS}/search?q=路明非&sources=")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["hits"], [])
+        self.assertEqual(data["hit_count"], 0)
+        self.assertEqual(data["total_matches"], 0)
+
+    def test_blank_int_query_params_fall_back_to_default(self) -> None:
+        # keep_blank_values 波及面回归：``?n=`` 空值经 _parse_n int("") → ValueError
+        # → 落 default，不得变 400/500。
+        self._seed()
+        status, _ct, body = routes.dispatch("GET", f"/api/workspace/{self.WS}/logs/tail?n=")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertIn("lines", payload)
+
     def test_url_encoded_chinese_query(self) -> None:
         self._seed()
         # 「路明非」url 编码

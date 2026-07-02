@@ -93,8 +93,8 @@ class SearchHit:
 @dataclass
 class SearchResult:
     query: str                 # 实际执行的 query（可能被截断到 MAX_QUERY_LEN）
-    total_matches: int         # 所有命中单元的 match_count 合计
-    hit_count: int             # 命中单元数
+    total_matches: int         # 全部命中单元的 match_count 合计（MAX_CHAPTERS 截断**前**的全局真实数）
+    hit_count: int             # 实际返回的命中单元数（截断后 == len(hits)）
     hits: List[SearchHit]
     truncated: bool = False
     truncated_reasons: List[str] = field(default_factory=list)
@@ -189,6 +189,13 @@ def _search_original(needle_lower: str) -> List[SearchHit]:
         manifest = chapter_splitter.load_manifest()   # manifest 缺失 → FileNotFoundError
     except Exception:
         return []
+    # iter076（codex 审查 iter075 #1）：manifest 是可编辑 JSON，normalized_file 不可
+    # 直接信任——resolve 后必须落在本 workspace 的 normalized_texts/ 内（resolve 同时
+    # 消解 symlink），越界条目按坏章跳过，杜绝借 manifest 读 workspace 外任意文件。
+    try:
+        normalized_root = paths.normalized_dir().resolve()
+    except Exception:
+        return []
     hits: List[SearchHit] = []
     # normalized_file 级读缓存：多章共享一卷文件时把 N 次全文件 IO 降到 1 次。
     line_cache: Dict[str, Optional[List[str]]] = {}
@@ -199,8 +206,10 @@ def _search_original(needle_lower: str) -> List[SearchHit]:
             nf = str(entry["normalized_file"])
             if nf not in line_cache:
                 try:
-                    line_cache[nf] = Path(nf).read_text(encoding="utf-8").splitlines()
-                except (OSError, UnicodeDecodeError):
+                    resolved = Path(nf).resolve()
+                    resolved.relative_to(normalized_root)   # 越界 → ValueError → 跳过
+                    line_cache[nf] = resolved.read_text(encoding="utf-8").splitlines()
+                except (OSError, UnicodeDecodeError, ValueError):
                     line_cache[nf] = None
             lines = line_cache[nf]
             if lines is None:
@@ -318,6 +327,9 @@ def search_workspace(query: str, *, sources: Optional[List[str]] = None) -> Sear
         hits += _search_kb(needle_lower)
 
     hits.sort(key=_sort_key)   # 稳定排序：组内保持插入序（原文=manifest 序、续写=章号序）
+    # iter076（codex 审查 iter075 #5）：总命中数在截断**前**求和——「共 N 处命中」是
+    # 全局真实数；hits/hit_count 才是截断后的展示面（truncated_reasons 含 "chapters"）。
+    total = sum(h.match_count for h in hits)
     if len(hits) > MAX_CHAPTERS:
         hits = hits[:MAX_CHAPTERS]
         reasons.append("chapters")
@@ -326,8 +338,6 @@ def search_workspace(query: str, *, sources: Optional[List[str]] = None) -> Sear
     for h in hits:
         if h.match_count > len(h.snippets):
             reasons.append("snippets:" + _snippet_key(h))
-
-    total = sum(h.match_count for h in hits)
     return SearchResult(
         query=raw,
         total_matches=total,

@@ -253,7 +253,6 @@ class SearchModuleTests(SearchBase):
 
     def test_normalized_file_read_cache(self) -> None:
         self._seed_default()   # ch001/ch002 共享 vol1.txt
-        vol1 = str(self.root / "data" / "normalized_texts" / "vol1.txt")
         counts: dict = {}
         orig_read_text = pathlib.Path.read_text
 
@@ -267,7 +266,10 @@ class SearchModuleTests(SearchBase):
                 search.search_workspace("路明非", sources=["original"])
         finally:
             pathlib.Path.read_text = orig_read_text
-        self.assertEqual(counts.get(vol1), 1)   # 两章共享一卷文件 → 仅读一次
+        # iter076 起经 resolve 后的路径读（macOS /var → /private/var），按文件名聚合
+        # 计数对路径形态鲁棒：两章共享一卷文件 → 全程仅读一次。
+        total_reads = sum(v for k, v in counts.items() if Path(k).name == "vol1.txt")
+        self.assertEqual(total_reads, 1)
 
     def test_length_changing_lower_no_crash_no_misalign(self) -> None:
         # 'İ'.lower() 长度 1→2：走 display=hay_lower 分支，offset 仍精确。
@@ -295,6 +297,50 @@ class SearchModuleTests(SearchBase):
         parsed = json.loads(blob)
         self.assertEqual(parsed["hit_count"], 4)
         self.assertEqual(parsed["hits"][1]["chapter_id"], "longzu_1_ch001")
+
+    def test_manifest_path_escape_is_skipped(self) -> None:
+        # iter076（codex 审查 iter075 #1）：manifest 指向 workspace 外文件 → 收容闸
+        # 跳过，不得返回其内容片段。
+        secret = Path(self._tmp.name) / "outside_secret.txt"
+        secret.write_text("越界机密词ZZZ 在这里。", encoding="utf-8")
+        self._write_manifest([self._entry("ch_evil", str(secret), 1, 1)])
+        with use_workspace(self.WS):
+            res = search.search_workspace("越界机密词ZZZ", sources=["original"])
+        self.assertEqual(res.hit_count, 0)
+        self.assertEqual(res.hits, [])
+
+    def test_manifest_symlink_escape_is_skipped(self) -> None:
+        # symlink 藏在 normalized_texts/ 里、指向外部 → resolve 后越界，同样跳过。
+        secret = Path(self._tmp.name) / "outside_secret2.txt"
+        secret.write_text("符链机密词YYY 在这里。", encoding="utf-8")
+        link = self.root / "data" / "normalized_texts" / "link.txt"
+        link.symlink_to(secret)
+        self._write_manifest([self._entry("ch_link", str(link), 1, 1)])
+        with use_workspace(self.WS):
+            res = search.search_workspace("符链机密词YYY", sources=["original"])
+        self.assertEqual(res.hit_count, 0)
+
+    def test_inside_relative_manifest_path_still_matches(self) -> None:
+        # 收容闸不得误杀合法条目：正常 pipeline 写的绝对路径在 normalized_dir 内。
+        nf = self._write_normalized("vol_ok.txt", ["收容合法词QQQ 一行。"])
+        self._write_manifest([self._entry("ch_ok", nf, 1, 1)])
+        with use_workspace(self.WS):
+            res = search.search_workspace("收容合法词QQQ", sources=["original"])
+        self.assertEqual([h.chapter_id for h in res.hits], ["ch_ok"])
+
+    def test_total_matches_counts_beyond_chapter_truncation(self) -> None:
+        # iter076（codex 审查 iter075 #5）：>MAX_CHAPTERS 单元时 total_matches 是
+        # 截断**前**的全局真实数；hit_count/hits 才是截断后的展示面。
+        self._write_manifest([])
+        n_units = search.MAX_CHAPTERS + 5
+        for i in range(1, n_units + 1):
+            self._write_draft(i, "全局计数词出现")
+        with use_workspace(self.WS):
+            res = search.search_workspace("全局计数词", sources=["draft"])
+        self.assertEqual(res.hit_count, search.MAX_CHAPTERS)
+        self.assertEqual(len(res.hits), search.MAX_CHAPTERS)
+        self.assertEqual(res.total_matches, n_units)          # 计入被裁掉的 5 个单元
+        self.assertIn("chapters", res.truncated_reasons)
 
 
 if __name__ == "__main__":

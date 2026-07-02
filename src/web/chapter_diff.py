@@ -60,15 +60,36 @@ def _format_stamp(stamp: str) -> str:
     return f"{day[0:4]}-{day[4:6]}-{day[6:8]} {clock[0:2]}:{clock[2:4]}:{clock[4:6]}"
 
 
+def _safe_stat_size(md_path: Path, containment_root: Path) -> Optional[int]:
+    """文件字节数；缺失/越界（含 symlink 逃逸）返回 None。
+
+    iter076（codex 审查 iter074 #6 + 低风险 symlink 项）：版本列举原来为算字数把
+    **每个版本全文读进内存**，且 ``read_text``/``exists`` 都跟随 symlink——快照目录里
+    一个指向外部的 symlink 能借 /versions 探测任意文件的存在性与长度。改为先
+    resolve + 收容校验（与 ``resolve_version_text`` 同款闸），再 ``stat`` 取字节数，
+    全程零正文 IO。"""
+    try:
+        resolved = md_path.resolve()
+        resolved.relative_to(containment_root.resolve())
+        if not resolved.is_file():
+            return None
+        return resolved.stat().st_size
+    except (OSError, ValueError):
+        return None
+
+
 def _version_entry(
     md_path: Path,
     meta: Any,
     *,
     version_id: str,
     label: str,
+    containment_root: Path,
     reason: Optional[str] = None,
-) -> Dict[str, Any]:
-    text = _read_text(md_path)
+) -> Optional[Dict[str, Any]]:
+    size = _safe_stat_size(md_path, containment_root)
+    if size is None:
+        return None
     if not isinstance(meta, dict):
         meta = {}
     return {
@@ -79,8 +100,10 @@ def _version_entry(
         "rewrite_count": meta.get("rewrite_count"),
         "edited": bool(meta.get("edited")),
         "edited_at": meta.get("edited_at"),
-        "chars": len(text) if text is not None else 0,
-        "exists": text is not None,
+        # iter076：``chars``（全文 len）→ ``size_bytes``（stat）。原字段前端/测试
+        # 零消费（已核），换成零 IO 的字节数。
+        "size_bytes": size,
+        "exists": True,
     }
 
 
@@ -93,11 +116,16 @@ def list_chapter_versions(drafts_dir: Path, chapter_no: int) -> List[Dict[str, A
     versions: List[Dict[str, Any]] = []
 
     current_md = drafts_dir / _chapter_md_name(chapter_no)
-    if current_md.exists():
-        meta = read_json_optional(drafts_dir / _chapter_meta_name(chapter_no), {})
-        versions.append(
-            _version_entry(current_md, meta, version_id=CURRENT_VERSION_ID, label="当前草稿")
-        )
+    current_meta = read_json_optional(drafts_dir / _chapter_meta_name(chapter_no), {})
+    current_entry = _version_entry(
+        current_md,
+        current_meta,
+        version_id=CURRENT_VERSION_ID,
+        label="当前草稿",
+        containment_root=drafts_dir,
+    )
+    if current_entry is not None:
+        versions.append(current_entry)
 
     snap_root = drafts_dir / "snapshots"
     snaps: List[tuple] = []
@@ -110,23 +138,21 @@ def list_chapter_versions(drafts_dir: Path, chapter_no: int) -> List[Dict[str, A
             if not _STAMP_RE.match(stamp):
                 continue
             md = entry / _chapter_md_name(chapter_no)
-            if not md.exists():
-                continue
             meta = read_json_optional(entry / _chapter_meta_name(chapter_no), {})
             reason_obj = read_json_optional(entry / "archive_reason.json", {})
             reason = reason_obj.get("reason") if isinstance(reason_obj, dict) else None
-            snaps.append(
-                (
-                    stamp,
-                    _version_entry(
-                        md,
-                        meta,
-                        version_id=stamp,
-                        label=f"重试快照 {_format_stamp(stamp)}",
-                        reason=reason,
-                    ),
-                )
+            # 缺 md / symlink 逃逸收容 → None → 该版本不进列表（也就永远进不了
+            # valid_ids，diff 端点在触盘前即 400）。
+            snap_entry = _version_entry(
+                md,
+                meta,
+                version_id=stamp,
+                label=f"重试快照 {_format_stamp(stamp)}",
+                containment_root=snap_root,
+                reason=reason,
             )
+            if snap_entry is not None:
+                snaps.append((stamp, snap_entry))
         snaps.sort(key=lambda item: item[0], reverse=True)  # newest first
 
     versions.extend(entry for _, entry in snaps)
@@ -169,6 +195,14 @@ def _classify(line: str) -> str:
     return "ctx"
 
 
+# iter076（codex 审查 iter074 #6）：difflib.unified_diff 是 O(行数²) 级 DP，无上限
+# 会被两份超大文本占满 CPU/内存。单章正常 4-10k 字，上限取得很宽裕；超限时不跑
+# difflib，只回 meta 说明行 + truncated 标记（前端把 meta 行当普通 diff 行渲染，
+# 无需改前端即可展示）。
+MAX_DIFF_INPUT_CHARS = 500_000   # 每侧输入字符上限
+MAX_DIFF_LINES = 5_000           # 输出 diff 行数上限（截断后追加说明行）
+
+
 def compute_diff(
     old_text: Optional[str],
     new_text: Optional[str],
@@ -179,12 +213,31 @@ def compute_diff(
 ) -> Dict[str, Any]:
     """Unified diff between two chapter texts as classified lines for the UI."""
 
-    old_lines = (old_text or "").splitlines(keepends=True)
-    new_lines = (new_text or "").splitlines(keepends=True)
+    old_raw = old_text or ""
+    new_raw = new_text or ""
+    if len(old_raw) > MAX_DIFF_INPUT_CHARS or len(new_raw) > MAX_DIFF_INPUT_CHARS:
+        note = (
+            f"文本过大（{len(old_raw)} / {len(new_raw)} 字符，上限每侧 "
+            f"{MAX_DIFF_INPUT_CHARS}），已跳过逐行对比。"
+        )
+        return {
+            "identical": old_raw == new_raw,
+            "diff_lines": [{"type": "meta", "text": note}],
+            "truncated": True,
+        }
+    old_lines = old_raw.splitlines(keepends=True)
+    new_lines = new_raw.splitlines(keepends=True)
     raw = list(
         difflib.unified_diff(
             old_lines, new_lines, fromfile=old_label, tofile=new_label, n=context
         )
     )
+    truncated = len(raw) > MAX_DIFF_LINES
+    if truncated:
+        raw = raw[:MAX_DIFF_LINES]
     diff_lines = [{"type": _classify(line), "text": line.rstrip("\n")} for line in raw]
-    return {"identical": not raw, "diff_lines": diff_lines}
+    if truncated:
+        diff_lines.append(
+            {"type": "meta", "text": f"… diff 过长，仅显示前 {MAX_DIFF_LINES} 行。"}
+        )
+    return {"identical": not raw, "diff_lines": diff_lines, "truncated": truncated}

@@ -4106,13 +4106,35 @@ JS_DASHBOARD = """\
       box.appendChild(div);
     }
 
-    async function run() {
+    function syncUrl(q, active) {
+      // iter076（codex 低风险项）：q/sources 写回 URL（replaceState 不产生历史条目），
+      // 刷新/分享链接可恢复检索状态。
+      try {
+        const params = new URLSearchParams(location.search || "");
+        if (q) params.set("q", q); else params.delete("q");
+        if (active && active.length && active.length < 3) params.set("sources", active.join(","));
+        else params.delete("sources");
+        const qs = params.toString();
+        history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+      } catch (e) { /* URL API 不可用时静默跳过 */ }
+    }
+
+    async function run(fromEnter) {
+      // iter076（codex 审查 iter075 #3）：seq 必须在任何 early return **之前**递增——
+      // 否则清空输入/取消勾选后，慢的在途旧响应回来仍 mine===seq，把空态覆盖回结果。
+      const mine = ++seq;
       const q = input.value.trim();
       summary.textContent = "";
-      if (!q) { showEmpty("输入关键词开始检索", "支持跨章定位实体、伏笔与关键词。"); return; }
       const active = selectedSources();
+      syncUrl(q, active);
+      if (!q) { showEmpty("输入关键词开始检索", "支持跨章定位实体、伏笔与关键词。"); return; }
+      // iter076（codex 低风险项）：单字自动检索扫描面大——防抖路径要求 ≥2 字，
+      // Enter 显式检索仍允许单字。
+      if (!fromEnter && q.length < 2) {
+        showEmpty("再输入一个字，或按 Enter 直接检索", "单字检索范围较大，自动检索需至少 2 字。");
+        return;
+      }
       if (!active.length) { showEmpty("请选择检索范围", "勾选上方原文 / 续写 / 知识库其中之一。"); return; }
-      const mine = ++seq;                        // 竞态守卫：只认最新一次查询
       summary.textContent = "检索中…";
       let data;
       try {
@@ -4130,8 +4152,9 @@ JS_DASHBOARD = """\
         showEmpty("未找到「" + q + "」", "换个关键词，或调整上方语料范围试试。");
         return;
       }
+      // iter076：total_matches 现在是截断前全局真实数，截断提示注明展示面。
       let s = "共 " + (data.total_matches || 0) + " 处命中 · " + hits.length + " 个单元";
-      if (data.truncated) s += "（结果较多，已按上限截断）";
+      if (data.truncated) s += "（结果较多，已截断：仅展示前 " + hits.length + " 个单元的片段）";
       summary.textContent = s;
       const frag = document.createDocumentFragment();
       hits.forEach(function (h) { frag.appendChild(renderSearchHit(h)); });
@@ -4142,9 +4165,24 @@ JS_DASHBOARD = """\
     function debouncedRun() { clearTimeout(timer); timer = setTimeout(run, 250); }  // 250ms 防抖
     input.addEventListener("input", debouncedRun);
     input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { clearTimeout(timer); run(); }
+      if (e.key === "Enter") { clearTimeout(timer); run(true); }
     });
     if (sourcesBox) sourcesBox.addEventListener("change", debouncedRun);   // 勾选变即重渲（含防抖）
+
+    // iter076（codex 低风险项）：从 URL 恢复 q/sources——刷新不丢状态。恢复的 q
+    // 视同显式检索（允许单字）。
+    try {
+      const params0 = new URLSearchParams(location.search || "");
+      const src0 = (params0.get("sources") || "").trim();
+      if (src0 && sourcesBox) {
+        const want = src0.split(",");
+        Array.prototype.slice.call(sourcesBox.querySelectorAll("input")).forEach(function (c) {
+          c.checked = want.indexOf(c.value) !== -1;
+        });
+      }
+      const q0 = (params0.get("q") || "").trim();
+      if (q0) { input.value = q0; run(true); }
+    } catch (e) { /* URL API 不可用时保持默认空态 */ }
   }
 
   // ===== page: chapters list ==============================================
@@ -4498,20 +4536,26 @@ JS_DASHBOARD = """\
     }
   }
   // iter 074: chapter version diff (current draft vs archived retry snapshots)
+  // iter076（codex 审查 iter074 #4）：diffSeq stale guard——连续切版本/重渲染时，
+  // 慢的旧响应不得覆盖新选择的结果（与搜索页 seq 同款）。
+  let diffSeq = 0;
   async function loadChapterDiffVersions(num) {
     const out = document.getElementById("diff-output");
     const s1 = document.getElementById("diff-v1");
     const s2 = document.getElementById("diff-v2");
     if (!out || !s1 || !s2) return;
+    const mine = ++diffSeq;
     let versions;
     try {
       const data = await fetchJson(wsUrl("/chapter/" + num + "/versions"));
       versions = data.versions || [];
     } catch (err) {
+      if (mine !== diffSeq) return;
       out.className = "diff-output";
       out.innerHTML = renderErrorCard(err);
       return;
     }
+    if (mine !== diffSeq) return;
     const controls = document.querySelector(".diff-controls");
     if (versions.length < 2) {
       if (controls) controls.style.display = "none";
@@ -4532,6 +4576,10 @@ JS_DASHBOARD = """\
     s2.value = versions[0].id;  // current draft
     const runBtn = document.getElementById("diff-run");
     if (runBtn) runBtn.onclick = function () { runChapterDiff(num); };
+    // iter076（codex 审查 iter074 #4）：下拉变化即自动重跑——否则旧结果静默挂着
+    // 与新选择不符（对齐搜索页「勾选变即重渲」的行为）。
+    s1.onchange = function () { runChapterDiff(num); };
+    s2.onchange = function () { runChapterDiff(num); };
     runChapterDiff(num);
   }
   async function runChapterDiff(num) {
@@ -4539,6 +4587,7 @@ JS_DASHBOARD = """\
     const s1 = document.getElementById("diff-v1");
     const s2 = document.getElementById("diff-v2");
     if (!out || !s1 || !s2) return;
+    const mine = ++diffSeq;                     // early return 前递增（同搜索页教训）
     const v1 = s1.value;
     const v2 = s2.value;
     if (v1 === v2) {
@@ -4553,10 +4602,12 @@ JS_DASHBOARD = """\
       data = await fetchJson(wsUrl("/chapter/" + num + "/diff?v1=" +
         encodeURIComponent(v1) + "&v2=" + encodeURIComponent(v2)));
     } catch (err) {
+      if (mine !== diffSeq) return;
       out.className = "diff-output";
       out.innerHTML = renderErrorCard(err);
       return;
     }
+    if (mine !== diffSeq) return;               // 已被更新的对比覆盖，丢弃旧响应
     if (data.identical) {
       out.className = "diff-output muted";
       out.textContent = "两个版本内容一致。";

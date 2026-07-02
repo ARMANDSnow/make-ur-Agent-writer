@@ -1758,14 +1758,20 @@ def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int
         else:
             meta = read_json_optional(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
             review = read_json_optional(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
+    # iter076（codex 审查低风险项）：path 类字段相对化投影——meta 只浅拷贝改投影
+    # 字段，磁盘上的 meta.json 原样不动。
+    meta_out = dict(meta) if isinstance(meta, dict) else {}
+    for key in ("snapshot_path", "failure_path"):
+        if meta_out.get(key):
+            meta_out[key] = _ws_relative(meta_out[key])
     return _json(
         200,
         {
             "chapter": chapter_no,
             "variant": variant or "final",
-            "path": str(md_path),
+            "path": _ws_relative(str(md_path)),
             "content": text,
-            "meta": meta if isinstance(meta, dict) else {},
+            "meta": meta_out,
             "review": review if isinstance(review, dict) else {},
         },
     )
@@ -1864,6 +1870,19 @@ def api_workspace_search(
     return _json(200, result.to_dict())
 
 
+def _ws_relative(p: Any) -> Any:
+    """iter076（codex 审查低风险项）：API 投影不暴露本机绝对路径。
+
+    workspace 内的路径转成相对 workspace 根的形式（display-only 字段，前端只
+    展示不回传）；不在 workspace 内 / 已是相对 / 解析失败则原样返回。"""
+    if not p:
+        return p
+    try:
+        return str(Path(str(p)).resolve().relative_to(paths.workspace_root().resolve()))
+    except Exception:
+        return p
+
+
 def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
     match = re.match(r"chapter_(\d+)(\.partial)?\.md$", path.name)
     if not match:
@@ -1875,7 +1894,7 @@ def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
         return {
             "chapter": chapter_no,
             "variant": "partial",
-            "path": str(path),
+            "path": _ws_relative(str(path)),
             "chars": len(path.read_text(encoding="utf-8", errors="replace")),
             "verdict": "failure",
             "needs_human_review": True,
@@ -1889,13 +1908,13 @@ def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
     return {
         "chapter": chapter_no,
         "variant": "final",
-        "path": str(path),
+        "path": _ws_relative(str(path)),
         "chars": len(path.read_text(encoding="utf-8", errors="replace")),
         "verdict": meta.get("verdict") if isinstance(meta, dict) else None,
         "needs_human_review": bool(meta.get("needs_human_review")) if isinstance(meta, dict) else False,
         "rewrite_count": meta.get("rewrite_count") if isinstance(meta, dict) else None,
         "review_verdict": review.get("verdict") if isinstance(review, dict) else None,
-        "snapshot_path": meta.get("snapshot_path") if isinstance(meta, dict) else None,
+        "snapshot_path": _ws_relative(meta.get("snapshot_path")) if isinstance(meta, dict) else None,
     }
 
 
@@ -2606,7 +2625,11 @@ def dispatch(
     """
 
     split = urlsplit(path_with_query)
-    query = parse_qs(split.query) if split.query else None
+    # iter076（codex 审查 iter075 #2）：keep_blank_values——`?sources=`（显式空值）必须
+    # 到达 handler（→ 空列表 = 一个都不搜），默认丢弃会被误判成「未传 → 全搜」。既有
+    # 消费点全部安全：variant/v1/v2/q 走 `or ""` 兜底，_parse_int/_parse_n 对空串
+    # catch ValueError 落 default（有回归测试钉住）。
+    query = parse_qs(split.query, keep_blank_values=True) if split.query else None
     # Iter 025 code-review #8: ``BaseHTTPRequestHandler.path`` keeps
     # percent-encoded bytes, so a CJK workspace like ``/workspace/龙族/``
     # arrives as ``/workspace/%E9%BE%99%E6%97%8F/`` and never matches the
