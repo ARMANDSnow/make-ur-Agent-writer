@@ -17,6 +17,33 @@ from .config import _env_int, _safe_int, get_model_config
 from .schemas import model_to_dict
 from .utils import append_jsonl, extract_json_object
 
+
+def _sanitize_error_text(error: Any, *, api_key: Optional[str] = None, max_chars: int = 500) -> str:
+    """Redact secrets and prompt-like payloads before persisting diagnostics."""
+    if isinstance(error, BaseException):
+        text = f"{type(error).__name__}: {error}"
+    else:
+        text = str(error)
+    if isinstance(api_key, str) and len(api_key) >= 8:
+        text = text.replace(api_key, "***")
+    text = re.sub(r"Bearer\s+\S+", "Bearer ***", text)
+    text = re.sub(r"sk-[A-Za-z0-9_\-]{16,}", "sk-***", text)
+
+    # Some provider/proxy exceptions echo request kwargs or JSON-ish request
+    # bodies. Keep the field names for debugging, but never keep prompt bodies.
+    text = re.sub(r"(?is)(messages\s*=\s*)\[[^\]]*\]", r"\1[***]", text)
+    text = re.sub(r"(?is)((?:\"|')messages(?:\"|')\s*:\s*)\[[^\]]*\]", r"\1[***]", text)
+    text = re.sub(r"(?is)((?:prompt|input|content)\s*=\s*)(['\"]).*?\2", r"\1***", text)
+    text = re.sub(
+        r"(?is)((?:\"|')(?:prompt|input|content)(?:\"|')\s*:\s*)(['\"]).*?\2",
+        r"\1\"***\"",
+        text,
+    )
+    if max_chars > 0 and len(text) > max_chars:
+        return text[:max_chars] + "...<truncated>"
+    return text
+
+
 # Iter 027: adapt HTTP(S)_PROXY for the aetherheartpool tunnel.
 # The Claude Code sandbox forces all egress through localhost:63501 (no
 # DNS / direct egress otherwise); the user's own terminal can reach the
@@ -268,6 +295,19 @@ class LLMClient:
                 return content
             except Exception as exc:
                 last_exc = exc
+                # iter078 P1-2: 每个失败 attempt 记一条 retry_error——此前 N 次
+                # 真实 API 调用只在循环外记 1 条 error，N-1 次的 prompt 消耗从
+                # 账本消失（真模型弱网下预算持续虚低）。prompt_tokens 随
+                # request_meta 入账；response 侧超时场景 provider 已计费部分
+                # 结构性不可知，不估（见 iteration_078 已知残留低估声明）。
+                self._log_call(
+                    "complete_text",
+                    "retry_error",
+                    started,
+                    exc,
+                    attempt=attempt,
+                    request_meta=request_meta,
+                )
                 # Mid-stream failures discard partial output (handled inside
                 # _consume_stream — it raises before returning any content).
                 if cache_segments and not cache_downgraded and any("cache_control" in msg for msg in prepared_messages):
@@ -286,7 +326,18 @@ class LLMClient:
                     time.sleep(delay)
                 else:
                     break
-        self._log_call("complete_text", "error", started, last_exc, request_meta=request_meta)
+        # iter078 P1-2: 终态 error 条保留（dashboard/grep 兼容）但 token 置零
+        # ——每次尝试的消耗已由上方 retry_error 条逐笔入账，这里再带 token
+        # 就是双计。final_of_attempts 标记它是 N 次尝试的收尾条。
+        self._log_call(
+            "complete_text",
+            "error",
+            started,
+            last_exc,
+            request_meta=request_meta,
+            zero_tokens=True,
+            final_of_attempts=attempt,
+        )
         suffix = "stream attempts" if use_stream else "attempt(s)"
         # iter055 审查修正: 报实际尝试次数 attempt(非配置上限 attempts)—— 非 transient 提前
         # break 时只试 1 次,旧文案 "after {attempts}" 会让运维误判重试了满 3 次。attempt/attempts
@@ -341,23 +392,9 @@ class LLMClient:
                 "latency_ms": latency_ms,
             }
         except Exception as exc:
-            # Never surface the api_key: some providers echo request kwargs
-            # in their error string. Layered defense:
-            #   1. exact-match replace of the configured key (covers plaintext)
-            #   2. Bearer <token> pattern (covers Authorization headers
-            #      echoed by middleware / proxies)
-            #   3. sk-<long token> pattern (covers OpenAI-style keys that
-            #      appear bare in error bodies; min length 16 so we don't
-            #      false-positive on names like "sk-test")
-            #   4. length cap as last-resort defense in depth
-            # iter 048d (C2(a)): the prior code only had step 1, which
-            # missed any encoded/echoed form of the key.
-            err = f"{type(exc).__name__}: {exc}"
-            key = self.config.get("api_key")
-            if isinstance(key, str) and len(key) >= 8:
-                err = err.replace(key, "***")
-            err = re.sub(r"Bearer\s+\S+", "Bearer ***", err)
-            err = re.sub(r"sk-[A-Za-z0-9_\-]{16,}", "sk-***", err)
+            # Never surface the api_key or echoed prompt payloads: some
+            # providers/proxies include request kwargs in exception strings.
+            err = _sanitize_error_text(exc, api_key=self.config.get("api_key"), max_chars=200)
             return {
                 "task": self.task,
                 "model": self.model,
@@ -512,6 +549,8 @@ class LLMClient:
         request_meta: Dict[str, Any] | None = None,
         response_text: str = "",
         response: Any = None,
+        zero_tokens: bool = False,
+        final_of_attempts: int | None = None,
     ) -> None:
         record: Dict[str, Any] = {
             "task": self.task,
@@ -539,10 +578,19 @@ class LLMClient:
             record["cache_write_tokens"] = int(
                 usage.get("cache_write_tokens", usage.get("prompt_cache_miss_tokens", 0)) or 0
             )
+        if zero_tokens:
+            # iter078 P1-2: 终态 error 条的 token 已由逐 attempt 的 retry_error
+            # 条入账，这里置零防聚合双计。
+            record["prompt_tokens"] = 0
+            record["response_tokens"] = 0
+            record["cache_read_tokens"] = 0
+            record["cache_write_tokens"] = 0
+        if final_of_attempts is not None:
+            record["final_of_attempts"] = final_of_attempts
         if attempt is not None:
             record["attempt"] = attempt
         if error is not None:
-            record["error"] = f"{type(error).__name__}: {error}"
+            record["error"] = _sanitize_error_text(error, api_key=self.config.get("api_key"))
         from . import paths
         log_path = paths.llm_calls_log_path() if paths.workspace_name() else (ROOT / "logs" / "llm_calls.jsonl")
         append_jsonl(log_path, record)
@@ -649,7 +697,17 @@ class LLMClient:
                 "rolling_summary": "mock 滚动摘要。",
                 "character_states": [],
                 "relationships": [],
-                "foreshadowing": [],
+                # iter077 P0-1: non-empty so mock compress seeds a non-empty
+                # foreshadowing registry — the boundary-advisory path of the
+                # readiness gate is exercised in mock long runs instead of the
+                # registry staying empty and giving the gate zero coverage.
+                "foreshadowing": [
+                    {
+                        "kind": "clue",
+                        "description": f"mock 伏笔：{chapter_id} 留下的线索尚未回收。",
+                        "status": "unresolved",
+                    }
+                ],
                 "worldbuilding": [],
                 "style_samples": [],
                 "evidence_spans": [],

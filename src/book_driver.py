@@ -296,6 +296,119 @@ def _build_cmd(params: Dict[str, Any], step_args: List[str]) -> List[str]:
     return cmd + list(step_args)
 
 
+# 孤儿判别关键字：child argv 必含 step 子命令之一（`_build_cmd` 生成
+# `python main.py [--book X] <step> ...`；自定义 cmd_prefix 时 step 子命令同样
+# 在 argv 里）。`main.py web`（dashboard）一个都不含——pid 复用到无关进程时
+# 宁可不杀也不误杀（残余风险：恰好复用给另一本书的 write-book，概率可忽略）。
+_CHILD_CMD_MARKERS = ("write-book", "write-readiness", "plan-chapters", "debate", "preflight")
+
+
+def _child_cmdline(pid: int) -> Optional[str]:
+    """进程命令行；进程不存在返回 ""，查询失败返回 None（区别对待）。"""
+    try:
+        out = subprocess.run(
+            ["ps", "-p", str(int(pid)), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    if out.returncode != 0:
+        return ""
+    return out.stdout.strip()
+
+
+def _reap_orphan_child(state: Dict[str, Any]) -> bool:
+    """iter077 P0-4：接管前收割上一世代 driver 留下的孤儿 write-book 进程组。
+
+    child 以 start_new_session 自成会话：driver 被 SIGKILL（watchdog TERM 无效后
+    升级 / OOM / 断电）时 TERM handler 没跑、child 存活并继续烧真模型调用；
+    supervisor 随后走 resume 起新 driver → 两个写者并发写同一 drafts 目录
+    （双倍扣费 + meta/md 互相归档覆盖）。cmd_stop 早有同款收割，但 supervisor
+    的自动重启只走 resume/start——此前这两条路完全不看 ``state["child_pid"]``。
+
+    与 cmd_stop 的差异：马上要起新写者，TERM 宽限后仍活着必须 KILL 升级确保
+    死透。killpg 前校验命令行含 step 子命令关键字，pid 复用到无关进程（如
+    ``main.py web`` dashboard）时不杀只清指针。返回 True = 确实收割了活进程。
+    """
+    child_pid = (state or {}).get("child_pid")
+    if not child_pid or not _pid_alive(child_pid):
+        return False
+    cmdline = _child_cmdline(child_pid)
+    if cmdline == "":
+        return False  # 竞态：刚死
+    recorded = (state or {}).get("child_cmd")
+    if cmdline is None:
+        # iter077 审查修复（fail-open 堵漏）：ps 查询失败（超时/异常）≠「不是
+        # 我们的孤儿」。此时清指针放行会让 resume 起第二个写者与可能存活的
+        # 孤儿并发双写——恰是本函数要防的事故。按 cmd_stop 的历史盲杀先例
+        # 无校验收割（pid 是本 state 亲手记录的，短重启窗内复用概率 ≪ 真孤儿）。
+        print(
+            f"cannot inspect pid {child_pid} (ps failed); reaping UNVERIFIED to avoid a second writer",
+            file=sys.stderr,
+        )
+    elif isinstance(recorded, list) and len(recorded) > 1:
+        # 有记录的启动 argv（iter077 起的 state）：按 argv[1:] 尾部比对，不再靠
+        # 关键字猜。跳过 argv[0] 是因为 macOS framework Python 启动时自我
+        # re-exec，内核可见的 argv[0] 变成 …/Python.app/Contents/MacOS/Python，
+        # 与记录的 sys.executable（如 .venv/bin/python3）永不相等——整串精确
+        # 比对会把每个真孤儿都误判成 pid 复用（iter078 收官审查实证）。尾部含
+        # `main.py --book <名> <step>`，跨 workspace 的 pid 复用仍能拦住。
+        recorded_tail = " ".join(str(part) for part in recorded[1:])
+        if recorded_tail not in cmdline:
+            print(
+                f"stale child_pid {child_pid} cmdline does not match the recorded step argv "
+                f"(pid reused?); NOT killing — clearing the stale pointer",
+                file=sys.stderr,
+            )
+            state["child_pid"] = None
+            state["child_cmd"] = None
+            return False
+    elif not any(marker in cmdline for marker in _CHILD_CMD_MARKERS):
+        # legacy state（无 child_cmd 记录）：退回关键字判别。
+        print(
+            f"stale child_pid {child_pid} does not look like a write-book step "
+            f"(cmdline={cmdline!r}); NOT killing — clearing the stale pointer",
+            file=sys.stderr,
+        )
+        state["child_pid"] = None
+        return False
+    cmdline_hint = cmdline if isinstance(cmdline, str) else "<unverified: ps failed>"
+    print(
+        f"reaping orphan step process group {child_pid} left by a previous driver "
+        f"({cmdline_hint[:120]})",
+        file=sys.stderr,
+    )
+    try:
+        _send_signal_pg(int(child_pid), signal.SIGTERM)
+    except ProcessLookupError:
+        state["child_pid"] = None
+        state["child_cmd"] = None
+        return False
+    except PermissionError:
+        # 进程组存在但不可署名（pid 复用给了别的用户的进程——同 uid 的亲儿子
+        # 不会 EPERM）——必非我们的孤儿，留痕后清指针继续。
+        print(f"cannot signal process group {child_pid} (EPERM); clearing stale pointer", file=sys.stderr)
+        state["child_pid"] = None
+        state["child_cmd"] = None
+        return False
+    deadline = time.monotonic() + _KILL_GRACE_SECONDS
+    while time.monotonic() < deadline and _pid_alive(child_pid):
+        time.sleep(0.2)
+    if _pid_alive(child_pid):
+        try:
+            _send_signal_pg(int(child_pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            # PermissionError 兜底：TERM 后组内只剩僵尸时 macOS killpg 给 EPERM
+            # （成员已死、等待收割），视作已收割。
+            pass
+    state["child_pid"] = None
+    state["child_cmd"] = None
+    _emit(state, "orphan_child_reaped", child_pid=child_pid)
+    return True
+
+
 def _terminate_child(child: subprocess.Popen) -> None:
     """SIGTERM 子进程组，宽限后 SIGKILL。子进程以 start_new_session 启动，
     自成进程组，killpg 不会误伤驱动器本体。"""
@@ -331,6 +444,15 @@ def _run_step(
     _save_state(state)
     _emit(state, "step_start", step=step_name, args=step_args, log=str(log_path))
 
+    if _STOP_REQUESTED:
+        # iter077 P0-4：TERM 落在「上一处停机检查之后、Popen 之前」的窗口（含
+        # 段间 _spent_cny 整读账本的秒级耗时）——signal handler 当时 _CURRENT_CHILD
+        # 还是 None、无子可杀；此处若照常 Popen，watchdog 宽限后 KILL 掉 driver，
+        # 新起的整段子进程带满额超时预算裸奔成孤儿。不启动，按「已被叫停」返回
+        # （143 = 128+SIGTERM，调用方的 _STOP_REQUESTED 检查先于 exit_code 分诊）。
+        _emit(state, "step_skipped_stop_requested", step=step_name)
+        return StepResult(143, None, False, log_path)
+
     ensure_dir(driver_dir())
     timed_out = False
     with log_path.open("w", encoding="utf-8") as fh:
@@ -342,13 +464,16 @@ def _run_step(
             start_new_session=True,
         )
         _CURRENT_CHILD = child
-        state["child_pid"] = child.pid
-        _save_state(state)
+        started = time.monotonic()
         try:
+            state["child_pid"] = child.pid
+            # iter077 审查修复：记录启动 argv——_reap_orphan_child 据此做精确
+            # 比对（pid 复用给另一 workspace 的 step 进程时不会被关键字误杀）。
+            state["child_cmd"] = list(cmd)
+            _save_state(state)
             # iter076 HIGH#4：整段 wait 改为 ~30s 切片 poll，每片写一拍心跳——
             # 数小时的 write 段内 driver_state 不动，watchdog 靠心跳判 driver 活性。
             # float minutes so tests can use sub-minute timeouts.
-            started = time.monotonic()
             deadline = started + max(1, int(float(timeout_minutes) * 60))
             _write_heartbeat(
                 state, step=step_name, step_elapsed_s=0, step_timeout_minutes=timeout_minutes
@@ -361,7 +486,18 @@ def _run_step(
                 except subprocess.TimeoutExpired:
                     if time.monotonic() >= deadline:
                         timed_out = True
+                        # iter077 P0-4：先杀后 emit——磁盘满时 append_jsonl 的
+                        # OSError 曾让已超时的子进程躲过 _terminate_child，
+                        # 变成 supervisor resume 后的双写孤儿。
+                        _terminate_child(child)
+                        child.wait()
                         _emit(state, "step_timeout", step=step_name, timeout_minutes=timeout_minutes)
+                        break
+                    if _STOP_REQUESTED and child.poll() is None:
+                        # iter077 P0-4：handler 竞态兜底——TERM 到达时
+                        # _CURRENT_CHILD 尚未赋值（Popen 返回与赋值之间），
+                        # 子进程从未收到 TERM。切片轮询里补杀，driver 不再
+                        # 等一个永远不会被叫停的整段跑完。
                         _terminate_child(child)
                         child.wait()
                         break
@@ -372,8 +508,17 @@ def _run_step(
                         step_timeout_minutes=timeout_minutes,
                     )
         finally:
+            # iter077 P0-4：编排层任何异常（_save_state/_emit/心跳的 OSError）
+            # 都不得把活着的子进程留成孤儿——异常路径无条件收割后再传播。
+            if child.poll() is None:
+                try:
+                    _terminate_child(child)
+                    child.wait()
+                except Exception:
+                    pass
             _CURRENT_CHILD = None
     state["child_pid"] = None
+    state["child_cmd"] = None
     # step 边界补一拍：段间/纯本地 step（零 LLM 调用）期间 watchdog 仍有新鲜信号。
     _write_heartbeat(
         state,
@@ -584,6 +729,11 @@ def _run_steps(state: Dict[str, Any]) -> str:
         for flag in ("allow_missing_start_point", "allow_missing_plan", "skip_external_review"):
             if params.get(flag):
                 ready_args.append("--" + flag.replace("_", "-"))
+        # iter078 收官审查修复：readiness 与 write 段用同一 tier 口径。此前
+        # 只有 seg_args 传 --tier，readiness 拿 DEFAULT_TIER 冒充期望值，
+        # --tier high 长跑的新一轮 attempt-1 会被 review_tier_mismatch 误拦。
+        if params.get("tier"):
+            ready_args += ["--tier", str(params["tier"])]
         res = _run_step(state, "readiness", ready_args, timeout_minutes=PREFLIGHT_TIMEOUT_MINUTES)
         if _STOP_REQUESTED:
             return "stopped"
@@ -936,6 +1086,13 @@ def cmd_start(args: Any) -> int:
     if _refuse_real_run(args):
         return _REAL_RUN_REFUSAL_EXIT
 
+    # iter077 P0-4：上一世代 driver 被 SIGKILL 时可能留下孤儿 write-book（自成
+    # 会话，杀 driver 杀不到它）——起新 run 前按旧 state 的 child_pid 收割，
+    # 否则新旧两个写者并发写同一 drafts 目录。
+    old_state = load_state()
+    if old_state:
+        _reap_orphan_child(old_state)
+
     params = _build_params(args)
     if not params["plan_target"]:
         # iter057 (BLOCKER-1): 默认 plan_target 必须覆盖全程。readiness 按 `chapters`（全程）
@@ -1055,9 +1212,18 @@ def cmd_resume(args: Any) -> int:
     on_blocked = getattr(args, "on_blocked", None)
     if on_blocked is not None:
         params["on_blocked"] = on_blocked
+    tier = getattr(args, "tier", None)
+    if tier is not None:
+        params["tier"] = tier
     cmd_prefix = getattr(args, "cmd_prefix", None)
     if cmd_prefix:
         params["cmd_prefix"] = shlex.split(cmd_prefix)
+
+    # iter077 P0-4：resume 是 supervisor 自动重启的唯一路径——watchdog KILL 升级
+    # 被触发的前提（driver 卡死、TERM handler 没跑）恰恰意味着 child 必然没被
+    # 收割。接管前按盘面 child_pid 收割孤儿进程组（cmd_stop 同款，另加 KILL
+    # 升级确保死透），否则新 driver 与孤儿并发双写、双倍扣费。
+    _reap_orphan_child(state)
 
     state["attempt"] = int(state.get("attempt") or 1) + 1
     state["step_seq"] = int(state.get("step_seq") or 1)
@@ -1153,13 +1319,16 @@ def cmd_stop(args: Any) -> int:
                 pass
         stopped_something = True
     # 驱动器若已死，可能留下孤儿子进程组（write-book 自成 session）。
-    child_pid = (state or {}).get("child_pid")
-    if child_pid and _pid_alive(child_pid):
-        try:
-            _send_signal_pg(int(child_pid), signal.SIGTERM)
+    # iter077 审查修复：改调 _reap_orphan_child 统一护栏——旧内联版只发一枪
+    # TERM（child 不死时 stop 谎报 stopped）、无 cmdline 判别（pid 复用给无关
+    # 进程照样 killpg）、无 KILL 升级；且 iter077 给 reaper 加的僵尸 EPERM 兜底
+    # 从此只需维护一份。
+    if state:
+        before_child = (state.get("child_pid"), state.get("child_cmd"))
+        if _reap_orphan_child(state):
             stopped_something = True
-        except ProcessLookupError:
-            pass
+        if (state.get("child_pid"), state.get("child_cmd")) != before_child:
+            _save_state(state)
     state = load_state()  # 驱动器退出时可能已自行落了终态，重读再判断
     if state and state.get("status") == "running":
         state["status"] = "stopped"

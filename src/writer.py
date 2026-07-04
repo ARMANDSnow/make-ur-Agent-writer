@@ -124,7 +124,12 @@ def write_chapters(
         )
         previous_chapter_ending = latest_ending_state(path=rolling_path)
         chapter_plan_item = _chapter_plan_item(chapter_plan, chapter_no)
-        run_context = _run_context(chapter_plan_item, chapter_no=chapter_no)
+        run_context = _run_context(
+            chapter_plan_item,
+            chapter_no=chapter_no,
+            model=client.model,
+            review_tier=resolved_tier,
+        )
         if out_path.exists() and not force:
             if run_context.get("start_point_fingerprint") or run_context.get("chapter_plan_item_fingerprint"):
                 from .chapter_status import chapter_status
@@ -177,6 +182,9 @@ def write_chapters(
         last_nonempty_draft = ""
         attempt = 0
         stage = "setup"
+        # iter078 P1-5: 正文+meta 是否已落盘——except 分支据此决定要不要写
+        # partial（已持久化的章再写 partial 是误导性残迹）。
+        persisted = False
         try:
             for attempt in range(1, rewrite_limit + 1):
                 stage = "write"
@@ -325,29 +333,11 @@ def write_chapters(
                 stage = "budget_check_polish"
                 budget_check()
 
-            stage = "summarize"
-            chapter_summary = _summarize_chapter(client, chapter_no, draft)
-            # Iter 022 B5: store an opening + ending snippet (~500 chars each
-            # tail) alongside the LLM summary so render_rolling_context can
-            # serve raw prose for the most-recent chapters. Empty when
-            # draft itself is short to avoid duplicate / nonsense.
-            text_snippet = ""
-            if draft and len(draft) >= 800:
-                text_snippet = (
-                    f"{draft[:300].strip()}\n\n[…省略中段…]\n\n{draft[-300:].strip()}"
-                )
-            append_chapter_summary(
-                chapter_no,
-                chapter_summary.get("summary", ""),
-                chapter_summary.get("key_events", []),
-                chapter_summary.get("ending_state", ""),
-                text_snippet=text_snippet,
-                path=drafts_dir / "rolling_chapter_summary.json",
-            )
-            stage = "entity_advance"
-            proposals = _propose_entity_advance(client, chapter_no, draft, load_entity_graph())
-            proposal_path = save_entity_advance_proposals(chapter_no, proposals, drafts_dir=drafts_dir)
-
+            # iter078 P1-5: persist 移到 summarize/rolling/proposals 之前。
+            # 旧顺序 rolling 先落盘——进程死在「rolling 已写、正文未写」窗口
+            # 时，resume 重写本章后下一章 prompt 会注入被丢弃稿的摘要（自我
+            # 毒化）。新顺序的对应窗口只是「正文在盘、rolling 缺失」的良性
+            # 缺口，由 readiness 的 rolling_summary_gap warning 透出。
             stage = "persist"
             if not lint_ok:
                 failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
@@ -395,17 +385,8 @@ def write_chapters(
                 }
                 write_text_atomic(out_path, draft + "\n")
                 write_json(meta_path, meta)
+                persisted = True
                 log_event("write", "failure", chapter=chapter_no, reason="lint_errors")
-                reports.append(
-                    {
-                        "chapter": chapter_no,
-                        "path": str(out_path),
-                        "failure_path": str(failure_path),
-                        "proposal_path": str(proposal_path),
-                        "review": meta,
-                        "written": True,
-                    }
-                )
             else:
                 meta = dict(report)
                 meta.setdefault("tier", resolved_tier)
@@ -427,12 +408,54 @@ def write_chapters(
                     meta["last_blocking_reasons"] = last_blocking_reasons
                 write_text_atomic(out_path, draft + "\n")
                 write_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", meta)
+                persisted = True
                 failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
                 if failure_path.exists():
                     failure_path.unlink()
                 partial_path = drafts_dir / f"chapter_{chapter_no:02d}.partial.md"
                 if partial_path.exists():
                     partial_path.unlink()
+                log_event("write", report.get("verdict", "unknown").lower(), chapter=chapter_no, output=str(out_path))
+
+            # iter078 P1-5: summarize/rolling/proposals 在正文+meta 之后落盘
+            # （顺序理由见上方 persist 注释）。失败章同样入 rolling（与旧行为
+            # 一致——重写路径由 prune_from_chapter 清理）。
+            stage = "summarize"
+            chapter_summary = _summarize_chapter(client, chapter_no, draft)
+            # Iter 022 B5: store an opening + ending snippet (~500 chars each
+            # tail) alongside the LLM summary so render_rolling_context can
+            # serve raw prose for the most-recent chapters. Empty when
+            # draft itself is short to avoid duplicate / nonsense.
+            text_snippet = ""
+            if draft and len(draft) >= 800:
+                text_snippet = (
+                    f"{draft[:300].strip()}\n\n[…省略中段…]\n\n{draft[-300:].strip()}"
+                )
+            append_chapter_summary(
+                chapter_no,
+                chapter_summary.get("summary", ""),
+                chapter_summary.get("key_events", []),
+                chapter_summary.get("ending_state", ""),
+                text_snippet=text_snippet,
+                path=drafts_dir / "rolling_chapter_summary.json",
+            )
+            stage = "entity_advance"
+            proposals = _propose_entity_advance(client, chapter_no, draft, load_entity_graph())
+            proposal_path = save_entity_advance_proposals(chapter_no, proposals, drafts_dir=drafts_dir)
+
+            stage = "report"
+            if not lint_ok:
+                reports.append(
+                    {
+                        "chapter": chapter_no,
+                        "path": str(out_path),
+                        "failure_path": str(failure_path),
+                        "proposal_path": str(proposal_path),
+                        "review": meta,
+                        "written": True,
+                    }
+                )
+            else:
                 reports.append(
                     {
                         "chapter": chapter_no,
@@ -442,10 +465,11 @@ def write_chapters(
                         "written": True,
                     }
                 )
-                log_event("write", report.get("verdict", "unknown").lower(), chapter=chapter_no, output=str(out_path))
             progress("finalize", 0.95)
         except Exception as exc:
-            if last_nonempty_draft:
+            # iter078 P1-5: 已持久化的章不再写 partial——正文/meta 已是完整
+            # 产物，partial 残迹会误导 resume 侧的人工诊断。
+            if last_nonempty_draft and not persisted:
                 _write_partial_failure(
                     drafts_dir,
                     chapter_no,
@@ -525,7 +549,13 @@ def _chapter_plan_item(chapter_plan: Optional[Dict[int, Dict[str, Any]]], chapte
     return item
 
 
-def _run_context(chapter_plan_item: Optional[Dict[str, Any]], *, chapter_no: int) -> Dict[str, Any]:
+def _run_context(
+    chapter_plan_item: Optional[Dict[str, Any]],
+    *,
+    chapter_no: int,
+    model: str = "",
+    review_tier: str = "",
+) -> Dict[str, Any]:
     from .plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
 
     start_chapter_id = start_point.get_start_chapter_id() or ""
@@ -551,6 +581,11 @@ def _run_context(chapter_plan_item: Optional[Dict[str, Any]], *, chapter_no: int
         ),
         "chapter_plan_item_fingerprint": item_fp,
         "plan_fingerprint": str(plan_data.get("plan_fingerprint") or (plan_fingerprint(plan_data) if plan_data else "")),
+        # iter078 P1-6: 配置指纹——mock 章与真模型章此前指纹完全相同，resume
+        # 会把 mock 残迹静默当成品跳过。比对侧（chapter_status）用「双方都
+        # 非空才比对」语义：旧 meta 缺这两键不算 mismatch（零迁移）。
+        "model": str(model or ""),
+        "review_tier": str(review_tier or ""),
     }
 
 
@@ -1007,6 +1042,32 @@ def _propose_entity_advance(
     relationships = active_relationships(entity_graph)
     if client.is_mock or not relationships:
         return []
+    # iter078 P1-4③: 第 5 注入点截断（iter073 的 render_active_state(max_chars)
+    # 修复漏掉此处）。旧代码把 active_relationships 的完整 dict——含整条
+    # timeline，每章每关系 +1 条、无界增长——repr 进 prompt，长跑后必然
+    # LLMContextOverflowError。提案指令只需要 src_id/dst_id + 当前状态，
+    # 这里投影四个字段并按 PROMPT_ENTITY_STATE_LIMIT 条目边界截断（截断时
+    # 尾部留省略标记，绝不截半条）。
+    rendered_entries: List[str] = []
+    used = 0
+    for rel in relationships:
+        line = json.dumps(
+            {
+                "src_id": rel.get("src_id"),
+                "dst_id": rel.get("dst_id"),
+                "relation_type": rel.get("relation_type"),
+                "old_active_state": rel.get("old_active_state"),
+            },
+            ensure_ascii=False,
+        )
+        if used + len(line) > PROMPT_ENTITY_STATE_LIMIT:
+            break
+        rendered_entries.append(line)
+        used += len(line) + 1
+    relationships_text = "\n".join(rendered_entries)
+    omitted = len(relationships) - len(rendered_entries)
+    if omitted > 0:
+        relationships_text += f"\n……（另有 {omitted} 条 active relationships 因长度限制省略）"
     try:
         result = client.complete_json(
             [
@@ -1021,7 +1082,7 @@ def _propose_entity_advance(
                         "只提出正文中有明确触发事件的变化；不确定则返回空 proposed_advances。"
                         "每条必须使用当前 relationship 的 src_id、dst_id；不要只写 relationship_id。"
                         "confidence 必须是 0.0-1.0 数字，不要写 high/medium/low。\n\n"
-                        f"# 当前 active relationships\n{relationships}\n\n"
+                        f"# 当前 active relationships（每行一条 JSON）\n{relationships_text}\n\n"
                         f"# 本章正文\n{draft[:20000]}"
                     ),
                 },

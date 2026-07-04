@@ -32,6 +32,10 @@ workspaces/*/小说txt/
 workspaces/*/data/
 workspaces/*/outputs/
 workspaces/*/logs/
+# iter078: P1-7 工作区写锁的锁文件与 holder 诊断残留（单测/长跑均会再生）
+workspaces/*/write.lock
+workspaces/*/write.lock.holder.json
+workspaces/*/driver_stub.py
 !workspaces/.gitkeep
 
 # --- python build / test artifacts ---

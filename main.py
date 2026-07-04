@@ -243,6 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     write_readiness.add_argument("--allow-missing-start-point", action="store_true")
     write_readiness.add_argument("--allow-missing-plan", action="store_true")
     write_readiness.add_argument("--skip-external-review", action="store_true")
+    write_readiness.add_argument("--tier", choices=["high", "mid", "low"], default=None)
 
     review = sub.add_parser("review")
     review.add_argument("--target", default="outputs/drafts")
@@ -609,7 +610,16 @@ def main() -> None:
         print(f"overall_arc: {str(data['overall_arc'])[:200]}")
     elif args.command == "write":
         _validate_cli_run_params(vars(args), fields=("chapters", "resume_from"))
-        write_chapters(chapters=args.chapters, force=args.force, resume_from=args.resume_from)
+        # iter078 P1-7: legacy `write` 直调 write_chapters（不经 run_write_book），
+        # 单独拿 workspace 写锁，与 write-book / Web job 互斥。
+        from src.workspace_lock import WorkspaceLocked, acquire_write_lock
+
+        try:
+            with acquire_write_lock(source="cli-write"):
+                write_chapters(chapters=args.chapters, force=args.force, resume_from=args.resume_from)
+        except WorkspaceLocked as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(4)
     elif args.command == "write-book":
         from src.book_runner import BookRunBlocked, run_write_book
         import json as _json
@@ -657,19 +667,33 @@ def main() -> None:
             require_start_point=not args.allow_missing_start_point,
             require_plan=not args.allow_missing_plan,
             require_external_review=not args.skip_external_review,
+            tier=args.tier,
         )
         print(_json.dumps(result, ensure_ascii=False))
         if result.get("status") == "blocked":
             raise SystemExit(4)
     elif args.command == "review":
-        review_target(Path(args.target), enforce_relationship_checklist=True)
+        from src.workspace_lock import WorkspaceLocked, acquire_write_lock
+
+        try:
+            with acquire_write_lock(source="cli-review"):
+                review_target(Path(args.target), enforce_relationship_checklist=True)
+        except WorkspaceLocked as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(4)
     elif args.command == "review-chapter":
         # iter 017: resolve drafts dir via paths.py so review-chapter honors
         # --book. Legacy mode keeps the same outputs/drafts/ path.
         from src import paths
+        from src.workspace_lock import WorkspaceLocked, acquire_write_lock
 
         drafts_dir = paths.drafts_dir() if paths.workspace_name() else Path("outputs/drafts")
-        review_target(drafts_dir / f"chapter_{args.chapter:02d}.md", enforce_relationship_checklist=True)
+        try:
+            with acquire_write_lock(source="cli-review-chapter"):
+                review_target(drafts_dir / f"chapter_{args.chapter:02d}.md", enforce_relationship_checklist=True)
+        except WorkspaceLocked as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(4)
     elif args.command == "apply-advance":
         # iter 019: validate flag combinations. --auto-apply and --proposal-idx
         # are mutually exclusive; one of them must be provided.
@@ -744,12 +768,19 @@ def main() -> None:
         start_point.clear_start_point()
         print("start point cleared (now using iter 020 default behavior)")
     elif args.command == "run-all":
-        normalize_all()
-        split_all()
-        extract_all(volume="all", limit=args.extract_limit, force=args.force)
-        compress_all()
-        run_debate()
-        write_chapters(chapters=args.chapters, force=args.force)
+        from src.workspace_lock import WorkspaceLocked, acquire_write_lock
+
+        try:
+            with acquire_write_lock(source="cli-run-all"):
+                normalize_all()
+                split_all()
+                extract_all(volume="all", limit=args.extract_limit, force=args.force)
+                compress_all()
+                run_debate()
+                write_chapters(chapters=args.chapters, force=args.force)
+        except WorkspaceLocked as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(4)
     elif args.command == "web":
         from src.web.server import serve
 
@@ -762,15 +793,21 @@ def main() -> None:
             # lines stack readably in a terminal.
             print(f"[auto-pipeline] {int(fraction * 100):3d}% {step}")
 
-        results = run_auto_pipeline(
-            target_chapters=args.chapters,
-            progress_cb=_cli_progress,
-            skip_extract=args.skip_extract,
-            extract_limit=args.extract_limit,
-            force=args.force,
-            plan_chapters_target=args.plan_chapters,
-            require_start_point=bool(args.require_start_point),
-        )
+        from src.workspace_lock import WorkspaceLocked
+
+        try:
+            results = run_auto_pipeline(
+                target_chapters=args.chapters,
+                progress_cb=_cli_progress,
+                skip_extract=args.skip_extract,
+                extract_limit=args.extract_limit,
+                force=args.force,
+                plan_chapters_target=args.plan_chapters,
+                require_start_point=bool(args.require_start_point),
+            )
+        except WorkspaceLocked as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(4)
         # Print a one-line summary of the write step so CI / verify.sh
         # can grep for it without parsing the per-step output.
         write_summary = results.get("write") or []

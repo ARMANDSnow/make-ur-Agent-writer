@@ -770,6 +770,20 @@ class Iter066NumericGuardTests(_WorkspaceMixin, unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(captured["state"]["params"]["budget_cny"], 8.0)
 
+    def test_resume_tier_override_applied(self) -> None:
+        self._seed_state()
+        captured: dict = {}
+
+        def _capture(state, detach):
+            captured["state"] = state
+            return 0
+
+        with patch("src.book_driver._another_driver_running", return_value=None):
+            with patch("src.book_driver._launch", side_effect=_capture):
+                rc = book_driver.cmd_resume(_driver_args(action="resume", tier="low"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["state"]["params"]["tier"], "low")
+
 
 class Iter067ResidualGuardTests(_WorkspaceMixin, unittest.TestCase):
     """iter067 F2: resume must re-validate the EFFECTIVE budget/timeout, not

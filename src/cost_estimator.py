@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import math
 import json
+import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Set, Tuple
 
 from . import paths
 from .config import ROOT
@@ -19,18 +20,72 @@ CACHE_READ_USD_PER_M = 0.07
 RESPONSE_USD_PER_M = 1.10
 USD_TO_CNY = 7.2
 
+# iter078 P1-2: 按 model 前缀查表（USD per 1M tokens：prompt / cache_read /
+# response）。此前三个常量对所有 model 生效——换 model 后成本仍按 deepseek
+# 单价算，账本静默失真。未知前缀回落 deepseek 现值 + 进程内单次 WARN；
+# mock 记 0（本地 mock 跑零成本才是真实账目）。
+MODEL_PRICING: Dict[str, Tuple[float, float, float]] = {
+    "deepseek": (PROMPT_USD_PER_M, CACHE_READ_USD_PER_M, RESPONSE_USD_PER_M),
+    "mock": (0.0, 0.0, 0.0),
+}
 
-def cost_cny(prompt_tokens: int, cache_read_tokens: int, response_tokens: int) -> float:
+_UNKNOWN_MODEL_WARNED: Set[str] = set()
+
+
+def _pricing_for_model(model: str) -> Tuple[float, float, float]:
+    name = str(model or "").strip().lower()
+    if not name:
+        # 旧调用方（不传 model）字节兼容：按 deepseek 现值，不告警。
+        return (PROMPT_USD_PER_M, CACHE_READ_USD_PER_M, RESPONSE_USD_PER_M)
+    for prefix, pricing in MODEL_PRICING.items():
+        # 匹配 "deepseek" / "deepseek/deepseek-chat" / "openrouter/deepseek/..."
+        if name.startswith(prefix) or f"/{prefix}" in name:
+            return pricing
+    if name not in _UNKNOWN_MODEL_WARNED:
+        _UNKNOWN_MODEL_WARNED.add(name)
+        print(
+            f"[cost_estimator] WARN: 模型 {model!r} 不在 MODEL_PRICING 单价表中，"
+            "按 deepseek 现值估算（成本可能失真；请在 src/cost_estimator.py 补条目）",
+            file=sys.stderr,
+        )
+    return (PROMPT_USD_PER_M, CACHE_READ_USD_PER_M, RESPONSE_USD_PER_M)
+
+
+def cost_cny(
+    prompt_tokens: int,
+    cache_read_tokens: int,
+    response_tokens: int,
+    model: str = "",
+) -> float:
     """Convert raw token usage (3 fields) to estimated cost in CNY.
     Non-cache prompt tokens billed standard; cache_read cheaper; response
-    tokens highest. Negative inputs clamped to 0."""
+    tokens highest. Negative inputs clamped to 0.
+
+    iter078 P1-2: 可选 ``model`` 按前缀查 MODEL_PRICING；缺省（旧调用方）
+    沿用 deepseek 现值，字节兼容。"""
+    prompt_rate, cache_rate, response_rate = _pricing_for_model(model)
     non_cache = max(prompt_tokens - cache_read_tokens, 0)
     usd = (
-        non_cache * PROMPT_USD_PER_M / 1e6
-        + max(cache_read_tokens, 0) * CACHE_READ_USD_PER_M / 1e6
-        + max(response_tokens, 0) * RESPONSE_USD_PER_M / 1e6
+        non_cache * prompt_rate / 1e6
+        + max(cache_read_tokens, 0) * cache_rate / 1e6
+        + max(response_tokens, 0) * response_rate / 1e6
     )
     return usd * USD_TO_CNY
+
+
+_DIRTY_LINES_WARNED: Set[str] = set()
+
+
+def _warn_dirty_lines(path: Path, dirty: int) -> None:
+    key = str(path)
+    if key in _DIRTY_LINES_WARNED:
+        return
+    _DIRTY_LINES_WARNED.add(key)
+    print(
+        f"[cost_estimator] WARN: {path} 有 {dirty} 行无法解析（可能是中断残行），"
+        "这些行的 token 消耗未入账，成本估算偏低",
+        file=sys.stderr,
+    )
 
 
 def _resolve_root(root: Path | None) -> Path:
@@ -73,6 +128,7 @@ def _token_usage_from_logs(path: Path) -> Dict[str, int]:
         "response_tokens": 0,
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
+        "dirty_lines": 0,
     }
     if not path.exists():
         return usage
@@ -82,12 +138,21 @@ def _token_usage_from_logs(path: Path) -> Dict[str, int]:
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
+            # iter078 P1-2: 脏行不再静默归零——计数透出 + 单次 stderr WARN。
+            usage["dirty_lines"] += 1
+            continue
+        if not isinstance(record, dict):
+            # iter078 收官审查修复：合法标量 JSON 残行（null/123）过得了
+            # json.loads 却会让 record.get 炸 AttributeError——同样算脏行。
+            usage["dirty_lines"] += 1
             continue
         usage["calls"] += 1
         usage["prompt_tokens"] += int(record.get("prompt_tokens", 0) or 0)
         usage["response_tokens"] += int(record.get("response_tokens", 0) or 0)
         usage["cache_read_tokens"] += int(record.get("cache_read_tokens", 0) or 0)
         usage["cache_write_tokens"] += int(record.get("cache_write_tokens", 0) or 0)
+    if usage["dirty_lines"]:
+        _warn_dirty_lines(path, usage["dirty_lines"])
     return usage
 
 
@@ -109,30 +174,43 @@ def estimate_cost_since(line_offset: int = 0, root: Path | None = None) -> Dict[
         "cache_write_tokens": 0,
         "cost_cny": 0.0,
         "line_offset": line_offset,
+        "dirty_lines": 0,
     }
     if not path.exists():
         return out
     lines = path.read_text(encoding="utf-8").splitlines()
     if line_offset >= len(lines):
         return out
+    # iter078 P1-2: 逐 record 按其 model 字段计价累加（此前先汇总 token 再按
+    # deepseek 单价一次计价——混 model 日志必然失真）。token 汇总字段保留，
+    # 消费方（budget_check_cb / driver / Web dashboard）读的形状不变。
+    total_cost = 0.0
     for line in lines[line_offset:]:
         if not line.strip():
             continue
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
+            out["dirty_lines"] += 1
             continue
+        if not isinstance(record, dict):
+            # 同 _token_usage_from_logs：标量 JSON 残行按脏行计。
+            out["dirty_lines"] += 1
+            continue
+        prompt = int(record.get("prompt_tokens", 0) or 0)
+        response = int(record.get("response_tokens", 0) or 0)
+        cache_read = int(record.get("cache_read_tokens", 0) or 0)
         out["calls"] += 1
-        out["prompt_tokens"] += int(record.get("prompt_tokens", 0) or 0)
-        out["response_tokens"] += int(record.get("response_tokens", 0) or 0)
-        out["cache_read_tokens"] += int(record.get("cache_read_tokens", 0) or 0)
+        out["prompt_tokens"] += prompt
+        out["response_tokens"] += response
+        out["cache_read_tokens"] += cache_read
         out["cache_write_tokens"] += int(record.get("cache_write_tokens", 0) or 0)
-    out["cost_cny"] = round(
-        cost_cny(
-            out["prompt_tokens"], out["cache_read_tokens"], out["response_tokens"]
-        ),
-        4,
-    )
+        total_cost += cost_cny(
+            prompt, cache_read, response, model=str(record.get("model") or "")
+        )
+    out["cost_cny"] = round(total_cost, 4)
+    if out["dirty_lines"]:
+        _warn_dirty_lines(path, out["dirty_lines"])
     return out
 
 

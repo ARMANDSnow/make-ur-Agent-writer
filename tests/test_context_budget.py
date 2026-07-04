@@ -5,6 +5,8 @@ are exactly assertable. Also pins that the extracted ``count_tokens`` free
 function matches ``LLMClient._count_tokens`` byte-for-byte (zero regression).
 """
 
+from __future__ import annotations
+
 import math
 import unittest
 from unittest.mock import patch
@@ -161,6 +163,134 @@ class HelperTests(unittest.TestCase):
             budget,
             int(cfg.get("context_limit", 128000) * 0.9) - int(cfg.get("max_tokens", 2000)),
         )
+
+
+class Iter078CjkCapTests(unittest.TestCase):
+    """iter078 P1-3：deepseek 前缀的 CJK min-cap 修正。
+
+    cl100k_base 对中文虚高 1.5-2×；修正 = min(tiktoken_raw, cjk*0.75+other*0.4)。
+    结构不变式：修正只减不增（永不高于旧值 → 不引入「虚低致真溢出」）；
+    mock/gpt/claude 路径逐字节不变。"""
+
+    @staticmethod
+    def _tiktoken_available() -> bool:
+        try:
+            import tiktoken  # noqa: F401
+
+            return True
+        except Exception:
+            return False
+
+    def test_deepseek_chinese_capped_below_raw(self) -> None:
+        if not self._tiktoken_available():
+            self.skipTest("tiktoken unavailable")
+        text = "龙族少年在雨夜里沉默地走过长街，霓虹倒映在他的眼底。" * 40
+        raw, raw_method = count_tokens(text, "")
+        capped, method = count_tokens(text, "deepseek/deepseek-chat")
+        self.assertEqual(raw_method, "tiktoken")
+        self.assertLess(capped, raw, "中文文本必须被修正到 raw 以下")
+        self.assertEqual(method, "tiktoken_cjk_capped")
+
+    def test_min_cap_invariant_never_exceeds_raw(self) -> None:
+        if not self._tiktoken_available():
+            self.skipTest("tiktoken unavailable")
+        samples = [
+            "hello world, plain ascii only " * 30,
+            "中英 mixed 混排 text 各占 half 一半 " * 30,
+            "标点。！？；：、（）《》" * 50,
+            "龙族" * 500,
+        ]
+        for text in samples:
+            with self.subTest(text=text[:20]):
+                raw, _ = count_tokens(text, "")
+                capped, _ = count_tokens(text, "deepseek/deepseek-chat")
+                self.assertLessEqual(capped, raw)
+
+    def test_english_under_deepseek_keeps_raw(self) -> None:
+        if not self._tiktoken_available():
+            self.skipTest("tiktoken unavailable")
+        text = "the quick brown fox jumps over the lazy dog " * 20
+        raw, _ = count_tokens(text, "")
+        capped, method = count_tokens(text, "deepseek/deepseek-chat")
+        # 英文的估算（0.4/字符）高于 tiktoken 实际 → cap 不生效，raw 原样
+        self.assertEqual(capped, raw)
+        self.assertEqual(method, "tiktoken")
+
+    def test_mock_and_other_models_never_capped(self) -> None:
+        text = "龙族少年在雨夜里沉默地走过长街。" * 20
+        base = count_tokens(text, "")
+        # mock/claude 走 cl100k fallback → 与空 model 逐字节相同；gpt-4o 有
+        # 自己的 encoding（o200k，本就与 base 不同，iter078 之前即如此）——
+        # 共同不变式是：非 deepseek 模型绝不进 cjk_capped 分支。
+        for model in ("mock", "claude-3"):
+            with self.subTest(model=model):
+                self.assertEqual(count_tokens(text, model), base)
+        for model in ("mock", "gpt-4o", "claude-3"):
+            with self.subTest(model=model, check="method"):
+                self.assertNotEqual(count_tokens(text, model)[1], "tiktoken_cjk_capped")
+
+    def test_openrouter_deepseek_prefix_also_capped(self) -> None:
+        if not self._tiktoken_available():
+            self.skipTest("tiktoken unavailable")
+        text = "龙族少年在雨夜里沉默地走过长街。" * 40
+        self.assertEqual(
+            count_tokens(text, "openrouter/deepseek/deepseek-chat"),
+            count_tokens(text, "deepseek/deepseek-chat"),
+        )
+
+
+class Iter078ContextCapTests(unittest.TestCase):
+    """iter078 P1-3：已知模型 context_limit 物理上限封顶（config 层）。
+
+    unittest 下 load_dotenv_if_available 每次强制 mock（铁律③硬门），测
+    clamp 分支需把它 patch 成 no-op——本测试只走 config 解析，零 LLM 构造
+    零网络。"""
+
+    _CFG = {
+        "default": {"model": "mock", "context_limit": 128000, "max_tokens": 2000},
+        "tasks": {
+            "write": {"context_limit": 128000, "max_tokens": 8000},
+            "plot_planner": {"model": "openai/gpt-5.5", "context_limit": 200000},
+        },
+    }
+
+    def _config_for(self, task: str, env_model: str, cfg_dict: dict | None = None) -> dict:
+        import os
+
+        from src import config as config_mod
+
+        payload = cfg_dict or self._CFG
+        with patch.object(config_mod, "load_dotenv_if_available", lambda: None), patch.object(
+            config_mod, "load_config", lambda name: dict(payload) if name == "models.yaml" else {}
+        ), patch.dict(os.environ, {"OPENAI_MODEL": env_model}, clear=False):
+            return config_mod.get_model_config(task)
+
+    def test_deepseek_clamped_to_64k(self) -> None:
+        cfg = self._config_for("write", "deepseek/deepseek-chat")
+        self.assertEqual(cfg["model"], "deepseek/deepseek-chat")
+        self.assertEqual(cfg["context_limit"], 64000)
+
+    def test_unknown_model_yaml_value_untouched(self) -> None:
+        cfg = self._config_for("plot_planner", "deepseek/deepseek-chat")
+        # task 块显式 model=gpt-5.5（未知前缀）→ 200000 原样生效
+        self.assertEqual(cfg["model"], "openai/gpt-5.5")
+        self.assertEqual(cfg["context_limit"], 200000)
+
+    def test_mock_never_clamped(self) -> None:
+        cfg = self._config_for("write", "mock")
+        self.assertEqual(cfg["model"], "mock")
+        self.assertEqual(cfg["context_limit"], 128000)
+
+    def test_conservative_config_below_cap_kept(self) -> None:
+        cfg = self._config_for(
+            "write",
+            "deepseek/deepseek-chat",
+            cfg_dict={
+                "default": {"model": "mock", "context_limit": 128000},
+                "tasks": {"write": {"context_limit": 32000}},
+            },
+        )
+        self.assertEqual(cfg["context_limit"], 32000)
 
 
 if __name__ == "__main__":

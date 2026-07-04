@@ -67,5 +67,60 @@ class ReviewerTierAggregationTests(unittest.TestCase):
         self.assertIn("deterministic_relations", [r.get("agent_name") for r in report["agent_reviews"]])
 
 
+class Iter078NonFiniteScoreTests(unittest.TestCase):
+    """iter078 P1-1 production-path regressions: an LLM returning NaN
+    literals or quoted numbers must not crash the review or silently
+    distort the panel score. json.loads accepts bare NaN/Infinity, so
+    these shapes do reach _repair_agent_review_dict in production."""
+
+    def test_nan_subscore_response_does_not_crash_review(self) -> None:
+        # Raw JSON with a bare NaN literal — json.loads parses it to
+        # float('nan'); pre-iter078 the nesting repair crashed on int(nan).
+        nan_response = (
+            '{"verdict": "Approve", "plot": NaN, "prose": 7, "fidelity": 7,'
+            ' "issues": [], "suggestions": []}'
+        )
+        with patch("src.reviewer.load_review_agents", return_value=_agents()), patch(
+            "src.reviewer.load_advisor_agents", return_value=[]
+        ), patch("src.reviewer.load_entity_graph", return_value={"entities": [], "relationships": []}), patch(
+            "src.llm_client.LLMClient.complete_text", return_value=nan_response
+        ), patch("src.reviewer.write_json"):
+            report = review_text("正文。", "nan_guard.md", precomputed_lint_issues=[], tier="mid")
+
+        import math
+
+        self.assertTrue(math.isfinite(report["panel_score"]))
+        self.assertIn(report["verdict"], ("Approve", "Reject"))
+        self.assertEqual(len(report["agent_reviews"]), 5)
+        # NaN plot dropped → prose/fidelity kept, plot defaults to 7 →
+        # weighted 7*0.4 + 7*0.3 + 7*0.3 = 7.0 per agent.
+        self.assertAlmostEqual(report["panel_score"], 7.0)
+
+    def test_string_number_scores_counted_not_defaulted(self) -> None:
+        quoted_response = json.dumps(
+            {
+                "verdict": "Approve",
+                "plot": "9",
+                "prose": "7",
+                "fidelity": "8",
+                "issues": [],
+                "suggestions": [],
+            },
+            ensure_ascii=False,
+        )
+        with patch("src.reviewer.load_review_agents", return_value=_agents()), patch(
+            "src.reviewer.load_advisor_agents", return_value=[]
+        ), patch("src.reviewer.load_entity_graph", return_value={"entities": [], "relationships": []}), patch(
+            "src.llm_client.LLMClient.complete_text", return_value=quoted_response
+        ), patch("src.reviewer.write_json"):
+            report = review_text("正文。", "quoted_scores.md", precomputed_lint_issues=[], tier="mid")
+
+        # pre-iter078: quoted numbers were dropped and every agent fell
+        # back to the neutral 7.0 → panel_score 7.0. Now they count:
+        # 9*0.4 + 7*0.3 + 8*0.3 = 8.1.
+        self.assertAlmostEqual(report["panel_score"], 8.1)
+        self.assertEqual(report["verdict"], "Approve")
+
+
 if __name__ == "__main__":
     unittest.main()

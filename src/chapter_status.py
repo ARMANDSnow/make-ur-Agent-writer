@@ -9,10 +9,105 @@ can branch on a single JSON answer instead of grepping meta files.
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .utils import read_json_optional, sha256_file
+
+
+class ChapterDisposition(str, Enum):
+    """iter078 技债-1：一章盘面在 write run / readiness 中的处置五分类。
+
+    此前该判定散在 ``run_write_book`` 章节循环与 ``check_write_readiness``
+    逐章循环两条平行链（iter077 已第三次同步手改，谓词漏 ``failure``
+    正是平行维护的实证）。下沉到 chapter_status 单一真源；两侧的**动作**
+    （skip/补外审/归档重写/blocker 文案）留在原地，只有**判定**收敛。
+    """
+
+    SKIP_APPROVED = "skip_approved"
+    SKIP_CAVEAT = "skip_caveat"
+    SUPPLEMENT_EXTERNAL_REVIEW = "supplement_external_review"
+    STALE_REJECT_REWRITE = "stale_reject_rewrite"
+    FRESH_WRITE = "fresh_write"
+    BLOCK = "block"
+
+
+RESUMABLE_REJECT_FAILURES = frozenset(
+    {
+        "external_review_missing",
+        "external_review_reject",
+        "external_review_needs_human",
+        "external_review_stale",
+    }
+)
+
+
+def is_resumable_stale_reject(status: Dict[str, Any]) -> bool:
+    """iter077 P0-5（iter078 技债-1 迁自 book_runner）：判定「中断期拒稿残迹」
+    ——同一 run 配置下被 kill 打断的重试周期留下的非 approved 完整产物。
+
+    此前这类章在 fresh resume 的 attempt 0 直接 BookRunBlocked → write-book
+    exit 4 → supervisor 按终态退出，iter076 的「step 超时→自动 resume」恢复链
+    在此自我终结（真模型 mid tier 下主审 Reject 常见，命中概率不可忽略）。
+    判定为 True 的章走 attempt>0 同款「归档+重写」（残迹进 snapshots 可溯）。
+
+    fail-closed 边界：verdict 缺失（meta 损坏/缺失）、任何 mismatch/legacy/
+    human 类 strict failure → False（保持 BookRunBlocked，人审或 --force）。
+
+    iter077 审查修复（铁律⑨ finder 命中，capstone 前直修）：
+    * ``failure`` marker 在盘 = lint 终败「未分诊硬失败」（P0-2 自设边界），
+      其 strict_failures 恰好落在白名单内——不看该字段会让每次 resume 重烧
+      一整轮注定再终败的重试。
+    * ``panel_halted`` marker = 上一 run 重试耗尽后按 halt 策略停机的分诊结论
+      ——「停下等人」必须跨进程存活，否则 halt 残迹与 kill 中断残迹盘面同形，
+      resume 会静默重写被 halt 的章（halt 语义只活一个进程生命周期）。
+    """
+    if not status.get("exists") or status.get("approved"):
+        return False
+    if status.get("failure") or status.get("panel_halted"):
+        return False
+    if status.get("verdict") not in ("Reject", "Approve"):
+        return False
+    failures = status.get("strict_failures") or []
+    return all(f in RESUMABLE_REJECT_FAILURES for f in failures)
+
+
+def classify_disposition(
+    status: Dict[str, Any], *, force: bool, require_external_review: bool
+) -> ChapterDisposition:
+    """iter078 技债-1：处置五分类单一真源（纯函数，零 I/O 零 LLM）。
+
+    输入是 ``chapter_status()`` 的产物 dict + 两个调用侧旗标（readiness 的
+    ``allow_existing_blockers`` 即 run 的 ``force`` 同义传入）。判定顺序与
+    run_write_book 章节循环逐分支等价：
+
+    1. ``force`` → FRESH_WRITE（重写路径；是否先归档由 run 侧动作层决定）
+    2. approved → SKIP_APPROVED
+    3. caveat_approved → SKIP_CAVEAT（iter076/077：策略放行残迹非 stale）
+    4. 存在的非 approved 产物：
+       a. 外审缺失且主审 Approve → SUPPLEMENT_EXTERNAL_REVIEW（只补审不重写）
+       b. :func:`is_resumable_stale_reject` → STALE_REJECT_REWRITE（归档重写）
+       c. 其余 → BLOCK（fail-closed，人审或 --force）
+    5. 无产物 → FRESH_WRITE
+    """
+    if force:
+        return ChapterDisposition.FRESH_WRITE
+    if status.get("approved"):
+        return ChapterDisposition.SKIP_APPROVED
+    if status.get("caveat_approved"):
+        return ChapterDisposition.SKIP_CAVEAT
+    if status.get("exists"):
+        if (
+            require_external_review
+            and status.get("verdict") == "Approve"
+            and (status.get("strict_failures") or []) == ["external_review_missing"]
+        ):
+            return ChapterDisposition.SUPPLEMENT_EXTERNAL_REVIEW
+        if is_resumable_stale_reject(status):
+            return ChapterDisposition.STALE_REJECT_REWRITE
+        return ChapterDisposition.BLOCK
+    return ChapterDisposition.FRESH_WRITE
 
 
 def _has_hard_synthetic_reject(report: Any) -> bool:
@@ -106,6 +201,9 @@ def chapter_status(
         and isinstance(meta, dict)
         and bool(meta.get("caveat_approved"))
     )
+    # iter077 审查修复：重试耗尽后按 halt 停机的分诊结论（book_runner._mark_panel_halted
+    # 落盘），resume 的 stale-reject 自动重写据此让路——halt 语义跨进程存活。
+    panel_halted = bool(meta.get("panel_halted")) if isinstance(meta, dict) else False
     draft_sha = ""
     if exists:
         try:
@@ -140,6 +238,16 @@ def chapter_status(
                 expected = str(expected_context.get(key) or "")
                 actual = str(run_context.get(key) or "")
                 if expected and actual != expected:
+                    strict_failures.append(f"{key}_mismatch")
+            # iter078 P1-6: model/review_tier 配置指纹。与上面 4 键不同，
+            # 采用「双方都非空才比对」——旧 meta（iter078 前）没有这两键，
+            # actual 为空不算 mismatch（存量零迁移）；两侧都有且不同 →
+            # fail-closed block（mock 残迹混真书从静默跳过变显式拦截，
+            # 且天然不在 stale-reject 白名单）。
+            for key in ("model", "review_tier"):
+                expected = str(expected_context.get(key) or "")
+                actual = str(run_context.get(key) or "")
+                if expected and actual and actual != expected:
                     strict_failures.append(f"{key}_mismatch")
         if require_external_review:
             review_path = drafts_dir.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json"
@@ -176,6 +284,12 @@ def chapter_status(
                             actual = str(review_ctx.get(key) or "")
                             if expected and actual != expected:
                                 strict_failures.append(f"external_review_{key}_mismatch")
+                        # iter078 P1-6: 同 meta 侧口径（双方非空才比对）。
+                        for key in ("model", "review_tier"):
+                            expected = str(expected_context.get(key) or "")
+                            actual = str(review_ctx.get(key) or "")
+                            if expected and actual and actual != expected:
+                                strict_failures.append(f"external_review_{key}_mismatch")
         approved = approved and not strict_failures
 
     return {
@@ -190,4 +304,5 @@ def chapter_status(
         "strict_failures": strict_failures,
         "hard_reject": hard_reject,
         "caveat_approved": caveat_approved,
+        "panel_halted": panel_halted,
     }

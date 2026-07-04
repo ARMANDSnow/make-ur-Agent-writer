@@ -193,6 +193,33 @@ def run_auto_pipeline(
     require_start_point: bool = False,
     budget_cny: float = 0.0,
 ) -> Dict[str, Any]:
+    """Run the 9-step SOP under the workspace write lock."""
+    from .workspace_lock import acquire_write_lock
+
+    with acquire_write_lock(source="auto-pipeline"):
+        return _run_auto_pipeline_unlocked(
+            target_chapters=target_chapters,
+            progress_cb=progress_cb,
+            skip_extract=skip_extract,
+            extract_limit=extract_limit,
+            force=force,
+            plan_chapters_target=plan_chapters_target,
+            require_start_point=require_start_point,
+            budget_cny=budget_cny,
+        )
+
+
+def _run_auto_pipeline_unlocked(
+    *,
+    target_chapters: int = 1,
+    progress_cb: Optional[ProgressCallback] = None,
+    skip_extract: bool = False,
+    extract_limit: Optional[int] = 5,
+    force: bool = False,
+    plan_chapters_target: Optional[int] = None,
+    require_start_point: bool = False,
+    budget_cny: float = 0.0,
+) -> Dict[str, Any]:
     """Run the 9-step SOP end-to-end against the active workspace.
 
     The active workspace is resolved by ``src.paths.workspace_name()``,

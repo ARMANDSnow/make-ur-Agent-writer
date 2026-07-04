@@ -145,6 +145,7 @@ def prune_from_chapter(chapter_no: int, path: Path | None = None) -> None:
         path = _rolling_path()
     data = load_rolling_summary(path)
     cutoff = int(chapter_no)
+    before = len(data.get("chapters", [])) + len(data.get("compressed_older", []) or [])
     data["chapters"] = [
         item
         for item in data.get("chapters", [])
@@ -156,6 +157,10 @@ def prune_from_chapter(chapter_no: int, path: Path | None = None) -> None:
         for item in data.get("compressed_older", []) or []
         if not (isinstance(item, dict) and int(item.get("chapter_no", 0)) >= cutoff)
     ]
+    # iter078 P1-5: fresh-write 路径每章都会调一次本函数（belt&suspenders），
+    # 无残迹时跳过落盘，避免长跑里每章一次无意义的文件重写。
+    if len(data["chapters"]) + len(data["compressed_older"]) == before:
+        return
     save_rolling_summary(data, path)
 
 

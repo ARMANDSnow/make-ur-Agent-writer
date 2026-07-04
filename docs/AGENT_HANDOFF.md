@@ -1944,3 +1944,35 @@ python3 main.py --book <name> drive-book start \
 **下轮候选（iter077）**：**真模型 capstone 实跑**（10-20 章，铁律⑥需用户授权）。建议配置：`on_soft_reject=caveat_continue + max_panel_rejections=2 + tier=mid + --budget-cny <软阈>`；入口 `nohup bash scripts/drive_book_supervised.sh --book longzu --confirm-real-smoke -- --chapters 20 --tier mid --budget-cny 300 ... &` + 另终端 `bash scripts/watchdog.sh --book longzu --driver`。其它 backlog（Aeloon 深色模式 / drama ③④ / SQLite FTS / char-level diff / mock planner --chapters）不变。
 
 **数据状态**：只 commit 不 push，等用户验收（铁律⑤）。commit：`fix(iter076a)`=`476318c`（codex 修复批）+ `feat(iter076)`（本轮硬化+审查修复，待本 Phase Status 同 commit 落盘）。
+
+---
+
+## Phase Status — iter 077（2026-07-03 收官）：长跑审查修复批——六方审查 P0 五项（capstone 前置硬门）
+
+**已完成（本轮）**：立项来源为六方并行只读审查（6 subagent 独立视角：断点续跑/无界增长/预算超时心跳/错误路径/并发信号进程/配置一致性 + codex 报告交叉对照，~40 项分级 P0×5 / P1×8 组 / P2），P0 全修——① **伏笔 TTL 闸门 ch16 确定性封死**：`build_registry` 把源书遗留伏笔全播种为 `planted_chapter=0, ttl=12, must_resolve=True` 且流水线无自动 resolve 路径 → `resume_from≥14` 必 blocker、`--force` 清不掉、mock 恒空零覆盖；修法=读取侧 `overdue_must_resolve` 默认豁免 `planted_chapter<=0` 边界项（存量 registry 零迁移）、readiness 降级 `foreshadowing_boundary_overdue` warning、preflight 分列闸门项/遗留项、unparseable/续写新种保持 fail-closed、mock extraction 补非空 fixture；② **caveat×resume 双断点**：readiness 逐章循环豁免 `caveat_approved`（此前 caveat 章任一重启后 resume 必 exit 4 终态）+ `_mark_caveat_approved` 原子归档 failure.json 为 `*.failure.caveat.json`（chapter_status 的 `not failure` 语义保持连贯）；③ **panel_block_policy 静默回落**：显式坏值/yaml bool/caveat_continue+max≤0 矛盾组合 → `config_warnings`+stderr、`_snap` 每快照回显生效策略、preflight `_check_panel_block_policy` 前置校验（惰性 import 避环形依赖）；④ **孤儿 write-book 双写**：`_reap_orphan_child`（TERM→宽限→KILL、cmdline 判别防 pid 复用误杀）挂入 `cmd_resume`/`cmd_start`；`_run_step` Popen 段 try/finally 无条件收割 + timeout 先杀后 emit + Popen 前/切片内 `_STOP_REQUESTED` 检查（三条成孤路径全堵）；⑤ **stale 拒稿残迹**：`_is_resumable_stale_reject` 白名单判定（指纹一致的中断期拒稿走 attempt>0 同款归档+重写+播种拒因；mismatch/legacy/human 保持 BookRunBlocked）+ readiness 同口径 `stale_reject_will_rewrite` warning + `reviewed_existing` 补外审被拒接入 panel_block_policy。
+
+**铁律⑨（升级条款：runner/driver 高风险）**：`/code-review high` 8 finder 视角（6 完成、逐行/跨文件 2 个撞账号会话限额——被删行为视角已做逐 hunk 审计、跨文件已由立项前六方审查覆盖；候选本体 inline 核验）→ **1 bug 级 CONFIRMED 当轮直修批（+8 tests）**：`panel_halted` 落盘标记使 halt 分诊结论跨进程存活（lint 终败/retry 耗尽章 resume 不再静默重烧）、stale 谓词补 `failure`/`panel_halted`、`.failure.caveat.json` 进归档 suffix、reaper 记录 `state["child_cmd"]` 精确比对 + ps 失败不放行第二写者 + EPERM=非亲儿子、`cmd_stop` 孤儿收割统一走 reaper。`/security-review` **零发现**（subprocess argv list+int 强转 / killpg 目标全出自本方 state / 文件名 `:02d` 无穿越 / `sk-`·`.env` grep 零命中 / 无新反序列化面；铁律①②干净）。**未修技债**：处置五分类（skip_approved/skip_caveat/补外审/stale 重写/block）下沉 `chapter_status` 单一真源（本轮谓词漏 `failure` 即平行维护实证）、foreshadowing 播种改显式 `origin` 字段（防未来续写回灌 compress 使闸门静默失效）、caveat 分诊块两处同构、`_snap` 基底 payload、registry 双读等——全记 iteration_077 Notes/Acceptance Result。
+
+**验收证据**：`.venv` unittest discover **1517 tests OK**（1475 → P0 批 1509 → 审查修复 +8；含 test_book_runner 2 用例语义迁移 + test_foreshadowing/047B2 共 7 用例 fixture 迁移，原命题全保留）；verify 仅 3 个既有环境性 error（system python3.9 PEP604 ×2 + 缺 tiktoken，同 iter076）；preflight ok（新增 panel_block_policy 生效值 info）；mock 25 章回归三关全过（succeeded 25/25 / resume 零新调用 369 行不变 / supervisor --resume-first exit 0）+ 新增 **PASS-1b**：对真 workspace `write-readiness --chapters 5 --resume-from 16` = `warn` + `foreshadowing_boundary_overdue:2` 零 blocker——修复前该形状确定性杀死 capstone。
+
+**教训**：①mock 的 graceful degrade（铁律④）会让 fail-closed 闸门在 mock 回归中零覆盖——可选数据源的 mock fixture 应至少给一份非空样本，「25 章 mock 全过」才对相应闸门有背书力；②打桩过深的单测（`_load_chapter_plan`→None）同理绕过生产路径；③readiness 与 run_write_book 的处置逻辑是两条手工同步的平行链，第三次同步改动时果然漏了一个字段（`failure`）——下沉单一真源是结构解；④管道后 `$?` 取的是最后一个命令的退出码——查 verify.sh 这类脚本状态要 `pipefail` 或分开跑。
+
+**下轮候选（iter078，路线图收官步）**：真模型 capstone 实跑（10-20 章，铁律⑥需用户授权；建议 `on_soft_reject=caveat_continue + max_panel_rejections=2 + tier=mid`；跑前按 iteration_077 Notes 清单：打印生效 policy / 清 WRITE_REVIEW_TIER 等 env 脏值 / 干净 workspace 或对 mock 排练章 --force / 确认 continuation_anchor.txt / `--budget-cny` 空格形式且 >0 / watchdog 用 --driver 不带 --pid / 长跑期间 dashboard 只读 / 人工干预先停 supervisor 再 stop）。或先修六方审查 P1 八组（reviewer NaN crash+字符串分数 fail-open / Web-CLI workspace 写锁 / 预算账本三重失真 / entity 三连 / rolling 落盘顺序 / 指纹补 model·tier / tiktoken 中文计数 / env·preflight 守门盲区）。
+
+**数据状态**：只 commit 不 push，等用户验收（铁律⑤）。改动：src/{book_runner,book_driver,chapter_status,foreshadowing,llm_client,preflight}.py + 3 个新测试文件 + 4 个测试文件迁移 + iteration_077 + 索引 + README SOP + AGENTS.md + 本文件。
+
+---
+
+## Phase Status — iter 078（2026-07-05 收官）：六方审查 P1 修复批（8 组）+ 技债 2 项
+
+**已完成（本轮）**：承接 iter077 六方审查 P0 后的 P1 清单，一轮清掉 capstone 前大部分人工规避项。八组 P1：① reviewer 分数护栏（NaN/Inf/bool 拒收，纯数字字符串 coerce，weighted/判定链路 isfinite，异常分数留 `score_warning`）；② workspace 写锁（`src/workspace_lock.py`，CLI/Web/auto-pipeline 写入口 flock 互斥 + holder 回显）；③ rolling summary 改 persist→rolling，readiness gap warning，fresh-write 前 prune；④ entity 三连（空 new_state fail-closed、第 5 注入点 16K 截断、`advance_applied` sidecar + skip 补偿）；⑤ run_context 指纹补 model + review_tier；⑥ 预算账本按 model 前缀逐 record 计价，retry_error 逐 attempt 入账，dirty_lines 计数；⑦ deepseek CJK token 估算只减不增 + 已知前缀 64K 动态 cap；⑧ preflight 补 tier/timeout/context/anchor 守门。两项技债：foreshadowing 播种显式 `origin`；处置五分类下沉 `chapter_status.classify_disposition` 单一真源。
+
+**铁律⑨审查与追加修复**：8 finder 视角 + 主对话 inline verify，直修 8 项：reaper argv[1:] 尾部比对、readiness tier 意图、SUPPLEMENT 两出口补偿、entity recency 守门、缺 `planted_chapter` fail-closed、负 timeout 拒收、标量 JSON 残行计脏行、Web/auto-pipeline 写锁覆盖。高风险升级另跑 2 个独立视角：安全视角发现 `llm_client._log_call` 原始异常可能泄 key/prompt → `_sanitize_error_text` 脱敏 configured key/Bearer/sk/prompt/messages/input/content 并加测；并发/driver 视角确认 `cmd_stop` 收割结果 reload 前未落盘、`drive-book resume --tier` 被忽略、run-all/auto-pipeline/review 锁范围不足 → 全修并加测。`rg sk-` 命中均为测试假 key 或历史文档占位；未碰 `.env`/`data`/`outputs`/`小说txt`。
+
+**验收证据**：`.venv/bin/python3 -m unittest discover -s tests` **1622 tests OK**（需允许本地 127.0.0.1 测试端口；裸沙箱会拦 `test_novel_client`）；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部同样 1622 tests OK，随后 normalize/split/auto-pipeline/status/manifest/report/cost 全跑通）；`.venv/bin/python3 main.py preflight` = warn/无 FATAL（WARN 为当前 `.env` 模型配置、cache provider、预算默认值提示）；`OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` = ok/无 WARN；`git diff --check` 与 py_compile 均通过。mock 25 章五关回归全过：start / resume-from 16 readiness / resume 零新调用 / supervised resume-first / 双 write-book in vivo 竞锁。
+
+**残留风险（P2/技债）**：writer persist 后、提案落盘前死亡窗口仍可能出现「章 approved 但提案缺失」（rolling 有 warning，entity 无源可补）；旧 halt 残迹无 `panel_halted` 一次性迁移形态需首跑前人工核查；mock 计价归零导致预算闸错接线只能在真模型暴露（候选：mock 假单价开关）；Web 手工编辑端点仍未桥接 flock；reaper argv[1:] 尾部匹配仍有极端 wrapper 边界；`_STOP_REQUESTED` 为进程级 flag，CLI 低风险、嵌入式复用可后续 reset；若干复用/简化/效率项见 iteration_078 Notes。
+
+**下轮候选（iter079+）**：短剧（drama）模块批次按 `docs/iterations/iteration_079_083_drama_module_roadmap.md` 推进（079 分镜 grid / 080 角色+AI 绘画骨架 / 081 drama_reviewer+episodes / 082 导出+Insights / 083 真模型收口）。小说主链路 capstone 实跑仍是独立候选（10-20 章，铁律⑥需授权；建议 `on_soft_reject=caveat_continue + max_panel_rejections=2 + tier=mid`，跑前核查旧 Reject/halt 残迹、预算口径、workspace 清洁度、watchdog `--driver`）。
+
+**数据状态**：iter077 与 iter078 改动历史上混在同一工作区，按用户拍板合并一个 commit；只 commit 不 push，等用户验收（铁律⑤）。

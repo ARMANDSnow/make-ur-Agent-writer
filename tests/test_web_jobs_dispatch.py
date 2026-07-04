@@ -302,6 +302,20 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["budget_cny"], 2.5)
         self.assertEqual(run.call_args.kwargs["replan_every"], 3)
 
+    def test_write_book_job_passes_web_lock_source(self) -> None:
+        # iter078 P1-7: Web job 必须以 lock_source="web-job" 拿 workspace
+        # 写锁——被拒的 CLI 侧从 holder 信息能看出持有方是 Web。
+        with unittest.mock.patch(
+            "src.web.jobs.run_write_book",
+            return_value={"status": "succeeded", "chapters": [], "blocked": []},
+        ) as run:
+            status, data = self._post_run(
+                "alpha", {"step": "write-book", "params": {"chapters": 1}}
+            )
+            self.assertEqual(status, 202)
+            self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+        self.assertEqual(run.call_args.kwargs["lock_source"], "web-job")
+
     def test_write_book_job_preserves_tier_param(self) -> None:
         with unittest.mock.patch(
             "src.web.jobs.run_write_book",

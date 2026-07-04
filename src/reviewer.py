@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from . import review_tier
 from . import paths
@@ -53,6 +53,35 @@ def _relationship_checklist_issue() -> Dict[str, str]:
     }
 
 
+def _coerce_score(value: Any) -> Optional[float]:
+    """iter078 P1-1: defensive score parsing shared by the sub-score
+    nesting repair and the weighted aggregation.
+
+    Accepts int / float / numeric strings (``"8"``, ``"7.5"`` — LLMs
+    routinely quote numbers in JSON; dropping them used to fall back to
+    the neutral default 7, a fail-open). Rejects bool (``float(True)``
+    is 1.0 and poisons the average silently), non-finite values
+    (``int(nan)`` raises ValueError / ``int(inf)`` raises OverflowError
+    and used to crash the whole review inside the nesting repair), and
+    anything unparsable (``"high"``, ``"8/10"`` — no fuzzy parsing).
+    Clamps to the 0-10 scale. Returns None when the value is unusable.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        num = float(value)
+    elif isinstance(value, str):
+        try:
+            num = float(value.strip())
+        except (TypeError, ValueError):
+            return None
+    else:
+        return None
+    if not math.isfinite(num):
+        return None
+    return max(0.0, min(10.0, num))
+
+
 def _repair_agent_review_dict(raw: Any, agent_name: str, enforce_relationship_checklist: Any = True) -> Dict[str, Any]:
     """Debug fix: ``enforce_relationship_checklist`` now accepts a third
     value ``"warn_only"`` in addition to True/False. In warn_only mode,
@@ -85,16 +114,29 @@ def _repair_agent_review_dict(raw: Any, agent_name: str, enforce_relationship_ch
     # (which is how the new prompt asks for it), nest them under `scores`
     # so pydantic AgentSubScores can consume.
     if "scores" not in repaired:
-        top_level_subs = {
-            k: repaired.pop(k)
-            for k in ("plot", "prose", "fidelity")
-            if k in repaired and isinstance(repaired.get(k), (int, float))
-        }
+        # iter078 P1-1: _coerce_score replaces the bare isinstance check.
+        # NaN/Inf floats used to pass isinstance and crash at int(); string
+        # numbers used to be dropped entirely (score fell back to default 7).
+        top_level_subs: Dict[str, float] = {}
+        for k in ("plot", "prose", "fidelity"):
+            if k not in repaired:
+                continue
+            coerced = _coerce_score(repaired.get(k))
+            if coerced is not None:
+                repaired.pop(k)
+                top_level_subs[k] = coerced
         if top_level_subs:
-            # Coerce to int, clamp to 0-10 defensively
-            repaired["scores"] = {
-                k: max(0, min(10, int(v))) for k, v in top_level_subs.items()
-            }
+            repaired["scores"] = {k: int(v) for k, v in top_level_subs.items()}
+    elif isinstance(repaired.get("scores"), dict):
+        # Same guard for an LLM-provided nested scores dict: keep only
+        # coercible values so a NaN/Inf/string entry degrades to the
+        # AgentSubScores default instead of failing pydantic validation
+        # (which burns an extra recovery LLM call).
+        repaired["scores"] = {
+            k: int(c)
+            for k, v in repaired["scores"].items()
+            if (c := _coerce_score(v)) is not None
+        }
     repaired.setdefault("score", 7)
     if not isinstance(repaired.get("issues"), list):
         repaired["issues"] = []
@@ -223,26 +265,29 @@ def _simple_verdict_fallback(
 
 
 def _agent_weighted_score(review: Dict[str, Any]) -> float:
+    # iter078 P1-1: scores here are usually pydantic-validated ints, but
+    # fallback / synthetic review dicts bypass AgentReview — run every
+    # value through _coerce_score so NaN/Inf can never reach the average
+    # (NaN propagates through sum and makes every >= comparison False).
     scores = review.get("scores")
     if isinstance(scores, dict):
-        try:
-            plot = float(scores.get("plot", 0))
-            prose = float(scores.get("prose", 0))
-            fidelity = float(scores.get("fidelity", 0))
+        plot = _coerce_score(scores.get("plot", 0))
+        prose = _coerce_score(scores.get("prose", 0))
+        fidelity = _coerce_score(scores.get("fidelity", 0))
+        if None not in (plot, prose, fidelity):
             if (plot, prose, fidelity) != (7.0, 7.0, 7.0) or review.get("score") in (None, 7):
                 return plot * 0.4 + prose * 0.3 + fidelity * 0.3
-        except (TypeError, ValueError):
-            pass
-    try:
-        return float(review.get("score", 0))
-    except (TypeError, ValueError):
-        return 0.0
+    coerced = _coerce_score(review.get("score", 0))
+    return 0.0 if coerced is None else coerced
 
 
 def _weighted_panel_score(reviews: List[Dict[str, Any]]) -> float:
     if not reviews:
         return 0.0
-    return round(sum(_agent_weighted_score(r) for r in reviews) / len(reviews), 2)
+    total = sum(_agent_weighted_score(r) for r in reviews)
+    if not math.isfinite(total):
+        return 0.0
+    return round(total / len(reviews), 2)
 
 
 # iter065 #6a：计划履约 reviewer（确定性，零 LLM）。writer prompt 把
@@ -673,6 +718,12 @@ def review_text(
     ]
     approve_count = sum(1 for r in panel_reviews if r.get("verdict") == "Approve")
     panel_score = _weighted_panel_score(panel_reviews)
+    # iter078 P1-1 defensive: after the _coerce_score guards a non-finite
+    # panel score should be unreachable; if it ever appears, fail closed
+    # with a recorded reason instead of the silent NaN >= threshold Reject.
+    non_finite_panel_score = not math.isfinite(panel_score)
+    if non_finite_panel_score:
+        panel_score = 0.0
     hard_synthetic_reject = any(
         r.get("_synthetic") and r.get("verdict") == "Reject" for r in reviews
     )
@@ -800,6 +851,8 @@ def review_text(
         "run_context": run_context or {},
         "draft_sha256": draft_sha256,
     }
+    if non_finite_panel_score:
+        report["score_warning"] = "non_finite_panel_score"
     if reviews and not panel_reviews and not hard_synthetic_reject:
         report["_fallback_reason"] = "(all_agents_parse_failed)"
     write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)

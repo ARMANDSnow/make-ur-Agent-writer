@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections import Counter
 from pathlib import Path
@@ -39,9 +40,10 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     is_global_mock = model.lower().startswith("mock")
 
     _check_env(fatal, warn, is_global_mock)
-    _check_agents_config(fatal, warn, root)
+    _check_agents_config(fatal, warn, root, info)
+    _check_review_tier(fatal, info)
     _check_provider_routing(fatal, warn, is_global_mock)
-    _check_context_limits(fatal, info, model_cfg)
+    _check_context_limits(fatal, warn, info, model_cfg)
     _check_logs_writable(fatal, root)
     _check_extraction_failures(fatal, root)
     _check_rolling_state(fatal, warn, root)
@@ -53,6 +55,7 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     _check_budget_guard(warn, is_global_mock)
     _check_start_safe_knowledge(warn, info, root)
     _check_foreshadowing_registry(warn, info, root)
+    _check_panel_block_policy(warn, info)
     _summarize_llm_logs(info, root)
 
     status = "fail" if fatal else "warn" if warn else "ok"
@@ -99,8 +102,11 @@ def _check_env(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
                 fatal.append(f"{base_url_env} is empty or invalid while task '{task}' model is not mock.")
 
 
-def _check_agents_config(fatal: List[str], warn: List[str], root: Path | None = None) -> None:
+def _check_agents_config(
+    fatal: List[str], warn: List[str], root: Path | None = None, info: List[str] | None = None
+) -> None:
     root = _resolve_root(root)
+    info = info if info is not None else []
     try:
         cfg = load_config("agents.yaml")
     except Exception as exc:
@@ -109,12 +115,54 @@ def _check_agents_config(fatal: List[str], warn: List[str], root: Path | None = 
     value = cfg.get("max_review_attempts")
     if not isinstance(value, int) or value <= 0:
         fatal.append("agents.yaml missing required key 'max_review_attempts' or value is not a positive integer.")
+    # iter078 P1-8: anchor 判定改走 load_continuation_anchor 单一真源。旧代码
+    # 自己拼「manual 文件 else yaml」，与生产语义有两处漂移（假阳性）：
+    # ①workspace 态 yaml 的 continuation_anchor 根本不生效（load 只在 repo
+    # root 回落 yaml），旧检查却按 yaml 值放行；②manual 文件存在但为空时，
+    # 报错文案分不清「没配」和「配了个空文件」。
+    from .continuation_anchor import load_continuation_anchor
+
     manual_anchor = root / "data" / "manual_overrides" / "continuation_anchor.txt"
-    anchor = manual_anchor.read_text(encoding="utf-8").strip() if manual_anchor.exists() else str(
-        cfg.get("continuation_anchor", "") or ""
-    ).strip()
+    yaml_anchor = str(cfg.get("continuation_anchor", "") or "").strip()
+    anchor = load_continuation_anchor(root=root)
     if not anchor:
-        warn.append("continuation_anchor is empty; writer will lack temporal anchor.")
+        if manual_anchor.exists():
+            warn.append(
+                "continuation_anchor 手工文件存在但内容为空（data/manual_overrides/"
+                "continuation_anchor.txt）——writer 实际拿到空锚点；填入内容或删除该文件。"
+            )
+        elif yaml_anchor:
+            warn.append(
+                "agents.yaml 配了 continuation_anchor，但当前 root 非 repo root（workspace 态）"
+                "只认 manual 文件——writer 实际拿到空锚点；请写入 data/manual_overrides/"
+                "continuation_anchor.txt。"
+            )
+        else:
+            warn.append("continuation_anchor is empty; writer will lack temporal anchor.")
+    elif manual_anchor.exists() and yaml_anchor:
+        info.append(
+            "continuation_anchor：manual 文件与 agents.yaml 配置同时存在，manual 文件优先生效。"
+        )
+
+
+def _check_review_tier(fatal: List[str], info: List[str]) -> None:
+    """iter078 P1-8：WRITE_REVIEW_TIER 前置校验。
+
+    脏值此前要到 ``run_write_book`` 的 ``resolve_tier`` 才 raise——过夜跑
+    supervisor 会为一个 env 手滑烧掉整个重启周期。preflight 提前 FATAL；
+    合法显式值回显生效档（INFO，对口 iter077 P0-3 的回显思路）。惰性
+    import 规避 preflight→review_tier 的静态依赖。"""
+    raw = os.getenv("WRITE_REVIEW_TIER", "")
+    if not str(raw).strip():
+        return
+    from . import review_tier
+
+    try:
+        resolved = review_tier.resolve_tier(None)
+    except ValueError as exc:
+        fatal.append(f"WRITE_REVIEW_TIER 环境变量非法：{exc}")
+        return
+    info.append(f"WRITE_REVIEW_TIER 生效值：{resolved}")
 
 
 def _check_provider_routing(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
@@ -138,7 +186,11 @@ def _check_provider_routing(fatal: List[str], warn: List[str], is_global_mock: b
             )
 
 
-def _check_context_limits(fatal: List[str], info: List[str], model_cfg: Dict[str, Any]) -> None:
+def _check_context_limits(
+    fatal: List[str], warn: List[str], info: List[str], model_cfg: Dict[str, Any]
+) -> None:
+    from .config import _known_context_cap
+
     default_limit = model_cfg.get("default", {}).get("context_limit")
     rows = []
     for task in TASKS:
@@ -147,6 +199,47 @@ def _check_context_limits(fatal: List[str], info: List[str], model_cfg: Dict[str
         if not isinstance(context_limit, int) or context_limit <= 0:
             fatal.append(f"config/models.yaml task '{task}' is missing positive context_limit.")
         cfg = get_model_config(task)
+        # iter078 P1-3: yaml 配置与已知模型物理上限矛盾的可见性。超上限的
+        # 已被 get_model_config 封顶（危险方向：操作者以为有 128K 实际 64K
+        # → WARN 生效值）；低于上限属主动保守（合法 → INFO）。mock 假模型
+        # 无物理上限，跳过。
+        model_name = str(cfg.get("model") or "")
+        cap = _known_context_cap(model_name)
+        if (
+            isinstance(context_limit, int)
+            and cap is not None
+            and not model_name.lower().startswith("mock")
+        ):
+            if context_limit > cap:
+                warn.append(
+                    f"config/models.yaml task '{task}' context_limit={context_limit} 超过模型 "
+                    f"{model_name} 的已知上限 {cap}，已按 {cap} 生效（防真溢出打到 provider）"
+                )
+            elif context_limit < cap:
+                info.append(
+                    f"task '{task}' context_limit={context_limit} 低于模型 {model_name} "
+                    f"上限 {cap}（主动保守，合法）"
+                )
+        # iter078 P1-8: max_tokens↔context_limit 前置矛盾检查——此前只有运行
+        # 时 _check_context 触发才发现（第一章就炸，白烧一次 supervisor 周期）。
+        eff_max_tokens = cfg.get("max_tokens")
+        eff_limit = cfg.get("context_limit")
+        if (
+            isinstance(eff_max_tokens, int)
+            and isinstance(eff_limit, int)
+            and eff_limit > 0
+        ):
+            if eff_max_tokens >= int(eff_limit * 0.9):
+                fatal.append(
+                    f"config/models.yaml task '{task}' max_tokens={eff_max_tokens} ≥ "
+                    f"context_limit×0.9（{int(eff_limit * 0.9)}）——_check_context 红线恒触发，"
+                    "一章都写不出。"
+                )
+            elif eff_max_tokens > eff_limit * 0.5:
+                warn.append(
+                    f"task '{task}' max_tokens={eff_max_tokens} 超过 context_limit"
+                    f"（{eff_limit}）的一半，prompt 可用空间被严重挤压。"
+                )
         rows.append(
             f"{task}: model={cfg.get('model')}, temperature={cfg.get('temperature')}, "
             f"max_tokens={cfg.get('max_tokens')}, context_limit={cfg.get('context_limit')}"
@@ -266,6 +359,19 @@ def _check_runtime_env(warn: List[str]) -> None:
             int(value)
         except ValueError:
             warn.append("WRITE_MAX_TOKENS is not an integer; model config will use its default max_tokens.")
+    # iter078 P1-8: LLM_REQUEST_TIMEOUT 非有限/负值——config._env_float 已
+    # 回退默认（同轮修复），这里把「你设了但没生效」显式告诉操作者。
+    raw_timeout = os.getenv("LLM_REQUEST_TIMEOUT")
+    if raw_timeout and str(raw_timeout).strip():
+        try:
+            parsed = float(str(raw_timeout).strip())
+        except (TypeError, ValueError):
+            parsed = None
+        if parsed is None or not math.isfinite(parsed) or parsed < 0:
+            warn.append(
+                f"LLM_REQUEST_TIMEOUT={raw_timeout!r} 不是有限非负数字，已回退 "
+                "models.yaml 的 request_timeout 默认值（超时守门不会按该值生效）。"
+            )
 
 
 def _check_budget_guard(warn: List[str], is_global_mock: bool) -> None:
@@ -332,23 +438,52 @@ def _check_foreshadowing_registry(warn: List[str], info: List[str], root: Path) 
     # preflight must surface BOTH — counting only 'expired' let an operator see
     # "0 overdue" while the gate still blocked. preflight has no resume_from, so it
     # flags open must_resolve items as the gate's pending triggers.
-    must_open = sum(
-        1 for it in items
-        if isinstance(it, dict) and it.get("must_resolve") and _st(it) not in ("resolved", "expired")
-    )
-    must_expired = sum(
-        1 for it in items
-        if isinstance(it, dict) and it.get("must_resolve") and _st(it) == "expired"
-    )
+    # iter077 P0-1: source-boundary seeds (planted_chapter<=0) no longer gate —
+    # count them separately so the WARN only names real gate triggers.
+    from .foreshadowing import is_boundary_item
+
+    def _must_pending(it) -> bool:
+        return isinstance(it, dict) and bool(it.get("must_resolve")) and _st(it) != "resolved"
+
+    gating = [it for it in items if _must_pending(it) and not is_boundary_item(it)]
+    boundary = [it for it in items if _must_pending(it) and is_boundary_item(it)]
+    must_open = sum(1 for it in gating if _st(it) != "expired")
+    must_expired = sum(1 for it in gating if _st(it) == "expired")
     info.append(
         f"伏笔 registry：open={open_n}, expired={expired_n}, "
-        f"must-resolve（expired={must_expired}, open={must_open}）。"
+        f"must-resolve 闸门项（expired={must_expired}, open={must_open}），"
+        f"源书遗留项（仅提示不拦截）={len(boundary)}。"
     )
     if must_expired or must_open:
         warn.append(
             f"{must_expired} 个 must-resolve 伏笔已超期、{must_open} 个仍 open（续写章数超其 TTL 即被闸门拦截）；"
             "write-readiness 可能拦截续写，请用 gc/resolve 回收。"
         )
+
+
+def _check_panel_block_policy(warn: List[str], info: List[str]) -> None:
+    """iter077 P0-3：agents.yaml ``panel_block_policy`` 的解析告警前置到 preflight。
+
+    配置手滑（枚举拼错、yaml bool、caveat_continue 配了但 max<=0）会让整套
+    「拒稿不停机」硬化静默回落 halt——过夜跑到凌晨第一章软拒才暴露。这里把
+    book_runner 的解析警告直接透出，并回显生效值。惰性 import 规避
+    book_runner→preflight 的环形依赖（本函数只在运行时被调用，届时两模块均已
+    加载完成）。"""
+    try:
+        from .book_runner import _panel_block_policy
+
+        policy = _panel_block_policy(emit_stderr=False)
+    except Exception as exc:  # 防御：策略解析永远不该让 preflight 本身崩掉
+        warn.append(f"panel_block_policy 解析异常：{type(exc).__name__}: {exc}")
+        return
+    for msg in policy.get("config_warnings") or []:
+        warn.append(msg)
+    info.append(
+        "panel_block_policy 生效值："
+        f"on_soft_reject={policy['on_soft_reject']}, "
+        f"on_hard_reject={policy['on_hard_reject']}, "
+        f"max_panel_rejections={policy['max_panel_rejections']}。"
+    )
 
 
 def _summarize_llm_logs(info: List[str], root: Path) -> None:

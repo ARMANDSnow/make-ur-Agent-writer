@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -119,6 +120,81 @@ def select_auto_indexes(
             continue
         if conf >= float(min_confidence):
             chosen.append(idx)
+    return chosen
+
+
+def chapter_anchor(chapter_no: int) -> str:
+    """timeline 条目的 ``anchor_chapter`` 生产格式（单一真源）。
+
+    iter078 P1-4①: 补偿路径的「已应用」判定依赖该字面格式做精确比对——
+    抽成共享函数防止写入侧与判定侧漂移。
+    """
+    return f"续写第{chapter_no:02d}章"
+
+
+_ANCHOR_RE = re.compile(r"^续写第(\d+)章$")
+
+
+def _anchor_chapter_no(text: str) -> int | None:
+    """反解 chapter_anchor 产出的锚点串；非本格式（源书锚点等）返回 None。"""
+    match = _ANCHOR_RE.match(text.strip())
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def unapplied_auto_indexes(
+    proposals: List[Any],
+    graph: Dict[str, Any],
+    chapter_no: int,
+    *,
+    min_confidence: float,
+) -> List[int]:
+    """iter078 P1-4① 补偿路径专用：``select_auto_indexes`` 的结果再排除
+    「目标关系 timeline 已含本章锚点条目」的 proposal。
+
+    背景：approved 落盘与 auto-advance 之间被杀 → resume 跳过 approved 章
+    → advance 永久丢失。补偿 = resume 对「有提案、无 sidecar」的 skip 章
+    重放 auto-advance；但 iter078 之前写完的存量章没有 sidecar，直接重放
+    会重复 append timeline——本过滤让 legacy 已应用章的补偿收敛为零操作
+    （幂等），真丢失章才补上。正常（非补偿）apply 路径不走本函数。
+    """
+    relationships = graph.get("relationships", []) or []
+    if not isinstance(relationships, list):
+        relationships = []
+    chosen: List[int] = []
+    for idx in select_auto_indexes(proposals, min_confidence=min_confidence):
+        proposal = proposals[idx]
+        src_id = str(proposal.get("src_id") or "").strip()
+        dst_id = str(proposal.get("dst_id") or "").strip()
+        rel = _find_relationship(relationships, src_id, dst_id) if src_id and dst_id else None
+        timeline = rel.get("timeline") if isinstance(rel, dict) else None
+        applied = False
+        advanced_later = False
+        if isinstance(timeline, list):
+            for item in timeline:
+                if not isinstance(item, dict):
+                    continue
+                got = _anchor_chapter_no(str(item.get("anchor_chapter") or ""))
+                if got is None:
+                    continue
+                if got == chapter_no:
+                    applied = True  # 该关系本章已推进过（legacy 已应用形态）
+                    break
+                if got > chapter_no:
+                    # iter078 收官审查修复（recency 守门）：该关系已被更晚的
+                    # 续写章推进——迟到重放旧提案会灭活新状态、把 active 状态
+                    # 倒退回本章时代（legacy 章当年被 conflict 过滤/关系缺失
+                    # 跳过的提案在升级后首次 resume 全量回放的形状）。真正的
+                    # 丢失窗口只存在于被杀时的最前沿章；落后于前沿的补偿
+                    # 收益为零、风险是纯倒退，一律跳过。
+                    advanced_later = True
+        if applied or advanced_later:
+            continue
+        chosen.append(idx)
     return chosen
 
 
@@ -334,7 +410,7 @@ def _apply_selected(
                             "relation_type": str(proposal.get("relation_type") or "续写新建"),
                             "timeline": [
                                 {
-                                    "anchor_chapter": f"续写第{chapter_no:02d}章",
+                                    "anchor_chapter": chapter_anchor(chapter_no),
                                     "state": new_state,
                                     "trigger_event": str(proposal.get("trigger_event") or "").strip(),
                                     "confidence": confidence,
@@ -394,13 +470,32 @@ def _apply_selected(
             )
             skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "timeline_not_a_list"})
             continue
+        new_state = str(proposal.get("new_state") or "").strip()
+        if not new_state:
+            # iter078 P1-4②: 空 new_state 统一门。_is_applyable_proposal 只在
+            # auto_apply 路径生效，显式 index 调用（CLI apply-advance）此前可以
+            # 把 state="" 写进既有关系的 timeline（active 状态被毒化成空串，
+            # 下游五个注入点全部拿到空状态）。与 creation 路径的
+            # creation_empty_state 同款 fail-closed skip；必须在 deactivate
+            # 循环之前拦——否则旧 active 条目已被灭活才 skip，图被改坏。
+            log_event(
+                "entity_advance",
+                "proposal_skipped",
+                reason="empty_new_state",
+                src_id=src_id,
+                dst_id=dst_id,
+                chapter_no=chapter_no,
+                confidence=coerce_finite_confidence(proposal.get("confidence")),
+            )
+            skipped.append({"src_id": src_id, "dst_id": dst_id, "reason": "empty_new_state"})
+            continue
         for item in timeline:
             if isinstance(item, dict) and item.get("active"):
                 item["active"] = False
         timeline.append(
             {
-                "anchor_chapter": f"续写第{chapter_no:02d}章",
-                "state": str(proposal.get("new_state") or "").strip(),
+                "anchor_chapter": chapter_anchor(chapter_no),
+                "state": new_state,
                 "trigger_event": str(proposal.get("trigger_event") or "").strip(),
                 "confidence": coerce_finite_confidence(proposal.get("confidence")),
                 "active": True,

@@ -632,11 +632,17 @@ def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, floa
 
 
 def _step_draft_once_dev(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    return write_chapters(
-        chapters=int(params.get("chapters", 1)),
-        force=bool(params.get("force", False)),
-        resume_from=int(params.get("resume_from", 1)),
-    )
+    # iter078 收官审查修复：dev 直写步骤同样是 drafts 写者，必须过 P1-7 写锁
+    # （此前只有 run_write_book 包装拿锁，本步骤直调 write_chapters 旁路互斥，
+    # CLI 长跑期间提交该 job 会双写）。WorkspaceLocked 由 worker 兜成 failed。
+    from src.workspace_lock import acquire_write_lock
+
+    with acquire_write_lock(source="web-draft-once-dev"):
+        return write_chapters(
+            chapters=int(params.get("chapters", 1)),
+            force=bool(params.get("force", False)),
+            resume_from=int(params.get("resume_from", 1)),
+        )
 
 
 def _default_budget_cny() -> float:
@@ -711,6 +717,9 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
         require_external_review=bool(params.get("require_external_review", True)),
         progress_cb=progress_cb,
         tier=params.get("tier"),
+        # iter078 P1-7: workspace 写锁 holder 标签——被拒的 CLI 侧能从报错
+        # 看出持有方是 Web job。
+        lock_source="web-job",
     )
 
 
@@ -751,6 +760,7 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
     from ..chapter_status import chapter_status
     from ..cost_estimator import estimate_cost_since
     from ..reviewer import review_target
+    from ..workspace_lock import WorkspaceLocked, acquire_write_lock
     from ..writer import (
         ChapterPlanInvalid,
         _chapter_plan_item,
@@ -790,27 +800,31 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
     except ValueError as exc:
         return _blocked("chapter_plan_missing", str(exc))
 
-    progress_cb("review", 0.1)
-    review_target(
-        md_path,
-        # iter073 (codex review): match book_runner's external review — derive
-        # warn_only for broad-cast chapters + run plan-compliance — so a chapter
-        # reviewed via the Web review-chapter job gets the same verdict as via
-        # run_write_book (no strict-Reject divergence / no missed plan block).
-        enforce_relationship_checklist=_enforce_checklist_for_plan(item),
-        tier=params.get("tier"),
-        chapter_plan_item=item,
-        **_build_review_context(item),
-    )
-    progress_cb("sync-meta", 0.8)
-    meta = _sync_meta_with_external_review(drafts_dir, chapter_no)
-    status = chapter_status(
-        chapter_no,
-        drafts_dir,
-        validate_context=True,
-        require_external_review=True,
-        expected_context=_run_context(item, chapter_no=chapter_no),
-    )
+    try:
+        with acquire_write_lock(source="web-review-chapter"):
+            progress_cb("review", 0.1)
+            review_target(
+                md_path,
+                # iter073 (codex review): match book_runner's external review — derive
+                # warn_only for broad-cast chapters + run plan-compliance — so a chapter
+                # reviewed via the Web review-chapter job gets the same verdict as via
+                # run_write_book (no strict-Reject divergence / no missed plan block).
+                enforce_relationship_checklist=_enforce_checklist_for_plan(item),
+                tier=params.get("tier"),
+                chapter_plan_item=item,
+                **_build_review_context(item),
+            )
+            progress_cb("sync-meta", 0.8)
+            meta = _sync_meta_with_external_review(drafts_dir, chapter_no)
+            status = chapter_status(
+                chapter_no,
+                drafts_dir,
+                validate_context=True,
+                require_external_review=True,
+                expected_context=_run_context(item, chapter_no=chapter_no),
+            )
+    except WorkspaceLocked as exc:
+        return _blocked("workspace_locked", str(exc))
     # iter 051b: settlement — cost of THIS job only (since initial offset).
     # cost fields ride along on the success path too so the workbench can
     # show what the round-trip actually cost.
@@ -839,6 +853,8 @@ def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, floa
     # write-book-style budget_exceeded terminal status (already in
     # TERMINAL_STATUSES, so _worker lands it as terminal).
     budget_cny = _float_param(params, "budget_cny", _default_budget_cny())
+    from ..workspace_lock import WorkspaceLocked
+
     try:
         return auto_pipeline.run_auto_pipeline(
             target_chapters=int(params.get("chapters", 1)),
@@ -856,6 +872,8 @@ def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, floa
             "budget_cny": exc.budget_cny,
             "cost_cny": exc.cost_cny,
         }
+    except WorkspaceLocked as exc:
+        return _blocked("workspace_locked", str(exc))
 
 
 def _step_auto_pipeline_greenfield(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:

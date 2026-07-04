@@ -113,10 +113,14 @@ class LLMClientStreamingTests(unittest.TestCase):
 
         self.assertEqual(text, "good answer")
         self.assertEqual(call_count["n"], 2)
-        # Only the successful attempt logs; failures only log on final give-up.
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["status"], "ok")
-        self.assertEqual(rows[0]["attempt"], 2)
+        # iter078 P1-2 语义迁移：每个失败 attempt 记一条 retry_error（旧行为
+        # 「失败只在最终放弃时才记」使 N-1 次真实调用的 prompt 消耗漏账）。
+        # 本用例原命题（中流失败 → 重试成功、partial 不泄漏）不变。
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["status"], "retry_error")
+        self.assertEqual(rows[0]["attempt"], 1)
+        self.assertEqual(rows[1]["status"], "ok")
+        self.assertEqual(rows[1]["attempt"], 2)
         # Crucially the partial "partial-" must NOT leak into the result.
         self.assertNotIn("partial", text)
 

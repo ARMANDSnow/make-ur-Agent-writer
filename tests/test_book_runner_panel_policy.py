@@ -123,6 +123,8 @@ class PanelPolicyRunTests(_RunnerHarness):
         self.assertEqual(result["blocked"][0]["reason"], "retry_exhausted")
         self.assertEqual(result["caveats"], [])
         self.assertEqual(write_calls, [1, 1])   # 原始 + 1 次重试
+        # iter077 P0-3：每个快照回显生效策略——从任何 run 产物可见实际生效值。
+        self.assertEqual(result["panel_policy"], HALT_ALL)
 
     def test_soft_reject_caveat_continue_marks_and_continues(self) -> None:
         # ch1 soft 拒稿耗尽 → caveat 放行；ch2 照常写并 Approve → 整书 succeeded。
@@ -247,11 +249,12 @@ class PanelPolicyRunTests(_RunnerHarness):
 class PanelPolicyLoaderTests(unittest.TestCase):
     def test_missing_config_falls_back_conservative(self) -> None:
         with patch("src.book_runner.load_config", return_value={}):
-            policy = _panel_block_policy()
-        self.assertEqual(
-            policy,
-            {"on_soft_reject": "halt", "max_panel_rejections": 0, "on_hard_reject": "halt"},
-        )
+            policy = _panel_block_policy(emit_stderr=False)
+        self.assertEqual(policy["on_soft_reject"], "halt")
+        self.assertEqual(policy["max_panel_rejections"], 0)
+        self.assertEqual(policy["on_hard_reject"], "halt")
+        # iter077 P0-3：键缺失走默认不是手滑——零告警。
+        self.assertEqual(policy["config_warnings"], [])
 
     def test_values_parsed_case_and_dash_tolerant(self) -> None:
         cfg = {
@@ -276,16 +279,70 @@ class PanelPolicyLoaderTests(unittest.TestCase):
             }
         }
         with patch("src.book_runner.load_config", return_value=cfg):
-            policy = _panel_block_policy()
-        self.assertEqual(
-            policy,
-            {"on_soft_reject": "halt", "max_panel_rejections": 0, "on_hard_reject": "halt"},
-        )
+            policy = _panel_block_policy(emit_stderr=False)
+        self.assertEqual(policy["on_soft_reject"], "halt")
+        self.assertEqual(policy["max_panel_rejections"], 0)
+        self.assertEqual(policy["on_hard_reject"], "halt")
+        # iter077 P0-3：显式给出但解析失败 → 三条告警（不再静默回落）。
+        self.assertEqual(len(policy["config_warnings"]), 3)
 
     def test_non_dict_block_falls_back(self) -> None:
         with patch("src.book_runner.load_config", return_value={"panel_block_policy": "halt"}):
-            policy = _panel_block_policy()
+            policy = _panel_block_policy(emit_stderr=False)
         self.assertEqual(policy["on_soft_reject"], "halt")
+        self.assertTrue(policy["config_warnings"])
+
+    # ---- iter077 P0-3：配置手滑不再静默失效 ----
+
+    def test_typo_caveat_continue_warns(self) -> None:
+        # 六方审查实测场景：少写 caveat_ 前缀 → 静默回落 halt，凌晨第一章软拒
+        # 即全书 halt。现在必须有告警可循。
+        cfg = {"panel_block_policy": {"on_soft_reject": "continue", "max_panel_rejections": 2}}
+        with patch("src.book_runner.load_config", return_value=cfg):
+            policy = _panel_block_policy(emit_stderr=False)
+        self.assertEqual(policy["on_soft_reject"], "halt")
+        self.assertTrue(any("on_soft_reject" in w for w in policy["config_warnings"]))
+
+    def test_bool_max_rejections_warns_and_falls_to_zero(self) -> None:
+        # yaml 裸 true 被 int() 静默变 1——是手误不是配额：回落 0 + 告警。
+        cfg = {"panel_block_policy": {"max_panel_rejections": True}}
+        with patch("src.book_runner.load_config", return_value=cfg):
+            policy = _panel_block_policy(emit_stderr=False)
+        self.assertEqual(policy["max_panel_rejections"], 0)
+        self.assertTrue(any("布尔" in w for w in policy["config_warnings"]))
+
+    def test_caveat_continue_with_zero_budget_warns(self) -> None:
+        # 自相矛盾组合：caveat_continue + max<=0 = caveat 永不触发（等效 halt）。
+        cfg = {"panel_block_policy": {"on_soft_reject": "caveat_continue"}}
+        with patch("src.book_runner.load_config", return_value=cfg):
+            policy = _panel_block_policy(emit_stderr=False)
+        self.assertEqual(policy["on_soft_reject"], "caveat_continue")
+        self.assertTrue(any("永不触发" in w for w in policy["config_warnings"]))
+
+    def test_valid_capstone_config_no_warnings(self) -> None:
+        # iter077 capstone 推荐配置：合法组合零告警。
+        cfg = {
+            "panel_block_policy": {
+                "on_soft_reject": "caveat_continue",
+                "max_panel_rejections": 2,
+                "on_hard_reject": "halt",
+            }
+        }
+        with patch("src.book_runner.load_config", return_value=cfg):
+            policy = _panel_block_policy(emit_stderr=False)
+        self.assertEqual(policy["config_warnings"], [])
+
+    def test_preflight_surfaces_policy_warnings(self) -> None:
+        # preflight 前置校验：解析告警进 warn、生效值进 info（跑之前就能看见）。
+        from src.preflight import _check_panel_block_policy
+
+        cfg = {"panel_block_policy": {"on_soft_reject": "continue", "max_panel_rejections": 2}}
+        warn: list = []
+        info: list = []
+        with patch("src.book_runner.load_config", return_value=cfg):
+            _check_panel_block_policy(warn, info)
+        self.assertTrue(any("on_soft_reject" in w for w in warn))
+        self.assertTrue(any("生效值" in i and "on_soft_reject=halt" in i for i in info))
 
 
 if __name__ == "__main__":

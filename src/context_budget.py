@@ -42,6 +42,40 @@ class Layer:
     hard: bool = False
 
 
+# iter078 P1-3: CJK 字符区间（基本区 + 扩展 A + CJK 标点 + 全角形式）。
+_CJK_RANGES = (
+    (0x3000, 0x303F),
+    (0x3400, 0x4DBF),
+    (0x4E00, 0x9FFF),
+    (0xFF00, 0xFFEF),
+)
+
+
+def _cjk_capped_estimate(text: str) -> int:
+    """deepseek 系 tokenizer 的保守 token 估算。
+
+    系数辩护：DeepSeek 官方文档口径约 1 汉字 ≈ 0.6 token、1 英文字符 ≈
+    0.3 token；这里取 0.75 / 0.4 —— 官方值 × 1.25/1.33 的保守裕量。用法是
+    ``min(tiktoken_raw, 本估算)``（见 count_tokens），结构性保证修正只减
+    不增：计数永不高于现状（现状 cl100k_base 对 CJK 虚高 1.5-2×，是安全
+    方向的错），因此不可能比现状更接近真溢出；真溢出兜底仍有
+    ``_check_context`` 的 0.9 红线与 provider 侧报错。"""
+    cjk = 0
+    for ch in text:
+        cp = ord(ch)
+        for lo, hi in _CJK_RANGES:
+            if lo <= cp <= hi:
+                cjk += 1
+                break
+    other = len(text) - cjk
+    return math.ceil(cjk * 0.75 + other * 0.4)
+
+
+def _is_deepseek_model(model: str) -> bool:
+    lower = str(model or "").lower()
+    return lower.startswith("deepseek") or "/deepseek" in lower
+
+
 def count_tokens(text: str, model: str = "") -> Tuple[int, str]:
     """Return ``(tokens, method)`` — single source of truth for token counting.
 
@@ -49,6 +83,11 @@ def count_tokens(text: str, model: str = "") -> Tuple[int, str]:
     delegate here without changing any logged count: empty -> ``(0, "tiktoken")``;
     tiktoken available -> ``(len(encode), "tiktoken")``; otherwise a char
     estimate -> ``(ceil(len/1.6), "estimate")``.
+
+    iter078 P1-3: deepseek 前缀模型对 CJK 文本加 ``min(raw, cjk_estimate)``
+    修正（cl100k_base 对中文虚高 1.5-2×，导致截断过狠 / 预算虚耗）；cap
+    生效时 method 标 ``tiktoken_cjk_capped``。mock/gpt/claude 路径逐字节
+    不变（全部单测走 mock → 零日志计数漂移）。
     """
 
     if not text:
@@ -60,7 +99,12 @@ def count_tokens(text: str, model: str = "") -> Tuple[int, str]:
             encoding = tiktoken.encoding_for_model(str(model))
         except Exception:
             encoding = tiktoken.get_encoding("cl100k_base")
-        return len(encoding.encode(text)), "tiktoken"
+        raw = len(encoding.encode(text))
+        if _is_deepseek_model(model):
+            estimate = _cjk_capped_estimate(text)
+            if estimate < raw:
+                return estimate, "tiktoken_cjk_capped"
+        return raw, "tiktoken"
     except Exception:
         return math.ceil(len(text) / 1.6), "estimate"
 

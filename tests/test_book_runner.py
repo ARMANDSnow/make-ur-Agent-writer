@@ -1,3 +1,7 @@
+# iter078 顺手修（verify.sh 卫生）：system python3.9 对 def 时求值的 PEP604
+# 注解（dict | None）报 TypeError——future import 使注解惰性化，运行时零影响。
+from __future__ import annotations
+
 import json
 import unittest
 import tempfile
@@ -178,7 +182,11 @@ class BookRunnerReadinessTests(unittest.TestCase):
                     "failure": False,
                     "verdict": "Reject",
                     "rewrite_count": 2,
-                    "strict_failures": ["external_review_reject"],
+                    # iter077 P0-5：纯 external_review_reject 已是「可续接残迹」
+                    # （warning 不 block）——本测试的命题是 next_unapproved 偏好
+                    # 与 primary_blocker 映射，fixture 改为身份不可验证的 legacy
+                    # 拒稿（仍走 blocker 路径），命题不变。
+                    "strict_failures": ["legacy_missing_context"],
                 }
             if chapter_no == 2:
                 return {
@@ -234,6 +242,9 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertIsNone(readiness["primary_blocker"])
 
     def test_existing_reject_blocks_entry(self) -> None:
+        # iter077 P0-5：指纹一致的拒稿残迹改走「归档+重写」（见
+        # tests/test_iter077_stale_reject_resume.py）；本测试保留的是 fail-closed
+        # 边界——身份不可验证（legacy 无 run_context）的拒稿仍必须 block。
         reject_status = {
             "chapter_no": 1,
             "exists": True,
@@ -242,7 +253,7 @@ class BookRunnerReadinessTests(unittest.TestCase):
             "failure": False,
             "verdict": "Reject",
             "rewrite_count": 1,
-            "strict_failures": ["external_review_reject"],
+            "strict_failures": ["legacy_missing_context", "external_review_reject"],
         }
         managers = self._common_patches(_strict_plan())
         with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], patch(

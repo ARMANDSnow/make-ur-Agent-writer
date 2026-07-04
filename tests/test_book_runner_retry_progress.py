@@ -1,3 +1,6 @@
+# iter078 顺手修（verify.sh 卫生）：同 test_book_runner——py3.9 PEP604 注解。
+from __future__ import annotations
+
 import tempfile
 import unittest
 from pathlib import Path

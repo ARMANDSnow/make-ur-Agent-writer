@@ -113,6 +113,20 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
     context_limit = task_cfg.get("context_limit", default.get("context_limit"))
     if context_limit is None:
         context_limit = _default_context_limit(str(model))
+    else:
+        # iter078 P1-3: 已知模型物理上限封顶。models.yaml 的 context_limit 是
+        # task 级静态值（默认 128000），而运行时 model 由 env 决定——deepseek
+        # 实际 64K，配 128K 会让 _check_context 的 0.9 红线永不触发、真溢出
+        # 直接打到 provider（RTE + 重试空耗）。只对 DEFAULT_CONTEXT_LIMITS
+        # 里有把握的前缀做 min 封顶；未知模型（如 gpt-5.5 走 200K 配置）与
+        # mock（假模型无物理上限，封顶只会改变 mock 回归行为）不动。
+        known_cap = _known_context_cap(str(model))
+        if (
+            known_cap is not None
+            and not str(model).lower().startswith("mock")
+            and _safe_int(context_limit, known_cap) > known_cap
+        ):
+            context_limit = known_cap
     max_tokens = default.get("max_tokens", 2000)
     max_tokens_env = task_cfg.get("max_tokens_env")
     if max_tokens_env and os.getenv(str(max_tokens_env)):
@@ -185,6 +199,18 @@ def _default_context_limit(model: str) -> int:
     return 128000
 
 
+def _known_context_cap(model: str) -> int | None:
+    """iter078 P1-3: DEFAULT_CONTEXT_LIMITS 中有把握的前缀 → 物理上限；
+    未知模型 → None（yaml 配置原样生效，配置者负责）。与
+    ``_default_context_limit`` 的区别：后者对未知模型回 128000 兜底，
+    不能用来判断「我们是否真的知道这个模型的上限」。"""
+    lower = model.lower()
+    for prefix, limit in DEFAULT_CONTEXT_LIMITS.items():
+        if lower.startswith(prefix) or prefix in lower:
+            return limit
+    return None
+
+
 RUNTIME_ENV_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
@@ -223,9 +249,18 @@ def _env_float(name: str, default: float) -> float:
     if value is None or str(value).strip() == "":
         return default
     try:
-        return float(str(value).strip())
+        parsed = float(str(value).strip())
     except (TypeError, ValueError):
         return default
+    # iter078 P1-8: float("inf")/float("nan") 解析成功但都是垃圾——inf 让
+    # LLM_REQUEST_TIMEOUT 超时静默失效、NaN 会毒化任何数值比较。与
+    # unparseable 同款回退（铁律④契约），preflight 另有 WARN 提示。
+    # iter078 收官审查修复：负数一并回退。唯一调用点是 LLM_REQUEST_TIMEOUT，
+    # 负超时无合法语义，且 preflight 的 WARN 文案承诺「已回退默认值」——此前
+    # 负值实际原样透传给 litellm，与文案相反。
+    if not math.isfinite(parsed) or parsed < 0:
+        return default
+    return parsed
 
 
 def _safe_int(value: Any, default: int) -> int:

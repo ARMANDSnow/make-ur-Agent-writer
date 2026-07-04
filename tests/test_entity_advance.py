@@ -268,6 +268,58 @@ class ApplyAdvanceSkipsMissingRelationshipTests(unittest.TestCase):
         self.assertEqual(timeline[-1]["state"], new_state)
         self.assertTrue(timeline[-1]["active"])
 
+    def test_explicit_index_empty_new_state_skipped_timeline_untouched(self) -> None:
+        # iter078 P1-4②: _is_applyable_proposal 只在 auto_apply 生效，显式
+        # index 路径此前可把 state="" 写进既有关系 timeline（旧 active 条目
+        # 还会先被灭活）。现在统一 fail-closed skip，且必须发生在 deactivate
+        # 之前——旧 active 条目保持 active。
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts = root / "drafts"
+            graph_path = root / "entity_graph.json"
+            graph_path.write_text(
+                json.dumps(
+                    {
+                        "relationships": [
+                            {
+                                "src_id": "a",
+                                "dst_id": "b",
+                                "relation_type": "同盟",
+                                "timeline": [{"state": "旧状态", "active": True}],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            save_entity_advance_proposals(
+                1,
+                [
+                    {
+                        "src_id": "a",
+                        "dst_id": "b",
+                        "new_state": "   ",
+                        "trigger_event": "x",
+                        "confidence": 0.9,
+                    }
+                ],
+                drafts_dir=drafts,
+            )
+            result = apply_advance_proposals(
+                chapter_no=1,
+                proposal_indexes="0",
+                confirm=True,
+                graph_path=graph_path,
+                drafts_dir=drafts,
+            )
+            self.assertEqual(result["applied_count"], 0)
+            self.assertEqual(result["skipped"][0]["reason"], "empty_new_state")
+            timeline = json.loads(graph_path.read_text(encoding="utf-8"))["relationships"][0]["timeline"]
+        self.assertEqual(len(timeline), 1)
+        self.assertTrue(timeline[0]["active"])  # deactivate 未发生
+        self.assertEqual(timeline[0]["state"], "旧状态")
+
     def test_explicit_indexes_skip_missing_and_apply_rest(self) -> None:
         # Mirrors book_runner._auto_apply_advances' exact call: explicit
         # comma-joined indexes, confirm + allow_empty, auto_apply=False.

@@ -192,7 +192,9 @@ class ForeshadowingGateHardeningTests(unittest.TestCase):
                         "id": "fo_x",
                         "description": "bad ttl clue",
                         "kind": "clue",
-                        "planted_chapter": 0,
+                        # iter077: planted>=1 = continuation-planted (still gates);
+                        # planted 0 items are boundary-advisory now.
+                        "planted_chapter": 1,
                         "ttl": "soon",  # non-int
                         "must_resolve": True,
                         "status": "open",
@@ -243,8 +245,8 @@ class ForeshadowingGateHardeningTests(unittest.TestCase):
             {
                 "version": 1,
                 "items": [
-                    {"id": "fo_def", "description": "deferred clue", "kind": "clue", "planted_chapter": 0, "ttl": 1, "must_resolve": True, "status": "deferred"},
-                    {"id": "fo_cap", "description": "capital open", "kind": "clue", "planted_chapter": 0, "ttl": 1, "must_resolve": True, "status": "Open"},
+                    {"id": "fo_def", "description": "deferred clue", "kind": "clue", "planted_chapter": 1, "ttl": 1, "must_resolve": True, "status": "deferred"},
+                    {"id": "fo_cap", "description": "capital open", "kind": "clue", "planted_chapter": 1, "ttl": 1, "must_resolve": True, "status": "Open"},
                 ],
             },
         )
@@ -297,7 +299,7 @@ class PreflightForeshadowingTests(unittest.TestCase):
             {
                 "version": 1,
                 "items": [
-                    {"id": "fo_o", "description": "open must", "kind": "clue", "planted_chapter": 0, "ttl": 5, "must_resolve": True, "status": "open"}
+                    {"id": "fo_o", "description": "open must", "kind": "clue", "planted_chapter": 1, "ttl": 5, "must_resolve": True, "status": "open"}
                 ],
             },
         )
@@ -306,6 +308,26 @@ class PreflightForeshadowingTests(unittest.TestCase):
         # pre-fix: only 'expired' counted -> 0 warning while the gate could block.
         self.assertTrue(warn, msg="open must-resolve should warn")
         self.assertTrue(any("open=1" in i for i in info))
+
+    def test_iter077_boundary_items_do_not_warn(self) -> None:
+        # planted_chapter=0 source-boundary seeds no longer gate readiness, so
+        # preflight must not name them as gate triggers (no false alarm).
+        from src import paths
+        from src.preflight import _check_foreshadowing_registry
+
+        _write_json(
+            paths.foreshadowing_registry_path(),
+            {
+                "version": 1,
+                "items": [
+                    {"id": "fo_b", "description": "boundary must", "kind": "clue", "planted_chapter": 0, "ttl": 5, "must_resolve": True, "status": "open"}
+                ],
+            },
+        )
+        warn, info = [], []
+        _check_foreshadowing_registry(warn, info, self.ws)
+        self.assertFalse(warn, msg=f"boundary-only registry should not warn: {warn}")
+        self.assertTrue(any("源书遗留" in i and "=1" in i for i in info))
 
 
 class BookRunnerPathTests(unittest.TestCase):
