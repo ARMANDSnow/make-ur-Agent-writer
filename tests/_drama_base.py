@@ -8,7 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src import paths
+from src import drama_planner, paths
+from src.drama_schemas import episode_paths
 from src.cli_workspace import init_workspace
 from src.web import wizard
 
@@ -62,3 +63,14 @@ class DramaTestBase(unittest.TestCase):
         )
         if snapshot:
             wizard._snapshot_creation_standard(name)
+
+    def _write_setup(self, name: str, *, hook: bool = True) -> Path:
+        """Persist a station-1 setup fixture, optionally with selected hook."""
+
+        p = episode_paths(name).setup_path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        setup = drama_planner.run(name)
+        if hook:
+            setup["hook"] = {"type": "反差钩", "content": "测试钩子"}
+        p.write_text(json.dumps(setup, ensure_ascii=False), encoding="utf-8")
+        return p

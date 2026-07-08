@@ -1976,3 +1976,37 @@ python3 main.py --book <name> drive-book start \
 **下轮候选（iter079+）**：短剧（drama）模块批次按 `docs/iterations/iteration_079_083_drama_module_roadmap.md` 推进（079 分镜 grid / 080 角色+AI 绘画骨架 / 081 drama_reviewer+episodes / 082 导出+Insights / 083 真模型收口）。小说主链路 capstone 实跑仍是独立候选（10-20 章，铁律⑥需授权；建议 `on_soft_reject=caveat_continue + max_panel_rejections=2 + tier=mid`，跑前核查旧 Reject/halt 残迹、预算口径、workspace 清洁度、watchdog `--driver`）。
 
 **数据状态**：iter077 与 iter078 改动历史上混在同一工作区，按用户拍板合并一个 commit；只 commit 不 push，等用户验收（铁律⑤）。
+
+---
+
+## Phase Status — iter 079（2026-07-06 收官）：Capstone 前写锁与预算硬化（P2）
+
+**背景**：iter078 后 subagents + 本地核验结论一致：当前没有确认“已发现但未修”的 P1/High；本轮按 P2 hardening 包处理最贴近 capstone 长跑生产风险的边界，不把 P2 包装成 P1，也不跑真模型 smoke。
+
+**已完成（本轮）**：① Web 手工写端点桥接 `workspace_lock`：draft/outline/KB/start-point/chapter-plan/entity/relationship/writer-style/premise/drama 保存等 `workspace_reserved` 写路径统一进入 `_workspace_write_guard`（进程内 reservation + 跨进程 flock），CLI/driver 写作期间返回 409 且文件不落盘；既有 Web job reservation `workspace busy` 409 shape 保持不变。收尾补线：writer-style/extract 上传暂存阶段也先拿 flock，CLI 长跑持锁时 409、不落临时样本、不排 job；extract-style worker 写 `writer_style.json` 前再拿 flock，锁冲突转 Web-safe blocker。② CLI `apply-advance` 获取写锁，与 write-book auto-advance 互斥；锁冲突打印本地诊断并 exit 4，不进入 `apply_advance_cli`，`entity_graph.json` 不变。③ readiness 对 approved/caveat skip 章新增 `entity_proposal_gap:NN` warning：缺 `advance_applied` sidecar 且缺 proposal 文件才提示；有任一补偿源不告警，只 warn、不 blocker、不触发 LLM；收尾补 `resume_from-1` 前章同口径检查。④ mock 预算演练开关 `MOCK_COST_CNY_PER_1K_TOKENS`：仅正有限值生效，默认 mock 成本仍为 0，坏值/NaN/0 回退 0。⑤ 审查修复：Web 409 lock holder 与 Web job JSON 不再回显 `WorkspaceLocked` 原始诊断（绝对 path/argv），只返回 `holder.source` / `holder.started_at` 摘要；完整诊断仍留 CLI/driver 本机路径。
+
+**铁律⑨审查**：按用户要求起 2 个只读 subagent 收尾复核。Security 发现 1 个 Medium：Web job status/detail/recent 仍可能暴露 raw `WorkspaceLocked` 诊断（绝对 `write.lock` path/argv）→ 修为 `workspace locked` + `holder.source/started_at` allowlist，并覆盖 `write-book`、`review-chapter`、`draft-once-dev`、`extract-style`；此前 Web 手工 409 `holder` 原始诊断泄漏也已修。Correctness 发现 1 个 P2：`resume_from=2` 只检查前一章 rolling gap、不检查 entity proposal gap → 补 `resume_from-1` approved/caveat 章 warning。两项均已修并加测，无剩余 P1/P2 blocker。`rg` 本轮 diff 无 `sk-`/`.env`/真实 key 新增命中；未触碰 `.env`/`小说txt` 原文。真模型 smoke 未跑（铁律⑥）。
+
+**验收证据**：`git diff --check` 通过；`py_compile` 覆盖 `main.py src/book_runner.py src/cost_estimator.py src/web/jobs.py src/web/routes.py tests/test_iter079_capstone_hardening.py tests/test_web_jobs_dispatch.py tests/test_web_writer_style.py` 通过；聚焦 `tests.test_iter079_capstone_hardening tests.test_web_jobs_dispatch tests.test_web_writer_style` **60 tests OK**；`.venv/bin/python3 -m unittest discover -s tests` **1633 tests OK**（skipped=6）；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部同样 **1633 tests OK**，随后 auto-pipeline/status/manifest/report/cost 全过）；`.venv/bin/python3 main.py preflight` = warn/无 FATAL；`OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` = ok/无 WARN。
+
+**残留风险（P2/技债）**：reaper nonce / heartbeat token 判别式、`_STOP_REQUESTED` 嵌入式复用 reset、旧 halt 残迹一次性迁移继续顺延；小说真模型 capstone 仍需用户授权实跑；drama 站③路线图未在本轮启动。
+
+**数据状态**：改动集中在 `src/web/routes.py`、`main.py`、`src/book_runner.py`、`src/cost_estimator.py`、`tests/test_iter079_capstone_hardening.py` 与迭代文档/README/AGENT_HANDOFF；未跟踪 `续写工作台.pptx` 视为用户文件，保持不动；只 commit 不 push，等用户验收（铁律⑤）。
+
+---
+
+## Phase Status — iter 080（2026-07-08 收官）：短剧站③分镜生成 + Grid 编辑器
+
+**背景**：Iteration 079 已被 capstone P2 占用并收官；短剧路线图原“079 站③分镜 + grid 编辑器”按仓库最新索引平移为实际 iter080。本轮不改路线图原文，不跑真模型 smoke，不触碰 `.env`/`小说txt` 原文。
+
+**已完成（本轮）**：新增 `src/drama_schemas.py` 与 `src/storyboard_builder.py`，定义 `StoryboardShot` / `DramaStoryboard` / `DramaEpisodePaths` / `episode_paths()` / `validate_storyboard_soft()` / `validate_storyboard_hard()`，站③ runner 支持 5 赛道 mock fixture 与 `LLMClient("drama_storyboard").complete_json(...)` 真模型 wiring（未实跑）。新增 `prompts/drama/storyboard_builder.txt`、`config/models.yaml` 的 `drama_storyboard`、`config/agents.yaml` documentation-only 配置。Web/API 新增 GET/POST/PUT `/api/workspace/<name>/drama/storyboard` 与 POST `/rewrite-shot`，drama-only、站②缺失 400、写入走 `_workspace_write_guard` + `write_json`；站③ tab 解锁为原生 grid，支持景别/运镜/时长/画面/旁白/台词/高光、上移下移、保存整表、重生本镜与总时长 footer，站④继续 locked。新增 5 个原创 storyboard fixtures（6-9 镜、60±3 秒、首镜/末镜规则、单句台词长度、无龙族专名），mock 重生用 `alt_shots`，持久化不保留。
+
+**铁律⑨审查与追加修复**：按用户要求使用 2 个只读 subagent 做 `/code-review high` 与 `/security-review`。代码审查确认并已修 4 项：Web 生成/重生在真实配置态可能误触真模型 → iter080 Web 站③固定 mock-only；`rewrite_shot()` 真模型 prompt 缺当前 storyboard 上下文 → 补 bounded current context；progress 只看 `shots>=6` 可能把双高光坏文件标 done → 改 schema + hard validation；双高光硬拒从 route 下沉为 `validate_storyboard_hard()` 并接入 builder/route/view。安全审查确认并已修 3 项：RuntimeError 可能把 provider/prompt/key-like 内容回 JSON → 改 generic `server_error` card + 日志脱敏；客户端可伪造/持久化超长 `hook` → schema 限长且 PUT/run/rewrite 统一使用站②服务端 hook snapshot；Web API 误触真模型风险同上改 mock-only。无剩余 P1/P2 blocker；残留仅为站③真模型 smoke、job 化与站①②真模型补课按路线图留 iter083。
+
+**验收证据**：聚焦回归 `tests.test_drama_storyboard_builder tests.test_drama_storyboard_grid tests.test_drama_view tests.test_drama_fixture_lint tests.test_workspace_overview_drama tests.test_web_routes_get` **115 tests OK**；`py_compile src/drama_schemas.py src/storyboard_builder.py src/web/routes.py src/web/drama_view.py` OK；`.venv/bin/python3 -m unittest discover -s tests` **1661 tests OK**；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部同样 **1661 tests OK**，随后 auto-pipeline/status/manifest/report/cost 全过）；`.venv/bin/python3 main.py preflight` = warn/无 FATAL；`OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` = ok；`git diff --check` 通过；新增 diff 未发现 `sk-...` 形态。真模型 smoke 未跑（铁律⑥）。
+
+**记忆更新**：`AGENTS.md` 新增迭代工作流约定：每轮 implementation iteration 必须显式使用 `iter-start` 与 `iter-finish` 两个 skill；实现时可适当使用 subagents 节约主窗口上下文，但 subagents 同样不得触碰 `.env`/`data`/`outputs`/`小说txt`，也不得跑真模型 smoke。
+
+**下轮候选（iter081+）**：短剧站④角色 + 角色库 + AI 绘画骨架；drama_reviewer + episodes；导出 + Insights；iter083 真模型收口批（站①②补课、站③真模型 smoke、每站 job 化、`scripts/drama_smoke.sh`，需授权）。小说主链路 capstone 仍是独立候选，10-20 章真模型长跑需用户明确授权。
+
+**数据状态**：本轮新增/修改集中在 drama schema/runner/prompt/config、Web route/static/template/view、测试 fixture 与迭代/README/AGENT_HANDOFF/AGENTS 文档；`verify.sh` 仅按既有流程写 gitignored `data/`/`outputs/` 验证产物；未跟踪 `续写工作台.pptx` 视为用户文件，保持不动；只 commit 不 push，等用户验收（铁律⑤）。

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
-from . import paths
+from .drama_schemas import episode_paths
 from .drama_planner import (
     _load_fixture,
     _load_wizard_input,
@@ -24,7 +24,7 @@ def run(workspace: str, *, mock: bool = True) -> Dict[str, Any]:
     if not mock:
         raise NotImplementedError("iter 040+")
 
-    setup_path = paths.WORKSPACE_DIR / workspace / "outputs" / "episodes" / "episode_01.setup.json"
+    setup_path = episode_paths(workspace).setup_path
     if not setup_path.is_file():
         raise FileNotFoundError(f"station 1 must complete before station 2; missing {setup_path}")
     setup = json.loads(setup_path.read_text(encoding="utf-8"))

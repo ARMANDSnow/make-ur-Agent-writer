@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "season_no": 1,
+  "episode_no": 1,
+  "track": "重生",
+  "title": "雨夜回档",
+  "target_duration_seconds": 60,
+  "hook": {
+    "type": "悬念钩",
+    "content": "她醒来时，手机屏幕停在三年前那条未发送的求救短信。"
+  },
+  "narrative": "沈栀从雨夜车祸中惊醒，发现时间回到三年前。她第一件事不是逃走，而是按下录音，主动赴约。旧日害她的人还在笑，她已经把每一步都提前写好。",
+  "shots": [
+    {
+      "shot_no": 1,
+      "beat": "短信未发",
+      "shot_size": "特写",
+      "camera_movement": "固定",
+      "duration_seconds": 3,
+      "visual": "碎裂屏幕变成完好手机，求救短信停在输入框。",
+      "narration": "她死过一次。",
+      "dialogue": "",
+      "ai_draw_prompt": "雨夜卧室，手机屏幕显示未发送短信，女性惊醒，蓝色冷光，重生悬疑",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 2,
+      "beat": "确认时间",
+      "shot_size": "近景",
+      "camera_movement": "跟",
+      "duration_seconds": 8,
+      "visual": "沈栀冲到日历前，三年前的日期被红圈圈住。",
+      "narration": "",
+      "dialogue": "还来得及。",
+      "ai_draw_prompt": "年轻女性站在墙历前，红圈日期，窗外暴雨，重生后的震惊与冷静",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 3,
+      "beat": "反向赴约",
+      "shot_size": "中景",
+      "camera_movement": "移",
+      "duration_seconds": 12,
+      "visual": "她穿上黑色外套，把录音笔藏进胸针，推门走入雨里。",
+      "narration": "这一次，她先入局。",
+      "dialogue": "",
+      "ai_draw_prompt": "雨夜门口，女性扣上黑色外套和胸针，眼神坚定，复仇开局",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 4,
+      "beat": "旧敌露面",
+      "shot_size": "全景",
+      "camera_movement": "推",
+      "duration_seconds": 12,
+      "visual": "废弃仓库里，旧日朋友举杯迎她，背后两名陌生人关上门。",
+      "narration": "",
+      "dialogue": "你果然来了。",
+      "ai_draw_prompt": "废弃仓库，雨水从屋顶滴落，女性走向设局的旧友，门被关上",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 5,
+      "beat": "证据反杀",
+      "shot_size": "近景",
+      "camera_movement": "拉",
+      "duration_seconds": 15,
+      "visual": "胸针红点闪烁，门外警灯亮起，旧友的杯子停在半空。",
+      "narration": "她把死亡改成证词。",
+      "dialogue": "这次，轮到你怕。",
+      "ai_draw_prompt": "胸针录音红点，仓库门外警灯闪烁，女性冷静反击，旧友震惊",
+      "is_highlight": true
+    },
+    {
+      "shot_no": 6,
+      "beat": "新谜题",
+      "shot_size": "特写",
+      "camera_movement": "固定",
+      "duration_seconds": 10,
+      "visual": "沈栀手机收到陌生短信：你不是第一个回来的人。",
+      "narration": "",
+      "dialogue": "",
+      "ai_draw_prompt": "手机屏幕上的陌生短信，雨水反光，女性手指停住，重生悬念结尾",
+      "is_highlight": false
+    }
+  ],
+  "alt_shots": [
+    {
+      "shot_no": 3,
+      "beat": "提前报警",
+      "shot_size": "中景",
+      "camera_movement": "跟",
+      "duration_seconds": 12,
+      "visual": "她在出门前把定位共享给陌生号码，备注只有两个字：救我。",
+      "narration": "她不再独自赴死。",
+      "dialogue": "",
+      "ai_draw_prompt": "女性在雨夜门前发送定位，手机界面微亮，黑色外套，紧张氛围",
+      "is_highlight": false
+    }
+  ]
+}

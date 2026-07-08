@@ -469,8 +469,33 @@ def workspace_reserved(workspace: str):
 # ``reason`` field directly to the user, so the step graph stays
 # self-explanatory even when the user clicks out of order. Pattern lifted
 # from ``_step_plan_chapters``.
-def _blocked(reason: str, error: str) -> Dict[str, Any]:
-    return {"status": "blocked", "blocked": [{"reason": reason, "error": error}]}
+def _blocked(reason: str, error: str, **extra: Any) -> Dict[str, Any]:
+    item = {"reason": reason, "error": error}
+    item.update(extra)
+    return {"status": "blocked", "blocked": [item]}
+
+
+def _workspace_locked_blocked(exc: BaseException | str) -> Dict[str, Any]:
+    """Project raw WorkspaceLocked diagnostics to a Web-safe blocker.
+
+    ``WorkspaceLocked`` messages intentionally include local CLI diagnostics
+    (absolute lock path and argv) for terminal users. Web job rows are exposed
+    through /job and /jobs/recent, so persist only an allowlisted holder summary.
+    """
+    msg = str(exc)
+    holder: Dict[str, str] = {}
+    source_match = re.search(r"\bsource=([^)\s]+)", msg)
+    since_match = re.search(r"\bsince=([^)\s]+)", msg)
+    if source_match:
+        holder["source"] = source_match.group(1)
+    if since_match:
+        holder["started_at"] = since_match.group(1)
+    return _blocked(
+        "workspace_locked",
+        "workspace locked",
+        workspace_locked=True,
+        holder=holder,
+    )
 
 
 # Each step function takes a workspace-scoped context (the worker
@@ -634,15 +659,19 @@ def _step_plan_chapters(params: Dict[str, Any], progress_cb: Callable[[str, floa
 def _step_draft_once_dev(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     # iter078 收官审查修复：dev 直写步骤同样是 drafts 写者，必须过 P1-7 写锁
     # （此前只有 run_write_book 包装拿锁，本步骤直调 write_chapters 旁路互斥，
-    # CLI 长跑期间提交该 job 会双写）。WorkspaceLocked 由 worker 兜成 failed。
-    from src.workspace_lock import acquire_write_lock
+    # CLI 长跑期间提交该 job 会双写）。WorkspaceLocked 以 Web-safe blocker
+    # 暴露，不把本机 path/argv 诊断写入 job JSON。
+    from src.workspace_lock import WorkspaceLocked, acquire_write_lock
 
-    with acquire_write_lock(source="web-draft-once-dev"):
-        return write_chapters(
-            chapters=int(params.get("chapters", 1)),
-            force=bool(params.get("force", False)),
-            resume_from=int(params.get("resume_from", 1)),
-        )
+    try:
+        with acquire_write_lock(source="web-draft-once-dev"):
+            return write_chapters(
+                chapters=int(params.get("chapters", 1)),
+                force=bool(params.get("force", False)),
+                resume_from=int(params.get("resume_from", 1)),
+            )
+    except WorkspaceLocked as exc:
+        return _workspace_locked_blocked(exc)
 
 
 def _default_budget_cny() -> float:
@@ -824,7 +853,7 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
                 expected_context=_run_context(item, chapter_no=chapter_no),
             )
     except WorkspaceLocked as exc:
-        return _blocked("workspace_locked", str(exc))
+        return _workspace_locked_blocked(exc)
     # iter 051b: settlement — cost of THIS job only (since initial offset).
     # cost fields ride along on the success path too so the workbench can
     # show what the round-trip actually cost.
@@ -873,7 +902,7 @@ def _step_auto_pipeline(params: Dict[str, Any], progress_cb: Callable[[str, floa
             "cost_cny": exc.cost_cny,
         }
     except WorkspaceLocked as exc:
-        return _blocked("workspace_locked", str(exc))
+        return _workspace_locked_blocked(exc)
 
 
 def _step_auto_pipeline_greenfield(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -968,9 +997,14 @@ def _step_extract_style(params: Dict[str, Any], progress_cb: Callable[[str, floa
             return _blocked("sample_empty", "uploaded sample is empty")
 
         from ..writer_style import extract_style_card
+        from ..workspace_lock import WorkspaceLocked, acquire_write_lock
 
-        progress_cb("extract", 0.1)
-        record = extract_style_card(sample, force=bool(params.get("force", True)))
+        try:
+            with acquire_write_lock(source="web-extract-style"):
+                progress_cb("extract", 0.1)
+                record = extract_style_card(sample, force=bool(params.get("force", True)))
+        except WorkspaceLocked as exc:
+            return _workspace_locked_blocked(exc)
     finally:
         sample_path.unlink(missing_ok=True)  # 样本不持久化 (P0-A)：成功/取消/异常都删
     return {
@@ -1162,6 +1196,17 @@ def _worker(job_id: str) -> None:
             finished_at=_now(),
         )
     except BookRunBlocked as exc:
+        if str(exc).startswith("workspace_locked:"):
+            result = _workspace_locked_blocked(exc)
+            _update(
+                job_id,
+                status="blocked",
+                current_step="blocked",
+                error="workspace locked",
+                result_summary=_summarize_result(step, result),
+                finished_at=_now(),
+            )
+            return
         _update(
             job_id,
             status="blocked",
@@ -1290,6 +1335,13 @@ def _summarize_result(step: str, result: Any) -> Any:
     if isinstance(result, list):
         return {"count": len(result)}
     if isinstance(result, dict):
+        blocked = result.get("blocked") or []
+        if result.get("status") == "blocked" and isinstance(blocked, list):
+            return {
+                "status": "blocked",
+                "blocked": len(blocked),
+                "first_blocked": blocked[0] if blocked and isinstance(blocked[0], dict) else None,
+            }
         return {"keys": sorted(result.keys())}
     return str(result)[:200]
 

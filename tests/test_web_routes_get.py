@@ -423,14 +423,15 @@ class RoutesGetTests(unittest.TestCase):
         for tab in ("setup", "hook", "storyboard", "characters"):
             self.assertIn(f'data-tab="{tab}"', html)
             self.assertIn(f'data-station-pane="{tab}"', html)
-        self.assertIn("分镜表尚未开放", html)
+        self.assertIn("③ 分镜", html)
+        self.assertNotIn("分镜表尚未开放", html)
         self.assertIn("角色设定表尚未开放", html)
 
     def test_drama_write_storyboard_step_renders_empty_state_not_404(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
         status, _ct, body = routes.dispatch("GET", "/w/beta/write?step=storyboard")
         self.assertEqual(status, 200)
-        self.assertIn("分镜表", body.decode("utf-8"))
+        self.assertIn("③ 分镜", body.decode("utf-8"))
 
     def test_novel_workspace_write_page_404(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/w/alpha/write")
@@ -972,12 +973,11 @@ class RoutesGetTests(unittest.TestCase):
             "decisions",
             "setup",
             "hook",
+            "storyboard",
         ):
             self.assertIn(f'"{kw}"', js)
-        # iter062: storyboard/characters are locked (not implemented) and were
-        # removed from the whitelist so a #storyboard deep-link can't force a
-        # switch to a dead tab.
-        self.assertNotIn('"storyboard"', js)
+        # iter080: storyboard is implemented; characters remains locked by its
+        # disabled tab and is still absent from the hash whitelist.
         self.assertNotIn('"characters"', js)
 
     def test_static_js_has_drama_write_identifiers(self) -> None:
@@ -988,7 +988,9 @@ class RoutesGetTests(unittest.TestCase):
             "initDramaWrite",
             "loadStationSetup",
             "loadStationHooks",
+            "loadStationStoryboard",
             "loadDramaProgress",
+            "/drama/storyboard",
             "data-station-pane",
             "bindHookPickDelegate",
             "__hooks",

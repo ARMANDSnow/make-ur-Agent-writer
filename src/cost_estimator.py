@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Set, Tuple
@@ -32,6 +33,20 @@ MODEL_PRICING: Dict[str, Tuple[float, float, float]] = {
 _UNKNOWN_MODEL_WARNED: Set[str] = set()
 
 
+def _mock_pricing_override() -> Tuple[float, float, float] | None:
+    raw = os.getenv("MOCK_COST_CNY_PER_1K_TOKENS", "").strip()
+    if not raw:
+        return None
+    try:
+        cny_per_1k = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(cny_per_1k) or cny_per_1k <= 0:
+        return None
+    usd_per_m = (cny_per_1k * 1000.0) / USD_TO_CNY
+    return (usd_per_m, usd_per_m, usd_per_m)
+
+
 def _pricing_for_model(model: str) -> Tuple[float, float, float]:
     name = str(model or "").strip().lower()
     if not name:
@@ -40,6 +55,8 @@ def _pricing_for_model(model: str) -> Tuple[float, float, float]:
     for prefix, pricing in MODEL_PRICING.items():
         # 匹配 "deepseek" / "deepseek/deepseek-chat" / "openrouter/deepseek/..."
         if name.startswith(prefix) or f"/{prefix}" in name:
+            if prefix == "mock":
+                return _mock_pricing_override() or pricing
             return pricing
     if name not in _UNKNOWN_MODEL_WARNED:
         _UNKNOWN_MODEL_WARNED.add(name)

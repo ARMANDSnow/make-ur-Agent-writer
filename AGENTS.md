@@ -14,6 +14,11 @@ Dragon Raja AI Continuer MVP：基于 LLM 多 agent 协作的中文小说续写�
 - **mock-only（默认）**：`OPENAI_MODEL=mock`，无 API key，全流水线本地跑通用于工程验证
 - **真模型（用户手工切）**：`.env` 中 `OPENAI_MODEL=deepseek/deepseek-chat`（**必须带 provider 前缀**，iter 006 踩过坑）
 
+## 迭代工作流约定
+
+- 每轮实现迭代必须显式使用 `iter-start` 和 `iter-finish` 两个 skill：开工先建/确认标准 8 段 iteration 文档，收官必须跑验收、审查、README SOP 与 `docs/AGENT_HANDOFF.md` 同步。
+- 实现项目时可以适当使用 subagents 分摊只读审查、探索和互相独立的工作切片，以节约主线程上下文；subagent 不得触碰 `.env`、`data/`、`outputs/`、`小说txt/`，不得跑真模型 smoke。
+
 ## 进入工作流前必读（按顺序）
 
 1. **当前状态**：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md) — 截至最后一轮迭代的完整能力清单 + Next Candidates
@@ -102,14 +107,14 @@ logs/                     # 全部 gitignored
 
 ## 当前阶段 & SOP 状态
 
-**最后更新**：iter 078（2026-07-05）
+**最后更新**：iter 080（2026-07-08）
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：078（六方审查 P1 修复批 8 组 + 技债 2 项，capstone 前人工规避清单大部分失效化；完整记录见 `docs/iterations/iteration_078_sixway_audit_p1_fixes.md`）
-**已完成阶段**：1-4 主链路全打通；5.3/8.3/9.3 进入 `write-book` 生产 runner；Web 本地 Beta 多页 IA（iter 029-044，含 wizard/cancel/mobile 响应式）；iter 045-052 产品力补齐 + Aeloon 插件/MCP 双轨集成（iter049）+ 全程可编辑闭环（iter050）+ premise 扩写质量（iter051）+ 长程驱动器 `drive-book` 正式化（iter052，detach/断点续跑/预算双层）；iter 053-057 续写机制保证 + 驱动器加固 + 作家风格卡 + capstone 前置 5 bug 全修；iter 058-064 前端 P0/P1/P2 收口 + UX 重构 + CLI/Web 健壮性对齐；iter 065-073 语义闭环 + 长流程 fail-closed 数值/JSON 硬化；iter 074 章节版本 diff；iter 075 全文搜索；iter 076 长跑可靠性硬化 + supervisor/watchdog；iter 077 六方审查 P0 五项；iter 078 六方审查 P1 八组（reviewer 分数护栏 / workspace 写锁 / rolling 落盘顺序 / entity 三连 / run_context 指纹补 model+tier / 预算账本 / CJK 计数+64K cap / preflight 守门）+ 技债 2 项（foreshadowing origin / 处置五分类下沉）。实时细节以 README「最近一次更新」叙述 + `docs/AGENT_HANDOFF.md` 末尾 Phase Status 为准。
-**关键证据**：工程主链路 **STRUCTURE GO**；过夜长跑推荐入口仍为 `nohup bash scripts/drive_book_supervised.sh --book <名> --confirm-real-smoke -- --chapters N --tier mid --budget-cny <软阈> &` + `bash scripts/watchdog.sh --book <名> --driver`；`write-readiness -> write-book` 与 `drive-book --detach` 仍可用；Web `/` 书架 → 多页 IA，章节详情「历史」diff + 全文搜索已具备；`.venv` canonical `unittest discover` 为 **1622 tests OK**（iter078 收官），`verify.sh` exit 0，mock preflight ok，真实配置态 preflight warn/无 FATAL；mock 25 章长流程五关全过（含锁 in vivo）；收官审查 P1 追加已修错误日志 key/prompt 脱敏、cmd_stop 收割落盘、resume tier override、run-all/auto-pipeline/review 全链路写锁；真模型实证 longzu ch1-5 全 Approve、shudian premise 7/7 Approve。**缺口**：20+ 章真模型长程 capstone 仍未端到端跑通（iter076-078 已清主要结构雷区，需用户授权实跑）。
-**后续候选（iter079+）**：短剧（drama）模块批次按 `docs/iterations/iteration_079_083_drama_module_roadmap.md` 推进（079 分镜 grid / 080 角色+AI 绘画骨架 / 081 drama_reviewer+episodes / 082 导出+Insights / 083 真模型收口）。小说主链路 capstone 实跑仍是独立候选（10-20 章，铁律⑥需授权；建议 `on_soft_reject=caveat_continue + max_panel_rejections=2 + tier=mid`）。P2/技债顺延：writer persist 后提案缺失窗口、旧 halt 残迹迁移、mock 假单价演练、Web 手工编辑写锁桥接、预算/指标增量化、若干复用简化项。
+**当前 iter**：080（短剧站③分镜生成 + Grid 编辑器；完整记录见 `docs/iterations/iteration_080_drama_storyboard_grid.md`）
+**已完成阶段**：1-4 主链路全打通；5.3/8.3/9.3 进入 `write-book` 生产 runner；Web 本地 Beta 多页 IA（iter 029-044，含 wizard/cancel/mobile 响应式）；iter 045-052 产品力补齐 + Aeloon 插件/MCP 双轨集成（iter049）+ 全程可编辑闭环（iter050）+ premise 扩写质量（iter051）+ 长程驱动器 `drive-book` 正式化（iter052，detach/断点续跑/预算双层）；iter 053-057 续写机制保证 + 驱动器加固 + 作家风格卡 + capstone 前置 5 bug 全修；iter 058-064 前端 P0/P1/P2 收口 + UX 重构 + CLI/Web 健壮性对齐；iter 065-073 语义闭环 + 长流程 fail-closed 数值/JSON 硬化；iter 074 章节版本 diff；iter 075 全文搜索；iter 076 长跑可靠性硬化 + supervisor/watchdog；iter 077 六方审查 P0 五项；iter 078 六方审查 P1 八组 + 技债 2 项；iter079 capstone 前写锁与预算硬化；iter080 短剧站③分镜生成、同步 API 与 Web grid 可编辑闭环。实时细节以 README「最近一次更新」叙述 + `docs/AGENT_HANDOFF.md` 末尾 Phase Status 为准。
+**关键证据**：工程主链路 **STRUCTURE GO**；过夜长跑推荐入口仍为 `nohup bash scripts/drive_book_supervised.sh --book <名> --confirm-real-smoke -- --chapters N --tier mid --budget-cny <软阈> &` + `bash scripts/watchdog.sh --book <名> --driver`；`write-readiness -> write-book` 与 `drive-book --detach` 仍可用；Web `/` 书架 → 多页 IA，章节详情「历史」diff + 全文搜索已具备；短剧 `/w/{name}/write` 已支持站①核心设定、站②钩子、站③分镜表生成与 grid 编辑；`.venv` canonical `unittest discover` 为 **1661 tests OK**（iter080 收官），`verify.sh` exit 0，mock preflight ok，真实配置态 preflight warn/无 FATAL。**缺口**：20+ 章真模型长程 capstone 仍未端到端跑通（iter076-079 已清主要结构雷区，需用户授权实跑）；短剧站④角色与真模型 smoke 仍顺延。
+**后续候选（iter081+）**：短剧（drama）模块按路线图继续推进：站④角色 + 角色库 + AI 绘画骨架、drama_reviewer + episodes、导出 + Insights、真模型收口批（需授权）。小说主链路 capstone 实跑仍是独立候选（10-20 章，铁律⑥需授权；建议 `on_soft_reject=caveat_continue + max_panel_rejections=2 + tier=mid`）。P2/技债顺延：writer persist 后提案缺失窗口、旧 halt 残迹迁移、预算/指标增量化、若干复用简化项。
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
 
 ## 常用 git 操作

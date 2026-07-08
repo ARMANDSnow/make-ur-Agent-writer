@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "season_no": 1,
+  "episode_no": 1,
+  "track": "霸总",
+  "title": "会议室的名字",
+  "target_duration_seconds": 60,
+  "hook": {
+    "type": "反差钩",
+    "content": "他把开除信摔到她脸上的下一秒，她合上文件夹笑了一下：「巧了，今天股东会，是我主持。」"
+  },
+  "narrative": "林晚被逼在会议室外递咖啡，周铭当众宣布开除她。她没有争辩，只把一份密封文件递给法务。会议门打开，投影上出现真正的股权授权书，所有人的视线从周铭转向她。",
+  "shots": [
+    {
+      "shot_no": 1,
+      "beat": "热咖啡压手",
+      "shot_size": "特写",
+      "camera_movement": "固定",
+      "duration_seconds": 3,
+      "visual": "滚烫咖啡杯压在林晚掌心，指尖发红，门内传出笑声。",
+      "narration": "她递了三年咖啡。",
+      "dialogue": "",
+      "ai_draw_prompt": "现代写字楼会议室门外，女性秘书手托咖啡杯，指尖微红，冷白灯，压迫感",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 2,
+      "beat": "公开羞辱",
+      "shot_size": "中景",
+      "camera_movement": "推",
+      "duration_seconds": 8,
+      "visual": "周铭把开除信推到桌沿，纸张滑落到林晚鞋边。",
+      "narration": "",
+      "dialogue": "捡起来，签字。",
+      "ai_draw_prompt": "高端会议室，西装男人冷漠推开文件，女秘书站在桌边，众人旁观",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 3,
+      "beat": "密封文件",
+      "shot_size": "近景",
+      "camera_movement": "移",
+      "duration_seconds": 12,
+      "visual": "林晚弯腰拾纸，却从包里抽出黑色密封袋，放到法务面前。",
+      "narration": "她等的不是道歉。",
+      "dialogue": "麻烦先看这个。",
+      "ai_draw_prompt": "女性秘书从手包取出黑色密封文件袋，会议桌边，众人表情错愕",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 4,
+      "beat": "股权反转",
+      "shot_size": "全景",
+      "camera_movement": "拉",
+      "duration_seconds": 12,
+      "visual": "投影亮起，授权书上林晚的名字占满屏幕，周铭的笑僵住。",
+      "narration": "",
+      "dialogue": "现在，换我问你。",
+      "ai_draw_prompt": "会议室投影显示股权授权书，女性站在光里，男继承人僵住，戏剧反转",
+      "is_highlight": true
+    },
+    {
+      "shot_no": 5,
+      "beat": "众人倒戈",
+      "shot_size": "中景",
+      "camera_movement": "摇",
+      "duration_seconds": 15,
+      "visual": "董事们一个个起身，原本坐在周铭身后的人改向林晚点头。",
+      "narration": "权力从不认嗓门。",
+      "dialogue": "林总，请入座。",
+      "ai_draw_prompt": "董事会成员起身致意，年轻女性站在会议桌首位，商务反转，克制爽感",
+      "is_highlight": false
+    },
+    {
+      "shot_no": 6,
+      "beat": "结尾追问",
+      "shot_size": "近景",
+      "camera_movement": "推",
+      "duration_seconds": 10,
+      "visual": "林晚坐到主位，翻开文件夹，第一页写着周铭母亲的签名。",
+      "narration": "",
+      "dialogue": "这签名，解释下。",
+      "ai_draw_prompt": "女性总裁坐在会议桌主位，文件夹露出关键签名，男人脸色骤变，悬念结尾",
+      "is_highlight": false
+    }
+  ],
+  "alt_shots": [
+    {
+      "shot_no": 3,
+      "beat": "录音笔亮灯",
+      "shot_size": "近景",
+      "camera_movement": "推",
+      "duration_seconds": 12,
+      "visual": "林晚没有取文件，而是把一支正在录音的钢笔推到桌面中央。",
+      "narration": "她等的是证据。",
+      "dialogue": "刚才的话，够了。",
+      "ai_draw_prompt": "会议桌中央一支录音钢笔红灯亮起，女性秘书神情平静，众人紧张",
+      "is_highlight": false
+    }
+  ]
+}

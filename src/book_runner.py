@@ -1012,11 +1012,31 @@ def check_write_readiness(
         if _rolling_nos is not None and no not in _rolling_nos:
             warnings.append(f"rolling_summary_gap:{no:02d}")
 
+    def _note_entity_proposal_gap(no: int) -> None:
+        if _advance_sidecar_path(drafts_dir, no).exists():
+            return
+        if proposal_path(no, drafts_dir).exists():
+            return
+        warnings.append(f"entity_proposal_gap:{no:02d}")
+
     # 窗口外但承接最关键的一章：resume_from-1（下一章 prompt 直接依赖它的
     # ending_state）。正文在盘才算 gap。
     _prev_no = resume_from - 1
     if _prev_no >= 1 and (drafts_dir / f"chapter_{_prev_no:02d}.md").exists():
         _note_rolling_gap(_prev_no)
+        prev_status = chapter_status(
+            _prev_no,
+            drafts_dir,
+            validate_context=False,
+            require_start_point=require_start_point,
+            require_plan=require_plan,
+            require_external_review=require_external_review,
+        )
+        if prev_status.get("approved") or prev_status.get("caveat_approved"):
+            # iter079 收官复核：resume_from-1 是下一章 prompt 最直接依赖的
+            # ending_state；它若已 approved/caveat 但 proposal+sidecar 同丢，
+            # 当前窗口循环不会再看见它，需在这里同口径 warn。
+            _note_entity_proposal_gap(_prev_no)
 
     if plan:
         for chapter_no in chapter_numbers:
@@ -1044,6 +1064,10 @@ def check_write_readiness(
                 # iter078 P1-5: 会被 run 跳过（skip_approved/skip_caveat）的章，
                 # rolling 缺条目不会被重写自愈——在此透出。
                 _note_rolling_gap(chapter_no)
+                # iter079 P2 hardening: 正文/meta 已落盘但 entity proposal
+                # 尚未生成的 kill 窗口无源补偿；只做可见性 warning，不 block、
+                # 不触发 LLM 回填，保持 resume 零调用契约。
+                _note_entity_proposal_gap(chapter_no)
             # iter078 技债-1：与 run_write_book 消费同一 classify_disposition
             # 单一真源（allow_existing_blockers 即 run 的 force 同义传入）。
             # 各分支语义原样：

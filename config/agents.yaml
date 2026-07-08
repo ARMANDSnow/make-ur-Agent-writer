@@ -158,6 +158,14 @@
       "prompt_template": "prompts/drama/hook_designer.txt",
       "sections_required": ["一", "二", "三", "七"],
       "mock_fixture_pattern": "tests/fixtures/drama/track_{track_pinyin}_hooks.json"
+    },
+    "storyboard_builder": {
+      "role": "站 ③ 分镜 agent",
+      "provider": "documentation_only_until_iter083_job_wiring",
+      "system_prompt_snapshot": "data/creation_standard.snapshot.md",
+      "prompt_template": "prompts/drama/storyboard_builder.txt",
+      "sections_required": ["一", "二", "三", "四", "七"],
+      "mock_fixture_pattern": "tests/fixtures/drama/track_{track_pinyin}_storyboard.json"
     }
   }
 }

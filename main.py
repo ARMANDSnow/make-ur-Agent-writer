@@ -701,14 +701,21 @@ def main() -> None:
             raise SystemExit("--auto-apply and --proposal-idx are mutually exclusive")
         if not args.auto_apply and args.proposal_idx is None:
             raise SystemExit("--proposal-idx is required unless --auto-apply is set")
-        result = apply_advance_cli(
-            args.chapter,
-            args.proposal_idx or "",
-            confirm=args.confirm,
-            auto_apply=args.auto_apply,
-            min_confidence=args.min_confidence,
-            allow_empty=args.allow_empty,
-        )
+        from src.workspace_lock import WorkspaceLocked, acquire_write_lock
+
+        try:
+            with acquire_write_lock(source="cli-apply-advance"):
+                result = apply_advance_cli(
+                    args.chapter,
+                    args.proposal_idx or "",
+                    confirm=args.confirm,
+                    auto_apply=args.auto_apply,
+                    min_confidence=args.min_confidence,
+                    allow_empty=args.allow_empty,
+                )
+        except WorkspaceLocked as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(4)
         print(render_apply_advance_result(result), end="")
     elif args.command == "chapter-status":
         # iter 019: thin wrapper around src.chapter_status. Always prints JSON

@@ -14,6 +14,8 @@ from pathlib import Path
 
 from src import paths
 from src.web import jobs, routes
+from src.web.workspace_ctx import use_workspace
+from src.workspace_lock import acquire_write_lock
 
 
 class _WebHarness(unittest.TestCase):
@@ -264,6 +266,28 @@ class ExtractUniqueSampleTests(_WebHarness):
         # both samples survive — neither overwrote the other (the TOCTOU fix)
         self.assertIn("AAAA", f0.read_text(encoding="utf-8"))
         self.assertIn("BBBB", f1.read_text(encoding="utf-8"))
+
+    def test_upload_returns_409_without_staging_sample_when_cli_lock_held(self) -> None:
+        self._mkws("u_lock")
+        real = jobs.start_job
+
+        def fail_start(*_args, **_kwargs):
+            raise AssertionError("start_job must not run when workspace flock is held")
+
+        jobs.start_job = fail_start
+        try:
+            with use_workspace("u_lock"):
+                with acquire_write_lock(source="cli-long-run"):
+                    status, _ct, resp = self._upload("u_lock", "锁内样本内容。" * 60)
+        finally:
+            jobs.start_job = real
+
+        self.assertEqual(status, 409, resp)
+        data = json.loads(resp)
+        self.assertTrue(data.get("workspace_locked"), data)
+        self.assertEqual(data.get("holder", {}).get("source"), "cli-long-run")
+        samples = list((paths.WORKSPACE_DIR / "u_lock" / "data").glob(".writer_style_sample.*.tmp"))
+        self.assertEqual(samples, [])
 
     def test_handler_consumes_token_sample(self) -> None:
         # The handler rebuilds the path inside data_dir from the token, reads the

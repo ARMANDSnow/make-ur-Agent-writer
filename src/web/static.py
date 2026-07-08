@@ -587,6 +587,19 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   -webkit-overflow-scrolling: touch;
 }
 .table-wide { min-width: 760px; }
+.storyboard-table { min-width: 1120px; }
+.storyboard-table textarea {
+  width: 100%;
+  min-width: 180px;
+  min-height: 74px;
+  resize: vertical;
+}
+.storyboard-table input[type=number] { width: 74px; }
+.storyboard-table select { min-width: 88px; }
+.storyboard-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.storyboard-duration.ready { color: var(--jade-strong); }
+.storyboard-duration.warn { color: var(--amber-strong); }
+.storyboard-duration.blocked { color: var(--sienna); }
 .jobs-table { min-width: 920px; }
 .job-toggle {
   width: 28px;
@@ -1322,7 +1335,7 @@ html { scroll-behavior: smooth; }
 .stepbar .step.done .step-glyph { background: var(--jade); color: #fff; }
 .stepbar .step.current .step-glyph { background: var(--amber-soft); color: var(--amber-strong); box-shadow: inset 0 0 0 2px var(--amber); }
 
-/* locked tab (drama ③④) + coming-soon pill */
+/* locked tab (drama ④) + coming-soon pill */
 .tab.locked, .tab[disabled] { opacity: .55; cursor: not-allowed; }
 .tab.locked:hover { background: transparent; }
 .badge-soon {
@@ -1855,9 +1868,9 @@ JS_DASHBOARD = """\
     // which broke the /chapter/N#edit deep-link (it IS implemented). Restore it.
     "body", "edit", "review", "lint", "advisor", "history",
     "chapters", "outline", "decisions",
-    // iter062: storyboard/characters are locked (not implemented) — keep them
-    // out so a #storyboard deep-link can't force-switch to a dead tab.
-    "setup", "hook",
+    // iter080: storyboard is implemented for drama; characters stays locked by
+    // its disabled tab rather than a deep-link whitelist entry.
+    "setup", "hook", "storyboard",
   ];
   function bindHashTabs() {
     function activate(tab) {
@@ -1874,7 +1887,7 @@ JS_DASHBOARD = """\
     document.addEventListener("click", function (ev) {
       const tab = ev.target.closest(".tab");
       if (!tab) return;
-      // iter062: locked tabs (e.g. drama ③④) are inert — no activation/route.
+      // Locked tabs (e.g. drama ④) are inert — no activation/route.
       if (tab.disabled || tab.getAttribute("aria-disabled") === "true") return;
       activate(tab);
       if (tab.dataset.tab) {
@@ -4769,6 +4782,7 @@ JS_DASHBOARD = """\
     bindHookPickDelegate();
     await loadStationSetup();
     await loadStationHooks();
+    await loadStationStoryboard();
     await loadDramaProgress();
   }
 
@@ -4853,6 +4867,7 @@ JS_DASHBOARD = """\
           showToast("核心设定已生成", "info");
           await loadStationSetup();
           await loadStationHooks();
+          await loadStationStoryboard();
           await loadDramaProgress();
         } catch (err) {
           showToast("生成失败：" + errTitle(err), "error");
@@ -4869,6 +4884,7 @@ JS_DASHBOARD = """\
           showToast("核心设定已重新生成", "info");
           await loadStationSetup();
           await loadStationHooks();
+          await loadStationStoryboard();
           await loadDramaProgress();
         } catch (err) {
           showToast("重新生成失败：" + errTitle(err), "error");
@@ -4893,6 +4909,7 @@ JS_DASHBOARD = """\
           const tab = document.querySelector('.tab[data-tab="hook"]');
           if (tab) tab.click();
           await loadStationHooks();
+          await loadStationStoryboard();
           await loadDramaProgress();
         } catch (err) {
           showToast("保存失败：" + errTitle(err), "error");
@@ -4937,7 +4954,7 @@ JS_DASHBOARD = """\
         '<div class="k">type</div><div class="v"><code>' + escapeHtml(data.type || "") + "</code></div>" +
         '<div class="k">content</div><div class="v">' + escapeHtml(data.content || "") + "</div>" +
         '</div>' +
-        '<div class="alert info">站 ② 已锁定。分镜与角色设定将在后续版本上线。</div>';
+        '<div class="alert info">站 ② 已锁定，可以进入站 ③ 分镜。</div>';
     }
     html += "</div></div>";
     return html;
@@ -4985,13 +5002,268 @@ JS_DASHBOARD = """\
       try {
         await putJson(wsUrl("/drama/setup"), { hook: pane.__hooks[idx] });
         showToast("钩子已锁定", "info");
+        history.replaceState(null, "", "#storyboard");
+        const tab = document.querySelector('.tab[data-tab="storyboard"]');
+        if (tab) tab.click();
         await loadStationHooks();
+        await loadStationStoryboard();
         await loadDramaProgress();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
         pane.querySelectorAll("[data-hook-pick]").forEach((b) => { b.disabled = false; });
       }
     });
+  }
+
+  async function loadStationStoryboard() {
+    const pane = document.querySelector('[data-station-pane="storyboard"]');
+    if (!pane) return;
+    pane.innerHTML = skeleton(3);
+    try {
+      const progress = await fetchJson(wsUrl("/drama/progress"));
+      const station = (progress.stations || []).find((s) => s.id === "storyboard");
+      if (station && station.status === "locked") {
+        pane.innerHTML = '<div class="alert info">请先完成站 ② 钩子。</div>';
+        return;
+      }
+      const data = await fetchJson(wsUrl("/drama/storyboard"));
+      if (!data.exists || !data.storyboard) {
+        pane.__storyboard = null;
+        pane.innerHTML = renderStationStoryboardEmpty();
+      } else {
+        pane.__storyboard = data.storyboard;
+        pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
+        updateStoryboardDuration(pane);
+      }
+      bindStationStoryboardActions();
+    } catch (err) {
+      pane.innerHTML = renderErrorCard(err);
+    }
+  }
+
+  function renderStationStoryboardEmpty() {
+    return '<div class="card"><div class="card-header"><h3 class="ornament">站 ③ 分镜</h3>' +
+      '<span class="badge warn">todo</span></div><div class="card-body">' +
+      '<div class="empty-state"><span class="ornament">✦</span>' +
+      '<h3>等待生成分镜表</h3>' +
+      '<p class="muted">站 ③ 会把钩子拆成 6 到 9 个可编辑镜头。</p>' +
+      '<button type="button" class="btn btn-primary" id="generate-storyboard">▸ 生成分镜表</button>' +
+      '</div></div></div>';
+  }
+
+  function renderStationStoryboard(board, warnings) {
+    const shots = board.shots || [];
+    const warningHtml = warnings && warnings.length
+      ? '<div class="alert warn">软提醒：' + warnings.map(warningText).map(escapeHtml).join("；") + '</div>'
+      : "";
+    const head = '<table class="table storyboard-table"><thead><tr>' +
+      '<th>#</th><th>景别</th><th>运镜</th><th>秒</th><th>画面</th><th>旁白</th><th>台词</th><th>高光</th><th>操作</th>' +
+      '</tr></thead><tbody>';
+    const rows = shots.map(renderStoryboardRow).join("");
+    return '<div class="card"><div class="card-header"><h3 class="ornament">站 ③ 分镜</h3>' +
+      '<span class="badge ready">done</span></div><div class="card-body stack">' +
+      '<form id="station-storyboard-form" class="stack">' +
+      '<div class="form-grid-2">' +
+      '<div class="field"><label>标题</label><input name="title" value="' + escapeHtml(board.title || "") + '"></div>' +
+      '<div class="field"><label>目标时长</label><input name="target_duration_seconds" type="number" min="30" max="180" value="' + Number(board.target_duration_seconds || 60) + '"></div>' +
+      '</div>' +
+      '<div class="field"><label>本集剧情</label><textarea name="narrative" rows="3">' + escapeHtml(board.narrative || "") + '</textarea></div>' +
+      warningHtml +
+      '<div class="cluster" style="justify-content:space-between">' +
+      '<strong class="storyboard-duration" data-storyboard-duration></strong>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-storyboard-clear-highlight>清空高光</button>' +
+      '</div>' +
+      tableScroll(head + rows + '</tbody></table>') +
+      '<div class="form-actions">' +
+      '<button type="button" class="btn btn-secondary" id="regenerate-storyboard">重新生成</button>' +
+      '<button type="submit" class="btn btn-primary">保存分镜表</button>' +
+      '</div></form></div></div>';
+  }
+
+  function renderStoryboardRow(shot, idx) {
+    const num = idx + 1;
+    return '<tr data-shot-row="' + idx + '">' +
+      '<td><strong>' + num + '</strong><input type="hidden" data-field="beat" value="' + escapeHtml(shot.beat || "") + '"></td>' +
+      '<td><select data-field="shot_size">' + storyboardOptions(["特写", "近景", "中景", "全景", "远景"], shot.shot_size) + '</select></td>' +
+      '<td><select data-field="camera_movement">' + storyboardOptions(["固定", "推", "拉", "摇", "移", "跟", "升降"], shot.camera_movement) + '</select></td>' +
+      '<td><input type="number" min="1" max="30" data-field="duration_seconds" value="' + Number(shot.duration_seconds || 1) + '"></td>' +
+      '<td><textarea rows="3" data-field="visual">' + escapeHtml(shot.visual || "") + '</textarea>' +
+      '<textarea rows="2" data-field="ai_draw_prompt" placeholder="AI 绘画 prompt">' + escapeHtml(shot.ai_draw_prompt || "") + '</textarea></td>' +
+      '<td><textarea rows="3" data-field="narration">' + escapeHtml(shot.narration || "") + '</textarea></td>' +
+      '<td><textarea rows="3" data-field="dialogue">' + escapeHtml(shot.dialogue || "") + '</textarea></td>' +
+      '<td><input type="radio" name="storyboard-highlight" data-field="is_highlight" ' + (shot.is_highlight ? "checked" : "") + '></td>' +
+      '<td><div class="storyboard-actions">' +
+      '<button type="button" class="btn btn-icon" title="上移" data-shot-move="up">↑</button>' +
+      '<button type="button" class="btn btn-icon" title="下移" data-shot-move="down">↓</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-shot-rewrite="' + num + '">重生</button>' +
+      '</div></td></tr>';
+  }
+
+  function storyboardOptions(values, current) {
+    return values.map(function (v) {
+      return '<option value="' + escapeHtml(v) + '"' + (v === current ? " selected" : "") + '>' + escapeHtml(v) + '</option>';
+    }).join("");
+  }
+
+  function warningText(code) {
+    const text = String(code);
+    if (text === "highlight_missing") return "尚未选择高光镜头";
+    if (text === "highlight_multiple") return "高光镜头超过 1 个";
+    if (text === "first_shot_hook_shape") return "首镜建议 2-3 秒特写或近景";
+    if (text === "last_shot_duration") return "末镜建议 8-10 秒";
+    if (text.indexOf("duration_delta:") === 0) return "总时长偏离目标 " + text.split(":")[1] + " 秒";
+    if (text.indexOf("dialogue_too_long:") === 0) return "有台词单句超过 15 字";
+    return text;
+  }
+
+  function collectStoryboardFromPane(pane) {
+    const base = pane.__storyboard || {};
+    const form = document.getElementById("station-storyboard-form");
+    const rows = Array.from(pane.querySelectorAll("[data-shot-row]"));
+    const shots = rows.map(function (tr, idx) {
+      const get = function (field) {
+        const el = tr.querySelector('[data-field="' + field + '"]');
+        return el ? el.value : "";
+      };
+      const high = tr.querySelector('[data-field="is_highlight"]');
+      return {
+        shot_no: idx + 1,
+        beat: get("beat"),
+        shot_size: get("shot_size"),
+        camera_movement: get("camera_movement"),
+        duration_seconds: Number(get("duration_seconds") || 1),
+        visual: get("visual"),
+        narration: get("narration"),
+        dialogue: get("dialogue"),
+        ai_draw_prompt: get("ai_draw_prompt"),
+        is_highlight: !!(high && high.checked),
+      };
+    });
+    return Object.assign({}, base, {
+      title: form && form.elements.title ? form.elements.title.value : (base.title || ""),
+      target_duration_seconds: form && form.elements.target_duration_seconds ? Number(form.elements.target_duration_seconds.value || 60) : (base.target_duration_seconds || 60),
+      narrative: form && form.elements.narrative ? form.elements.narrative.value : (base.narrative || ""),
+      shots: shots,
+    });
+  }
+
+  function bindStationStoryboardActions() {
+    const pane = document.querySelector('[data-station-pane="storyboard"]');
+    if (!pane) return;
+    const genBtn = document.getElementById("generate-storyboard");
+    if (genBtn) {
+      genBtn.addEventListener("click", async function () {
+        genBtn.disabled = true;
+        try {
+          const data = await postJson(wsUrl("/drama/storyboard"), {});
+          pane.__storyboard = data.storyboard;
+          pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
+          bindStationStoryboardActions();
+          updateStoryboardDuration(pane);
+          await loadDramaProgress();
+          showToast("分镜表已生成", "info");
+        } catch (err) {
+          showToast("生成失败：" + errTitle(err), "error");
+          genBtn.disabled = false;
+        }
+      });
+      return;
+    }
+    const form = document.getElementById("station-storyboard-form");
+    if (!form) return;
+    form.addEventListener("input", function () { updateStoryboardDuration(pane); });
+    form.addEventListener("submit", async function (ev) {
+      ev.preventDefault();
+      try {
+        const payload = collectStoryboardFromPane(pane);
+        const data = await putJson(wsUrl("/drama/storyboard"), { storyboard: payload });
+        pane.__storyboard = data.storyboard;
+        pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
+        bindStationStoryboardActions();
+        updateStoryboardDuration(pane);
+        await loadDramaProgress();
+        showToast("分镜表已保存", "info");
+      } catch (err) {
+        showToast("保存失败：" + errTitle(err), "error");
+      }
+    });
+    const regenBtn = document.getElementById("regenerate-storyboard");
+    if (regenBtn) {
+      regenBtn.addEventListener("click", async function () {
+        regenBtn.disabled = true;
+        try {
+          const data = await postJson(wsUrl("/drama/storyboard"), {});
+          pane.__storyboard = data.storyboard;
+          pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
+          bindStationStoryboardActions();
+          updateStoryboardDuration(pane);
+          await loadDramaProgress();
+          showToast("分镜表已重新生成", "info");
+        } catch (err) {
+          showToast("重新生成失败：" + errTitle(err), "error");
+          regenBtn.disabled = false;
+        }
+      });
+    }
+    pane.querySelectorAll("[data-shot-move]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const row = btn.closest("[data-shot-row]");
+        const idx = Number(row ? row.getAttribute("data-shot-row") : -1);
+        const direction = btn.getAttribute("data-shot-move");
+        const board = collectStoryboardFromPane(pane);
+        const next = direction === "up" ? idx - 1 : idx + 1;
+        if (idx < 0 || next < 0 || next >= board.shots.length) return;
+        const tmp = board.shots[idx];
+        board.shots[idx] = board.shots[next];
+        board.shots[next] = tmp;
+        pane.__storyboard = board;
+        pane.innerHTML = renderStationStoryboard(board, []);
+        bindStationStoryboardActions();
+        updateStoryboardDuration(pane);
+      });
+    });
+    pane.querySelectorAll("[data-shot-rewrite]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        btn.disabled = true;
+        try {
+          const shotNo = Number(btn.getAttribute("data-shot-rewrite"));
+          const data = await postJson(wsUrl("/drama/storyboard/rewrite-shot"), {
+            shot_no: shotNo,
+            storyboard: collectStoryboardFromPane(pane),
+          });
+          pane.__storyboard = data.storyboard;
+          pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
+          bindStationStoryboardActions();
+          updateStoryboardDuration(pane);
+          showToast("本镜已重生", "info");
+        } catch (err) {
+          showToast("重生失败：" + errTitle(err), "error");
+          btn.disabled = false;
+        }
+      });
+    });
+    const clearBtn = pane.querySelector("[data-storyboard-clear-highlight]");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", function () {
+        pane.querySelectorAll('[data-field="is_highlight"]').forEach(function (el) { el.checked = false; });
+        updateStoryboardDuration(pane);
+      });
+    }
+  }
+
+  function updateStoryboardDuration(pane) {
+    const el = pane.querySelector("[data-storyboard-duration]");
+    if (!el) return;
+    const board = collectStoryboardFromPane(pane);
+    const total = (board.shots || []).reduce(function (sum, shot) {
+      const n = Number(shot.duration_seconds || 0);
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    const target = Number(board.target_duration_seconds || 60);
+    const delta = total - target;
+    const cls = Math.abs(delta) <= 3 ? "ready" : (Math.abs(delta) <= 10 ? "warn" : "blocked");
+    el.className = "storyboard-duration " + cls;
+    el.textContent = "总时长 " + total + " 秒 / 目标 " + target + " 秒（" + (delta >= 0 ? "+" : "") + delta + "）";
   }
 
   // ===== page: jobs =======================================================

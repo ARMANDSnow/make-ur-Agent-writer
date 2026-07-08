@@ -55,7 +55,7 @@ class WorkspaceOverviewDramaTests(unittest.TestCase):
         self.assertIn("drama_progress", item)
         self.assertEqual(item["drama_progress"]["station1"]["status"], "done")
         self.assertEqual(item["drama_progress"]["station2"]["status"], "done")
-        self.assertEqual(item["drama_progress"]["station3"]["status"], "locked")
+        self.assertEqual(item["drama_progress"]["station3"]["status"], "todo")
         self.assertEqual(item["readiness"]["blockers"], [])
         self.assertNotIn("start_point_missing", item["readiness"]["blockers"])
 

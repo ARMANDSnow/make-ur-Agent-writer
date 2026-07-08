@@ -69,6 +69,14 @@
       "request_timeout": 400,
       "stream": false
     },
+    "drama_storyboard": {
+      "model_env": "DRAMA_MODEL",
+      "temperature": 0.5,
+      "max_tokens": 4500,
+      "context_limit": 128000,
+      "request_timeout": 400,
+      "stream": false
+    },
     "plot_planner": {
       "model": "openai/gpt-5.5",
       "model_env": "PLANNER_MODEL",

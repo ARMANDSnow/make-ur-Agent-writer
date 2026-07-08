@@ -144,7 +144,7 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
 
 _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
-    # Drama write currently opens stations 1 and 2; later stations stay locked.
+    # Drama write currently opens stations 1-3; station 4 stays locked.
     ("write", "续写", "write"),
     ("jobs", "任务", "jobs"),
 )
@@ -446,11 +446,9 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         '<div class="tab-list">'
         '<button class="tab active" data-tab="setup">① 核心设定</button>'
         '<button class="tab" data-tab="hook">② 钩子</button>'
-        # iter062: ③④ are not implemented yet — render them as explicitly
-        # locked (disabled + aria-disabled + lock + "即将上线") instead of
-        # clickable tabs that only reveal an empty state (a false affordance).
-        '<button class="tab locked" data-tab="storyboard" disabled aria-disabled="true" '
-        'title="即将上线">🔒 ③ 分镜 <span class="badge-soon">即将上线</span></button>'
+        '<button class="tab" data-tab="storyboard">③ 分镜</button>'
+        # iter080 unlocks station ③; ④ remains explicitly locked until the
+        # character-design iteration lands.
         '<button class="tab locked" data-tab="characters" disabled aria-disabled="true" '
         'title="即将上线">🔒 ④ 角色 <span class="badge-soon">即将上线</span></button>'
         '</div>'
@@ -459,11 +457,7 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         '<div class="tab-panel" id="tab-hook" data-station-pane="hook">'
         '<p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-storyboard" data-station-pane="storyboard">'
-        '<div class="empty-state">'
-        '<span class="ornament">✦</span>'
-        '<h3>分镜表尚未开放</h3>'
-        '<p class="muted">本地 Beta 暂只支持核心设定与钩子站。</p>'
-        '</div></div>'
+        '<p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-characters" data-station-pane="characters">'
         '<div class="empty-state">'
         '<span class="ornament">✦</span>'

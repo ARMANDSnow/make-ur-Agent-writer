@@ -20,6 +20,7 @@ import json
 import re
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -88,8 +89,15 @@ def _log_degraded(where: str, exc: BaseException) -> None:
     import sys
     import traceback as _tb
 
-    sys.stderr.write(f"[web] degraded path '{where}': {type(exc).__name__}: {exc}\n")
-    _tb.print_exc(file=sys.stderr)
+    try:
+        from ..llm_client import _sanitize_error_text
+
+        detail = _sanitize_error_text(exc, max_chars=1000)
+    except Exception:
+        detail = f"{type(exc).__name__}: {exc}"
+    sys.stderr.write(f"[web] degraded path '{where}': {detail}\n")
+    for line in _tb.format_tb(exc.__traceback__):
+        sys.stderr.write(line)
 
 
 def _validate_workspace_name(name: str) -> bool:
@@ -106,6 +114,38 @@ def _workspace_error(name: str) -> Optional[Tuple[int, str, bytes]]:
         return _json(400, {"error": "invalid workspace name"})
     if not _workspace_exists(name):
         return _json(404, {"error": f"workspace not found: {name}"})
+    return None
+
+
+@contextmanager
+def _workspace_write_guard(name: str, source: str):
+    """Reserve the Web job slot and the cross-process workspace flock.
+
+    ``jobs.workspace_reserved`` protects against concurrent writes inside this
+    Web process; ``workspace_lock`` protects against CLI/driver writers in
+    other processes. Both are needed for manual edit endpoints.
+    """
+    from ..workspace_lock import acquire_write_lock
+
+    with jobs.workspace_reserved(name):
+        with use_workspace(name):
+            with acquire_write_lock(source=source):
+                yield
+
+
+def _write_conflict_response(exc: RuntimeError) -> Optional[Tuple[int, str, bytes]]:
+    msg = str(exc)
+    if msg.startswith("workspace_busy:"):
+        return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+    if msg.startswith("workspace_locked:"):
+        holder: Dict[str, str] = {}
+        source_match = re.search(r"\bsource=([^)\s]+)", msg)
+        since_match = re.search(r"\bsince=([^)\s]+)", msg)
+        if source_match:
+            holder["source"] = source_match.group(1)
+        if since_match:
+            holder["started_at"] = since_match.group(1)
+        return _json(409, {"error": "workspace locked", "workspace_locked": True, "holder": holder})
     return None
 
 
@@ -343,16 +383,16 @@ def api_workspace_delete(name: str, body: bytes) -> Tuple[int, str, bytes]:
     from . import trash as _trash
 
     try:
-        with jobs.workspace_reserved(name):
+        with _workspace_write_guard(name, "web-manual-delete"):
             ok, msg = _trash.soft_delete_workspace(name)
             if not ok:
                 return _json(404 if msg == "workspace_not_found" else 500, {"error": msg})
             _clear_overview_cache()
             return _json(200, {"trashed_to": msg})
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
 
 
@@ -406,10 +446,13 @@ def api_trash_purge(entry: str, body: bytes) -> Tuple[int, str, bytes]:
 
 
 def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
+    from ..drama_schemas import episode_paths
+
     root = paths.WORKSPACE_DIR
     stamps = []
     for name in names:
         ws = root / name
+        ep = episode_paths(name)
         stamps.append(
             (
                 name,
@@ -417,7 +460,8 @@ def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
                 _mtime_ns(ws / "data" / "chapter_manifest.json"),
                 _mtime_ns(ws / "outputs" / "debate" / "chapter_plan.json"),
                 _mtime_ns(ws / "outputs" / "episodes"),
-                _mtime_ns(ws / "outputs" / "episodes" / "episode_01.setup.json"),
+                _mtime_ns(ep.setup_path),
+                _mtime_ns(ep.storyboard_path),
                 _mtime_ns(ws / "data" / "manual_overrides" / "start_chapter.json"),
                 _mtime_ns(ws / "outputs" / "drafts"),
                 _mtime_ns(ws / "outputs" / "reviews"),
@@ -597,22 +641,22 @@ def api_workspace_set_start_point(name: str, body: bytes) -> Tuple[int, str, byt
     # write endpoints honor was bypassed, so a start-point flip could race the
     # running pipeline's reads. Hold the same reservation as draft_save.
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                start_point.set_start_point(value)
-                _clear_overview_cache()
-                readiness = _safe_readiness(chapters=1, resume_from=1)
-                return _json(
-                    200,
-                    {
-                        "start_point": start_point.get_start_point_metadata(),
-                        "readiness": readiness,
-                    },
-                )
+        with _workspace_write_guard(name, "web-manual-start-point"):
+            start_point.set_start_point(value)
+            _clear_overview_cache()
+            readiness = _safe_readiness(chapters=1, resume_from=1)
+            return _json(
+                200,
+                {
+                    "start_point": start_point.get_start_point_metadata(),
+                    "readiness": readiness,
+                },
+            )
     except RuntimeError as exc:
         msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         if msg.startswith("workspace_not_found:"):
             return _json(404, {"error": f"workspace not found: {name}"})
         raise
@@ -751,19 +795,15 @@ def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]
     from ..state import write_text_atomic
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                try:
-                    write_text_atomic(paths.outline_path(), outline)
-                except OSError as exc:
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
+        with _workspace_write_guard(name, "web-manual-outline"):
+            try:
+                write_text_atomic(paths.outline_path(), outline)
+            except OSError as exc:
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(
-                409,
-                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
-            )
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "chars": len(outline)})
@@ -831,33 +871,29 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
     from ..plot_planner import apply_chapter_plan_item_edit
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                drafts = paths.drafts_dir()
-                # iter057 (P0-A): plan_fingerprint 收窄为只哈希全局上下文后,编辑某章
-                # 只让**该章**(若已写)strict-expire——via chapter_plan_item_fingerprint
-                # (被编辑章 item 指纹变)——不再波及其他已写章(它们 draft+plan item 都没变)。
-                # 故失效列表只含被编辑章本身,而非所有已写章(旧全局语义正是 replan 卡死之源)。
-                edited_md = drafts / f"chapter_{chapter_no:02d}.md"
-                written = [chapter_no] if edited_md.exists() else []
-                try:
-                    data = apply_chapter_plan_item_edit(chapter_no, fields)
-                except FileNotFoundError as exc:
-                    return _json(404, errors.exception_body(exc))
-                except KeyError as exc:
-                    return _json(404, {"error": str(exc.args[0]) if exc.args else "chapter not found"})
-                except ValueError as exc:
-                    return _json(400, errors.exception_body(exc))
-                except OSError as exc:
-                    _log_degraded("write_chapter_plan", exc)
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
+        with _workspace_write_guard(name, "web-manual-chapter-plan"):
+            drafts = paths.drafts_dir()
+            # iter057 (P0-A): plan_fingerprint 收窄为只哈希全局上下文后,编辑某章
+            # 只让**该章**(若已写)strict-expire——via chapter_plan_item_fingerprint
+            # (被编辑章 item 指纹变)——不再波及其他已写章(它们 draft+plan item 都没变)。
+            # 故失效列表只含被编辑章本身,而非所有已写章(旧全局语义正是 replan 卡死之源)。
+            edited_md = drafts / f"chapter_{chapter_no:02d}.md"
+            written = [chapter_no] if edited_md.exists() else []
+            try:
+                data = apply_chapter_plan_item_edit(chapter_no, fields)
+            except FileNotFoundError as exc:
+                return _json(404, errors.exception_body(exc))
+            except KeyError as exc:
+                return _json(404, {"error": str(exc.args[0]) if exc.args else "chapter not found"})
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except OSError as exc:
+                _log_degraded("write_chapter_plan", exc)
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(
-                409,
-                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
-            )
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     _clear_overview_cache()
     return _json(
@@ -911,49 +947,45 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
     # so the meta sha follows writer._draft_file_sha256's convention.
     draft = content.rstrip("\n")
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                drafts_dir = paths.drafts_dir()
-                md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
-                if not md_path.exists():
-                    return _json(404, {"error": f"chapter_{chapter_no:02d}.md not found"})
-                meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
-                meta = read_json_optional(meta_path, {})
-                if not isinstance(meta, dict):
-                    meta = {}
-                try:
-                    write_text_atomic(md_path, draft + "\n")
-                except OSError as exc:
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
-                meta["chapter_no"] = chapter_no
-                meta["draft_sha256"] = sha256_text(draft + "\n")
-                meta["edited"] = True
-                meta["edited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-                # An edited draft must not coast on a pre-edit Approve.
-                meta["needs_human_review"] = True
-                try:
-                    write_json(meta_path, meta)
-                except OSError as exc:
-                    # iter 050d (M-1): the md IS saved at this point; saying
-                    # "保存失败" would be a lie. The chapter sits at
-                    # draft_hash_mismatch (fail-safe) until a re-save lands
-                    # the meta sync.
-                    # iter063 A2: return the friendly card (was a raw English
-                    # sentence with `{exc}` appended); log the raw exc to stderr
-                    # so the leak-free guarantee holds without losing detail.
-                    import sys as _sys
-                    _sys.stderr.write(
-                        f"[routes] draft meta sync failed (ch={chapter_no}): "
-                        f"{type(exc).__name__}: {exc}\n"
-                    )
-                    return _json(500, errors.error_body(errors.build_card("draft_meta_unsynced")))
+        with _workspace_write_guard(name, "web-manual-draft"):
+            drafts_dir = paths.drafts_dir()
+            md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
+            if not md_path.exists():
+                return _json(404, {"error": f"chapter_{chapter_no:02d}.md not found"})
+            meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
+            meta = read_json_optional(meta_path, {})
+            if not isinstance(meta, dict):
+                meta = {}
+            try:
+                write_text_atomic(md_path, draft + "\n")
+            except OSError as exc:
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
+            meta["chapter_no"] = chapter_no
+            meta["draft_sha256"] = sha256_text(draft + "\n")
+            meta["edited"] = True
+            meta["edited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+            # An edited draft must not coast on a pre-edit Approve.
+            meta["needs_human_review"] = True
+            try:
+                write_json(meta_path, meta)
+            except OSError as exc:
+                # iter 050d (M-1): the md IS saved at this point; saying
+                # "保存失败" would be a lie. The chapter sits at
+                # draft_hash_mismatch (fail-safe) until a re-save lands
+                # the meta sync.
+                # iter063 A2: return the friendly card (was a raw English
+                # sentence with `{exc}` appended); log the raw exc to stderr
+                # so the leak-free guarantee holds without losing detail.
+                import sys as _sys
+                _sys.stderr.write(
+                    f"[routes] draft meta sync failed (ch={chapter_no}): "
+                    f"{type(exc).__name__}: {exc}\n"
+                )
+                return _json(500, errors.error_body(errors.build_card("draft_meta_unsynced")))
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(
-                409,
-                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
-            )
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     _clear_overview_cache()
     return _json(
@@ -1011,19 +1043,15 @@ def api_workspace_kb_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
     from ..state import write_text_atomic
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                try:
-                    write_text_atomic(paths.kb_path(), content)
-                except OSError as exc:
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
+        with _workspace_write_guard(name, "web-manual-kb"):
+            try:
+                write_text_atomic(paths.kb_path(), content)
+            except OSError as exc:
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(
-                409,
-                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
-            )
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "chars": len(content)})
@@ -1091,22 +1119,18 @@ def api_workspace_premise_expansion_save(name: str, body: bytes) -> Tuple[int, s
     from ..premise_expansion import save_expansion_fields
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                try:
-                    record = save_expansion_fields(fields)
-                except ValueError as exc:
-                    return _json(400, errors.exception_body(exc))
-                except OSError as exc:
-                    _log_degraded("write_premise_expansion", exc)
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
+        with _workspace_write_guard(name, "web-manual-premise-expansion"):
+            try:
+                record = save_expansion_fields(fields)
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except OSError as exc:
+                _log_degraded("write_premise_expansion", exc)
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(
-                409,
-                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
-            )
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "edited_at": record.get("edited_at", "")})
@@ -1182,19 +1206,18 @@ def api_workspace_writer_style_save(name: str, body: bytes) -> Tuple[int, str, b
     from ..writer_style import save_card_fields
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                try:
-                    record = save_card_fields(fields)
-                except ValueError as exc:
-                    return _json(400, errors.exception_body(exc))
-                except OSError as exc:
-                    _log_degraded("write_writer_style", exc)
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
+        with _workspace_write_guard(name, "web-manual-writer-style"):
+            try:
+                record = save_card_fields(fields)
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except OSError as exc:
+                _log_degraded("write_writer_style", exc)
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     return _json(200, {"saved": True, "edited_at": record.get("edited_at", "")})
 
@@ -1216,19 +1239,18 @@ def api_workspace_writer_style_activate(name: str, body: bytes) -> Tuple[int, st
     from ..writer_style import activate_preset
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                try:
-                    record = activate_preset(preset_id.strip())
-                except ValueError as exc:
-                    return _json(400, errors.exception_body(exc))
-                except OSError as exc:
-                    _log_degraded("activate_preset", exc)
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
+        with _workspace_write_guard(name, "web-manual-writer-style-activate"):
+            try:
+                record = activate_preset(preset_id.strip())
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except OSError as exc:
+                _log_degraded("activate_preset", exc)
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     return _json(200, {"saved": True, "preset_id": preset_id.strip(), "fields": record.get("fields")})
 
@@ -1279,23 +1301,27 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
     import uuid
 
     from ..state import write_text_atomic
+    from ..workspace_lock import acquire_write_lock
 
     try:
         with use_workspace(name):
-            # iter060 (#11): stage the sample to a per-request UNIQUE path (was a
-            # fixed .writer_style_sample.tmp). Two concurrent extracts used to
-            # write the same file, so the loser overwrote the winner's sample
-            # before the winner's job read it. write_text_atomic avoids a torn
-            # read; the job is handed its own path via params.
-            # iter061 (P0): pass only the random token, not a caller-influenced
-            # path — the handler rebuilds the path inside data_dir from it, so
-            # /run can't be abused to read+delete an arbitrary file.
-            sample_token = uuid.uuid4().hex
-            sample_path = paths.writer_style_sample_path().with_name(
-                f".writer_style_sample.{sample_token}.tmp"
-            )
-            sample_path.parent.mkdir(parents=True, exist_ok=True)
-            write_text_atomic(sample_path, sample)
+            with acquire_write_lock(source="web-manual-writer-style-extract-stage"):
+                # iter060 (#11): stage the sample to a per-request UNIQUE path
+                # (was a fixed .writer_style_sample.tmp). Two concurrent
+                # extracts used to write the same file, so the loser overwrote
+                # the winner's sample before the winner's job read it.
+                # write_text_atomic avoids a torn read; the job is handed its
+                # own path via params.
+                # iter061 (P0): pass only the random token, not a
+                # caller-influenced path — the handler rebuilds the path inside
+                # data_dir from it, so /run can't be abused to read+delete an
+                # arbitrary file.
+                sample_token = uuid.uuid4().hex
+                sample_path = paths.writer_style_sample_path().with_name(
+                    f".writer_style_sample.{sample_token}.tmp"
+                )
+                sample_path.parent.mkdir(parents=True, exist_ok=True)
+                write_text_atomic(sample_path, sample)
         try:
             job = jobs.start_job(
                 name, "extract-style", {"force": True, "sample_token": sample_token}
@@ -1305,8 +1331,9 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
             raise
     except RuntimeError as exc:
         msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         if msg.startswith("workspace_not_found:"):
             return _json(404, {"error": "workspace not found"})
         raise
@@ -1382,34 +1409,30 @@ def api_workspace_entity_save(name: str, entity_id: str, body: bytes) -> Tuple[i
     from ..utils import write_json
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                graph_path = paths.entity_graph_path()
-                graph = read_json_optional(graph_path, {})
-                if not isinstance(graph, dict) or not graph.get("entities"):
-                    return _json(404, {"error": "entity_graph not found; run prepare first"})
-                target = next(
-                    (
-                        ent
-                        for ent in graph.get("entities") or []
-                        if isinstance(ent, dict) and str(ent.get("id")) == entity_id
-                    ),
-                    None,
-                )
-                if target is None:
-                    return _json(404, {"error": f"entity not found: {entity_id}"})
-                target.update(fields)
-                try:
-                    write_json(graph_path, graph)
-                except OSError as exc:
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
-    except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(
-                409,
-                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+        with _workspace_write_guard(name, "web-manual-entity"):
+            graph_path = paths.entity_graph_path()
+            graph = read_json_optional(graph_path, {})
+            if not isinstance(graph, dict) or not graph.get("entities"):
+                return _json(404, {"error": "entity_graph not found; run prepare first"})
+            target = next(
+                (
+                    ent
+                    for ent in graph.get("entities") or []
+                    if isinstance(ent, dict) and str(ent.get("id")) == entity_id
+                ),
+                None,
             )
+            if target is None:
+                return _json(404, {"error": f"entity not found: {entity_id}"})
+            target.update(fields)
+            try:
+                write_json(graph_path, graph)
+            except OSError as exc:
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "entity_id": entity_id})
@@ -1457,45 +1480,41 @@ def api_workspace_relationship_save(name: str, index: str, body: bytes) -> Tuple
     from ..utils import write_json
 
     try:
-        with jobs.workspace_reserved(name):
-            with use_workspace(name):
-                graph_path = paths.entity_graph_path()
-                graph = read_json_optional(graph_path, {})
-                rels = graph.get("relationships") if isinstance(graph, dict) else None
-                if not isinstance(rels, list) or not 0 <= rel_index < len(rels):
-                    return _json(404, {"error": f"relationship not found: index {rel_index}"})
-                rel = rels[rel_index]
-                if not isinstance(rel, dict) or str(rel.get("src_id")) != echo_src or str(rel.get("dst_id")) != echo_dst:
-                    return _json(
-                        409,
-                        {
-                            "error": "relationship at this index has changed (graph was regenerated); reload the panel",
-                            "stale_index": True,
-                        },
-                    )
-                timeline = rel.get("timeline") if isinstance(rel, dict) else None
-                active = next(
-                    (
-                        item
-                        for item in (timeline or [])
-                        if isinstance(item, dict) and item.get("active")
-                    ),
-                    None,
+        with _workspace_write_guard(name, "web-manual-relationship"):
+            graph_path = paths.entity_graph_path()
+            graph = read_json_optional(graph_path, {})
+            rels = graph.get("relationships") if isinstance(graph, dict) else None
+            if not isinstance(rels, list) or not 0 <= rel_index < len(rels):
+                return _json(404, {"error": f"relationship not found: index {rel_index}"})
+            rel = rels[rel_index]
+            if not isinstance(rel, dict) or str(rel.get("src_id")) != echo_src or str(rel.get("dst_id")) != echo_dst:
+                return _json(
+                    409,
+                    {
+                        "error": "relationship at this index has changed (graph was regenerated); reload the panel",
+                        "stale_index": True,
+                    },
                 )
-                if active is None:
-                    return _json(404, {"error": "relationship has no active timeline entry"})
-                active["state"] = state
-                try:
-                    write_json(graph_path, graph)
-                except OSError as exc:
-                    return _json(500, errors.error_body(errors.card_for_exception(exc)))
-    except RuntimeError as exc:
-        msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(
-                409,
-                {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]},
+            timeline = rel.get("timeline") if isinstance(rel, dict) else None
+            active = next(
+                (
+                    item
+                    for item in (timeline or [])
+                    if isinstance(item, dict) and item.get("active")
+                ),
+                None,
             )
+            if active is None:
+                return _json(404, {"error": "relationship has no active timeline entry"})
+            active["state"] = state
+            try:
+                write_json(graph_path, graph)
+            except OSError as exc:
+                return _json(500, errors.error_body(errors.card_for_exception(exc)))
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         raise
     _clear_overview_cache()
     return _json(200, {"saved": True, "index": rel_index})
@@ -1527,6 +1546,7 @@ def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
     if error:
         return error
     from .. import drama_planner
+    from ..drama_schemas import episode_paths
     from ..utils import write_json
 
     # iter060 (#14) + iter063 ⑦: hold the reservation across BOTH the planner run
@@ -1535,7 +1555,7 @@ def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
     # setup-save could still interleave with the run — the comment over-claimed
     # the window. Widening it to the run makes the code match the intent.
     try:
-        with jobs.workspace_reserved(name):
+        with _workspace_write_guard(name, "web-manual-drama-plan"):
             try:
                 result = drama_planner.run(name, mock=True)
             except FileNotFoundError as exc:
@@ -1545,12 +1565,13 @@ def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
                 return _json(500, errors.exception_body(exc))
             except (ValueError, NotImplementedError) as exc:
                 return _json(400, errors.exception_body(exc))
-            setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
+            setup_path = episode_paths(name).setup_path
             write_json(setup_path, result)
     except RuntimeError as exc:
         msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         if msg.startswith("workspace_not_found:"):
             return _json(404, {"error": f"workspace not found: {name}"})
         raise
@@ -1588,11 +1609,12 @@ def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
     # iter060 (#14): hold the reservation across the whole read-modify-write so a
     # concurrent /drama/plan (which rewrites setup.json wholesale) or job can't
     # interleave, and persist atomically via write_json (was a bare write_text).
+    from ..drama_schemas import episode_paths
     from ..utils import write_json
 
     try:
-        with jobs.workspace_reserved(name):
-            setup_path = paths.WORKSPACE_DIR / name / "outputs" / "episodes" / "episode_01.setup.json"
+        with _workspace_write_guard(name, "web-manual-drama-setup"):
+            setup_path = episode_paths(name).setup_path
             if not setup_path.is_file():
                 return _json(400, {"error": "station 1 must run first"})
             try:
@@ -1623,11 +1645,263 @@ def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
             return _json(200, {"saved": True})
     except RuntimeError as exc:
         msg = str(exc)
-        if msg.startswith("workspace_busy:"):
-            return _json(409, {"error": "workspace busy", "running_job_id": msg.split(":", 1)[1]})
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
         if msg.startswith("workspace_not_found:"):
             return _json(404, {"error": f"workspace not found: {name}"})
         raise
+
+
+def _parse_json_object_body(body: bytes) -> Tuple[Optional[Dict[str, Any]], Optional[Tuple[int, str, bytes]]]:
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None, _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return None, _json(400, {"error": "body must be a JSON object"})
+    return payload, None
+
+
+def _storyboard_payload_response(storyboard: Dict[str, Any], *, exists: bool = True) -> Tuple[int, str, bytes]:
+    from ..drama_schemas import (
+        DramaStoryboard,
+        normalize_storyboard_payload,
+        validate_storyboard_hard,
+        validate_storyboard_soft,
+    )
+    from ..schemas import model_to_dict
+
+    board = DramaStoryboard(**normalize_storyboard_payload(storyboard))
+    hard_errors = validate_storyboard_hard(board)
+    if hard_errors:
+        raise ValueError(f"storyboard hard validation failed: {', '.join(hard_errors)}")
+    data = model_to_dict(board)
+    warnings = validate_storyboard_soft(board)
+    data["soft_warnings"] = warnings
+    return _json(200, {"exists": exists, "storyboard": data, "soft_warnings": warnings})
+
+
+def _drama_storyboard_setup(name: str) -> Dict[str, Any]:
+    from ..drama_schemas import episode_paths
+
+    setup = read_json_optional(episode_paths(name).setup_path, None)
+    if not isinstance(setup, dict):
+        raise FileNotFoundError("station 2 must complete before station 3")
+    core = setup.get("core_setup")
+    if not isinstance(core, dict) or not core.get("protagonist"):
+        raise ValueError("station 1 output missing core_setup.protagonist")
+    hook = setup.get("hook")
+    if not isinstance(hook, dict) or not hook.get("type"):
+        raise ValueError("station 2 must complete before station 3")
+    return setup
+
+
+def _drama_storyboard_prereq_error(name: str) -> Optional[Tuple[int, str, bytes]]:
+    try:
+        _drama_storyboard_setup(name)
+    except FileNotFoundError:
+        return _json(400, {"error": "station 2 must complete before station 3"})
+    except ValueError as exc:
+        return _json(400, {"error": str(exc)})
+    return None
+
+
+def _storyboard_hook_snapshot(setup: Dict[str, Any]) -> Dict[str, str]:
+    hook = setup.get("hook") if isinstance(setup.get("hook"), dict) else {}
+    snapshot: Dict[str, str] = {}
+    for key, limit in (("type", 80), ("content", 500)):
+        raw = hook.get(key)
+        if raw is None or isinstance(raw, (dict, list)):
+            continue
+        snapshot[key] = str(raw)[:limit]
+    return snapshot
+
+
+def _storyboard_hard_error(storyboard: Dict[str, Any]) -> Optional[Tuple[int, str, bytes]]:
+    from ..drama_schemas import DramaStoryboard, normalize_storyboard_payload, validate_storyboard_hard
+
+    try:
+        board = DramaStoryboard(**normalize_storyboard_payload(storyboard))
+    except Exception:
+        return None
+    hard_errors = validate_storyboard_hard(board)
+    if hard_errors:
+        return _json(400, {"error": "storyboard hard validation failed: " + ", ".join(hard_errors)})
+    return None
+
+
+def _drama_storyboard_runtime_error(exc: RuntimeError) -> Tuple[int, str, bytes]:
+    import sys
+    import traceback as _tb
+
+    sys.stderr.write(f"[web] degraded path 'drama_storyboard_runtime': {type(exc).__name__}: suppressed\n")
+    for line in _tb.format_tb(exc.__traceback__):
+        sys.stderr.write(line)
+    return _json(500, errors.error_body(errors.build_card("server_error")))
+
+
+def api_drama_storyboard_get(name: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    prereq = _drama_storyboard_prereq_error(name)
+    if prereq:
+        return prereq
+    from ..drama_schemas import episode_paths
+
+    p = episode_paths(name).storyboard_path
+    data = read_json_optional(p, None)
+    if data is None:
+        return _json(200, {"exists": False, "storyboard": None, "soft_warnings": []})
+    if not isinstance(data, dict):
+        return _json(500, {"error": "storyboard file must be a JSON object"})
+    try:
+        return _storyboard_payload_response(data)
+    except Exception as exc:
+        return _json(500, errors.exception_body(exc))
+
+
+def api_drama_storyboard_generate(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .. import storyboard_builder
+    from ..drama_schemas import episode_paths
+    from ..utils import write_json
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-storyboard"):
+            prereq = _drama_storyboard_prereq_error(name)
+            if prereq:
+                return prereq
+            try:
+                result = storyboard_builder.run(name, mock=True)
+            except FileNotFoundError as exc:
+                return _json(400, errors.exception_body(exc))
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except RuntimeError as exc:
+                return _drama_storyboard_runtime_error(exc)
+            write_json(episode_paths(name).storyboard_path, result)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _storyboard_payload_response(result)
+
+
+def api_drama_storyboard_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    raw = payload.get("storyboard") if isinstance(payload.get("storyboard"), dict) else payload
+    if not isinstance(raw, dict):
+        return _json(400, {"error": "storyboard must be a JSON object"})
+
+    from ..drama_schemas import (
+        DramaStoryboard,
+        episode_paths,
+        normalize_storyboard_payload,
+        validate_storyboard_hard,
+        validate_storyboard_soft,
+    )
+    from ..schemas import model_to_dict
+    from ..utils import write_json
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-storyboard-save"):
+            try:
+                setup = _drama_storyboard_setup(name)
+            except FileNotFoundError:
+                return _json(400, {"error": "station 2 must complete before station 3"})
+            except ValueError as exc:
+                return _json(400, {"error": str(exc)})
+            try:
+                normalized = normalize_storyboard_payload(raw)
+                normalized["hook"] = _storyboard_hook_snapshot(setup)
+                board = DramaStoryboard(**normalized)
+                hard_errors = validate_storyboard_hard(board)
+                if hard_errors:
+                    return _json(400, {"error": "storyboard hard validation failed: " + ", ".join(hard_errors)})
+                data = model_to_dict(board)
+                data["soft_warnings"] = validate_storyboard_soft(board)
+            except Exception as exc:
+                return _json(400, errors.exception_body(exc))
+            write_json(episode_paths(name).storyboard_path, data)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _json(200, {"saved": True, "storyboard": data, "soft_warnings": data["soft_warnings"]})
+
+
+def api_drama_storyboard_rewrite_shot(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    try:
+        raw_shot_no = payload.get("shot_no")
+        if isinstance(raw_shot_no, bool):
+            raise ValueError
+        shot_no = int(raw_shot_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "shot_no must be an integer"})
+    current_storyboard = payload.get("storyboard")
+    if current_storyboard is not None and not isinstance(current_storyboard, dict):
+        return _json(400, {"error": "storyboard must be a JSON object"})
+
+    from .. import storyboard_builder
+    from ..drama_schemas import episode_paths
+    from ..utils import write_json
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-storyboard-rewrite"):
+            prereq = _drama_storyboard_prereq_error(name)
+            if prereq:
+                return prereq
+            try:
+                result = storyboard_builder.rewrite_shot(
+                    name,
+                    shot_no,
+                    mock=True,
+                    storyboard=current_storyboard,
+                )
+            except FileNotFoundError as exc:
+                return _json(400, errors.exception_body(exc))
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except RuntimeError as exc:
+                return _drama_storyboard_runtime_error(exc)
+            hard_error = _storyboard_hard_error(result)
+            if hard_error:
+                return hard_error
+            write_json(episode_paths(name).storyboard_path, result)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _storyboard_payload_response(result)
 
 
 def api_workspace_readiness(
@@ -2480,6 +2754,26 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "PUT",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/setup/?$"),
         lambda name, _body=b"", **_: api_drama_setup_save(name, _body),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/storyboard/?$"),
+        lambda name, **_: api_drama_storyboard_get(name),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/storyboard/?$"),
+        lambda name, _body=b"", **_: api_drama_storyboard_generate(name, _body),
+    ),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/storyboard/?$"),
+        lambda name, _body=b"", **_: api_drama_storyboard_save(name, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/storyboard/rewrite-shot/?$"),
+        lambda name, _body=b"", **_: api_drama_storyboard_rewrite_shot(name, _body),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drafts/?$"), lambda name, **_: api_workspace_drafts(name)),
     (

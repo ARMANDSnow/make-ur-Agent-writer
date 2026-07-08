@@ -12,6 +12,9 @@ from pathlib import Path
 
 from src import paths
 from src.web import jobs, routes
+from src.web.workspace_ctx import use_workspace
+from src.workspace_lock import acquire_write_lock
+from src.utils import write_json
 
 
 def _stub_workspace(root: Path, name: str) -> None:
@@ -315,6 +318,83 @@ class JobsDispatchTests(unittest.TestCase):
             self.assertEqual(status, 202)
             self._wait_for_done("alpha", data["job_id"], timeout=10.0)
         self.assertEqual(run.call_args.kwargs["lock_source"], "web-job")
+
+    def test_write_book_workspace_lock_job_json_is_sanitized(self) -> None:
+        with use_workspace("alpha"):
+            with acquire_write_lock(source="cli-long-run"):
+                status, data = self._post_run(
+                    "alpha", {"step": "write-book", "params": {"chapters": 1}}
+                )
+                self.assertEqual(status, 202)
+                detail = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+
+        status, _ct, body = routes.dispatch("GET", "/api/workspace/alpha/jobs/recent")
+        self.assertEqual(status, 200)
+        combined = json.dumps({"detail": detail, "recent": json.loads(body)}, ensure_ascii=False)
+        self.assertEqual(detail.get("status"), "blocked")
+        self.assertEqual(detail.get("error"), "workspace locked")
+        first = (detail.get("result_summary") or {}).get("first_blocked") or {}
+        self.assertTrue(first.get("workspace_locked"), first)
+        self.assertEqual(first.get("holder", {}).get("source"), "cli-long-run")
+        self.assertNotIn("argv", combined)
+        self.assertNotIn("write.lock", combined)
+        self.assertNotIn(str(paths.WORKSPACE_DIR / "alpha"), combined)
+
+    def test_review_chapter_workspace_lock_job_json_is_sanitized(self) -> None:
+        import tests.test_book_runner as tb
+        from src.plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
+
+        root = paths.WORKSPACE_DIR / "alpha"
+        drafts = root / "outputs" / "drafts"
+        debate = root / "outputs" / "debate"
+        drafts.mkdir(parents=True, exist_ok=True)
+        debate.mkdir(parents=True, exist_ok=True)
+        (drafts / "chapter_01.md").write_text("正文\n", encoding="utf-8")
+        plan = tb._strict_plan(chapters=1)
+        plan["chapters"][0]["key_events"] = ["事件一", "事件二"]
+        plan["chapters"][0]["chapter_plan_item_fingerprint"] = chapter_plan_item_fingerprint(
+            plan["chapters"][0]
+        )
+        plan["plan_fingerprint"] = plan_fingerprint(plan)
+        write_json(debate / "chapter_plan.json", plan)
+
+        with use_workspace("alpha"):
+            with acquire_write_lock(source="cli-long-run"):
+                status, data = self._post_run(
+                    "alpha", {"step": "review-chapter", "params": {"chapter": 1}}
+                )
+                self.assertEqual(status, 202)
+                detail = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+
+        status, _ct, body = routes.dispatch("GET", "/api/workspace/alpha/jobs/recent")
+        self.assertEqual(status, 200)
+        combined = json.dumps({"detail": detail, "recent": json.loads(body)}, ensure_ascii=False)
+        first = (detail.get("result_summary") or {}).get("first_blocked") or {}
+        self.assertEqual(detail.get("status"), "blocked")
+        self.assertTrue(first.get("workspace_locked"), first)
+        self.assertEqual(first.get("holder", {}).get("source"), "cli-long-run")
+        self.assertNotIn("argv", combined)
+        self.assertNotIn("write.lock", combined)
+        self.assertNotIn(str(root), combined)
+
+    def test_draft_once_workspace_lock_job_json_is_sanitized(self) -> None:
+        root = paths.WORKSPACE_DIR / "alpha"
+        with use_workspace("alpha"):
+            with acquire_write_lock(source="cli-long-run"):
+                status, data = self._post_run(
+                    "alpha", {"step": "draft-once-dev", "params": {"chapters": 1}}
+                )
+                self.assertEqual(status, 202)
+                detail = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+
+        first = (detail.get("result_summary") or {}).get("first_blocked") or {}
+        combined = json.dumps(detail, ensure_ascii=False)
+        self.assertEqual(detail.get("status"), "blocked")
+        self.assertTrue(first.get("workspace_locked"), first)
+        self.assertEqual(first.get("holder", {}).get("source"), "cli-long-run")
+        self.assertNotIn("argv", combined)
+        self.assertNotIn("write.lock", combined)
+        self.assertNotIn(str(root), combined)
 
     def test_write_book_job_preserves_tier_param(self) -> None:
         with unittest.mock.patch(
