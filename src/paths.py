@@ -179,6 +179,10 @@ def style_examples_dir() -> Path:
     return data_dir() / "style_examples"
 
 
+def style_fingerprint_dir() -> Path:
+    return data_dir() / "style_fingerprint"
+
+
 def knowledge_base_dir() -> Path:
     return data_dir() / "knowledge_base"
 
@@ -259,6 +263,10 @@ def writer_style_sample_path() -> Path:
     """Iter 056: 上传样本提取的临时落盘路径（gitignored，提取后即删）。
     extract job 从此读样本，避免把数万字样本塞进 job params/状态。"""
     return data_dir() / ".writer_style_sample.tmp"
+
+
+def style_fingerprint_baseline_path() -> Path:
+    return style_fingerprint_dir() / "baseline.json"
 
 
 def continuation_anchor_path() -> Path:

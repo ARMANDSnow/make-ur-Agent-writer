@@ -115,6 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("estimate-cost")
     sub.add_parser("preflight")
 
+    style_fp = sub.add_parser("style-fingerprint")
+    style_fp_sub = style_fp.add_subparsers(dest="style_fingerprint_command", required=True)
+    style_fp_sub.add_parser("build-baseline")
+    style_fp_inspect = style_fp_sub.add_parser("inspect-draft")
+    style_fp_inspect.add_argument("--chapter", type=int, required=True)
+
     extract = sub.add_parser("extract")
     extract.add_argument("--volume", default="all")
     extract.add_argument("--limit", type=int, default=None)
@@ -477,6 +483,16 @@ def main() -> None:
         print(render_preflight(report), end="")
         if report["status"] == "fail":
             raise SystemExit(1)
+    elif args.command == "style-fingerprint":
+        import json as _json
+
+        from src.style_fingerprint import build_baseline, inspect_draft
+
+        if args.style_fingerprint_command == "build-baseline":
+            result = build_baseline()
+        else:
+            result = inspect_draft(args.chapter)
+        print(_json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
     elif args.command == "extract":
         extract_all(
             volume=args.volume, limit=args.limit, force=args.force,

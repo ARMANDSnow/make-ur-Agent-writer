@@ -2042,3 +2042,19 @@ python3 main.py --book <name> drive-book start \
 **残留风险 / 下轮候选**：导出四格式、Insights、第 2 集重生、站①②/③/④/Reviewer 真模型 smoke、每站 job 化、`scripts/drama_smoke.sh` 仍顺延到 drama 后续批；真实 AI 绘画 API 仍未做可用性实测；小说主链路 capstone 真模型长跑仍需用户明确授权。
 
 **数据状态**：本轮新增/修改集中在 drama schema/reviewer/store/prompt/config、Web routes/static/templates、测试 fixtures 与迭代/README/AGENT_HANDOFF 文档；`verify.sh` 仅按既有流程写 gitignored `data/`/`outputs/` 验证产物；未跟踪 `续写工作台.pptx` 视为用户文件，保持不动；只 commit 不 push，等用户验收（铁律⑤）。
+
+---
+
+## Phase Status — iter 083（2026-07-09 收官）：量化文风指纹 Baseline v1
+
+**背景**：新路线图 `docs/iterations/iteration_083_086_style_fingerprint_roadmap.md` 要把“风格”从 prompt 软约束推进到可复测的量化闭环。本轮只做 iter083 baseline v1，不接 writer/reviewer，不做 drift severity，不做 Web UI，不跑真模型 smoke。
+
+**已完成（本轮）**：新增 `src/style_fingerprint.py` 与 `config/style_fingerprint.yaml`，提供纯本地、确定性、版权安全的文风指标计算。`style-fingerprint build-baseline` 从用户本地 `data/style_examples/*.md` 读取样本，写 `data/style_fingerprint/baseline.json`；artifact 只存 `metrics`、`dimension_stats`、`dimension_reliability`、`tolerance`、`weights`、`baseline_quality`、`sample_count`、`source_labels`、`source_hashes`、`baseline_hash/hash`，不存原文片段。缺目录、无样本或样本不足时返回并写入 `status=insufficient_source`，不报错、不制造假 0 baseline。新增 `style-fingerprint inspect-draft --chapter N`，对 `outputs/drafts/chapter_NN.md` 输出与 baseline 同形指标，不依赖 baseline 存在。指标覆盖句长均值/p50/p90、短句/长句比例、段长、对话占比、标点密度、对比句频、AI 腔词密度、感官/意象词密度、解释连接词密度等维度。`src/paths.py` 新增 `style_fingerprint_dir()` 与 `style_fingerprint_baseline_path()`，兼容 legacy/workspace。
+
+**铁律⑨审查**：只读 code review 未发现 blocker；核对重点为 baseline contract、insufficient source 不落假零、hash 稳定性、CLI 薄封装、path helper workspace 兼容、未接 writer/reviewer/Web/drift severity。security review 未发现 API key / `.env` 泄漏路径；无 LLM 调用；baseline JSON 不持久化 sample 文本、句子、段落或 excerpt；测试只用合成文本和临时目录。运行时唯一新增写入为用户显式执行 `build-baseline` 时的统计 artifact。
+
+**验收证据**：聚焦 `tests.test_style_fingerprint tests.test_paths` **23 tests OK**；`.venv/bin/python3 -m unittest discover -s tests` **1712 tests OK**；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部同样 **1712 tests OK**，随后 auto-pipeline/status/manifest/report/cost 全过；本轮经用户授权，`verify.sh` 写 gitignored `data/`/`outputs/` 验证产物不视为手工触碰私有内容）；`.venv/bin/python3 main.py preflight` = warn/无 FATAL；`OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` = ok/无 WARN；`py_compile` 与 `git diff --check` 均通过。真模型 smoke 未跑（铁律⑥）。
+
+**接力点（iter084-086）**：iter084 可直接读取 `baseline.json` 的 `metrics/dimension_stats/tolerance/weights` 做 draft 对比、drift score/severity 与 meta 写入；样本不足时继续 graceful degrade。iter085 把偏离维度映射成 reviewer advisor / writer feedback 可消费的 rewrite directives，不要重做 baseline schema。iter086 只在 severity 明确时做 red drift 定向重写和复测。本轮没有任何自动重写入口。
+
+**数据状态**：新增/修改集中在 `src/style_fingerprint.py`、`config/style_fingerprint.yaml`、`main.py`、`src/paths.py`、`tests/test_style_fingerprint.py`、`tests/test_paths.py` 与迭代/README/AGENT_HANDOFF/AGENTS 文档。`iteration_083_086_style_fingerprint_roadmap.md` 为路线图交接文档；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；不 push。

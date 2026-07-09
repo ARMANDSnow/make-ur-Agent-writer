@@ -148,6 +148,8 @@ class PathHelperDerivationTests(unittest.TestCase):
             self.assertEqual(paths.reviews_dir(), ROOT / "outputs" / "reviews")
             self.assertEqual(paths.raw_txt_dir(), ROOT / "小说txt")
             self.assertEqual(paths.manual_overrides_dir(), ROOT / "data" / "manual_overrides")
+            self.assertEqual(paths.style_fingerprint_dir(), ROOT / "data" / "style_fingerprint")
+            self.assertEqual(paths.style_fingerprint_baseline_path(), ROOT / "data" / "style_fingerprint" / "baseline.json")
             self.assertEqual(paths.personas_path(), ROOT / "data" / "manual_overrides" / "personas.json")
             self.assertEqual(paths.outline_path(), ROOT / "outputs" / "debate" / "outline.md")
 
@@ -161,6 +163,8 @@ class PathHelperDerivationTests(unittest.TestCase):
             self.assertEqual(paths.reviews_dir(), base / "outputs" / "reviews")
             self.assertEqual(paths.raw_txt_dir(), base / "小说txt")
             self.assertEqual(paths.manual_overrides_dir(), base / "data" / "manual_overrides")
+            self.assertEqual(paths.style_fingerprint_dir(), base / "data" / "style_fingerprint")
+            self.assertEqual(paths.style_fingerprint_baseline_path(), base / "data" / "style_fingerprint" / "baseline.json")
             self.assertEqual(paths.personas_path(), base / "data" / "manual_overrides" / "personas.json")
             self.assertEqual(paths.outline_path(), base / "outputs" / "debate" / "outline.md")
 

@@ -1,0 +1,92 @@
+schema_version: 1
+fingerprint_version: local-stat-v1
+language: zh
+
+source:
+  min_samples: 1
+  min_total_chars: 500
+  good_sample_count: 3
+  good_total_chars: 4000
+
+sentence:
+  short_chars_max: 12
+  long_chars_min: 45
+
+tolerance:
+  stdev_multiplier: 1.5
+  relative_floor_ratio: 0.12
+  default_floor: 0.01
+  metric_floors:
+    avg_sentence_length: 2.0
+    sentence_p50: 2.0
+    sentence_p90: 3.0
+    short_sentence_ratio: 0.04
+    long_sentence_ratio: 0.04
+    avg_paragraph_chars: 12.0
+    dialogue_line_ratio: 0.04
+    quote_span_ratio: 0.04
+    punctuation_density: 0.02
+    question_exclaim_density: 0.01
+    ellipsis_density: 0.005
+    contrast_sentence_density: 0.03
+    ai_cliche_density: 0.002
+    sensory_imagery_density: 0.006
+    exposition_connector_density: 0.004
+
+weights:
+  avg_sentence_length: 1.0
+  sentence_p50: 0.7
+  sentence_p90: 0.9
+  short_sentence_ratio: 0.8
+  long_sentence_ratio: 0.8
+  avg_paragraph_chars: 0.8
+  dialogue_line_ratio: 0.9
+  quote_span_ratio: 0.6
+  punctuation_density: 0.7
+  question_exclaim_density: 0.4
+  ellipsis_density: 0.4
+  contrast_sentence_density: 0.8
+  ai_cliche_density: 0.8
+  sensory_imagery_density: 0.8
+  exposition_connector_density: 0.8
+
+lexicons:
+  ai_cliche_terms:
+    - 命运的齿轮
+    - 无声地诉说
+    - 仿佛在诉说
+    - 宿命感
+    - 内心深处涌起
+    - 这一刻他终于明白
+  sensory_imagery_terms:
+    - 风
+    - 雨
+    - 雪
+    - 光
+    - 影
+    - 声音
+    - 气味
+    - 冷
+    - 热
+    - 灯
+    - 血
+    - 铁
+    - 尘
+    - 玻璃
+  exposition_connector_terms:
+    - 因此
+    - 所以
+    - 于是
+    - 然而
+    - 但是
+    - 可是
+    - 这意味着
+    - 换句话说
+    - 也就是说
+    - 总而言之
+  contrast_patterns:
+    - 不是.+而是
+    - 不是.+只是
+    - 不是.+却是
+    - 没有.+只有
+    - 与其.+不如

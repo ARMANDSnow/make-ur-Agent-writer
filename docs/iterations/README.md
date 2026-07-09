@@ -93,3 +93,5 @@
 93. [Iteration 080 - 短剧站③分镜生成 + grid 编辑器](./iteration_080_drama_storyboard_grid.md)
 94. [Iteration 081 - 短剧站④角色 + 角色库 + AI 绘画骨架](./iteration_081_drama_characters_ai_draw.md)
 95. [Iteration 082 - 短剧 drama_reviewer + 整集组装 + episodes 页](./iteration_082_drama_reviewer_episodes.md)
+96. [Iteration 083-086 路线图 - 文风指纹 baseline、漂移告警与定向重写闭环](./iteration_083_086_style_fingerprint_roadmap.md)
+97. [Iteration 083 - 量化文风指纹 Baseline v1](./iteration_083_style_fingerprint_baseline.md)

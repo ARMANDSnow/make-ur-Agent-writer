@@ -18,7 +18,7 @@ CLI 的入口是 `write-readiness` 和 `write-book`。另外有一个本地网�
 
 ## 几个设计取舍
 
-- 开发默认 mock。1685 个单测本地跑完，不烧 token；`tests/__init__.py` 里强制 `OPENAI_MODEL=mock`，避免 `.env` 漏进测试。
+- 开发默认 mock。1712 个单测本地跑完，不烧 token；`tests/__init__.py` 里强制 `OPENAI_MODEL=mock`，避免 `.env` 漏进测试。
 - 真模型跑之前先过 preflight。env、context limit、provider 路由、manifest 完整性等几类 FATAL 检查不过，就不让往下跑。
 - 一本书一个 workspace（`workspaces/<name>/`），靠 `--book` 切换，彼此不串数据。
 - 中英文自动判定切章；EPUB 用标准库 `zipfile + xml.etree + html.parser` 直接转 txt，没引新依赖。
@@ -152,6 +152,7 @@ workspaces/<book>/
 | `drive-book start/status/resume/stop/report` | 长程驱动器：脱离会话（detach + ppid=1）分段编排 debate/plan/write-book，断点续跑零重复花费 + 预算双层 + blocked 停人审 + 审计账本（iter 052） |
 | `auto-pipeline --chapters N --force` | 9 步 SOP 一键编排，CLI 与 WebUI wizard 共用（iter 026/028） |
 | `web --port 8765` | 本地 WebUI：书架 / 四阶段工作台 / 章节 / 评审 / 任务（iter 025 起；工作台 iter 048；全程可编辑 iter 050） |
+| `style-fingerprint build-baseline` / `style-fingerprint inspect-draft --chapter N` | 量化文风 baseline 与草稿指标检查（iter 083，默认 mock-only、仅存统计量） |
 | `preflight` / `status` / `estimate-cost` | 守门 / 状态 / 成本汇总 |
 
 [README_EN.md](README_EN.md) 里有架构图、3-tier 执行说明和全部迭代日志索引。
@@ -180,12 +181,13 @@ workspaces/<book>/
 | 阶段 17（iter 064）| **Codex findings 收口：CLI/Web 健壮性对齐 + 硬化**（6 条 finding 全核验属实，前 5 条有界硬化，语义闭环 large→iter065+）：**#1** 新建核心层 `src/run_params.py`（cap 表 + finite 守门）统一 CLI/Web/driver——Web 改薄包装复用、`main.py` 4 arm + `book_driver._build_params` 硬拒绝 `SystemExit(2)`、`book_runner` budget finite 末线防御（`--chapters 999999999` 不再 OOM、`--budget-cny nan` 不再绕过成本闸）/ **#2** `OutlineStale(ValueError)` 统一 plan-chapters stale-outline 出口（CLI 复用 `readiness_catalog` 友好文案 + exit4，不再裸 ValueError）/ **#3** 移动端 `.topbar-actions` 作用域到 `.topbar-actions-wrap`（不再误伤概览/章节内容按钮）/ **#4** `errors._redact_paths` 脱敏错误卡——收官审查补漏 12 处 handler 裸 `error` 键同类泄漏（新增 `exception_body` 两字段脱敏）+ 父目录含空格路径完整脱敏（P1）/ **#5** `WORKSPACE_NAME_HTML_PATTERN` 单源（前后端 `foo-` 一致拒绝）。铁律⑨ 3 维度 workflow 审查 + 对抗验证（correctness 零、reuse 零、security 1×P1 已修）；Aeloon §11.4 待同步登记。canonical **1250** tests OK | 完成 |
 | 阶段 18（iter 065-079）| **语义闭环 + 长跑可靠性 + capstone 前硬化**：iter065-073 语义/JSON/数值/UX 守门收口；iter074 章节版本 diff；iter075 全文搜索；iter076 长跑可靠性硬化；iter077 P0 五项；iter078 P1 八组；iter079 capstone 前 P2 写锁与预算硬化（Web 手工写端点桥接 flock、writer-style/extract 写锁补线、`apply-advance` 写锁、`entity_proposal_gap` readiness warning 含 `resume_from-1`、mock 预算演练开关、Web lock holder/job JSON 脱敏）。canonical **1633 tests OK**，`verify.sh` exit 0，mock preflight ok；真模型 capstone 仍需授权实跑 | 完成 |
 | 阶段 19（iter 080-082）| **短剧站③分镜 + 站④角色/角色库/AI 绘画骨架 + 评审/组装/episodes**：iter080 解锁 `drama_storyboard` schema/runner/prompt/config、5 赛道原创 storyboard fixtures、Web storyboard API 与可编辑 grid（排序/重生/高光校验）；iter081 新增 `DramaCharacter` / `CharacterSheet` / `ReferenceImage`、`character_designer`、5 赛道原创角色 fixtures、`/w/{name}/characters` 角色库页、写作页站④角色卡编辑/锁定/保存/重画、placeholder SVG 零网络绘图、真实绘图安全骨架（公网校验、PNG/JPEG/WebP、5MB cap），settings 接入 `DRAMA_MODEL` / `AI_DRAW_*`；iter082 新增 `drama_reviewer`、5 维子分与本地 verdict 推导、review fixtures、`assemble_episode()`、`episode_01.json/.meta.json`、input fingerprint stale 检测、`/w/{name}/episodes` 与 `/w/{name}/episode/1` 只读复核页、站④“评审并组装”CTA 与 suggestion apply。canonical **1707 tests OK**，`verify.sh` exit 0，mock preflight ok；真模型/真绘图 smoke 未跑（铁律⑥） | 完成 |
+| 阶段 20（iter 083）| **量化文风指纹 Baseline v1**：新增 `src/style_fingerprint.py`、`config/style_fingerprint.yaml`、`style-fingerprint build-baseline` 与 `inspect-draft` CLI；baseline 从用户本地 `data/style_examples/*.md` 生成，只存统计量/tolerance/hash/sample_count/source labels，不存原文；缺样本或样本不足返回 `insufficient_source` 不阻断；指标覆盖句长、段长、对话占比、标点密度、对比句、AI 腔词、感官/意象词、解释连接词等维度。canonical **1712 tests OK**，`verify.sh` exit 0，mock preflight ok；未接 writer/reviewer/Web/drift severity，真模型 smoke 未跑 | 完成 |
 
 阶段小结：[stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md)。会话延续锚点：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md)。
 
 ## 流水线 SOP（实时状态）
 
-一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 082**（2026-07-09，收官）——**短剧 drama_reviewer + 整集组装 + episodes 页**：短剧 4 站产物首次形成可复核 episode 真源；新增 `DramaReview`/`DramaSubScores`、5 维子分本地 verdict、`drama_reviewer` runner/prompt/config、5 赛道原创 review fixtures、`assemble_episode()` 输出 `episode_01.json` + `.meta.json`、input fingerprint stale 检测、`/w/{name}/episodes` 与 `/w/{name}/episode/1` 只读复核页、站④“评审并组装”CTA 与 suggestion apply。canonical **1707 tests OK**（.venv），`verify.sh` exit 0，mock preflight ok，真实配置态 preflight warn/无 FATAL；真模型/真绘图 smoke 未跑（铁律⑥）。上一轮 **iter 081**（2026-07-09，收官）——**短剧站④角色 + 角色库 + AI 绘画骨架**：新增 `DramaCharacter` / `CharacterSheet` schema、`character_designer` runner、5 赛道原创角色 fixtures、角色库页 `/w/{name}/characters` 与写作页站④角色卡编辑/锁定/保存/重画，默认零网络生成 placeholder SVG，真实绘图 client 仅做安全 wiring。再上一轮 **iter 080**（2026-07-08，收官）——**短剧站③分镜生成 + Grid 编辑器**：新增 schema/runner/prompt/config、5 赛道原创 fixtures、同步 200 API 与 Web grid 编辑器，支持重生本镜、排序、服务端重排 `shot_no`、双高光硬拒与零高光 soft warning。
+一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 083**（2026-07-09，收官）——**量化文风指纹 Baseline v1**：新增纯本地 `style_fingerprint` 模块、配置与 CLI，支持从 `data/style_examples/*.md` 构建版权安全 baseline，并对 `outputs/drafts/chapter_NN.md` 输出同形指标；baseline 只保存统计量、tolerance、hash、sample_count 与 source labels/hash，不保存原文片段；缺样本 graceful degrade 为 `insufficient_source`。canonical **1712 tests OK**（.venv），`verify.sh` exit 0，mock preflight ok，真实配置态 preflight warn/无 FATAL；未接 writer/reviewer/Web/drift severity，真模型 smoke 未跑（铁律⑥）。上一轮 **iter 082**（2026-07-09，收官）——**短剧 drama_reviewer + 整集组装 + episodes 页**：短剧 4 站产物首次形成可复核 episode 真源，新增 5 维评审、episode assemble 与 episodes 只读复核页。再上一轮 **iter 081**（2026-07-09，收官）——**短剧站④角色 + 角色库 + AI 绘画骨架**：新增角色 schema/runner、角色库页、站④角色卡编辑/锁定/保存/重画，默认零网络 placeholder，真实绘图 client 仅做安全 wiring。
 
 图例：✅ 已打通　⚠️ 部分打通（含 gap）　❌ 未打通
 
