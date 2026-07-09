@@ -6,7 +6,7 @@ import json
 import unittest
 from pathlib import Path
 
-from src.drama_schemas import DramaStoryboard, StoryboardShot
+from src.drama_schemas import CharacterSheet, DramaStoryboard, StoryboardShot
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "drama"
@@ -63,6 +63,30 @@ class DramaFixtureLintTests(unittest.TestCase):
             self.assertGreaterEqual(len(alt), 1)
             for raw in alt:
                 StoryboardShot(**raw)
+
+    def test_character_fixtures_match_machine_rules(self) -> None:
+        for track in TRACKS:
+            with self.subTest(track=track):
+                data = json.loads((FIXTURE_DIR / f"track_{track}_characters.json").read_text(encoding="utf-8"))
+                sheet = CharacterSheet(**data)
+                self.assertGreaterEqual(len(sheet.characters), 2)
+                by_id = {character.id: character for character in sheet.characters}
+                for character in sheet.characters:
+                    self.assertTrue(character.lora_token.isascii())
+                    self.assertRegex(character.lora_token, r"^[a-z][a-z0-9_]*$")
+                    target = character.visual_contrast_with.get("target_id")
+                    self.assertIn(target, by_id)
+                    self.assertEqual(by_id[target].visual_contrast_with.get("target_id"), character.id)
+                    for term in SUBJECTIVE_PROMPT_TERMS:
+                        self.assertNotIn(term, character.prompt_template_sd)
+
+    def test_character_fixtures_do_not_contain_forbidden_source_terms(self) -> None:
+        combined = "\n".join(
+            (FIXTURE_DIR / f"track_{track}_characters.json").read_text(encoding="utf-8")
+            for track in TRACKS
+        )
+        for term in DRAGON_RAJA_TERMS:
+            self.assertNotIn(term, combined)
 
 
 if __name__ == "__main__":

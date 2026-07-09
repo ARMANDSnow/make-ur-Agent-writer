@@ -425,7 +425,7 @@ class RoutesGetTests(unittest.TestCase):
             self.assertIn(f'data-station-pane="{tab}"', html)
         self.assertIn("③ 分镜", html)
         self.assertNotIn("分镜表尚未开放", html)
-        self.assertIn("角色设定表尚未开放", html)
+        self.assertNotIn("角色设定表尚未开放", html)
 
     def test_drama_write_storyboard_step_renders_empty_state_not_404(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
@@ -974,11 +974,9 @@ class RoutesGetTests(unittest.TestCase):
             "setup",
             "hook",
             "storyboard",
+            "characters",
         ):
             self.assertIn(f'"{kw}"', js)
-        # iter080: storyboard is implemented; characters remains locked by its
-        # disabled tab and is still absent from the hash whitelist.
-        self.assertNotIn('"characters"', js)
 
     def test_static_js_has_drama_write_identifiers(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")

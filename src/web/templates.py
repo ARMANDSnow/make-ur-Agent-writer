@@ -144,8 +144,8 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
 
 _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
-    # Drama write currently opens stations 1-3; station 4 stays locked.
     ("write", "续写", "write"),
+    ("characters", "角色库", "characters"),
     ("jobs", "任务", "jobs"),
 )
 
@@ -447,10 +447,7 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         '<button class="tab active" data-tab="setup">① 核心设定</button>'
         '<button class="tab" data-tab="hook">② 钩子</button>'
         '<button class="tab" data-tab="storyboard">③ 分镜</button>'
-        # iter080 unlocks station ③; ④ remains explicitly locked until the
-        # character-design iteration lands.
-        '<button class="tab locked" data-tab="characters" disabled aria-disabled="true" '
-        'title="即将上线">🔒 ④ 角色 <span class="badge-soon">即将上线</span></button>'
+        '<button class="tab" data-tab="characters">④ 角色</button>'
         '</div>'
         '<div class="tab-panel active" id="tab-setup" data-station-pane="setup">'
         '<p class="muted">载入中…</p></div>'
@@ -459,11 +456,7 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         '<div class="tab-panel" id="tab-storyboard" data-station-pane="storyboard">'
         '<p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-characters" data-station-pane="characters">'
-        '<div class="empty-state">'
-        '<span class="ornament">✦</span>'
-        '<h3>角色设定表尚未开放</h3>'
-        '<p class="muted">分镜与角色设定将在后续版本上线。</p>'
-        '</div></div>'
+        '<p class="muted">载入中…</p></div>'
         '</section>'
     )
     return _render_shell(
@@ -473,6 +466,33 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="write"),
+        workspace=name,
+    )
+
+
+def render_workspace_characters(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧</p>'
+        '<h1>角色库</h1>'
+        '<p class="muted">查看和维护本季角色设定、AI 绘画 prompt 与参考图。</p>'
+        '</div>'
+        '<div class="cluster">'
+        f'<a class="btn btn-secondary" href="/w/{escape(name)}/write#characters">回到站④</a>'
+        '</div>'
+        '</header>'
+        '<section id="characters-page-root">'
+        '<p class="muted">载入中…</p>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 角色库",
+        page_kind="drama_characters",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("角色库", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="characters"),
         workspace=name,
     )
 
@@ -1436,7 +1456,7 @@ def render_landing() -> str:
         '<ul class="lp-feats">'
         '<li>题材 / 赛道 / 集数一键立项</li>'
         '<li>创作规范快照 + 分集 setup 生成</li>'
-        '<li class="lp-feat-beta">Beta：当前开放前 2 站，后续站点陆续解锁</li>'
+        '<li class="lp-feat-beta">Beta：4 站审查向导已开放，真模型 smoke 待授权</li>'
         '</ul></div>'
         '<div class="card-footer lp-card-footer">'
         '<a class="btn btn-secondary" href="/wizard?type=drama">体验短剧 Beta</a></div>'

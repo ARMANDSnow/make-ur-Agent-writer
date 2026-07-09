@@ -91,3 +91,4 @@
 91. [Iteration 079-083 路线图 - 短剧（drama）模块实施规划（batch roadmap，非单轮记录；每轮开工仍建各自 8 段文档并参考本文件）：079 站③分镜+grid 编辑器 → 080 站④角色+角色库+AI 绘画骨架 → 081 drama_reviewer+整集组装+episodes 页 → 082 导出×4+Insights+第2集重生 → 083 真模型收口批（站①②补课+每站 job 化+drama_smoke.sh，实跑待授权）；ADR a-f：分站 5 task 共享 DRAMA_MODEL / job 化与真模型同批 083 / drama_schemas + mock=None 自动探测 + 硬软校验分层 / grid 原生控件不用 contenteditable / fixture×20 内容合规机器断言 / reviewer 独立轻量不复用 novel 框架](./iteration_079_083_drama_module_roadmap.md)
 92. [Iteration 079 - Capstone 前写锁与预算硬化](./iteration_079_capstone_p2_hardening.md)
 93. [Iteration 080 - 短剧站③分镜生成 + grid 编辑器](./iteration_080_drama_storyboard_grid.md)
+94. [Iteration 081 - 短剧站④角色 + 角色库 + AI 绘画骨架](./iteration_081_drama_characters_ai_draw.md)

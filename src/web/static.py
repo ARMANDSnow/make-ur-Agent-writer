@@ -1342,6 +1342,27 @@ html { scroll-behavior: smooth; }
   font-size: var(--fs-xs); color: var(--amber-strong); background: var(--gold-soft);
   border-radius: var(--radius-pill); padding: 0 var(--space-2); margin-left: var(--space-1);
 }
+
+/* drama character cards */
+.character-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.character-card {
+  display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--space-4);
+  padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-2);
+  background: var(--bg);
+}
+.character-ref-box { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.character-ref-img, .character-ref-placeholder {
+  width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: var(--radius-1);
+  background: var(--bg-sunken); object-fit: cover;
+}
+.character-ref-placeholder {
+  display: flex; align-items: center; justify-content: center; color: var(--ink-3);
+  font-size: var(--fs-sm); text-align: center; padding: var(--space-3);
+}
+.check-row { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-2); font-size: var(--fs-sm); }
+@media (max-width: 720px) {
+  .character-card { grid-template-columns: 1fr; }
+}
 """
 
 
@@ -1868,9 +1889,7 @@ JS_DASHBOARD = """\
     // which broke the /chapter/N#edit deep-link (it IS implemented). Restore it.
     "body", "edit", "review", "lint", "advisor", "history",
     "chapters", "outline", "decisions",
-    // iter080: storyboard is implemented for drama; characters stays locked by
-    // its disabled tab rather than a deep-link whitelist entry.
-    "setup", "hook", "storyboard",
+    "setup", "hook", "storyboard", "characters",
   ];
   function bindHashTabs() {
     function activate(tab) {
@@ -2148,7 +2167,7 @@ JS_DASHBOARD = """\
       if (headline) {
         headline.textContent = todo
           ? "下一步：完成「" + todo.label + "」"
-          : "前 2 站已完成。分镜与角色设定将在后续版本上线";
+          : "4 站已完成。可以进入角色库继续整理视觉资产";
       }
     } catch (err) {
       box.innerHTML = renderErrorCard(err);
@@ -4783,6 +4802,7 @@ JS_DASHBOARD = """\
     await loadStationSetup();
     await loadStationHooks();
     await loadStationStoryboard();
+    await loadStationCharacters();
     await loadDramaProgress();
   }
 
@@ -4868,6 +4888,7 @@ JS_DASHBOARD = """\
           await loadStationSetup();
           await loadStationHooks();
           await loadStationStoryboard();
+          await loadStationCharacters();
           await loadDramaProgress();
         } catch (err) {
           showToast("生成失败：" + errTitle(err), "error");
@@ -4885,6 +4906,7 @@ JS_DASHBOARD = """\
           await loadStationSetup();
           await loadStationHooks();
           await loadStationStoryboard();
+          await loadStationCharacters();
           await loadDramaProgress();
         } catch (err) {
           showToast("重新生成失败：" + errTitle(err), "error");
@@ -4910,6 +4932,7 @@ JS_DASHBOARD = """\
           if (tab) tab.click();
           await loadStationHooks();
           await loadStationStoryboard();
+          await loadStationCharacters();
           await loadDramaProgress();
         } catch (err) {
           showToast("保存失败：" + errTitle(err), "error");
@@ -5007,6 +5030,7 @@ JS_DASHBOARD = """\
         if (tab) tab.click();
         await loadStationHooks();
         await loadStationStoryboard();
+        await loadStationCharacters();
         await loadDramaProgress();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
@@ -5162,6 +5186,7 @@ JS_DASHBOARD = """\
           updateStoryboardDuration(pane);
           await loadDramaProgress();
           showToast("分镜表已生成", "info");
+          await loadStationCharacters();
         } catch (err) {
           showToast("生成失败：" + errTitle(err), "error");
           genBtn.disabled = false;
@@ -5183,6 +5208,7 @@ JS_DASHBOARD = """\
         updateStoryboardDuration(pane);
         await loadDramaProgress();
         showToast("分镜表已保存", "info");
+        await loadStationCharacters();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
       }
@@ -5199,6 +5225,7 @@ JS_DASHBOARD = """\
           updateStoryboardDuration(pane);
           await loadDramaProgress();
           showToast("分镜表已重新生成", "info");
+          await loadStationCharacters();
         } catch (err) {
           showToast("重新生成失败：" + errTitle(err), "error");
           regenBtn.disabled = false;
@@ -5236,6 +5263,7 @@ JS_DASHBOARD = """\
           bindStationStoryboardActions();
           updateStoryboardDuration(pane);
           showToast("本镜已重生", "info");
+          await loadStationCharacters();
         } catch (err) {
           showToast("重生失败：" + errTitle(err), "error");
           btn.disabled = false;
@@ -5264,6 +5292,226 @@ JS_DASHBOARD = """\
     const cls = Math.abs(delta) <= 3 ? "ready" : (Math.abs(delta) <= 10 ? "warn" : "blocked");
     el.className = "storyboard-duration " + cls;
     el.textContent = "总时长 " + total + " 秒 / 目标 " + target + " 秒（" + (delta >= 0 ? "+" : "") + delta + "）";
+  }
+
+  async function loadStationCharacters() {
+    const pane = document.querySelector('[data-station-pane="characters"]');
+    if (!pane) return;
+    pane.innerHTML = skeleton(3);
+    try {
+      const progress = await fetchJson(wsUrl("/drama/progress"));
+      const station = (progress.stations || []).find((s) => s.id === "characters");
+      if (station && station.status === "locked") {
+        pane.innerHTML = '<div class="alert info">请先完成站 ③ 分镜。</div>';
+        return;
+      }
+      const data = await fetchJson(wsUrl("/drama/characters"));
+      if (!data.exists || !data.sheet) {
+        pane.__characterSheet = null;
+        pane.innerHTML = renderCharactersEmpty("站 ④ 角色", "站 ④ 会把主角、反派和 AI 绘画 prompt 整理成角色表。");
+      } else {
+        pane.__characterSheet = data.sheet;
+        pane.innerHTML = renderCharacterSheet(data.sheet, "站 ④ 角色");
+      }
+      bindCharacterSheetActions(pane);
+    } catch (err) {
+      pane.innerHTML = renderErrorCard(err);
+    }
+  }
+
+  async function initDramaCharacters() {
+    const root = document.getElementById("characters-page-root");
+    if (!root) return;
+    root.innerHTML = skeleton(4);
+    try {
+      const data = await fetchJson(wsUrl("/drama/characters"));
+      if (!data.exists || !data.sheet) {
+        root.__characterSheet = null;
+        root.innerHTML = renderCharactersEmpty("角色库", "完成站③后，可以生成本季角色设定表。");
+      } else {
+        root.__characterSheet = data.sheet;
+        root.innerHTML = renderCharacterSheet(data.sheet, "角色库");
+      }
+      bindCharacterSheetActions(root);
+    } catch (err) {
+      root.innerHTML = renderErrorCard(err);
+    }
+  }
+
+  function renderCharactersEmpty(title, hint) {
+    return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
+      '<span class="badge warn">todo</span></div><div class="card-body">' +
+      '<div class="empty-state"><span class="ornament">✦</span>' +
+      '<h3>等待生成角色表</h3>' +
+      '<p class="muted">' + escapeHtml(hint) + '</p>' +
+      '<button type="button" class="btn btn-primary" data-generate-characters>▸ 生成角色表</button>' +
+      '</div></div></div>';
+  }
+
+  function renderCharacterSheet(sheet, title) {
+    const chars = sheet.characters || [];
+    const cards = chars.map(renderCharacterCard).join("");
+    return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
+      '<span class="badge ready">done</span></div><div class="card-body stack">' +
+      '<form data-character-sheet-form class="stack">' +
+      '<div class="kv-list compact">' +
+      '<div class="k">season</div><div class="v">' + escapeHtml(String(sheet.season_no || 1)) + '</div>' +
+      '<div class="k">source</div><div class="v">' + escapeHtml(sheet.source_storyboard_title || "") + '</div>' +
+      '</div>' +
+      '<div class="character-grid">' + cards + '</div>' +
+      '<div class="form-actions">' +
+      '<button type="button" class="btn btn-secondary" data-regenerate-characters>重新生成</button>' +
+      '<button type="submit" class="btn btn-primary">保存角色表</button>' +
+      '</div></form></div></div>';
+  }
+
+  function renderCharacterCard(character, idx) {
+    const vf = character.visual_features || {};
+    const img = firstCharacterImage(character);
+    const imageHtml = img
+      ? '<img class="character-ref-img" src="' + escapeHtml(characterRefUrl(character.id, img.path)) + '" alt="' + escapeHtml(character.name || character.id) + '">'
+      : '<div class="character-ref-placeholder">未生成参考图</div>';
+    return '<section class="character-card" data-character-card="' + idx + '">' +
+      '<div class="character-ref-box">' + imageHtml +
+      '<button type="button" class="btn btn-secondary btn-sm" data-redraw-character="' + escapeHtml(character.id || "") + '">重画参考图</button></div>' +
+      '<div class="stack">' +
+      '<div class="cluster" style="justify-content:space-between">' +
+      '<strong><code>' + escapeHtml(character.id || "") + '</code> · ' + escapeHtml(character.name || "") + '</strong>' +
+      '<label class="check-row"><input type="checkbox" data-char-field="manual_override" ' + (character.manual_override ? "checked" : "") + '> 锁定</label>' +
+      '</div>' +
+      '<div class="form-grid-2">' +
+      charInput("name", "姓名", character.name || "") +
+      charInput("role", "角色", character.role || "") +
+      charInput("age_range", "年龄段", character.age_range || "") +
+      charInput("gender", "性别", character.gender || "") +
+      charInput("lora_token", "LoRA token", character.lora_token || "") +
+      charInput("wardrobe_default", "默认服装", character.wardrobe_default || "") +
+      '</div>' +
+      charTextarea("visual_signature", "视觉签名", character.visual_signature || "", 2) +
+      '<div class="form-grid-2">' +
+      charTextarea("vf_face", "face", vf.face || "", 2) +
+      charTextarea("vf_hair", "hair", vf.hair || "", 2) +
+      charTextarea("vf_body", "body", vf.body || "", 2) +
+      charTextarea("expression_keywords", "表情关键词", (character.expression_keywords || []).join("，"), 2) +
+      '</div>' +
+      charTextarea("prompt_template_sd", "SD Prompt", character.prompt_template_sd || "", 4) +
+      renderSuggestionCount(character) +
+      '</div></section>';
+  }
+
+  function charInput(field, label, value) {
+    return '<div class="field"><label>' + escapeHtml(label) + '</label><input data-char-field="' + field + '" value="' + escapeHtml(value) + '"></div>';
+  }
+
+  function charTextarea(field, label, value, rows) {
+    return '<div class="field"><label>' + escapeHtml(label) + '</label><textarea rows="' + rows + '" data-char-field="' + field + '">' + escapeHtml(value) + '</textarea></div>';
+  }
+
+  function renderSuggestionCount(character) {
+    const count = (character.agent_suggestions || []).length;
+    return count ? '<div class="alert info">已有 ' + count + ' 条 agent 建议待人工查看。</div>' : "";
+  }
+
+  function firstCharacterImage(character) {
+    const refs = character.reference_images || [];
+    return refs.length ? refs[0] : null;
+  }
+
+  function characterRefUrl(cid, relPath) {
+    const parts = String(relPath || "").split("/");
+    const filename = parts[parts.length - 1] || "";
+    return wsUrl("/character-ref/" + encodeURIComponent(cid || "") + "/" + encodeURIComponent(filename));
+  }
+
+  function collectCharacterSheet(root) {
+    const base = root.__characterSheet || { schema_version: 1, season_no: 1, episode_no: 1, characters: [] };
+    const oldChars = base.characters || [];
+    const cards = Array.from(root.querySelectorAll("[data-character-card]"));
+    const characters = cards.map(function (card, idx) {
+      const old = oldChars[idx] || {};
+      const get = function (field) {
+        const el = card.querySelector('[data-char-field="' + field + '"]');
+        return el ? el.value : "";
+      };
+      const checked = function (field) {
+        const el = card.querySelector('[data-char-field="' + field + '"]');
+        return !!(el && el.checked);
+      };
+      return Object.assign({}, old, {
+        name: get("name"),
+        role: get("role"),
+        age_range: get("age_range"),
+        gender: get("gender"),
+        lora_token: get("lora_token"),
+        wardrobe_default: get("wardrobe_default"),
+        visual_signature: get("visual_signature"),
+        prompt_template_sd: get("prompt_template_sd"),
+        manual_override: checked("manual_override"),
+        expression_keywords: splitKeywords(get("expression_keywords")),
+        visual_features: Object.assign({}, old.visual_features || {}, {
+          face: get("vf_face"),
+          hair: get("vf_hair"),
+          body: get("vf_body"),
+        }),
+      });
+    });
+    return Object.assign({}, base, { characters: characters });
+  }
+
+  function splitKeywords(text) {
+    return String(text || "").replaceAll("，", ",").split(",").map(function (item) { return item.trim(); }).filter(Boolean);
+  }
+
+  function bindCharacterSheetActions(root) {
+    const gen = root.querySelector("[data-generate-characters], [data-regenerate-characters]");
+    if (gen) {
+      gen.addEventListener("click", async function () {
+        gen.disabled = true;
+        try {
+          const data = await postJson(wsUrl("/drama/characters"), {});
+          root.__characterSheet = data.sheet;
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色");
+          bindCharacterSheetActions(root);
+          await loadDramaProgress();
+          showToast("角色表已生成", "info");
+        } catch (err) {
+          showToast("生成失败：" + errTitle(err), "error");
+          gen.disabled = false;
+        }
+      });
+    }
+    const form = root.querySelector("[data-character-sheet-form]");
+    if (form) {
+      form.addEventListener("submit", async function (ev) {
+        ev.preventDefault();
+        try {
+          const data = await putJson(wsUrl("/drama/characters"), { sheet: collectCharacterSheet(root) });
+          root.__characterSheet = data.sheet;
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色");
+          bindCharacterSheetActions(root);
+          await loadDramaProgress();
+          showToast("角色表已保存", "info");
+        } catch (err) {
+          showToast("保存失败：" + errTitle(err), "error");
+        }
+      });
+    }
+    root.querySelectorAll("[data-redraw-character]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        btn.disabled = true;
+        try {
+          const cid = btn.getAttribute("data-redraw-character") || "";
+          const data = await postJson(wsUrl("/drama/characters/" + encodeURIComponent(cid) + "/redraw"), {});
+          root.__characterSheet = data.sheet;
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色");
+          bindCharacterSheetActions(root);
+          showToast("参考图已更新", "info");
+        } catch (err) {
+          showToast("重画失败：" + errTitle(err), "error");
+          btn.disabled = false;
+        }
+      });
+    });
   }
 
   // ===== page: jobs =======================================================
@@ -5366,6 +5614,7 @@ JS_DASHBOARD = """\
     if (pageKind === "plan") return initPlan();
     if (pageKind === "insights") return initInsights();
     if (pageKind === "drama_write") return initDramaWrite();
+    if (pageKind === "drama_characters") return initDramaCharacters();
     if (pageKind === "jobs") return initJobs();
   }
   document.addEventListener("DOMContentLoaded", boot);

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "season_no": 1,
+  "episode_no": 1,
+  "track": "觉醒",
+  "source_storyboard_title": "汤停在门口",
+  "characters": [
+    {
+      "id": "c001",
+      "name": "沈澜",
+      "role": "主角 / 家庭照料者",
+      "age_range": "26-28",
+      "gender": "女",
+      "lora_token": "shen_lan",
+      "visual_features": {
+        "face": "圆脸，眼尾微垂，笑容停住时嘴角发紧",
+        "hair": "黑发扎低马尾，碎发贴在耳边",
+        "body": "围裙系得很紧，端汤时手背有烫红痕"
+      },
+      "wardrobe_default": "浅绿色围裙 + 白色家居衬衣",
+      "expression_keywords": ["习惯性微笑", "停住", "放下"],
+      "visual_signature": "围裙口袋上缝着一枚白色小纽扣",
+      "prompt_template_sd": "27-year-old Chinese woman, round face, slightly downturned eyes, low ponytail, light green apron with a small white button on pocket, white home shirt, red mark on back of hand, kitchen doorway, smile stopping",
+      "reference_images": [],
+      "appearances": [1],
+      "manual_override": false,
+      "visual_contrast_with": {
+        "target_id": "c002",
+        "rules": {
+          "color_temperature": "浅绿白色家务感 vs 深紫金色长辈权威",
+          "camera_height": "门口持物站立 vs 沙发中央坐姿",
+          "frame_position": "画面左下被挤压 vs 画面中央占满"
+        }
+      },
+      "agent_suggestions": []
+    },
+    {
+      "id": "c002",
+      "name": "周淑芬",
+      "role": "反派 / 婆婆",
+      "age_range": "54-56",
+      "gender": "女",
+      "lora_token": "zhou_shufen",
+      "visual_features": {
+        "face": "颧骨高，唇线薄，眼神从上往下扫",
+        "hair": "盘发紧贴头皮",
+        "body": "背挺直坐在沙发中央，手指慢慢拨佛珠"
+      },
+      "wardrobe_default": "深紫旗袍 + 金色披肩",
+      "expression_keywords": ["审视", "训斥", "错愕"],
+      "visual_signature": "一串深棕佛珠绕在右手腕",
+      "prompt_template_sd": "55-year-old Chinese woman, high cheekbones, thin lips, tight coiled hair, deep purple qipao, golden shawl, dark brown prayer beads around right wrist, sitting centered on sofa, downward judging gaze",
+      "reference_images": [],
+      "appearances": [1],
+      "manual_override": false,
+      "visual_contrast_with": {
+        "target_id": "c001",
+        "rules": {
+          "color_temperature": "深紫金色长辈权威 vs 浅绿白色家务感",
+          "camera_height": "沙发中央坐姿压人 vs 门口持物站立",
+          "frame_position": "画面中央占满 vs 画面左下被挤压"
+        }
+      },
+      "agent_suggestions": []
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "season_no": 1,
+  "episode_no": 1,
+  "track": "霸总",
+  "source_storyboard_title": "会议室的名字",
+  "characters": [
+    {
+      "id": "c001",
+      "name": "林晚",
+      "role": "主角 / 隐名股东",
+      "age_range": "25-27",
+      "gender": "女",
+      "lora_token": "lin_wan",
+      "visual_features": {
+        "face": "鹅蛋脸、单眼皮、嘴角习惯性抿直",
+        "hair": "齐肩黑发，刘海三七分",
+        "body": "中等身高，背挺直，站定时双手自然垂在身侧"
+      },
+      "wardrobe_default": "米白高领针织衫 + 灰色西装裤",
+      "expression_keywords": ["克制", "警觉", "平静反问"],
+      "visual_signature": "左耳一枚极小的圆形银耳钉",
+      "prompt_template_sd": "26-year-old Chinese woman, oval face, single eyelid, straight pressed lips, shoulder-length black hair with side swept bangs, ivory turtleneck, grey suit pants, small round silver earring on left ear only, restrained expression, modern boardroom lighting",
+      "reference_images": [],
+      "appearances": [1],
+      "manual_override": false,
+      "visual_contrast_with": {
+        "target_id": "c002",
+        "rules": {
+          "color_temperature": "冷调米白灰 vs 暖调深棕金",
+          "camera_height": "前半段被俯拍，反转后平视",
+          "frame_position": "画面左侧静止 vs 画面右侧压迫"
+        }
+      },
+      "agent_suggestions": []
+    },
+    {
+      "id": "c002",
+      "name": "周铭",
+      "role": "反派 / 准董事长",
+      "age_range": "29-31",
+      "gender": "男",
+      "lora_token": "zhou_ming",
+      "visual_features": {
+        "face": "窄长脸，眉峰硬，笑时只牵一侧嘴角",
+        "hair": "短发后梳，发蜡固定",
+        "body": "肩线硬挺，坐姿向后靠，手腕常露出袖扣"
+      },
+      "wardrobe_default": "深棕三件套西装 + 金属袖扣",
+      "expression_keywords": ["轻慢", "不耐", "僵住"],
+      "visual_signature": "右手总把咖啡杯推到别人掌心",
+      "prompt_template_sd": "30-year-old Chinese man, narrow long face, sharp eyebrow ridge, slicked back short black hair, dark brown three piece suit, metal cufflinks, one-sided smirk, boardroom table, dominant posture",
+      "reference_images": [],
+      "appearances": [1],
+      "manual_override": false,
+      "visual_contrast_with": {
+        "target_id": "c001",
+        "rules": {
+          "color_temperature": "暖调深棕金 vs 冷调米白灰",
+          "camera_height": "前半段俯视他人，反转后被平视压住",
+          "frame_position": "画面右侧压迫 vs 画面左侧静止"
+        }
+      },
+      "agent_suggestions": []
+    }
+  ]
+}

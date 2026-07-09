@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ..drama_schemas import DramaStoryboard, episode_paths, validate_storyboard_hard
+from ..drama_schemas import CharacterSheet, DramaStoryboard, character_paths, episode_paths, validate_storyboard_hard
 from ..utils import read_json_optional
 
 
@@ -18,10 +18,12 @@ def collect_drama_progress(workspace: str) -> Dict[str, Any]:
     wizard_input_path = ep.root / "data" / "wizard_input.json"
     setup_path = ep.setup_path
     storyboard_path = ep.storyboard_path
+    character_sheet_path = character_paths(workspace).sheet_path
 
     wizard_input = read_json_optional(wizard_input_path, None)
     setup_data = read_json_optional(setup_path, None)
     storyboard_data = read_json_optional(storyboard_path, None)
+    character_data = read_json_optional(character_sheet_path, None)
     setup_done = bool(
         isinstance(setup_data, dict)
         and isinstance(setup_data.get("core_setup"), dict)
@@ -33,6 +35,7 @@ def collect_drama_progress(workspace: str) -> Dict[str, Any]:
         and setup_data["hook"].get("type")
     )
     storyboard_done = _storyboard_done(storyboard_data)
+    characters_done = _characters_done(character_data)
 
     return {
         "workspace": workspace,
@@ -56,7 +59,12 @@ def collect_drama_progress(workspace: str) -> Dict[str, Any]:
                 "status": "done" if storyboard_done else ("todo" if hook_done else "locked"),
                 "data": storyboard_data if storyboard_done else None,
             },
-            {"id": "characters", "label": "角色", "status": "locked", "data": None},
+            {
+                "id": "characters",
+                "label": "角色",
+                "status": "done" if characters_done else ("todo" if storyboard_done else "locked"),
+                "data": character_data if characters_done else None,
+            },
         ],
     }
 
@@ -69,3 +77,13 @@ def _storyboard_done(data: Any) -> bool:
     except Exception:
         return False
     return not validate_storyboard_hard(board)
+
+
+def _characters_done(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    try:
+        CharacterSheet(**data)
+    except Exception:
+        return False
+    return True

@@ -111,7 +111,7 @@ class DramaViewTests(unittest.TestCase):
         self._write_storyboard()
         stations = collect_drama_progress("drama")["stations"]
         self.assertEqual(stations[2]["status"], "done")
-        self.assertEqual(stations[3]["status"], "locked")
+        self.assertEqual(stations[3]["status"], "todo")
 
     def test_storyboard_invalid_file_does_not_mark_done(self) -> None:
         self._write_setup({"core_setup": {"protagonist": "p"}, "hook": {"type": "情绪钩"}})

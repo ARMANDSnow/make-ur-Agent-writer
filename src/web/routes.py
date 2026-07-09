@@ -253,6 +253,23 @@ def render_workspace_write_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_write(name, list_workspaces()))
 
 
+def render_workspace_characters_page(name: str) -> Tuple[int, str, bytes]:
+    """Drama-only character library page."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_characters(name, list_workspaces()))
+
+
 def render_workspace_continue(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard_novel_only(name)
     if guard:
@@ -1904,6 +1921,218 @@ def api_drama_storyboard_rewrite_shot(name: str, body: bytes) -> Tuple[int, str,
     return _storyboard_payload_response(result)
 
 
+_CHARACTER_ID_RE = re.compile(r"^c\d{3}$")
+_REF_FILENAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,120}$")
+_CHARACTER_REF_CONTENT_TYPES = {
+    ".svg": "image/svg+xml; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+
+
+def _character_sheet_response(sheet: Dict[str, Any], *, exists: bool = True) -> Tuple[int, str, bytes]:
+    from ..drama_schemas import CharacterSheet
+    from ..schemas import model_to_dict
+
+    data = model_to_dict(CharacterSheet(**sheet))
+    return _json(200, {"exists": exists, "sheet": data})
+
+
+def _drama_characters_prereq_error(name: str) -> Optional[Tuple[int, str, bytes]]:
+    from ..drama_schemas import DramaStoryboard, episode_paths, validate_storyboard_hard
+
+    data = read_json_optional(episode_paths(name).storyboard_path, None)
+    if not isinstance(data, dict):
+        return _json(400, {"error": "station 3 must complete before station 4"})
+    try:
+        board = DramaStoryboard(**data)
+    except Exception as exc:
+        return _json(400, errors.exception_body(exc))
+    hard_errors = validate_storyboard_hard(board)
+    if hard_errors:
+        return _json(400, {"error": "station 3 storyboard is invalid: " + ", ".join(hard_errors)})
+    return None
+
+
+def api_drama_characters_get(name: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    prereq = _drama_characters_prereq_error(name)
+    if prereq:
+        return prereq
+    from ..drama_schemas import character_paths
+
+    data = read_json_optional(character_paths(name).sheet_path, None)
+    if data is None:
+        return _json(200, {"exists": False, "sheet": None})
+    if not isinstance(data, dict):
+        return _json(500, {"error": "character sheet file must be a JSON object"})
+    try:
+        return _character_sheet_response(data)
+    except Exception as exc:
+        return _json(500, errors.exception_body(exc))
+
+
+def api_drama_characters_generate(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .. import character_designer
+    from ..drama_schemas import character_paths
+    from ..utils import write_json
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-characters"):
+            prereq = _drama_characters_prereq_error(name)
+            if prereq:
+                return prereq
+            existing = read_json_optional(character_paths(name).sheet_path, None)
+            try:
+                incoming = character_designer.run(name, mock=True)
+                result = character_designer.merge_character_sheet(existing if isinstance(existing, dict) else None, incoming)
+            except FileNotFoundError as exc:
+                return _json(400, errors.exception_body(exc))
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except RuntimeError as exc:
+                _log_degraded("drama_characters_runtime", exc)
+                return _json(500, errors.error_body(errors.build_card("server_error")))
+            write_json(character_paths(name).sheet_path, result)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _character_sheet_response(result)
+
+
+def api_drama_characters_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    raw = payload.get("sheet") if isinstance(payload.get("sheet"), dict) else payload
+    if not isinstance(raw, dict):
+        return _json(400, {"error": "character sheet must be a JSON object"})
+
+    from ..drama_schemas import CharacterSheet, character_paths
+    from ..schemas import model_to_dict
+    from ..utils import write_json
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-characters-save"):
+            prereq = _drama_characters_prereq_error(name)
+            if prereq:
+                return prereq
+            try:
+                data = model_to_dict(CharacterSheet(**raw))
+            except Exception as exc:
+                return _json(400, errors.exception_body(exc))
+            write_json(character_paths(name).sheet_path, data)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _json(200, {"saved": True, "sheet": data})
+
+
+def api_drama_character_redraw(name: str, cid: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    if not _CHARACTER_ID_RE.fullmatch(cid):
+        return _json(400, {"error": "invalid character id"})
+
+    from .. import ai_draw_client
+    from ..drama_schemas import CharacterSheet, character_paths
+    from ..schemas import model_to_dict
+    from ..utils import write_json
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-character-redraw"):
+            prereq = _drama_characters_prereq_error(name)
+            if prereq:
+                return prereq
+            sheet_path = character_paths(name).sheet_path
+            raw = read_json_optional(sheet_path, None)
+            if not isinstance(raw, dict):
+                return _json(400, {"error": "character sheet must exist before redraw"})
+            try:
+                sheet = CharacterSheet(**raw)
+            except Exception as exc:
+                return _json(400, errors.exception_body(exc))
+            characters = [model_to_dict(character) for character in sheet.characters]
+            target = next((character for character in characters if character.get("id") == cid), None)
+            if target is None:
+                return _json(404, {"error": "character not found"})
+            try:
+                image = ai_draw_client.redraw_character_reference(name, target, mock=True)
+            except Exception as exc:
+                _log_degraded("drama_character_redraw", exc)
+                return _json(500, errors.error_body(errors.build_card("server_error")))
+            refs = [ref for ref in target.get("reference_images", []) if ref.get("path") != image.get("path")]
+            refs.insert(0, image)
+            target["reference_images"] = refs
+            data = model_to_dict(CharacterSheet(**{**model_to_dict(sheet), "characters": characters}))
+            write_json(sheet_path, data)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _json(200, {"image": image, "sheet": data})
+
+
+def api_character_ref(name: str, cid: str, filename: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    if not _CHARACTER_ID_RE.fullmatch(cid) or not _REF_FILENAME_RE.fullmatch(filename):
+        return _json(400, {"error": "invalid character reference path"})
+    from ..ai_draw_client import MAX_RESPONSE_BYTES
+    from ..drama_schemas import character_paths
+
+    root = character_paths(name).refs_dir / cid
+    target = root / filename
+    try:
+        resolved = target.resolve()
+        resolved.relative_to(root.resolve())
+    except (OSError, ValueError):
+        return _json(400, {"error": "invalid character reference path"})
+    if not resolved.is_file():
+        return _json(404, {"error": "character reference not found"})
+    suffix = resolved.suffix.lower()
+    content_type = _CHARACTER_REF_CONTENT_TYPES.get(suffix)
+    if not content_type:
+        return _json(400, {"error": "unsupported character reference type"})
+    try:
+        if resolved.stat().st_size > MAX_RESPONSE_BYTES:
+            return _json(413, {"error": "character reference exceeds size limit"})
+        with resolved.open("rb") as fh:
+            data = fh.read(MAX_RESPONSE_BYTES + 1)
+    except OSError:
+        return _json(404, {"error": "character reference not found"})
+    if len(data) > MAX_RESPONSE_BYTES:
+        return _json(413, {"error": "character reference exceeds size limit"})
+    return 200, content_type, data
+
+
 def api_workspace_readiness(
     name: str,
     chapters: int = 1,
@@ -2623,6 +2852,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     # Workspace-scoped IA
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_overview(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/write/?$"), lambda name, **_: render_workspace_write_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"), lambda name, **_: render_workspace_characters_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/continue/?$"), lambda name, **_: render_workspace_continue(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/chapters/?$"), lambda name, **_: render_workspace_chapters(name)),
     # iter075: 全文搜索页
@@ -2774,6 +3004,31 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/storyboard/rewrite-shot/?$"),
         lambda name, _body=b"", **_: api_drama_storyboard_rewrite_shot(name, _body),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/characters/?$"),
+        lambda name, **_: api_drama_characters_get(name),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/characters/?$"),
+        lambda name, _body=b"", **_: api_drama_characters_generate(name, _body),
+    ),
+    (
+        "PUT",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/characters/?$"),
+        lambda name, _body=b"", **_: api_drama_characters_save(name, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/characters/(?P<cid>[^/]+)/redraw/?$"),
+        lambda name, cid, _body=b"", **_: api_drama_character_redraw(name, cid, _body),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/character-ref/(?P<cid>[^/]+)/(?P<filename>[^/]+)$"),
+        lambda name, cid, filename, **_: api_character_ref(name, cid, filename),
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drafts/?$"), lambda name, **_: api_workspace_drafts(name)),
     (

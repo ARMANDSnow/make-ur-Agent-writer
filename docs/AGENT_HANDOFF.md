@@ -2010,3 +2010,19 @@ python3 main.py --book <name> drive-book start \
 **下轮候选（iter081+）**：短剧站④角色 + 角色库 + AI 绘画骨架；drama_reviewer + episodes；导出 + Insights；iter083 真模型收口批（站①②补课、站③真模型 smoke、每站 job 化、`scripts/drama_smoke.sh`，需授权）。小说主链路 capstone 仍是独立候选，10-20 章真模型长跑需用户明确授权。
 
 **数据状态**：本轮新增/修改集中在 drama schema/runner/prompt/config、Web route/static/template/view、测试 fixture 与迭代/README/AGENT_HANDOFF/AGENTS 文档；`verify.sh` 仅按既有流程写 gitignored `data/`/`outputs/` 验证产物；未跟踪 `续写工作台.pptx` 视为用户文件，保持不动；只 commit 不 push，等用户验收（铁律⑤）。
+
+---
+
+## Phase Status — iter 081（2026-07-09 收官）：短剧站④角色 + 角色库 + AI 绘画骨架
+
+**背景**：Iteration 080 已交付短剧站③分镜 grid；本轮按路线图继续补站④角色设定表、角色库页面与 AI 绘画安全骨架。Web 生成/重画本轮仍固定 mock-only，不跑真模型 smoke，不调用真实绘图 API。
+
+**已完成（本轮）**：新增 `character_paths()`、`ReferenceImage`、`DramaCharacter`、`CharacterSheet`，角色表固定落盘 `data/characters/season_01.json`，引用图限制在 workspace 内 `data/character_refs/<cid>/...`。新增 `src/character_designer.py` 与 `prompts/drama/character_designer.txt`，从站② setup + 站③ storyboard 生成角色设定；5 赛道 mock fixture 全原创，真模型仅 wiring 到 `LLMClient("drama_character").complete_json(CharacterSheet)`。`merge_character_sheet()` 按 id 合并：`manual_override=true` 的旧角色保留原字段，新 agent 结果进 `agent_suggestions[]`；未锁定角色允许覆盖但保留既有 `reference_images`；新角色追加。新增 `src/ai_draw_client.py`：`AI_DRAW_ENDPOINT` 缺省或 Web mock 路径零网络写 deterministic SVG placeholder；真实 endpoint 骨架含 http/https、30s timeout、5MB 上限、Authorization header 注入。Web/API 新增角色表 GET/POST/PUT、`POST /characters/<cid>/redraw`、`GET /character-ref/<cid>/<filename>`、`/w/<name>/characters` 角色库页；写作页解锁 `#characters` deep-link，渲染角色卡、prompt 编辑、锁定 checkbox、保存、重新生成与 placeholder 重画；settings allowlist/secret mask 接入 `DRAMA_MODEL`、`AI_DRAW_ENDPOINT`、`AI_DRAW_API_KEY`；`config/models.yaml` 增加 `drama_character`。
+
+**铁律⑨审查与追加修复**：2 个只读 subagent 并行。Correctness 视角无 blocker，发现 2 个 P1 + 2 个 P2；已修 P1「锁定角色连续重生成导致 `agent_suggestions` 超 schema 上限后 400」与 P1「未锁定角色重跑丢 `reference_images`」，并修 P2「未知 content-type 写 `.bin`」。P2「Web redraw 固定 `mock=True`」与本轮计划一致，保留并文档化。Security 视角无 HIGH，发现 3 个 MED；已修 `AI_DRAW_ENDPOINT` SSRF 风险（公网地址校验）、真实绘图 SVG/未知类型落盘风险（仅 PNG/JPEG/WebP）、`character-ref` 一次性读取无限文件风险（扩展名白名单 + 5MB cap）。未发现 API key / `.env` 泄漏；未碰 `.env`/`小说txt` 原文；真模型/真绘图 smoke 未跑（铁律⑥）。
+
+**验收证据**：聚焦站④回归 `tests.test_drama_character_designer tests.test_drama_characters_api tests.test_drama_fixture_lint tests.test_drama_view tests.test_web_routes_get tests.test_web_settings` **121 tests OK**；`py_compile` 覆盖触达模块 OK；`.venv/bin/python3 -m unittest discover -s tests` **1685 tests OK**；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部同样 **1685 tests OK**，随后 auto-pipeline/status/manifest/report/cost 全过；LiteLLM 远程 cost map timeout fallback 为非阻断 warning）；`.venv/bin/python3 main.py preflight` = warn/无 FATAL；`OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` = ok/无 WARN；`node --check /tmp/iter081_app.js`、`git diff --check` 均通过。
+
+**残留风险 / 下轮候选**：drama_reviewer + episodes、导出 + Insights、第 2 集重生、站①②/③/④真模型 smoke、每站 job 化、`scripts/drama_smoke.sh` 仍顺延到 drama 后续批；真实 AI 绘画 API 只完成安全骨架，未做可用性实测；小说主链路 capstone 真模型长跑仍需用户明确授权。
+
+**数据状态**：本轮新增/修改集中在 drama schema/runner/prompt/config、Web routes/static/templates/view/settings、测试 fixture 与迭代/README/AGENT_HANDOFF 文档；`verify.sh` 仅按既有流程写 gitignored `data/`/`outputs/` 验证产物；未跟踪 `续写工作台.pptx` 视为用户文件，保持不动；只 commit 不 push，等用户验收（铁律⑤）。
