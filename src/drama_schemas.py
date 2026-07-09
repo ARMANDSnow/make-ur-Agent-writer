@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -23,6 +24,9 @@ class DramaEpisodePaths:
     episodes_dir: Path
     setup_path: Path
     storyboard_path: Path
+    review_path: Path
+    episode_path: Path
+    meta_path: Path
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,9 @@ def episode_paths(workspace: str, *, episode_no: int = 1) -> DramaEpisodePaths:
         episodes_dir=episodes_dir,
         setup_path=episodes_dir / f"{stem}.setup.json",
         storyboard_path=episodes_dir / f"{stem}.storyboard.json",
+        review_path=episodes_dir / f"{stem}.review.json",
+        episode_path=episodes_dir / f"{stem}.json",
+        meta_path=episodes_dir / f"{stem}.meta.json",
     )
 
 
@@ -311,3 +318,177 @@ class CharacterSheet(BaseModel):
             if target and target not in id_set:
                 raise ValueError(f"visual_contrast_with target not found: {target}")
         return self
+
+
+DramaVerdict = Literal["Approve", "Reject", "Abstain"]
+DramaReviewStation = Literal["setup", "hook", "storyboard", "characters"]
+
+REJECT_STATION_MAP: Dict[str, DramaReviewStation] = {
+    "hook": "hook",
+    "pace": "storyboard",
+    "ai_friendly": "storyboard",
+    "character_consistency": "characters",
+    "cliffhanger": "hook",
+}
+
+DRAMA_REVIEW_SCORE_FIELDS = (
+    "hook",
+    "pace",
+    "ai_friendly",
+    "character_consistency",
+    "cliffhanger",
+)
+
+
+def _clean_drama_score(field: str, value: Any) -> tuple[float, List[str]]:
+    warnings: List[str] = []
+    if isinstance(value, bool):
+        return 0.0, [f"{field}:invalid_bool"]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0, [f"{field}:invalid_number"]
+    if not math.isfinite(number):
+        return 0.0, [f"{field}:invalid_nonfinite"]
+    if number < 0:
+        warnings.append(f"{field}:clamped_low")
+        number = 0.0
+    elif number > 10:
+        warnings.append(f"{field}:clamped_high")
+        number = 10.0
+    return number, warnings
+
+
+class DramaSubScores(BaseModel):
+    hook: float = 0
+    pace: float = 0
+    ai_friendly: float = 0
+    character_consistency: float = 0
+    cliffhanger: float = 0
+    score_warnings: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_scores(cls, value: Any) -> Dict[str, Any]:
+        if not isinstance(value, dict):
+            value = {}
+        data = dict(value)
+        warnings = list(data.get("score_warnings") or [])
+        for field in DRAMA_REVIEW_SCORE_FIELDS:
+            number, field_warnings = _clean_drama_score(field, data.get(field, 0))
+            data[field] = number
+            warnings.extend(field_warnings)
+        data["score_warnings"] = warnings
+        return data
+
+    def values(self) -> List[float]:  # type: ignore[override]
+        return [float(getattr(self, field)) for field in DRAMA_REVIEW_SCORE_FIELDS]
+
+
+def derive_verdict(sub_scores: DramaSubScores | Dict[str, Any]) -> DramaVerdict:
+    scores = sub_scores if isinstance(sub_scores, DramaSubScores) else DramaSubScores(**sub_scores)
+    values = scores.values()
+    if any(score < 5 for score in values):
+        return "Reject"
+    if all(score >= 7 for score in values):
+        return "Approve"
+    return "Abstain"
+
+
+def reject_station_for_scores(sub_scores: DramaSubScores | Dict[str, Any]) -> Optional[DramaReviewStation]:
+    scores = sub_scores if isinstance(sub_scores, DramaSubScores) else DramaSubScores(**sub_scores)
+    lowest_field = min(DRAMA_REVIEW_SCORE_FIELDS, key=lambda field: float(getattr(scores, field)))
+    if float(getattr(scores, lowest_field)) >= 5:
+        return None
+    return REJECT_STATION_MAP[lowest_field]
+
+
+class AdvisorSuggestion(BaseModel):
+    station: DramaReviewStation
+    field: str = Field(default="", max_length=80)
+    shot_no: Optional[int] = None
+    character_id: str = Field(default="", max_length=16)
+    new_value: str = Field(default="", max_length=1200)
+    reason: str = Field(default="", max_length=400)
+
+    @field_validator("shot_no", mode="before")
+    @classmethod
+    def _reject_bool_shot_no(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError("shot_no must not be bool")
+        return value
+
+
+class DramaReview(BaseModel):
+    schema_version: int = 1
+    episode_no: int = Field(default=1, ge=1)
+    season_no: int = Field(default=1, ge=1)
+    agent_name: str = "drama_reviewer"
+    verdict: DramaVerdict = "Abstain"
+    score: float = 0
+    sub_scores: DramaSubScores = Field(default_factory=DramaSubScores)
+    issues: List[str] = Field(default_factory=list, max_length=20)
+    suggestions: List[AdvisorSuggestion] = Field(default_factory=list, max_length=20)
+    needs_human_review: bool = False
+    reject_station: Optional[DramaReviewStation] = None
+    verdict_warning: str = ""
+    parse_failed: bool = False
+
+    @model_validator(mode="after")
+    def _derive_local_verdict(self) -> "DramaReview":
+        if self.parse_failed:
+            object.__setattr__(self, "verdict", "Abstain")
+            object.__setattr__(self, "reject_station", None)
+            object.__setattr__(self, "score", 0.0)
+            object.__setattr__(self, "needs_human_review", True)
+            return self
+        supplied = self.verdict
+        derived = derive_verdict(self.sub_scores)
+        object.__setattr__(self, "verdict", derived)
+        object.__setattr__(self, "reject_station", reject_station_for_scores(self.sub_scores))
+        if supplied and supplied != derived:
+            object.__setattr__(self, "verdict_warning", f"model_verdict_mismatch:{supplied}->{derived}")
+        values = self.sub_scores.values()
+        object.__setattr__(self, "score", round(sum(values) / len(values), 2))
+        if derived != "Approve" or self.parse_failed:
+            object.__setattr__(self, "needs_human_review", True)
+        return self
+
+
+class DurationEstimate(BaseModel):
+    target: int
+    estimate: int
+    delta: int
+
+
+class DramaEpisodeMeta(BaseModel):
+    episode_no: int = Field(ge=1)
+    season_no: int = Field(default=1, ge=1)
+    verdict: DramaVerdict
+    rewrite_count: int = 0
+    needs_human_review: bool = False
+    cost_cny: float = 0
+    agent_reviews: List[DramaReview] = Field(default_factory=list)
+    highlight_shot_no: Optional[int] = None
+    duration_estimate_vs_target: DurationEstimate
+    input_fingerprint: str = ""
+    stale: bool = False
+
+
+class DramaEpisode(BaseModel):
+    schema_version: int = 1
+    episode_no: int = Field(ge=1)
+    season_no: int = Field(default=1, ge=1)
+    title: str = Field(default="", max_length=120)
+    logline: str = Field(default="", max_length=500)
+    track: str = Field(default="", max_length=20)
+    target_duration_seconds: int = Field(ge=1, le=300)
+    estimated_duration_seconds: int = Field(ge=0, le=600)
+    core_setup: Dict[str, Any] = Field(default_factory=dict)
+    ai_friendly_constraints: Dict[str, Any] = Field(default_factory=dict)
+    narrative: str = Field(default="", max_length=5000)
+    storyboard: List[Dict[str, Any]] = Field(default_factory=list)
+    ending_hook: Dict[str, Any] = Field(default_factory=dict)
+    self_check: Dict[str, Any] = Field(default_factory=dict)

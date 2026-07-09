@@ -392,7 +392,7 @@ class RoutesGetTests(unittest.TestCase):
         key2 = routes._overview_cache_key(["beta"])
         self.assertNotEqual(key1, key2)
 
-    def test_drama_sidebar_exposes_overview_write_jobs(self) -> None:
+    def test_drama_sidebar_exposes_overview_write_episodes_jobs(self) -> None:
         # Updated iter 037: drama sidebar now includes "write" for stations 1 and 2.
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
         status, _ct, body = routes.dispatch("GET", "/w/beta/")
@@ -401,6 +401,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("作品 · 短剧", html)
         self.assertIn('href="/w/beta/"', html)
         self.assertIn('href="/w/beta/write"', html)
+        self.assertIn('href="/w/beta/episodes"', html)
         self.assertIn('href="/w/beta/jobs"', html)
         self.assertIn('id="delete-workspace-btn"', html)
         self.assertNotIn('href="/w/beta/continue"', html)
@@ -460,6 +461,20 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/w/beta/jobs")
         self.assertEqual(status, 200)
         self.assertIn("任务历史", body.decode("utf-8"))
+
+    def test_drama_episode_pages_render(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
+        status, _ct, body = routes.dispatch("GET", "/w/beta/episodes")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('window.PAGE_KIND = "drama_episodes"', html)
+        self.assertIn('id="episodes-panel"', html)
+        status, _ct, body = routes.dispatch("GET", "/w/beta/episode/1")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn('window.PAGE_KIND = "drama_episode_detail"', html)
+        self.assertIn('data-tab="script"', html)
+        self.assertIn('data-tab="export"', html)
 
     def test_api_workspaces_overview_bad_plan_blocks_only_that_workspace(self) -> None:
         _write_strict_plan(Path(self._tmp.name), "alpha", chapters=1)
@@ -975,6 +990,10 @@ class RoutesGetTests(unittest.TestCase):
             "hook",
             "storyboard",
             "characters",
+            "script",
+            "storyboard-view",
+            "characters-view",
+            "export",
         ):
             self.assertIn(f'"{kw}"', js)
 
@@ -989,6 +1008,11 @@ class RoutesGetTests(unittest.TestCase):
             "loadStationStoryboard",
             "loadDramaProgress",
             "/drama/storyboard",
+            "/drama/episodes",
+            "/drama/assemble",
+            "/drama/review",
+            "initDramaEpisodes",
+            "initDramaEpisodeDetail",
             "data-station-pane",
             "bindHookPickDelegate",
             "__hooks",

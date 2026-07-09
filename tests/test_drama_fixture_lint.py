@@ -6,7 +6,7 @@ import json
 import unittest
 from pathlib import Path
 
-from src.drama_schemas import CharacterSheet, DramaStoryboard, StoryboardShot
+from src.drama_schemas import CharacterSheet, DramaReview, DramaStoryboard, StoryboardShot
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "drama"
@@ -83,6 +83,23 @@ class DramaFixtureLintTests(unittest.TestCase):
     def test_character_fixtures_do_not_contain_forbidden_source_terms(self) -> None:
         combined = "\n".join(
             (FIXTURE_DIR / f"track_{track}_characters.json").read_text(encoding="utf-8")
+            for track in TRACKS
+        )
+        for term in DRAGON_RAJA_TERMS:
+            self.assertNotIn(term, combined)
+
+    def test_review_fixtures_match_machine_rules(self) -> None:
+        for track in TRACKS:
+            with self.subTest(track=track):
+                data = json.loads((FIXTURE_DIR / f"track_{track}_review.json").read_text(encoding="utf-8"))
+                review = DramaReview(**data)
+                self.assertEqual(review.verdict, "Approve")
+                self.assertFalse(review.needs_human_review)
+                self.assertGreaterEqual(review.score, 7)
+
+    def test_review_fixtures_do_not_contain_forbidden_source_terms(self) -> None:
+        combined = "\n".join(
+            (FIXTURE_DIR / f"track_{track}_review.json").read_text(encoding="utf-8")
             for track in TRACKS
         )
         for term in DRAGON_RAJA_TERMS:

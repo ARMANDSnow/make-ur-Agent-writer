@@ -2026,3 +2026,19 @@ python3 main.py --book <name> drive-book start \
 **残留风险 / 下轮候选**：drama_reviewer + episodes、导出 + Insights、第 2 集重生、站①②/③/④真模型 smoke、每站 job 化、`scripts/drama_smoke.sh` 仍顺延到 drama 后续批；真实 AI 绘画 API 只完成安全骨架，未做可用性实测；小说主链路 capstone 真模型长跑仍需用户明确授权。
 
 **数据状态**：本轮新增/修改集中在 drama schema/runner/prompt/config、Web routes/static/templates/view/settings、测试 fixture 与迭代/README/AGENT_HANDOFF 文档；`verify.sh` 仅按既有流程写 gitignored `data/`/`outputs/` 验证产物；未跟踪 `续写工作台.pptx` 视为用户文件，保持不动；只 commit 不 push，等用户验收（铁律⑤）。
+
+---
+
+## Phase Status — iter 082（2026-07-09 收官）：短剧 drama_reviewer + 整集组装 + episodes 页
+
+**背景**：Iteration 081 已交付短剧站④角色、角色库与 AI 绘画安全骨架；本轮承接短剧路线图中原“drama_reviewer + 整集组装 + episodes 页”节点。因前序编号平移，路线图原“iter082 导出 + Insights + 第 2 集重生”顺延到后续。本轮不跑真模型 smoke，不调用真实绘图 API，不触碰 `.env`/`小说txt` 原文。
+
+**已完成（本轮）**：新增 `DramaReview` / `DramaSubScores` / `AdvisorSuggestion` / `DramaEpisode` / `DramaEpisodeMeta`，5 维子分本地确定性 verdict（任一 `<5` Reject，全 `>=7` Approve，其余 Abstain），分数护栏覆盖 bool、非数字、NaN/Infinity 与越界 clamp，parse failed 特判 Abstain + `needs_human_review=true`。新增 `src/drama_reviewer.py` 与 `prompts/drama/drama_reviewer.txt`，mock 走 5 赛道原创 review fixtures，真模型仅 wiring 到 `LLMClient("drama_review")`（未实跑），Web review 端点固定 mock-only。新增 `src/drama_store.py`，把 setup/storyboard/characters/review 组装为 `outputs/episodes/episode_01.json` 与 `.meta.json`，meta 记录 input fingerprint 并支持 stale 检测。Web/API 新增 `/api/workspace/<name>/drama/{review,assemble,apply-suggestion,episodes,episode/1}`、`/w/<name>/episodes` 与 `/w/<name>/episode/1`，站④新增“评审并组装”CTA，episode detail 提供剧本/分镜/角色/评审/导出占位 tabs 与 suggestion apply。
+
+**铁律⑨审查与追加修复**：2 个只读 subagent 并行完成 correctness 与 security/boundary review。Correctness 发现 2 项有效问题并已修：真实 reviewer exception fallback 原会把 `parse_failed_review()` dict 交给 `model_to_dict` 崩溃，已改为直接返回 Abstain payload 并补测；`episode_no=1.9` 原会被 `int()` 截断到 1，已改为 strict positive integer 解析并补测。Security/boundary 未发现 API key / `.env` 泄漏、未发现 tracked diff 触碰 `.env`/`data`/`outputs`/`小说txt` 或 Web 真模型误触；提醒未跟踪 `续写工作台.pptx` 是 61MB 二进制且有版权边界风险，本轮保持不 staged、不提交。
+
+**验收证据**：聚焦回归 `tests.test_drama_reviewer tests.test_drama_store tests.test_drama_episodes_api tests.test_drama_fixture_lint tests.test_web_routes_get` **108 tests OK**；`py_compile` 覆盖触达模块 OK；`node --check /tmp/iter082_app.js` OK；`.venv/bin/python3 -m unittest discover -s tests` **1707 tests OK**；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部同样 **1707 tests OK**，随后 auto-pipeline/status/manifest/report/cost 全过；LiteLLM 远程 cost map timeout fallback 与 `botocore` 缺失为非阻断 warning）；`.venv/bin/python3 main.py preflight` = warn/无 FATAL；`OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` = ok/无 WARN；`git diff --check` 通过。
+
+**残留风险 / 下轮候选**：导出四格式、Insights、第 2 集重生、站①②/③/④/Reviewer 真模型 smoke、每站 job 化、`scripts/drama_smoke.sh` 仍顺延到 drama 后续批；真实 AI 绘画 API 仍未做可用性实测；小说主链路 capstone 真模型长跑仍需用户明确授权。
+
+**数据状态**：本轮新增/修改集中在 drama schema/reviewer/store/prompt/config、Web routes/static/templates、测试 fixtures 与迭代/README/AGENT_HANDOFF 文档；`verify.sh` 仅按既有流程写 gitignored `data/`/`outputs/` 验证产物；未跟踪 `续写工作台.pptx` 视为用户文件，保持不动；只 commit 不 push，等用户验收（铁律⑤）。

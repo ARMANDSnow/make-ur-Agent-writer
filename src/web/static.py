@@ -1890,6 +1890,7 @@ JS_DASHBOARD = """\
     "body", "edit", "review", "lint", "advisor", "history",
     "chapters", "outline", "decisions",
     "setup", "hook", "storyboard", "characters",
+    "script", "storyboard-view", "characters-view", "export",
   ];
   function bindHashTabs() {
     function activate(tab) {
@@ -5362,6 +5363,7 @@ JS_DASHBOARD = """\
       '<div class="form-actions">' +
       '<button type="button" class="btn btn-secondary" data-regenerate-characters>重新生成</button>' +
       '<button type="submit" class="btn btn-primary">保存角色表</button>' +
+      '<button type="button" class="btn btn-primary" data-review-assemble>评审并组装</button>' +
       '</div></form></div></div>';
   }
 
@@ -5512,6 +5514,172 @@ JS_DASHBOARD = """\
         }
       });
     });
+    const reviewBtn = root.querySelector("[data-review-assemble]");
+    if (reviewBtn) {
+      reviewBtn.addEventListener("click", async function () {
+        reviewBtn.disabled = true;
+        try {
+          await postJson(wsUrl("/drama/review"), { episode_no: 1 });
+          const data = await postJson(wsUrl("/drama/assemble"), { episode_no: 1 });
+          showToast("评审与组装已完成", "info");
+          const ep = data.episode || {};
+          window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(ep.episode_no || 1));
+        } catch (err) {
+          showToast("组装失败：" + errTitle(err), "error");
+          reviewBtn.disabled = false;
+        }
+      });
+    }
+  }
+
+  // ===== page: drama episodes =============================================
+  async function initDramaEpisodes() {
+    const box = document.getElementById("episodes-panel");
+    if (!box) return;
+    box.innerHTML = skeleton(4);
+    try {
+      const data = await fetchJson(wsUrl("/drama/episodes"));
+      const episodes = data.episodes || [];
+      if (!episodes.length) {
+        box.innerHTML = emptyState("尚无已组装剧集", "完成站④后点击「评审并组装」，这里会出现单集成片。", '<a class="btn btn-primary" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write#characters">回到站④</a>');
+        return;
+      }
+      const rows = episodes.map(function (ep) {
+        return '<tr>' +
+          '<td>第 ' + escapeHtml(String(ep.episode_no || "")) + ' 集</td>' +
+          '<td>' + escapeHtml(ep.title || "") + '</td>' +
+          '<td>' + verdictBadge(ep.verdict || "") + '</td>' +
+          '<td>' + escapeHtml(String(ep.estimated_duration_seconds || 0)) + ' 秒</td>' +
+          '<td>' + (ep.stale ? '<span class="badge warn">需重新组装</span>' : '<span class="badge ready">fresh</span>') + '</td>' +
+          '<td><a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(ep.episode_no || 1)) + '">查看</a></td>' +
+          '</tr>';
+      }).join("");
+      box.innerHTML = tableScroll('<table class="table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>');
+    } catch (err) {
+      box.innerHTML = renderErrorCard(err);
+    }
+  }
+
+  async function initDramaEpisodeDetail() {
+    bindHashTabs();
+    try {
+      const data = await fetchJson(wsUrl("/drama/episode/" + encodeURIComponent(String(CHAPTER_NO || 1))));
+      renderDramaEpisodeDetail(data);
+    } catch (err) {
+      ["script", "storyboard-view", "characters-view", "review", "export"].forEach(function (id) {
+        const box = document.getElementById("tab-" + id);
+        if (box) box.innerHTML = renderErrorCard(err);
+      });
+    }
+  }
+
+  function renderDramaEpisodeDetail(data) {
+    const episode = data.episode || {};
+    const meta = data.meta || {};
+    const review = data.review || {};
+    const characters = (data.characters && data.characters.characters) || [];
+    const stale = !!data.stale;
+    const staleHtml = stale ? '<div class="alert warn">分站内容已变更，请重新评审并组装。</div>' : "";
+    const scriptBox = document.getElementById("tab-script");
+    if (scriptBox) {
+      scriptBox.innerHTML = staleHtml +
+        '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(episode.title || "未命名") + '</h3>' +
+        verdictBadge(meta.verdict || "") + '</div><div class="card-body stack">' +
+        '<div class="kv-list compact">' +
+        '<div class="k">logline</div><div class="v">' + escapeHtml(episode.logline || "") + '</div>' +
+        '<div class="k">track</div><div class="v"><code>' + escapeHtml(episode.track || "") + '</code></div>' +
+        '<div class="k">duration</div><div class="v">' + escapeHtml(String(episode.estimated_duration_seconds || 0)) + ' / ' + escapeHtml(String(episode.target_duration_seconds || 0)) + ' 秒</div>' +
+        '</div>' +
+        '<div class="reading-body"><p>' + escapeHtml(episode.narrative || "") + '</p></div>' +
+        '</div></div>';
+    }
+    const storyBox = document.getElementById("tab-storyboard-view");
+    if (storyBox) {
+      const rows = (episode.storyboard || []).map(function (shot) {
+        return '<tr><td>' + escapeHtml(String(shot.shot_no || "")) + '</td>' +
+          '<td>' + escapeHtml(shot.shot_size || "") + '</td>' +
+          '<td>' + escapeHtml(shot.camera_move || "") + '</td>' +
+          '<td>' + escapeHtml(String(shot.duration_seconds || 0)) + '</td>' +
+          '<td>' + escapeHtml(shot.visual_content || "") + '</td>' +
+          '<td>' + escapeHtml(shot.dialogue || "") + '</td>' +
+          '<td>' + (shot.is_highlight ? '<span class="badge ready">高光</span>' : '') + '</td></tr>';
+      }).join("");
+      storyBox.innerHTML = tableScroll('<table class="table table-wide"><thead><tr><th>#</th><th>景别</th><th>运镜</th><th>秒</th><th>画面</th><th>台词</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>');
+    }
+    const charBox = document.getElementById("tab-characters-view");
+    if (charBox) {
+      charBox.innerHTML = characters.length
+        ? '<div class="character-grid">' + characters.map(function (c) {
+            return '<section class="character-card"><div class="stack">' +
+              '<strong><code>' + escapeHtml(c.id || "") + '</code> · ' + escapeHtml(c.name || "") + '</strong>' +
+              '<p class="muted">' + escapeHtml(c.role || "") + '</p>' +
+              '<p>' + escapeHtml(c.visual_signature || "") + '</p>' +
+              '<pre>' + escapeHtml(c.prompt_template_sd || "") + '</pre>' +
+              '</div></section>';
+          }).join("") + '</div>'
+        : '<p class="muted">暂无角色表。</p>';
+    }
+    const reviewBox = document.getElementById("tab-review");
+    if (reviewBox) {
+      const agents = meta.agent_reviews || (review ? [review] : []);
+      const suggestions = review.suggestions || [];
+      const suggestionHtml = suggestions.length
+        ? '<div class="stack">' + suggestions.map(renderDramaSuggestion).join("") + '</div>'
+        : '<p class="muted">暂无 advisor 建议。</p>';
+      reviewBox.innerHTML = '<div class="stack">' +
+        (agents.length ? agents.map(renderDramaReviewCard).join("") : '<p class="muted">暂无评审记录。</p>') +
+        suggestionHtml +
+        '</div>';
+      bindDramaSuggestionActions(reviewBox);
+    }
+    const exportBox = document.getElementById("tab-export");
+    if (exportBox) {
+      exportBox.innerHTML = '<div class="empty-state"><span class="ornament">✦</span><h3>导出即将上线</h3><p class="muted">JSON / Markdown / CSV / Comfy 导出将在下一轮接入。</p></div>';
+    }
+  }
+
+  function renderDramaReviewCard(review) {
+    const sub = review.sub_scores || {};
+    const keys = ["hook", "pace", "ai_friendly", "character_consistency", "cliffhanger"];
+    const bars = keys.map(function (k) {
+      const v = sub[k];
+      const pct = (v == null ? 0 : Math.max(0, Math.min(10, Number(v))) * 10);
+      return '<div class="subscore-bar"><span class="label">' + escapeHtml(k) + '</span><div class="track"><i style="width:' + pct + '%"></i></div><span class="val">' + (v == null ? "—" : escapeHtml(String(v))) + '</span></div>';
+    }).join("");
+    const issues = (review.issues || []).map(function (it) { return '<li>' + escapeHtml(String(it)) + '</li>'; }).join("");
+    return '<div class="review-card"><div><div class="name">' + escapeHtml(review.agent_name || "drama_reviewer") + '</div><div class="verdict">' + verdictBadge(review.verdict || "") + '<span class="muted" style="margin-left:6px">score=' + escapeHtml(String(review.score == null ? "—" : review.score)) + '</span></div></div><div class="stack">' + bars + (issues ? '<ul>' + issues + '</ul>' : '') + '</div></div>';
+  }
+
+  function renderDramaSuggestion(suggestion, idx) {
+    return '<div class="advisor-item">' +
+      '<span class="type">' + escapeHtml(suggestion.station || "") + '</span>' +
+      '<div class="section">' + escapeHtml(suggestion.field || (suggestion.shot_no ? "shot " + suggestion.shot_no : "")) + '</div>' +
+      '<div class="guidance">' + escapeHtml(suggestion.reason || "") + '</div>' +
+      '<pre>' + escapeHtml(suggestion.new_value || "") + '</pre>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-drama-apply-suggestion="' + idx + '">应用建议</button>' +
+      '</div>';
+  }
+
+  function bindDramaSuggestionActions(root) {
+    root.querySelectorAll("[data-drama-apply-suggestion]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const data = await fetchJson(wsUrl("/drama/episode/" + encodeURIComponent(String(CHAPTER_NO || 1))));
+        const review = data.review || {};
+        const suggestions = review.suggestions || [];
+        const idx = Number(btn.getAttribute("data-drama-apply-suggestion"));
+        const suggestion = suggestions[idx];
+        if (!suggestion) return;
+        btn.disabled = true;
+        try {
+          await postJson(wsUrl("/drama/apply-suggestion"), { episode_no: CHAPTER_NO || 1, suggestion: suggestion });
+          showToast("建议已应用，请重新评审并组装", "info");
+          await initDramaEpisodeDetail();
+        } catch (err) {
+          showToast("应用失败：" + errTitle(err), "error");
+          btn.disabled = false;
+        }
+      });
+    });
   }
 
   // ===== page: jobs =======================================================
@@ -5615,6 +5783,8 @@ JS_DASHBOARD = """\
     if (pageKind === "insights") return initInsights();
     if (pageKind === "drama_write") return initDramaWrite();
     if (pageKind === "drama_characters") return initDramaCharacters();
+    if (pageKind === "drama_episodes") return initDramaEpisodes();
+    if (pageKind === "drama_episode_detail") return initDramaEpisodeDetail();
     if (pageKind === "jobs") return initJobs();
   }
   document.addEventListener("DOMContentLoaded", boot);

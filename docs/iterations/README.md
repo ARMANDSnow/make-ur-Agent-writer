@@ -92,3 +92,4 @@
 92. [Iteration 079 - Capstone 前写锁与预算硬化](./iteration_079_capstone_p2_hardening.md)
 93. [Iteration 080 - 短剧站③分镜生成 + grid 编辑器](./iteration_080_drama_storyboard_grid.md)
 94. [Iteration 081 - 短剧站④角色 + 角色库 + AI 绘画骨架](./iteration_081_drama_characters_ai_draw.md)
+95. [Iteration 082 - 短剧 drama_reviewer + 整集组装 + episodes 页](./iteration_082_drama_reviewer_episodes.md)

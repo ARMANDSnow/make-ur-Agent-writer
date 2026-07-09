@@ -146,6 +146,7 @@ _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
     ("write", "续写", "write"),
     ("characters", "角色库", "characters"),
+    ("episodes", "剧集", "episodes"),
     ("jobs", "任务", "jobs"),
 )
 
@@ -494,6 +495,72 @@ def render_workspace_characters(name: str, workspaces: Iterable[str]) -> str:
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="characters"),
         workspace=name,
+    )
+
+
+def render_workspace_episodes(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧</p>'
+        '<h1>剧集</h1>'
+        '<p class="muted">查看已组装的单集成片 JSON 真源与评审状态。</p>'
+        '</div>'
+        '<div class="cluster">'
+        f'<a class="btn btn-secondary" href="/w/{escape(name)}/write#characters">回到写作向导</a>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div id="episodes-panel"><p class="muted">载入中…</p></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 剧集",
+        page_kind="drama_episodes",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("剧集", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="episodes"),
+        workspace=name,
+    )
+
+
+def render_workspace_episode_detail(name: str, workspaces: Iterable[str], episode_no: int) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧</p>'
+        f'<h1>第 {episode_no} 集</h1>'
+        '<p class="muted">剧本、分镜、角色与评审记录。</p>'
+        '</div>'
+        '<div class="cluster">'
+        f'<a class="btn btn-secondary" href="/w/{escape(name)}/episodes">返回剧集</a>'
+        '</div>'
+        '</header>'
+        '<section class="tabs">'
+        '<div class="tab-list">'
+        '<button class="tab active" data-tab="script">剧本</button>'
+        '<button class="tab" data-tab="storyboard-view">分镜</button>'
+        '<button class="tab" data-tab="characters-view">角色</button>'
+        '<button class="tab" data-tab="review">评审</button>'
+        '<button class="tab" data-tab="export">导出</button>'
+        '</div>'
+        '<div class="tab-panel active" id="tab-script"><p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-storyboard-view"><p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-characters-view"><p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-review"><p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-export"><p class="muted">载入中…</p></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 第 {episode_no} 集",
+        page_kind="drama_episode_detail",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("剧集", f"/w/{escape(name)}/episodes"), (f"第 {episode_no} 集", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="episodes"),
+        workspace=name,
+        chapter_no=episode_no,
     )
 
 

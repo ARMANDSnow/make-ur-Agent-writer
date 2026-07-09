@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "episode_no": 1,
+  "season_no": 1,
+  "agent_name": "drama_reviewer",
+  "verdict": "Approve",
+  "sub_scores": {
+    "hook": 8.5,
+    "pace": 8.0,
+    "ai_friendly": 8.4,
+    "character_consistency": 8.1,
+    "cliffhanger": 8.3
+  },
+  "issues": [],
+  "suggestions": []
+}

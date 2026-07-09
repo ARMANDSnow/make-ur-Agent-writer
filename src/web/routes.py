@@ -270,6 +270,46 @@ def render_workspace_characters_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_characters(name, list_workspaces()))
 
 
+def render_workspace_episodes_page(name: str) -> Tuple[int, str, bytes]:
+    """Drama-only episode list page."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_episodes(name, list_workspaces()))
+
+
+def render_workspace_episode_detail_page(name: str, episode: str) -> Tuple[int, str, bytes]:
+    """Drama-only episode detail page."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    try:
+        episode_no = int(episode)
+        if episode_no < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        return _html(400, "<h1>400</h1><p>invalid episode number</p>")
+    return _html(200, templates.render_workspace_episode_detail(name, list_workspaces(), episode_no))
+
+
 def render_workspace_continue(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard_novel_only(name)
     if guard:
@@ -2133,6 +2173,250 @@ def api_character_ref(name: str, cid: str, filename: str) -> Tuple[int, str, byt
     return 200, content_type, data
 
 
+def _parse_episode_no(raw: Any = 1) -> int:
+    if isinstance(raw, bool):
+        raise ValueError("episode_no must be a positive integer")
+    if isinstance(raw, float):
+        raise ValueError("episode_no must be a positive integer")
+    if isinstance(raw, str) and not raw.isdigit():
+        raise ValueError("episode_no must be a positive integer")
+    number = int(raw)
+    if number < 1:
+        raise ValueError("episode_no must be a positive integer")
+    return number
+
+
+def _drama_review_prereq_error(name: str, *, episode_no: int = 1) -> Optional[Tuple[int, str, bytes]]:
+    from ..drama_schemas import CharacterSheet, character_paths
+
+    prereq = _drama_characters_prereq_error(name)
+    if prereq:
+        return prereq
+    data = read_json_optional(character_paths(name).sheet_path, None)
+    if not isinstance(data, dict):
+        return _json(400, {"error": "station 4 must complete before drama review"})
+    try:
+        CharacterSheet(**data)
+    except Exception as exc:
+        return _json(400, errors.exception_body(exc))
+    return None
+
+
+def api_drama_review(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    try:
+        episode_no = _parse_episode_no(payload.get("episode_no", 1))
+    except (TypeError, ValueError):
+        return _json(400, {"error": "episode_no must be a positive integer"})
+    from .. import drama_reviewer
+    from ..drama_schemas import episode_paths
+    from ..utils import write_json
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-review"):
+            prereq = _drama_review_prereq_error(name, episode_no=episode_no)
+            if prereq:
+                return prereq
+            try:
+                review = drama_reviewer.run(name, mock=True, episode_no=episode_no)
+            except FileNotFoundError as exc:
+                return _json(400, errors.exception_body(exc))
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+            except RuntimeError as exc:
+                _log_degraded("drama_review_runtime", exc)
+                return _json(500, errors.error_body(errors.build_card("server_error")))
+            write_json(episode_paths(name, episode_no=episode_no).review_path, review)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _json(200, {"review": review})
+
+
+def api_drama_assemble(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    try:
+        episode_no = _parse_episode_no(payload.get("episode_no", 1))
+    except (TypeError, ValueError):
+        return _json(400, {"error": "episode_no must be a positive integer"})
+    from .. import drama_store
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-assemble"):
+            try:
+                result = drama_store.assemble_episode(name, episode_no=episode_no)
+            except FileNotFoundError as exc:
+                return _json(400, errors.exception_body(exc))
+            except ValueError as exc:
+                return _json(400, errors.exception_body(exc))
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    _clear_overview_cache()
+    return _json(200, result)
+
+
+def api_drama_episodes(name: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .. import drama_store
+
+    return _json(200, {"episodes": drama_store.list_episodes(name)})
+
+
+def api_drama_episode_detail(name: str, episode: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(episode)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "episode_no must be a positive integer"})
+    from .. import drama_store
+
+    try:
+        return _json(200, drama_store.episode_detail(name, episode_no=episode_no))
+    except FileNotFoundError as exc:
+        return _json(404, errors.exception_body(exc))
+    except ValueError as exc:
+        return _json(400, errors.exception_body(exc))
+
+
+def api_drama_apply_suggestion(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    suggestion = payload.get("suggestion") if isinstance(payload.get("suggestion"), dict) else payload
+    if not isinstance(suggestion, dict):
+        return _json(400, {"error": "suggestion must be a JSON object"})
+    try:
+        episode_no = _parse_episode_no(payload.get("episode_no", 1))
+    except (TypeError, ValueError):
+        return _json(400, {"error": "episode_no must be a positive integer"})
+
+    from ..drama_schemas import AdvisorSuggestion
+
+    try:
+        item = AdvisorSuggestion(**suggestion)
+    except Exception as exc:
+        return _json(400, errors.exception_body(exc))
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-apply-suggestion"):
+            result = _apply_drama_suggestion(name, item.model_dump() if hasattr(item, "model_dump") else item.dict(), episode_no=episode_no)
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    except (FileNotFoundError, ValueError) as exc:
+        return _json(400, errors.exception_body(exc))
+    _clear_overview_cache()
+    return _json(200, {"applied": True, **result})
+
+
+def _apply_drama_suggestion(name: str, suggestion: Dict[str, Any], *, episode_no: int = 1) -> Dict[str, Any]:
+    from ..drama_schemas import CharacterSheet, DramaStoryboard, episode_paths, character_paths, normalize_storyboard_payload
+    from ..schemas import model_to_dict
+    from ..utils import write_json
+
+    station = suggestion.get("station")
+    field = str(suggestion.get("field") or "")
+    new_value = str(suggestion.get("new_value") or "")
+    if not field and station != "storyboard":
+        raise ValueError("suggestion.field is required")
+    if station in ("setup", "hook"):
+        path = episode_paths(name, episode_no=episode_no).setup_path
+        data = read_json_optional(path, None)
+        if not isinstance(data, dict):
+            raise FileNotFoundError("station 1/2 setup file is missing")
+        if station == "hook":
+            hook = data.setdefault("hook", {})
+            if not isinstance(hook, dict):
+                hook = {}
+                data["hook"] = hook
+            hook[field or "content"] = new_value
+        else:
+            if field == "logline":
+                data["logline"] = new_value
+            else:
+                core = data.setdefault("core_setup", {})
+                if not isinstance(core, dict):
+                    core = {}
+                    data["core_setup"] = core
+                core[field] = new_value
+        write_json(path, data)
+        return {"station": station, "target": field}
+    if station == "storyboard":
+        path = episode_paths(name, episode_no=episode_no).storyboard_path
+        data = read_json_optional(path, None)
+        if not isinstance(data, dict):
+            raise FileNotFoundError("station 3 storyboard file is missing")
+        raw_shot_no = suggestion.get("shot_no")
+        if isinstance(raw_shot_no, bool):
+            raise ValueError("shot_no must be a positive integer")
+        shot_no = int(raw_shot_no or 0)
+        if shot_no < 1:
+            raise ValueError("shot_no must be a positive integer")
+        shots = data.get("shots")
+        if not isinstance(shots, list) or shot_no > len(shots) or not isinstance(shots[shot_no - 1], dict):
+            raise ValueError("shot_no out of range")
+        target_field = field or "visual"
+        if target_field not in {"beat", "visual", "narration", "dialogue", "ai_draw_prompt"}:
+            raise ValueError("unsupported storyboard suggestion field")
+        shots[shot_no - 1][target_field] = new_value
+        board = DramaStoryboard(**normalize_storyboard_payload(data))
+        result = model_to_dict(board)
+        write_json(path, result)
+        return {"station": station, "target": f"shot:{shot_no}:{target_field}"}
+    if station == "characters":
+        path = character_paths(name).sheet_path
+        data = read_json_optional(path, None)
+        if not isinstance(data, dict):
+            raise FileNotFoundError("station 4 character sheet is missing")
+        cid = str(suggestion.get("character_id") or "c001")
+        rows = data.get("characters")
+        if not isinstance(rows, list):
+            raise ValueError("character sheet must contain characters")
+        target = next((row for row in rows if isinstance(row, dict) and row.get("id") == cid), None)
+        if target is None:
+            raise ValueError("character_id not found")
+        if field not in {"name", "role", "wardrobe_default", "visual_signature", "prompt_template_sd"}:
+            raise ValueError("unsupported character suggestion field")
+        target[field] = new_value
+        result = model_to_dict(CharacterSheet(**data))
+        write_json(path, result)
+        return {"station": station, "target": f"{cid}:{field}"}
+    raise ValueError("unsupported suggestion station")
+
+
 def api_workspace_readiness(
     name: str,
     chapters: int = 1,
@@ -2853,6 +3137,12 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_overview(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/write/?$"), lambda name, **_: render_workspace_write_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"), lambda name, **_: render_workspace_characters_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/episodes/?$"), lambda name, **_: render_workspace_episodes_page(name)),
+    (
+        "GET",
+        re.compile(r"^/w/(?P<name>[^/]+)/episode/(?P<episode>\d+)/?$"),
+        lambda name, episode, **_: render_workspace_episode_detail_page(name, episode),
+    ),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/continue/?$"), lambda name, **_: render_workspace_continue(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/chapters/?$"), lambda name, **_: render_workspace_chapters(name)),
     # iter075: 全文搜索页
@@ -3024,6 +3314,31 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/characters/(?P<cid>[^/]+)/redraw/?$"),
         lambda name, cid, _body=b"", **_: api_drama_character_redraw(name, cid, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/review/?$"),
+        lambda name, _body=b"", **_: api_drama_review(name, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/assemble/?$"),
+        lambda name, _body=b"", **_: api_drama_assemble(name, _body),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/apply-suggestion/?$"),
+        lambda name, _body=b"", **_: api_drama_apply_suggestion(name, _body),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/episodes/?$"),
+        lambda name, **_: api_drama_episodes(name),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/episode/(?P<episode>\d+)/?$"),
+        lambda name, episode, **_: api_drama_episode_detail(name, episode),
     ),
     (
         "GET",
