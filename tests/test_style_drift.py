@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+import io
+import math
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 import main
 from src import style_drift, style_fingerprint
@@ -36,12 +41,11 @@ def _baseline(metrics: dict[str, float | int] | None = None) -> dict:
             "exposition_connector_density": 0.01,
         }
     )
-    return {
+    baseline = {
         "status": "ok",
         "schema_version": 1,
-        "fingerprint_version": "local-stat-v1",
+        "fingerprint_version": style_fingerprint.FINGERPRINT_VERSION,
         "language": "zh",
-        "baseline_hash": "baseline-test-hash",
         "sample_count": 2,
         "metrics": base_metrics,
         "tolerance": {key: 1.0 for key in style_fingerprint.DRIFT_METRIC_KEYS},
@@ -52,6 +56,10 @@ def _baseline(metrics: dict[str, float | int] | None = None) -> dict:
         },
         "baseline_quality": {"status": "ok", "confidence": 0.65, "sample_count": 2},
     }
+    digest = style_fingerprint._baseline_hash(baseline)
+    baseline["baseline_hash"] = digest
+    baseline["hash"] = digest
+    return baseline
 
 
 class StyleDriftTests(unittest.TestCase):
@@ -62,7 +70,7 @@ class StyleDriftTests(unittest.TestCase):
         self.assertEqual(report["status"], "ok")
         self.assertEqual(report["severity"], "ok")
         self.assertEqual(report["style_drift_score"], 0.0)
-        self.assertEqual(report["basis"]["baseline_hash"], "baseline-test-hash")
+        self.assertEqual(report["basis"]["baseline_hash"], baseline["baseline_hash"])
 
     def test_exposition_long_sentence_draft_is_red(self) -> None:
         baseline = _baseline()
@@ -119,6 +127,30 @@ class StyleDriftTests(unittest.TestCase):
         self.assertEqual(skipped["sentence_p90"], "low_reliability")
         self.assertEqual(skipped["long_sentence_ratio"], "weight_missing_or_nonpositive")
 
+    def test_huge_finite_weights_do_not_overflow_to_green(self) -> None:
+        baseline = _baseline()
+        baseline["weights"] = {
+            key: 1e308 for key in style_fingerprint.DRIFT_METRIC_KEYS
+        }
+        current = dict(baseline["metrics"])
+        for key in style_fingerprint.DRIFT_METRIC_KEYS:
+            current[key] = float(current[key]) + 100.0
+
+        report = style_drift.compare_to_baseline(current, baseline)
+
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["severity"], "red")
+        self.assertEqual(report["style_drift_score"], 1.0)
+
+    def test_nonfinite_weight_aggregate_fails_closed(self) -> None:
+        baseline = _baseline()
+
+        with patch("src.style_drift.math.fsum", return_value=math.inf):
+            report = style_drift.compare_to_baseline(dict(baseline["metrics"]), baseline)
+
+        self.assertEqual(report["status"], "skipped")
+        self.assertEqual(report["reason"], "invalid_weight_aggregation")
+
     def test_analyze_chapter_merges_existing_meta_without_source_text(self) -> None:
         draft_text = "冷光落在玻璃上。少年停了一下，听见雨声从窗外压过来。" * 12
         metrics = style_fingerprint.calculate_metrics(draft_text)
@@ -156,7 +188,7 @@ class StyleDriftTests(unittest.TestCase):
         self.assertEqual(meta["draft_sha256"], "draft-hash")
         self.assertEqual(meta["style_fingerprint"]["status"], "ok")
         self.assertEqual(meta["style_drift"]["severity"], "ok")
-        self.assertEqual(meta["baseline_hash"], "baseline-test-hash")
+        self.assertEqual(meta["baseline_hash"], baseline["baseline_hash"])
         self.assertNotIn(forbidden_fragment, meta_json)
 
     def test_analyze_chapter_does_not_create_half_meta(self) -> None:
@@ -224,6 +256,122 @@ class StyleDriftTests(unittest.TestCase):
         self.assertEqual(report["window_order"], "chapter_no_desc")
         self.assertEqual(report["chapters_considered"], [12, 11, 10, 9, 8])
         self.assertEqual([row["chapter"] for row in report["chapters"]], [12, 11, 10, 9, 8])
+
+    def test_report_downgrades_nonfinite_score_and_sanitizes_dimensions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            drafts = Path(tmp) / "outputs" / "drafts"
+            drafts.mkdir(parents=True)
+            (drafts / "chapter_01.meta.json").write_text(
+                json.dumps(
+                    {
+                        "style_drift": {
+                            "status": "ok",
+                            "severity": "ok",
+                            "style_drift_score": math.nan,
+                            "top_dimensions": [
+                                None,
+                                "bad",
+                                {"dimension": "", "weighted_delta": 1.0},
+                                {
+                                    "dimension": "ai_cliche_density",
+                                    "weighted_delta": math.inf,
+                                    "reliability": {"confidence": math.nan},
+                                },
+                            ],
+                        }
+                    },
+                    allow_nan=True,
+                ),
+                encoding="utf-8",
+            )
+
+            report = style_drift.style_drift_report(limit=1, drafts_dir=drafts)
+            strict_json = json.dumps(report, allow_nan=False)
+
+        row = report["chapters"][0]
+        self.assertIn("invalid_style_drift_score", strict_json)
+        self.assertEqual(row["status"], "skipped")
+        self.assertEqual(row["severity"], "skipped")
+        self.assertIsNone(row["style_drift_score"])
+        self.assertEqual(row["reason"], "invalid_style_drift_score")
+        self.assertEqual(len(row["top_dimensions"]), 1)
+        self.assertIsNone(row["top_dimensions"][0]["weighted_delta"])
+        self.assertIsNone(row["top_dimensions"][0]["reliability"]["confidence"])
+
+    def test_load_baseline_rejects_v1_and_bad_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "baseline.json"
+            baseline = _baseline()
+            path.write_text(json.dumps(baseline), encoding="utf-8")
+            self.assertEqual(style_drift.load_baseline(path)["status"], "ok")
+
+            old = dict(baseline)
+            old["fingerprint_version"] = "local-stat-v1"
+            path.write_text(json.dumps(old), encoding="utf-8")
+            self.assertEqual(style_drift.load_baseline(path)["status"], "incompatible_version")
+
+            baseline["metrics"]["avg_sentence_length"] = 999
+            path.write_text(json.dumps(baseline), encoding="utf-8")
+            self.assertEqual(style_drift.load_baseline(path)["status"], "invalid_hash")
+
+    def test_invalid_baseline_basis_is_strict_json_and_drops_untrusted_hash(self) -> None:
+        baseline = {
+            "status": "invalid_hash",
+            "schema_version": math.nan,
+            "fingerprint_version": style_fingerprint.FINGERPRINT_VERSION,
+            "baseline_hash": "tampered-hash",
+        }
+
+        report = style_drift.compare_to_baseline({}, baseline)
+
+        json.dumps(report, allow_nan=False)
+        self.assertEqual(report["reason"], "baseline_invalid_hash")
+        self.assertEqual(report["basis"]["schema_version"], 0)
+        self.assertEqual(report["basis"]["baseline_hash"], "")
+
+    def test_invalid_baseline_reanalysis_clears_stale_meta_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drafts = root / "outputs" / "drafts"
+            drafts.mkdir(parents=True)
+            baseline_path = root / "baseline.json"
+            baseline = _baseline()
+            baseline["metrics"]["avg_sentence_length"] = 999
+            baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+            (drafts / "chapter_04.md").write_text("风停了。", encoding="utf-8")
+            (drafts / "chapter_04.meta.json").write_text(
+                json.dumps({"verdict": "Approve", "baseline_hash": "old-hash"}),
+                encoding="utf-8",
+            )
+
+            result = style_drift.analyze_chapter(
+                4,
+                drafts_dir=drafts,
+                baseline_path=baseline_path,
+            )
+            meta = json.loads((drafts / "chapter_04.meta.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result["style_drift"]["reason"], "baseline_invalid_hash")
+        self.assertEqual(result["baseline_hash"], "")
+        self.assertNotIn("baseline_hash", meta)
+
+    def test_style_drift_cli_lock_conflict_exits_four_before_analysis(self) -> None:
+        from src.workspace_lock import acquire_write_lock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "write.lock"
+            with patch("src.workspace_lock.lock_path", return_value=lock):
+                with acquire_write_lock(source="other-writer"):
+                    with patch.object(sys, "argv", ["main.py", "style-drift", "--chapter", "1"]), patch(
+                        "src.style_drift.analyze_chapter",
+                        side_effect=AssertionError("analysis must not run"),
+                    ):
+                        stderr = io.StringIO()
+                        with redirect_stderr(stderr), self.assertRaises(SystemExit) as ctx:
+                            main.main()
+
+        self.assertEqual(ctx.exception.code, 4)
+        self.assertIn("workspace_locked", stderr.getvalue())
 
     def test_cli_parser_accepts_style_drift_commands(self) -> None:
         parser = main.build_parser()

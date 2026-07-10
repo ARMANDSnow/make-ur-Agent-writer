@@ -501,8 +501,17 @@ def main() -> None:
         import json as _json
 
         from src.style_drift import analyze_chapter
+        from src.workspace_lock import WorkspaceLocked, acquire_write_lock
 
-        result = analyze_chapter(args.chapter)
+        try:
+            # Hold the workspace lock across draft read, drift calculation,
+            # and meta merge so a manual re-analysis cannot persist a verdict
+            # for an obsolete draft over a concurrently completed writer run.
+            with acquire_write_lock(source="cli-style-drift"):
+                result = analyze_chapter(args.chapter)
+        except WorkspaceLocked as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(4)
         print(_json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
     elif args.command == "style-drift-report":
         import json as _json

@@ -52,7 +52,14 @@ def load_baseline(path: Path | None = None) -> Dict[str, Any]:
             "weights": {},
             "dimension_reliability": {},
         }
-    return data
+    loaded = dict(data)
+    fingerprint_version = str(loaded.get("fingerprint_version") or "")
+    if fingerprint_version != style_fingerprint.FINGERPRINT_VERSION:
+        loaded["status"] = "incompatible_version"
+        return loaded
+    if style_fingerprint.validate_baseline_hash(loaded) != "ok":
+        loaded["status"] = "invalid_hash"
+    return loaded
 
 
 def compare_to_baseline(
@@ -79,8 +86,7 @@ def compare_to_baseline(
 
     dimensions: list[Dict[str, Any]] = []
     skipped: list[Dict[str, str]] = []
-    weighted_sum = 0.0
-    weight_sum = 0.0
+    aggregate_terms: list[tuple[float, float]] = []
 
     for key in style_fingerprint.DRIFT_METRIC_KEYS:
         current_value = _finite_float(current_metrics.get(key))
@@ -120,13 +126,30 @@ def compare_to_baseline(
                 "reliability": _reliability_summary(rel),
             }
         )
-        weighted_sum += weighted_delta
-        weight_sum += weight
+        aggregate_terms.append((dimension_score, weight))
 
-    if not dimensions or weight_sum <= 0:
+    if not dimensions or not aggregate_terms:
         return _skipped("no_comparable_dimensions", basis=basis, skipped_dimensions=skipped)
 
-    score = _round(min(1.0, max(0.0, weighted_sum / weight_sum)))
+    # Scale by the largest weight before summing.  Adding several individually
+    # finite ~1e308 weights otherwise overflows to Infinity; the subsequent
+    # Infinity/Infinity becomes NaN and used to be coerced into a green 0.0.
+    max_weight = max(weight for _dimension_score, weight in aggregate_terms)
+    try:
+        scaled_weights = [weight / max_weight for _dimension_score, weight in aggregate_terms]
+        scaled_weighted = [
+            dimension_score * scaled_weight
+            for (dimension_score, _weight), scaled_weight in zip(aggregate_terms, scaled_weights)
+        ]
+        weight_sum = math.fsum(scaled_weights)
+        weighted_sum = math.fsum(scaled_weighted)
+        raw_score = weighted_sum / weight_sum
+    except (ArithmeticError, OverflowError, ValueError, ZeroDivisionError):
+        return _skipped("invalid_weight_aggregation", basis=basis, skipped_dimensions=skipped)
+    if not all(math.isfinite(value) for value in (max_weight, weight_sum, weighted_sum, raw_score)):
+        return _skipped("invalid_weight_aggregation", basis=basis, skipped_dimensions=skipped)
+
+    score = _round(min(1.0, max(0.0, raw_score)))
     top_dimensions = sorted(
         dimensions,
         key=lambda item: (-float(item.get("weighted_delta", 0.0)), str(item.get("dimension", ""))),
@@ -211,7 +234,15 @@ def rewrite_directives_for_text(
     """Run the local fingerprint/drift path and return reviewer directives."""
 
     fingerprint = fingerprint_text(text, config=config)
-    drift = compare_to_baseline(fingerprint.get("metrics", {}), load_baseline(baseline_path))
+    # Advisor needs the complete comparable set before unsupported dimensions
+    # are filtered.  Persisted chapter drift keeps compare_to_baseline's top-5
+    # default, while this transient path can still find an actionable sixth
+    # (or later) dimension.
+    drift = compare_to_baseline(
+        fingerprint.get("metrics", {}),
+        load_baseline(baseline_path),
+        top_n=len(style_fingerprint.DRIFT_METRIC_KEYS),
+    )
     return build_rewrite_directives(drift, limit=limit)
 
 
@@ -385,15 +416,23 @@ def style_drift_report(
             drift = meta.get("style_drift") if drift_present else None
             if not drift_present:
                 drift = _skipped("missing_style_drift")
+            drift_status = str(drift.get("status") or "skipped")
+            score = _finite_float(drift.get("style_drift_score"))
+            reason = str(drift.get("reason") or "")
+            severity = str(drift.get("severity") or "skipped")
+            if drift_status == "ok" and score is None:
+                drift_status = "skipped"
+                severity = "skipped"
+                reason = "invalid_style_drift_score"
             rows.append(
                 {
                     "chapter": chapter_no,
-                    "status": drift.get("status", "skipped"),
-                    "severity": drift.get("severity", "skipped"),
-                    "style_drift_score": drift.get("style_drift_score"),
+                    "status": drift_status,
+                    "severity": severity,
+                    "style_drift_score": score,
                     "baseline_hash": _basis_hash(drift),
-                    "top_dimensions": drift.get("top_dimensions", []),
-                    "reason": drift.get("reason", ""),
+                    "top_dimensions": _sanitize_dimension_list(drift.get("top_dimensions")),
+                    "reason": reason,
                 }
             )
     rows.sort(key=lambda item: int(item.get("chapter", 0)), reverse=True)
@@ -431,13 +470,19 @@ def _skipped(
 
 
 def _basis(baseline: Mapping[str, Any]) -> Dict[str, Any]:
+    status = str(baseline.get("status") or "")
     quality = baseline.get("baseline_quality") if isinstance(baseline.get("baseline_quality"), Mapping) else {}
+    raw_schema_version = baseline.get("schema_version")
+    schema_version = None if raw_schema_version is None else _safe_int(raw_schema_version, 0)
     return {
-        "status": str(baseline.get("status") or ""),
-        "schema_version": baseline.get("schema_version"),
+        "status": status,
+        "schema_version": schema_version,
         "fingerprint_version": str(baseline.get("fingerprint_version") or ""),
         "language": str(baseline.get("language") or ""),
-        "baseline_hash": str(baseline.get("baseline_hash") or baseline.get("hash") or ""),
+        # Invalid/incompatible artifacts must never propagate an untrusted hash
+        # into chapter meta or the Web panel. Only a usable baseline may carry
+        # its verified identity beyond this boundary.
+        "baseline_hash": str(baseline.get("baseline_hash") or baseline.get("hash") or "") if status == "ok" else "",
         "sample_count": _safe_int(baseline.get("sample_count") or quality.get("sample_count"), 0),
         "baseline_quality_status": str(quality.get("status") or ""),
         "baseline_quality_confidence": _finite_float(quality.get("confidence")),
@@ -449,6 +494,42 @@ def _basis_hash(drift: Mapping[str, Any]) -> str:
     if not isinstance(basis, Mapping):
         return ""
     return str(basis.get("baseline_hash") or "")
+
+
+def _sanitize_dimension_list(value: Any) -> list[Dict[str, Any]]:
+    """Return a strict-JSON-safe list of dimension objects.
+
+    Historical meta is user-editable and may contain ``[null]``, scalars, or
+    Python's permissive NaN/Infinity values.  Reports are emitted with
+    ``allow_nan=False``, so sanitize at the trust boundary instead of letting a
+    single corrupt chapter crash the whole CLI.
+    """
+
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    cleaned: list[Dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        dimension = item.get("dimension")
+        if not isinstance(dimension, str) or not dimension.strip():
+            continue
+        safe = _json_safe(dict(item))
+        if isinstance(safe, dict):
+            cleaned.append(safe)
+    return cleaned
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [_json_safe(item) for item in value]
+    return str(value)
 
 
 def _severity(score: float) -> str:

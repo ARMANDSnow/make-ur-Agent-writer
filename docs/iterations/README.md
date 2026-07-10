@@ -97,3 +97,4 @@
 97. [Iteration 083 - 量化文风指纹 Baseline v1](./iteration_083_style_fingerprint_baseline.md)
 98. [Iteration 084 - 文风漂移检测 + 告警](./iteration_084_style_drift_detection.md)
 99. [Iteration 085 - 文风偏离到定向改写建议](./iteration_085_style_rewrite_directives.md)
+100. [Iteration 086 - 文风漂移可靠性修复与 Web 防御纵深](./iteration_086_style_drift_reliability_hardening.md)

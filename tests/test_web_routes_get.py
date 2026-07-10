@@ -314,7 +314,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn("chapter_01", html)
-        for tab in ("body", "review", "lint", "style", "advisor", "history"):
+        for tab in ("body", "edit", "review", "lint", "style", "advisor", "history"):
             self.assertIn(f'data-tab="{tab}"', html)
         # JS gets the chapter number via window.CHAPTER_NO
         self.assertIn("window.CHAPTER_NO = 1", html)

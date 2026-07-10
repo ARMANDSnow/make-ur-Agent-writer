@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import unittest
+from unittest.mock import patch
 
 from pydantic import ValidationError
 
@@ -126,6 +127,43 @@ class StyleRewriteDirectiveTests(unittest.TestCase):
         self.assertEqual(len(first), 5)
         self.assertEqual(first[0].dimension, "dialogue_line_ratio")
         self.assertEqual(first[-1].dimension, "avg_sentence_length")
+
+    def test_transient_advisor_filters_before_top_five_cap(self) -> None:
+        from src import style_fingerprint
+
+        baseline_metrics = {key: 0.0 for key in style_fingerprint.DRIFT_METRIC_KEYS}
+        current_metrics = dict(baseline_metrics)
+        unsupported = (
+            "sentence_p50",
+            "sentence_p90",
+            "long_sentence_ratio",
+            "avg_paragraph_chars",
+            "punctuation_density",
+        )
+        weights = {key: 0.1 for key in style_fingerprint.DRIFT_METRIC_KEYS}
+        for key in unsupported:
+            current_metrics[key] = 3.0
+            weights[key] = 10.0
+        current_metrics["ai_cliche_density"] = 0.3
+        weights["ai_cliche_density"] = 1.0
+        baseline = {
+            "status": "ok",
+            "metrics": baseline_metrics,
+            "tolerance": {key: 0.1 for key in style_fingerprint.DRIFT_METRIC_KEYS},
+            "weights": weights,
+            "dimension_reliability": {
+                key: {"level": "medium", "confidence": 0.8}
+                for key in style_fingerprint.DRIFT_METRIC_KEYS
+            },
+        }
+
+        with patch(
+            "src.style_drift.fingerprint_text",
+            return_value={"status": "ok", "metrics": current_metrics},
+        ), patch("src.style_drift.load_baseline", return_value=baseline):
+            directives = style_drift.rewrite_directives_for_text("ignored")
+
+        self.assertEqual([item.dimension for item in directives], ["ai_cliche_density"])
 
     def test_ok_skipped_invalid_and_unsupported_produce_no_directives(self) -> None:
         valid = _dimension("avg_sentence_length", 30, 20)

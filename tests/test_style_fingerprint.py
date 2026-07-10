@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -57,6 +58,9 @@ class StyleFingerprintTests(unittest.TestCase):
             self.assertIn("sensory_imagery_density", first["metrics"])
             self.assertIn("exposition_connector_density", first["metrics"])
             self.assertIn("avg_sentence_length", first["tolerance"])
+            self.assertNotIn("source_labels", first)
+            self.assertNotIn("source_hashes", first)
+            self.assertEqual(first["fingerprint_version"], "local-stat-v2")
 
     def test_inspect_draft_outputs_same_metric_shape_for_synthetic_draft(self) -> None:
         draft_text = (
@@ -101,3 +105,151 @@ class StyleFingerprintTests(unittest.TestCase):
 
             self.assertNotIn("text", json.dumps(payload, ensure_ascii=False))
             self.assertNotIn(sample_text[:30], json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("sample.md", json.dumps(payload, ensure_ascii=False))
+
+    def test_single_sample_reliability_boundaries_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            examples = root / "examples"
+            examples.mkdir()
+            sample = examples / "private-name.md"
+
+            for char_count in (500, 3999):
+                sample.write_text("文" * char_count, encoding="utf-8")
+                result = style_fingerprint.build_baseline(
+                    style_examples_dir=examples,
+                    output_path=root / f"baseline_{char_count}.json",
+                )
+                self.assertEqual(result["status"], "insufficient_source")
+                self.assertEqual(result["baseline_quality"]["insufficient_reason"], "low_reliability")
+                self.assertEqual(result["metrics"], {})
+                self.assertEqual(result["dimension_stats"], {})
+                self.assertEqual(result["dimension_reliability"], {})
+
+            sample.write_text("文" * 4000, encoding="utf-8")
+            result = style_fingerprint.build_baseline(
+                style_examples_dir=examples,
+                output_path=root / "baseline_4000.json",
+            )
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["dimension_reliability"]["avg_sentence_length"]["level"], "medium")
+
+    def test_below_minimum_and_two_short_samples_have_distinct_outcomes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            examples = root / "examples"
+            examples.mkdir()
+            (examples / "a.md").write_text("甲" * 499, encoding="utf-8")
+            below = style_fingerprint.build_baseline(
+                style_examples_dir=examples,
+                output_path=root / "below.json",
+            )
+            self.assertEqual(below["status"], "insufficient_source")
+            self.assertEqual(below["baseline_quality"]["insufficient_reason"], "total_sample_chars<500")
+
+            (examples / "a.md").write_text("甲" * 250, encoding="utf-8")
+            (examples / "b.md").write_text("乙" * 250, encoding="utf-8")
+            two_samples = style_fingerprint.build_baseline(
+                style_examples_dir=examples,
+                output_path=root / "two.json",
+            )
+            self.assertEqual(two_samples["status"], "ok")
+            self.assertEqual(two_samples["baseline_quality"]["sample_count"], 2)
+            self.assertEqual(two_samples["baseline_quality"]["confidence"], 0.65)
+
+    def test_single_physical_newlines_define_paragraphs(self) -> None:
+        lf = style_fingerprint.calculate_metrics("甲甲\n乙乙乙\n\n丙")
+        crlf = style_fingerprint.calculate_metrics("甲甲\r\n乙乙乙\r\n\r\n丙")
+
+        self.assertEqual(lf["paragraph_count"], 3)
+        self.assertEqual(lf["avg_paragraph_chars"], 2.0)
+        self.assertEqual(crlf["paragraph_count"], 3)
+        self.assertEqual(crlf["avg_paragraph_chars"], 2.0)
+
+    def test_nonfinite_integer_config_degrades_to_defaults(self) -> None:
+        config = {
+            **style_fingerprint.DEFAULT_CONFIG,
+            "source": {
+                **style_fingerprint.DEFAULT_CONFIG["source"],
+                "min_samples": math.inf,
+                "min_total_chars": "Infinity",
+                "good_sample_count": -math.inf,
+                "good_total_chars": float("nan"),
+            },
+            "sentence": {"short_chars_max": math.inf, "long_chars_min": "-Infinity"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            examples = root / "examples"
+            examples.mkdir()
+            (examples / "a.md").write_text("甲" * 250, encoding="utf-8")
+            (examples / "b.md").write_text("乙" * 250, encoding="utf-8")
+
+            result = style_fingerprint.build_baseline(
+                style_examples_dir=examples,
+                output_path=root / "baseline.json",
+                config=config,
+            )
+            inspected = style_fingerprint.calculate_metrics("甲。乙！", config)
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(inspected["sentence_count"], 2)
+
+    def test_validate_baseline_hash_requires_both_aliases_and_rejects_corruption(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            examples = root / "examples"
+            examples.mkdir()
+            (examples / "a.md").write_text("甲" * 250, encoding="utf-8")
+            (examples / "b.md").write_text("乙" * 250, encoding="utf-8")
+            baseline = style_fingerprint.build_baseline(
+                style_examples_dir=examples,
+                output_path=root / "baseline.json",
+            )
+
+            self.assertEqual(style_fingerprint.validate_baseline_hash(baseline), "ok")
+            for alias in ("baseline_hash", "hash"):
+                single_alias = dict(baseline)
+                single_alias.pop(alias)
+                self.assertEqual(style_fingerprint.validate_baseline_hash(single_alias), "invalid_hash")
+
+            missing = dict(baseline)
+            missing.pop("baseline_hash")
+            missing.pop("hash")
+            self.assertEqual(style_fingerprint.validate_baseline_hash(missing), "invalid_hash")
+
+            divergent = dict(baseline)
+            divergent["hash"] = "0" * 64
+            self.assertEqual(style_fingerprint.validate_baseline_hash(divergent), "invalid_hash")
+
+            tampered = dict(baseline)
+            tampered["sample_count"] = 99
+            self.assertEqual(style_fingerprint.validate_baseline_hash(tampered), "invalid_hash")
+
+            malformed = dict(baseline)
+            malformed["bad"] = {object()}
+            self.assertEqual(style_fingerprint.validate_baseline_hash(malformed), "invalid_hash")
+
+            for nonfinite in (math.nan, math.inf, -math.inf):
+                with self.subTest(nonfinite=nonfinite):
+                    malformed_number = dict(baseline)
+                    malformed_number["bad_number"] = nonfinite
+                    # Even a caller that tries to re-hash the corrupt artifact
+                    # cannot create a valid strict-JSON baseline identity.
+                    self.assertEqual(
+                        style_fingerprint.validate_baseline_hash(malformed_number),
+                        "invalid_hash",
+                    )
+
+    def test_extreme_integer_float_config_degrades_to_default(self) -> None:
+        huge = 10 ** 10000
+        self.assertEqual(style_fingerprint._safe_float(huge, 1.0), 1.0)
+
+    def test_v1_hash_can_be_validated_but_version_remains_explicit(self) -> None:
+        artifact = {"status": "ok", "fingerprint_version": "local-stat-v1", "metrics": {}}
+        digest = style_fingerprint._baseline_hash(artifact)
+        artifact["baseline_hash"] = digest
+        artifact["hash"] = digest
+
+        self.assertEqual(style_fingerprint.validate_baseline_hash(artifact), "ok")
+        self.assertNotEqual(artifact["fingerprint_version"], style_fingerprint.FINGERPRINT_VERSION)

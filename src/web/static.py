@@ -1569,12 +1569,25 @@ JS_DASHBOARD = """\
     const cls = v === "approve" ? "approve" : v === "reject" ? "reject" : "abstain";
     return '<span class="badge ' + cls + '">' + escapeHtml(verdict) + "</span>";
   }
+  function finiteStyleNumber(value) {
+    if (value == null || typeof value === "boolean") return null;
+    if (typeof value === "string" && !value.trim()) return null;
+    // Arrays and objects are never numeric fields, even if Number([]) happens
+    // to coerce to zero. Keep badges and detail tables on the same strict path.
+    if (typeof value === "object") return null;
+    let number;
+    try { number = Number(value); } catch (e) { return null; }
+    return Number.isFinite(number) ? number : null;
+  }
   function styleDriftBadge(drift) {
-    const severity = drift && drift.severity ? String(drift.severity).toLowerCase() : "skipped";
-    const score = drift && drift.style_drift_score != null ? Number(drift.style_drift_score) : null;
+    if (!drift || !drift.status) {
+      return '<span class="badge no-dot badge-muted">文风未检测</span>';
+    }
+    const severity = drift.severity ? String(drift.severity).toLowerCase() : "skipped";
+    const score = finiteStyleNumber(drift.style_drift_score);
     const cls = severity === "ok" ? "approve" : severity === "warn" ? "warn" : severity === "red" ? "reject" : "no-dot badge-muted";
     const label = severity === "skipped"
-      ? "文风 skipped"
+      ? "文风已跳过"
       : "文风 " + severity + (Number.isFinite(score) ? " " + score.toFixed(2) : "");
     return '<span class="badge ' + cls + '">' + escapeHtml(label) + "</span>";
   }
@@ -1896,23 +1909,49 @@ JS_DASHBOARD = """\
   const _ALLOWED_TAB_KEYS = [
     // iter063 A7: "edit" was dropped when iter062 trimmed unimplemented tabs,
     // which broke the /chapter/N#edit deep-link (it IS implemented). Restore it.
-    "body", "edit", "review", "lint", "advisor", "history",
+    "body", "edit", "review", "lint", "style", "advisor", "history",
     "chapters", "outline", "decisions",
     "setup", "hook", "storyboard", "characters",
     "script", "storyboard-view", "characters-view", "export",
   ];
   function bindHashTabs() {
+    function prepare(list, listIndex) {
+      const tabsRoot = list.parentElement;
+      list.setAttribute("role", "tablist");
+      list.querySelectorAll(".tab").forEach((tab, tabIndex) => {
+        const key = tab.dataset.tab || String(tabIndex);
+        const target = tabsRoot.querySelector("#tab-" + key);
+        if (!tab.id) tab.id = "tab-control-" + listIndex + "-" + key;
+        tab.setAttribute("role", "tab");
+        if (target) {
+          tab.setAttribute("aria-controls", target.id);
+          target.setAttribute("role", "tabpanel");
+          target.setAttribute("aria-labelledby", tab.id);
+        }
+        const selected = tab.classList.contains("active");
+        tab.setAttribute("aria-selected", selected ? "true" : "false");
+        tab.tabIndex = selected ? 0 : -1;
+        if (target) target.hidden = !selected;
+      });
+    }
     function activate(tab) {
       if (!tab) return;
       const list = tab.closest(".tab-list");
       if (!list) return;
-      list.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-      tab.classList.add("active");
       const tabsRoot = list.parentElement;
-      tabsRoot.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
-      const target = tabsRoot.querySelector("#tab-" + tab.dataset.tab);
-      if (target) target.classList.add("active");
+      list.querySelectorAll(".tab").forEach((t) => {
+        const selected = t === tab;
+        t.classList.toggle("active", selected);
+        t.setAttribute("aria-selected", selected ? "true" : "false");
+        t.tabIndex = selected ? 0 : -1;
+        const panel = tabsRoot.querySelector("#tab-" + t.dataset.tab);
+        if (panel) {
+          panel.classList.toggle("active", selected);
+          panel.hidden = !selected;
+        }
+      });
     }
+    document.querySelectorAll(".tab-list").forEach(prepare);
     document.addEventListener("click", function (ev) {
       const tab = ev.target.closest(".tab");
       if (!tab) return;
@@ -1923,6 +1962,31 @@ JS_DASHBOARD = """\
         history.replaceState(null, "", "#" + tab.dataset.tab);
       }
       loadTabPanel(tab.dataset.tab);
+    });
+    document.addEventListener("keydown", function (ev) {
+      const tab = ev.target.closest && ev.target.closest('.tab[role="tab"]');
+      if (!tab) return;
+      const list = tab.closest(".tab-list");
+      if (!list) return;
+      const enabled = Array.from(list.querySelectorAll('.tab[role="tab"]')).filter((item) => (
+        !item.disabled && item.getAttribute("aria-disabled") !== "true"
+      ));
+      if (!enabled.length) return;
+      const current = enabled.indexOf(tab);
+      let next = null;
+      if (ev.key === "Home") next = enabled[0];
+      else if (ev.key === "End") next = enabled[enabled.length - 1];
+      else if (ev.key === "ArrowRight" || ev.key === "ArrowDown") {
+        next = enabled[(Math.max(0, current) + 1) % enabled.length];
+      } else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") {
+        next = enabled[(Math.max(0, current) - 1 + enabled.length) % enabled.length];
+      }
+      if (!next) return;
+      ev.preventDefault();
+      activate(next);
+      next.focus();
+      if (next.dataset.tab) history.replaceState(null, "", "#" + next.dataset.tab);
+      loadTabPanel(next.dataset.tab);
     });
     const params = new URLSearchParams(location.search || "");
     const initialFromQuery = params.get("step") || "";
@@ -4342,9 +4406,26 @@ JS_DASHBOARD = """\
       const data = await fetchJson(wsUrl("/draft/" + num));
       renderChapterDetail(data);
     } catch (err) {
-      document.getElementById("chapter-body").innerHTML =
-        renderErrorCard(err);
+      renderChapterDetailLoadError(err);
     }
+  }
+  function renderChapterDetailLoadError(err) {
+    const errorHtml = renderErrorCard(err);
+    ["chapter-body", "tab-review", "tab-lint", "tab-style", "tab-advisor", "tab-history"].forEach((id) => {
+      const box = document.getElementById(id);
+      if (box) box.innerHTML = errorHtml;
+    });
+    const area = document.getElementById("draft-edit-area");
+    const saveBtn = document.getElementById("draft-save");
+    const saveReviewBtn = document.getElementById("draft-save-review");
+    const statusBox = document.getElementById("draft-edit-status");
+    if (area) {
+      area.disabled = true;
+      area.placeholder = "正文加载失败";
+    }
+    if (saveBtn) saveBtn.disabled = true;
+    if (saveReviewBtn) saveReviewBtn.disabled = true;
+    if (statusBox) statusBox.innerHTML = errorHtml;
   }
   // iter 050 (B1/B2): in-place draft edit + optional re-review job.
   function bindDraftEditor(num) {
@@ -4459,9 +4540,14 @@ JS_DASHBOARD = """\
     });
   }
   function fmtStyleNumber(value, digits) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "—";
+    const n = finiteStyleNumber(value);
+    if (n == null) return "—";
     return n.toFixed(digits == null ? 3 : digits);
+  }
+  function isPlainObject(value) {
+    if (value == null || Object.prototype.toString.call(value) !== "[object Object]") return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
   }
   function renderStyleDriftPanel(drift, fingerprint, baselineHash) {
     if (!drift || !drift.status) {
@@ -4470,8 +4556,8 @@ JS_DASHBOARD = """\
     const basis = drift.basis || {};
     const score = drift.style_drift_score == null ? "—" : fmtStyleNumber(drift.style_drift_score, 3);
     const hash = basis.baseline_hash || (drift.status !== "skipped" ? baselineHash : "") || "";
-    const top = Array.isArray(drift.top_dimensions) ? drift.top_dimensions : [];
-    const skipped = Array.isArray(drift.skipped_dimensions) ? drift.skipped_dimensions : [];
+    const top = Array.isArray(drift.top_dimensions) ? drift.top_dimensions.filter(isPlainObject) : [];
+    const skipped = Array.isArray(drift.skipped_dimensions) ? drift.skipped_dimensions.filter(isPlainObject) : [];
     const rows = top.map((d) => (
       "<tr>" +
       "<td>" + escapeHtml(d.dimension || "") + "</td>" +
@@ -4507,6 +4593,15 @@ JS_DASHBOARD = """\
     const meta = data.meta || {};
     const review = data.review || {};
     const num = data.chapter;
+    const editArea = document.getElementById("draft-edit-area");
+    const saveBtn = document.getElementById("draft-save");
+    const saveReviewBtn = document.getElementById("draft-save-review");
+    if (editArea) {
+      editArea.disabled = false;
+      editArea.placeholder = "";
+    }
+    if (saveBtn) saveBtn.disabled = false;
+    if (saveReviewBtn) saveReviewBtn.disabled = false;
     // header bar
     const head = document.getElementById("chapter-meta-bar");
     if (head) {
@@ -4520,7 +4615,6 @@ JS_DASHBOARD = """\
         (meta.needs_human_review ? '<span class="badge warn">需复核</span>' : "");
     }
     // edit tab — populate unless the user is mid-edit (mirrors outline-md)
-    const editArea = document.getElementById("draft-edit-area");
     if (editArea && !editArea.dataset.dirty && document.activeElement !== editArea) {
       editArea.value = data.content || "";
     }
@@ -4591,13 +4685,16 @@ JS_DASHBOARD = """\
     // advisor tab
     const advBox = document.getElementById("tab-advisor");
     if (advBox) {
-      const suggestions = meta.rewrite_suggestions || [];
+      const suggestions = Array.isArray(meta.rewrite_suggestions)
+        ? meta.rewrite_suggestions.filter(isPlainObject)
+        : [];
       if (!suggestions.length) {
         advBox.innerHTML = '<p class="muted">advisor 未提出改写建议。</p>';
       } else {
         advBox.innerHTML = '<div class="stack">' + suggestions.map((s) => (
           '<div class="advisor-item">' +
           '<span class="type">' + escapeHtml(s.type || "rewrite") + "</span>" +
+          (s._advisor ? '<span class="muted">来源：' + escapeHtml(s._advisor) + "</span>" : "") +
           '<div class="section">' + escapeHtml(s.section || "(整段)") + "</div>" +
           '<div class="guidance">' + escapeHtml(s.guidance || "") + "</div>" +
           "</div>"

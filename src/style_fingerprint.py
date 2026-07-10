@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import re
 from copy import deepcopy
@@ -9,11 +10,11 @@ from typing import Any, Dict, List
 
 from . import paths
 from .config import load_config
-from .utils import sha256_data, sha256_text, write_json
+from .utils import sha256_text, write_json
 
 
 SCHEMA_VERSION = 1
-FINGERPRINT_VERSION = "local-stat-v1"
+FINGERPRINT_VERSION = "local-stat-v2"
 
 METRIC_KEYS = [
     "char_count",
@@ -165,7 +166,7 @@ def build_baseline(
                 "tolerance": {},
                 "baseline_quality": {
                     "sample_count": len(samples),
-                    "distinct_source_count": len({sample["label"] for sample in samples}),
+                    "distinct_source_count": len(samples),
                     "total_sample_chars": total_chars,
                     "confidence": 0.0,
                     "status": "insufficient_source",
@@ -180,11 +181,36 @@ def build_baseline(
             write_json(baseline_path, artifact)
         return artifact
 
+    reliability = _dimension_reliability(cfg, len(samples), total_chars)
+    if reliability["level"] == "low":
+        artifact = _baseline_base(cfg, samples, status="insufficient_source")
+        artifact.update(
+            {
+                "metrics": {},
+                "dimension_stats": {},
+                "dimension_reliability": {},
+                "tolerance": {},
+                "baseline_quality": {
+                    "sample_count": len(samples),
+                    "distinct_source_count": len(samples),
+                    "total_sample_chars": total_chars,
+                    "confidence": reliability["confidence"],
+                    "status": "insufficient_source",
+                    "insufficient_reason": "low_reliability",
+                },
+            }
+        )
+        digest = _baseline_hash(artifact)
+        artifact["baseline_hash"] = digest
+        artifact["hash"] = digest
+        if write:
+            write_json(baseline_path, artifact)
+        return artifact
+
     sample_metrics = [calculate_metrics(sample["text"], cfg) for sample in samples]
     combined_text = "\n\n".join(sample["text"] for sample in samples)
     combined_metrics = calculate_metrics(combined_text, cfg)
     stats = _dimension_stats(sample_metrics)
-    reliability = _dimension_reliability(cfg, len(samples), total_chars)
     artifact = _baseline_base(cfg, samples, status="ok")
     artifact.update(
         {
@@ -194,7 +220,7 @@ def build_baseline(
             "tolerance": _dimension_tolerance(cfg, stats),
             "baseline_quality": {
                 "sample_count": len(samples),
-                "distinct_source_count": len({sample["label"] for sample in samples}),
+                "distinct_source_count": len(samples),
                 "total_sample_chars": total_chars,
                 "confidence": reliability["confidence"],
                 "status": "ok",
@@ -238,18 +264,12 @@ def inspect_draft(
 
 
 def _baseline_base(cfg: Mapping[str, Any], samples: Sequence[Mapping[str, Any]], *, status: str) -> Dict[str, Any]:
-    source_hashes = [
-        {"label": sample["label"], "sha256": sample["sha256"], "char_count": sample["char_count"]}
-        for sample in samples
-    ]
     return {
         "status": status,
         "schema_version": SCHEMA_VERSION,
         "fingerprint_version": str(cfg.get("fingerprint_version") or FINGERPRINT_VERSION),
         "language": str(cfg.get("language") or "zh"),
         "sample_count": len(samples),
-        "source_labels": [sample["label"] for sample in samples],
-        "source_hashes": source_hashes,
         "weights": _weights(cfg),
     }
 
@@ -269,23 +289,43 @@ def _load_samples(style_examples_dir: Path) -> List[Dict[str, Any]]:
             continue
         samples.append(
             {
-                "label": _source_label(path),
                 "text": text,
-                "sha256": sha256_text(text),
                 "char_count": len(text),
             }
         )
     return samples
 
 
-def _source_label(path: Path) -> str:
-    label = re.sub(r"\s+", "_", path.stem.strip())
-    return label[:80] or "style_sample"
-
-
 def _baseline_hash(artifact: Mapping[str, Any]) -> str:
     payload = {key: value for key, value in artifact.items() if key not in {"baseline_hash", "hash"}}
-    return sha256_data(payload)
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return sha256_text(canonical)
+
+
+def validate_baseline_hash(artifact: Mapping[str, Any]) -> str:
+    """Validate public hash aliases against the artifact payload.
+
+    Both public aliases are required and must be identical. Non-JSON-compatible
+    or otherwise malformed payloads fail closed as ``invalid_hash``.
+    """
+
+    baseline_hash = artifact.get("baseline_hash")
+    hash_alias = artifact.get("hash")
+    if not isinstance(baseline_hash, str) or not baseline_hash:
+        return "invalid_hash"
+    if not isinstance(hash_alias, str) or not hash_alias or baseline_hash != hash_alias:
+        return "invalid_hash"
+    try:
+        expected = _baseline_hash(artifact)
+    except (TypeError, ValueError, OverflowError):
+        return "invalid_hash"
+    return "ok" if baseline_hash == expected else "invalid_hash"
 
 
 def _dimension_stats(sample_metrics: Sequence[Mapping[str, float | int]]) -> Dict[str, Dict[str, float]]:
@@ -351,10 +391,6 @@ def _split_sentences(text: str) -> List[str]:
 
 
 def _paragraphs(text: str) -> List[str]:
-    raw = re.split(r"\n\s*\n+", text)
-    paragraphs = [part.strip() for part in raw if _content_char_count(part) > 0]
-    if paragraphs:
-        return paragraphs
     return [line.strip() for line in text.splitlines() if _content_char_count(line) > 0]
 
 
@@ -414,8 +450,11 @@ def _safe_int(value: Any, default: int) -> int:
     if isinstance(value, bool):
         return default
     try:
+        number = float(value)
+        if not math.isfinite(number):
+            return default
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -424,7 +463,7 @@ def _safe_float(value: Any, default: float) -> float:
         return default
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return number if math.isfinite(number) else default
 

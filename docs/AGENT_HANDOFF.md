@@ -2090,3 +2090,19 @@ python3 main.py --book <name> drive-book start \
 **残留风险 / 下轮候选**：iter086 才实现 red drift 自动定向重写、重写后复评分与 unresolved 留痕；本轮 `section_hint` 是统计维度对应的段落类型提示，不伪造精确原文 anchor。短剧导出/Insights/第 2 集重生/真模型批和小说 10-20 章 capstone 仍是独立候选，真模型需用户授权。
 
 **数据状态**：本轮改动集中在 `src/{schemas,style_drift,reviewer}.py`、directive/reviewer/writer/Web 测试与迭代/README/AGENT_HANDOFF/AGENTS 文档。`verify.sh` 仅写 gitignored 验收产物；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；不 push。
+
+---
+
+## Phase Status — iter 086（2026-07-10 收官）：文风漂移可靠性修复与 Web 防御纵深
+
+**背景**：iter083-085 已形成 baseline、drift score/severity/meta/Web 告警和确定性 advisor，但收官复现确认严重漂移仍可能被极大有限权重溢出误判为绿色，短单样本 baseline 会假成功，hash/version、手工 CLI 并发、历史坏 meta 与章节详情 Web 仍有防御缺口。本轮将原定 red 自动重写顺延，先修其可靠性前置。
+
+**已完成（本轮）**：指纹升级为 `local-stat-v2`：单换行按非空物理段落统计；source 门槛通过但 reliability=low 时返回 `insufficient_source/low_reliability` 空指标；v1 baseline 明确 `incompatible_version` 并要求重建。baseline identity 使用 strict canonical JSON，`baseline_hash/hash` 双别名必须齐全、一致且匹配重算，缺失/分叉/篡改/NaN/Infinity 均 `invalid_hash`；新 artifact 不再记录样本文件名或逐样本原文 digest。drift 聚合按最大 weight 缩放并 `math.fsum`，多个 `1e308` 不再产生 `Infinity/NaN→0/ok`；Advisor 瞬时获取全维度后过滤、meta 仍 top-5；报告清洗坏历史 score/维度为严格 JSON；invalid/incompatible hash 不再传播到 meta；`style-drift --chapter` 在 CLI 外层持有完整读算写窗口的 workspace lock。Web 修复 `#style` 刷新、六面板失败态、编辑禁用、null/坏数组、未检测/已跳过、Advisor 来源，并为共享 tabs 补齐 ARIA/hidden 与 Home/End/四方向键 roving focus。
+
+**铁律⑨审查与追加修复**：correctness、security/privacy、Web/integration 三个独立只读 subagent 完成首审与修后复核。Correctness 发现非有限 schema_version 穿透严格 JSON、invalid/incompatible hash 仍回写 meta、单 alias 未 fail-closed、`_safe_float` 超大整数 OverflowError；全部修复并复核 GO。Security/privacy 发现单 alias 接受与 baseline canonical JSON 允许 NaN/Infinity；改为双 alias 必需 + `allow_nan=False`，复核 PASS，确认 artifact 不含样本名/原文 digest、无 secret/XSS 新路径。Web 发现 roving tab 缺键盘导航、badge 对 `false/""/[]` 假显示 0.00；已统一 strict 数值解析并补键盘模型，复核无 blocker。
+
+**验收证据**：聚焦回归 **130 tests OK**；`.venv/bin/python3 -m unittest discover -s tests` **1757 tests OK**（396.583s）；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部 **1757 tests OK** / 415.373s，随后 auto-pipeline/status/manifest/report/cost 全过）；真实配置 preflight = warn/无 FATAL；mock preflight = ok/无 WARN；`node --check`、`git diff --check` 通过。Playwright 临时 mock server 验证 `#style` 刷新、ARIA/方向键、null/false/`[null]`、Advisor escape、六 tab 失败态与编辑禁用；成功路径 console 0 error，故障路径仅预期 HTTP 500 resource error。真模型 smoke 未跑（铁律⑥）。
+
+**残留风险 / 下轮候选**：red drift 自动定向重写、重写后复评分与 unresolved 留痕顺延 iter087+；现有本地 v1 baseline 必须运行 `python3 main.py style-fingerprint build-baseline` 重建。短剧导出/Insights/第 2 集重生/真模型批和小说 10-20 章 capstone 仍需用户明确授权。
+
+**数据状态**：本轮改动集中在 `src/{style_fingerprint,style_drift}.py`、`src/web/static.py`、`config/style_fingerprint.yaml`、`main.py`、相关测试与迭代/README/AGENT_HANDOFF/AGENTS 文档。`verify.sh` 仅按既有授权写 gitignored 验收产物；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；只 commit、不 push。
