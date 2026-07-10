@@ -5,8 +5,7 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import review_tier
-from . import paths
+from . import paths, review_tier, style_drift
 from .config import ROOT, load_config
 from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .linter import NovelLinter
@@ -42,6 +41,30 @@ def load_advisor_agents() -> List[Dict[str, Any]]:
     """
     cfg = load_config("agents.yaml")
     return cfg.get("advisor_agents", []) or []
+
+
+def _merge_style_advisor_suggestions(
+    existing: List[Dict[str, Any]],
+    plan: List[Dict[str, Any]],
+    style: List[Dict[str, Any]],
+    *,
+    writer_limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """Keep all suggestions while reserving writer-visible advisor slots.
+
+    ``writer._review_feedback`` intentionally consumes only the first five.
+    When style advice exists, reserve one slot each for plan-compliance and
+    the pre-existing advisor (when present), then fill the remaining slots
+    with the highest-ranked style directives. The remainder stays in the
+    report/Web payload after that writer-visible prefix.
+    """
+
+    cap = max(1, int(writer_limit))
+    plan_head = plan[:1]
+    existing_head = existing[:1]
+    style_budget = max(0, cap - len(plan_head) - len(existing_head))
+    prefix = plan_head + style[:style_budget] + existing_head
+    return prefix + plan[1:] + style[style_budget:] + existing[1:]
 
 
 def _relationship_checklist_issue() -> Dict[str, str]:
@@ -823,8 +846,9 @@ def review_text(
     # rewrite is already happening. iter073: reuse the ``plan_misses`` already
     # computed above (single source) — the hard-block decision lives there; a
     # coarse lexical bigram probe must not advisory-spam beyond that.
+    plan_suggestions: List[Dict[str, Any]] = []
     for beat in plan_misses[:3]:
-        rewrite_suggestions.append(
+        plan_suggestions.append(
             {
                 "section": "本章计划",
                 "type": "add",
@@ -832,6 +856,34 @@ def review_text(
                 "_advisor": "plan_compliance",
             }
         )
+
+    # Iter 085: deterministic style-drift advisor. It runs after the verdict
+    # is fixed, makes no LLM call, and never changes voting/hard-reject state.
+    # Merge with reserved slots so writer._review_feedback()'s established
+    # [:5] cap carries style guidance without hiding plan/legacy advisors.
+    style_suggestions: List[Dict[str, Any]] = []
+    try:
+        for directive in style_drift.rewrite_directives_for_text(text):
+            item = model_to_dict(directive)
+            item["section"] = item.get("section_hint", "")
+            item["type"] = "rewrite"
+            item["_advisor"] = "style_drift_advisor"
+            style_suggestions.append(item)
+    except Exception as exc:
+        log_event(
+            "review",
+            "style_drift_advisor_error",
+            target=target_name,
+            error_type=type(exc).__name__,
+        )
+    if style_suggestions:
+        rewrite_suggestions = _merge_style_advisor_suggestions(
+            rewrite_suggestions,
+            plan_suggestions,
+            style_suggestions,
+        )
+    else:
+        rewrite_suggestions.extend(plan_suggestions)
 
     report = {
         "target": target_name,

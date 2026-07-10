@@ -2074,3 +2074,19 @@ python3 main.py --book <name> drive-book start \
 **接力点（iter085-086）**：iter085 可消费 `style_drift.top_dimensions`、`skipped_dimensions` 与 `basis.baseline_hash` 映射 rewrite directives；skipped 不应当作绿灯。iter086 再做 red drift 定向重写与复测。短剧导出/Insights/第 2 集重生与小说主链路 10-20 章真模型 capstone 仍需用户授权后独立推进。
 
 **数据状态**：新增/修改集中在 `src/style_drift.py`、`main.py`、`src/writer.py`、`src/web/{static,templates}.py`、`tests/test_style_drift.py`、writer/Web 测试与迭代/README/AGENT_HANDOFF/AGENTS 文档。`verify.sh` 仅按既有授权写 gitignored `data/`/`outputs/`/`logs` 验收产物；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；不 push。
+
+---
+
+## Phase Status — iter 085（2026-07-10 收官）：文风偏离到定向改写建议
+
+**背景**：iter083/084 已形成纯本地 baseline 和 drift score/severity/meta/Web 告警。本轮把“哪个统计维度偏了”转成 reviewer/writer 可直接消费的结构化 guidance，不自动增加重写轮，不改 verdict/hard reject/readiness。开工前 iter084 已独立复验并提交为 `477c32c`。
+
+**已完成（本轮）**：新增 `StyleTargetRange` / `StyleRewriteDirective`，目标区间和当前值必须非负、有限且有序。`style_drift.build_rewrite_directives()` 对 warn/red `top_dimensions` 按 weighted delta 稳定排序，仅当 current 严格越过 baseline±tolerance 时生成最多 5 条 guidance；覆盖句长、短句、对话、解释连接词、对比句和 AI 腔。`reviewer.review_text()` 在投票已确定后追加 `_advisor=style_drift_advisor` 建议，不新增 LLM 调用；writer 既有前 5 条通道为 plan/style/原 advisor 保留配额，Web 复用 Advisor tab 安全渲染。
+
+**铁律⑨审查与追加修复**：correctness 只读 subagent 发现 2 项：区间内维度会误发 red directive；5 条 style 建议会吞掉 `plan_compliance` 与原 advisor。已分别改为严格 tolerance 越界与跨 advisor 保留配额。security/boundary 只读 subagent 发现 1 项 P2：两个有限大数相加仍可溢出 Infinity，旧 target range dict 也过宽；已补算术后 finite 守门、固定 schema 和真溢出测试。两个 subagent 复核均通过，无残留 blocker/P2。
+
+**验收证据**：聚焦 54 tests OK；`.venv/bin/python3 -m unittest discover -s tests` **1738 tests OK**（288.003s）；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部 **1738 tests OK** / 253.748s，随后 auto-pipeline/status/manifest/report/cost 全过）；真实配置 preflight = warn/无 FATAL；mock preflight = ok/无 WARN；`git diff --check` 通过。真模型 smoke 未跑（铁律⑥）。
+
+**残留风险 / 下轮候选**：iter086 才实现 red drift 自动定向重写、重写后复评分与 unresolved 留痕；本轮 `section_hint` 是统计维度对应的段落类型提示，不伪造精确原文 anchor。短剧导出/Insights/第 2 集重生/真模型批和小说 10-20 章 capstone 仍是独立候选，真模型需用户授权。
+
+**数据状态**：本轮改动集中在 `src/{schemas,style_drift,reviewer}.py`、directive/reviewer/writer/Web 测试与迭代/README/AGENT_HANDOFF/AGENTS 文档。`verify.sh` 仅写 gitignored 验收产物；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；不 push。

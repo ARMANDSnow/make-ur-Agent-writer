@@ -479,6 +479,36 @@ class RewriteSuggestion(BaseModel):
     )
 
 
+class StyleTargetRange(BaseModel):
+    """Finite non-negative target interval for a style metric."""
+
+    min: float = Field(ge=0.0, allow_inf_nan=False)
+    max: float = Field(ge=0.0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "StyleTargetRange":
+        if self.min > self.max:
+            raise ValueError("target range min must be <= max")
+        return self
+
+
+class StyleRewriteDirective(BaseModel):
+    """Iter 085: deterministic rewrite guidance derived from style drift.
+
+    The reviewer adapts this richer contract into the legacy
+    ``RewriteSuggestion`` channel. Numeric basis fields make each suggestion
+    auditable without persisting source prose.
+    """
+
+    dimension: str = Field(default="", max_length=80)
+    severity: Literal["warn", "red"] = Field(default="warn")
+    section_hint: str = Field(default="", max_length=60)
+    target_metric: str = Field(default="", max_length=80)
+    current_value: float = Field(default=0.0, ge=0.0, allow_inf_nan=False)
+    target_range: StyleTargetRange
+    guidance: str = Field(default="", max_length=300)
+
+
 class RelationshipIssue(BaseModel):
     """Iter 023 P5: programmatic relationship-conflict report.
 

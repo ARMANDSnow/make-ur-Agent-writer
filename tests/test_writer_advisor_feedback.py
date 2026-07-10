@@ -80,6 +80,29 @@ class WriterAdvisorFeedbackTests(unittest.TestCase):
         self.assertNotIn("do thing 5", feedback)
         self.assertNotIn("do thing 6", feedback)
 
+    def test_style_drift_advisor_guidance_uses_existing_channel(self) -> None:
+        from src.writer import _review_feedback
+
+        report = {
+            "lint_issues": [],
+            "agent_reviews": [],
+            "rewrite_suggestions": [
+                {
+                    "section": "全文句式节奏",
+                    "type": "rewrite",
+                    "guidance": "拆分解释性长句，不改剧情事实。",
+                    "_advisor": "style_drift_advisor",
+                    "dimension": "avg_sentence_length",
+                    "current_value": 42.0,
+                    "target_range": {"min": 18.0, "max": 22.0},
+                }
+            ],
+            "verdict": "Reject",
+        }
+        feedback = _review_feedback(report)
+        self.assertIn("[style_drift_advisor]", feedback)
+        self.assertIn("拆分解释性长句", feedback)
+
 
 if __name__ == "__main__":
     unittest.main()

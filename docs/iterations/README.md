@@ -96,3 +96,4 @@
 96. [Iteration 083-086 路线图 - 文风指纹 baseline、漂移告警与定向重写闭环](./iteration_083_086_style_fingerprint_roadmap.md)
 97. [Iteration 083 - 量化文风指纹 Baseline v1](./iteration_083_style_fingerprint_baseline.md)
 98. [Iteration 084 - 文风漂移检测 + 告警](./iteration_084_style_drift_detection.md)
+99. [Iteration 085 - 文风偏离到定向改写建议](./iteration_085_style_rewrite_directives.md)

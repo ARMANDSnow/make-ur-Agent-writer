@@ -64,6 +64,16 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self.assertIn('document.getElementById("tab-style")', static.JS_DASHBOARD)
         self.assertIn("baseline_hash", static.JS_DASHBOARD)
 
+    def test_advisor_renderer_escapes_projection_and_ignores_rich_fields(self) -> None:
+        start = static.JS_DASHBOARD.index("// advisor tab")
+        end = static.JS_DASHBOARD.index("// history tab", start)
+        block = static.JS_DASHBOARD[start:end]
+        self.assertIn('escapeHtml(s.type || "rewrite")', block)
+        self.assertIn('escapeHtml(s.section || "(整段)")', block)
+        self.assertIn('escapeHtml(s.guidance || "")', block)
+        self.assertNotIn("target_range", block)
+        self.assertNotIn("baseline", block)
+
     def test_insights_aggregates_scores_field(self) -> None:
         with use_workspace("alpha"):
             data = collect_insights()

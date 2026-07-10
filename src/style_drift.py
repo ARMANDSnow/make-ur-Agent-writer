@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Sequence
 
 from . import paths, style_fingerprint
+from .schemas import StyleRewriteDirective
 from .utils import read_json_optional, write_json
 
 
@@ -15,6 +16,7 @@ WARN_THRESHOLD = 0.35
 RED_THRESHOLD = 0.55
 DEFAULT_REPORT_LIMIT = 10
 TOP_DIMENSIONS_LIMIT = 5
+MAX_REWRITE_DIRECTIVES = 5
 
 _META_RE = re.compile(r"^chapter_(\d{2,})\.meta\.json$")
 
@@ -138,6 +140,143 @@ def compare_to_baseline(
         "skipped_dimensions": skipped,
         "basis": basis,
     }
+
+
+def build_rewrite_directives(
+    drift_report: Mapping[str, Any],
+    *,
+    limit: int = MAX_REWRITE_DIRECTIVES,
+) -> list[StyleRewriteDirective]:
+    """Translate comparable warn/red dimensions into deterministic advice.
+
+    ``top_dimensions`` is the complete auditable input. Corrupt,
+    unsupported, non-finite, or directionally non-actionable dimensions are
+    skipped instead of being coerced to a misleading zero-value directive.
+    """
+
+    if str(drift_report.get("status") or "") != "ok":
+        return []
+    severity = str(drift_report.get("severity") or "")
+    if severity not in {"warn", "red"}:
+        return []
+    top_dimensions = drift_report.get("top_dimensions")
+    if not isinstance(top_dimensions, Sequence) or isinstance(top_dimensions, (str, bytes)):
+        return []
+
+    capped = max(0, min(_safe_int(limit, MAX_REWRITE_DIRECTIVES), MAX_REWRITE_DIRECTIVES))
+    if capped == 0:
+        return []
+
+    comparable: list[tuple[float, str, Mapping[str, Any]]] = []
+    for item in top_dimensions:
+        if not isinstance(item, Mapping):
+            continue
+        dimension = str(item.get("dimension") or "")
+        current = _finite_float(item.get("current_value"))
+        baseline = _finite_float(item.get("baseline_value"))
+        tolerance = _finite_float(item.get("tolerance"))
+        weighted_delta = _finite_float(item.get("weighted_delta"))
+        if (
+            not dimension
+            or current is None
+            or baseline is None
+            or tolerance is None
+            or tolerance <= 0
+            or weighted_delta is None
+            or weighted_delta < 0
+            or current < 0
+            or baseline < 0
+        ):
+            continue
+        comparable.append((weighted_delta, dimension, item))
+
+    comparable.sort(key=lambda row: (-row[0], row[1]))
+    directives: list[StyleRewriteDirective] = []
+    for _weighted_delta, dimension, item in comparable:
+        directive = _directive_for_dimension(dimension, severity, item)
+        if directive is not None:
+            directives.append(directive)
+            if len(directives) >= capped:
+                break
+    return directives
+
+
+def rewrite_directives_for_text(
+    text: str,
+    *,
+    baseline_path: Path | None = None,
+    config: Mapping[str, Any] | None = None,
+    limit: int = MAX_REWRITE_DIRECTIVES,
+) -> list[StyleRewriteDirective]:
+    """Run the local fingerprint/drift path and return reviewer directives."""
+
+    fingerprint = fingerprint_text(text, config=config)
+    drift = compare_to_baseline(fingerprint.get("metrics", {}), load_baseline(baseline_path))
+    return build_rewrite_directives(drift, limit=limit)
+
+
+def _directive_for_dimension(
+    dimension: str,
+    severity: str,
+    item: Mapping[str, Any],
+) -> StyleRewriteDirective | None:
+    current = _finite_float(item.get("current_value"))
+    baseline = _finite_float(item.get("baseline_value"))
+    tolerance = _finite_float(item.get("tolerance"))
+    if current is None or baseline is None or tolerance is None or tolerance <= 0:
+        return None
+
+    target_min_raw = max(0.0, baseline - tolerance)
+    target_max_raw = max(target_min_raw, baseline + tolerance)
+    if not math.isfinite(target_min_raw) or not math.isfinite(target_max_raw):
+        return None
+    target_min = _round(target_min_raw)
+    target_max = _round(target_max_raw)
+    above_target = current > target_max_raw and not math.isclose(
+        current, target_max_raw, rel_tol=1e-12, abs_tol=1e-12
+    )
+    below_target = current < target_min_raw and not math.isclose(
+        current, target_min_raw, rel_tol=1e-12, abs_tol=1e-12
+    )
+
+    section_hint = ""
+    guidance = ""
+    if dimension == "avg_sentence_length":
+        section_hint = "全文句式节奏"
+        if above_target:
+            guidance = "拆分承载多个因果或说明层次的长句，删减解释性从句，用动作和停顿分开信息；只调整叙述节奏，不改变剧情事实。"
+        elif below_target:
+            guidance = "将连续碎句合并成完整的动作—感受—反应链，用必要从句恢复叙事流动；不新增或改动剧情事实。"
+    elif dimension == "short_sentence_ratio" and above_target:
+        section_hint = "短句密集段落"
+        guidance = "合并连续的短句和同一主体的零碎动作，保留关键断句作节奏重音，其余恢复连贯叙述；不改剧情事实。"
+    elif dimension in {"dialogue_line_ratio", "quote_span_ratio"}:
+        section_hint = "信息密集段落"
+        if below_target:
+            guidance = "将部分解释性转述改由角色动作和必要对话承载，让信息在互动中显露；不添加新设定或改变剧情。"
+        elif above_target:
+            guidance = "在密集对白之间补入动作、环境反应和心理停顿，把可合并的问答收紧，避免对白堆叠；不改变事件结果。"
+    elif dimension == "exposition_connector_density" and above_target:
+        section_hint = "解释性总结句"
+        guidance = "删去“因此/于是/这意味着”类总结性连接词，用角色的动作、感官细节或物件变化让因果自行显现；不改变原有逻辑。"
+    elif dimension == "contrast_sentence_density" and above_target:
+        section_hint = "对比句密集段落"
+        guidance = "将重复的“不是…而是…”式对比改为动作选择、环境反应或前后细节落差，仅保留必要的一处对比重音。"
+    elif dimension == "ai_cliche_density" and above_target:
+        section_hint = "抽象概括与套话"
+        guidance = "把抽象的 AI 腔概括换成具体动作、感官反应或可见物件，删去不推动画面的总结句；不新增剧情信息。"
+
+    if not guidance:
+        return None
+    return StyleRewriteDirective(
+        dimension=dimension,
+        severity=severity,
+        section_hint=section_hint,
+        target_metric=dimension,
+        current_value=_round(current),
+        target_range={"min": target_min, "max": target_max},
+        guidance=guidance,
+    )
 
 
 def annotate_meta(

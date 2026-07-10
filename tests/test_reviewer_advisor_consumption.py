@@ -34,6 +34,8 @@ class ReviewerAdvisorConsumptionTests(unittest.TestCase):
         ), patch(
             "src.reviewer.load_advisor_agents", return_value=[]
         ), patch(
+            "src.reviewer.style_drift.rewrite_directives_for_text", return_value=[]
+        ), patch(
             "src.llm_client.LLMClient.complete_text", return_value=approve_json
         ), patch(
             "src.reviewer.write_json"
@@ -66,6 +68,8 @@ class ReviewerAdvisorConsumptionTests(unittest.TestCase):
             "src.reviewer.load_advisor_agents",
             return_value=[{"name": "改写顾问", "system_prompt": "你是改写顾问"}],
         ), patch(
+            "src.reviewer.style_drift.rewrite_directives_for_text", return_value=[]
+        ), patch(
             "src.llm_client.LLMClient.complete_text", fake_complete_text
         ), patch(
             "src.reviewer.write_json"
@@ -84,6 +88,84 @@ class ReviewerAdvisorConsumptionTests(unittest.TestCase):
         self.assertEqual(suggs[0]["_advisor"], "改写顾问")
         # Both review_agent + advisor were called (2 total LLM calls)
         self.assertEqual(call_count["n"], 2)
+
+    def test_style_drift_directives_prepend_without_voting(self) -> None:
+        """Deterministic style advice is first-class feedback, not a voter."""
+        from src.reviewer import review_text
+        from src.schemas import StyleRewriteDirective
+
+        approve_json = '{"verdict":"Approve","plot":8,"prose":8,"fidelity":8,"issues":[],"suggestions":[]}'
+        directive = StyleRewriteDirective(
+            dimension="avg_sentence_length",
+            severity="red",
+            section_hint="全文句式节奏",
+            target_metric="avg_sentence_length",
+            current_value=42.0,
+            target_range={"min": 18.0, "max": 22.0},
+            guidance="拆分解释性长句，不改剧情事实。",
+        )
+        with patch(
+            "src.reviewer.load_review_agents",
+            return_value=[{"name": "test_agent", "system_prompt": "x"}],
+        ), patch(
+            "src.reviewer.load_advisor_agents", return_value=[]
+        ), patch(
+            "src.reviewer.style_drift.rewrite_directives_for_text", return_value=[directive]
+        ), patch(
+            "src.llm_client.LLMClient.complete_text", return_value=approve_json
+        ) as complete_text, patch(
+            "src.reviewer.write_json"
+        ):
+            report = review_text("正文。", "style.md", precomputed_lint_issues=[])
+
+        self.assertEqual(report["verdict"], "Approve")
+        self.assertFalse(report["hard_reject"])
+        self.assertEqual(report["approve_count"], 1)
+        self.assertEqual(len(report["agent_reviews"]), 1)
+        suggestion = report["rewrite_suggestions"][0]
+        self.assertEqual(suggestion["_advisor"], "style_drift_advisor")
+        self.assertEqual(suggestion["section"], "全文句式节奏")
+        self.assertEqual(suggestion["type"], "rewrite")
+        self.assertEqual(suggestion["dimension"], "avg_sentence_length")
+        self.assertEqual(suggestion["target_range"], {"min": 18.0, "max": 22.0})
+        self.assertEqual(complete_text.call_count, 1)
+
+    def test_style_merge_reserves_plan_and_existing_advisor_slots(self) -> None:
+        from src.reviewer import _merge_style_advisor_suggestions
+
+        existing = [
+            {
+                "section": "结尾",
+                "type": "rewrite",
+                "guidance": "保留原 advisor 建议",
+                "_advisor": "改写顾问",
+            }
+        ]
+        plan = [
+            {
+                "section": "本章计划",
+                "type": "add",
+                "guidance": "补足计划关键事件",
+                "_advisor": "plan_compliance",
+            }
+        ]
+        style = [
+            {
+                "section": f"style-{idx}",
+                "type": "rewrite",
+                "guidance": f"style guidance {idx}",
+                "_advisor": "style_drift_advisor",
+            }
+            for idx in range(5)
+        ]
+
+        merged = _merge_style_advisor_suggestions(existing, plan, style)
+        writer_visible = merged[:5]
+        advisors = [item["_advisor"] for item in writer_visible]
+        self.assertIn("plan_compliance", advisors)
+        self.assertIn("改写顾问", advisors)
+        self.assertEqual(advisors.count("style_drift_advisor"), 3)
+        self.assertEqual(len(merged), 7)
 
 
 if __name__ == "__main__":
