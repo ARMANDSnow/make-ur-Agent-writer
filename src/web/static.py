@@ -1591,6 +1591,10 @@ JS_DASHBOARD = """\
       : "文风 " + severity + (Number.isFinite(score) ? " " + score.toFixed(2) : "");
     return '<span class="badge ' + cls + '">' + escapeHtml(label) + "</span>";
   }
+  function styleRewriteBadge(meta) {
+    if (!meta || meta.style_drift_unresolved !== true) return "";
+    return '<span class="badge warn">文风改写未解决</span>';
+  }
   function typeBadge(type) {
     if (type === "drama") {
       return '<span class="badge no-dot badge-drama">🎬 短剧</span>';
@@ -4549,9 +4553,31 @@ JS_DASHBOARD = """\
     const proto = Object.getPrototypeOf(value);
     return proto === Object.prototype || proto === null;
   }
-  function renderStyleDriftPanel(drift, fingerprint, baselineHash) {
-    if (!drift || !drift.status) {
-      return '<p class="muted">本章暂无文风漂移检测记录。</p>';
+  function renderStyleRewriteAudit(rewriteMeta) {
+    const rewriteCount = rewriteMeta ? finiteStyleNumber(rewriteMeta.style_rewrite_count) : null;
+    const rewriteTriggered = Number.isFinite(rewriteCount) && rewriteCount >= 1;
+    const before = rewriteMeta && isPlainObject(rewriteMeta.style_drift_before) ? rewriteMeta.style_drift_before : null;
+    const after = rewriteMeta && isPlainObject(rewriteMeta.style_drift_after) ? rewriteMeta.style_drift_after : null;
+    const improvement = rewriteMeta ? finiteStyleNumber(rewriteMeta.style_drift_improvement) : null;
+    const rewriteStatus = rewriteMeta && typeof rewriteMeta.style_rewrite_status === "string"
+      ? rewriteMeta.style_rewrite_status : "unknown";
+    if (!rewriteTriggered && !(rewriteMeta && rewriteMeta.style_drift_unresolved === true)) return "";
+    return '<h4>定向改写复测</h4>' +
+      '<div class="kv-list compact">' +
+      '<div class="k">result</div><div class="v">' + escapeHtml(rewriteStatus) +
+        (rewriteMeta && rewriteMeta.style_rewrite_applied === true ? " · 已采用" : " · 已回退") + "</div>" +
+      '<div class="k">before</div><div class="v">' + (before ? styleDriftBadge(before) : "—") + "</div>" +
+      '<div class="k">after</div><div class="v">' + (after ? styleDriftBadge(after) : "—") + "</div>" +
+      '<div class="k">improvement</div><div class="v">' +
+        (Number.isFinite(improvement) ? escapeHtml(improvement.toFixed(3)) : "—") + "</div>" +
+      '<div class="k">unresolved</div><div class="v">' +
+        (rewriteMeta && rewriteMeta.style_drift_unresolved === true ? "是" : "否") + "</div>" +
+      "</div>";
+  }
+  function renderStyleDriftPanel(drift, fingerprint, baselineHash, rewriteMeta) {
+    const rewriteHtml = renderStyleRewriteAudit(rewriteMeta);
+    if (!isPlainObject(drift) || !drift.status) {
+      return '<div class="stack"><p class="muted">本章暂无文风漂移检测记录。</p>' + rewriteHtml + "</div>";
     }
     const basis = drift.basis || {};
     const score = drift.style_drift_score == null ? "—" : fmtStyleNumber(drift.style_drift_score, 3);
@@ -4587,6 +4613,7 @@ JS_DASHBOARD = """\
       '<h4>偏离最高维度</h4>' +
       table +
       skippedHtml +
+      rewriteHtml +
       "</div>";
   }
   function renderChapterDetail(data) {
@@ -4609,6 +4636,7 @@ JS_DASHBOARD = """\
       head.innerHTML =
         verdictBadge(meta.verdict || review.verdict) +
         styleDriftBadge(meta.style_drift) +
+        styleRewriteBadge(meta) +
         '<span class="badge no-dot">rewrite ×' + (meta.rewrite_count || 0) + "</span>" +
         '<span class="badge no-dot">' + (meta.chinese_char_count || 0) + " 字</span>" +
         '<span class="badge no-dot">' + escapeHtml(cost) + "</span>" +
@@ -4680,7 +4708,7 @@ JS_DASHBOARD = """\
     // style drift tab
     const styleBox = document.getElementById("tab-style");
     if (styleBox) {
-      styleBox.innerHTML = renderStyleDriftPanel(meta.style_drift, meta.style_fingerprint, meta.baseline_hash);
+      styleBox.innerHTML = renderStyleDriftPanel(meta.style_drift, meta.style_fingerprint, meta.baseline_hash, meta);
     }
     // advisor tab
     const advBox = document.getElementById("tab-advisor");

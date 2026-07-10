@@ -63,6 +63,22 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self.assertIn("function renderStyleDriftPanel", static.JS_DASHBOARD)
         self.assertIn('document.getElementById("tab-style")', static.JS_DASHBOARD)
         self.assertIn("baseline_hash", static.JS_DASHBOARD)
+        self.assertIn("function styleRewriteBadge", static.JS_DASHBOARD)
+        self.assertIn("style_drift_before", static.JS_DASHBOARD)
+        self.assertIn("style_drift_after", static.JS_DASHBOARD)
+        self.assertIn("style_drift_improvement", static.JS_DASHBOARD)
+        self.assertIn("文风改写未解决", static.JS_DASHBOARD)
+        self.assertIn("rewriteMeta.style_drift_unresolved === true", static.JS_DASHBOARD)
+        self.assertIn("isPlainObject(rewriteMeta.style_drift_before)", static.JS_DASHBOARD)
+        self.assertIn("isPlainObject(rewriteMeta.style_drift_after)", static.JS_DASHBOARD)
+        self.assertIn("finiteStyleNumber(rewriteMeta.style_drift_improvement)", static.JS_DASHBOARD)
+        self.assertIn("escapeHtml(rewriteStatus)", static.JS_DASHBOARD)
+        audit_pos = static.JS_DASHBOARD.index("function renderStyleRewriteAudit")
+        panel_pos = static.JS_DASHBOARD.index("function renderStyleDriftPanel")
+        self.assertLess(audit_pos, panel_pos)
+        panel_block = static.JS_DASHBOARD[panel_pos:static.JS_DASHBOARD.index("function renderChapterDetail", panel_pos)]
+        self.assertIn("const rewriteHtml = renderStyleRewriteAudit(rewriteMeta)", panel_block)
+        self.assertIn("+ rewriteHtml +", panel_block)
 
     def test_advisor_renderer_filters_entries_and_escapes_source_projection(self) -> None:
         start = static.JS_DASHBOARD.index("// advisor tab")

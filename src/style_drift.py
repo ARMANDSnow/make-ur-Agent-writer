@@ -17,6 +17,7 @@ RED_THRESHOLD = 0.55
 DEFAULT_REPORT_LIMIT = 10
 TOP_DIMENSIONS_LIMIT = 5
 MAX_REWRITE_DIRECTIVES = 5
+DEFAULT_MIN_IMPROVEMENT = 0.08
 
 _META_RE = re.compile(r"^chapter_(\d{2,})\.meta\.json$")
 
@@ -246,6 +247,85 @@ def rewrite_directives_for_text(
     return build_rewrite_directives(drift, limit=limit)
 
 
+def analyze_text(
+    text: str,
+    *,
+    chapter: int | None = None,
+    baseline: Mapping[str, Any] | None = None,
+    config: Mapping[str, Any] | None = None,
+    top_n: int = TOP_DIMENSIONS_LIMIT,
+) -> Dict[str, Any]:
+    """Return one fingerprint/drift snapshot without reading the baseline twice.
+
+    The writer passes the same in-memory baseline to the before/after calls so a
+    concurrent baseline rebuild cannot make the rewrite comparison meaningless.
+    """
+
+    cfg = config or style_fingerprint.load_style_fingerprint_config()
+    baseline_data = dict(load_baseline() if baseline is None else baseline)
+    fingerprint = fingerprint_text(text, chapter=chapter, config=cfg)
+    drift = compare_to_baseline(
+        fingerprint.get("metrics", {}),
+        baseline_data,
+        top_n=top_n,
+    )
+    return {
+        "style_fingerprint": fingerprint,
+        "style_drift": drift,
+        "baseline_hash": _basis_hash(drift),
+    }
+
+
+def parse_rewrite_policy(
+    config: Mapping[str, Any] | None,
+) -> tuple[Dict[str, Any], list[str]]:
+    """Validate the optional red-only rewrite policy and fail closed.
+
+    Iter087 deliberately accepts only zero or one extra rewrite.  A missing or
+    malformed section disables the feature rather than guessing at a paid LLM
+    action; preflight surfaces the returned warnings to the operator.
+    """
+
+    disabled = {
+        "enabled": False,
+        "trigger_severity": "red",
+        "max_style_rewrites": 0,
+        "min_improvement": DEFAULT_MIN_IMPROVEMENT,
+    }
+    raw = config.get("style_drift_rewrite") if isinstance(config, Mapping) else None
+    if not isinstance(raw, Mapping):
+        return disabled, ["style_fingerprint.yaml missing valid style_drift_rewrite mapping"]
+
+    warnings: list[str] = []
+    enabled = raw.get("enabled")
+    trigger = raw.get("trigger_severity")
+    max_rewrites = raw.get("max_style_rewrites")
+    raw_min_improvement = raw.get("min_improvement")
+    min_improvement = (
+        _finite_float(raw_min_improvement)
+        if isinstance(raw_min_improvement, (int, float)) and not isinstance(raw_min_improvement, bool)
+        else None
+    )
+
+    if not isinstance(enabled, bool):
+        warnings.append("style_drift_rewrite.enabled must be a boolean")
+    if trigger != "red":
+        warnings.append("style_drift_rewrite.trigger_severity must be 'red' in iter087")
+    if isinstance(max_rewrites, bool) or not isinstance(max_rewrites, int) or max_rewrites not in {0, 1}:
+        warnings.append("style_drift_rewrite.max_style_rewrites must be 0 or 1")
+    if min_improvement is None or not 0.0 <= min_improvement <= 1.0:
+        warnings.append("style_drift_rewrite.min_improvement must be a finite number between 0 and 1")
+    if warnings:
+        return disabled, warnings
+
+    return {
+        "enabled": enabled,
+        "trigger_severity": trigger,
+        "max_style_rewrites": max_rewrites,
+        "min_improvement": min_improvement,
+    }, []
+
+
 def _directive_for_dimension(
     dimension: str,
     severity: str,
@@ -317,11 +397,26 @@ def annotate_meta(
     chapter: int,
     baseline_path: Path | None = None,
     config: Mapping[str, Any] | None = None,
+    analysis: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     updated = dict(meta)
     try:
-        fingerprint = fingerprint_text(draft_text, chapter=chapter, config=config)
-        drift = compare_to_baseline(fingerprint.get("metrics", {}), load_baseline(baseline_path))
+        if analysis is not None:
+            fingerprint = analysis.get("style_fingerprint")
+            drift = analysis.get("style_drift")
+            if not isinstance(fingerprint, Mapping) or not isinstance(drift, Mapping):
+                raise ValueError("invalid precomputed style analysis")
+            fingerprint = dict(fingerprint)
+            drift = dict(drift)
+        else:
+            snapshot = analyze_text(
+                draft_text,
+                chapter=chapter,
+                baseline=load_baseline(baseline_path),
+                config=config,
+            )
+            fingerprint = snapshot["style_fingerprint"]
+            drift = snapshot["style_drift"]
     except Exception as exc:  # style drift must never block writer persistence.
         fingerprint = {
             "status": "skipped",

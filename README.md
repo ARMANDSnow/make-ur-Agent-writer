@@ -186,12 +186,13 @@ workspaces/<book>/
 | 阶段 21（iter 084）| **文风漂移检测 + 告警**：新增 `src/style_drift.py`，按 baseline `metrics/tolerance/weights/dimension_reliability` 计算 normalized delta、`style_drift_score` 与 `ok/warn/red` severity；缺 baseline、样本不足、缺维度、低可靠、缺/坏 weight 或非有限值全部 skipped，不造假 0。新增 `style-drift --chapter N` 合并写入已有 chapter meta、`style-drift-report --limit N` 按章节降序取最近窗口；writer 成功与 lint-failure 两条路径写入 `style_fingerprint/style_drift/baseline_hash` 但不改变 verdict/rewrite/human-review 语义；Web 章节详情增加文风 badge 与只读“文风”tab，只展示数值指标/hash。2 个只读 subagents 审查发现的 weight/skipped hash/Infinity 边界均已修；canonical **1723 tests OK**，`verify.sh` exit 0，mock preflight ok；不阻断、不改写、不接 `panel_block_policy`，真模型 smoke 未跑 | 完成 |
 | 阶段 22（iter 085）| **文风偏离 → 定向改写建议**：新增有限有序 `StyleRewriteDirective` 契约，将 warn/red drift 的句长、短句、对话、解释连接词、对比句、AI 腔偏离翻译为最多 5 条确定性 guidance；仅严格越过 baseline±tolerance 才出建议。reviewer 以 `_advisor=style_drift_advisor` 进入既有 `rewrite_suggestions`，不新增 LLM、不改 verdict/票数/hard reject/重写次数；writer 前 5 条为 plan/style/原 advisor 保留跨类配额。双 subagent 审查发现的 Infinity schema、区间内误建议、advisor 吞没均已修；canonical **1738 tests OK**，`verify.sh` exit 0，mock preflight ok；自动重写/复测经 iter086 前置硬化后顺延 iter087+ | 完成 |
 | 阶段 23（iter 086）| **文风漂移可靠性修复 + Web 防御纵深**：指纹升级 `local-stat-v2`（单换行物理段落、low reliability fail-closed、v1 需重建），baseline hash 双别名 + strict JSON 重算校验并移除样本文件名/逐样本 digest；drift 用 max-weight 缩放消除 `Infinity/NaN→0/ok`，Advisor 全维度后过滤，报告清洗坏历史 meta，手工 CLI 加 workspace 锁。Web 修复 `#style`、全 tab 失败态、null/坏数组、状态 badge、Advisor 来源和 ARIA/键盘 tabs。三视角审查 findings 全修并复核通过；canonical **1757 tests OK**，`verify.sh` exit 0，mock preflight ok；自动 red 重写/复测顺延 | 完成 |
+| 阶段 24（iter 087）| **文风 Red Drift 定向重写与复测闭环**：默认开启但只对有效 v2 baseline + red + panel Approve 稿触发一次定向修文；候选使用同 baseline 复评分，只在 score 下降 + lint 通过 + panel Approve 时采用，否则回退真正获批稿。`style_rewrite_count` 与旧 rewrite 隔离，before/after/improvement/unresolved 留痕但不阻断 readiness/write-book；手工编辑清理 stale style artifact，Web 展示采用/回退证据。三视角首审 findings 全修并复核 PASS；canonical **1775 tests OK**，`verify.sh` exit 0，mock preflight ok；真模型 smoke 未跑 | 完成 |
 
 阶段小结：[stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md)。会话延续锚点：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md)。
 
 ## 流水线 SOP（实时状态）
 
-一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 086**（2026-07-10，收官）——**文风漂移可靠性修复与 Web 防御纵深**：指纹升级 `local-stat-v2`，单换行按物理段落统计，low reliability 不再假成功；baseline 双 hash 以 strict JSON 重算校验，v1/缺失/分叉/篡改/非有限值全部 fail-closed，并移除样本文件名与逐样本 digest。漂移聚合改用 max-weight 缩放，消除有限大权重 `Infinity/NaN→0/ok`；Advisor 在全维度过滤后取五条，坏历史报告严格 JSON，手工 CLI 受 workspace 写锁保护。Web 补齐 `#style` 深链、全 tab 错误态、null/坏数组降级、状态区分、Advisor 来源和 ARIA/键盘 tabs。correctness、security/privacy、Web/integration 三视角 findings 全修并复核通过。canonical **1757 tests OK**，`verify.sh` exit 0，mock preflight ok，真实配置态 preflight warn/无 FATAL，Playwright/Node/diff 检查通过；真模型 smoke 未跑。上一轮 **iter 085** 交付文风定向改写建议；自动 red 重写与复测顺延。
+一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 087**（2026-07-10，收官）——**文风 Red Drift 定向重写与复测闭环**：有效 v2 baseline 下 red + panel Approve 稿默认自动触发最多一次 style-only 修文，候选只在同 baseline score 下降、lint 无 error、完整 panel Approve 时采用，否则安全回退获批稿。meta/Web 留 before/after/improvement/applied/unresolved，unresolved 只告警不阻断；候选 review 不提前覆盖 canonical artifact，手工编辑会清除 stale style 证据。correctness、security/boundary、Web/integration 三视角 findings 全修并复核 PASS。canonical **1775 tests OK**，`verify.sh` exit 0，mock preflight ok，真实配置 preflight warn/无 FATAL，Node/diff 通过；真模型 smoke 未跑。
 
 图例：✅ 已打通　⚠️ 部分打通（含 gap）　❌ 未打通
 
@@ -258,6 +259,7 @@ workspaces/<book>/
 | 7.9 | 文风漂移检测与告警 | ✅ | iter 084 读取 iter083 baseline 统计量，写 `style_fingerprint/style_drift/baseline_hash` 到已有 meta；`ok/warn/red/skipped` 只作 operator-facing signal，不改变 verdict、不阻断、不自动改写 |
 | 7.10 | 文风偏离定向改写建议 | ✅ | iter 085 把越过 tolerance 的 top dimensions 转为 `style_drift_advisor` 结构化建议，writer 在既有重写轮中才消费；不单独翻 verdict，不新增重写轮 |
 | 7.11 | 文风漂移可靠性守门 | ✅ | iter 086：baseline v2/hash/version fail-closed、稳定权重聚合、坏历史报告清洗、CLI 写锁；自动 red 重写与复测尚未接 |
+| 7.12 | Red drift 定向重写与复测 | ✅ | iter 087：已批准 red 稿最多一次 style-only rewrite，同 baseline 复评分 + lint/panel 安全择优；before/after/unresolved 留痕但不阻断长跑 |
 
 ### 阶段 8 — 关系更新
 | # | 节点 | 状态 | 备注 |

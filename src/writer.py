@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import ValidationError
 
-from . import paths, review_tier, source_excerpts, start_point, style_drift, writer_style
+from . import paths, review_tier, source_excerpts, start_point, style_drift, style_fingerprint, writer_style
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
@@ -104,6 +105,14 @@ def write_chapters(
     configured_attempts = int(agent_cfg["max_review_attempts"])
     rewrite_limit = int(max_attempts) if max_attempts is not None else configured_attempts
     polish_enabled = bool(agent_cfg.get("polish_pass", True))
+    try:
+        style_config = style_fingerprint.load_style_fingerprint_config()
+    except Exception as exc:
+        # The style pass is optional. A broken config must not take down the
+        # established writer path; preflight reports the operator-facing WARN.
+        style_config = dict(style_fingerprint.DEFAULT_CONFIG)
+        log_event("write", "style_rewrite_config_invalid", error_type=type(exc).__name__)
+    style_rewrite_policy, _style_rewrite_warnings = style_drift.parse_rewrite_policy(style_config)
     # Iter 046: AgentWrite-style segmented write. Off by default → byte-identical
     # single-shot behavior. On + a chapter_plan_item carrying `segments` →
     # generate the chapter segment-by-segment honoring per-segment word quotas.
@@ -185,6 +194,9 @@ def write_chapters(
         # iter078 P1-5: 正文+meta 是否已落盘——except 分支据此决定要不要写
         # partial（已持久化的章再写 partial 是误导性残迹）。
         persisted = False
+        style_rewrite_meta: Dict[str, Any] = {}
+        final_style_analysis: Dict[str, Any] | None = None
+        style_review_to_persist: Dict[str, Any] | None = None
         try:
             for attempt in range(1, rewrite_limit + 1):
                 stage = "write"
@@ -299,6 +311,10 @@ def write_chapters(
                 last_blocking_reasons = _blocking_reasons(report)
                 feedback = _review_feedback(report)
 
+            approved_draft_before_polish = (
+                draft if draft and lint_ok and report.get("verdict") == "Approve" else ""
+            )
+            approved_report_before_polish = report if approved_draft_before_polish else None
             chinese_chars = count_chinese_chars(draft)
             needs_polish = (
                 polish_enabled
@@ -332,6 +348,209 @@ def write_chapters(
                     report["polish_error"] = f"{type(exc).__name__}: {exc}"
                 stage = "budget_check_polish"
                 budget_check()
+
+            # Iter087: the automatic style pass is deliberately post-polish so
+            # before/after and the final persisted draft describe the same text.
+            # It is a single optional transaction after an already-approved
+            # chapter, not another reviewer rewrite round.
+            if (
+                draft
+                and lint_ok
+                and report.get("verdict") == "Approve"
+                and style_rewrite_policy.get("enabled") is True
+                and style_rewrite_policy.get("trigger_severity") == "red"
+                and style_rewrite_policy.get("max_style_rewrites") == 1
+            ):
+                prepared = _prepare_style_rewrite(
+                    draft=draft,
+                    chapter_no=chapter_no,
+                    style_config=style_config,
+                )
+                if prepared is not None:
+                    baseline_snapshot, before_analysis, directives = prepared
+                    before_drift = before_analysis["style_drift"]
+                    if directives:
+                        rewrite_input_draft = draft
+                        fallback_draft = approved_draft_before_polish or draft
+                        fallback_report = approved_report_before_polish or report
+                        final_style_analysis = before_analysis
+                        basis = before_drift.get("basis") if isinstance(before_drift.get("basis"), dict) else {}
+                        skipped_after: Dict[str, Any] = {
+                            "status": "skipped",
+                            "schema_version": style_drift.SCHEMA_VERSION,
+                            "severity": "skipped",
+                            "style_drift_score": None,
+                            "reason": "rewrite_not_completed",
+                            "top_dimensions": [],
+                            "skipped_dimensions": [],
+                            "basis": dict(basis),
+                        }
+                        style_rewrite_meta = {
+                            "style_rewrite_count": 1,
+                            "style_rewrite_applied": False,
+                            "style_rewrite_status": "rewrite_not_completed",
+                            "style_drift_before": before_drift,
+                            "style_drift_after": skipped_after,
+                            "style_drift_improvement": None,
+                            "style_drift_unresolved": True,
+                        }
+
+                        stage = "budget_check_style_rewrite_pre"
+                        budget_check()
+                        progress("style-rewrite", 0.88)
+                        candidate = ""
+                        try:
+                            candidate = _style_rewrite_draft(
+                                client=client,
+                                draft=rewrite_input_draft,
+                                directives=[model_to_dict(item) for item in directives],
+                            ).strip()
+                        except Exception as exc:
+                            style_rewrite_meta["style_rewrite_status"] = "rewrite_error"
+                            style_rewrite_meta["style_drift_after"] = {
+                                **skipped_after,
+                                "reason": "rewrite_error",
+                            }
+                            log_event(
+                                "write",
+                                "style_rewrite_error",
+                                chapter=chapter_no,
+                                error_type=type(exc).__name__,
+                            )
+                        if candidate:
+                            last_nonempty_draft = candidate
+                        stage = "budget_check_style_rewrite_post"
+                        budget_check()
+
+                        candidate_analysis: Dict[str, Any] | None = None
+                        candidate_report: Dict[str, Any] | None = None
+                        improvement: float | None = None
+                        if candidate:
+                            candidate_lint: List[Dict[str, Any]] = []
+                            try:
+                                candidate_analysis = style_drift.analyze_text(
+                                    candidate,
+                                    chapter=chapter_no,
+                                    baseline=baseline_snapshot,
+                                    config=style_config,
+                                )
+                                after_drift = candidate_analysis.get("style_drift", {})
+                                style_rewrite_meta["style_drift_after"] = after_drift
+                                before_score = before_drift.get("style_drift_score")
+                                after_score = after_drift.get("style_drift_score") if isinstance(after_drift, dict) else None
+                                if (
+                                    isinstance(before_score, (int, float))
+                                    and not isinstance(before_score, bool)
+                                    and isinstance(after_score, (int, float))
+                                    and not isinstance(after_score, bool)
+                                    and math.isfinite(float(before_score))
+                                    and math.isfinite(float(after_score))
+                                ):
+                                    improvement = round(float(before_score) - float(after_score), 6)
+                                    style_rewrite_meta["style_drift_improvement"] = improvement
+                                candidate_lint = linter.lint(candidate)
+                            except Exception as exc:
+                                candidate_analysis = None
+                                style_rewrite_meta["style_rewrite_status"] = "reverted_analysis_error"
+                                style_rewrite_meta["style_drift_after"] = {
+                                    **skipped_after,
+                                    "reason": "candidate_analysis_error",
+                                }
+                                log_event(
+                                    "write",
+                                    "style_rewrite_analysis_error",
+                                    chapter=chapter_no,
+                                    error_type=type(exc).__name__,
+                                )
+
+                            if candidate_analysis is None:
+                                pass
+                            elif any(issue.get("severity") == "error" for issue in candidate_lint):
+                                style_rewrite_meta["style_rewrite_status"] = "reverted_lint"
+                            elif improvement is None:
+                                style_rewrite_meta["style_rewrite_status"] = "reverted_unscored"
+                            elif improvement <= 0:
+                                style_rewrite_meta["style_rewrite_status"] = "reverted_not_improved"
+                            else:
+                                stage = "budget_check_style_review_pre"
+                                budget_check()
+                                progress("style-rewrite-review", 0.91)
+                                try:
+                                    candidate_report = review_text(
+                                        candidate,
+                                        out_path.name,
+                                        precomputed_lint_issues=candidate_lint,
+                                        rewrite_round=max(0, attempt - 1),
+                                        enforce_relationship_checklist=enforce_checklist_mode,
+                                        knowledge=knowledge[:6000] if knowledge else "",
+                                        source_chapters=review_source,
+                                        scene_excerpts=scene_excerpts_text,
+                                        tier=resolved_tier,
+                                        run_context=run_context,
+                                        draft_sha256=_draft_file_sha256(candidate),
+                                        chapter_plan_item=chapter_plan_item,
+                                        persist=False,
+                                    )
+                                except Exception as exc:
+                                    style_rewrite_meta["style_rewrite_status"] = "reverted_review_error"
+                                    log_event(
+                                        "write",
+                                        "style_rewrite_review_error",
+                                        chapter=chapter_no,
+                                        error_type=type(exc).__name__,
+                                    )
+                                stage = "budget_check_style_review_post"
+                                budget_check()
+                                if candidate_report is not None:
+                                    if candidate_report.get("verdict") == "Approve":
+                                        draft = candidate
+                                        report = candidate_report
+                                        last_lint_issues = candidate_lint
+                                        final_style_analysis = candidate_analysis
+                                        style_review_to_persist = candidate_report
+                                        style_rewrite_meta["style_rewrite_applied"] = True
+                                        style_rewrite_meta["style_rewrite_status"] = "accepted"
+                                    else:
+                                        style_rewrite_meta["style_rewrite_status"] = "reverted_review"
+                        elif style_rewrite_meta["style_rewrite_status"] == "rewrite_not_completed":
+                            style_rewrite_meta["style_rewrite_status"] = "reverted_empty"
+                            style_rewrite_meta["style_drift_after"] = {
+                                **skipped_after,
+                                "reason": "empty_candidate",
+                            }
+
+                        if not style_rewrite_meta["style_rewrite_applied"]:
+                            draft = fallback_draft
+                            report = fallback_report
+                            last_nonempty_draft = fallback_draft
+                            if fallback_draft != rewrite_input_draft:
+                                polish_applied = False
+                                polish_diff_stats = {}
+                                try:
+                                    final_style_analysis = style_drift.analyze_text(
+                                        fallback_draft,
+                                        chapter=chapter_no,
+                                        baseline=baseline_snapshot,
+                                        config=style_config,
+                                    )
+                                except Exception as exc:
+                                    final_style_analysis = None
+                                    log_event(
+                                        "write",
+                                        "style_rewrite_fallback_analysis_error",
+                                        chapter=chapter_no,
+                                        error_type=type(exc).__name__,
+                                    )
+                            else:
+                                final_style_analysis = before_analysis
+                        after_for_resolution = style_rewrite_meta.get("style_drift_after") or {}
+                        min_improvement = float(style_rewrite_policy.get("min_improvement", 0.08))
+                        style_rewrite_meta["style_drift_unresolved"] = bool(
+                            not style_rewrite_meta["style_rewrite_applied"]
+                            or improvement is None
+                            or improvement < min_improvement
+                            or after_for_resolution.get("severity") == "red"
+                        )
 
             # iter078 P1-5: persist 移到 summarize/rolling/proposals 之前。
             # 旧顺序 rolling 先落盘——进程死在「rolling 已写、正文未写」窗口
@@ -383,7 +602,14 @@ def write_chapters(
                     # 凭据（不进 run_context 指纹面，防 chapter_status 比对漂移）。
                     "canon_anchor_active": bool(_canon_anchor_block()),
                 }
-                meta = style_drift.annotate_meta(meta, draft, chapter=chapter_no)
+                meta.update(style_rewrite_meta)
+                meta = style_drift.annotate_meta(
+                    meta,
+                    draft,
+                    chapter=chapter_no,
+                    config=style_config,
+                    analysis=final_style_analysis,
+                )
                 write_text_atomic(out_path, draft + "\n")
                 write_json(meta_path, meta)
                 persisted = True
@@ -407,10 +633,22 @@ def write_chapters(
                 meta["canon_anchor_active"] = bool(_canon_anchor_block())
                 if report.get("verdict") != "Approve":
                     meta["last_blocking_reasons"] = last_blocking_reasons
-                meta = style_drift.annotate_meta(meta, draft, chapter=chapter_no)
+                meta.update(style_rewrite_meta)
+                meta = style_drift.annotate_meta(
+                    meta,
+                    draft,
+                    chapter=chapter_no,
+                    config=style_config,
+                    analysis=final_style_analysis,
+                )
                 write_text_atomic(out_path, draft + "\n")
                 write_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", meta)
                 persisted = True
+                if style_review_to_persist is not None:
+                    write_json(
+                        paths.reviews_dir() / f"{out_path.stem}.review.json",
+                        style_review_to_persist,
+                    )
                 failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
                 if failure_path.exists():
                     failure_path.unlink()
@@ -1191,6 +1429,75 @@ def _polish_draft(
     if style_card_context:
         cache_segments.append({"role": "user", "content": style_card_context, "cache": True})
     cache_segments.append({"role": "user", "content": dynamic_prompt, "cache": False})
+    return _complete_write_text(client, messages, cache_segments).strip()
+
+
+def _prepare_style_rewrite(
+    *,
+    draft: str,
+    chapter_no: int,
+    style_config: Dict[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any], List[Any]] | None:
+    """Build a red-only rewrite transaction; optional local failures skip it."""
+
+    try:
+        baseline_snapshot = style_drift.load_baseline()
+        before_analysis = style_drift.analyze_text(
+            draft,
+            chapter=chapter_no,
+            baseline=baseline_snapshot,
+            config=style_config,
+        )
+        before_drift = before_analysis.get("style_drift", {})
+        if not isinstance(before_drift, dict) or before_drift.get("severity") != "red":
+            return None
+        directive_drift = style_drift.compare_to_baseline(
+            before_analysis.get("style_fingerprint", {}).get("metrics", {}),
+            baseline_snapshot,
+            top_n=len(style_fingerprint.DRIFT_METRIC_KEYS),
+        )
+        directives = style_drift.build_rewrite_directives(directive_drift)
+        return baseline_snapshot, before_analysis, directives
+    except Exception as exc:
+        log_event(
+            "write",
+            "style_rewrite_prepare_error",
+            chapter=chapter_no,
+            error_type=type(exc).__name__,
+        )
+        return None
+
+
+def _style_rewrite_draft(
+    *,
+    client: LLMClient,
+    draft: str,
+    directives: List[Dict[str, Any]],
+) -> str:
+    """Apply one bounded style-only rewrite to an already approved chapter."""
+
+    system_prompt = (
+        "你是长篇小说的文风编辑。只输出修订后的完整正文，不要解释、清单或 Markdown 代码块。"
+        "只能调整句式、节奏、措辞、动作与感官呈现；严禁改变剧情事实、事件顺序、"
+        "人物关系、世界观设定、角色选择、结局或章节结构。"
+    )
+    directive_text = json.dumps(directives, ensure_ascii=False, allow_nan=False, indent=2)
+    user_prompt = (
+        "# 定向文风修订要求\n\n"
+        f"{directive_text}\n\n"
+        "# 边界\n\n"
+        "保留原稿的全部事件、信息、称谓、角色动机和前后因果；不得增删关键情节。"
+        "按上述指令对全文做最小必要修订。\n\n"
+        f"# 已批准原稿\n\n{draft}"
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    cache_segments = [
+        {"role": "system", "content": system_prompt, "cache": True},
+        {"role": "user", "content": user_prompt, "cache": False},
+    ]
     return _complete_write_text(client, messages, cache_segments).strip()
 
 

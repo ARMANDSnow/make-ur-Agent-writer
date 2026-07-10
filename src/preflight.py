@@ -41,6 +41,7 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
 
     _check_env(fatal, warn, is_global_mock)
     _check_agents_config(fatal, warn, root, info)
+    _check_style_rewrite_config(warn)
     _check_review_tier(fatal, info)
     _check_provider_routing(fatal, warn, is_global_mock)
     _check_context_limits(fatal, warn, info, model_cfg)
@@ -143,6 +144,20 @@ def _check_agents_config(
         info.append(
             "continuation_anchor：manual 文件与 agents.yaml 配置同时存在，manual 文件优先生效。"
         )
+
+
+def _check_style_rewrite_config(warn: List[str]) -> None:
+    """Iter087: optional paid rewrite config is fail-closed, never guessed."""
+
+    try:
+        cfg = load_config("style_fingerprint.yaml")
+    except Exception as exc:
+        warn.append(f"style_fingerprint.yaml failed to load; automatic style rewrite is disabled: {type(exc).__name__}")
+        return
+    from .style_drift import parse_rewrite_policy
+
+    _policy, warnings = parse_rewrite_policy(cfg)
+    warn.extend(f"{message}; automatic style rewrite is disabled." for message in warnings)
 
 
 def _check_review_tier(fatal: List[str], info: List[str]) -> None:

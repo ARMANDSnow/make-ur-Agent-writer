@@ -2,6 +2,12 @@ schema_version: 1
 fingerprint_version: local-stat-v2
 language: zh
 
+style_drift_rewrite:
+  enabled: true
+  trigger_severity: red
+  max_style_rewrites: 1
+  min_improvement: 0.08
+
 source:
   min_samples: 1
   min_total_chars: 500

@@ -141,6 +141,29 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(report["status"], "fail")
         self.assertTrue(any("max_review_attempts" in item for item in report["fatal"]))
 
+    def test_invalid_style_rewrite_config_warns_and_disables(self) -> None:
+        from src.config import load_config as real_load_config
+
+        def fake_load_config(name: str):
+            cfg = dict(real_load_config(name))
+            if name == "style_fingerprint.yaml":
+                cfg["style_drift_rewrite"] = {
+                    "enabled": "yes",
+                    "trigger_severity": "warn",
+                    "max_style_rewrites": 3,
+                    "min_improvement": float("nan"),
+                }
+            return cfg
+
+        with build_root() as tmp:
+            with patch.dict(os.environ, {"OPENAI_MODEL": "mock"}, clear=True), patch(
+                "src.preflight.load_config", side_effect=fake_load_config
+            ):
+                report = run_preflight(Path(tmp))
+        self.assertEqual(report["fatal"], [])
+        self.assertTrue(any("style_drift_rewrite" in item for item in report["warn"]))
+        self.assertTrue(any("automatic style rewrite is disabled" in item for item in report["warn"]))
+
     def test_empty_global_facts_warns(self) -> None:
         with build_root() as tmp:
             root = Path(tmp)

@@ -108,6 +108,23 @@ class DraftEditTests(unittest.TestCase):
 
     def test_edit_writes_md_and_syncs_meta(self) -> None:
         drafts = self._drive_to_written_chapter("editdraft")
+        meta_path = drafts / "chapter_01.meta.json"
+        seeded_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        seeded_meta.update(
+            {
+                "style_fingerprint": {"status": "ok"},
+                "style_drift": {"status": "ok", "severity": "red"},
+                "baseline_hash": "stale-baseline",
+                "style_rewrite_count": 1,
+                "style_rewrite_applied": True,
+                "style_rewrite_status": "accepted",
+                "style_drift_before": {"style_drift_score": 0.7},
+                "style_drift_after": {"style_drift_score": 0.4},
+                "style_drift_improvement": 0.3,
+                "style_drift_unresolved": False,
+            }
+        )
+        meta_path.write_text(json.dumps(seeded_meta, ensure_ascii=False), encoding="utf-8")
         new_text = "# 第 1 章 改写版\n\n主角推门而入，烛火摇曳。"
         status, data = self._put_draft("editdraft", 1, new_text + "\n\n\n")
         self.assertEqual(status, 200, data)
@@ -123,6 +140,19 @@ class DraftEditTests(unittest.TestCase):
         self.assertEqual(meta["draft_sha256"], data["draft_sha256"])
         self.assertTrue(meta["edited"])
         self.assertTrue(meta["needs_human_review"])
+        for stale_key in (
+            "style_fingerprint",
+            "style_drift",
+            "baseline_hash",
+            "style_rewrite_count",
+            "style_rewrite_applied",
+            "style_rewrite_status",
+            "style_drift_before",
+            "style_drift_after",
+            "style_drift_improvement",
+            "style_drift_unresolved",
+        ):
+            self.assertNotIn(stale_key, meta)
         # review.json still hashes the OLD text → stale by construction.
         review = json.loads(
             (drafts.parent / "reviews" / "chapter_01.review.json").read_text(encoding="utf-8")

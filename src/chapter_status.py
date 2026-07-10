@@ -148,6 +148,8 @@ def chapter_status(
           "failure": bool,            # chapter_NN.failure.json present
           "verdict": str | None,      # meta.verdict (may be None when meta missing)
           "rewrite_count": int,       # meta.rewrite_count (0 when missing)
+          "style_rewrite_count": int, # independent iter087 style pass count
+          "style_drift_unresolved": bool, # advisory only; never changes approved
         }
 
     Pure I/O of three known file paths — no LLM, no network.
@@ -174,12 +176,21 @@ def chapter_status(
 
     needs_review = bool(meta.get("needs_human_review")) if isinstance(meta, dict) else False
     rewrite_count = 0
+    style_rewrite_count = 0
+    style_drift_unresolved = False
     if isinstance(meta, dict):
         raw_rc = meta.get("rewrite_count", 0)
         try:
             rewrite_count = int(raw_rc)
         except (TypeError, ValueError):
             rewrite_count = 0
+        raw_style_rc = meta.get("style_rewrite_count", 0)
+        if not isinstance(raw_style_rc, bool):
+            try:
+                style_rewrite_count = max(0, int(raw_style_rc))
+            except (TypeError, ValueError, OverflowError):
+                style_rewrite_count = 0
+        style_drift_unresolved = meta.get("style_drift_unresolved") is True
 
     approved = (
         exists
@@ -300,6 +311,8 @@ def chapter_status(
         "failure": failure,
         "verdict": verdict,
         "rewrite_count": rewrite_count,
+        "style_rewrite_count": style_rewrite_count,
+        "style_drift_unresolved": style_drift_unresolved,
         "draft_sha256": draft_sha,
         "strict_failures": strict_failures,
         "hard_reject": hard_reject,

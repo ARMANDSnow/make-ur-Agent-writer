@@ -2106,3 +2106,21 @@ python3 main.py --book <name> drive-book start \
 **残留风险 / 下轮候选**：red drift 自动定向重写、重写后复评分与 unresolved 留痕顺延 iter087+；现有本地 v1 baseline 必须运行 `python3 main.py style-fingerprint build-baseline` 重建。短剧导出/Insights/第 2 集重生/真模型批和小说 10-20 章 capstone 仍需用户明确授权。
 
 **数据状态**：本轮改动集中在 `src/{style_fingerprint,style_drift}.py`、`src/web/static.py`、`config/style_fingerprint.yaml`、`main.py`、相关测试与迭代/README/AGENT_HANDOFF/AGENTS 文档。`verify.sh` 仅按既有授权写 gitignored 验收产物；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；只 commit、不 push。
+
+---
+
+## Phase Status — iter 087（2026-07-10 收官）：文风 Red Drift 定向重写与复测闭环
+
+**背景**：iter083-086 已有 baseline v2、drift severity/meta/Web 告警与确定性 directives，但 red 信号仍不会自动修文。本轮在 iter086 可信 hash/version/聚合底座上补齐最多一次的闭环，不跑真模型，不将 unresolved 升级为 blocker。
+
+**已完成（本轮）**：`style_drift_rewrite` 默认开启但仅接受有效 v2 baseline + `red` + panel Approve 稿，最多调用一次现有 write model。writer 在 review-loop/terminal polish 后对完整稿做 style-only rewrite，before/after 共用同一 baseline/config 内存快照；候选只在 drift score 严格下降、deterministic lint 无 error、完整 panel Approve 时采用，其他路径 fail-open 回退真正获批稿。style LLM 与 candidate panel 前后四段预算检查保持现有 partial/failure 语义。`review_text(persist=False)` 不覆盖 canonical review，非持久日志不保存候选回显/raw validation input。meta 新增 `style_rewrite_count/applied/status`、`style_drift_before/after/improvement/unresolved`，不复用旧 rewrite 计数。
+
+**Web / 状态**：`chapter_status` 透出 `style_rewrite_count/style_drift_unresolved`，但 approved 判定完全忽略 unresolved，过夜长跑不会因统计文风告警自动停机。章节详情「文风」tab 显示 before→after、改善值、采用/回退和 unresolved；顶层 drift 坏值也不吞 rewrite audit。手工 PUT 正文会原子清理所有与旧 draft hash 绑定的 style artifact，避免伪装当前稿证据。
+
+**铁律⑨审查与追加修复**：correctness、security/boundary、Web/integration 三个独立只读 subagent 完成首审 + 修后复核。Correctness 的本地 style 异常误中断与 post-polish 回退未复审稿已修；security 的字符串数值启用付费路径与 candidate 日志泄漏已收口；Web 的手工编辑 stale artifact 与早退吞 audit 已修。三视角最终均 PASS，无残留 blocker。
+
+**验收证据**：最终聚焦 **200 tests OK**；`.venv/bin/python3 -m unittest discover -s tests` **1775 tests OK**（226.593s）；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部 **1775 tests OK** / 409.553s + auto-pipeline/status/manifest/review report/cost 全过）；真实配置 preflight warn/无 FATAL，mock preflight ok/无 WARN；`py_compile`、Node JS syntax、`git diff --check` 通过。真模型 smoke 未跑（铁律⑥）。
+
+**残留风险 / 下轮候选**：自动修文的 red/0.08 阈值与额外费用尚未经真模型长程校准，因此 unresolved 继续只告警不阻断。现有 v1 baseline 需用户显式重建。下轮可回到短剧导出 + Insights + 第 2 集重生，或用户单独授权后跑小说 10-20 章真模型 capstone。
+
+**数据状态**：`verify.sh` 仅写既有 gitignored 验证产物；未改 `.env`，未读写用户私有样本或 `小说txt/`；未跟踪 `续写工作台.pptx` 保持不动；只 commit、不 push。

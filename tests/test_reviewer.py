@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +9,21 @@ from src.reviewer import load_review_agents
 
 
 class ReviewerPrecomputedLintTests(unittest.TestCase):
+    def test_non_persistent_review_does_not_replace_canonical_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            reviews = Path(tmp)
+            canonical = reviews / "candidate.review.json"
+            canonical.write_text('{"verdict":"Approve","marker":"original"}', encoding="utf-8")
+            with patch("src.reviewer._reviews_dir", return_value=reviews):
+                report = review_text(
+                    "候选稿。",
+                    "candidate.md",
+                    precomputed_lint_issues=[{"severity": "error", "rule": "x"}],
+                    persist=False,
+                )
+            self.assertEqual(report["verdict"], "Reject")
+            self.assertEqual(json.loads(canonical.read_text(encoding="utf-8"))["marker"], "original")
+
     def test_uses_precomputed_lint_when_provided(self) -> None:
         precomputed = [
             {"rule": "meta_chapter_markers", "severity": "error", "message": "bad", "line": 1, "excerpt": "第 1 章"}
@@ -73,6 +90,25 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(report["agent_reviews"][0]["_fallback_reason"], "(parse_failed)")
         self.assertTrue(any(call.args[:2] == ("review", "json_parse_fallback") for call in mock_log.call_args_list))
 
+    def test_non_persistent_parse_failure_does_not_log_candidate_preview(self) -> None:
+        def fake_complete_text(self, messages):
+            return "候选正文可能被回显，但这不是 JSON"
+
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "文本守门人", "system_prompt": "review"}]), patch(
+            "src.reviewer.load_advisor_agents", return_value=[]
+        ), patch("src.llm_client.LLMClient.complete_text", fake_complete_text), patch(
+            "src.reviewer.log_event"
+        ) as mock_log:
+            review_text("候选稿。", "candidate.md", precomputed_lint_issues=[], persist=False)
+
+        parse_calls = [
+            call for call in mock_log.call_args_list
+            if call.args[:2] == ("review", "json_parse_fallback")
+        ]
+        self.assertEqual(len(parse_calls), 1)
+        self.assertEqual(parse_calls[0].kwargs["content_preview"], "")
+        self.assertGreater(parse_calls[0].kwargs["content_length"], 0)
+
     def test_unknown_verdict_does_not_become_approve(self) -> None:
         def fake_complete_text(self, messages):
             return '{"agent_name":"agent","verdict":"Maybe","score":8,"issues":[],"suggestions":[]}'
@@ -85,6 +121,25 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
         self.assertEqual(report["verdict"], "Reject")
         self.assertEqual(report["agent_reviews"][0]["verdict"], "Abstain")
         self.assertEqual(report["agent_reviews"][0]["_fallback_reason"], "(bad_verdict)")
+
+    def test_non_persistent_review_suppresses_llm_derived_log_fields(self) -> None:
+        def fake_complete_text(self, messages):
+            return '{"agent_name":"agent","verdict":"候选正文片段","score":8,"issues":[],"suggestions":[]}'
+
+        with patch("src.reviewer.load_review_agents", return_value=[{"name": "agent", "system_prompt": "review"}]), patch(
+            "src.reviewer.load_advisor_agents", return_value=[]
+        ), patch("src.llm_client.LLMClient.complete_text", fake_complete_text), patch(
+            "src.reviewer.log_event"
+        ) as mock_log:
+            review_text("候选稿。", "candidate.md", precomputed_lint_issues=[], persist=False)
+
+        bad_verdict_calls = [
+            call for call in mock_log.call_args_list
+            if call.args[:2] == ("review", "bad_verdict_abstain")
+        ]
+        self.assertEqual(len(bad_verdict_calls), 1)
+        self.assertEqual(bad_verdict_calls[0].kwargs["raw_verdict"], "")
+        self.assertGreater(bad_verdict_calls[0].kwargs["raw_verdict_length"], 0)
 
     def test_schema_invalid_review_abstains_without_crashing(self) -> None:
         calls = {"n": 0}

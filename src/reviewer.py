@@ -197,6 +197,14 @@ def _repair_agent_review_dict(raw: Any, agent_name: str, enforce_relationship_ch
 # regression coverage.
 
 
+def _review_error_log_fields(exc: Exception, *, allow_content: bool) -> Dict[str, str]:
+    """Keep discarded candidate prose out of non-persistent review logs."""
+
+    if allow_content:
+        return {"error": str(exc), "error_type": type(exc).__name__}
+    return {"error_type": type(exc).__name__}
+
+
 def _simple_verdict_fallback(
     *,
     client: LLMClient,
@@ -204,6 +212,7 @@ def _simple_verdict_fallback(
     draft: str,
     last_response_preview: str,
     target_name: str,
+    allow_content_log: bool = True,
 ) -> Dict[str, Any] | None:
     """Debug fix: when the main review prompt produced JSON that failed
     to parse, retry the SAME agent with a stripped-down prompt that only
@@ -255,7 +264,7 @@ def _simple_verdict_fallback(
             "simple_fallback_also_failed",
             target=target_name,
             agent=agent.get("name", "?"),
-            error=str(exc),
+            **_review_error_log_fields(exc, allow_content=allow_content_log),
         )
         return None
     if not isinstance(raw, dict):
@@ -267,7 +276,8 @@ def _simple_verdict_fallback(
             "simple_fallback_bad_verdict",
             target=target_name,
             agent=agent.get("name", "?"),
-            raw_verdict=verdict,
+            raw_verdict=verdict if allow_content_log else "",
+            raw_verdict_length=len(verdict),
         )
         return None
     log_event(
@@ -423,12 +433,15 @@ def review_text(
     draft_sha256: str = "",
     tier: str | None = None,
     chapter_plan_item: Dict[str, Any] | None = None,
+    persist: bool = True,
 ) -> Dict[str, Any]:
     """Iter 022 B4 + iter 023 P3/P5:
 
     * ``knowledge`` (KB / global_knowledge.md content) — iter 022
     * ``source_chapters`` (K chapters before start point) — iter 022 (chronological)
     * ``scene_excerpts`` (archetype-matched original excerpts) — iter 023 (genre-matched)
+    * ``persist=False`` — iter087 candidate review; return the full report
+      without replacing the canonical review artifact.
     * After per-agent LLM calls, iter 023 also runs the deterministic
       ``relationship_auditor`` (no LLM) and appends its issues as a
       synthetic agent ``deterministic_relations`` so fail-closed verdict
@@ -460,7 +473,8 @@ def review_text(
             "run_context": run_context or {},
             "draft_sha256": draft_sha256,
         }
-        write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
+        if persist:
+            write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
         return report
 
     agents = load_review_agents()
@@ -549,8 +563,12 @@ def review_text(
                 "json_parse_fallback",
                 target=target_name,
                 agent=agent["name"],
-                error=str(exc),
-                content_preview=content[:200],
+                **_review_error_log_fields(exc, allow_content=persist),
+                # Iter087 candidate reviews are explicitly non-persistent.
+                # A malformed model response may echo candidate prose, so do
+                # not smuggle that discarded text into run_state logs.
+                content_preview=content[:200] if persist else "",
+                content_length=len(content),
             )
             # Debug fix (post iter 019): before recording Abstain, try ONE
             # simplified-prompt fallback call. The original review prompt
@@ -566,6 +584,7 @@ def review_text(
                 draft=text[:18000],
                 last_response_preview=content[:500],
                 target_name=target_name,
+                allow_content_log=persist,
             )
             if simple_raw is not None:
                 simple_raw["agent_name"] = agent["name"]
@@ -599,7 +618,8 @@ def review_text(
                 "bad_verdict_abstain",
                 target=target_name,
                 agent=agent["name"],
-                raw_verdict=str(raw.get("verdict", ""))[:80] if isinstance(raw, dict) else "",
+                raw_verdict=(str(raw.get("verdict", ""))[:80] if persist and isinstance(raw, dict) else ""),
+                raw_verdict_length=(len(str(raw.get("verdict", ""))) if isinstance(raw, dict) else 0),
             )
             reviews.append(
                 {
@@ -618,7 +638,7 @@ def review_text(
                 "schema_invalid_fallback",
                 target=target_name,
                 agent=agent["name"],
-                error=str(exc),
+                **_review_error_log_fields(exc, allow_content=persist),
             )
             simple_raw = _simple_verdict_fallback(
                 client=client,
@@ -626,6 +646,7 @@ def review_text(
                 draft=text[:18000],
                 last_response_preview=content[:500],
                 target_name=target_name,
+                allow_content_log=persist,
             )
             if simple_raw is not None:
                 simple_raw["agent_name"] = agent["name"]
@@ -661,7 +682,7 @@ def review_text(
             "review",
             "relationship_auditor_error",
             target=target_name,
-            error=str(exc),
+            **_review_error_log_fields(exc, allow_content=persist),
         )
         rel_issues = []
     if rel_issues:
@@ -698,7 +719,12 @@ def review_text(
     try:
         plan_misses = _plan_compliance_misses(text, chapter_plan_item)
     except Exception as exc:
-        log_event("review", "plan_compliance_error", target=target_name, error=str(exc))
+        log_event(
+            "review",
+            "plan_compliance_error",
+            target=target_name,
+            **_review_error_log_fields(exc, allow_content=persist),
+        )
         plan_misses = []
     _plan_block_enabled, _plan_block_ratio = _plan_compliance_block_cfg(is_mock=client.is_mock)
     _key_events_total = _plan_key_events_count(chapter_plan_item)
@@ -808,7 +834,7 @@ def review_text(
                         "advisor_parse_failed",
                         target=target_name,
                         advisor=rendered_name,
-                        error=str(exc),
+                        **_review_error_log_fields(exc, allow_content=persist),
                     )
                     continue
                 suggs = parsed.get("suggestions", []) if isinstance(parsed, dict) else []
@@ -826,7 +852,7 @@ def review_text(
                             "advisor_schema_invalid",
                             target=target_name,
                             advisor=rendered_name,
-                            error=str(schema_exc),
+                            **_review_error_log_fields(schema_exc, allow_content=persist),
                         )
             except Exception as exc:
                 log_event(
@@ -834,7 +860,7 @@ def review_text(
                     "advisor_runtime_error",
                     target=target_name,
                     advisor=adv_name,
-                    error=str(exc),
+                    **_review_error_log_fields(exc, allow_content=persist),
                 )
                 continue
 
@@ -907,7 +933,8 @@ def review_text(
         report["score_warning"] = "non_finite_panel_score"
     if reviews and not panel_reviews and not hard_synthetic_reject:
         report["_fallback_reason"] = "(all_agents_parse_failed)"
-    write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
+    if persist:
+        write_json(reviews_dir / f"{Path(target_name).stem}.review.json", report)
     log_event("review", verdict.lower(), target=target_name)
     return report
 

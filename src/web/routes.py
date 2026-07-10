@@ -1023,6 +1023,23 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
             meta["edited_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
             # An edited draft must not coast on a pre-edit Approve.
             meta["needs_human_review"] = True
+            # Iter087: every style artifact is tied to the exact draft hash.
+            # Manual edits invalidate both the current score and the automatic
+            # rewrite audit; keeping them would present stale evidence as if it
+            # described the newly saved prose.
+            for key in (
+                "style_fingerprint",
+                "style_drift",
+                "baseline_hash",
+                "style_rewrite_count",
+                "style_rewrite_applied",
+                "style_rewrite_status",
+                "style_drift_before",
+                "style_drift_after",
+                "style_drift_improvement",
+                "style_drift_unresolved",
+            ):
+                meta.pop(key, None)
             try:
                 write_json(meta_path, meta)
             except OSError as exc:

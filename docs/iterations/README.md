@@ -98,3 +98,4 @@
 98. [Iteration 084 - 文风漂移检测 + 告警](./iteration_084_style_drift_detection.md)
 99. [Iteration 085 - 文风偏离到定向改写建议](./iteration_085_style_rewrite_directives.md)
 100. [Iteration 086 - 文风漂移可靠性修复与 Web 防御纵深](./iteration_086_style_drift_reliability_hardening.md)
+101. [Iteration 087 - 文风 Red Drift 定向重写与复测闭环](./iteration_087_style_drift_rewrite_loop.md)

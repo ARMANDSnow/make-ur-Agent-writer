@@ -45,6 +45,28 @@ class ChapterStatusTests(unittest.TestCase):
         self.assertFalse(status["failure"])
         self.assertEqual(status["verdict"], "Approve")
 
+    def test_unresolved_style_drift_is_advisory_and_does_not_block_approved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            drafts = Path(tmp)
+            (drafts / "chapter_04.md").write_text("body\n", encoding="utf-8")
+            (drafts / "chapter_04.meta.json").write_text(
+                json.dumps(
+                    {
+                        "verdict": "Approve",
+                        "needs_human_review": False,
+                        "rewrite_count": 2,
+                        "style_rewrite_count": 1,
+                        "style_drift_unresolved": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            status = chapter_status(4, drafts)
+        self.assertTrue(status["approved"])
+        self.assertEqual(status["rewrite_count"], 2)
+        self.assertEqual(status["style_rewrite_count"], 1)
+        self.assertTrue(status["style_drift_unresolved"])
+
     def test_failure_file_marks_not_approved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             drafts = Path(tmp)
