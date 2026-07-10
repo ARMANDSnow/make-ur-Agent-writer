@@ -69,6 +69,9 @@ class WriterLintFailureTests(unittest.TestCase):
             self.assertIn("lint_issues", failure)
             self.assertTrue(meta["needs_human_review"])
             self.assertEqual(meta["rewrite_count"], 0)
+            self.assertEqual(meta["verdict"], "Reject")
+            self.assertEqual(meta["style_fingerprint"]["status"], "ok")
+            self.assertEqual(meta["style_drift"]["status"], "skipped")
             self.assertEqual(meta["last_blocking_reasons"][0]["reviewer"], "deterministic_linter")
             self.assertEqual(reports[0]["written"], True)
 
@@ -106,6 +109,9 @@ class WriterRejectLintCleanTests(unittest.TestCase):
             self.assertTrue(meta_path.exists())
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             self.assertTrue(meta.get("needs_human_review"))
+            self.assertEqual(meta["verdict"], "Reject")
+            self.assertEqual(meta["style_fingerprint"]["status"], "ok")
+            self.assertEqual(meta["style_drift"]["status"], "skipped")
             self.assertEqual(reports[0]["written"], True)
 
     def test_writer_prompt_includes_style_examples_when_present(self) -> None:

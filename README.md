@@ -18,7 +18,7 @@ CLI 的入口是 `write-readiness` 和 `write-book`。另外有一个本地网�
 
 ## 几个设计取舍
 
-- 开发默认 mock。1712 个单测本地跑完，不烧 token；`tests/__init__.py` 里强制 `OPENAI_MODEL=mock`，避免 `.env` 漏进测试。
+- 开发默认 mock。1723 个单测本地跑完，不烧 token；`tests/__init__.py` 里强制 `OPENAI_MODEL=mock`，避免 `.env` 漏进测试。
 - 真模型跑之前先过 preflight。env、context limit、provider 路由、manifest 完整性等几类 FATAL 检查不过，就不让往下跑。
 - 一本书一个 workspace（`workspaces/<name>/`），靠 `--book` 切换，彼此不串数据。
 - 中英文自动判定切章；EPUB 用标准库 `zipfile + xml.etree + html.parser` 直接转 txt，没引新依赖。
@@ -153,6 +153,7 @@ workspaces/<book>/
 | `auto-pipeline --chapters N --force` | 9 步 SOP 一键编排，CLI 与 WebUI wizard 共用（iter 026/028） |
 | `web --port 8765` | 本地 WebUI：书架 / 四阶段工作台 / 章节 / 评审 / 任务（iter 025 起；工作台 iter 048；全程可编辑 iter 050） |
 | `style-fingerprint build-baseline` / `style-fingerprint inspect-draft --chapter N` | 量化文风 baseline 与草稿指标检查（iter 083，默认 mock-only、仅存统计量） |
+| `style-drift --chapter N` / `style-drift-report --limit N` | 对草稿做文风漂移检测、写入已有 meta、按最近章节窗口报告 severity（iter 084，只读告警、不阻断） |
 | `preflight` / `status` / `estimate-cost` | 守门 / 状态 / 成本汇总 |
 
 [README_EN.md](README_EN.md) 里有架构图、3-tier 执行说明和全部迭代日志索引。
@@ -182,12 +183,13 @@ workspaces/<book>/
 | 阶段 18（iter 065-079）| **语义闭环 + 长跑可靠性 + capstone 前硬化**：iter065-073 语义/JSON/数值/UX 守门收口；iter074 章节版本 diff；iter075 全文搜索；iter076 长跑可靠性硬化；iter077 P0 五项；iter078 P1 八组；iter079 capstone 前 P2 写锁与预算硬化（Web 手工写端点桥接 flock、writer-style/extract 写锁补线、`apply-advance` 写锁、`entity_proposal_gap` readiness warning 含 `resume_from-1`、mock 预算演练开关、Web lock holder/job JSON 脱敏）。canonical **1633 tests OK**，`verify.sh` exit 0，mock preflight ok；真模型 capstone 仍需授权实跑 | 完成 |
 | 阶段 19（iter 080-082）| **短剧站③分镜 + 站④角色/角色库/AI 绘画骨架 + 评审/组装/episodes**：iter080 解锁 `drama_storyboard` schema/runner/prompt/config、5 赛道原创 storyboard fixtures、Web storyboard API 与可编辑 grid（排序/重生/高光校验）；iter081 新增 `DramaCharacter` / `CharacterSheet` / `ReferenceImage`、`character_designer`、5 赛道原创角色 fixtures、`/w/{name}/characters` 角色库页、写作页站④角色卡编辑/锁定/保存/重画、placeholder SVG 零网络绘图、真实绘图安全骨架（公网校验、PNG/JPEG/WebP、5MB cap），settings 接入 `DRAMA_MODEL` / `AI_DRAW_*`；iter082 新增 `drama_reviewer`、5 维子分与本地 verdict 推导、review fixtures、`assemble_episode()`、`episode_01.json/.meta.json`、input fingerprint stale 检测、`/w/{name}/episodes` 与 `/w/{name}/episode/1` 只读复核页、站④“评审并组装”CTA 与 suggestion apply。canonical **1707 tests OK**，`verify.sh` exit 0，mock preflight ok；真模型/真绘图 smoke 未跑（铁律⑥） | 完成 |
 | 阶段 20（iter 083）| **量化文风指纹 Baseline v1**：新增 `src/style_fingerprint.py`、`config/style_fingerprint.yaml`、`style-fingerprint build-baseline` 与 `inspect-draft` CLI；baseline 从用户本地 `data/style_examples/*.md` 生成，只存统计量/tolerance/hash/sample_count/source labels，不存原文；缺样本或样本不足返回 `insufficient_source` 不阻断；指标覆盖句长、段长、对话占比、标点密度、对比句、AI 腔词、感官/意象词、解释连接词等维度。canonical **1712 tests OK**，`verify.sh` exit 0，mock preflight ok；未接 writer/reviewer/Web/drift severity，真模型 smoke 未跑 | 完成 |
+| 阶段 21（iter 084）| **文风漂移检测 + 告警**：新增 `src/style_drift.py`，按 baseline `metrics/tolerance/weights/dimension_reliability` 计算 normalized delta、`style_drift_score` 与 `ok/warn/red` severity；缺 baseline、样本不足、缺维度、低可靠、缺/坏 weight 或非有限值全部 skipped，不造假 0。新增 `style-drift --chapter N` 合并写入已有 chapter meta、`style-drift-report --limit N` 按章节降序取最近窗口；writer 成功与 lint-failure 两条路径写入 `style_fingerprint/style_drift/baseline_hash` 但不改变 verdict/rewrite/human-review 语义；Web 章节详情增加文风 badge 与只读“文风”tab，只展示数值指标/hash。2 个只读 subagents 审查发现的 weight/skipped hash/Infinity 边界均已修；canonical **1723 tests OK**，`verify.sh` exit 0，mock preflight ok；不阻断、不改写、不接 `panel_block_policy`，真模型 smoke 未跑 | 完成 |
 
 阶段小结：[stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md)。会话延续锚点：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md)。
 
 ## 流水线 SOP（实时状态）
 
-一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 083**（2026-07-09，收官）——**量化文风指纹 Baseline v1**：新增纯本地 `style_fingerprint` 模块、配置与 CLI，支持从 `data/style_examples/*.md` 构建版权安全 baseline，并对 `outputs/drafts/chapter_NN.md` 输出同形指标；baseline 只保存统计量、tolerance、hash、sample_count 与 source labels/hash，不保存原文片段；缺样本 graceful degrade 为 `insufficient_source`。canonical **1712 tests OK**（.venv），`verify.sh` exit 0，mock preflight ok，真实配置态 preflight warn/无 FATAL；未接 writer/reviewer/Web/drift severity，真模型 smoke 未跑（铁律⑥）。上一轮 **iter 082**（2026-07-09，收官）——**短剧 drama_reviewer + 整集组装 + episodes 页**：短剧 4 站产物首次形成可复核 episode 真源，新增 5 维评审、episode assemble 与 episodes 只读复核页。再上一轮 **iter 081**（2026-07-09，收官）——**短剧站④角色 + 角色库 + AI 绘画骨架**：新增角色 schema/runner、角色库页、站④角色卡编辑/锁定/保存/重画，默认零网络 placeholder，真实绘图 client 仅做安全 wiring。
+一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 084**（2026-07-09，收官）——**文风漂移检测 + 告警**：新增 `style_drift` 本地检测模块、`style-drift --chapter N`、`style-drift-report --limit N`、writer meta 注入与 Web 章节详情文风 badge/tab；drift 读取 iter083 baseline 的统计量/tolerance/weights/reliability/hash，输出 `style_drift_score` 与 `ok/warn/red` severity，缺 baseline 或不可比维度全部 skipped，不造假 0，不阻断、不改写、不接 `panel_block_policy`。补跑 2 个只读 subagents 多视角审查并修复 weight/skipped hash/Infinity 边界；`AGENTS.md` 与全局 `iter-finish` skill 已固化后续每轮收官默认至少 2 个只读 subagents。canonical **1723 tests OK**（.venv），`verify.sh` exit 0，mock preflight ok，真实配置态 preflight warn/无 FATAL；真模型 smoke 未跑（铁律⑥）。上一轮 **iter 083**（2026-07-09，收官）——**量化文风指纹 Baseline v1**：新增纯本地 `style_fingerprint` 模块、配置与 CLI，baseline 只保存统计量、tolerance、hash、sample_count 与 source labels/hash，不保存原文片段。再上一轮 **iter 082**（2026-07-09，收官）——**短剧 drama_reviewer + 整集组装 + episodes 页**：短剧 4 站产物首次形成可复核 episode 真源，新增 5 维评审、episode assemble 与 episodes 只读复核页。
 
 图例：✅ 已打通　⚠️ 部分打通（含 gap）　❌ 未打通
 
@@ -251,6 +253,7 @@ workspaces/<book>/
 | 7.6 | 改写顾问 advisor（不投票，输出 RewriteSuggestion 列表）| ✅ | iter 023 P4（配置）+ iter 024 P1（writer rewrite-loop 真消费）|
 | 7.7 | external review verdict 回写 writer meta | ✅ | iter 040 `book_runner._sync_meta_with_external_review()`；`require_external_review=True` 下 meta/review 文件状态一致 |
 | 7.8 | reviewer 三档打分阈值 | ✅ | iter 042 `WRITE_REVIEW_TIER` / Web job param 支持 `high/mid/low`；5 agent panel 用 `approve_count + panel_score` 判定，默认 `mid` |
+| 7.9 | 文风漂移检测与告警 | ✅ | iter 084 读取 iter083 baseline 统计量，写 `style_fingerprint/style_drift/baseline_hash` 到已有 meta；`ok/warn/red/skipped` 只作 operator-facing signal，不改变 verdict、不阻断、不自动改写 |
 
 ### 阶段 8 — 关系更新
 | # | 节点 | 状态 | 备注 |
@@ -291,6 +294,7 @@ workspaces/<book>/
 | U.12 | Web UX audit + 收尾响应式 | ✅ | iter 043 UX audit + D-1/D-2/D-3/D-4/D-6；iter 044 D-5/D-7/D-8，sidebar drawer、topbar actions 折叠、jobs/chapters/reviews 表格移动端横向滚动、Insights `scores || sub_scores` 兼容 |
 | U.13 | Web 小白四步工作台 + 一句话开书 + 一键测 Key | ✅ | iter 048a-d：`/wizard` 加 premise-form（一句话开书，落 seed.txt 单章包装）→ `/w/{name}/workbench` 四阶段卡片（设定→大纲→细纲→正文，`prepare-greenfield` 复合 step 把前 6 步封单 job + 进度契约 `total/emit_done` 参数化）；mtime 链 stage gate（改 premise 重跑①后旧 outline/plan 自动失效）；大纲 textarea PUT `/outline` + `workspace_reserved` 闭锁；细纲只读 + "重新生成"绕开指纹链暗礁；`GET /api/diag/models` mock 短路 + Bearer/sk- 正则 redact。6 个 prep step 加 `_blocked(reason,error)` readiness check |
 | U.14 | Web 全程可编辑闭环 | ✅ | iter 050a-b：stage③ 细纲每章内联结构化编辑（7 字段 + 数组增删 + 客户端预校验 + 已写章过期确认弹窗；服务端 Pydantic 校验 + `_attach_plan_fingerprints` 唯一真源重算，编辑后 write-book 零指纹失败）；章节详情「编辑」tab（保存 / 保存并重新评审 → `review-chapter` job，md+meta 同锁双写闭死 `draft_hash_mismatch`）；stage①「查看/编辑设定」面板（KB textarea + 实体 name/key_facts/description + 活跃关系 state；不可改 id/type/participants/timeline 键位）；D1/D4/D7/C3c/B3-hint 集中修 |
+| U.15 | Web 文风 drift 只读展示 | ✅ | iter 084 章节详情顶部文风 badge + “文风”tab，展示 severity、score、baseline hash、top/skipped dimensions；只渲染数值指标与 hash，不展示样本或额外原文片段 |
 
 ## 声明
 

@@ -1569,6 +1569,15 @@ JS_DASHBOARD = """\
     const cls = v === "approve" ? "approve" : v === "reject" ? "reject" : "abstain";
     return '<span class="badge ' + cls + '">' + escapeHtml(verdict) + "</span>";
   }
+  function styleDriftBadge(drift) {
+    const severity = drift && drift.severity ? String(drift.severity).toLowerCase() : "skipped";
+    const score = drift && drift.style_drift_score != null ? Number(drift.style_drift_score) : null;
+    const cls = severity === "ok" ? "approve" : severity === "warn" ? "warn" : severity === "red" ? "reject" : "no-dot badge-muted";
+    const label = severity === "skipped"
+      ? "文风 skipped"
+      : "文风 " + severity + (Number.isFinite(score) ? " " + score.toFixed(2) : "");
+    return '<span class="badge ' + cls + '">' + escapeHtml(label) + "</span>";
+  }
   function typeBadge(type) {
     if (type === "drama") {
       return '<span class="badge no-dot badge-drama">🎬 短剧</span>';
@@ -4449,6 +4458,51 @@ JS_DASHBOARD = """\
       if (Number.isFinite(line)) jumpToParagraph(line);
     });
   }
+  function fmtStyleNumber(value, digits) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    return n.toFixed(digits == null ? 3 : digits);
+  }
+  function renderStyleDriftPanel(drift, fingerprint, baselineHash) {
+    if (!drift || !drift.status) {
+      return '<p class="muted">本章暂无文风漂移检测记录。</p>';
+    }
+    const basis = drift.basis || {};
+    const score = drift.style_drift_score == null ? "—" : fmtStyleNumber(drift.style_drift_score, 3);
+    const hash = basis.baseline_hash || (drift.status !== "skipped" ? baselineHash : "") || "";
+    const top = Array.isArray(drift.top_dimensions) ? drift.top_dimensions : [];
+    const skipped = Array.isArray(drift.skipped_dimensions) ? drift.skipped_dimensions : [];
+    const rows = top.map((d) => (
+      "<tr>" +
+      "<td>" + escapeHtml(d.dimension || "") + "</td>" +
+      "<td>" + fmtStyleNumber(d.current_value, 3) + "</td>" +
+      "<td>" + fmtStyleNumber(d.baseline_value, 3) + "</td>" +
+      "<td>" + fmtStyleNumber(d.tolerance, 3) + "</td>" +
+      "<td>" + fmtStyleNumber(d.normalized_delta, 3) + "</td>" +
+      "<td>" + fmtStyleNumber(d.dimension_score, 3) + "</td>" +
+      "</tr>"
+    )).join("");
+    const skippedHtml = skipped.length
+      ? '<div class="muted">跳过维度：' + skipped.slice(0, 8).map((d) => (
+          escapeHtml((d.dimension || "?") + "(" + (d.reason || "skipped") + ")")
+        )).join("，") + (skipped.length > 8 ? "…" : "") + "</div>"
+      : "";
+    const table = rows
+      ? tableScroll('<table><thead><tr><th>维度</th><th>当前</th><th>Baseline</th><th>Tolerance</th><th>Delta</th><th>Score</th></tr></thead><tbody>' + rows + '</tbody></table>')
+      : '<p class="muted">暂无可比较维度。</p>';
+    return '<div class="stack">' +
+      '<div class="kv-list compact">' +
+      '<div class="k">severity</div><div class="v">' + styleDriftBadge(drift) + "</div>" +
+      '<div class="k">score</div><div class="v">' + escapeHtml(score) + "</div>" +
+      '<div class="k">baseline_hash</div><div class="v"><code>' + escapeHtml(hash ? String(hash).slice(0, 16) : "—") + "</code></div>" +
+      '<div class="k">status</div><div class="v">' + escapeHtml(drift.status || "skipped") + (drift.reason ? " · " + escapeHtml(drift.reason) : "") + "</div>" +
+      '<div class="k">fingerprint</div><div class="v">' + escapeHtml((fingerprint && fingerprint.status) || "—") + "</div>" +
+      '</div>' +
+      '<h4>偏离最高维度</h4>' +
+      table +
+      skippedHtml +
+      "</div>";
+  }
   function renderChapterDetail(data) {
     const meta = data.meta || {};
     const review = data.review || {};
@@ -4459,6 +4513,7 @@ JS_DASHBOARD = """\
       const cost = meta.cost_cny != null ? "¥" + Number(meta.cost_cny).toFixed(3) : "—";
       head.innerHTML =
         verdictBadge(meta.verdict || review.verdict) +
+        styleDriftBadge(meta.style_drift) +
         '<span class="badge no-dot">rewrite ×' + (meta.rewrite_count || 0) + "</span>" +
         '<span class="badge no-dot">' + (meta.chinese_char_count || 0) + " 字</span>" +
         '<span class="badge no-dot">' + escapeHtml(cost) + "</span>" +
@@ -4527,6 +4582,11 @@ JS_DASHBOARD = """\
         }
         lintBox.innerHTML = '<div class="stack">' + groups.join("") + "</div>";
       }
+    }
+    // style drift tab
+    const styleBox = document.getElementById("tab-style");
+    if (styleBox) {
+      styleBox.innerHTML = renderStyleDriftPanel(meta.style_drift, meta.style_fingerprint, meta.baseline_hash);
     }
     // advisor tab
     const advBox = document.getElementById("tab-advisor");

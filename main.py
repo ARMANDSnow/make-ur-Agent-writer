@@ -120,6 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     style_fp_sub.add_parser("build-baseline")
     style_fp_inspect = style_fp_sub.add_parser("inspect-draft")
     style_fp_inspect.add_argument("--chapter", type=int, required=True)
+    style_drift = sub.add_parser("style-drift")
+    style_drift.add_argument("--chapter", type=int, required=True)
+    style_drift_report = sub.add_parser("style-drift-report")
+    style_drift_report.add_argument("--limit", type=int, default=10)
 
     extract = sub.add_parser("extract")
     extract.add_argument("--volume", default="all")
@@ -492,6 +496,20 @@ def main() -> None:
             result = build_baseline()
         else:
             result = inspect_draft(args.chapter)
+        print(_json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
+    elif args.command == "style-drift":
+        import json as _json
+
+        from src.style_drift import analyze_chapter
+
+        result = analyze_chapter(args.chapter)
+        print(_json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
+    elif args.command == "style-drift-report":
+        import json as _json
+
+        from src.style_drift import style_drift_report
+
+        result = style_drift_report(limit=args.limit)
         print(_json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
     elif args.command == "extract":
         extract_all(

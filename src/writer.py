@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import ValidationError
 
-from . import paths, review_tier, source_excerpts, start_point, writer_style
+from . import paths, review_tier, source_excerpts, start_point, style_drift, writer_style
 from .chapter_summary import append_chapter_summary, latest_ending_state, render_rolling_context
 from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
@@ -383,6 +383,7 @@ def write_chapters(
                     # 凭据（不进 run_context 指纹面，防 chapter_status 比对漂移）。
                     "canon_anchor_active": bool(_canon_anchor_block()),
                 }
+                meta = style_drift.annotate_meta(meta, draft, chapter=chapter_no)
                 write_text_atomic(out_path, draft + "\n")
                 write_json(meta_path, meta)
                 persisted = True
@@ -406,6 +407,7 @@ def write_chapters(
                 meta["canon_anchor_active"] = bool(_canon_anchor_block())
                 if report.get("verdict") != "Approve":
                     meta["last_blocking_reasons"] = last_blocking_reasons
+                meta = style_drift.annotate_meta(meta, draft, chapter=chapter_no)
                 write_text_atomic(out_path, draft + "\n")
                 write_json(drafts_dir / f"chapter_{chapter_no:02d}.meta.json", meta)
                 persisted = True

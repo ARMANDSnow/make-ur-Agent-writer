@@ -2058,3 +2058,19 @@ python3 main.py --book <name> drive-book start \
 **接力点（iter084-086）**：iter084 可直接读取 `baseline.json` 的 `metrics/dimension_stats/tolerance/weights` 做 draft 对比、drift score/severity 与 meta 写入；样本不足时继续 graceful degrade。iter085 把偏离维度映射成 reviewer advisor / writer feedback 可消费的 rewrite directives，不要重做 baseline schema。iter086 只在 severity 明确时做 red drift 定向重写和复测。本轮没有任何自动重写入口。
 
 **数据状态**：新增/修改集中在 `src/style_fingerprint.py`、`config/style_fingerprint.yaml`、`main.py`、`src/paths.py`、`tests/test_style_fingerprint.py`、`tests/test_paths.py` 与迭代/README/AGENT_HANDOFF/AGENTS 文档。`iteration_083_086_style_fingerprint_roadmap.md` 为路线图交接文档；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；不 push。
+
+---
+
+## Phase Status — iter 084（2026-07-09 收官）：文风漂移检测 + 告警
+
+**背景**：承接 `iteration_083_086_style_fingerprint_roadmap.md`。iter083 已有版权安全 baseline artifact 和 draft 指标检查；本轮只做 drift 检测、score/severity、meta 留痕、CLI 报告与 Web 只读展示。不做 rewrite directives、不自动重写、不阻断 readiness/write-book、不接 `panel_block_policy`，不跑真模型 smoke。
+
+**已完成（本轮）**：新增 `src/style_drift.py`，读取 baseline 的 `metrics/tolerance/weights/dimension_reliability/baseline_hash`，按 `normalized_delta = min(abs(current - baseline) / tolerance, 3.0)` 与 `dimension_score = normalized_delta / 3.0` 计算 `style_drift_score`，severity 固定为 `ok <0.35`、`warn >=0.35`、`red >=0.55`。baseline 缺失、`insufficient_source`、字段不完整或无可比较维度均返回 `status/severity=skipped` 且 score 为 null；缺维度、低可靠度、缺 tolerance、缺/坏 weight、非有限值进入 `skipped_dimensions`，不当 0 分。新增 `style-drift --chapter N` 合并写入已有 `chapter_NN.meta.json`（不创建半 meta）与 `style-drift-report [--limit N]`（按 `chapter_no` 降序取最近窗口）。writer 成功与 lint-failure 两条持久化路径写入 `style_fingerprint/style_drift/baseline_hash`，但不改变 `verdict`、`needs_human_review`、`rewrite_count`、`draft_sha256`；skipped 复测会清理旧 `baseline_hash`。Web 章节详情增加文风 badge 与“文风”tab，只展示 severity、score、baseline hash、top/skipped dimensions 等数值指标。
+
+**铁律⑨审查**：按用户要求补跑 2 个只读 subagents 并行审查，并把该要求固化进 `AGENTS.md` 与全局 `iter-finish` skill，后续每轮收官默认至少 correctness + security/boundary 两个 subagent。correctness subagent 发现 3 项有效问题并已修：缺/坏 `weights` 被默认 1.0、skipped 后旧 `baseline_hash` 可残留、`sample_count=Infinity` 可让 CLI 崩溃。security/boundary subagent 无安全 blocker，确认未改 `.env`、未跑真模型、未触碰 `小说txt/`，新增 meta 只保存统计量/hash/reason，不持久化 baseline 样本或 draft 原文，Web 动态字段 escape；残留提醒为 manual `style-drift --chapter` 设计上会写已有 meta，与 writer 并发时仍可能 last-writer-wins。
+
+**验收证据**：`tests.test_style_drift` **10 tests OK**；受影响测试集 `tests.test_style_drift tests.test_writer tests.test_web_routes_get tests.test_static_subscore_compat` **115 tests OK**；`.venv/bin/python3 -m unittest discover -s tests` **1723 tests OK**；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部同样 **1723 tests OK**，随后 auto-pipeline/status/manifest/report/cost 全过）；`.venv/bin/python3 main.py preflight` = warn/无 FATAL；`OPENAI_MODEL=mock .venv/bin/python3 main.py preflight` = ok/无 WARN；`git diff --check` 通过。真模型 smoke 未跑（铁律⑥）。
+
+**接力点（iter085-086）**：iter085 可消费 `style_drift.top_dimensions`、`skipped_dimensions` 与 `basis.baseline_hash` 映射 rewrite directives；skipped 不应当作绿灯。iter086 再做 red drift 定向重写与复测。短剧导出/Insights/第 2 集重生与小说主链路 10-20 章真模型 capstone 仍需用户授权后独立推进。
+
+**数据状态**：新增/修改集中在 `src/style_drift.py`、`main.py`、`src/writer.py`、`src/web/{static,templates}.py`、`tests/test_style_drift.py`、writer/Web 测试与迭代/README/AGENT_HANDOFF/AGENTS 文档。`verify.sh` 仅按既有授权写 gitignored `data/`/`outputs/`/`logs` 验收产物；未跟踪 `续写工作台.pptx` 是用户文件，保持不动；不 push。

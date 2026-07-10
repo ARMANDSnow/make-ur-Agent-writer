@@ -58,6 +58,12 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self.assertIn(".subscore-cell-approve", static.CSS_BODY)
         self.assertNotIn('td style="text-align:center;background:', static.JS_DASHBOARD)
 
+    def test_chapter_detail_js_renders_style_drift_panel(self) -> None:
+        self.assertIn("function styleDriftBadge", static.JS_DASHBOARD)
+        self.assertIn("function renderStyleDriftPanel", static.JS_DASHBOARD)
+        self.assertIn('document.getElementById("tab-style")', static.JS_DASHBOARD)
+        self.assertIn("baseline_hash", static.JS_DASHBOARD)
+
     def test_insights_aggregates_scores_field(self) -> None:
         with use_workspace("alpha"):
             data = collect_insights()
