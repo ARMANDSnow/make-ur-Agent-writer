@@ -6,8 +6,14 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src import storyboard_builder
-from src.drama_schemas import DramaStoryboard, StoryboardShot, episode_paths, validate_storyboard_soft
+from src import character_designer, storyboard_builder
+from src.drama_schemas import (
+    DramaStoryboard,
+    StoryboardShot,
+    character_paths,
+    episode_paths,
+    validate_storyboard_soft,
+)
 from tests._drama_base import DramaTestBase
 
 
@@ -18,6 +24,18 @@ class StoryboardBuilderTests(DramaTestBase):
     def _workspace(self, name: str, track: str = "霸总", *, hook: bool = True) -> None:
         self._make_drama_workspace(name, track)
         self._write_setup(name, hook=hook)
+
+    def _episode_two_workspace(self, name: str, track: str = "重生") -> dict:
+        self._workspace(name, track)
+        first_board = storyboard_builder.run(name, mock=True)
+        first_paths = episode_paths(name)
+        first_paths.storyboard_path.write_text(json.dumps(first_board, ensure_ascii=False), encoding="utf-8")
+        sheet = character_designer.run(name, mock=True)
+        cp = character_paths(name)
+        cp.sheet_path.parent.mkdir(parents=True, exist_ok=True)
+        cp.sheet_path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
+        self._write_setup(name, hook=True, episode_no=2)
+        return sheet
 
     def test_mock_returns_valid_storyboard_per_track(self) -> None:
         for idx, track in enumerate(TRACKS):
@@ -106,6 +124,32 @@ class StoryboardBuilderTests(DramaTestBase):
         prompt = storyboard_builder.build_system_prompt("prompt_case")
         self.assertIn("3 秒法则", prompt)
         self.assertIn("测试钩子", prompt)
+
+    def test_episode_two_is_pinned_and_prompt_contains_season_visual_signatures(self) -> None:
+        sheet = self._episode_two_workspace("episode_two_board")
+        result = storyboard_builder.run("episode_two_board", mock=True, episode_no=2)
+        self.assertEqual(result["episode_no"], 2)
+        prompt = storyboard_builder.build_system_prompt("episode_two_board", episode_no=2)
+        self.assertIn(sheet["characters"][0]["visual_signature"], prompt)
+        self.assertIn("本季角色视觉签名", prompt)
+
+    def test_real_result_episode_number_is_server_pinned(self) -> None:
+        self._episode_two_workspace("real_episode_two")
+        mock_result = storyboard_builder.run("real_episode_two", mock=True, episode_no=2)
+        expected = DramaStoryboard(**{**mock_result, "episode_no": 1})
+
+        class FakeClient:
+            is_mock = False
+
+            def __init__(self, task: str) -> None:
+                self.task = task
+
+            def complete_json(self, messages, response_model):
+                return expected
+
+        with patch.object(storyboard_builder, "LLMClient", FakeClient):
+            result = storyboard_builder.run("real_episode_two", mock=False, episode_no=2)
+        self.assertEqual(result["episode_no"], 2)
 
 
 if __name__ == "__main__":

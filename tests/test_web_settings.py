@@ -20,6 +20,7 @@ class SettingsTests(unittest.TestCase):
             b"OPENAI_BASE_URL=https://api.deepseek.com\n"
             b"PLANNER_API_KEY=test-planner-key-1234567890abcdefghij\n"
             b"AI_DRAW_API_KEY=test-draw-key-1234567890abcdefghij\n"
+            b"SD_API_KEY=test-video-key-1234567890abcdefghij\n"
             b"UNRELATED_VAR=keep-me\n"
         )
         self._tmp.close()
@@ -42,6 +43,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(data["settings"]["OPENAI_API_KEY"], "tes***ghij")
         self.assertEqual(data["settings"]["PLANNER_API_KEY"], "tes***ghij")
         self.assertEqual(data["settings"]["AI_DRAW_API_KEY"], "tes***ghij")
+        self.assertEqual(data["settings"]["SD_API_KEY"], "tes***ghij")
         # No full key anywhere in the response body
         key_prefix = b"s" + b"k" + b"-"
         self.assertIsNone(re.search(key_prefix + rb"[A-Za-z0-9]{16,}", body))

@@ -23,6 +23,7 @@ from .drama_schemas import (
     DramaReview,
     DramaStoryboard,
     episode_paths,
+    normalize_episode_no,
 )
 from .llm_client import LLMClient
 from .schemas import model_to_dict
@@ -32,6 +33,7 @@ from .utils import read_json_optional
 def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dict[str, Any]:
     """Run the lightweight drama reviewer and return a validated review."""
 
+    episode_no = normalize_episode_no(episode_no)
     setup = _load_completed_setup(workspace, episode_no=episode_no)
     storyboard = _load_completed_storyboard(workspace, episode_no=episode_no)
     characters = _load_completed_characters(workspace)
@@ -48,6 +50,7 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
         setup=setup,
         storyboard=storyboard,
         characters=characters,
+        episode_no=episode_no,
     )
     _log_prompt(workspace, "drama_reviewer", prompt)
 
@@ -60,7 +63,7 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
         if client is None:
             client = LLMClient("drama_review")
         try:
-            review = client.complete_json(
+            generated = client.complete_json(
                 [
                     {"role": "system", "content": prompt},
                     {
@@ -70,6 +73,9 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
                 ],
                 DramaReview,
             )
+            payload = model_to_dict(generated)
+            payload["episode_no"] = episode_no
+            review = DramaReview(**payload)
         except Exception:
             return parse_failed_review(episode_no=episode_no, season_no=int(characters.get("season_no") or 1))
 
@@ -77,6 +83,7 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
 
 
 def parse_failed_review(*, episode_no: int = 1, season_no: int = 1) -> Dict[str, Any]:
+    episode_no = normalize_episode_no(episode_no)
     review = DramaReview(
         episode_no=episode_no,
         season_no=season_no,
@@ -97,10 +104,14 @@ def build_system_prompt(
     setup: Dict[str, Any] | None = None,
     storyboard: Dict[str, Any] | None = None,
     characters: Dict[str, Any] | None = None,
+    episode_no: int = 1,
 ) -> str:
+    episode_no = normalize_episode_no(episode_no)
     data = wizard_input if wizard_input is not None else _load_wizard_input(workspace)
-    setup_data = setup if setup is not None else _load_completed_setup(workspace)
-    storyboard_data = storyboard if storyboard is not None else _load_completed_storyboard(workspace)
+    setup_data = setup if setup is not None else _load_completed_setup(workspace, episode_no=episode_no)
+    storyboard_data = (
+        storyboard if storyboard is not None else _load_completed_storyboard(workspace, episode_no=episode_no)
+    )
     character_data = characters if characters is not None else _load_completed_characters(workspace)
     template = _load_prompt_template("drama_reviewer")
     snapshot = _load_snapshot(workspace)

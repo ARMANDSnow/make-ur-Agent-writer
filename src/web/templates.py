@@ -147,6 +147,7 @@ _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("write", "续写", "write"),
     ("characters", "角色库", "characters"),
     ("episodes", "剧集", "episodes"),
+    ("insights", "数据", "insights"),
     ("jobs", "任务", "jobs"),
 )
 
@@ -433,12 +434,12 @@ def _drama_overview_main(name: str, meta: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
+def render_workspace_write(name: str, workspaces: Iterable[str], episode_no: int = 1) -> str:
     main = (
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">续写</p>'
-        '<h1>4 站审查向导</h1>'
+        f'<h1>第 {episode_no} 集 · 4 站审查向导</h1>'
         '<p class="muted">核心设定 → 钩子 → 分镜 → 角色，每站 AI 生成 → 你改 → 下一站。</p>'
         '</div>'
         '<div id="drama-write-progress" class="cluster"></div>'
@@ -464,10 +465,11 @@ def render_workspace_write(name: str, workspaces: Iterable[str]) -> str:
         title=f"{name} · 续写",
         page_kind="drama_write",
         main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("续写", None)]),
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), (f"第 {episode_no} 集", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="write"),
         workspace=name,
+        chapter_no=episode_no,
     )
 
 
@@ -564,6 +566,33 @@ def render_workspace_episode_detail(name: str, workspaces: Iterable[str], episod
     )
 
 
+def render_workspace_drama_insights(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧</p>'
+        '<h1>数据 Insights</h1>'
+        '<p class="muted">查看短剧调用成本、单集时长达标率与钩子类型分布。</p>'
+        '</div>'
+        '<div class="cluster">'
+        f'<a class="btn btn-secondary" href="/w/{escape(name)}/episodes">返回剧集</a>'
+        '</div>'
+        '</header>'
+        '<section class="section stack">'
+        '<div class="card"><div class="card-header"><h3>成本口径</h3></div><div class="card-body" id="drama-insights-cost"></div></div>'
+        '<div class="card"><div class="card-header"><h3>时长达标率</h3></div><div class="card-body" id="drama-insights-duration"></div></div>'
+        '<div class="card"><div class="card-header"><h3>钩子类型</h3></div><div class="card-body" id="drama-insights-hooks"></div></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 短剧数据",
+        page_kind="drama_insights",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("数据", None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="insights"),
+        workspace=name,
+    )
 # ---------------------------------------------------------------------------
 # Page: continue (cockpit)
 # ---------------------------------------------------------------------------

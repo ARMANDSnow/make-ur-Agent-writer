@@ -15,6 +15,40 @@ ShotSize = Literal["特写", "近景", "中景", "全景", "远景"]
 CameraMovement = Literal["固定", "推", "拉", "摇", "移", "跟", "升降"]
 
 
+MAX_DRAMA_EPISODE_NO = 100
+
+
+def normalize_episode_no(value: Any) -> int:
+    """Return a fail-closed drama episode number.
+
+    API query parameters arrive as strings, while internal callers normally use
+    integers.  Accept those two exact shapes only: bools, floats (including
+    integral-looking values), whitespace/sign-prefixed strings, and out-of-range
+    values are rejected rather than coerced.
+    """
+
+    if isinstance(value, bool):
+        raise ValueError(f"episode_no must be an integer between 1 and {MAX_DRAMA_EPISODE_NO}")
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str) and value.isascii() and value.isdigit():
+        digits = value.lstrip("0") or "0"
+        if len(digits) > len(str(MAX_DRAMA_EPISODE_NO)):
+            raise ValueError(f"episode_no must be an integer between 1 and {MAX_DRAMA_EPISODE_NO}")
+        number = int(digits)
+    else:
+        raise ValueError(f"episode_no must be an integer between 1 and {MAX_DRAMA_EPISODE_NO}")
+    if number < 1 or number > MAX_DRAMA_EPISODE_NO:
+        raise ValueError(f"episode_no must be an integer between 1 and {MAX_DRAMA_EPISODE_NO}")
+    return number
+
+
+def _strict_schema_episode_no(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("episode_no must be a strict integer")
+    return normalize_episode_no(value)
+
+
 @dataclass(frozen=True)
 class DramaEpisodePaths:
     workspace: str
@@ -41,8 +75,7 @@ class DramaCharacterPaths:
 
 
 def episode_paths(workspace: str, *, episode_no: int = 1) -> DramaEpisodePaths:
-    if not isinstance(episode_no, int) or isinstance(episode_no, bool) or episode_no < 1:
-        raise ValueError("episode_no must be a positive integer")
+    episode_no = normalize_episode_no(episode_no)
     root = paths.WORKSPACE_DIR / workspace
     outputs_dir = root / "outputs"
     episodes_dir = outputs_dir / "episodes"
@@ -102,7 +135,7 @@ class StoryboardShot(BaseModel):
 class DramaStoryboard(BaseModel):
     schema_version: int = 1
     season_no: int = Field(default=1, ge=1)
-    episode_no: int = Field(default=1, ge=1)
+    episode_no: int = Field(default=1, ge=1, le=MAX_DRAMA_EPISODE_NO)
     track: str = Field(default="", max_length=20)
     title: str = Field(default="", max_length=80)
     target_duration_seconds: int = Field(default=60, ge=30, le=180)
@@ -110,6 +143,11 @@ class DramaStoryboard(BaseModel):
     narrative: str = Field(default="", max_length=2000)
     shots: List[StoryboardShot] = Field(min_length=6, max_length=9)
     soft_warnings: List[str] = Field(default_factory=list)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
 
     @field_validator("hook", mode="before")
     @classmethod
@@ -203,6 +241,11 @@ class ReferenceImage(BaseModel):
     generated_by: str = Field(default="", max_length=80)
     prompt: str = Field(default="", max_length=1000)
     seed: Optional[int] = None
+    requested_model: str = Field(default="", max_length=80)
+    requested_size: str = Field(default="", max_length=40)
+    provider_size: str = Field(default="", max_length=40)
+    width: Optional[int] = Field(default=None, ge=1, le=16384)
+    height: Optional[int] = Field(default=None, ge=1, le=16384)
 
     @field_validator("path")
     @classmethod
@@ -221,6 +264,13 @@ class ReferenceImage(BaseModel):
     def _reject_bool_seed(cls, value: Any) -> Any:
         if isinstance(value, bool):
             raise ValueError("seed must not be bool")
+        return value
+
+    @field_validator("width", "height", mode="before")
+    @classmethod
+    def _reject_bool_dimensions(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("reference image dimensions must not be bool")
         return value
 
 
@@ -302,10 +352,15 @@ class DramaCharacter(BaseModel):
 class CharacterSheet(BaseModel):
     schema_version: int = 1
     season_no: int = Field(default=1, ge=1)
-    episode_no: int = Field(default=1, ge=1)
+    episode_no: int = Field(default=1, ge=1, le=MAX_DRAMA_EPISODE_NO)
     track: str = Field(default="", max_length=20)
     source_storyboard_title: str = Field(default="", max_length=80)
     characters: List[DramaCharacter] = Field(min_length=1, max_length=8)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
 
     @model_validator(mode="after")
     def _ids_unique_and_contrast_targets_exist(self) -> "CharacterSheet":
@@ -423,7 +478,7 @@ class AdvisorSuggestion(BaseModel):
 
 class DramaReview(BaseModel):
     schema_version: int = 1
-    episode_no: int = Field(default=1, ge=1)
+    episode_no: int = Field(default=1, ge=1, le=MAX_DRAMA_EPISODE_NO)
     season_no: int = Field(default=1, ge=1)
     agent_name: str = "drama_reviewer"
     verdict: DramaVerdict = "Abstain"
@@ -435,6 +490,11 @@ class DramaReview(BaseModel):
     reject_station: Optional[DramaReviewStation] = None
     verdict_warning: str = ""
     parse_failed: bool = False
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
 
     @model_validator(mode="after")
     def _derive_local_verdict(self) -> "DramaReview":
@@ -464,7 +524,7 @@ class DurationEstimate(BaseModel):
 
 
 class DramaEpisodeMeta(BaseModel):
-    episode_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
     season_no: int = Field(default=1, ge=1)
     verdict: DramaVerdict
     rewrite_count: int = 0
@@ -476,10 +536,15 @@ class DramaEpisodeMeta(BaseModel):
     input_fingerprint: str = ""
     stale: bool = False
 
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
 
 class DramaEpisode(BaseModel):
     schema_version: int = 1
-    episode_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
     season_no: int = Field(default=1, ge=1)
     title: str = Field(default="", max_length=120)
     logline: str = Field(default="", max_length=500)
@@ -492,3 +557,8 @@ class DramaEpisode(BaseModel):
     storyboard: List[Dict[str, Any]] = Field(default_factory=list)
     ending_hook: Dict[str, Any] = Field(default_factory=dict)
     self_check: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)

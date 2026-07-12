@@ -105,6 +105,20 @@ class DramaFixtureLintTests(unittest.TestCase):
         for term in DRAGON_RAJA_TERMS:
             self.assertNotIn(term, combined)
 
+    def test_episode_two_hook_fixtures_are_three_fresh_original_candidates(self) -> None:
+        for track in TRACKS:
+            with self.subTest(track=track):
+                first = json.loads((FIXTURE_DIR / f"track_{track}_hooks.json").read_text(encoding="utf-8"))["hooks"]
+                second = json.loads((FIXTURE_DIR / f"track_{track}_hooks_ep2.json").read_text(encoding="utf-8"))["hooks"]
+                self.assertEqual(len(second), 3)
+                self.assertEqual([item["type"] for item in second], ["情绪钩", "悬念钩", "反差钩"])
+                first_keys = {(item["type"], item["content"]) for item in first}
+                self.assertTrue(all((item["type"], item["content"]) not in first_keys for item in second))
+                for item in second:
+                    self.assertTrue(item["content"])
+                    for term in DRAGON_RAJA_TERMS:
+                        self.assertNotIn(term, item["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

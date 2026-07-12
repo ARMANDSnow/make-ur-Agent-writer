@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from . import paths
+from .drama_schemas import episode_paths, normalize_episode_no
 
 
 TRACK_PINYIN = {
@@ -25,8 +26,12 @@ TRACK_PINYIN = {
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "drama"
 
 
-def run(workspace: str, *, mock: bool = True) -> Dict[str, Any]:
+def run(workspace: str, *, mock: bool = True, episode_no: int = 1) -> Dict[str, Any]:
     """Run station 1 for ``workspace`` and return the setup JSON."""
+
+    episode_no = normalize_episode_no(episode_no)
+    if episode_no > 1:
+        return _inherit_previous_setup(workspace, episode_no=episode_no)
 
     if not mock:
         raise NotImplementedError("iter 040+")
@@ -40,7 +45,48 @@ def run(workspace: str, *, mock: bool = True) -> Dict[str, Any]:
     _log_prompt(workspace, "drama_planner", system_prompt)
     result = _load_fixture(track, "setup")
     result["track"] = track
+    result["episode_no"] = episode_no
     result["target_duration_seconds"] = wizard_input.get("episode_duration_seconds", result.get("target_duration_seconds"))
+    return result
+
+
+def _inherit_previous_setup(workspace: str, *, episode_no: int) -> Dict[str, Any]:
+    """Create a later-episode setup from the preceding local setup only.
+
+    The selected hook is deliberately removed so station 2 must choose a fresh
+    one.  No prompt is built or logged on this path, which keeps episode
+    continuation independent from model configuration.
+    """
+
+    previous_path = episode_paths(workspace, episode_no=episode_no - 1).setup_path
+    if not previous_path.is_file():
+        raise FileNotFoundError(f"previous episode setup is required; missing {previous_path}")
+    try:
+        previous = json.loads(previous_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"previous episode setup must be valid JSON: {previous_path}") from exc
+    if not isinstance(previous, dict):
+        raise ValueError(f"previous episode setup must be a JSON object: {previous_path}")
+    core_setup = previous.get("core_setup")
+    if not isinstance(core_setup, dict) or not core_setup.get("protagonist"):
+        raise ValueError("previous episode setup missing core_setup.protagonist")
+
+    wizard_input = _load_wizard_input(workspace)
+    track = str(previous.get("track") or wizard_input.get("track") or "")
+    if track not in TRACK_PINYIN:
+        raise ValueError(f"unknown track: {track!r}")
+
+    result = dict(previous)
+    result.pop("hook", None)
+    result["episode_no"] = episode_no
+    result["track"] = track
+    result["core_setup"] = dict(core_setup)
+    result["target_duration_seconds"] = previous.get(
+        "target_duration_seconds",
+        wizard_input.get("episode_duration_seconds", 60),
+    )
+    result["introduces_new_characters"] = False
+    result.setdefault("episode_mainline", "")
     return result
 
 

@@ -1353,8 +1353,9 @@ html { scroll-behavior: smooth; }
 .character-ref-box { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .character-ref-img, .character-ref-placeholder {
   width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: var(--radius-1);
-  background: var(--bg-sunken); object-fit: cover;
+  background: var(--bg-sunken);
 }
+.character-ref-img { object-fit: contain; }
 .character-ref-placeholder {
   display: flex; align-items: center; justify-content: center; color: var(--ink-3);
   font-size: var(--fs-sm); text-align: center; padding: var(--space-3);
@@ -4982,6 +4983,20 @@ JS_DASHBOARD = """\
   }
 
   // ===== page: drama write ==================================================
+  function dramaEpisodeNo() {
+    const value = Number(CHAPTER_NO == null ? 1 : CHAPTER_NO);
+    return Number.isSafeInteger(value) && value >= 1 && value <= 100 ? value : 1;
+  }
+
+  function dramaApiUrl(path) {
+    const separator = String(path).includes("?") ? "&" : "?";
+    return wsUrl(path + separator + "episode_no=" + encodeURIComponent(String(dramaEpisodeNo())));
+  }
+
+  function dramaPayload(payload) {
+    return Object.assign({}, payload || {}, { episode_no: dramaEpisodeNo() });
+  }
+
   async function initDramaWrite() {
     bindHashTabs();
     bindHookPickDelegate();
@@ -4996,7 +5011,7 @@ JS_DASHBOARD = """\
     const box = document.getElementById("drama-write-progress");
     if (!box) return;
     try {
-      const data = await fetchJson(wsUrl("/drama/progress"));
+      const data = await fetchJson(dramaApiUrl("/drama/progress"));
       box.innerHTML = (data.stations || []).map(function (s) {
         const cls = s.status === "done" ? "ready" :
           s.status === "locked" ? "blocked" : "warn";
@@ -5013,7 +5028,7 @@ JS_DASHBOARD = """\
     if (!pane) return;
     pane.innerHTML = skeleton(3);
     try {
-      const data = await fetchJson(wsUrl("/drama/progress"));
+      const data = await fetchJson(dramaApiUrl("/drama/progress"));
       const station = (data.stations || []).find((s) => s.id === "setup");
       pane.innerHTML = renderStationSetup(station, data.wizard_input);
       bindStationSetupActions();
@@ -5038,6 +5053,10 @@ JS_DASHBOARD = """\
         '</div>';
     }
     if (data) {
+      const continuationFields = dramaEpisodeNo() > 1
+        ? '<div class="field"><label>本集主线推进</label><textarea name="episode_mainline" rows="2">' + escapeHtml(data.episode_mainline || "") + '</textarea></div>' +
+          '<label class="check-row"><input type="checkbox" name="introduces_new_characters" ' + (data.introduces_new_characters ? "checked" : "") + '> 本集引入新角色（未勾选则沿用季角色并跳过站④生成）</label>'
+        : "";
       html += '<form id="station-setup-form" class="stack">' +
         '<div class="field"><label>logline</label>' +
         '<textarea name="logline" rows="2">' + escapeHtml(data.logline || "") + "</textarea></div>" +
@@ -5047,8 +5066,9 @@ JS_DASHBOARD = """\
         '<textarea name="antagonist" rows="2">' + escapeHtml(core.antagonist || "") + "</textarea></div>" +
         '<div class="field"><label>emotional_hook</label>' +
         '<textarea name="emotional_hook" rows="2">' + escapeHtml(core.emotional_hook || "") + "</textarea></div>" +
+        continuationFields +
         '<div class="form-actions">' +
-        '<button type="button" class="btn btn-secondary" id="regenerate-setup">重新生成</button>' +
+        (dramaEpisodeNo() === 1 ? '<button type="button" class="btn btn-secondary" id="regenerate-setup">重新生成</button>' : '') +
         '<button type="submit" class="btn btn-primary">保存并进入站 ② →</button>' +
         '</div></form>';
     } else {
@@ -5069,7 +5089,7 @@ JS_DASHBOARD = """\
       genBtn.addEventListener("click", async function () {
         genBtn.disabled = true;
         try {
-          await postJson(wsUrl("/drama/plan"), {});
+          await postJson(wsUrl("/drama/plan"), dramaPayload({}));
           showToast("核心设定已生成", "info");
           await loadStationSetup();
           await loadStationHooks();
@@ -5087,7 +5107,7 @@ JS_DASHBOARD = """\
       regenBtn.addEventListener("click", async function () {
         regenBtn.disabled = true;
         try {
-          await postJson(wsUrl("/drama/plan"), {});
+          await postJson(wsUrl("/drama/plan"), dramaPayload({}));
           showToast("核心设定已重新生成", "info");
           await loadStationSetup();
           await loadStationHooks();
@@ -5110,8 +5130,12 @@ JS_DASHBOARD = """\
           antagonist: form.elements.antagonist.value,
           emotional_hook: form.elements.emotional_hook.value,
         };
+        if (dramaEpisodeNo() > 1) {
+          payload.episode_mainline = form.elements.episode_mainline.value;
+          payload.introduces_new_characters = !!form.elements.introduces_new_characters.checked;
+        }
         try {
-          await putJson(wsUrl("/drama/setup"), payload);
+          await putJson(wsUrl("/drama/setup"), dramaPayload(payload));
           showToast("已保存，进入站 ②", "info");
           history.replaceState(null, "", "#hook");
           const tab = document.querySelector('.tab[data-tab="hook"]');
@@ -5132,7 +5156,7 @@ JS_DASHBOARD = """\
     if (!pane) return;
     pane.innerHTML = skeleton(3);
     try {
-      const data = await fetchJson(wsUrl("/drama/progress"));
+      const data = await fetchJson(dramaApiUrl("/drama/progress"));
       const station = (data.stations || []).find((s) => s.id === "hook");
       if (station && station.status === "locked") {
         pane.innerHTML = '<div class="alert info">请先完成站 ①</div>';
@@ -5175,7 +5199,7 @@ JS_DASHBOARD = """\
     btn.addEventListener("click", async function () {
       btn.disabled = true;
       try {
-        const data = await postJson(wsUrl("/drama/hooks"), {});
+        const data = await postJson(wsUrl("/drama/hooks"), dramaPayload({}));
         const hooks = data.hooks || [];
         const pane = document.querySelector('[data-station-pane="hook"]');
         if (!pane) return;
@@ -5209,7 +5233,7 @@ JS_DASHBOARD = """\
       pane.querySelectorAll("[data-hook-pick]").forEach((b) => { b.disabled = true; });
       const idx = Number(pick.getAttribute("data-hook-pick"));
       try {
-        await putJson(wsUrl("/drama/setup"), { hook: pane.__hooks[idx] });
+        await putJson(wsUrl("/drama/setup"), dramaPayload({ hook: pane.__hooks[idx] }));
         showToast("钩子已锁定", "info");
         history.replaceState(null, "", "#storyboard");
         const tab = document.querySelector('.tab[data-tab="storyboard"]');
@@ -5230,13 +5254,13 @@ JS_DASHBOARD = """\
     if (!pane) return;
     pane.innerHTML = skeleton(3);
     try {
-      const progress = await fetchJson(wsUrl("/drama/progress"));
+      const progress = await fetchJson(dramaApiUrl("/drama/progress"));
       const station = (progress.stations || []).find((s) => s.id === "storyboard");
       if (station && station.status === "locked") {
         pane.innerHTML = '<div class="alert info">请先完成站 ② 钩子。</div>';
         return;
       }
-      const data = await fetchJson(wsUrl("/drama/storyboard"));
+      const data = await fetchJson(dramaApiUrl("/drama/storyboard"));
       if (!data.exists || !data.storyboard) {
         pane.__storyboard = null;
         pane.innerHTML = renderStationStoryboardEmpty();
@@ -5365,7 +5389,7 @@ JS_DASHBOARD = """\
       genBtn.addEventListener("click", async function () {
         genBtn.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/storyboard"), {});
+          const data = await postJson(wsUrl("/drama/storyboard"), dramaPayload({}));
           pane.__storyboard = data.storyboard;
           pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
           bindStationStoryboardActions();
@@ -5387,7 +5411,7 @@ JS_DASHBOARD = """\
       ev.preventDefault();
       try {
         const payload = collectStoryboardFromPane(pane);
-        const data = await putJson(wsUrl("/drama/storyboard"), { storyboard: payload });
+        const data = await putJson(wsUrl("/drama/storyboard"), dramaPayload({ storyboard: payload }));
         pane.__storyboard = data.storyboard;
         pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
         bindStationStoryboardActions();
@@ -5404,7 +5428,7 @@ JS_DASHBOARD = """\
       regenBtn.addEventListener("click", async function () {
         regenBtn.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/storyboard"), {});
+          const data = await postJson(wsUrl("/drama/storyboard"), dramaPayload({}));
           pane.__storyboard = data.storyboard;
           pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
           bindStationStoryboardActions();
@@ -5440,10 +5464,10 @@ JS_DASHBOARD = """\
         btn.disabled = true;
         try {
           const shotNo = Number(btn.getAttribute("data-shot-rewrite"));
-          const data = await postJson(wsUrl("/drama/storyboard/rewrite-shot"), {
+          const data = await postJson(wsUrl("/drama/storyboard/rewrite-shot"), dramaPayload({
             shot_no: shotNo,
             storyboard: collectStoryboardFromPane(pane),
-          });
+          }));
           pane.__storyboard = data.storyboard;
           pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
           bindStationStoryboardActions();
@@ -5485,19 +5509,21 @@ JS_DASHBOARD = """\
     if (!pane) return;
     pane.innerHTML = skeleton(3);
     try {
-      const progress = await fetchJson(wsUrl("/drama/progress"));
+      const progress = await fetchJson(dramaApiUrl("/drama/progress"));
       const station = (progress.stations || []).find((s) => s.id === "characters");
       if (station && station.status === "locked") {
         pane.innerHTML = '<div class="alert info">请先完成站 ③ 分镜。</div>';
         return;
       }
-      const data = await fetchJson(wsUrl("/drama/characters"));
+      const data = await fetchJson(dramaApiUrl("/drama/characters"));
       if (!data.exists || !data.sheet) {
         pane.__characterSheet = null;
+        pane.__characterSkipped = false;
         pane.innerHTML = renderCharactersEmpty("站 ④ 角色", "站 ④ 会把主角、反派和 AI 绘画 prompt 整理成角色表。");
       } else {
         pane.__characterSheet = data.sheet;
-        pane.innerHTML = renderCharacterSheet(data.sheet, "站 ④ 角色");
+        pane.__characterSkipped = !!data.skipped;
+        pane.innerHTML = renderCharacterSheet(data.sheet, "站 ④ 角色", !!data.skipped);
       }
       bindCharacterSheetActions(pane);
     } catch (err) {
@@ -5510,13 +5536,15 @@ JS_DASHBOARD = """\
     if (!root) return;
     root.innerHTML = skeleton(4);
     try {
-      const data = await fetchJson(wsUrl("/drama/characters"));
+      const data = await fetchJson(dramaApiUrl("/drama/characters"));
       if (!data.exists || !data.sheet) {
         root.__characterSheet = null;
+        root.__characterSkipped = false;
         root.innerHTML = renderCharactersEmpty("角色库", "完成站③后，可以生成本季角色设定表。");
       } else {
         root.__characterSheet = data.sheet;
-        root.innerHTML = renderCharacterSheet(data.sheet, "角色库");
+        root.__characterSkipped = !!data.skipped;
+        root.innerHTML = renderCharacterSheet(data.sheet, "角色库", !!data.skipped);
       }
       bindCharacterSheetActions(root);
     } catch (err) {
@@ -5534,11 +5562,12 @@ JS_DASHBOARD = """\
       '</div></div></div>';
   }
 
-  function renderCharacterSheet(sheet, title) {
+  function renderCharacterSheet(sheet, title, skipped) {
     const chars = sheet.characters || [];
     const cards = chars.map(renderCharacterCard).join("");
     return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
-      '<span class="badge ready">done</span></div><div class="card-body stack">' +
+      '<span class="badge ' + (skipped ? "warn" : "ready") + '">' + (skipped ? "skipped" : "done") + '</span></div><div class="card-body stack">' +
+      (skipped ? '<div class="alert info">本集未引入新角色，沿用本季角色设定；可直接评审并组装。</div>' : '') +
       '<form data-character-sheet-form class="stack">' +
       '<div class="kv-list compact">' +
       '<div class="k">season</div><div class="v">' + escapeHtml(String(sheet.season_no || 1)) + '</div>' +
@@ -5546,7 +5575,7 @@ JS_DASHBOARD = """\
       '</div>' +
       '<div class="character-grid">' + cards + '</div>' +
       '<div class="form-actions">' +
-      '<button type="button" class="btn btn-secondary" data-regenerate-characters>重新生成</button>' +
+      (skipped ? '' : '<button type="button" class="btn btn-secondary" data-regenerate-characters>重新生成</button>') +
       '<button type="submit" class="btn btn-primary">保存角色表</button>' +
       '<button type="button" class="btn btn-primary" data-review-assemble>评审并组装</button>' +
       '</div></form></div></div>';
@@ -5655,12 +5684,13 @@ JS_DASHBOARD = """\
       gen.addEventListener("click", async function () {
         gen.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/characters"), {});
+          const data = await postJson(wsUrl("/drama/characters"), dramaPayload({}));
           root.__characterSheet = data.sheet;
-          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色");
+          root.__characterSkipped = !!data.skipped;
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!data.skipped);
           bindCharacterSheetActions(root);
           await loadDramaProgress();
-          showToast("角色表已生成", "info");
+          showToast(data.skipped ? "本集沿用季角色" : "角色表已生成", "info");
         } catch (err) {
           showToast("生成失败：" + errTitle(err), "error");
           gen.disabled = false;
@@ -5672,9 +5702,9 @@ JS_DASHBOARD = """\
       form.addEventListener("submit", async function (ev) {
         ev.preventDefault();
         try {
-          const data = await putJson(wsUrl("/drama/characters"), { sheet: collectCharacterSheet(root) });
+          const data = await putJson(wsUrl("/drama/characters"), dramaPayload({ sheet: collectCharacterSheet(root) }));
           root.__characterSheet = data.sheet;
-          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色");
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped);
           bindCharacterSheetActions(root);
           await loadDramaProgress();
           showToast("角色表已保存", "info");
@@ -5688,9 +5718,14 @@ JS_DASHBOARD = """\
         btn.disabled = true;
         try {
           const cid = btn.getAttribute("data-redraw-character") || "";
-          const data = await postJson(wsUrl("/drama/characters/" + encodeURIComponent(cid) + "/redraw"), {});
+          const saved = await putJson(wsUrl("/drama/characters"), dramaPayload({ sheet: collectCharacterSheet(root) }));
+          root.__characterSheet = saved.sheet;
+          const data = await postJson(
+            wsUrl("/drama/characters/" + encodeURIComponent(cid) + "/redraw"),
+            dramaPayload({ confirm_real_image: true })
+          );
           root.__characterSheet = data.sheet;
-          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色");
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped);
           bindCharacterSheetActions(root);
           showToast("参考图已更新", "info");
         } catch (err) {
@@ -5704,8 +5739,8 @@ JS_DASHBOARD = """\
       reviewBtn.addEventListener("click", async function () {
         reviewBtn.disabled = true;
         try {
-          await postJson(wsUrl("/drama/review"), { episode_no: 1 });
-          const data = await postJson(wsUrl("/drama/assemble"), { episode_no: 1 });
+          await postJson(wsUrl("/drama/review"), dramaPayload({}));
+          const data = await postJson(wsUrl("/drama/assemble"), dramaPayload({}));
           showToast("评审与组装已完成", "info");
           const ep = data.episode || {};
           window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(ep.episode_no || 1));
@@ -5739,7 +5774,25 @@ JS_DASHBOARD = """\
           '<td><a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(ep.episode_no || 1)) + '">查看</a></td>' +
           '</tr>';
       }).join("");
-      box.innerHTML = tableScroll('<table class="table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>');
+      const nextNo = Number(data.next_episode_no || 0);
+      const nextAction = data.can_start_next && Number.isSafeInteger(nextNo)
+        ? '<div class="form-actions"><button type="button" class="btn btn-primary" data-start-next-episode="' + escapeHtml(String(nextNo)) + '">开始第 ' + escapeHtml(String(nextNo)) + ' 集 →</button></div>'
+        : '<p class="muted">已达到计划集数，或上一集需要先重新组装。</p>';
+      box.innerHTML = tableScroll('<table class="table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>') + nextAction;
+      const nextBtn = box.querySelector("[data-start-next-episode]");
+      if (nextBtn) {
+        nextBtn.addEventListener("click", async function () {
+          nextBtn.disabled = true;
+          try {
+            const result = await postJson(wsUrl("/drama/next-episode"), { after_episode_no: Number(nextBtn.getAttribute("data-start-next-episode")) - 1 });
+            const episodeNo = Number(result.episode_no || nextNo);
+            window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/write?episode=" + encodeURIComponent(String(episodeNo));
+          } catch (err) {
+            showToast("下一集初始化失败：" + errTitle(err), "error");
+            nextBtn.disabled = false;
+          }
+        });
+      }
     } catch (err) {
       box.innerHTML = renderErrorCard(err);
     }
@@ -5819,7 +5872,50 @@ JS_DASHBOARD = """\
     }
     const exportBox = document.getElementById("tab-export");
     if (exportBox) {
-      exportBox.innerHTML = '<div class="empty-state"><span class="ornament">✦</span><h3>导出即将上线</h3><p class="muted">JSON / Markdown / CSV / Comfy 导出将在下一轮接入。</p></div>';
+      const episodeNo = Number(CHAPTER_NO || 1);
+      const formats = [
+        ["json", "JSON 真源"],
+        ["md", "Markdown 分镜表"],
+        ["csv", "CSV（Excel 中文）"],
+        ["comfy", "Comfy workflow 模板"],
+      ];
+      const buttons = formats.map(function (item) {
+        const href = wsUrl("/drama/episode/" + encodeURIComponent(String(episodeNo)) + "/export?format=" + encodeURIComponent(item[0]));
+        return '<a class="btn btn-secondary" download href="' + href + '">' + escapeHtml(item[1]) + '</a>';
+      }).join("");
+      exportBox.innerHTML = staleHtml + '<div class="card"><div class="card-header"><h3 class="ornament">导出</h3></div><div class="card-body stack"><p class="muted">所有格式均来自已组装的 episode JSON 真源。Comfy 为模板级 workflow，导入后仍需接入本地 checkpoint、LoRA 与节点。</p><div class="cluster">' + buttons + '</div></div></div>';
+    }
+  }
+
+  async function initDramaInsights() {
+    const costBox = document.getElementById("drama-insights-cost");
+    const durationBox = document.getElementById("drama-insights-duration");
+    const hooksBox = document.getElementById("drama-insights-hooks");
+    if (!costBox || !durationBox || !hooksBox) return;
+    costBox.innerHTML = skeleton(3);
+    durationBox.innerHTML = skeleton(2);
+    hooksBox.innerHTML = skeleton(3);
+    try {
+      const data = await fetchJson(wsUrl("/insights"));
+      const llm = data.llm_cost || {};
+      const meta = data.episode_meta_cost || {};
+      costBox.innerHTML = '<div class="kv-list compact">' +
+        '<div class="k">LLM 日志</div><div class="v">¥' + escapeHtml(Number(llm.cost_cny || 0).toFixed(4)) + ' · ' + escapeHtml(String(llm.calls || 0)) + ' 次</div>' +
+        '<div class="k">Episode meta</div><div class="v">¥' + escapeHtml(Number(meta.cost_cny || 0).toFixed(4)) + ' · ' + escapeHtml(String(meta.episodes || 0)) + ' 集</div>' +
+        '<div class="k">说明</div><div class="v">' + escapeHtml(data.cost_note || "mock 成本为 0，真模型启用后生效。") + '</div>' +
+        '</div>';
+      const duration = data.duration || {};
+      const rate = Number(duration.rate || 0);
+      const pct = Math.max(0, Math.min(100, Math.round(rate * 100)));
+      durationBox.innerHTML = '<div class="stack"><div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div><p><strong>' + pct + '%</strong> · ' + escapeHtml(String(duration.within_tolerance || 0)) + ' / ' + escapeHtml(String(duration.total || 0)) + ' 集在目标 ±' + escapeHtml(String(duration.tolerance_seconds || 3)) + ' 秒内</p></div>';
+      const hookRows = data.hook_types || [];
+      hooksBox.innerHTML = hookRows.length
+        ? tableScroll('<table class="table"><thead><tr><th>类型</th><th>集数</th></tr></thead><tbody>' + hookRows.map(function (row) { return '<tr><td>' + escapeHtml(row.type || "(unknown)") + '</td><td>' + escapeHtml(String(row.count || 0)) + '</td></tr>'; }).join("") + '</tbody></table>')
+        : '<p class="muted">尚无已组装剧集。</p>';
+    } catch (err) {
+      costBox.innerHTML = renderErrorCard(err);
+      durationBox.innerHTML = "";
+      hooksBox.innerHTML = "";
     }
   }
 
@@ -5970,6 +6066,7 @@ JS_DASHBOARD = """\
     if (pageKind === "drama_characters") return initDramaCharacters();
     if (pageKind === "drama_episodes") return initDramaEpisodes();
     if (pageKind === "drama_episode_detail") return initDramaEpisodeDetail();
+    if (pageKind === "drama_insights") return initDramaInsights();
     if (pageKind === "jobs") return initJobs();
   }
   document.addEventListener("DOMContentLoaded", boot);

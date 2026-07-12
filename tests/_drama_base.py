@@ -64,12 +64,12 @@ class DramaTestBase(unittest.TestCase):
         if snapshot:
             wizard._snapshot_creation_standard(name)
 
-    def _write_setup(self, name: str, *, hook: bool = True) -> Path:
+    def _write_setup(self, name: str, *, hook: bool = True, episode_no: int = 1) -> Path:
         """Persist a station-1 setup fixture, optionally with selected hook."""
 
-        p = episode_paths(name).setup_path
+        p = episode_paths(name, episode_no=episode_no).setup_path
         p.parent.mkdir(parents=True, exist_ok=True)
-        setup = drama_planner.run(name)
+        setup = drama_planner.run(name, episode_no=episode_no)
         if hook:
             setup["hook"] = {"type": "反差钩", "content": "测试钩子"}
         p.write_text(json.dumps(setup, ensure_ascii=False), encoding="utf-8")

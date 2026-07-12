@@ -128,7 +128,12 @@ class DramaCharactersApiTests(DramaTestBase):
         self._workspace()
         self._post_characters()
         with patch("src.ai_draw_client.build_opener", side_effect=AssertionError("network attempted")):
-            status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/characters/c001/redraw", b"{}")
+            status, _ct, body = routes.dispatch(
+                "POST",
+                "/api/workspace/drama/drama/characters/c001/redraw",
+                b'{"confirm_real_image":true}',
+                {"content-type": "application/json"},
+            )
         self.assertEqual(status, 200, body.decode())
         data = json.loads(body)
         image = data["image"]

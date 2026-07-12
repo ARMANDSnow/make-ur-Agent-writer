@@ -446,7 +446,6 @@ class RoutesGetTests(unittest.TestCase):
             "/w/beta/chapters",
             "/w/beta/chapter/1",
             "/w/beta/reviews",
-            "/w/beta/insights",
         ):
             status, _ct, body = routes.dispatch("GET", path)
             html = body.decode("utf-8")

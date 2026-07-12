@@ -13,7 +13,7 @@ from .drama_planner import (
     _load_wizard_input,
     _log_prompt,
 )
-from .drama_schemas import CharacterSheet, DramaStoryboard, episode_paths
+from .drama_schemas import CharacterSheet, DramaStoryboard, episode_paths, normalize_episode_no
 from .llm_client import LLMClient
 from .schemas import model_to_dict
 from .utils import read_json_optional
@@ -32,6 +32,7 @@ def run(
 ) -> Dict[str, Any]:
     """Run station 4 for ``workspace`` and return a validated character sheet."""
 
+    episode_no = normalize_episode_no(episode_no)
     wizard_input = _load_wizard_input(workspace)
     setup = _load_completed_setup(workspace, episode_no=episode_no)
     storyboard = _load_completed_storyboard(workspace, episode_no=episode_no)
@@ -46,6 +47,7 @@ def run(
         wizard_input=wizard_input,
         setup=setup,
         storyboard=storyboard,
+        episode_no=episode_no,
     )
     _log_prompt(workspace, "character_designer", prompt)
 
@@ -54,12 +56,13 @@ def run(
         payload["track"] = track
         payload["season_no"] = season_no
         payload["episode_no"] = episode_no
+        _include_episode_in_appearances(payload, episode_no)
         payload["source_storyboard_title"] = str(storyboard.get("title") or payload.get("source_storyboard_title") or "")
         sheet = CharacterSheet(**payload)
     else:
         if client is None:
             client = LLMClient("drama_character")
-        sheet = client.complete_json(
+        generated = client.complete_json(
             [
                 {"role": "system", "content": prompt},
                 {
@@ -69,7 +72,26 @@ def run(
             ],
             CharacterSheet,
         )
+        payload = model_to_dict(generated)
+        payload["episode_no"] = episode_no
+        payload["season_no"] = season_no
+        _include_episode_in_appearances(payload, episode_no)
+        sheet = CharacterSheet(**payload)
     return model_to_dict(sheet)
+
+
+def _include_episode_in_appearances(payload: Dict[str, Any], episode_no: int) -> None:
+    rows = payload.get("characters")
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("appearances")
+        appearances = list(raw) if isinstance(raw, list) else []
+        if episode_no not in appearances:
+            appearances.append(episode_no)
+        row["appearances"] = appearances
 
 
 def merge_character_sheet(existing: Dict[str, Any] | CharacterSheet | None, incoming: Dict[str, Any] | CharacterSheet) -> Dict[str, Any]:
@@ -99,6 +121,11 @@ def merge_character_sheet(existing: Dict[str, Any] | CharacterSheet | None, inco
         used_ids.add(old_character.id)
         if old_character.manual_override:
             data = model_to_dict(old_character)
+            appearances = list(data.get("appearances") or [])
+            for number in fresh.appearances:
+                if number not in appearances:
+                    appearances.append(number)
+            data["appearances"] = appearances
             suggestions = list(data.get("agent_suggestions") or [])
             suggestions.append(
                 {
@@ -130,6 +157,25 @@ def merge_character_sheet(existing: Dict[str, Any] | CharacterSheet | None, inco
     return model_to_dict(CharacterSheet(**result))
 
 
+def reuse_character_sheet_for_episode(
+    existing: Dict[str, Any] | CharacterSheet,
+    *,
+    episode_no: int,
+) -> Dict[str, Any]:
+    """Return an episode-scoped view of the existing season character sheet.
+
+    The season file remains the source of truth.  Callers can use this view when
+    a later episode introduces no new characters without persisting a top-level
+    ``episode_no`` change that would make earlier episode fingerprints stale.
+    """
+
+    number = normalize_episode_no(episode_no)
+    sheet = existing if isinstance(existing, CharacterSheet) else CharacterSheet(**existing)
+    data = model_to_dict(sheet)
+    data["episode_no"] = number
+    return model_to_dict(CharacterSheet(**data))
+
+
 def _merge_reference_images(existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     merged: List[Dict[str, Any]] = []
     seen = set()
@@ -150,10 +196,14 @@ def build_system_prompt(
     wizard_input: Dict[str, Any] | None = None,
     setup: Dict[str, Any] | None = None,
     storyboard: Dict[str, Any] | None = None,
+    episode_no: int = 1,
 ) -> str:
+    episode_no = normalize_episode_no(episode_no)
     data = wizard_input if wizard_input is not None else _load_wizard_input(workspace)
-    setup_data = setup if setup is not None else _load_completed_setup(workspace)
-    storyboard_data = storyboard if storyboard is not None else _load_completed_storyboard(workspace)
+    setup_data = setup if setup is not None else _load_completed_setup(workspace, episode_no=episode_no)
+    storyboard_data = (
+        storyboard if storyboard is not None else _load_completed_storyboard(workspace, episode_no=episode_no)
+    )
     template = _load_prompt_template("character_designer")
     snapshot = _load_snapshot(workspace)
     return template.format(

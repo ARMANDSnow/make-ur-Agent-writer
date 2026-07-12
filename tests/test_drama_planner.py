@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import patch
 
 from src import drama_planner, paths
 from src.config import load_config
 from src.cli_workspace import init_workspace
+from src.drama_schemas import MAX_DRAMA_EPISODE_NO, episode_paths, normalize_episode_no
 from tests._drama_base import DramaTestBase
 
 
@@ -35,6 +37,41 @@ class DramaPlannerTests(DramaTestBase):
         data["episode_duration_seconds"] = 90
         p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         self.assertEqual(drama_planner.run("duration_case")["target_duration_seconds"], 90)
+
+    def test_episode_number_normalization_is_strict_and_bounded(self) -> None:
+        self.assertEqual(MAX_DRAMA_EPISODE_NO, 100)
+        self.assertEqual(normalize_episode_no(2), 2)
+        self.assertEqual(normalize_episode_no("02"), 2)
+        self.assertEqual(episode_paths("strict", episode_no="02").setup_path.name, "episode_02.setup.json")
+        for value in (True, False, 1.0, float("nan"), " 2", "+2", "2.0", "", 0, -1, 101):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "episode_no"):
+                    normalize_episode_no(value)
+
+    def test_episode_two_inherits_previous_setup_without_prompt_or_mutation(self) -> None:
+        self._workspace("inherit", "重生")
+        first = drama_planner.run("inherit", mock=True)
+        first["hook"] = {"type": "悬念钩", "content": "第一集已用钩子"}
+        first_path = episode_paths("inherit").setup_path
+        first_path.parent.mkdir(parents=True, exist_ok=True)
+        first_path.write_text(json.dumps(first, ensure_ascii=False), encoding="utf-8")
+        before = first_path.read_text(encoding="utf-8")
+
+        with patch.object(drama_planner, "_log_prompt") as log_prompt:
+            second = drama_planner.run("inherit", mock=False, episode_no=2)
+
+        self.assertEqual(second["episode_no"], 2)
+        self.assertEqual(second["track"], first["track"])
+        self.assertEqual(second["target_duration_seconds"], first["target_duration_seconds"])
+        self.assertEqual(second["core_setup"], first["core_setup"])
+        self.assertNotIn("hook", second)
+        self.assertEqual(first_path.read_text(encoding="utf-8"), before)
+        log_prompt.assert_not_called()
+
+    def test_episode_two_requires_previous_setup(self) -> None:
+        self._workspace("missing_previous", "重生")
+        with self.assertRaisesRegex(FileNotFoundError, "previous episode"):
+            drama_planner.run("missing_previous", episode_no=2)
 
     def test_unknown_track_raises_value_error(self) -> None:
         self._workspace("bad_track", "未知")

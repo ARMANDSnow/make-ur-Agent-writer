@@ -8,6 +8,7 @@ import time
 import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 from tests._socket_skip import SOCKET_BIND_BLOCKED
 
@@ -95,6 +96,26 @@ class ServerTests(unittest.TestCase):
                     self.assertEqual(exc.headers.get("Location"), "/w/alpha/")
             finally:
                 paths.WORKSPACE_DIR = saved
+
+    def test_download_response_emits_allowlisted_headers(self) -> None:
+        with patch(
+            "src.web.server.routes.dispatch",
+            return_value=(
+                200,
+                "text/csv; charset=utf-8",
+                b"a,b\r\n1,2\r\n",
+                {
+                    "Content-Disposition": 'attachment; filename="episode_01.storyboard.csv"',
+                    "X-Content-Type-Options": "nosniff",
+                    "X-Not-Allowlisted": "secret",
+                },
+            ),
+        ):
+            response = self._get("/download")
+            self.assertEqual(response.headers.get("Content-Disposition"), 'attachment; filename="episode_01.storyboard.csv"')
+            self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
+            self.assertIsNone(response.headers.get("X-Not-Allowlisted"))
+            self.assertEqual(response.read(), b"a,b\r\n1,2\r\n")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

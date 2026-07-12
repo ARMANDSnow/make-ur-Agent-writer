@@ -55,8 +55,13 @@ class WebHandler(BaseHTTPRequestHandler):
         # Pass lowercase-keyed headers dict — the wizard multipart
         # parser needs Content-Type; future handlers may want others.
         request_headers = {k.lower(): v for k, v in self.headers.items()}
+        response_headers = {}
         try:
-            status, content_type, body = routes.dispatch(method, path, body_bytes, request_headers)
+            response = routes.dispatch(method, path, body_bytes, request_headers)
+            if len(response) == 4:
+                status, content_type, body, response_headers = response
+            else:
+                status, content_type, body = response
         except Exception:  # pragma: no cover - last-resort guard
             # iter 025 had a bug: building the 500 JSON body from
             # ``str(exc)`` produces invalid JSON if the message contains
@@ -71,11 +76,19 @@ class WebHandler(BaseHTTPRequestHandler):
             status = 500
             content_type = "application/json; charset=utf-8"
             body = b'{"error": "internal server error"}'
+            response_headers = {}
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         # No cache: dashboard data is read fresh on every load.
         self.send_header("Cache-Control", "no-store")
+        # Only download handlers use the optional fourth response item. Keep
+        # the allowlist deliberately narrow and reject CR/LF so future route
+        # code cannot turn a filename into response-header injection.
+        for key in ("Content-Disposition", "X-Content-Type-Options"):
+            value = response_headers.get(key)
+            if isinstance(value, str) and "\r" not in value and "\n" not in value:
+                self.send_header(key, value)
         # ``routes.render_workspace_redirect`` emits a 301 body
         # whose ``<p data-redirect-to="...">`` carries the target URL.
         # The dispatcher contract is (status, content_type, body) — no

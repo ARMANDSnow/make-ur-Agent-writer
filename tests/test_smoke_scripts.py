@@ -3,6 +3,13 @@ from pathlib import Path
 
 
 class SmokeScriptTests(unittest.TestCase):
+    def test_drama_image_smoke_requires_explicit_confirmation_and_never_calls_video(self) -> None:
+        text = Path("scripts/drama_image_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("--confirm-real-image-smoke", text)
+        self.assertIn("CONFIRM_REAL_IMAGE_SMOKE", text)
+        self.assertIn("src.drama_image_smoke", text)
+        self.assertNotIn("/v1/video/generate", text)
+
     def test_verify_sh_unsets_real_model_env(self) -> None:
         text = Path("scripts/verify.sh").read_text(encoding="utf-8")
         self.assertIn("export OPENAI_MODEL=mock", text)

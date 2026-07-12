@@ -6,6 +6,7 @@ import json
 import unittest
 
 from src import drama_planner, hook_designer, paths
+from src.drama_schemas import episode_paths
 from tests._drama_base import DramaTestBase
 
 
@@ -28,6 +29,35 @@ class HookDesignerTests(DramaTestBase):
                 result = hook_designer.run(name)
                 self.assertEqual(len(result["hooks"]), 3)
                 self.assertEqual([h["type"] for h in result["hooks"]], ["情绪钩", "悬念钩", "反差钩"])
+
+    def test_episode_two_uses_fresh_fixtures_and_injects_used_hook(self) -> None:
+        for idx, track in enumerate(TRACKS):
+            with self.subTest(track=track):
+                name = f"ep2_hooks_{idx}"
+                self._workspace(name, track)
+                first_candidates = hook_designer.run(name, episode_no=1)["hooks"]
+                first_path = episode_paths(name).setup_path
+                first = json.loads(first_path.read_text(encoding="utf-8"))
+                first["hook"] = first_candidates[0]
+                first_path.write_text(json.dumps(first, ensure_ascii=False), encoding="utf-8")
+
+                second = drama_planner.run(name, episode_no=2)
+                second_path = episode_paths(name, episode_no=2).setup_path
+                second_path.write_text(json.dumps(second, ensure_ascii=False), encoding="utf-8")
+                result = hook_designer.run(name, episode_no=2)
+
+                self.assertEqual(len(result["hooks"]), 3)
+                first_keys = {(item["type"], item["content"]) for item in first_candidates}
+                self.assertTrue(all((item["type"], item["content"]) not in first_keys for item in result["hooks"]))
+                used = hook_designer.collect_used_hooks(name, before_episode_no=2)
+                prompt = hook_designer.build_system_prompt(name, used_hooks=used)
+                self.assertIn(first_candidates[0]["content"], prompt)
+                self.assertIn("不得重复", prompt)
+
+    def test_episode_two_does_not_fall_back_to_episode_one_setup(self) -> None:
+        self._workspace("ep2_missing_setup")
+        with self.assertRaisesRegex(FileNotFoundError, "episode_02"):
+            hook_designer.run("ep2_missing_setup", episode_no=2)
 
     def test_requires_station_one_setup_file(self) -> None:
         self._workspace("no_setup", setup=False)

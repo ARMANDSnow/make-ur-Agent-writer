@@ -14,10 +14,13 @@ from .drama_planner import (
     _log_prompt,
 )
 from .drama_schemas import (
+    CharacterSheet,
     DramaStoryboard,
     StoryboardShot,
+    character_paths,
     episode_paths,
     normalize_storyboard_payload,
+    normalize_episode_no,
     validate_storyboard_hard,
     validate_storyboard_soft,
 )
@@ -29,6 +32,7 @@ from .utils import read_json_optional
 def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dict[str, Any]:
     """Run station 3 for ``workspace`` and return a validated storyboard."""
 
+    episode_no = normalize_episode_no(episode_no)
     wizard_input = _load_wizard_input(workspace)
     setup = _load_completed_setup(workspace, episode_no=episode_no)
     track = str(wizard_input.get("track") or setup.get("track") or "")
@@ -37,7 +41,12 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
 
     client = None if mock is True else LLMClient("drama_storyboard")
     use_mock = client.is_mock if mock is None and client is not None else bool(mock)
-    prompt = build_system_prompt(workspace, wizard_input=wizard_input, setup=setup)
+    prompt = build_system_prompt(
+        workspace,
+        wizard_input=wizard_input,
+        setup=setup,
+        episode_no=episode_no,
+    )
     _log_prompt(workspace, "storyboard_builder", prompt)
 
     if use_mock:
@@ -53,7 +62,7 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
     else:
         if client is None:
             client = LLMClient("drama_storyboard")
-        result = client.complete_json(
+        generated = client.complete_json(
             [
                 {"role": "system", "content": prompt},
                 {
@@ -63,7 +72,9 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
             ],
             DramaStoryboard,
         )
-        board = result
+        payload = model_to_dict(generated)
+        payload["episode_no"] = episode_no
+        board = DramaStoryboard(**normalize_storyboard_payload(payload))
 
     hard_errors = validate_storyboard_hard(board)
     if hard_errors:
@@ -84,12 +95,14 @@ def rewrite_shot(
 ) -> Dict[str, Any]:
     """Return a storyboard with exactly one shot replaced."""
 
+    episode_no = normalize_episode_no(episode_no)
     if isinstance(shot_no, bool) or int(shot_no) < 1:
         raise ValueError("shot_no must be a positive integer")
     number = int(shot_no)
     wizard_input = _load_wizard_input(workspace)
     setup = _load_completed_setup(workspace, episode_no=episode_no)
     current = dict(storyboard) if storyboard is not None else _load_storyboard(workspace, episode_no=episode_no)
+    current["episode_no"] = episode_no
     current["hook"] = _hook_snapshot(setup)
     board = DramaStoryboard(**normalize_storyboard_payload(current))
     hard_errors = validate_storyboard_hard(board)
@@ -107,7 +120,12 @@ def rewrite_shot(
     else:
         if client is None:
             client = LLMClient("drama_storyboard")
-        prompt = build_system_prompt(workspace, wizard_input=wizard_input, setup=setup)
+        prompt = build_system_prompt(
+            workspace,
+            wizard_input=wizard_input,
+            setup=setup,
+            episode_no=episode_no,
+        )
         _log_prompt(workspace, "storyboard_builder.rewrite_shot", prompt)
         result = client.complete_json(
             [
@@ -146,18 +164,28 @@ def build_system_prompt(
     *,
     wizard_input: Dict[str, Any] | None = None,
     setup: Dict[str, Any] | None = None,
+    episode_no: int = 1,
 ) -> str:
+    episode_no = normalize_episode_no(episode_no)
     data = wizard_input if wizard_input is not None else _load_wizard_input(workspace)
-    setup_data = setup if setup is not None else _load_completed_setup(workspace)
+    setup_data = setup if setup is not None else _load_completed_setup(workspace, episode_no=episode_no)
     template = _load_prompt_template("storyboard_builder")
     snapshot = _load_snapshot(workspace)
-    return template.format(
+    prompt = template.format(
         snapshot=snapshot,
         topic=data.get("topic", ""),
         track=data.get("track", ""),
         episode_count=data.get("episode_count", 0),
         episode_duration_seconds=data.get("episode_duration_seconds", 0),
         setup_json=json.dumps(setup_data, ensure_ascii=False, indent=2),
+    )
+    signatures = _season_character_signature_view(workspace) if episode_no > 1 else []
+    if not signatures:
+        return prompt
+    return (
+        prompt
+        + "\n\n## 本季角色视觉签名（后续集必须保持一致）\n"
+        + json.dumps(signatures, ensure_ascii=False, indent=2)
     )
 
 
@@ -181,6 +209,24 @@ def _load_storyboard(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise FileNotFoundError(f"missing storyboard: {p}")
     return data
+
+
+def _season_character_signature_view(workspace: str) -> List[Dict[str, str]]:
+    data = read_json_optional(character_paths(workspace).sheet_path, None)
+    if not isinstance(data, dict):
+        return []
+    try:
+        sheet = CharacterSheet(**data)
+    except Exception:
+        return []
+    return [
+        {
+            "id": character.id,
+            "name": character.name[:80],
+            "visual_signature": character.visual_signature[:300],
+        }
+        for character in sheet.characters[:8]
+    ]
 
 
 def _without_alt_shots(payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -2124,3 +2124,39 @@ python3 main.py --book <name> drive-book start \
 **残留风险 / 下轮候选**：自动修文的 red/0.08 阈值与额外费用尚未经真模型长程校准，因此 unresolved 继续只告警不阻断。现有 v1 baseline 需用户显式重建。下轮可回到短剧导出 + Insights + 第 2 集重生，或用户单独授权后跑小说 10-20 章真模型 capstone。
 
 **数据状态**：`verify.sh` 仅写既有 gitignored 验证产物；未改 `.env`，未读写用户私有样本或 `小说txt/`；未跟踪 `续写工作台.pptx` 保持不动；只 commit、不 push。
+
+---
+
+## Phase Status — iter 088（2026-07-11 收官）：短剧四格式导出 + Insights + 第 2 集重生
+
+**已完成（本轮）**：`episode_NN.json` 成为唯一导出快照真源，固定文件名原子生成 JSON、Markdown、CSV 和 Comfy 模板导出；CSV 采用 BOM/CRLF/安全 quoting 与公式中和，Markdown 转义 raw HTML，Comfy 是带 `_generator=drama_comfy_exporter_v1` 的纯本地、每镜 SaveImage 模板。Web 导出路由在 workspace write lock 内读取/落盘，format 白名单和安全 Content-Disposition 独立生成，防止路径与响应头注入。新增 drama Insights，只聚合 `drama_` 日志的有限 token/cost，并汇总 episode meta 成本、时长达标率、钩子分布；坏行、缺/坏 meta、空态均 graceful degrade。
+
+**第 2 集闭环**：严格 `episode_no`（拒绝 bool/float/string/非有限/越界）已贯穿 schema、stations、store、view、routes。`next-episode` 只在持有 workspace guard 时验证第 1 集完整 artifact、合法 meta/fingerprint、非 stale 和 wizard episode 上限，随后初始化 episode 2；直接 `/drama/plan` 不能绕过。planner 本地继承上集设定不调 LLM，hook 读取已用集合生成新候选，storyboard 注入季角色 visual signature。无新角色时 station④ 为 `skipped` 且保留 appearance，仍可 review/assemble；有新角色时必须生成第 2 集角色 sheet。当前 UI 只可启动第 2 集，不宣称第 3 集以上自动季级生成。
+
+**铁律⑨审查与追加修复**：correctness、security/boundary、Web/integration 三个独立只读 subagent 首审后均有有效 findings，并在修复后完成第二轮 PASS。Correctness 收口 direct-plan bypass、partial artifact/meta/fingerprint fail-open、guard 外 TOCTOU、未来 episode hooks 错用、Pydantic coercion、station④ skipped/appearances；复核又收口 new-character 绕过角色生成与 locked appearance 丢失。Security 收口 next meta/fingerprint fail-open、TOCTOU、导出 snapshot 写入竞态、Insights 有界/finite、Markdown raw HTML；复核再收口 `true`/`1.0` episode identity。Web 收口导出 href 信任 artifact episode_no 与 skipped UI 语义错配，并交叉复核角色门禁/appearance。三视角最终无 blocker。
+
+**验收证据**：`.venv/bin/python3 -m unittest discover -s tests` **1813 tests OK**（291.134s）；`PATH="$PWD/.venv/bin:$PATH" OPENAI_MODEL=mock bash scripts/verify.sh` exit 0（内部 **1813 tests OK** / 300.019s，随后 mock auto-pipeline/status/manifest/review report/cost 全过）；真实配置 preflight warn/无 FATAL，mock preflight ok/无 WARN；全量 `src` `py_compile`、dashboard/wizard/settings `node --check`、`git diff --check` 均通过。真模型、真绘图、真实 ComfyUI smoke 未跑（铁律⑥）。
+
+**接力点 / 不在范围**：iter089 可在用户授权后做短剧真模型收口（站①②补课、五站 job 化、`scripts/drama_smoke.sh`、真绘图/真实 ComfyUI 兼容性）；若产品明确需要季级续写，再以独立设计推进第 3 集及以上。小说 10-20 章 capstone 和文风阈值/费用校准仍为独立候选。
+
+**数据状态**：未改 `.env`，未主动读写 `data/`、`outputs/`、`小说txt/` 或用户私有样本；`verify.sh` 只按授权写 gitignored 验收产物。未跟踪 `续写工作台.pptx` 保持不动；未提交、未 push。
+
+---
+
+## Phase Status — iter 089（2026-07-12 收官）：短剧真实生图接入与视频 API 安全预备
+
+**已完成（本轮）**：站④角色参考图从 placeholder/legacy 直返字节骨架升级为显式 opt-in 的 OpenAI-compatible 图片生成。只有配置 `AI_DRAW_MODEL`（建议 `gpt-image-2`）时 Web 才进入真实路径；`AI_DRAW_BASE_URL`/`AI_DRAW_API_KEY` 必须整对存在，两者都缺时才整对复用 OPENAI base/key，禁止把主 key 与图片专用 URL 交叉拼接。Web 重画先保存当前表单，再以 `application/json` + 严格布尔 `confirm_real_image=true` 发起；缺/错 Content-Type 在 body 解析、写锁和网络前 415。mock 默认继续原子生成本地 SVG。
+
+**图片安全与可观测性**：OpenAI-compatible 和所有带 key 的 legacy 请求强制 HTTPS；redirect 禁止，endpoint/结果 URL 做无凭据 URL shape、公网 IP 与精确 result-host allowlist 校验。响应限制 7MB JSON / 5MB 图片，base64、PNG/JPEG/WebP magic 与 MIME 在落盘前完成；同目录 tempfile + fsync + `os.replace` 保护旧图。`ReferenceImage` 新增 requested model/size、provider size 与可选 width/height；当前真实 provider 返回 PNG 时从 IHDR 读取实际尺寸，JPEG/WebP 暂为 null。Web 同 slot 替换 `portrait_neutral.*` 引用并用 `object-fit:contain` 显示竖图。
+
+**视频 API 预备**：新增 `DramaVideoClient`，覆盖 `/v1/sd/assets` 上传/查询、`/v1/video/tasks` 列表/详情和 `/v1/video/generate` payload；base URL/资源 ID/时长/分辨率/比例/响应 JSON 均有界校验。真实视频提交在任何网络前要求调用者显式 `allow_real_video=True`。本轮没有 Web 视频入口，也没有提交任何真实视频任务；`sd_real_max.md` 只做脱敏协议读取。
+
+**真生图证据**：用户授权下使用既有 AetherHeart base/key 提交 1 个原创角色请求。请求 `gpt-image-2 / 1024x1024`，上游返回 `model=gpt-image-2-codex, size=auto`，实际 PNG **940×1673 / 1,546,048 bytes**。产物及只含非敏感元数据的 `smoke_result.json` 位于 gitignored `workspaces/iter089_image_smoke/data/character_refs/c001/`。首次 urllib 探针 403 后补 User-Agent；成功响应由 curl 获取并经过生产 base64/magic/尺寸/原子落盘逻辑验证。为避免重复计费，120 秒超时修正后的 shell smoke 未再生成第二张图。未改 `.env`，未打印或持久化 key/上游正文。
+
+**铁律⑨审查与追加修复**：correctness、security/boundary、Web/integration 三个独立只读 subagent 完成首审和修后复核。首审 High 为专用 URL/key 半配置导致跨 pair 凭据混用；另有 Web 计费/CSRF、Python smoke 绕过 shell gate、HTTP 明文 key、preflight URL shape 漂移、DNS/签名 URL、非原子落盘、旧 prompt 付费、旧图片 slot 与实际尺寸不可观测等 findings。全部修复后，三视角最终 **PASS**，无 remaining correctness 或 High/Medium security finding。
+
+**验收证据**：媒体/iter088 影响面聚焦 **107 tests OK**；`.venv/bin/python3 -m unittest discover -s tests` **1839 tests OK**（60.389s）；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0（内部 **1839 tests OK** / 239.018s + mock auto-pipeline/status/manifest/report/cost 全过）；mock preflight ok/无 WARN/FATAL，真实配置 preflight warn/无 FATAL；`py_compile`、shell syntax/lint、`git diff --check` 通过。裸系统 python 首次 verify 缺 `tiktoken`，切回仓库 canonical `.venv` 后通过。
+
+**残留风险 / 接力点**：允许的 HTTPS hostname 仍有 DNS 二次解析 Low 风险，但需有效 TLS 证书；同步 Web 生图会持 workspace 写锁约 120 秒；JPEG/WebP 宽高解析、批量角色/分镜生图、成本/速率面板与 job 化可后续迭代。视频真实生成、轮询、下载和费用/时长实测继续等待用户单独授权；第 3 集以上季级编排、五站文本真模型收口与小说 10-20 章 capstone 仍为独立候选。
+
+**数据状态**：`verify.sh` 只写既有 gitignored 验证产物；真实图片只写 gitignored smoke workspace。未改 `.env`、未读写 `小说txt/` 或用户私有样本；未跟踪 `续写工作台.pptx` 保持不动；未提交、未 push。

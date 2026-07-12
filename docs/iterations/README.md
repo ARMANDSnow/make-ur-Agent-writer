@@ -99,3 +99,5 @@
 99. [Iteration 085 - 文风偏离到定向改写建议](./iteration_085_style_rewrite_directives.md)
 100. [Iteration 086 - 文风漂移可靠性修复与 Web 防御纵深](./iteration_086_style_drift_reliability_hardening.md)
 101. [Iteration 087 - 文风 Red Drift 定向重写与复测闭环](./iteration_087_style_drift_rewrite_loop.md)
+102. [Iteration 088 - 短剧四格式导出 + Insights + 第 2 集重生](./iteration_088_drama_exports_insights_episode2.md)
+103. [Iteration 089 - 短剧真实生图接入与视频 API 安全预备](./iteration_089_drama_real_image_video_api_guard.md)

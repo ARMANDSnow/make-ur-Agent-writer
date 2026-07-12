@@ -139,6 +139,31 @@ class DramaReviewerTests(DramaTestBase):
         self.assertTrue(result["needs_human_review"])
         self.assertTrue(result["parse_failed"])
 
+    def test_episode_two_mock_and_real_results_are_server_pinned(self) -> None:
+        self._workspace("review_episode_two", "重生")
+        self._write_setup("review_episode_two", hook=True, episode_no=2)
+        board = storyboard_builder.run("review_episode_two", mock=True, episode_no=2)
+        episode_paths("review_episode_two", episode_no=2).storyboard_path.write_text(
+            json.dumps(board, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        mock_result = drama_reviewer.run("review_episode_two", mock=True, episode_no=2)
+        self.assertEqual(mock_result["episode_no"], 2)
+        expected = DramaReview(**{**mock_result, "episode_no": 1})
+
+        class FakeClient:
+            is_mock = False
+
+            def __init__(self, task: str) -> None:
+                self.task = task
+
+            def complete_json(self, messages, response_model):
+                return expected
+
+        with patch.object(drama_reviewer, "LLMClient", FakeClient):
+            real_result = drama_reviewer.run("review_episode_two", mock=False, episode_no=2)
+        self.assertEqual(real_result["episode_no"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

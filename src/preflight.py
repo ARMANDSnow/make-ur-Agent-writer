@@ -54,6 +54,7 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     _check_global_facts(warn, root)
     _check_runtime_env(warn)
     _check_budget_guard(warn, is_global_mock)
+    _check_drama_media_config(warn, info)
     _check_start_safe_knowledge(warn, info, root)
     _check_foreshadowing_registry(warn, info, root)
     _check_panel_block_policy(warn, info)
@@ -101,6 +102,64 @@ def _check_env(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
             parsed = urlparse(base_url)
             if not base_url or not parsed.netloc:
                 fatal.append(f"{base_url_env} is empty or invalid while task '{task}' model is not mock.")
+
+
+def _check_drama_media_config(warn: List[str], info: List[str]) -> None:
+    from .ai_draw_client import validate_api_base_url
+
+    endpoint = str(os.getenv("AI_DRAW_ENDPOINT") or "").strip()
+    dedicated_base = str(os.getenv("AI_DRAW_BASE_URL") or "").strip()
+    dedicated_key = str(os.getenv("AI_DRAW_API_KEY") or "").strip()
+    draw_model = str(os.getenv("AI_DRAW_MODEL") or "").strip()
+    if endpoint:
+        try:
+            validate_api_base_url(
+                endpoint,
+                label="AI_DRAW_ENDPOINT",
+                allow_http=not bool(dedicated_key),
+            )
+        except ValueError:
+            required_scheme = "https" if dedicated_key else "http(s)"
+            warn.append(
+                f"AI_DRAW_ENDPOINT is invalid; it must be a {required_scheme} URL without credentials, query, or fragment."
+            )
+        else:
+            info.append("drama image: legacy direct-image endpoint configured (key value is not displayed).")
+    elif draw_model or dedicated_base or dedicated_key:
+        config_ok = True
+        if bool(dedicated_base) != bool(dedicated_key):
+            warn.append("AI_DRAW_BASE_URL and AI_DRAW_API_KEY must be configured together; no cross-fallback is allowed.")
+            config_ok = False
+        draw_base = dedicated_base or str(os.getenv("OPENAI_BASE_URL") or "").strip()
+        draw_key = dedicated_key or str(os.getenv("OPENAI_API_KEY") or "").strip()
+        try:
+            validate_api_base_url(draw_base, label="AI draw base URL")
+        except ValueError:
+            warn.append("AI draw OpenAI-compatible mode is missing a valid https base URL without credentials/query/fragment.")
+            config_ok = False
+        if not draw_key:
+            warn.append("AI draw OpenAI-compatible mode is missing an API key.")
+            config_ok = False
+        if not draw_model:
+            warn.append("AI_DRAW_MODEL is empty; Web redraw remains local-only.")
+            config_ok = False
+        if config_ok:
+            info.append(f"drama image: OpenAI-compatible model configured as {draw_model!r} (key value is not displayed).")
+
+    sd_base = str(os.getenv("SD_API_BASE_URL") or "").strip()
+    sd_key = str(os.getenv("SD_API_KEY") or "").strip()
+    if sd_base or sd_key:
+        try:
+            validate_api_base_url(sd_base, label="SD_API_BASE_URL")
+        except ValueError:
+            warn.append("SD_API_BASE_URL must be a valid https URL without credentials/query/fragment.")
+            sd_valid = False
+        else:
+            sd_valid = True
+        if not sd_key:
+            warn.append("SD_API_KEY is empty; video asset/task queries are unavailable.")
+        if sd_valid and sd_key:
+            info.append("drama video API is configured; real generation still requires the explicit per-call authorization gate.")
 
 
 def _check_agents_config(

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from src import paths
 from src.cli_workspace import init_workspace
-from src.drama_schemas import episode_paths
+from src.drama_schemas import character_paths, episode_paths
 from src.web.drama_view import collect_drama_progress
 
 
@@ -32,20 +32,20 @@ class DramaViewTests(unittest.TestCase):
             os.environ["WORKSPACE_NAME"] = self._saved_env
         self._tmp.cleanup()
 
-    def _write_setup(self, payload: dict) -> None:
-        p = episode_paths("drama").setup_path
+    def _write_setup(self, payload: dict, *, episode_no: int = 1) -> None:
+        p = episode_paths("drama", episode_no=episode_no).setup_path
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-    def _write_storyboard(self) -> None:
-        p = episode_paths("drama").storyboard_path
+    def _write_storyboard(self, *, episode_no: int = 1) -> None:
+        p = episode_paths("drama", episode_no=episode_no).storyboard_path
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(
             json.dumps(
                 {
                     "schema_version": 1,
                     "season_no": 1,
-                    "episode_no": 1,
+                    "episode_no": episode_no,
                     "track": "霸总",
                     "title": "t",
                     "target_duration_seconds": 60,
@@ -124,6 +124,43 @@ class DramaViewTests(unittest.TestCase):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("{bad", encoding="utf-8")
         self.assertEqual(collect_drama_progress("drama")["stations"][0]["status"], "todo")
+
+    def test_episode_two_uses_its_own_paths_and_skips_existing_season_characters(self) -> None:
+        self._write_setup(
+            {"episode_no": 2, "core_setup": {"protagonist": "p"}, "hook": {"type": "情绪钩"}},
+            episode_no=2,
+        )
+        self._write_storyboard(episode_no=2)
+        cp = character_paths("drama")
+        cp.sheet_path.parent.mkdir(parents=True, exist_ok=True)
+        cp.sheet_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "season_no": 1,
+                    "episode_no": 1,
+                    "track": "霸总",
+                    "source_storyboard_title": "ep1",
+                    "characters": [
+                        {
+                            "id": "c001",
+                            "name": "角色甲",
+                            "lora_token": "role_a",
+                            "visual_signature": "左眼下小痣",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        data = collect_drama_progress("drama", episode_no=2)
+
+        self.assertEqual(data["episode_no"], 2)
+        self.assertEqual([station["status"] for station in data["stations"]], ["done", "done", "done", "skipped"])
+        self.assertEqual(data["stations"][3]["data"]["episode_no"], 1)
+        self.assertFalse(episode_paths("drama").setup_path.exists())
 
 
 if __name__ == "__main__":

@@ -110,12 +110,66 @@ class CharacterDesignerTests(DramaTestBase):
             "data/character_refs/c001/portrait_neutral.svg",
         )
 
+    def test_merge_locked_character_still_updates_episode_appearances(self) -> None:
+        self._workspace("merge_locked_appearances")
+        existing = character_designer.run("merge_locked_appearances", mock=True)
+        existing["characters"][0]["manual_override"] = True
+        incoming = json.loads(json.dumps(existing, ensure_ascii=False))
+        incoming["episode_no"] = 2
+        incoming["characters"][0]["appearances"] = [1, 2]
+        incoming["characters"][0]["visual_signature"] = "不应覆盖的 agent 新视觉"
+
+        merged = character_designer.merge_character_sheet(existing, incoming)
+
+        self.assertEqual(merged["characters"][0]["appearances"], [1, 2])
+        self.assertNotEqual(
+            merged["characters"][0]["visual_signature"],
+            "不应覆盖的 agent 新视觉",
+        )
+
     def test_merge_rejects_bad_ids(self) -> None:
         self._workspace("merge_bad")
         incoming = character_designer.run("merge_bad", mock=True)
         incoming["characters"][0]["id"] = "bad"
         with self.assertRaises(ValueError):
             character_designer.merge_character_sheet(None, incoming)
+
+    def test_reuse_character_sheet_returns_episode_view_without_mutating_season_source(self) -> None:
+        self._workspace("reuse_sheet")
+        existing = character_designer.run("reuse_sheet", mock=True)
+        before = json.dumps(existing, ensure_ascii=False, sort_keys=True)
+
+        view = character_designer.reuse_character_sheet_for_episode(existing, episode_no=2)
+
+        self.assertEqual(CharacterSheet(**view).episode_no, 2)
+        self.assertEqual(view["characters"], existing["characters"])
+        self.assertEqual(existing["episode_no"], 1)
+        self.assertEqual(json.dumps(existing, ensure_ascii=False, sort_keys=True), before)
+
+    def test_real_episode_two_result_is_server_pinned(self) -> None:
+        self._workspace("real_character_ep2", "重生")
+        self._write_setup("real_character_ep2", hook=True, episode_no=2)
+        second_board = storyboard_builder.run("real_character_ep2", mock=True, episode_no=2)
+        episode_paths("real_character_ep2", episode_no=2).storyboard_path.write_text(
+            json.dumps(second_board, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        expected = CharacterSheet(**character_designer.run("real_character_ep2", mock=True, episode_no=2))
+        expected_data = expected.model_dump() if hasattr(expected, "model_dump") else expected.dict()
+        expected = CharacterSheet(**{**expected_data, "episode_no": 1})
+
+        class FakeClient:
+            is_mock = False
+
+            def __init__(self, task: str) -> None:
+                self.task = task
+
+            def complete_json(self, messages, response_model):
+                return expected
+
+        with patch.object(character_designer, "LLMClient", FakeClient):
+            result = character_designer.run("real_character_ep2", mock=False, episode_no=2)
+        self.assertEqual(result["episode_no"], 2)
 
     def test_real_prompt_uses_drama_character_task(self) -> None:
         self._workspace("real_character", "霸总")
