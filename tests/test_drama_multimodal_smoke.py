@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import time
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -38,6 +39,110 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         self.assertEqual(read_json(multi.state_path("multi"))["image_attempts"], state["image_attempts"])
         self.assertNotEqual(before, b"")
 
+    def test_calibration_report_separates_mock_from_real_evidence(self) -> None:
+        multi.run("calibration-mock")
+        report = multi.calibration_report("calibration-mock")
+        self.assertFalse(report["real_sample_complete"])
+        self.assertEqual(report["status"], "real_sample_incomplete")
+        self.assertEqual(
+            {row["evidence_level"] for row in report["stages"].values()},
+            {"engineering_mock_verified"},
+        )
+        rendered = json.dumps(report, ensure_ascii=False).lower()
+        for forbidden in ("prompt_sha256", "artifact_path", "api_key", "signed_url", "authorization"):
+            self.assertNotIn(forbidden, rendered)
+        image_metrics = report["stages"]["images"]["metrics"]
+        self.assertEqual(image_metrics["request_count"], 0)
+        self.assertEqual(image_metrics["successful_character_count"], 2)
+
+    def test_report_only_is_zero_paid_provider_and_does_not_create_workspace(self) -> None:
+        self.assertFalse(multi.state_path("report-missing").parent.parent.exists())
+        with patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as text, \
+                patch("src.drama_multimodal_smoke.redraw_character_reference") as image, \
+                patch("src.drama_multimodal_smoke.run_video_smoke") as video, \
+                patch.object(sys, "argv", ["drama_multimodal_smoke", "--book", "report-missing", "--report-only"]):
+            self.assertEqual(multi.main(), 0)
+        text.assert_not_called()
+        image.assert_not_called()
+        video.assert_not_called()
+        self.assertFalse(multi.state_path("report-missing").parent.parent.exists())
+
+    def test_report_only_rejects_paid_mode_combination_before_network(self) -> None:
+        with patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network, \
+                patch.object(sys, "argv", [
+                    "drama_multimodal_smoke", "--book", "conflict", "--report-only",
+                    "--real-text", "--confirm-real-text", "--text-budget-cny", "1",
+                    "--text-timeout-seconds", "10",
+                ]):
+            self.assertEqual(multi.main(), 64)
+        network.assert_not_called()
+
+    def test_real_mode_with_mock_provider_is_not_real_sample_evidence(self) -> None:
+        self._prepare_real_text("cal-real-mock")
+        report = multi.calibration_report("cal-real-mock")
+        self.assertEqual(
+            report["stages"]["text"]["evidence_level"],
+            "real_mode_without_provider_evidence",
+        )
+        self.assertFalse(report["real_sample_complete"])
+
+    def test_calibration_report_keeps_local_real_records_unverified(self) -> None:
+        state = multi.run("cal-real-proof")
+        real_model_sha = multi._model_sha256("provider/model-v1")
+        state["phases"]["real_text"].update({
+            "real": True,
+            "llm_calls": 5,
+            "model_fingerprints": {step: real_model_sha for step in multi.TEXT_STEP_TASKS},
+            "station_evidence": {
+                step: {
+                    "status": "succeeded", "call_count": 1,
+                    "non_mock_call_count": 1, "pinned_model_call_count": 1,
+                    "model_sha256": real_model_sha,
+                }
+                for step in multi.TEXT_STEP_TASKS
+            },
+        })
+        state["phases"]["all_character_images"]["real"] = True
+        for rows in state["image_attempts"].values():
+            rows[-1]["generated_by"] = "image-provider/model-v1"
+        state["phases"]["real_video"].update({
+            "real": True,
+            "submission_consumed": True,
+            "attempt": 1,
+            "paid_submission_count": 1,
+        })
+        multi._save(state)
+        report = multi.calibration_report("cal-real-proof")
+        self.assertTrue(report["real_execution_recorded"])
+        self.assertFalse(report["real_sample_complete"])
+        self.assertEqual(report["status"], "real_execution_recorded_pending_operator_review")
+        self.assertEqual(report["evidence_integrity"], "local_records_unverified")
+        self.assertEqual(
+            {row["evidence_level"] for row in report["stages"].values()},
+            {"real_execution_recorded_unverified"},
+        )
+        self.assertEqual(report["stages"]["video"]["metrics"]["request_count"], 1)
+
+    def test_calibration_report_downgrades_stale_real_image_evidence(self) -> None:
+        state = multi.run("cal-stale-proof")
+        state["phases"]["real_text"].update({"real": True, "llm_calls": 5})
+        state["phases"]["all_character_images"]["real"] = True
+        for rows in state["image_attempts"].values():
+            rows[-1]["generated_by"] = "image-provider/model-v1"
+        state["phases"]["real_video"].update({
+            "real": True, "submission_consumed": True, "attempt": 1,
+            "paid_submission_count": 1,
+        })
+        multi._save(state)
+        first = next(iter(state["image_attempts"].values()))[-1]
+        (multi.paths.workspace_root("cal-stale-proof") / first["artifact_path"]).write_bytes(b"tampered")
+        report = multi.calibration_report("cal-stale-proof")
+        self.assertEqual(
+            report["stages"]["images"]["evidence_level"],
+            "real_mode_without_provider_evidence",
+        )
+        self.assertFalse(report["real_sample_complete"])
+
     def test_resume_modes_cannot_upgrade_mock_authorization(self) -> None:
         multi.run("modes")
         with patch("src.drama_multimodal_smoke.redraw_character_reference") as network:
@@ -71,6 +176,9 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             state = multi.run("retry", real_image=True, options=options)
         self.assertEqual(draw.call_count, 1)
         self.assertEqual(state["status"], "awaiting_retry_authorization")
+        self.assertEqual(
+            multi.calibration_report("retry")["stages"]["images"]["metrics"]["request_count"], 1
+        )
         first = state["image_attempts"]["c001"][0]
         self.assertEqual(first["timeout_seconds"], 121)
         self.assertEqual(first["prompt_profile"], "initial_complete_v1")
@@ -173,6 +281,33 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         for forbidden in ("authorization", "api_key", "signed_url", "upstream_response", "完整角色提示"):
             self.assertNotIn(forbidden, rendered)
 
+    def test_calibration_report_does_not_project_free_form_model_or_provider_labels(self) -> None:
+        state = multi.run("report-redact")
+        attempt = next(iter(state["image_attempts"].values()))[-1]
+        attempt.update({
+            "requested_model": "sk-this-must-not-leak",
+            "provider_model": "Bearer must-not-leak",
+            "provider_size": "secret-size-label",
+        })
+        state["phases"]["real_video"].update({
+            "ratio": "sk-video-secret", "resolution": "Bearer video-secret",
+        })
+        multi._save(state)
+        rendered = json.dumps(multi.calibration_report("report-redact"), ensure_ascii=False)
+        for forbidden in ("sk-this-must-not-leak", "Bearer must-not-leak", "secret-size-label", "sk-video-secret", "Bearer video-secret"):
+            self.assertNotIn(forbidden, rendered)
+
+    def test_public_projection_filters_free_form_error_and_character_fields(self) -> None:
+        state = multi.run("projection-fields")
+        state["phases"]["all_character_images"].update({
+            "error_code": "Bearer must-not-leak",
+            "character_id": "sk-must-not-leak",
+        })
+        multi._save(state)
+        rendered = json.dumps(multi.public_status("projection-fields"), ensure_ascii=False)
+        self.assertNotIn("Bearer must-not-leak", rendered)
+        self.assertNotIn("sk-must-not-leak", rendered)
+
     def test_web_projects_safe_read_only_state(self) -> None:
         multi.run("web-multi")
         status, _ct, body = routes.dispatch(
@@ -185,6 +320,8 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         self.assertNotIn("prompt", rendered)
         self.assertNotIn("api_key", rendered)
         self.assertEqual(payload["phases"]["real_video"]["automatic_retries"], 0)
+        self.assertEqual(payload["calibration"]["status"], "real_sample_incomplete")
+        self.assertFalse(payload["calibration"]["real_sample_complete"])
 
     def test_real_text_uses_one_total_budget_and_deadline_projection(self) -> None:
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了", "DRAMA_MODEL": "mock"}, clear=False):
@@ -252,6 +389,9 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             with self.assertRaises(TimeoutError):
                 multi.run("video-once", real_video=True, options=opts)
         self.assertEqual(submit.call_count, 1)
+        failed_report = multi.calibration_report("video-once")
+        self.assertEqual(failed_report["stages"]["video"]["metrics"]["request_count"], 1)
+        self.assertIn("elapsed_seconds", failed_report["stages"]["video"]["metrics"])
         with patch("src.drama_multimodal_smoke._video_readiness", return_value={"reference_count": 2}), \
                 patch("src.drama_multimodal_smoke.run_video_smoke") as submit:
             resumed = multi.run("video-once", real_video=True, options=opts)
@@ -274,6 +414,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             lambda row: row["image_attempts"]["c001"][0].__setitem__("artifact_path", "../../outside.png"),
             lambda row: row["image_attempts"]["c001"][0].__setitem__("artifact_sha256", "not-a-sha256"),
             lambda row: row["phases"]["real_video"].update({"submission_consumed": "yes", "attempt": 1}),
+            lambda row: row["phases"]["real_text"].update({"status": "Bearer must-not-leak"}),
         )
         for mutate in mutations:
             broken = json.loads(json.dumps(state))
@@ -290,6 +431,12 @@ class DramaMultimodalSmokeTests(DramaTestBase):
     def test_failed_text_cost_exhausts_total_budget_before_resume_network(self) -> None:
         opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
         def billed_failure(*_args, **_kwargs):
+            _kwargs["on_step_start"]("drama-plan")
+            log = multi.paths.workspace_root("text-billed-fail") / "logs" / "llm_calls.jsonl"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"task": "drama_plan", "model": "deepseek/deepseek-chat"}) + "\n")
+            time.sleep(0.01)
             raise RuntimeError("provider failed after billing")
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
                 patch("src.drama_multimodal_smoke._insight_cost", side_effect=[0.0, 0.0, 5.0]), \
@@ -297,10 +444,106 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             with self.assertRaises(RuntimeError):
                 multi.run("text-billed-fail", real_text=True, options=opts)
         self.assertEqual(read_json(multi.state_path("text-billed-fail"))["phases"]["real_text"]["spent_cost_cny"], 5.0)
+        report = multi.calibration_report("text-billed-fail")
+        self.assertEqual(report["stages"]["text"]["metrics"]["request_count"], 1)
+        self.assertGreater(report["stages"]["text"]["metrics"]["elapsed_seconds"], 0)
+        failed_station = report["stages"]["text"]["metrics"]["stations"]["drama-plan"]
+        self.assertEqual(failed_station["status"], "failed")
+        self.assertEqual(failed_station["call_count"], 1)
+        self.assertGreater(failed_station["elapsed_seconds"], 0)
+        self.assertEqual(failed_station["cumulative_cost_cny"], 5.0)
         with patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
             with self.assertRaisesRegex(RuntimeError, "budget exhausted"):
                 multi.run("text-billed-fail", real_text=True, options=opts)
         network.assert_not_called()
+
+    def test_real_text_resume_rejects_model_identity_drift_before_network(self) -> None:
+        opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
+        model_a = {step: multi._model_sha256("provider/model-a") for step in multi.TEXT_STEP_TASKS}
+        model_b = {step: multi._model_sha256("provider/model-b") for step in multi.TEXT_STEP_TASKS}
+        with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
+                patch("src.drama_multimodal_smoke._text_model_fingerprints", return_value=model_a), \
+                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=RuntimeError("stop")):
+            with self.assertRaises(RuntimeError):
+                multi.run("text-model-pin", real_text=True, options=opts)
+        with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
+                patch("src.drama_multimodal_smoke._text_model_fingerprints", return_value=model_b), \
+                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
+            with self.assertRaisesRegex(ValueError, "model identity"):
+                multi.run("text-model-pin", real_text=True, options=opts)
+        network.assert_not_called()
+
+    def test_repeated_text_station_failures_refresh_cumulative_evidence(self) -> None:
+        opts = {"confirm_real_text": True, "text_budget_cny": 10, "text_timeout_seconds": 20}
+
+        def fail_station(*_args, **kwargs):
+            kwargs["on_step_start"]("drama-plan")
+            log = multi.paths.workspace_root("text-repeat-fail") / "logs" / "llm_calls.jsonl"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"task": "drama_plan", "model": "deepseek/deepseek-chat"}) + "\n")
+            time.sleep(0.01)
+            raise RuntimeError("provider failed")
+
+        with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
+                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=fail_station):
+            with self.assertRaises(RuntimeError):
+                multi.run("text-repeat-fail", real_text=True, options=opts)
+            first = multi.calibration_report("text-repeat-fail")["stages"]["text"]["metrics"]["stations"]["drama-plan"]
+            with self.assertRaises(RuntimeError):
+                multi.run("text-repeat-fail", real_text=True, options=opts)
+        second = multi.calibration_report("text-repeat-fail")["stages"]["text"]["metrics"]["stations"]["drama-plan"]
+        self.assertEqual(first["call_count"], 1)
+        self.assertEqual(second["call_count"], 2)
+        self.assertGreaterEqual(second["elapsed_seconds"], first["elapsed_seconds"])
+        persisted = read_json(multi.state_path("text-repeat-fail"))["phases"]["real_text"]
+        self.assertNotIn("active_step", persisted)
+
+    def test_crash_active_text_station_reconciles_before_budget_gate(self) -> None:
+        workspace = "text-crash-ledger"
+        multi.drama_smoke._create_workspace(workspace, "推理")
+        state = multi._new_state(workspace)
+        baseline = multi._drama_call_counts(workspace)
+        state["phases"]["real_text"] = {
+            "status": "running", "real": True, "completed_steps": [],
+            "spent_cost_cny": 0.0, "cost_baseline_cny": 0.0,
+            "total_budget_cny": 5.0, "deadline_epoch": time.time() + 60,
+            "elapsed_seconds": 0.0, "llm_calls": 0,
+            "station_evidence": {}, "call_baseline": baseline,
+            "model_fingerprints": multi._text_model_fingerprints(),
+            "active_step": "drama-plan", "active_step_started_at": time.time() - 0.01,
+        }
+        multi._save(state)
+        log = multi.paths.workspace_root(workspace) / "logs" / "llm_calls.jsonl"
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"task": "drama_plan", "model": "deepseek/deepseek-chat"}) + "\n")
+        opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
+        with patch("src.drama_multimodal_smoke._insight_cost", return_value=5.0), \
+                patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
+            with self.assertRaisesRegex(RuntimeError, "budget exhausted"):
+                multi.run(workspace, real_text=True, options=opts)
+        network.assert_not_called()
+        station = multi.calibration_report(workspace)["stages"]["text"]["metrics"]["stations"]["drama-plan"]
+        self.assertEqual(station["status"], "failed")
+        self.assertEqual(station["call_count"], 1)
+        self.assertGreater(station["elapsed_seconds"], 0)
+
+    def test_calibration_report_rejects_tampered_video_bytes_as_real_evidence(self) -> None:
+        state = multi.run("cal-video-stale")
+        state["phases"]["real_video"].update({
+            "real": True, "submission_consumed": True, "attempt": 1,
+            "paid_submission_count": 1,
+        })
+        multi._save(state)
+        multi.drama_video.video_paths("cal-video-stale").video_path.write_bytes(b"tampered")
+        report = multi.calibration_report("cal-video-stale")
+        self.assertEqual(
+            report["stages"]["video"]["evidence_level"],
+            "real_mode_without_provider_evidence",
+        )
 
     def test_text_spend_never_decreases_when_insight_total_regresses(self) -> None:
         multi.drama_smoke._create_workspace("text-monotonic", "推理")

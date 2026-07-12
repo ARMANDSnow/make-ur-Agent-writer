@@ -1,6 +1,6 @@
 # Project History
 
-> 压缩后的项目里程碑与长期工程教训。它用于追溯“为什么”，不是新 session 必读文件；逐轮证据仍以 [`iterations/`](iterations/README.md) 为准。
+> 经过筛选的项目里程碑、架构原因与长期工程教训。它与 [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) 一起作为新 session 默认记忆：handoff 回答“现在怎样做”，本文件回答“为什么形成现在的做法”；逐轮证据仍以 [`iterations/`](iterations/README.md) 为准。
 
 ## Timeline
 
@@ -18,7 +18,8 @@
 | 080-082 | 短剧核心创作闭环 | 分镜 grid、角色表/角色库、AI 绘画骨架、drama reviewer、episode assembly 与复核页 |
 | 083-087 | 文风量化闭环 | baseline v2、漂移检测、定向建议、可靠性守门、red drift 最多一次重写与复测择优 |
 | 088-092 | 短剧交付与真实媒体安全入口 | 四导出、Insights、第 2 集、真生图安全下载、五站 job、视频 job、多模态可恢复状态机与受控生图重试 |
-| 093 | Agent 记忆与文档分层 | handoff 改为当前快照，阶段总结合并，iteration 索引压缩，默认必读链按需化 |
+| 093 | Agent 记忆与文档分层 | 将累计 handoff 压缩为当前快照、合并阶段总结并压缩索引；后续复盘确认压缩幅度过大 |
+| 094 | 多模态校准证据与记忆再平衡 | 增加真实/模拟证据区分、调用/耗时/产物对账；恢复阶段级工作记忆并调整收官验收顺序 |
 
 ## Iteration Implementation Index
 
@@ -93,6 +94,7 @@
 | 091 | 实现单集真视频job、安全下载和Web播放闭环 | `src/drama_video.py`、`src/drama_video_client.py`、`src/drama_video_smoke.py`、`src/web/jobs.py`、`src/web/routes.py` |
 | 092 | 新增可恢复多模态联测和生图三次授权重试边界 | `src/drama_multimodal_smoke.py`、`scripts/drama_multimodal_smoke.sh`、`src/ai_draw_client.py`、`src/web/routes.py` |
 | 093 | 重构文档分层、压缩默认记忆并合并阶段总结 | `AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md`、`docs/iterations/README.md` |
+| 094 | 硬化多模态校准证据并再平衡项目记忆/收官顺序 | `src/drama_multimodal_smoke.py`、`src/drama_smoke.py`、`tests/test_drama_multimodal_smoke.py`、`AGENTS.md`、`docs/` |
 
 ## Durable Decisions
 
@@ -117,7 +119,14 @@
 ### Separate current truth from history
 
 - `AGENTS.md` 是长期规则；`AGENT_HANDOFF.md` 是当前快照；README SOP 是节点状态；iteration 是历史证据。
-- handoff 不再累积 Phase Status。阶段性历史只在本文件归纳，细节链接到原 iteration。
+- handoff 不再累积逐轮 Phase Status，但保留数百行经筛选的阶段级工作记忆；本文件保留架构历史与长期教训，细节链接到原 iteration。
+- handoff 与本文件都是新 session 默认读物。压缩目标是去掉重复验收和过时 snapshot，不是去掉会影响接力判断的设计背景、失败模式与恢复知识。
+
+### Review before expensive full validation
+
+- 实现阶段先用聚焦测试、语法/静态检查和 diff 检查获得快速反馈。
+- 收官先完成 correctness、security/boundary 及风险专项多视角审查，修复 findings 后做聚焦回归。
+- 耗时的 canonical + `verify.sh` + preflight 放在上述修复之后，作为最终全量闸门只跑一次；最终闸门失败时再按失败范围修复和重验。
 
 ## Engineering Lessons
 
@@ -130,6 +139,8 @@
 7. **媒体安全边界高于普通 LLM 文本**：URL、redirect、DNS/peer IP、MIME/magic、size、hash、原子落盘与重复计费都必须独立守门。
 8. **Mock fixture 不能总为空**：graceful-degrade 会让关键闸门零覆盖；涉及关系、预算、resume、媒体状态时应提供最小非空 fixture。
 9. **文档中的“当前”最容易过期**：测试数、最近 iter、下一步只保留在 handoff；产品说明和历史总结用范围化措辞并链接当前快照。
+10. **项目记忆不能只按行数优化**：iter 093 将 2216 行 handoff 一次压到约 93 行，虽去掉重复，却也损失了接力所需的事故模式和阶段上下文。合理结构是短当前快照、数百行精选工作记忆、阶段历史和按需逐轮证据四层并存。
+11. **昂贵验收应在审查修复之后**：先跑 `verify.sh` 再审查会在 findings 修复后重复全量。聚焦反馈前置、独立审查居中、全量闸门后置更节省时间，也不会降低最终验收强度。
 
 ## Historical Evidence Notes
 

@@ -53,6 +53,7 @@ def _run_step(
             "budget_cny": budget_cny,
             "timeout_minutes": timeout_seconds / 60.0,
         })
+    started_at = time.monotonic()
     started = jobs.start_job(workspace, step, params)
     try:
         terminal = _wait_job(started["job_id"], timeout_seconds)
@@ -66,6 +67,7 @@ def _run_step(
         "status": "succeeded",
         "job_id": started["job_id"],
         "summary": terminal.get("result_summary") or {},
+        "elapsed_seconds": round(max(0.0, time.monotonic() - started_at), 3),
     }
 
 
@@ -97,6 +99,7 @@ def run_smoke(
     budget_cny: float = 0.0,
     reset_jobs: bool = True,
     completed_steps: Iterable[str] = (),
+    on_step_start: Callable[[str], None] | None = None,
     on_step_complete: Callable[[str, Dict[str, Any]], None] | None = None,
     create_workspace: bool = True,
 ) -> Dict[str, Any]:
@@ -137,6 +140,8 @@ def run_smoke(
         remaining_budget = max(0.0, budget_cny - spent) if real_text else 0.0
         if real_text and (remaining_seconds <= 0 or remaining_budget <= 0):
             raise DramaSmokeTimeout("text") if remaining_seconds <= 0 else RuntimeError("drama text smoke budget exhausted")
+        if on_step_start is not None:
+            on_step_start(step)
         steps.append(_run_step(
             workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget
         ))
@@ -171,6 +176,8 @@ def run_smoke(
         remaining_budget = max(0.0, budget_cny - spent) if real_text else 0.0
         if real_text and (remaining_seconds <= 0 or remaining_budget <= 0):
             raise DramaSmokeTimeout("text") if remaining_seconds <= 0 else RuntimeError("drama text smoke budget exhausted")
+        if on_step_start is not None:
+            on_step_start(step)
         steps.append(_run_step(
             workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget
         ))

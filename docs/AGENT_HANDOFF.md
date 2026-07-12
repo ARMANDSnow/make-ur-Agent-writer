@@ -1,17 +1,17 @@
 # Agent Handoff
 
-> 当前状态单一真源。每轮收官就地更新，不在本文件追加完整 iteration 日志。历史见 [`PROJECT_HISTORY.md`](PROJECT_HISTORY.md) 和 [`iterations/`](iterations/README.md)。
+> 当前状态单一真源，也是新 session 的工作记忆入口。每轮收官就地更新当前事实，并保留经筛选的阶段级能力、约束与事故教训；不再逐轮复制完整验收日志。更完整的里程碑见 [`PROJECT_HISTORY.md`](PROJECT_HISTORY.md)，逐轮证据见 [`iterations/`](iterations/README.md)。
 
 ## Current Snapshot
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 093，2026-07-13 收官 |
+| 更新时间 | iter 094，2026-07-13 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无计费模型请求；LiteLLM 可能刷新公开 cost map |
-| Canonical 基线 | **1903 tests OK** |
+| Canonical 基线 | **1915 tests OK** |
 | 标准验收 | `verify.sh` exit 0；mock preflight 无 WARN/FATAL；真实配置 preflight 无 FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter 093 已收官 |
+| 当前开发轮次 | 无；iter 094 工程与流程补充已收官 |
 
 ## Capability Map
 
@@ -21,18 +21,172 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、分镜 grid、角色库、review/assembly、四导出、Insights、第 2 集、episode 1 视频 job、多模态可恢复编排 | 真文本/全角色真生图/单次真视频需分别授权实测；第 3 集以上未做 |
+| 短剧 | 五站 job、分镜 grid、角色库、review/assembly、四导出、Insights、第 2 集、episode 1 视频 job、多模态可恢复编排；校准报告可区分 mock/真实记录并核对调用、耗时、成本与产物指纹 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；第 3 集以上未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- iter 093 不改业务行为；最新产品行为基线仍是 iter 092 的可恢复多模态状态机与独立授权/预算/超时边界。
-- 默认启动读取从旧约 2907 行（AGENTS + handoff + index + latest iter + 3 stage summaries）降为 179 行（AGENTS + handoff），历史改为按需读取。
-- handoff 从 2216 行累计日志缩为 93 行当前快照；3 份 stage summary 合并为 1 份 65 行 `PROJECT_HISTORY.md`。
-- iteration 索引压缩标题、修复序号跳号，并补齐 046/047 子轮次；102 个主记录和 supplemental 快照均可定位。
-- README、英文入口、产品说明、Claude 工作流和安装的 iter-start/iter-finish skill 已统一当前口径；两个 skill 均通过 `quick_validate.py`。
-- canonical **1903 tests OK**；`verify.sh` exit 0；mock preflight ok/无 WARN/FATAL，当前真实配置 preflight warn/无 FATAL；相对链接、8 段结构、索引连续性和 `git diff --check` 通过。
-- correctness 与 security/boundary 两个只读 subagent 的 findings 全修，最终复核 PASS；未运行真模型或媒体 smoke。
+- iter 094 为多模态 smoke 增加只读校准报告：明确区分工程 mock、未核验的本地真实记录和人工质量结论；未执行的真实样本不会被写成通过。
+- 文本五站增加模型 SHA 固定、逐站耗时/调用账本与失败恢复核对；图片/视频增加 attempt、提交数、尺寸、SHA、输入指纹与容器一致性证据，公开报告继续做有界脱敏。
+- mock 全链 `iter094_mock_final` 成功，报告为 engineering mock verified、real sample incomplete，真实网络请求与付费提交均为 0；本轮没有真文本、真生图或真视频调用。
+- canonical **1915 tests OK**；`verify.sh` exit 0；mock preflight 无 WARN/FATAL；语法、shell、diff 检查通过。该基线在本轮文档/流程补充前已完成，补充后按用户要求未重跑全量。
+- correctness、security/billing、multimodal/provider 三个只读视角的 findings 已修复，最终均 PASS；聚焦多模态回归为 35 tests OK。
+- iter 093 的 93 行 handoff 被判定过度压缩；iter 094 改为“当前快照 + 经筛选的工作记忆”，并恢复 `PROJECT_HISTORY.md` 为新 session 默认伴随读物。
+- 收官顺序改为“聚焦检查 → 多视角审查 → 修复与聚焦回归 → 最终一次全量验收 → 文档同步”，避免在审查修复前重复执行耗时 `verify.sh`。
+
+## Retained Working Memory
+
+本节不是逐轮 changelog，而是从 iter 093 前的累计 handoff 中恢复的接力信息。只有会影响设计、排障、验收或授权判断的事实保留在这里；细节数字、历史命令和当时 snapshot 仍回到对应 iteration 查证。
+
+### 1. 系统主链与权威边界
+
+- 小说主链的稳定顺序是 `normalize → split → extract → compress → debate → plan → write → review → rolling summary / entity advance`。Web、CLI、runner 和长程 driver 最终必须落到同一组领域函数与状态语义，不能各自维护平行判断。
+- `main.py` 是 CLI 汇入口；`src/auto_pipeline.py` 负责工作区准备/重建；`src/book_runner.py` 负责生产单章；`src/book_driver.py` 负责多章驱动；`src/web/jobs.py` 只做可恢复 job 编排与安全公开投影。
+- 当前行为看代码和测试，当前进度看本文件，节点 SOP 看 README，阶段原因看 `PROJECT_HISTORY.md`，逐轮证据看 iteration。历史文档中的测试数、预算或“当前”不能覆盖本文件。
+- Aeloon 是 vendored 插件与 MCP/共享 client 双轨集成，版本同步、鉴权与部署边界只以 `docs/AELOON_INTEGRATION.md` 为准，不从主仓代码存在推定线上已更新。
+
+### 2. Mock、真实调用与凭据安全
+
+- 所有单测、`verify.sh` 和默认开发链必须强制 `OPENAI_MODEL=mock`。测试环境即使存在 `.env` 也不能触发真实 provider；任何 discovery 路径能绕过 mock 都是 P0/P1 级回归。
+- LiteLLM import 可能刷新公开 cost map 并回落缓存，这与模型计费请求不同；若任务要求物理零网络，需要额外启用本地 cost map 并回归，不能把“无模型调用”偷换成“零网络”。
+- `.env` 由用户维护，agent 不主动读取或修改。日志、异常、job 公开视图与报告不得包含 key、Authorization、完整 prompt、签名 URL、上游响应正文或无界自由文本。
+- 真文本、真生图、真视频是三类独立授权。授权只适用于本次精确入口、模型/服务、提交上限、预算与超时，不跨阶段、不从旧对话或 resume state 继承。
+- 真实 smoke 失败时先停在可恢复状态。生图首次失败/超时后先查上游任务和账单，再申请新授权；最多额外 2 次简化 prompt、每次 180 秒。视频单次提交，超时不重试。
+
+### 3. 起点安全、知识视图与版权边界
+
+- 不读取、修改或提交 `小说txt/` 与私有原文衍生数据。仓库示例只能保存 schema 与占位符；工作区原文、运行输出和日志都应保持 gitignored。
+- “不要剧透”不是硬保证。可靠链路依赖 start-aware ingest、continuation anchor、knowledge view、plan fingerprint 和物理过滤共同约束；模型预训练记忆仍无法被绝对消除，只能明确披露为残余风险。
+- 深起点续写需要 ingest/rebuild，而不是简单换一个 chapter id。起点变化后，抽取物、压缩摘要、计划、关系图和后续草稿的血统/指纹都要重新判断 freshness。
+- 可选 style examples、global facts、entity graph、continuation anchor、persona 缺失时，裸仓库 mock 仍须 graceful degrade；但生产 readiness 可以对关键缺失显式 blocked，二者不能混为一谈。
+
+### 4. 结构化 LLM 输出与 fail-closed
+
+- Prompt 约束不能替代本地 schema/normalization。历史真模型曾返回空 ballot、缺字段 review、近似 JSON、布尔冒充整数、NaN/Infinity 与截断内容；所有计费/写盘/Approve 边界必须本地验证。
+- reviewer JSON 允许对已知形态做有限 repair；无法可靠修复时必须 Abstain/blocked，不能为了流水线继续而默认 Approve。
+- 写手、规划、辩论和 review 的上下文预算需共享 token 计数与分层装配器。预算不足时保留 canon、起点和当前计划，裁剪低优先级历史；不要在各 agent 内复制不同的截断算法。
+- 配置名必须与语义一致并在加载时硬校验。历史 `rewrite_max`/attempt 语义漂移说明“保留兼容但含义变化”会把错误推迟到长跑，应优先迁移到单一真源。
+
+### 5. 生产写作、评审与状态提交
+
+- 单章生产不是“生成文件即成功”。必须能区分 partial draft、reviewed、approved、rejected、aborted 和 stale；失败/拒稿草稿仍需完整落盘以供排障，但不能被下一章误认成已提交正文。
+- review panel、计划履约检查、outline drift、lint 和 style drift 是不同维度。确定性硬门先执行，LLM reviewer 不应覆盖起点、指纹、预算或严重漂移等本地 blocker。
+- 文风闭环采用 baseline v2 → drift → directives → red drift 最多一次定向重写 → 复测择优。mock 证明 wiring，不证明阈值适合真实作家/书目，真实阈值仍是待校准项。
+- 实体/关系更新先产 proposal，经冲突检查后 apply；新实体关系必须受控创建。rolling summary、entity compensation 和 chapter commit 的顺序不能随意交换，否则 resume 会出现正文与记忆不一致。
+
+### 6. 长跑、预算与恢复
+
+- 长流程的正确目标是可恢复，不是“永不失败”。`drive-book`、heartbeat/watchdog、supervisor、workspace lock、snapshot、attempt ledger 和预算预留共同构成可靠性边界。
+- 预算在调用前预留、调用后按实际结算；非有限数、布尔、负值或陈旧 state 必须 fail-closed。readiness 的估算不是账单，实际 cost 仍需审计 ledger 核对。
+- workspace 写锁同时覆盖 CLI 和 Web 写入口。取消需要阶段检查点；孤儿进程、陈旧 heartbeat 和 crash-active step 必须能在 resume 时被明确归类，不能静默重复提交。
+- 10-20 章 capstone 仍未完成，因此“工程长跑闭环”不能表述成“真实长期质量/费用已证明”。真跑前先使用干净 workspace、固定起点和有限预算，并逐次取得授权。
+
+### 7. Web 与本地产品定位
+
+- Web 是本地个人研究工作台，默认绑定 loopback，不是公网多租户产品。任何面向公网的鉴权、租户隔离、CSRF、速率限制或对象存储结论都不能从本地安全守门外推。
+- 四步工作台支持 premise、设定、大纲、细纲、正文的编辑与再生成；编辑后必须使依赖的 fingerprint/readiness 失效，不能继续沿用旧计划或旧草稿。
+- Job 的公开投影只允许受控字段和短状态；内部异常、provider 文本、路径、prompt、URL 与大对象不能直接透传。恢复页面需要从持久 state 重建，而不是只依赖进程内 future。
+- 搜索、章节 diff、Insights、软删除/回收站属于编辑辅助能力；它们应只读或显式确认，不得绕过 workspace 路径约束和写锁。
+
+### 8. 短剧创作与媒体链
+
+- 短剧主流程已覆盖五站文本、站③分镜 grid、站④角色/角色库、review/assembly、四格式导出、Insights 和 episode 2 继承；episode 3+ 与整季编排仍未实现。
+- 真实媒体下载必须同时校验 scheme、redirect、DNS 与 peer IP、MIME/magic、size、hash、容器和原子落盘。仅检查扩展名或响应头不构成安全边界。
+- Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 在此基础上补齐校准证据，不改变“未授权时零真实提交”的原则。
+- Iter 094 文本证据按五站记录 task/model SHA、调用数、耗时与 cost；模型在同一链路中漂移会 fail-closed。失败和 crash-active step 的调用/耗时需要在恢复时对账，防止低报。
+- 图片证据按角色/attempt 记录 objective metadata、耗时、尺寸和 SHA；视频证据在提交前持久化 paid submission count，并在报告阶段重新读取容器、尺寸、SHA 与输入 fingerprint，防止用被替换的文件冒充原产物。
+- 校准报告只说明证据完整度，不自动给真实作品质量打通过。`real_execution_recorded_unverified` 仍需 operator quality review；本地存在记录也不能证明本次真实调用已发生。
+
+### 9. 历史事故模式与排障顺序
+
+1. 先确认 mock，再用最小聚焦测试复现；不要一上来跑全量或真模型。
+2. 先检查 shared schema/normalizer/readiness，再检查 CLI/Web/runner 调用方；同一 bug 多入口出现通常意味着真源下沉不够。
+3. 对 stale/fingerprint 问题先画清输入、派生产物和 commit 顺序；不要用删除 state 或强制重跑掩盖血统错误。
+4. 对 provider timeout 先区分“请求未提交、已提交未知、上游成功但下载失败”。只有第一类能安全自动重试；媒体尤其要先核账。
+5. 对测试环境差异先记录解释器、依赖和 loopback 权限。本仓标准基线使用项目可用依赖环境；系统 Python 缺包不代表业务回归。
+6. 对文档冲突按权威顺序修正，不让过时的历史测试数或旧入口重新进入 README/handoff 当前表述。
+
+### 10. 迭代收官与记忆维护
+
+- 每轮先 `iter-start` 建 8 段 iteration；实现中记录范围变化和真实阻塞；`iter-finish` 负责审查、最终验收、README、handoff、history 与 commit message 草案。
+- 耗时全量验证只在多视角审查和 findings 修复之后执行一次。审查前只跑覆盖改动面的聚焦测试、语法/静态检查和 diff 检查；若最终全量失败，再按失败范围修复并重验。
+- 收官至少有 correctness 与 security/boundary 两个独立只读视角；Web、runner、多 workspace、真实模型/计费或媒体入口按风险增加。subagent 不改文件、不跑真模型、不碰私有目录。
+- handoff 不恢复逐轮 `Phase Status` 累计模式，但也不能再次压成几十行。保留本节这类阶段级工作记忆；只有事实变化时就地更新，过时细节迁入 `PROJECT_HISTORY.md` 或具体 iteration。
+- `PROJECT_HISTORY.md` 与 handoff 都是新 session 默认记忆：前者回答“为何如此”，后者回答“现在怎样做”。iteration 只在实施和追证时按需读取。
+
+### 11. Phase-Level Continuity Memory
+
+以下阶段记忆用于判断“一个看似局部的改动会触碰哪些旧承诺”。它不替代 `PROJECT_HISTORY.md` 的里程碑索引，而是保留各阶段形成的兼容性边界和复发风险。
+
+#### Phase A — iter 001-008：工程骨架与第一次真实链路
+
+- 早期先建立 manifest、run report、preflight、失败恢复和 context overflow 可见性，随后才接真实 extract/debate/write/review；这决定了新 provider 能力必须先进入可观测/可恢复骨架。
+- 真模型 ballot 与 reviewer 输出第一次证明“能返回文本”不等于“结构可用”，因此 JSON repair、schema validation 和 Reject 草稿完整落盘成为后续所有 agent 的底线。
+- 测试 discovery 曾可能继承本地真实配置，最终形成配置层、测试入口与验证脚本多层 mock 隔离。修改配置加载时要优先回归这一事故。
+
+#### Phase B — iter 009-019：多章质量、通用化与无人值守
+
+- style examples、anchor、lint/polish、实体关系、章节摘要和关系推进在这一阶段形成；后续“简化上下文”不能只保留 plan 而丢掉这些长期一致性输入。
+- plot planner、五类 bootstrap、persona、多 workspace、多语言/EPUB 把项目从单书脚本变为通用系统；任何默认值都不能偷偷绑定当前验证书目。
+- 自动 advance、resume/retry 与 fail-closed review 让无人值守成为可能，但 proposal/apply 与 review/commit 的边界必须保留人工可审计性。
+
+#### Phase C — iter 020-032：算法根修复与 Web Beta
+
+- 起点防剧透、planner/writer/reviewer 上下文和关系一致性曾做过根级修复；相似缺陷优先检查 shared source assembly，不要只在 prompt 末尾补一句规则。
+- 9 阶段 SOP、生产 runner/readiness 和 Web 工作台在此阶段对齐；CLI 能跑而 Web 不能恢复，或 Web 显示 ready 而 runner blocked，都属于语义分叉回归。
+- Web 最初从只读 dashboard 扩展为 wizard/auto-pipeline。现有路由仍要兼容旧 workspace 的缺失字段与可选产物，不能假设都由最新向导创建。
+
+#### Phase D — iter 033-050：可编辑工作台、短剧底座与 Aeloon
+
+- 回收站、Insights、计划页、错误提示和响应式 UX 逐步加入；删除/编辑动作应通过明确 API 和确认，不以 DOM 状态代替持久状态。
+- 短剧 workspace 与前两站在 iter 036-038 建立，后续站点共用其 schema、目录和 episode 语义；修改短剧路径时需兼容早期 workspace。
+- iter 039-042 修过真实 Web 写作链、meta/review verdict 和三档评分，说明 job 完成态、正文 meta 与 review 文件必须同步提交。
+- Aeloon 双轨与全程编辑闭环在 049-050 形成；共享 client/MCP 的认证和 budget guard 不能被 Web 内部便捷函数绕过。
+
+#### Phase E — iter 051-057：真模型质量与长程结构
+
+- premise 扩写、review budget、drive-book 和 canon 锚定经过真实样本验证，但样本有限，不能把一次 5/5 Approve 外推成任意书目质量保证。
+- 深起点 diff oracle 暴露过派生知识越界；start point 变化必须重建或拒绝 stale artifact，而不是仅在 writer 阶段过滤。
+- per-task timeout、分类重试和续抽策略源自真实 provider 卡死/截断；新增模型必须明确哪些错误可重试，不能对 unknown submission 自动重发。
+- 长程审查修过计划指纹、流式卡死、旧章记忆和大纲漂移；这些是 capstone 前仍需重点观测的历史高发点。
+
+#### Phase F — iter 058-067：输入、安全与 fail-closed 清债
+
+- 前端曾有预算静默错误、坏 JSON 崩溃、非法整数、并发写和取消不及时；公共输入要在进入 runner 前标准化为 typed value/error。
+- iter 061 的风格样本路径穿越是重要安全事故：任何用户可控 filename、workspace、episode、character id 都必须目录约束与随机内部 token 配合。
+- readiness 目录合并、CLI/Web 参数统一和 typed stale error 是为消除平行判断；新 blocker 应先进入共享 catalog/schema，再由各入口渲染。
+- bool 是 Python int 子类、JSON 可默认输出 NaN/Infinity 等语言细节曾绕过预算/状态守门；数值判断必须显式拒绝 bool 和非有限值。
+
+#### Phase G — iter 068-073：重建、可取消与导航一致性
+
+- 底座重建成为正式 job 后，进度、取消、预算和 readiness 需要跨进程持久；只更新内存进度会让刷新后的页面误判。
+- 三功能入口、首页导航和 leave guard 逐步重构；active jobs 的真源在后端，前端模态只负责提示，不能单靠前端阻止危险离开。
+- 计划失约和严重 outline drift 被提升为 blocker，job 公开投影也被收紧；新增公开字段必须先判断是否会泄露内部异常或长文本。
+
+#### Phase H — iter 074-079：编辑复核与 capstone 前硬化
+
+- 章节 diff 与全文搜索都经过路径、范围、高亮和旧版本兼容加固；它们是读者/编辑工具，不应改变正文 commit 或绕过软删除语义。
+- 六方长跑审查修过伏笔边界、caveat 恢复、陈旧拒稿、孤儿进程、评分/成本、摘要顺序和实体补偿，这些是长跑审查 checklist 的来源。
+- supervisor、heartbeat/watchdog、预算预留、workspace lock 与 mock budget rehearsal 已工程闭环；真实 capstone 的目的仍是验证分布和阈值，而不是补基础 wiring。
+
+#### Phase I — iter 080-088：短剧核心与文风量化
+
+- 分镜 grid、角色设计/角色库、review/assembly、导出、Insights 和 episode 2 形成产品闭环；角色引用与 shot/episode 关系是媒体产物 fingerprint 的上游。
+- 文风 baseline/drift/advisor/red rewrite 是小说链的旁路质量系统。重写最多一次并复测择优，避免 style loop 无限消耗预算或覆盖更好的原稿。
+- 四格式导出包含下游工具 schema，修改字段名或排序需要兼容测试和版本声明，不能只按当前 Web 展示调整。
+
+#### Phase J — iter 089-094：真实媒体入口与校准证据
+
+- iter 089 先建立授权、SSRF、下载落盘和 video client 安全骨架；iter 090 再把五站文本 job 化；iter 091 完成 episode 1 视频闭环；顺序体现“安全边界先于真实调用”。
+- iter 092 把文本、全角色图片和单次视频编成可恢复状态机，并限制图片 retry；真实阶段授权仍相互独立，resume 只恢复状态、不恢复权限。
+- iter 094 解决“state 显示完成但证据不足”的问题：对账 LLM ledger、失败耗时、提交次数和产物内容，报告只给 evidence status，不替 operator 做质量结论。
+- 下一次真实校准应分三次向用户报告精确命令、模型/服务、最大请求/提交数、最坏费用和 timeout；任何一段未授权都保持 0 提交，不因前段成功自动推进。
+
+#### Phase K — iter 093-094：项目记忆与收官流程复盘
+
+- iter 093 正确识别了 2000+ 行逐轮累计 handoff 的重复和过期风险，但一次压到约 93 行导致设计背景、历史事故和恢复知识不足。
+- iter 094 采用四层记忆：AGENTS 长期规则、handoff 当前事实+工作记忆、PROJECT_HISTORY 阶段原因、iteration 逐轮证据。优化指标是接力质量，不是最低行数。
+- 同轮将耗时全量验收移到多视角审查/修复之后；前置聚焦检查仍保证审查基于可运行代码，后置 full gate 保证最终状态没有降低验收强度。
 
 ## Operating Boundaries
 
@@ -85,9 +239,10 @@ python3 main.py write-readiness --chapters N
 
 - 收官时更新 `Current Snapshot`、`Capability Map`、`Latest Accepted Evidence`、`Open Gaps` 和 `Next Candidates` 中受影响的行。
 - `Latest Accepted Evidence` 只保留最近一次会改变接力判断的证据，通常不超过 8 条。
-- 不追加“Phase Status - iter NNN”长段；完整结果写入当轮 iteration，里程碑级变化再更新 `PROJECT_HISTORY.md`。
+- `Retained Working Memory` 保留阶段级能力、长期约束、事故模式和恢复知识；事实变化时就地修订。目标是数百行可工作的记忆，不回到 2000+ 行逐轮日志，也不再次压成几十行摘要。
+- 不追加“Phase Status - iter NNN”逐轮长段；完整结果写入当轮 iteration，同时更新 `PROJECT_HISTORY.md` 的阶段历史与长期教训。
 - 测试数只在本文件与最新 iteration 保留当前值；README 历史表不逐轮复制测试数字。
 
 ## Latest Transition
 
-iter 093 完成 agent 记忆入口瘦身：当前状态、历史里程碑和逐轮证据分层维护，默认必读链缩短约 94%；同时修正产品隐私/进度表述与 iter-start/iter-finish 防膨胀契约。业务行为未变，iter 092 仍是最新业务能力基线。
+iter 094 完成短剧多模态校准证据硬化：文本模型与调用账本、失败/恢复耗时、图片 attempt、视频容器/指纹和脱敏报告均可审计，mock 全链验证通过但未运行任何真实计费请求。作为补充，项目记忆由 iter 093 的过度压缩调整为“当前快照 + 数百行阶段级工作记忆 + 默认读取历史”，收官流程也改为审查修复后再执行一次全量验收。
