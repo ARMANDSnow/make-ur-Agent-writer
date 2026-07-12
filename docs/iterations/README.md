@@ -103,3 +103,4 @@
 103. [Iteration 089 - 短剧真实生图接入与视频 API 安全预备](./iteration_089_drama_real_image_video_api_guard.md)
 104. [Iteration 090 - 短剧五站真模型 Job 化 + 全链 Smoke](./iteration_090_drama_five_station_jobs_smoke.md)
 105. [Iteration 091 - 短剧真实视频端到端闭环](./iteration_091_drama_real_video_e2e.md)
+106. [Iteration 092 - 短剧真实多模态联测编排与生图重试硬化](./iteration_092_drama_multimodal_smoke_hardening.md)

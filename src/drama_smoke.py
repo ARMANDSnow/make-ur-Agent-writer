@@ -8,7 +8,7 @@ import math
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Iterable
 
 from . import drama_store, paths
 from .ai_draw_client import DEFAULT_IMAGE_MODEL, redraw_character_reference
@@ -95,6 +95,10 @@ def run_smoke(
     real_image: bool = False,
     timeout_seconds: float = 900.0,
     budget_cny: float = 0.0,
+    reset_jobs: bool = True,
+    completed_steps: Iterable[str] = (),
+    on_step_complete: Callable[[str, Dict[str, Any]], None] | None = None,
+    create_workspace: bool = True,
 ) -> Dict[str, Any]:
     if not math.isfinite(budget_cny) or budget_cny < 0:
         raise SystemExit("budget-cny must be finite and non-negative")
@@ -115,34 +119,68 @@ def run_smoke(
         if os.getenv("AI_DRAW_ENDPOINT"):
             raise RuntimeError("real image smoke requires OpenAI-compatible mode")
 
-    _create_workspace(workspace, track)
-    jobs.reset_for_tests()
+    if create_workspace:
+        _create_workspace(workspace, track)
+    if reset_jobs:
+        jobs.reset_for_tests()
     steps = []
+    completed = set(completed_steps)
     started_at = time.time()
+    deadline = time.monotonic() + timeout_seconds
+    baseline_cost = float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0)
     for step in ("drama-plan", "drama-hooks"):
+        if step in completed:
+            steps.append({"step": step, "status": "resumed-skip"})
+            continue
+        remaining_seconds = deadline - time.monotonic()
+        spent = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
+        remaining_budget = max(0.0, budget_cny - spent) if real_text else 0.0
+        if real_text and (remaining_seconds <= 0 or remaining_budget <= 0):
+            raise DramaSmokeTimeout("text") if remaining_seconds <= 0 else RuntimeError("drama text smoke budget exhausted")
         steps.append(_run_step(
-            workspace, step, 1, timeout_seconds, real_text=real_text, budget_cny=budget_cny
+            workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget
         ))
-        if real_text and float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) > budget_cny:
+        actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
+        steps[-1]["actual_cost_cny"] = round(actual, 6)
+        steps[-1]["remaining_budget_cny"] = round(max(0.0, budget_cny - actual), 6)
+        steps[-1]["remaining_seconds"] = round(max(0.0, deadline - time.monotonic()), 3)
+        if on_step_complete is not None:
+            on_step_complete(step, steps[-1])
+        if real_text and actual > budget_cny:
             raise RuntimeError("drama text smoke budget exceeded")
 
     ep = episode_paths(workspace)
     candidates = read_json_optional(ep.hook_candidates_path, {})
     hooks = candidates.get("hooks") if isinstance(candidates, dict) else None
-    if not isinstance(hooks, list) or len(hooks) != 3:
-        raise RuntimeError("drama hook job did not persist three candidates")
     setup = read_json_optional(ep.setup_path, {})
     if not isinstance(setup, dict):
         raise RuntimeError("drama plan did not persist setup")
-    setup["hook"] = hooks[0]
-    write_json(ep.setup_path, setup)
-    ep.hook_candidates_path.unlink(missing_ok=True)
+    if isinstance(hooks, list) and len(hooks) == 3:
+        setup["hook"] = hooks[0]
+        write_json(ep.setup_path, setup)
+        ep.hook_candidates_path.unlink(missing_ok=True)
+    elif not isinstance(setup.get("hook"), dict):
+        raise RuntimeError("drama hook job did not persist three candidates")
 
     for step in ("drama-storyboard", "drama-characters", "drama-review-assemble"):
+        if step in completed:
+            steps.append({"step": step, "status": "resumed-skip"})
+            continue
+        remaining_seconds = deadline - time.monotonic()
+        spent = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
+        remaining_budget = max(0.0, budget_cny - spent) if real_text else 0.0
+        if real_text and (remaining_seconds <= 0 or remaining_budget <= 0):
+            raise DramaSmokeTimeout("text") if remaining_seconds <= 0 else RuntimeError("drama text smoke budget exhausted")
         steps.append(_run_step(
-            workspace, step, 1, timeout_seconds, real_text=real_text, budget_cny=budget_cny
+            workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget
         ))
-        if real_text and float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) > budget_cny:
+        actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
+        steps[-1]["actual_cost_cny"] = round(actual, 6)
+        steps[-1]["remaining_budget_cny"] = round(max(0.0, budget_cny - actual), 6)
+        steps[-1]["remaining_seconds"] = round(max(0.0, deadline - time.monotonic()), 3)
+        if on_step_complete is not None:
+            on_step_complete(step, steps[-1])
+        if real_text and actual > budget_cny:
             raise RuntimeError("drama text smoke budget exceeded")
 
     image_meta: Dict[str, Any] | None = None
@@ -174,10 +212,24 @@ def run_smoke(
         }
         # Character references participate in the assembled fingerprint. Refresh
         # station ⑤ so the successful image smoke does not leave episode_01 stale.
+        remaining_seconds = deadline - time.monotonic()
+        spent = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
+        remaining_budget = max(0.0, budget_cny - spent) if real_text else 0.0
+        if real_text and (remaining_seconds <= 0 or remaining_budget <= 0):
+            raise DramaSmokeTimeout("text") if remaining_seconds <= 0 else RuntimeError("drama text smoke budget exhausted")
         steps.append(_run_step(
-            workspace, "drama-review-assemble", 1, timeout_seconds,
-            real_text=real_text, budget_cny=budget_cny,
+            workspace, "drama-review-assemble", 1, max(0.001, remaining_seconds),
+            real_text=real_text,
+            budget_cny=remaining_budget,
         ))
+        actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
+        steps[-1]["actual_cost_cny"] = round(actual, 6)
+        steps[-1]["remaining_budget_cny"] = round(max(0.0, budget_cny - actual), 6)
+        steps[-1]["remaining_seconds"] = round(max(0.0, deadline - time.monotonic()), 3)
+        if on_step_complete is not None:
+            on_step_complete("drama-review-assemble", steps[-1])
+        if real_text and actual > budget_cny:
+            raise RuntimeError("drama text smoke budget exceeded")
 
     exports = {}
     for fmt in ("json", "md", "csv", "comfy"):
@@ -194,7 +246,9 @@ def run_smoke(
         "steps": steps,
         "exports": exports,
         "llm_calls": insights.get("llm_cost", {}).get("calls", 0),
-        "cost_cny": insights.get("llm_cost", {}).get("cost_cny", 0.0),
+        "cost_cny": round(max(0.0, float(insights.get("llm_cost", {}).get("cost_cny", 0.0) or 0) - baseline_cost), 6),
+        "remaining_budget_cny": round(max(0.0, budget_cny - max(0.0, float(insights.get("llm_cost", {}).get("cost_cny", 0.0) or 0) - baseline_cost)), 6),
+        "remaining_seconds": round(max(0.0, deadline - time.monotonic()), 3),
         "image": image_meta,
     }
     log_path = paths.WORKSPACE_DIR / workspace / "logs" / f"drama_smoke_{int(time.time())}.json"

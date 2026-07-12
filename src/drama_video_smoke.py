@@ -69,6 +69,8 @@ def run_smoke(
     confirm_real_video: bool = False,
     budget_cny: float = 0.0,
     timeout_seconds: float = 300.0,
+    prepare_inputs: bool = True,
+    reset_jobs: bool = True,
 ) -> Dict[str, Any]:
     if not math.isfinite(timeout_seconds) or not 1 <= timeout_seconds <= 3600:
         raise SystemExit("timeout-seconds must be finite and between 1 and 3600")
@@ -84,8 +86,10 @@ def run_smoke(
         drama_video.load_video_inputs(workspace, episode_no=1)
     else:
         os.environ["SD_VIDEO_MODE"] = "mock"
-        _prepare_mock_inputs(workspace)
-    jobs.reset_for_tests()
+        if prepare_inputs:
+            _prepare_mock_inputs(workspace)
+    if reset_jobs:
+        jobs.reset_for_tests()
     params: Dict[str, Any] = {"episode_no": 1}
     if real_video:
         params.update({

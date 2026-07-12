@@ -39,6 +39,7 @@ Dragon Raja AI Continuer MVP：基于 LLM 多 agent 协作的中文小说续写�
 7. **scope 收敛**：不要把"顺手修一下"扩展到计划外文件。真模型暴露的真实 bug 例外（iter 008 修 reviewer/writer 是这种情况）但要在文档里诚实记录
 8. **SOP 实时性**（iter 021 新增）：每轮 iter 收官时必须同步 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) 表格的状态字段（✅/⚠️/❌）+ "最近一次更新" 时间戳 + `docs/AGENT_HANDOFF.md` 末尾追加 Phase Status。这个表是用户判断"哪里打通了 / 哪里还没"的单一真实来源
 9. **迭代末尾代码审查**（iter 031 引入，2026-06 升级为内置 skill；iter 084 起升级为强制多视角）：每轮 iter 收官前，必须对本轮改动做结构性/程序性只读审查。**优先用内置 skill**：跑 `代码审查`（正确性 bug + 复用/简化/效率）+ `/security-review`（API key / `.env` 泄漏自查，对口第 1 条）。同时默认必须调用至少 2 个独立只读 subagents 并行做多视角 bug/security 审查（至少 correctness + security/boundary 两个视角）；Web / runner / 多 workspace / 真模型入口等高风险改动，在此基础上增加更多独立视角 subagents。审查范围、subagent 结论、主线程复核、未修风险必须写进当轮 iteration 的 `Acceptance Result` 或 `Notes`，再提交。审查为只读：不得跑真模型 smoke、不得触碰 `.env`、`data/`、`outputs/`、`小说txt/`。
+10. **中转站真生图超时策略**（用户于 2026-07-12 明确指定）：中转站生图超过 **2 分钟**可能失败。只有在用户已明确授权真生图 smoke 时，首次失败/超时后才可先**简化 prompt**，再给予首轮之外最多 **2 次重试机会**，**每次 timeout=180 秒**。重试前先查询上游任务状态/账单，确认前一请求不会继续运行或重复计费；授权范围必须覆盖最多 3 次可能计费提交。该例外**仅适用于生图**，不得放宽真视频的「单次提交、超时不重试」边界。
 
 ## 迭代记录格式
 
@@ -108,14 +109,14 @@ logs/                     # 全部 gitignored
 
 ## 当前阶段 & SOP 状态
 
-**最后更新**：iter 091（2026-07-12，收官）
+**最后更新**：iter 092（2026-07-12，收官）
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：091（短剧真实视频端到端闭环；已收官，完整记录见 `docs/iterations/iteration_091_drama_real_video_e2e.md`）
-**已完成阶段**：1-4 主链路全打通；Web 本地 Beta、生产 runner、Aeloon、可编辑、长跑可靠性与文风闭环已收口。短剧已有五站 job、四导出、Insights、第 2 集、角色生图安全入口；iter091 新增 episode 1 单视频 202/job，串联 fresh 素材、上传/查询、单次计费提交、轮询、协作取消、安全下载、原子落盘与 Web 播放/下载。
-**关键证据**：工程主链路 **STRUCTURE GO**；canonical **1880 tests OK**，`verify.sh` exit 0，mock preflight ok/无 WARN/FATAL，真实配置 preflight warn/无 FATAL，Python/Node/shell/diff 通过。mock 视频全链 5s/9:16/720p 成功，**network_requests=0 / automatic_retries=0**。correctness、security/boundary、Web/job integration 三视角复核 PASS。真文本、真生图、真视频均未跑，真视频提交数为 0。**缺口**：真视频费用/时延/质量仍待用户授权的单次 smoke 校准；真文本、真 ComfyUI、小说 10-20 章 capstone 与文风真模型阈值仍未校准。
-**后续候选（iter092+）**：用户精确回复“可以跑真实视频 smoke”后，以 `dreamina-seedance-2-0-hc / 5s / 9:16 / 720p`、建议 ¥10 上限/300s 超时提交一次且不重试；也可独立授权五站真文本 smoke。先查 provider 账单再决定是否重试上次超时 image2。第 3 集+、小说 capstone 与文风校准仍为独立候选。
+**当前 iter**：092（短剧真实多模态联测编排与生图重试硬化；已收官，完整记录见 `docs/iterations/iteration_092_drama_multimodal_smoke_hardening.md`）
+**已完成阶段**：1-4 主链路全打通；Web 本地 Beta、生产 runner、Aeloon、可编辑、长跑可靠性与文风闭环已收口。短剧已有五站 job、四导出、Insights、第 2 集、真生图安全入口和 episode 1 单视频 202/job；iter092 新增 fresh workspace 可恢复的真文本→全角色图→重组→readiness→单次视频联测编排。
+**关键证据**：工程主链路 **STRUCTURE GO**；canonical **1903 tests OK**（较 1880 新增 23），`verify.sh` exit 0，mock preflight ok/无 WARN/FATAL，真实配置 preflight warn/无 FATAL，Python/shell/diff 通过。mock fresh+resume 多模态全链成功，**network_requests=0 / automatic_retries=0**。correctness、security/boundary、orchestrator/Web integration 三视角 findings 全修并复核 PASS。真文本、真生图、真视频均未跑，三类真实提交数均为 0。**缺口**：真多模态费用/时延/质量仍待分段授权校准；真 ComfyUI、小说 10-20 章 capstone 与文风真模型阈值仍未校准。
+**后续候选（iter093+）**：可分别授权五站真文本、全角色真生图和单次真视频 smoke；生图重试前必须查 provider 任务/账单，最多额外 2 次、每次 180s，真视频仍单次提交不重试。第 3 集+、小说 capstone 与文风校准仍为独立候选。
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
 
 ## 常用 git 操作

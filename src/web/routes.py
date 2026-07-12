@@ -2649,6 +2649,14 @@ def api_drama_video_status(name: str) -> Tuple[int, str, bytes]:
     return _json(200, status)
 
 
+def api_drama_multimodal_status(name: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from ..drama_multimodal_smoke import public_status
+    return _json(200, public_status(name))
+
+
 def api_drama_video_file(name: str) -> WebResponse:
     error = _drama_endpoint_error(name)
     if error:
@@ -3835,6 +3843,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/video/file/?$"),
         lambda name, **_: api_drama_video_file(name),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/multimodal-smoke/?$"),
+        lambda name, **_: api_drama_multimodal_status(name),
     ),
     (
         "GET",

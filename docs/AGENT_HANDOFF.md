@@ -2195,4 +2195,22 @@ python3 main.py --book <name> drive-book start \
 
 **兼容性/接力点**：新 `POST /api/workspace/{name}/drama/video` 固定返 202，调用方 poll GET 状态；没有替换旧同步 endpoint。旧 assembled episode 缺 `episode_sha256`，需重新评审组装后才能进入视频。下一步必须等用户精确回复“可以跑真实视频 smoke”，然后在 provider console 确认实际预估费用/结果域，以 `dreamina-seedance-2-0-hc / 5s / 9:16 / 720p`、建议 ¥10 上限、300s 超时提交一次。真文本费用/质量、真 ComfyUI、第 3 集+、小说 10–20 章 capstone 仍是独立候选。
 
+**全局生图测试记忆（用户 2026-07-12 明确指定）**：中转站生图超过 2 分钟可能失败。已获真生图 smoke 授权时，首次失败/超时后先简化 prompt，再允许首轮之外最多 2 次受控重试，每次 timeout=180 秒。每次重试前必须查上游任务状态/账单，授权需覆盖最多 3 次可能计费提交。这是生图专用例外；真视频仍保持单次提交、超时不重试。入口约束以根目录 `AGENTS.md` 工程铁律第 10 条为准。
+
 **数据状态**：未改 `.env`，未读写 `小说txt/` 或用户私有样本；verify/smoke 只写 gitignored 验收产物。未跟踪 `续写工作台.pptx` 保持不动；只 commit，不 push。
+
+---
+
+## Phase Status — iter 092（2026-07-12 收官）：短剧真实多模态联测编排与生图重试硬化
+
+**已完成（本轮）**：新增可恢复 `real_text -> all_character_images -> reassemble -> video_readiness -> real_video` 状态机、shell 入口和脱敏 Web 状态。真文本/真生图/真视频三份授权、预算和超时不继承；五站使用总预算/总 deadline，全出场角色 fresh 参考图完整后才可进视频 readiness。
+
+**生图/视频边界**：生图首轮失败后立即停机；每次 resume 必须重新确认重试授权与已查上游状态/账单，改用简化 prompt，首轮外最多 2 次、每次 180s。成功 artifact 的恢复校验要求 workspace containment + SHA-256。真视频仍一次付费提交、超时不重试。
+
+**铁律⑨审查**：correctness 发现生图后重组曾可绕过已耗尽的文本预算/deadline，security/boundary 发现被篡改 artifact path 的 workspace 外读取；两项均已修复加测并经原 subagent 复核 **PASS**。orchestrator/Web integration 视角直接 **PASS**。无未修 blocker/High/Medium。
+
+**验收证据**：聚焦 **155 tests OK**；canonical **1903 tests OK (skipped=7)**（iter091 1880 → +23）；`PATH="$PWD/.venv/bin:$PATH" PYTHONPYCACHEPREFIX="$PWD/.pycache" OPENAI_MODEL=mock bash scripts/verify.sh` exit 0（内部同样 1903 tests OK）；mock preflight ok/无 WARN/FATAL，真实配置 preflight warn/无 FATAL；mock fresh+resume 全链 `network_requests=0 / automatic_retries=0`；Python/shell/diff 通过。真文本、真生图、真视频均未跑。
+
+**接力点**：若进行真多模态校准，需对真文本、全角色生图、单次视频分别给出明确授权、预算与时间；生图 retry 前先查 provider 任务/账单。真 ComfyUI、第 3 集+、小说 10-20 章 capstone 与文风阈值校准仍为独立候选。
+
+**数据状态**：未改 `.env`，未读写 `小说txt/` 或用户私有样本；verify 与 mock smoke 只写 gitignored 验收产物。未跟踪 `续写工作台.pptx` 保持不动；只 commit，不 push。

@@ -12,9 +12,11 @@ import binascii
 import html
 import ipaddress
 import json
+import math
 import os
 import socket
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
@@ -41,6 +43,18 @@ SUPPORTED_ENDPOINT_IMAGE_TYPES = {
 }
 
 
+class AIDrawTimeout(TimeoutError):
+    """The bounded image request or result download timed out."""
+
+
+class AIDrawNetworkError(ConnectionError):
+    """The image provider could not be reached."""
+
+
+class AIDrawProviderError(ValueError):
+    """The provider returned a terminal HTTP/schema failure."""
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
         return None
@@ -52,6 +66,8 @@ def redraw_character_reference(
     *,
     season_no: int = 1,
     mock: bool | None = None,
+    prompt_override: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> Dict[str, Any]:
     char = character if isinstance(character, DramaCharacter) else DramaCharacter(**character)
     endpoint = os.getenv("AI_DRAW_ENDPOINT", "").strip()
@@ -80,6 +96,8 @@ def redraw_character_reference(
         api_key=api_key,
         model=model,
         season_no=season_no,
+        prompt_override=prompt_override,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -169,12 +187,21 @@ def _call_openai_image_api(
     api_key: str,
     model: str,
     season_no: int,
+    prompt_override: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> Dict[str, Any]:
     endpoint = _images_generation_url(base_url)
     parsed = validate_api_base_url(endpoint, label="AI draw base URL")
     _validate_public_endpoint(parsed.hostname)
 
-    prompt = character.prompt_template_sd or character.visual_signature or character.name
+    prompt = prompt_override if prompt_override is not None else (
+        character.prompt_template_sd or character.visual_signature or character.name
+    )
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
+        raise ValueError("AI draw prompt must be a non-empty string of at most 4000 characters")
+    timeout = IMAGE_GENERATION_TIMEOUT_SECONDS if timeout_seconds is None else float(timeout_seconds)
+    if not math.isfinite(timeout) or timeout <= 0 or timeout > 3600:
+        raise ValueError("AI draw timeout must be finite and in (0, 3600]")
     payload = {
         "model": model,
         "prompt": prompt,
@@ -192,14 +219,19 @@ def _call_openai_image_api(
         },
     )
     opener = build_opener(_NoRedirect)
+    started_at = time.monotonic()
     try:
-        with opener.open(request, timeout=IMAGE_GENERATION_TIMEOUT_SECONDS) as response:
+        with opener.open(request, timeout=timeout) as response:
             content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             raw = response.read(MAX_JSON_RESPONSE_BYTES + 1)
     except HTTPError as exc:
-        raise ValueError(f"AI draw API request failed with HTTP {exc.code}") from None
-    except URLError:
-        raise ValueError("AI draw API request failed due to a network error") from None
+        raise AIDrawProviderError(f"AI draw API request failed with HTTP {exc.code}") from None
+    except (socket.timeout, TimeoutError) as exc:
+        raise AIDrawTimeout("AI draw API request timed out") from exc
+    except URLError as exc:
+        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
+            raise AIDrawTimeout("AI draw API request timed out") from exc
+        raise AIDrawNetworkError("AI draw API request failed due to a network error") from exc
     if len(raw) > MAX_JSON_RESPONSE_BYTES:
         raise ValueError("AI draw JSON response exceeds size limit")
     if content_type not in {"", "application/json"}:
@@ -207,20 +239,26 @@ def _call_openai_image_api(
     try:
         body = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("AI draw API returned invalid JSON") from exc
+        raise AIDrawProviderError("AI draw API returned invalid JSON") from exc
     data = body.get("data") if isinstance(body, dict) else None
     item = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else None
     if item is None:
-        raise ValueError("AI draw API response is missing image data")
+        raise AIDrawProviderError("AI draw API response is missing image data")
     if isinstance(item.get("b64_json"), str):
-        image_bytes = _decode_base64_image(item["b64_json"])
-        content_type, suffix = _detect_image_type(image_bytes)
+        try:
+            image_bytes = _decode_base64_image(item["b64_json"])
+            content_type, suffix = _detect_image_type(image_bytes)
+        except ValueError as exc:
+            raise AIDrawProviderError("AI draw API returned invalid base64/image data") from exc
     elif isinstance(item.get("url"), str):
+        remaining = timeout - (time.monotonic() - started_at)
+        if remaining <= 0:
+            raise AIDrawTimeout("AI draw attempt timed out before result download")
         image_bytes, content_type, suffix = _download_generated_image(
-            item["url"], api_hostname=parsed.hostname or ""
+            item["url"], api_hostname=parsed.hostname or "", timeout_seconds=remaining
         )
     else:
-        raise ValueError("AI draw API response is missing b64_json or url")
+        raise AIDrawProviderError("AI draw API response is missing b64_json or url")
     provider_model = body.get("model") if isinstance(body, dict) else None
     if not isinstance(provider_model, str) or not provider_model.strip() or len(provider_model.strip()) > 80:
         provider_model = model
@@ -268,7 +306,9 @@ def _decode_base64_image(value: str) -> bytes:
     return data
 
 
-def _download_generated_image(url: str, *, api_hostname: str = "") -> tuple[bytes, str, str]:
+def _download_generated_image(
+    url: str, *, api_hostname: str = "", timeout_seconds: float = REQUEST_TIMEOUT_SECONDS
+) -> tuple[bytes, str, str]:
     parsed = urlparse(url)
     if (
         parsed.scheme != "https"
@@ -289,13 +329,17 @@ def _download_generated_image(url: str, *, api_hostname: str = "") -> tuple[byte
     _validate_public_endpoint(parsed.hostname)
     opener = build_opener(_NoRedirect)
     try:
-        with opener.open(Request(url, headers={"User-Agent": USER_AGENT}), timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        with opener.open(Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout_seconds) as response:
             content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             data = response.read(MAX_RESPONSE_BYTES + 1)
     except HTTPError as exc:
-        raise ValueError(f"AI draw image download failed with HTTP {exc.code}") from None
-    except URLError:
-        raise ValueError("AI draw image download failed due to a network error") from None
+        raise AIDrawProviderError(f"AI draw image download failed with HTTP {exc.code}") from None
+    except (socket.timeout, TimeoutError) as exc:
+        raise AIDrawTimeout("AI draw image download timed out") from exc
+    except URLError as exc:
+        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
+            raise AIDrawTimeout("AI draw image download timed out") from exc
+        raise AIDrawNetworkError("AI draw image download failed due to a network error") from exc
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("AI draw image exceeds size limit")
     detected_type, suffix = _detect_image_type(data)

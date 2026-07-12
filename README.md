@@ -190,14 +190,17 @@ workspaces/<book>/
 | 阶段 25（iter 088-089）| **短剧多集交付 + 真实媒体接入**：iter088 完成 JSON/Markdown/CSV/Comfy 四导出、Insights 与受控第 2 集继承闭环；iter089 接入显式 opt-in 的 OpenAI-compatible `gpt-image-2` 角色生图，补凭据整对回退、HTTPS/结果域/5MB/magic/原子落盘、逐请求 JSON 确认、requested/provider/actual 尺寸留痕，并新增素材/视频任务客户端与 `allow_real_video=True` 强 gate。原创真图 smoke 成功（上游 `gpt-image-2-codex`、940×1673 PNG），真视频未调用。三视角 findings 全修并复核 PASS；canonical **1839 tests OK**，`verify.sh` exit 0，mock preflight ok | 完成 |
 | 阶段 26（iter 090）| **短剧五站 Job 化 + 全链 Smoke**：站①-⑤统一迁移为 202/job/poll/cancel，站①②补齐严格 schema 与真模型 wiring；真文本请求在 route + job last-hop 双层强制确认、finite 正预算和有界超时，产物写入前结算成本。Web 支持刷新重连、候选恢复和 episode context；五站严格级联、episode identity、站⑤回滚与 stale 校验均 fail-closed。mock `drama_smoke.sh` 完成五 job→四导出→Insights，零 LLM/零视频；真文本未授权未跑，已授权的单次真生图在 120s 超时后为避免重复计费未重试。三视角修后复核 PASS；canonical **1857 tests OK**，`verify.sh` exit 0，mock preflight ok | 完成 |
 | 阶段 27（iter 091）| **短剧真实视频端到端闭环（实现完成，实跑待授权）**：新增 episode 1 单视频独立 202/job，串联 fresh episode/storyboard/characters/reference images、tokenized 素材上传/查询、单次计费提交、轮询、协作取消、安全下载与原子落盘。真视频严格独立 `confirm_real_video=true` + finite 正预算/超时，不继承真文本/真生图授权；HTTPS exact-host、actual peer IP、redirect/MIME/size/magic/hash 均 fail-closed。Web 支持刷新恢复、取消、失败原因、播放/下载。mock 全链 **0 network / 0 retry**；真视频未授权未跑。三视角复核 PASS；canonical **1880 tests OK**，`verify.sh` exit 0，mock preflight ok | ⚠️ 实现完成，真视频 smoke 待用户授权 |
+| 阶段 28（iter 092）| **短剧真实多模态联测编排 + 生图重试硬化（实现完成，实跑待分段授权）**：新增可恢复 `real_text -> all_character_images -> reassemble -> video_readiness -> real_video` 状态机，真文本/真生图/真视频授权、预算与超时三份独立；出场角色全图后才可进视频 readiness。生图失败后停机，查上游/账单并重新授权后才用简化 prompt 重试，首轮外最多 2 次、每次 180s；视频仍单次提交不重试。mock fresh+resume 全链 **0 network / 0 retry**，三视角 findings 全修并复核 PASS；canonical **1903 tests OK**，`verify.sh` exit 0 | ⚠️ 实现完成，真文本/生图/视频 smoke 待独立授权 |
 
 阶段小结：[stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md)。会话延续锚点：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md)。
 
 ## 流水线 SOP（实时状态）
 
-一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 091**（2026-07-12，收官）——**短剧真实视频端到端闭环**：episode 1 已有独立 202/job，从 fresh 五站产物和参考图出发，完成素材上传/查询、单次计费提交、轮询、协作取消、安全下载、原子落盘和 Web 播放/下载。真视频授权与真文本/真生图严格隔离；未确认、无正预算或无正超时在网络前拒绝。mock 视频全链 **0 network / 0 retry**，5s/9:16/720p 成片可播放；真视频未授权未跑。image2 单次超时放宽至 300s，仍不自动重试。三视角复核 PASS；canonical **1880 tests OK**，`verify.sh` exit 0，mock preflight ok，真实配置 preflight warn/无 FATAL。
+一条续写指令从输入到输出经过 9 个阶段，下面是各节点当前的打通状态。这是一份活文档，每轮 iter 收官时同步。最近一次更新：**iter 092**（2026-07-12，收官）——**短剧真实多模态联测编排与生图重试硬化**：fresh workspace 现可按可恢复状态机跑真文本→全角色图→重组→readiness→单次视频，三份授权/预算/时间不继承。生图首次失败后必须先查上游状态/账单再重新授权，简化 prompt 后最多 2 次、每次 180s；真视频仍不重试。mock fresh+resume 全链 **0 network / 0 retry**；三视角 findings 全修并复核 PASS；canonical **1903 tests OK**，`verify.sh` exit 0，mock preflight ok，真实配置 preflight warn/无 FATAL。
 
-上一轮 **iter 090**（2026-07-12，收官）——**短剧五站真模型 Job 化 + 全链 Smoke**：站①-⑤统一为 202/job/poll/cancel，站①②补齐严格 schema 与真/mock wiring；真文本需每请求确认 + finite 正预算 + 有界超时。mock 全链五 job、四导出、Insights 成功，零 LLM/零视频。单次真生图在 120s 超时后未重试。三视角复核 PASS；canonical **1857 tests OK**。
+上一轮 **iter 091**（2026-07-12，收官）——**短剧真实视频端到端闭环**：episode 1 独立 202/job 已完成 fresh 素材上传/查询、单次计费提交、轮询、取消、安全下载与 Web 播放/下载；mock **0 network / 0 retry**，真视频未授权未跑，canonical **1880 tests OK**。
+
+再上一轮 **iter 090**（2026-07-12，收官）——**短剧五站真模型 Job 化 + 全链 Smoke**：站①-⑤统一为 202/job/poll/cancel，mock 五 job、四导出、Insights 成功，零 LLM/零视频，canonical **1857 tests OK**。
 
 再上一轮 **iter 089**（2026-07-12，收官）——**短剧真实生图接入 + 视频 API 安全预备**：原创真图 smoke 返回 `gpt-image-2-codex / auto / 940×1673 PNG`；图片经 HTTPS、allowlist、5MB/magic/MIME 与原子落盘守门。素材/视频客户端完成安全预备，当轮真视频为 0 请求。
 
