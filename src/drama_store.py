@@ -86,6 +86,7 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
             "duration_within_tolerance": abs(estimated_duration - target) <= 3,
         },
     )
+    episode_data = model_to_dict(episode)
     meta = _episode_meta(
         episode_no=episode_no,
         season_no=episode.season_no,
@@ -94,10 +95,10 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
         target=target,
         estimate=estimated_duration,
         fingerprint=fingerprint,
+        episode_sha256=sha256_data(episode_data),
     )
 
     paths = episode_paths(workspace, episode_no=episode_no)
-    episode_data = model_to_dict(episode)
     meta_data = model_to_dict(meta)
     write_json(paths.episode_path, episode_data)
     write_json(paths.meta_path, meta_data)
@@ -428,6 +429,7 @@ def _episode_meta(
     target: int,
     estimate: int,
     fingerprint: str,
+    episode_sha256: str,
 ) -> DramaEpisodeMeta:
     review_model = DramaReview(**review)
     return DramaEpisodeMeta(
@@ -441,6 +443,7 @@ def _episode_meta(
         highlight_shot_no=highlight_shot_no,
         duration_estimate_vs_target={"target": target, "estimate": estimate, "delta": estimate - target},
         input_fingerprint=fingerprint,
+        episode_sha256=episode_sha256,
         stale=False,
     )
 

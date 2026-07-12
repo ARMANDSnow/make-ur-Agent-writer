@@ -27,7 +27,10 @@ from .drama_schemas import DramaCharacter, ReferenceImage, character_paths
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 MAX_JSON_RESPONSE_BYTES = 7 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 30
-IMAGE_GENERATION_TIMEOUT_SECONDS = 120
+# iter091: the successful image2 probe and the later 120s timeout indicate
+# provider latency can exceed two minutes. Keep one bounded attempt, but allow
+# the requested 3-5 minute window; callers still never auto-retry paid POSTs.
+IMAGE_GENERATION_TIMEOUT_SECONDS = 300
 USER_AGENT = "DragonRajaAIContinuer/iter089"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1024"

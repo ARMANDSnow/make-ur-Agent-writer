@@ -320,6 +320,14 @@ class DramaVideoClientTests(unittest.TestCase):
         self.assertEqual(payload["content"][1]["image_url"]["url"], "asset://asset-20260705003737-njxmg")
         self.assertEqual(payload["content"][1]["role"], "reference_image")
 
+    def test_payload_accepts_multiple_unique_reference_assets(self) -> None:
+        payload = drama_video_client.build_video_payload(
+            prompt="原创双人镜头",
+            reference_asset_ids=["asset-one", "asset-two", "asset-one"],
+        )
+        refs = [row["image_url"]["url"] for row in payload["content"][1:]]
+        self.assertEqual(refs, ["asset://asset-one", "asset://asset-two"])
+
     def test_real_video_gate_rejects_before_network(self) -> None:
         with patch("src.drama_video_client._validate_public_endpoint", side_effect=AssertionError("DNS attempted")):
             client = drama_video_client.DramaVideoClient(

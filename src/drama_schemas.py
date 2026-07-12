@@ -573,6 +573,7 @@ class DramaEpisodeMeta(BaseModel):
     highlight_shot_no: Optional[int] = None
     duration_estimate_vs_target: DurationEstimate
     input_fingerprint: str = ""
+    episode_sha256: str = Field(default="", pattern=r"^(?:|[0-9a-f]{64})$")
     stale: bool = False
 
     @field_validator("episode_no", mode="before")

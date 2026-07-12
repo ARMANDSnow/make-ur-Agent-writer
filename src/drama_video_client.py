@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 from urllib.parse import quote, urlparse
 from urllib.request import Request, build_opener
 
@@ -32,10 +32,23 @@ class VideoGenerationNotAuthorized(PermissionError):
 
 
 class DramaVideoClient:
-    def __init__(self, *, base_url: str | None = None, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        request_timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
+    ) -> None:
         load_dotenv_if_available()
         self.base_url = (base_url or os.getenv("SD_API_BASE_URL") or DEFAULT_SD_BASE_URL).strip().rstrip("/")
         self.api_key = (api_key or os.getenv("SD_API_KEY") or "").strip()
+        if (
+            isinstance(request_timeout_seconds, bool)
+            or not isinstance(request_timeout_seconds, (int, float))
+            or not 1 <= float(request_timeout_seconds) <= 300
+        ):
+            raise ValueError("video API request timeout must be between 1 and 300 seconds")
+        self.request_timeout_seconds = float(request_timeout_seconds)
         validate_api_base_url(self.base_url, label="SD_API_BASE_URL")
 
     def upload_asset(self, *, url: str, name: str, asset_type: str) -> Dict[str, Any]:
@@ -63,6 +76,7 @@ class DramaVideoClient:
         *,
         prompt: str,
         reference_asset_id: str | None = None,
+        reference_asset_ids: Sequence[str] | None = None,
         duration: int = 5,
         resolution: str = "480p",
         ratio: str = "1:1",
@@ -78,6 +92,7 @@ class DramaVideoClient:
         payload = build_video_payload(
             prompt=prompt,
             reference_asset_id=reference_asset_id,
+            reference_asset_ids=reference_asset_ids,
             duration=duration,
             resolution=resolution,
             ratio=ratio,
@@ -97,7 +112,7 @@ class DramaVideoClient:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         request = Request(self.base_url + path, data=body, headers=headers, method=method)
         opener = build_opener(_NoRedirect)
-        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        with opener.open(request, timeout=self.request_timeout_seconds) as response:
             content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             raw = response.read(MAX_JSON_RESPONSE_BYTES + 1)
         if len(raw) > MAX_JSON_RESPONSE_BYTES:
@@ -117,6 +132,7 @@ def build_video_payload(
     *,
     prompt: str,
     reference_asset_id: str | None = None,
+    reference_asset_ids: Sequence[str] | None = None,
     duration: int = 5,
     resolution: str = "480p",
     ratio: str = "1:1",
@@ -134,8 +150,19 @@ def build_video_payload(
     if not isinstance(generate_audio, bool) or not isinstance(watermark, bool):
         raise ValueError("generate_audio and watermark must be bool")
     content: List[Dict[str, Any]] = [{"type": "text", "text": text}]
-    if reference_asset_id is not None:
-        asset_id = _resource_id(reference_asset_id)
+    if reference_asset_id is not None and reference_asset_ids is not None:
+        raise ValueError("use reference_asset_id or reference_asset_ids, not both")
+    raw_asset_ids: Sequence[str] = (
+        reference_asset_ids if reference_asset_ids is not None else ([reference_asset_id] if reference_asset_id else [])
+    )
+    if isinstance(raw_asset_ids, (str, bytes)) or len(raw_asset_ids) > 8:
+        raise ValueError("reference_asset_ids must contain at most 8 resource ids")
+    seen: set[str] = set()
+    for raw_asset_id in raw_asset_ids:
+        asset_id = _resource_id(raw_asset_id)
+        if asset_id in seen:
+            continue
+        seen.add(asset_id)
         content.append(
             {
                 "type": "image_url",

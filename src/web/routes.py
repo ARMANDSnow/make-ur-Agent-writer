@@ -17,6 +17,8 @@ iter 026 will add POST/PUT entries to ``_ROUTES``; iter 025 ships GET-only.
 from __future__ import annotations
 
 import json
+import math
+import os
 import re
 import threading
 import time
@@ -2555,6 +2557,138 @@ def api_drama_episode_detail(name: str, episode: str) -> Tuple[int, str, bytes]:
         return _json(400, errors.exception_body(exc))
 
 
+def _validated_drama_video_params(payload: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    from .. import drama_video
+
+    unknown = set(payload) - {"episode_no", "confirm_real_video", "budget_cny", "timeout_minutes"}
+    if unknown:
+        return f"unknown drama video params: {', '.join(sorted(unknown))}", {}
+    try:
+        episode_no = _parse_episode_no(payload.get("episode_no", 1))
+    except (TypeError, ValueError):
+        return "episode_no must be 1 for the video MVP", {}
+    if episode_no != 1:
+        return "episode_no must be 1 for the video MVP", {}
+    if "confirm_real_video" in payload and not isinstance(payload.get("confirm_real_video"), bool):
+        return "confirm_real_video must be boolean", {}
+    out: Dict[str, Any] = {"episode_no": 1}
+    if drama_video.real_video_enabled():
+        if payload.get("confirm_real_video") is not True:
+            return "confirm_real_video=true is required for real video generation", {}
+        for key, maximum in (("budget_cny", 1_000_000.0), ("timeout_minutes", 60.0)):
+            error, value = _float_param(payload, key, 0.0, minimum=0.0, maximum=maximum)
+            if error:
+                return error, {}
+            if value <= 0:
+                return f"{key} must be finite and positive for real video generation", {}
+            out[key] = value
+        out["confirm_real_video"] = True
+        # Independent last-hop estimate gate, still before job/network.
+        try:
+            drama_video.validate_real_video_gate(out)
+        except (PermissionError, ValueError) as exc:
+            return str(exc), {}
+    return None, out
+
+
+def api_drama_video_generate(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    params_error, params = _validated_drama_video_params(payload)
+    if params_error:
+        return _json(400, {"error": params_error})
+    try:
+        from .. import drama_video
+
+        drama_video.load_video_inputs(name, episode_no=1)
+        job = jobs.start_job(name, "drama-video", params)
+    except (FileNotFoundError, ValueError) as exc:
+        return _json(400, errors.exception_body(exc))
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace already has a running job", "running_job_id": msg.split(":", 1)[1]})
+        raise
+    return _json(202, {"job_id": job["job_id"], "status": job["status"], "step": "drama-video"})
+
+
+def api_drama_video_status(name: str) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .. import drama_video
+
+    status = drama_video.video_status(name, episode_no=1)
+    status["real_mode"] = drama_video.real_video_enabled()
+    status["fixed_spec"] = {"duration_seconds": 5, "ratio": "9:16", "resolution": "720p"}
+    if status["real_mode"]:
+        try:
+            estimate = float(str(os.getenv("SD_VIDEO_ESTIMATED_COST_CNY") or ""))
+        except (TypeError, ValueError):
+            estimate = 0.0
+        status["estimated_cost_cny"] = estimate if math.isfinite(estimate) and estimate > 0 else None
+    active = next((job for job in jobs.active_jobs(name) if job.get("step") == "drama-video"), None)
+    if active is not None:
+        status["state"] = str(active.get("current_step") or active.get("status") or "pending")
+        status["job"] = jobs.public_job_detail_view(active)
+    else:
+        recent = next((job for job in jobs.recent_jobs(name, limit=20) if job.get("step") == "drama-video"), None)
+        if recent is not None and recent.get("status") not in {"succeeded"}:
+            recent_state = str(recent.get("status") or "failed")
+            if recent_state == "aborted":
+                recent_state = "timeout" if recent.get("current_step") == "timeout" else "cancelled"
+            if status.get("state") not in {"succeeded", "budget_exceeded"}:
+                status["state"] = recent_state
+            status["latest_attempt_state"] = recent_state
+            status["job"] = jobs.public_job_detail_view(recent)
+    return _json(200, status)
+
+
+def api_drama_video_file(name: str) -> WebResponse:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    from .. import drama_video
+
+    try:
+        data, _meta = drama_video.read_video(name, episode_no=1)
+    except FileNotFoundError as exc:
+        return _json(404, errors.exception_body(exc))
+    except ValueError as exc:
+        return _json(409, errors.exception_body(exc))
+    return (
+        200,
+        "video/mp4",
+        data,
+        {
+            "Content-Disposition": 'inline; filename="episode_01.video.mp4"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def api_drama_video_public_asset(token: str) -> WebResponse:
+    """Tokenized media path intentionally outside bearer-gated /api."""
+    from .. import drama_video
+
+    try:
+        data, content_type = drama_video.read_public_asset(token)
+    except (FileNotFoundError, ValueError):
+        return _json(404, {"error": "media not found"})
+    return (
+        200,
+        content_type,
+        data,
+        {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 _DOWNLOAD_FILENAME_RE = re.compile(
     r"^episode_\d{2,3}(?:\.json|\.storyboard\.(?:md|csv)|\.comfy\.json)$"
 )
@@ -3430,6 +3564,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/static/app\.css$"), lambda **_: render_static_css()),
     ("GET", re.compile(r"^/static/app\.js$"), lambda **_: render_static_js()),
     ("GET", re.compile(r"^/static/wizard\.js$"), lambda **_: render_static_wizard_js()),
+    (
+        "GET",
+        re.compile(r"^/media/drama-assets/(?P<token>[A-Za-z0-9_-]{32,64})$"),
+        lambda token, **_: api_drama_video_public_asset(token),
+    ),
     # Legacy /workspace/<name> → 301 to /w/<name>/
     ("GET", re.compile(r"^/workspace/(?P<name>[^/]+)/?$"), lambda name, **_: render_workspace_redirect(name)),
     # Workspace-scoped IA
@@ -3681,6 +3820,21 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/episode/(?P<episode>[^/]+)/?$"),
         lambda name, episode, **_: api_drama_episode_detail(name, episode),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/video/?$"),
+        lambda name, _body=b"", **_: api_drama_video_generate(name, _body),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/video/?$"),
+        lambda name, **_: api_drama_video_status(name),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/video/file/?$"),
+        lambda name, **_: api_drama_video_file(name),
     ),
     (
         "GET",

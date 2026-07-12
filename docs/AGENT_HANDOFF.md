@@ -2178,3 +2178,21 @@ python3 main.py --book <name> drive-book start \
 **下轮候选**：若用户单独授权，可跑有正预算/超时的五站真文本 smoke 并校准费用；真生图需先确认 provider 是否已收取超时请求费用，不应盲目重试。真视频、第 3 集+季级编排、小说 10-20 章 capstone 仍是独立候选。
 
 **数据状态**：未改 `.env`，未读写 `小说txt/` 或用户私有样本；标准 verify 与 smoke 只写 gitignored 验收产物。未跟踪 `续写工作台.pptx` 保持不动；只 commit，不 push。
+
+---
+
+## Phase Status — iter 091（2026-07-12 收官）：短剧真实视频端到端闭环
+
+**已完成（mock 及生产 wiring）**：新增 episode 1 单任务 `drama-video` 后台 job，从 fresh episode/storyboard/characters/reference images 出发，完成 tokenized 素材 URL、上传/查询、一次且仅一次计费提交、轮询、协作式取消、安全下载、video/meta hash 绑定与可回滚原子落盘。真视频必须独立满足严格 `confirm_real_video=true`、finite 正预算、finite 正超时和环境预估费用不超预算；不继承真文本或真生图授权。
+
+**输入/下载安全**：`episode_sha256` + source fingerprint + 四类 artifact episode identity + reference file magic/hash 共同 fail-closed。下载要求 HTTPS exact-host allowlist，TLS connect 后在发送签名 path 前校验 actual peer IP，禁 redirect，校验 200/MIME/100MiB cap/MP4 magic。不持久化签名 URL、Authorization 或上游正文。actual cost 超授权上限时标记 `budget_exceeded` 但保留已付费成片；费用未上报时显式 `cost_unreported`。
+
+**Web / smoke**：第 1 集 `#video` tab 支持待准备/上传/排队/生成/成功/失败/取消/超时、刷新恢复 poll、失败原因、播放/下载；第 2 集不暴露第 1 集视频操作。`scripts/drama_video_smoke.sh` 默认 mock 跑五站→参考图→job→成片，结果 5s/9:16/720p/834 bytes，`network_requests=0 / automatic_retries=0`。真模式需 shell 口令 + CLI 确认 + request JSON 确认，一次运行最多一个真任务且超时不重试。
+
+**image2 跟进**：iter090 的有效证据是请求超过 120s，而不是 schema/连通性错误；现将单次生图 timeout 放宽至 300s，保持无自动重试。本轮没有发生图请求，也不能在未查 provider 账单时断言上次超时是否计费。
+
+**审查/验收**：correctness、security/boundary、Web/job integration 三个独立只读 subagent 首审 findings 全部修复，复核均 **PASS**（分别 77/62/153 项聚焦测试通过）。canonical **1880 tests OK**；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0；mock preflight ok/无 WARN/FATAL，当前真实配置 preflight warn/无 FATAL；Python/Node/shell/diff 通过。真文本、真生图、真视频均未跑，真视频提交数为 0。
+
+**兼容性/接力点**：新 `POST /api/workspace/{name}/drama/video` 固定返 202，调用方 poll GET 状态；没有替换旧同步 endpoint。旧 assembled episode 缺 `episode_sha256`，需重新评审组装后才能进入视频。下一步必须等用户精确回复“可以跑真实视频 smoke”，然后在 provider console 确认实际预估费用/结果域，以 `dreamina-seedance-2-0-hc / 5s / 9:16 / 720p`、建议 ¥10 上限、300s 超时提交一次。真文本费用/质量、真 ComfyUI、第 3 集+、小说 10–20 章 capstone 仍是独立候选。
+
+**数据状态**：未改 `.env`，未读写 `小说txt/` 或用户私有样本；verify/smoke 只写 gitignored 验收产物。未跟踪 `续写工作台.pptx` 保持不动；只 commit，不 push。

@@ -1917,7 +1917,7 @@ JS_DASHBOARD = """\
     "body", "edit", "review", "lint", "style", "advisor", "history",
     "chapters", "outline", "decisions",
     "setup", "hook", "storyboard", "characters",
-    "script", "storyboard-view", "characters-view", "export",
+    "script", "storyboard-view", "characters-view", "export", "video",
   ];
   function bindHashTabs() {
     function prepare(list, listIndex) {
@@ -2384,6 +2384,7 @@ JS_DASHBOARD = """\
     "drama-plan": "短剧站①核心设定", "drama-hooks": "短剧站②钩子",
     "drama-storyboard": "短剧站③分镜", "drama-characters": "短剧站④角色",
     "drama-review-assemble": "短剧站⑤评审组装",
+    "drama-video": "短剧视频生成",
   };
   function stepLabel(step) {
     return STEP_LABELS[step] || step || "任务";
@@ -5894,7 +5895,7 @@ JS_DASHBOARD = """\
       const data = await fetchJson(wsUrl("/drama/episode/" + encodeURIComponent(String(CHAPTER_NO || 1))));
       renderDramaEpisodeDetail(data);
     } catch (err) {
-      ["script", "storyboard-view", "characters-view", "review", "export"].forEach(function (id) {
+      ["script", "storyboard-view", "characters-view", "review", "export", "video"].forEach(function (id) {
         const box = document.getElementById("tab-" + id);
         if (box) box.innerHTML = renderErrorCard(err);
       });
@@ -5974,6 +5975,97 @@ JS_DASHBOARD = """\
         return '<a class="btn btn-secondary" download href="' + href + '">' + escapeHtml(item[1]) + '</a>';
       }).join("");
       exportBox.innerHTML = staleHtml + '<div class="card"><div class="card-header"><h3 class="ornament">导出</h3></div><div class="card-body stack"><p class="muted">所有格式均来自已组装的 episode JSON 真源。Comfy 为模板级 workflow，导入后仍需接入本地 checkpoint、LoRA 与节点。</p><div class="cluster">' + buttons + '</div></div></div>';
+    }
+    loadDramaVideoPanel();
+  }
+
+  function dramaVideoStateLabel(state) {
+    const labels = {
+      not_ready: "待准备", ready: "待准备", pending: "待准备",
+      "upload-assets": "上传素材", queued: "排队", generating: "生成中",
+      download: "下载成片", succeeded: "成功", failed: "失败",
+      aborted: "取消", cancelled: "取消", timeout: "超时", lost: "失败",
+      budget_exceeded: "成功（超预算）",
+    };
+    return labels[String(state || "")] || String(state || "待准备");
+  }
+
+  async function loadDramaVideoPanel() {
+    const box = document.getElementById("tab-video");
+    if (!box) return;
+    box.innerHTML = skeleton(2);
+    try {
+      const data = await fetchJson(wsUrl("/drama/video"));
+      renderDramaVideoPanel(box, data);
+    } catch (err) {
+      box.innerHTML = renderErrorCard(err);
+    }
+  }
+
+  function renderDramaVideoPanel(box, data) {
+    const state = String(data.state || "not_ready");
+    const video = data.video || {};
+    const job = data.job || null;
+    let body = '<div class="alert info">状态：' + escapeHtml(dramaVideoStateLabel(state)) + '</div>';
+    if ((state === "succeeded" || state === "budget_exceeded") && data.download_ready) {
+      const src = wsUrl("/drama/video/file");
+      if (state === "budget_exceeded") {
+        body += '<div class="alert warn">实际上报费用超出本次授权上限；已保留已付费生成的成片，不会自动重试。</div>';
+      }
+      body += '<video controls preload="metadata" style="display:block;width:100%;max-width:420px;aspect-ratio:9/16;background:#111" src="' + src + '"></video>' +
+        '<div class="kv-list compact"><div class="k">规格</div><div class="v">' + escapeHtml(String(video.duration_seconds || 5)) + ' 秒 · ' + escapeHtml(video.ratio || "9:16") + ' · ' + escapeHtml(video.resolution || "720p") + '</div>' +
+        '<div class="k">文件</div><div class="v">' + escapeHtml(String(video.file_size_bytes || 0)) + ' bytes</div></div>' +
+        '<a class="btn btn-primary" download="episode_01.video.mp4" href="' + src + '">下载成片</a>';
+      if (data.latest_attempt_state && ["failed", "cancelled", "timeout", "lost"].includes(data.latest_attempt_state)) {
+        body += renderErrorCard({ message: "最近一次重新生成未完成：" + dramaVideoStateLabel(data.latest_attempt_state) +
+          (job && job.error ? "（" + job.error + "）" : "") });
+      }
+    } else if (job && (job.status === "pending" || job.status === "running")) {
+      body += '<p class="muted">刷新页面会自动恢复；取消仅会停止本地轮询，不保证撤销上游已提交的计费任务。</p>' +
+        '<button type="button" class="btn btn-danger" data-video-cancel="' + escapeHtml(job.job_id || "") + '">取消视频任务</button>';
+    } else if (job && ["failed", "aborted", "lost", "budget_exceeded"].includes(job.status)) {
+      body += renderErrorCard({ message: "视频任务未完成：" + (job.error || dramaVideoStateLabel(job.status)) });
+    } else if (state === "not_ready") {
+      body += '<p class="muted">请确保第 1 集已 fresh 组装，且本集角色都有当前参考图。</p>';
+    } else {
+      body += '<p class="muted">MVP 固定生成 1 个 5 秒、9:16、720p、无音频无水印的视频任务。</p>' +
+        (data.real_mode
+          ? '<div class="alert warn">真实视频是独立计费授权，不继承真文本或真生图确认。预估费用：¥' + escapeHtml(String(data.estimated_cost_cny == null ? "未配置" : data.estimated_cost_cny)) + '</div>' +
+            '<div class="form-grid-2"><div class="field"><label for="video-budget">预算上限（元）</label><input id="video-budget" type="number" min="0.01" step="0.01"></div>' +
+            '<div class="field"><label for="video-timeout">超时（分钟）</label><input id="video-timeout" type="number" min="1" max="60" step="1" value="5"></div></div>' +
+            '<label class="check-row"><input id="video-confirm" type="checkbox"> 我确认提交 1 个真实视频计费任务，且超时后不自动重试</label>'
+          : '') +
+        '<button type="button" class="btn btn-primary" data-video-generate>生成视频</button>';
+    }
+    box.innerHTML = '<div class="card"><div class="card-header"><h3 class="ornament">第 1 集视频</h3><span class="badge">' + escapeHtml(dramaVideoStateLabel(state)) + '</span></div><div class="card-body stack">' + body + '</div></div>';
+    const generate = box.querySelector("[data-video-generate]");
+    if (generate) generate.addEventListener("click", async function () {
+      generate.disabled = true;
+      try {
+        const payload = { episode_no: 1 };
+        if (data.real_mode) {
+          payload.confirm_real_video = !!(document.getElementById("video-confirm") && document.getElementById("video-confirm").checked);
+          payload.budget_cny = Number(document.getElementById("video-budget") && document.getElementById("video-budget").value);
+          payload.timeout_minutes = Number(document.getElementById("video-timeout") && document.getElementById("video-timeout").value);
+        }
+        const result = await postJson(wsUrl("/drama/video"), payload);
+        await pollJob(result.job_id, box, generate, loadDramaVideoPanel);
+      } catch (err) {
+        box.innerHTML = renderErrorCard(err);
+      }
+    });
+    const cancel = box.querySelector("[data-video-cancel]");
+    if (cancel) cancel.addEventListener("click", async function () {
+      cancel.disabled = true;
+      try {
+        await postJson(wsUrl("/job/" + encodeURIComponent(cancel.getAttribute("data-video-cancel")) + "/cancel"), {});
+        await loadDramaVideoPanel();
+      } catch (err) {
+        box.innerHTML = renderErrorCard(err);
+      }
+    });
+    if (job && (job.status === "pending" || job.status === "running") && job.job_id) {
+      setTimeout(function () { pollJob(job.job_id, box, null, loadDramaVideoPanel); }, 0);
     }
   }
 

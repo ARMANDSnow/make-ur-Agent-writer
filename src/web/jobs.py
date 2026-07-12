@@ -1375,6 +1375,21 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
     return _run_locked_drama_step("drama-review-assemble", params, progress_cb, _op)
 
 
+def _step_drama_video(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    """Run the bounded episode-1 video pipeline outside the HTTP request."""
+    from .. import drama_video
+
+    def _op(episode_no: int) -> Dict[str, Any]:
+        if episode_no != 1:
+            raise ValueError("video MVP supports episode 1 only")
+        try:
+            return drama_video.run_video_job(paths.workspace_name(), params, progress_cb)
+        except drama_video.DramaVideoTimedOut as exc:
+            raise JobTimeout(str(exc)) from exc
+
+    return _run_locked_drama_step("drama-video", params, progress_cb, _op)
+
+
 # Hard-coded whitelist. Adding a step here = a code review event.
 STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]], Any]] = {
     "normalize": _step_normalize,
@@ -1398,6 +1413,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "drama-storyboard": _step_drama_storyboard,
     "drama-characters": _step_drama_characters,
     "drama-review-assemble": _step_drama_review_assemble,
+    "drama-video": _step_drama_video,
 }
 
 
@@ -1525,6 +1541,8 @@ def _summarize_result(step: str, result: Any) -> Any:
                 "status", "station", "episode_no", "hook_count", "skipped",
                 "verdict", "assembled", "error_code",
                 "budget_cny", "cost_cny",
+                "task_id", "provider", "provider_model", "duration_seconds",
+                "ratio", "resolution", "file_size_bytes", "network_requests",
             )
             if key in result
         }

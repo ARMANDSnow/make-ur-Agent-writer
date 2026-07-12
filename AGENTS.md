@@ -108,14 +108,14 @@ logs/                     # 全部 gitignored
 
 ## 当前阶段 & SOP 状态
 
-**最后更新**：iter 090（2026-07-12，收官）
+**最后更新**：iter 091（2026-07-12，收官）
 
 **SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
 
-**当前 iter**：090（短剧五站真模型 Job 化 + 全链 Smoke；已收官，完整记录见 `docs/iterations/iteration_090_drama_five_station_jobs_smoke.md`）
-**已完成阶段**：1-4 主链路全打通；Web 本地 Beta 多页 IA、`write-book` / `drive-book` 生产 runner、Aeloon 插件/MCP、全程可编辑、长跑可靠性与文风指纹/定向重写均已收口；iter080-082 完成短剧分镜/角色/评审/episodes，iter088-089 完成四导出、Insights、第 2 集与真实生图安全接入，iter090 完成五站 202/job/poll/cancel、真文本双层确认/预算/超时闸、严格 episode/stale/rollback 与 mock 全链 smoke。实时细节以 README「最近一次更新」叙述 + `docs/AGENT_HANDOFF.md` 末尾 Phase Status 为准。
-**关键证据**：工程主链路 **STRUCTURE GO**；过夜长跑入口仍为 `drive_book_supervised.sh` + `watchdog.sh --driver`；短剧 `/w/{name}/write` 五站已 job 化，支持第 2 集、四导出、Insights 与角色生图安全入口。canonical **1857 tests OK (skipped=7)**，`verify.sh` exit 0，mock preflight ok，真实配置 preflight warn/无 FATAL，Python/Node/shell/diff 通过。mock 短剧五 job→四导出→Insights 成功、零 LLM/零视频；真文本未授权未跑，单次真生图 120s 超时后未重试。**缺口**：短剧五站真文本费用/质量未校准；真视频/真 ComfyUI 未跑；10-20+ 章小说 capstone 与自动修文真模型阈值仍待授权校准。
-**后续候选（iter091+）**：用户单独授权后跑有正预算/超时的五站真文本 smoke；先确认超时生图是否计费再决定是否重试；或在明确季级需求后设计第 3 集+。小说 10-20 章 capstone、文风阈值/费用校准与 P2 技债仍保持独立候选。
+**当前 iter**：091（短剧真实视频端到端闭环；已收官，完整记录见 `docs/iterations/iteration_091_drama_real_video_e2e.md`）
+**已完成阶段**：1-4 主链路全打通；Web 本地 Beta、生产 runner、Aeloon、可编辑、长跑可靠性与文风闭环已收口。短剧已有五站 job、四导出、Insights、第 2 集、角色生图安全入口；iter091 新增 episode 1 单视频 202/job，串联 fresh 素材、上传/查询、单次计费提交、轮询、协作取消、安全下载、原子落盘与 Web 播放/下载。
+**关键证据**：工程主链路 **STRUCTURE GO**；canonical **1880 tests OK**，`verify.sh` exit 0，mock preflight ok/无 WARN/FATAL，真实配置 preflight warn/无 FATAL，Python/Node/shell/diff 通过。mock 视频全链 5s/9:16/720p 成功，**network_requests=0 / automatic_retries=0**。correctness、security/boundary、Web/job integration 三视角复核 PASS。真文本、真生图、真视频均未跑，真视频提交数为 0。**缺口**：真视频费用/时延/质量仍待用户授权的单次 smoke 校准；真文本、真 ComfyUI、小说 10-20 章 capstone 与文风真模型阈值仍未校准。
+**后续候选（iter092+）**：用户精确回复“可以跑真实视频 smoke”后，以 `dreamina-seedance-2-0-hc / 5s / 9:16 / 720p`、建议 ¥10 上限/300s 超时提交一次且不重试；也可独立授权五站真文本 smoke。先查 provider 账单再决定是否重试上次超时 image2。第 3 集+、小说 capstone 与文风校准仍为独立候选。
 **详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
 
 ## 常用 git 操作

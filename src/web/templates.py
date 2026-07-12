@@ -528,6 +528,8 @@ def render_workspace_episodes(name: str, workspaces: Iterable[str]) -> str:
 
 
 def render_workspace_episode_detail(name: str, workspaces: Iterable[str], episode_no: int) -> str:
+    video_tab = '<button class="tab" data-tab="video">视频</button>' if episode_no == 1 else ''
+    video_panel = '<div class="tab-panel" id="tab-video"><p class="muted">载入中…</p></div>' if episode_no == 1 else ''
     main = (
         '<header class="page-header">'
         '<div class="titles">'
@@ -546,12 +548,14 @@ def render_workspace_episode_detail(name: str, workspaces: Iterable[str], episod
         '<button class="tab" data-tab="characters-view">角色</button>'
         '<button class="tab" data-tab="review">评审</button>'
         '<button class="tab" data-tab="export">导出</button>'
+        + video_tab +
         '</div>'
         '<div class="tab-panel active" id="tab-script"><p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-storyboard-view"><p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-characters-view"><p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-review"><p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-export"><p class="muted">载入中…</p></div>'
+        + video_panel +
         '</section>'
     )
     return _render_shell(

@@ -29,6 +29,15 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertIn("src.drama_image_smoke", text)
         self.assertNotIn("/v1/video/generate", text)
 
+    def test_drama_video_smoke_has_two_confirmation_layers_and_no_retry_loop(self) -> None:
+        shell = Path("scripts/drama_video_smoke.sh").read_text(encoding="utf-8")
+        python = Path("src/drama_video_smoke.py").read_text(encoding="utf-8")
+        self.assertIn("--confirm-real-video", shell)
+        self.assertIn("CONFIRM_REAL_VIDEO_SMOKE", shell)
+        self.assertIn('"confirm_real_video": True', python)
+        self.assertIn('"automatic_retries": 0', python)
+        self.assertNotIn("create_video_task", python)
+
     def test_verify_sh_unsets_real_model_env(self) -> None:
         text = Path("scripts/verify.sh").read_text(encoding="utf-8")
         self.assertIn("export OPENAI_MODEL=mock", text)

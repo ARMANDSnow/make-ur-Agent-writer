@@ -160,6 +160,21 @@ def _check_drama_media_config(warn: List[str], info: List[str]) -> None:
             warn.append("SD_API_KEY is empty; video asset/task queries are unavailable.")
         if sd_valid and sd_key:
             info.append("drama video API is configured; real generation still requires the explicit per-call authorization gate.")
+    if str(os.getenv("SD_VIDEO_MODE") or "mock").strip().lower() == "real":
+        public_base = str(os.getenv("SD_ASSET_PUBLIC_BASE_URL") or "").strip()
+        try:
+            validate_api_base_url(public_base, label="SD_ASSET_PUBLIC_BASE_URL")
+        except ValueError:
+            warn.append("SD_VIDEO_MODE=real requires a valid public https SD_ASSET_PUBLIC_BASE_URL.")
+        hosts = str(os.getenv("SD_VIDEO_RESULT_HOSTS") or "").strip()
+        if not hosts:
+            warn.append("SD_VIDEO_MODE=real requires an exact SD_VIDEO_RESULT_HOSTS allowlist.")
+        try:
+            estimate = float(str(os.getenv("SD_VIDEO_ESTIMATED_COST_CNY") or ""))
+        except (TypeError, ValueError):
+            estimate = 0.0
+        if not math.isfinite(estimate) or estimate <= 0:
+            warn.append("SD_VIDEO_MODE=real requires a finite positive SD_VIDEO_ESTIMATED_COST_CNY budget estimate.")
 
 
 def _check_agents_config(
