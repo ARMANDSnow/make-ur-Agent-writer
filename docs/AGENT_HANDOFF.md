@@ -2160,3 +2160,21 @@ python3 main.py --book <name> drive-book start \
 **残留风险 / 接力点**：允许的 HTTPS hostname 仍有 DNS 二次解析 Low 风险，但需有效 TLS 证书；同步 Web 生图会持 workspace 写锁约 120 秒；JPEG/WebP 宽高解析、批量角色/分镜生图、成本/速率面板与 job 化可后续迭代。视频真实生成、轮询、下载和费用/时长实测继续等待用户单独授权；第 3 集以上季级编排、五站文本真模型收口与小说 10-20 章 capstone 仍为独立候选。
 
 **数据状态**：`verify.sh` 只写既有 gitignored 验证产物；真实图片只写 gitignored smoke workspace。未改 `.env`、未读写 `小说txt/` 或用户私有样本；未跟踪 `续写工作台.pptx` 保持不动；未提交、未 push。
+
+---
+
+## Phase Status — iter 090（2026-07-12 收官）：短剧五站真模型 Job 化 + 全链 Smoke
+
+**已完成（本轮）**：站①核心设定、站②钩子、站③分镜、站④角色、站⑤评审组装全部进入通用 Web job 体系，统一 202/job id/poll/cancel/刷新恢复；站①②新增严格 schema 与 `DRAMA_MODEL` 真/mock wiring。真文本必须每请求给出确认、finite 正预算和有界正超时，路由层与 job last-hop 双层守门；每站在写 artifact 前结算增量成本，超额不提交。
+
+**语义与 Web 收口**：五站进度按上游严格级联，storyboard 在角色/reviewer/assembler 三层校验 episode identity，站⑤ review/episode/meta 异常或取消回滚、assembled stale 不假 done。站①重生或影响设定的手工编辑会失效旧 hook candidates；未选候选可刷新恢复且不重复付费。独立角色库可重连任意 episode 的角色 job，并保留当前 episode 的生成/保存/重画/评审/跳转上下文。原同步生成 API 由 200 payload 迁移为 202 job，调用方需 poll 后 GET artifact。
+
+**Smoke / 授权边界**：新增 `scripts/drama_smoke.sh` + `src/drama_smoke.py`，默认 mock 跑完五 job、选 hook、组装、JSON/Markdown/CSV/Comfy 四导出与 Insights，`llm_calls=0 / cost_cny=0 / video_requests=0`。用户本轮授权真生图，但未授权真文本；因此真文本五站未跑。真生图只提交一次，120s 超时无图，为避免重复计费未重试；真视频仍为 0 请求。
+
+**铁律⑨审查**：correctness、security/boundary、Web/job integration 三个独立只读 subagent 首审发现 episode identity、站⑤ partial commit、last-hop timeout、旧 candidates、episode 2 重连/跳转等有效问题；全部修复加测后三路复核 **PASS**，无 blocker。残余为协作式 timeout 不能中断已在途 provider HTTP（底层 400s 封顶）、单调用后预算结算、极端 rollback 二次 I/O 故障仅 best-effort，均为已记录非 blocker。
+
+**验收证据**：canonical **1857 tests OK (skipped=7)**；`PATH="$PWD/.venv/bin:$PATH" bash scripts/verify.sh` exit 0；mock preflight ok/无 WARN/FATAL，真实配置 preflight warn/无 FATAL；聚焦 **187 tests OK**；Python/Node/shell syntax 与 `git diff --check` 通过。沙箱首跑的 12 个 localhost bind 权限错误已在允许回环端口的标准验收重跑中证实全绿。
+
+**下轮候选**：若用户单独授权，可跑有正预算/超时的五站真文本 smoke 并校准费用；真生图需先确认 provider 是否已收取超时请求费用，不应盲目重试。真视频、第 3 集+季级编排、小说 10-20 章 capstone 仍是独立候选。
+
+**数据状态**：未改 `.env`，未读写 `小说txt/` 或用户私有样本；标准 verify 与 smoke 只写 gitignored 验收产物。未跟踪 `续写工作台.pptx` 保持不动；只 commit，不 push。

@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from src import drama_planner, paths
 from src.drama_schemas import episode_paths
 from src.cli_workspace import init_workspace
-from src.web import wizard
+from src.web import jobs, wizard
 
 
 class DramaTestBase(unittest.TestCase):
@@ -24,8 +25,10 @@ class DramaTestBase(unittest.TestCase):
         self._saved_env = os.environ.get("WORKSPACE_NAME")
         os.environ.pop("WORKSPACE_NAME", None)
         paths.WORKSPACE_DIR = Path(self._tmp.name)
+        jobs.reset_for_tests()
 
     def tearDown(self) -> None:
+        jobs.reset_for_tests()
         paths.WORKSPACE_DIR = self._saved_ws_dir
         if self._saved_env is None:
             os.environ.pop("WORKSPACE_NAME", None)
@@ -74,3 +77,23 @@ class DramaTestBase(unittest.TestCase):
             setup["hook"] = {"type": "反差钩", "content": "测试钩子"}
         p.write_text(json.dumps(setup, ensure_ascii=False), encoding="utf-8")
         return p
+
+    def _wait_drama_job(self, job_id: str, timeout: float = 5.0) -> dict:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            record = jobs.get_job(job_id)
+            if record and record.get("status") in jobs.TERMINAL_STATUSES:
+                return record
+            time.sleep(0.01)
+        self.fail(f"drama job did not finish: {job_id}")
+
+    def _dispatch_drama_job(self, name: str, suffix: str, payload: dict | None = None) -> dict:
+        from src.web import routes
+
+        status, _ct, body = routes.dispatch(
+            "POST",
+            f"/api/workspace/{name}/drama/{suffix}",
+            json.dumps(payload or {}, ensure_ascii=False).encode("utf-8"),
+        )
+        self.assertEqual(status, 202, body.decode("utf-8", errors="replace"))
+        return self._wait_drama_job(json.loads(body)["job_id"])

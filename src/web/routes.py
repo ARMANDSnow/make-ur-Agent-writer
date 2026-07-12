@@ -1638,6 +1638,86 @@ def api_drama_progress(name: str, raw_episode_no: Any = 1) -> Tuple[int, str, by
     return _json(200, collect_drama_progress(name, episode_no=episode_no))
 
 
+_DRAMA_STEP_TASKS = {
+    "drama-plan": "drama_plan",
+    "drama-hooks": "drama_hooks",
+    "drama-storyboard": "drama_storyboard",
+    "drama-characters": "drama_character",
+    "drama-review-assemble": "drama_review",
+}
+
+
+def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    from ..drama_schemas import normalize_episode_no
+
+    if step not in _DRAMA_STEP_TASKS:
+        return "unknown drama step", {}
+    unknown = set(params) - {"episode_no", "confirm_real_text", "budget_cny", "timeout_minutes"}
+    if unknown:
+        return f"unknown drama params: {', '.join(sorted(unknown))}", {}
+    try:
+        episode_no = normalize_episode_no(params.get("episode_no", 1))
+    except ValueError as exc:
+        return str(exc), {}
+    out: Dict[str, Any] = {"episode_no": episode_no}
+    task = _DRAMA_STEP_TASKS[step]
+    real_model = str(get_model_config(task).get("model") or "mock") != "mock"
+    if real_model and params.get("confirm_real_text") is not True:
+        return "confirm_real_text=true is required for real drama generation", {}
+    if "confirm_real_text" in params and not isinstance(params.get("confirm_real_text"), bool):
+        return "confirm_real_text must be boolean", {}
+    raw_budget = params.get("budget_cny")
+    if real_model or raw_budget is not None:
+        error, budget = _float_param(params, "budget_cny", 0.0, minimum=0.0, maximum=1_000_000.0)
+        if error:
+            return error, {}
+        if real_model and budget <= 0:
+            return "budget_cny must be positive for real drama generation", {}
+        if budget > 0:
+            out["budget_cny"] = budget
+    raw_timeout = params.get("timeout_minutes")
+    if real_model or raw_timeout is not None:
+        error, timeout = _float_param(params, "timeout_minutes", 0.0, minimum=0.0, maximum=1440.0)
+        if error:
+            return error, {}
+        if real_model and timeout <= 0:
+            return "timeout_minutes must be positive for real drama generation", {}
+        if timeout > 0:
+            out["timeout_minutes"] = timeout
+    if real_model:
+        out["confirm_real_text"] = True
+    return None, out
+
+
+def _enqueue_drama_job(
+    name: str, step: str, episode_no: int, payload: Optional[Dict[str, Any]] = None
+) -> Tuple[int, str, bytes]:
+    """Start one allowlisted drama job with public-safe, minimal params."""
+    params_error, params = _validated_drama_params(
+        step, {**(payload or {}), "episode_no": episode_no}
+    )
+    if params_error:
+        return _json(400, {"error": params_error})
+    try:
+        job = jobs.start_job(name, step, params)
+    except ValueError as exc:
+        return _json(400, errors.exception_body(exc))
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {
+                    "error": "workspace already has a running job",
+                    "running_job_id": msg.split(":", 1)[1],
+                },
+            )
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    return _json(202, {"job_id": job["job_id"], "status": job["status"], "step": step})
+
+
 def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
     error = _drama_endpoint_error(name)
     if error:
@@ -1652,38 +1732,7 @@ def api_drama_plan(name: str, body: bytes) -> Tuple[int, str, bytes]:
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
     if episode_no > 1:
         return _json(409, {"error": "later episodes must be initialized through next-episode"})
-    from .. import drama_planner
-    from ..drama_schemas import episode_paths
-    from ..utils import write_json
-
-    # iter060 (#14) + iter063 ⑦: hold the reservation across BOTH the planner run
-    # (which appends to the prompt log) AND the atomic write (write_json =
-    # tmp+replace). iter060 only wrapped the write, so a concurrent /drama/plan or
-    # setup-save could still interleave with the run — the comment over-claimed
-    # the window. Widening it to the run makes the code match the intent.
-    try:
-        with _workspace_write_guard(name, "web-manual-drama-plan"):
-            try:
-                result = drama_planner.run(name, mock=True, episode_no=episode_no)
-            except FileNotFoundError as exc:
-                # iter063 A2: friendly card + keep error=str(exc) (the missing-
-                # artifact detail is actionable; matches the iter062 4xx/FNF
-                # convention so substring tests stay green).
-                return _json(500, errors.exception_body(exc))
-            except (ValueError, NotImplementedError) as exc:
-                return _json(400, errors.exception_body(exc))
-            setup_path = episode_paths(name, episode_no=episode_no).setup_path
-            write_json(setup_path, result)
-    except RuntimeError as exc:
-        msg = str(exc)
-        conflict = _write_conflict_response(exc)
-        if conflict:
-            return conflict
-        if msg.startswith("workspace_not_found:"):
-            return _json(404, {"error": f"workspace not found: {name}"})
-        raise
-    _clear_overview_cache()
-    return _json(200, result)
+    return _enqueue_drama_job(name, "drama-plan", episode_no, payload)
 
 
 def api_drama_hooks(name: str, body: bytes) -> Tuple[int, str, bytes]:
@@ -1698,16 +1747,28 @@ def api_drama_hooks(name: str, body: bytes) -> Tuple[int, str, bytes]:
         episode_no = _parse_episode_no(payload.get("episode_no", 1))
     except (TypeError, ValueError):
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
-    from .. import hook_designer
+    return _enqueue_drama_job(name, "drama-hooks", episode_no, payload)
 
+
+def api_drama_hook_candidates(name: str, raw_episode_no: Any = 1) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
     try:
-        result = hook_designer.run(name, mock=True, episode_no=episode_no)
-    except FileNotFoundError as exc:
-        # iter063 A2: friendly card + keep error=str(exc) (see api_drama_plan).
-        return _json(500, errors.exception_body(exc))
-    except (ValueError, NotImplementedError) as exc:
-        return _json(400, errors.exception_body(exc))
-    return _json(200, result)
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
+    from ..drama_schemas import DramaHookCandidates, episode_paths
+    from ..schemas import model_to_dict
+
+    data = read_json_optional(episode_paths(name, episode_no=episode_no).hook_candidates_path, None)
+    if not isinstance(data, dict):
+        return _json(200, {"exists": False, "hooks": []})
+    try:
+        parsed = DramaHookCandidates(**data)
+    except Exception:
+        return _json(200, {"exists": False, "hooks": []})
+    return _json(200, {"exists": True, "hooks": [model_to_dict(item) for item in parsed.hooks]})
 
 
 def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
@@ -1733,7 +1794,8 @@ def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
 
     try:
         with _workspace_write_guard(name, "web-manual-drama-setup"):
-            setup_path = episode_paths(name, episode_no=episode_no).setup_path
+            ep_paths = episode_paths(name, episode_no=episode_no)
+            setup_path = ep_paths.setup_path
             if not setup_path.is_file():
                 return _json(400, {"error": "station 1 must run first"})
             try:
@@ -1768,6 +1830,10 @@ def api_drama_setup_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
                 setup["introduces_new_characters"] = payload["introduces_new_characters"]
 
             write_json(setup_path, setup)
+            if "hook" in payload or any(k in payload for k in core_keys | {
+                "episode_mainline", "introduces_new_characters"
+            }):
+                ep_paths.hook_candidates_path.unlink(missing_ok=True)
             _clear_overview_cache()
             return _json(200, {"saved": True})
     except RuntimeError as exc:
@@ -1905,33 +1971,7 @@ def api_drama_storyboard_generate(name: str, body: bytes) -> Tuple[int, str, byt
         episode_no = _parse_episode_no(payload.get("episode_no", 1))
     except (TypeError, ValueError):
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
-    from .. import storyboard_builder
-    from ..drama_schemas import episode_paths
-    from ..utils import write_json
-
-    try:
-        with _workspace_write_guard(name, "web-manual-drama-storyboard"):
-            prereq = _drama_storyboard_prereq_error(name, episode_no=episode_no)
-            if prereq:
-                return prereq
-            try:
-                result = storyboard_builder.run(name, mock=True, episode_no=episode_no)
-            except FileNotFoundError as exc:
-                return _json(400, errors.exception_body(exc))
-            except ValueError as exc:
-                return _json(400, errors.exception_body(exc))
-            except RuntimeError as exc:
-                return _drama_storyboard_runtime_error(exc)
-            write_json(episode_paths(name, episode_no=episode_no).storyboard_path, result)
-    except RuntimeError as exc:
-        conflict = _write_conflict_response(exc)
-        if conflict:
-            return conflict
-        if str(exc).startswith("workspace_not_found:"):
-            return _json(404, {"error": f"workspace not found: {name}"})
-        raise
-    _clear_overview_cache()
-    return _storyboard_payload_response(result)
+    return _enqueue_drama_job(name, "drama-storyboard", episode_no, payload)
 
 
 def api_drama_storyboard_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
@@ -2149,45 +2189,7 @@ def api_drama_characters_generate(name: str, body: bytes) -> Tuple[int, str, byt
         episode_no = _parse_episode_no(payload.get("episode_no", 1))
     except (TypeError, ValueError):
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
-    from .. import character_designer
-    from ..drama_schemas import character_paths
-    from ..utils import write_json
-
-    try:
-        with _workspace_write_guard(name, "web-manual-drama-characters"):
-            prereq = _drama_characters_prereq_error(name, episode_no=episode_no)
-            if prereq:
-                return prereq
-            existing = read_json_optional(character_paths(name).sheet_path, None)
-            skip_generation = episode_no > 1 and not _drama_episode_introduces_new_characters(
-                name, episode_no=episode_no
-            )
-            if skip_generation and isinstance(existing, dict):
-                try:
-                    result = character_designer.reuse_character_sheet_for_episode(existing, episode_no=episode_no)
-                except (ValueError, TypeError) as exc:
-                    return _json(400, errors.exception_body(exc))
-                return _character_sheet_response(result, skipped=True)
-            try:
-                incoming = character_designer.run(name, mock=True, episode_no=episode_no)
-                result = character_designer.merge_character_sheet(existing if isinstance(existing, dict) else None, incoming)
-            except FileNotFoundError as exc:
-                return _json(400, errors.exception_body(exc))
-            except ValueError as exc:
-                return _json(400, errors.exception_body(exc))
-            except RuntimeError as exc:
-                _log_degraded("drama_characters_runtime", exc)
-                return _json(500, errors.error_body(errors.build_card("server_error")))
-            write_json(character_paths(name).sheet_path, result)
-    except RuntimeError as exc:
-        conflict = _write_conflict_response(exc)
-        if conflict:
-            return conflict
-        if str(exc).startswith("workspace_not_found:"):
-            return _json(404, {"error": f"workspace not found: {name}"})
-        raise
-    _clear_overview_cache()
-    return _character_sheet_response(result, skipped=False)
+    return _enqueue_drama_job(name, "drama-characters", episode_no, payload)
 
 
 def api_drama_characters_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
@@ -2376,34 +2378,7 @@ def api_drama_review(name: str, body: bytes) -> Tuple[int, str, bytes]:
         episode_no = _parse_episode_no(payload.get("episode_no", 1))
     except (TypeError, ValueError):
         return _json(400, {"error": "episode_no must be a positive integer"})
-    from .. import drama_reviewer
-    from ..drama_schemas import episode_paths
-    from ..utils import write_json
-
-    try:
-        with _workspace_write_guard(name, "web-manual-drama-review"):
-            prereq = _drama_review_prereq_error(name, episode_no=episode_no)
-            if prereq:
-                return prereq
-            try:
-                review = drama_reviewer.run(name, mock=True, episode_no=episode_no)
-            except FileNotFoundError as exc:
-                return _json(400, errors.exception_body(exc))
-            except ValueError as exc:
-                return _json(400, errors.exception_body(exc))
-            except RuntimeError as exc:
-                _log_degraded("drama_review_runtime", exc)
-                return _json(500, errors.error_body(errors.build_card("server_error")))
-            write_json(episode_paths(name, episode_no=episode_no).review_path, review)
-    except RuntimeError as exc:
-        conflict = _write_conflict_response(exc)
-        if conflict:
-            return conflict
-        if str(exc).startswith("workspace_not_found:"):
-            return _json(404, {"error": f"workspace not found: {name}"})
-        raise
-    _clear_overview_cache()
-    return _json(200, {"review": review})
+    return _enqueue_drama_job(name, "drama-review-assemble", episode_no, payload)
 
 
 def api_drama_assemble(name: str, body: bytes) -> Tuple[int, str, bytes]:
@@ -3150,15 +3125,6 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
     if not _workspace_exists(name):
         return _json(404, {"error": f"workspace not found: {name}"})
     from .workspace_meta import read as _meta_read
-
-    if _meta_read(name).get("type") == "drama":
-        return _json(
-            400,
-            {
-                "error": "drama workspace cannot run novel pipeline steps yet",
-                "hint": "drama 模块已可用，请使用短剧写作页的站点操作",
-            },
-        )
     try:
         payload = json.loads(body.decode("utf-8") or "{}") if body else {}
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -3171,6 +3137,15 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
     params = payload.get("params") or {}
     if not isinstance(params, dict):
         return _json(400, {"error": "'params' must be an object"})
+    workspace_type = _meta_read(name).get("type")
+    is_drama_step = step in _DRAMA_STEP_TASKS
+    if workspace_type == "drama" and not is_drama_step:
+        return _json(400, {
+            "error": "drama workspace only accepts drama job steps",
+            "hint": "drama 模块已可用，请使用短剧写作页的站点操作",
+        })
+    if workspace_type != "drama" and is_drama_step:
+        return _json(400, {"error": "drama job step requires a drama workspace"})
     params_error, params = _validated_run_params(step, params)
     if params_error:
         return _json(400, {"error": params_error})
@@ -3196,6 +3171,8 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
 
 
 def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    if step in _DRAMA_STEP_TASKS:
+        return _validated_drama_params(step, params)
     # iter060 (Codex B): timeout_minutes applies to every step (jobs._timeout_deadline
     # reads it off the job params), but only write-book/plan-chapters ran any
     # param validation — so a non-finite/negative timeout slipped through on
@@ -3605,6 +3582,13 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/hooks/?$"),
         lambda name, _body=b"", **_: api_drama_hooks(name, _body),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/hook-candidates/?$"),
+        lambda name, _query=None, **_: api_drama_hook_candidates(
+            name, ((_query or {}).get("episode_no", ["1"])[0])
+        ),
     ),
     (
         "PUT",

@@ -3,6 +3,25 @@ from pathlib import Path
 
 
 class SmokeScriptTests(unittest.TestCase):
+    def test_drama_full_smoke_separates_text_image_gates_and_forbids_video(self) -> None:
+        text = Path("scripts/drama_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("--confirm-real-smoke", text)
+        self.assertIn("--confirm-real-image-smoke", text)
+        self.assertIn("src.drama_smoke", text)
+        self.assertNotIn("video/generate", text)
+        source = Path("src/drama_smoke.py").read_text(encoding="utf-8")
+        self.assertIn('"video_requests": 0', source)
+        self.assertNotIn("create_video", source)
+
+    def test_drama_web_recovers_persisted_candidates_and_character_job(self) -> None:
+        source = Path("src/web/static.py").read_text(encoding="utf-8")
+        self.assertIn('fetchJson(dramaApiUrl("/drama/hook-candidates"))', source)
+        self.assertIn("function renderHookCandidates", source)
+        self.assertIn('row.step === "drama-characters"', source)
+        self.assertIn('encodeURIComponent(String(targetEpisode))', source)
+        self.assertIn("(terminal.result_summary || {}).skipped", source)
+        self.assertNotIn("showToast(data.skipped ?", source)
+
     def test_drama_image_smoke_requires_explicit_confirmation_and_never_calls_video(self) -> None:
         text = Path("scripts/drama_image_smoke.sh").read_text(encoding="utf-8")
         self.assertIn("--confirm-real-image-smoke", text)

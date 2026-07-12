@@ -44,6 +44,15 @@ class RoutesPostTests(unittest.TestCase):
         jobs.reset_for_tests()
         self._tmp.cleanup()
 
+    def _wait_job(self, job_id: str, timeout: float = 5.0) -> dict:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            record = jobs.get_job(job_id)
+            if record and record.get("status") in jobs.TERMINAL_STATUSES:
+                return record
+            time.sleep(0.01)
+        self.fail(f"job did not finish: {job_id}")
+
     def _init_drama(
         self,
         name: str = "drama",
@@ -139,7 +148,10 @@ class RoutesPostTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/api/workspace/drama/drama/progress")
         self.assertEqual(status, 200, body.decode())
         data = json.loads(body)
-        self.assertEqual([s["id"] for s in data["stations"]], ["setup", "hook", "storyboard", "characters"])
+        self.assertEqual(
+            [s["id"] for s in data["stations"]],
+            ["setup", "hook", "storyboard", "characters", "review"],
+        )
         self.assertEqual(data["stations"][0]["status"], "todo")
 
     def test_api_drama_progress_rejects_novel_workspace(self) -> None:
@@ -150,28 +162,33 @@ class RoutesPostTests(unittest.TestCase):
     def test_api_drama_plan_creates_setup_file(self) -> None:
         self._init_drama("drama", track="霸总")
         status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/plan", b"{}")
-        self.assertEqual(status, 200, body.decode())
-        data = json.loads(body)
-        self.assertEqual(data["track"], "霸总")
+        self.assertEqual(status, 202, body.decode())
+        job = self._wait_job(json.loads(body)["job_id"])
+        self.assertEqual(job["status"], "succeeded")
         setup_path = paths.WORKSPACE_DIR / "drama" / "outputs" / "episodes" / "episode_01.setup.json"
         self.assertTrue(setup_path.is_file())
 
     def test_api_drama_plan_missing_snapshot_returns_500(self) -> None:
         self._init_drama("drama", snapshot=False)
         status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/plan", b"{}")
-        self.assertEqual(status, 500)
-        self.assertIn("creation_standard.snapshot", json.loads(body)["error"])
+        self.assertEqual(status, 202)
+        job = self._wait_job(json.loads(body)["job_id"])
+        self.assertEqual(job["status"], "blocked")
 
     def test_api_drama_hooks_requires_setup_first(self) -> None:
         self._init_drama("drama")
         status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/hooks", b"{}")
-        self.assertEqual(status, 500)
-        self.assertIn("station 1", json.loads(body)["error"])
+        self.assertEqual(status, 202)
+        job = self._wait_job(json.loads(body)["job_id"])
+        self.assertEqual(job["status"], "blocked")
 
     def test_api_drama_hooks_returns_three_candidates_after_setup(self) -> None:
         self._init_drama("drama", setup=True)
         status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/hooks", b"{}")
-        self.assertEqual(status, 200, body.decode())
+        self.assertEqual(status, 202, body.decode())
+        self.assertEqual(self._wait_job(json.loads(body)["job_id"])["status"], "succeeded")
+        status, _ct, body = routes.dispatch("GET", "/api/workspace/drama/drama/hook-candidates")
+        self.assertEqual(status, 200)
         self.assertEqual(len(json.loads(body)["hooks"]), 3)
 
     def test_api_drama_setup_save_merges_core_fields(self) -> None:

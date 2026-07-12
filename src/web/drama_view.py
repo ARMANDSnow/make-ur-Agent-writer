@@ -6,6 +6,9 @@ from typing import Any, Dict
 
 from ..drama_schemas import (
     CharacterSheet,
+    DramaEpisode,
+    DramaEpisodeMeta,
+    DramaReview,
     DramaStoryboard,
     character_paths,
     episode_paths,
@@ -15,11 +18,11 @@ from ..drama_schemas import (
 from ..utils import read_json_optional
 
 
-STATIONS = ("setup", "hook", "storyboard", "characters")
+STATIONS = ("setup", "hook", "storyboard", "characters", "review")
 
 
 def collect_drama_progress(workspace: str, episode_no: int = 1) -> Dict[str, Any]:
-    """Return the 4-station drama progress shape for the WebUI."""
+    """Return the five-station drama progress shape for the WebUI."""
 
     episode_no = normalize_episode_no(episode_no)
     ep = episode_paths(workspace, episode_no=episode_no)
@@ -32,22 +35,23 @@ def collect_drama_progress(workspace: str, episode_no: int = 1) -> Dict[str, Any
     setup_data = read_json_optional(setup_path, None)
     storyboard_data = read_json_optional(storyboard_path, None)
     character_data = read_json_optional(character_sheet_path, None)
+    review_data = read_json_optional(ep.review_path, None)
     setup_done = bool(
         isinstance(setup_data, dict)
         and isinstance(setup_data.get("core_setup"), dict)
         and setup_data["core_setup"].get("protagonist")
     )
-    hook_done = bool(
+    hook_done = setup_done and bool(
         isinstance(setup_data, dict)
         and isinstance(setup_data.get("hook"), dict)
         and setup_data["hook"].get("type")
     )
-    storyboard_done = _storyboard_done(storyboard_data)
+    storyboard_done = hook_done and _storyboard_done(storyboard_data, episode_no=episode_no)
     characters_done = _characters_done(character_data)
     introduces_new_characters = bool(
         isinstance(setup_data, dict) and setup_data.get("introduces_new_characters") is True
     )
-    if characters_done and episode_no == 1:
+    if characters_done and storyboard_done and episode_no == 1:
         characters_status = "done"
     elif characters_done and storyboard_done and not introduces_new_characters:
         characters_status = "skipped"
@@ -55,6 +59,22 @@ def collect_drama_progress(workspace: str, episode_no: int = 1) -> Dict[str, Any
         characters_status = "done" if character_data.get("episode_no") == episode_no else "todo"
     else:
         characters_status = "todo" if storyboard_done else "locked"
+    review_valid = characters_status in {"done", "skipped"} and _review_done(
+        review_data, episode_no=episode_no
+    )
+    assembled = review_valid and _assembled_done(ep, episode_no=episode_no)
+    if assembled:
+        try:
+            from ..drama_store import is_episode_stale
+
+            assembled = not is_episode_stale(workspace, episode_no=episode_no)
+        except Exception:
+            assembled = False
+    review_status = (
+        "done"
+        if review_valid and assembled
+        else ("todo" if characters_status in {"done", "skipped"} else "locked")
+    )
 
     return {
         "workspace": workspace,
@@ -85,18 +105,24 @@ def collect_drama_progress(workspace: str, episode_no: int = 1) -> Dict[str, Any
                 "status": characters_status,
                 "data": character_data if characters_status in {"done", "skipped"} else None,
             },
+            {
+                "id": "review",
+                "label": "评审组装",
+                "status": review_status,
+                "data": review_data if review_valid else None,
+            },
         ],
     }
 
 
-def _storyboard_done(data: Any) -> bool:
+def _storyboard_done(data: Any, *, episode_no: int) -> bool:
     if not isinstance(data, dict):
         return False
     try:
         board = DramaStoryboard(**data)
     except Exception:
         return False
-    return not validate_storyboard_hard(board)
+    return board.episode_no == episode_no and not validate_storyboard_hard(board)
 
 
 def _characters_done(data: Any) -> bool:
@@ -107,3 +133,26 @@ def _characters_done(data: Any) -> bool:
     except Exception:
         return False
     return True
+
+
+def _review_done(data: Any, *, episode_no: int) -> bool:
+    if not isinstance(data, dict):
+        return False
+    try:
+        review = DramaReview(**data)
+    except Exception:
+        return False
+    return review.episode_no == episode_no
+
+
+def _assembled_done(ep: Any, *, episode_no: int) -> bool:
+    episode_data = read_json_optional(ep.episode_path, None)
+    meta_data = read_json_optional(ep.meta_path, None)
+    if not isinstance(episode_data, dict) or not isinstance(meta_data, dict):
+        return False
+    try:
+        episode = DramaEpisode(**episode_data)
+        meta = DramaEpisodeMeta(**meta_data)
+    except Exception:
+        return False
+    return episode.episode_no == episode_no and meta.episode_no == episode_no

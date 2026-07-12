@@ -103,10 +103,10 @@ class DramaIter088WebTests(DramaTestBase):
         self.assertNotIn("hook", inherited)
         self.assertEqual(ep1.setup_path.read_bytes(), ep1_setup_before)
 
+        job = self._dispatch_drama_job("drama", "hooks", {"episode_no": 2})
+        self.assertEqual(job["status"], "succeeded", job)
         status, _ct, body = routes.dispatch(
-            "POST",
-            "/api/workspace/drama/drama/hooks",
-            b'{"episode_no": 2}',
+            "GET", "/api/workspace/drama/drama/hook-candidates?episode_no=2"
         )
         self.assertEqual(status, 200, body.decode())
         hooks = json.loads(body)["hooks"]
@@ -119,12 +119,10 @@ class DramaIter088WebTests(DramaTestBase):
             json.dumps({"episode_no": 2, "hook": hooks[0]}, ensure_ascii=False).encode("utf-8"),
         )
         self.assertEqual(status, 200, body.decode())
-        status, _ct, body = routes.dispatch(
-            "POST",
-            "/api/workspace/drama/drama/storyboard",
-            b'{"episode_no": 2}',
+        self.assertEqual(
+            self._dispatch_drama_job("drama", "storyboard", {"episode_no": 2})["status"],
+            "succeeded",
         )
-        self.assertEqual(status, 200, body.decode())
 
         status, _ct, body = routes.dispatch(
             "GET",
@@ -136,18 +134,10 @@ class DramaIter088WebTests(DramaTestBase):
         self.assertEqual(character_station["status"], "skipped")
         self.assertEqual(character_paths("drama").sheet_path.read_bytes(), character_before)
 
-        status, _ct, body = routes.dispatch(
-            "POST",
-            "/api/workspace/drama/drama/review",
-            b'{"episode_no": 2}',
+        self.assertEqual(
+            self._dispatch_drama_job("drama", "review", {"episode_no": 2})["status"],
+            "succeeded",
         )
-        self.assertEqual(status, 200, body.decode())
-        status, _ct, body = routes.dispatch(
-            "POST",
-            "/api/workspace/drama/drama/assemble",
-            b'{"episode_no": 2}',
-        )
-        self.assertEqual(status, 200, body.decode())
 
         status, _ct, body = routes.dispatch("GET", "/api/workspace/drama/drama/episodes")
         self.assertEqual(status, 200, body.decode())
@@ -274,8 +264,12 @@ class DramaIter088WebTests(DramaTestBase):
             "/api/workspace/drama/drama/next-episode",
             b'{"after_episode_no": 1}',
         )
+        self.assertEqual(
+            self._dispatch_drama_job("drama", "hooks", {"episode_no": 2})["status"],
+            "succeeded",
+        )
         _status, _ct, body = routes.dispatch(
-            "POST", "/api/workspace/drama/drama/hooks", b'{"episode_no": 2}'
+            "GET", "/api/workspace/drama/drama/hook-candidates?episode_no=2"
         )
         hook = json.loads(body)["hooks"][0]
         routes.dispatch(
@@ -290,8 +284,9 @@ class DramaIter088WebTests(DramaTestBase):
                 ensure_ascii=False,
             ).encode("utf-8"),
         )
-        routes.dispatch(
-            "POST", "/api/workspace/drama/drama/storyboard", b'{"episode_no": 2}'
+        self.assertEqual(
+            self._dispatch_drama_job("drama", "storyboard", {"episode_no": 2})["status"],
+            "succeeded",
         )
         status, _ct, body = routes.dispatch(
             "GET", "/api/workspace/drama/drama/progress?episode_no=2"
@@ -306,19 +301,20 @@ class DramaIter088WebTests(DramaTestBase):
         )
         self.assertEqual(status, 200, body.decode())
         self.assertFalse(json.loads(body)["exists"])
-        for endpoint in ("review", "assemble"):
-            status, _ct, body = routes.dispatch(
-                "POST",
-                f"/api/workspace/drama/drama/{endpoint}",
-                b'{"episode_no": 2}',
-            )
-            self.assertEqual(status, 400, body.decode())
-            self.assertIn("station 4", json.loads(body)["error"])
-
-        status, _ct, body = routes.dispatch(
-            "POST", "/api/workspace/drama/drama/characters", b'{"episode_no": 2}'
+        self.assertEqual(
+            self._dispatch_drama_job("drama", "review", {"episode_no": 2})["status"],
+            "blocked",
         )
-        self.assertEqual(status, 200, body.decode())
+        status, _ct, body = routes.dispatch(
+            "POST", "/api/workspace/drama/drama/assemble", b'{"episode_no": 2}'
+        )
+        self.assertEqual(status, 400, body.decode())
+
+        job = self._dispatch_drama_job("drama", "characters", {"episode_no": 2})
+        self.assertEqual(job["status"], "succeeded", job)
+        status, _ct, body = routes.dispatch(
+            "GET", "/api/workspace/drama/drama/characters?episode_no=2"
+        )
         result = json.loads(body)
         self.assertFalse(result["skipped"])
         self.assertEqual(result["sheet"]["episode_no"], 2)

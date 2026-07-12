@@ -88,10 +88,26 @@ class DramaPlannerTests(DramaTestBase):
         with self.assertRaisesRegex(FileNotFoundError, "creation_standard.snapshot"):
             drama_planner.run("no_snapshot")
 
-    def test_real_model_path_is_stubbed(self) -> None:
-        self._workspace("stub")
-        with self.assertRaisesRegex(NotImplementedError, "iter 040\\+"):
-            drama_planner.run("stub", mock=False)
+    def test_real_model_path_uses_drama_plan_task_and_pins_identity(self) -> None:
+        self._workspace("real_plan")
+        captured = {}
+
+        class FakeClient:
+            is_mock = False
+            def __init__(self, task): captured["task"] = task
+            def complete_json(self, messages, response_model):
+                captured["messages"] = messages
+                return response_model(
+                    episode_no=1, season_no=1, title="x", logline="l", track="错误",
+                    target_duration_seconds=60,
+                    core_setup={"protagonist": "p", "antagonist": "a", "emotional_hook": "e"},
+                )
+
+        with patch.object(drama_planner, "LLMClient", FakeClient):
+            result = drama_planner.run("real_plan", mock=False)
+        self.assertEqual(captured["task"], "drama_plan")
+        self.assertEqual(result["track"], "霸总")
+        self.assertEqual(result["episode_no"], 1)
 
     def test_prompt_contains_creation_standard_snapshot(self) -> None:
         self._workspace("prompt_case")
@@ -112,7 +128,7 @@ class DramaPlannerTests(DramaTestBase):
         agents = load_config("agents.yaml")
         drama_agents = agents["drama_agents"]
         for agent in ("drama_planner", "hook_designer"):
-            self.assertEqual(drama_agents[agent]["provider"], "mock_only")
+            self.assertEqual(drama_agents[agent]["provider"], "DRAMA_MODEL")
             self.assertEqual(drama_agents[agent]["system_prompt_snapshot"], "data/creation_standard.snapshot.md")
             self.assertNotIn("system_prompt_base", drama_agents[agent])
 

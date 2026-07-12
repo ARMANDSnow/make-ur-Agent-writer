@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any, Dict
 
 from . import paths
-from .drama_schemas import episode_paths, normalize_episode_no
+from .drama_schemas import DramaSetup, episode_paths, normalize_episode_no
+from .llm_client import LLMClient
+from .schemas import model_to_dict
 
 
 TRACK_PINYIN = {
@@ -26,15 +28,12 @@ TRACK_PINYIN = {
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "drama"
 
 
-def run(workspace: str, *, mock: bool = True, episode_no: int = 1) -> Dict[str, Any]:
+def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dict[str, Any]:
     """Run station 1 for ``workspace`` and return the setup JSON."""
 
     episode_no = normalize_episode_no(episode_no)
     if episode_no > 1:
         return _inherit_previous_setup(workspace, episode_no=episode_no)
-
-    if not mock:
-        raise NotImplementedError("iter 040+")
 
     wizard_input = _load_wizard_input(workspace)
     track = wizard_input["track"]
@@ -43,11 +42,29 @@ def run(workspace: str, *, mock: bool = True, episode_no: int = 1) -> Dict[str, 
 
     system_prompt = build_system_prompt(workspace, "drama_planner", wizard_input)
     _log_prompt(workspace, "drama_planner", system_prompt)
-    result = _load_fixture(track, "setup")
+    client = None if mock is True else LLMClient("drama_plan")
+    use_mock = client.is_mock if mock is None and client is not None else bool(mock)
+    if use_mock:
+        result = _load_fixture(track, "setup")
+    else:
+        if client is None:
+            client = LLMClient("drama_plan")
+        generated = client.complete_json(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "请输出站①核心设定 JSON。不要输出 Markdown，不要解释。"},
+            ],
+            DramaSetup,
+        )
+        result = model_to_dict(generated)
+    # Server-owned identity fields cannot be overridden by model output.
     result["track"] = track
     result["episode_no"] = episode_no
-    result["target_duration_seconds"] = wizard_input.get("episode_duration_seconds", result.get("target_duration_seconds"))
-    return result
+    result["season_no"] = 1
+    result["target_duration_seconds"] = wizard_input.get(
+        "episode_duration_seconds", result.get("target_duration_seconds")
+    )
+    return model_to_dict(DramaSetup(**result))
 
 
 def _inherit_previous_setup(workspace: str, *, episode_no: int) -> Dict[str, Any]:

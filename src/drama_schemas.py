@@ -57,6 +57,7 @@ class DramaEpisodePaths:
     outputs_dir: Path
     episodes_dir: Path
     setup_path: Path
+    hook_candidates_path: Path
     storyboard_path: Path
     review_path: Path
     episode_path: Path
@@ -74,6 +75,43 @@ class DramaCharacterPaths:
     sheet_path: Path
 
 
+class DramaCoreSetup(BaseModel):
+    protagonist: str = Field(min_length=1, max_length=800)
+    antagonist: str = Field(default="", max_length=800)
+    emotional_hook: str = Field(default="", max_length=800)
+
+
+class DramaSetup(BaseModel):
+    episode_no: int = Field(default=1, ge=1, le=MAX_DRAMA_EPISODE_NO)
+    season_no: int = Field(default=1, ge=1)
+    title: str = Field(default="", max_length=120)
+    logline: str = Field(min_length=1, max_length=1200)
+    track: str = Field(min_length=1, max_length=20)
+    target_duration_seconds: int = Field(default=60, ge=10, le=600)
+    core_setup: DramaCoreSetup
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+
+class DramaHookCandidate(BaseModel):
+    type: str = Field(min_length=1, max_length=80)
+    content: str = Field(min_length=1, max_length=600)
+
+
+class DramaHookCandidates(BaseModel):
+    hooks: List[DramaHookCandidate] = Field(min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def _hooks_are_unique(self) -> "DramaHookCandidates":
+        keys = {(item.type.strip(), item.content.strip()) for item in self.hooks}
+        if len(keys) != len(self.hooks):
+            raise ValueError("hook candidates must be unique")
+        return self
+
+
 def episode_paths(workspace: str, *, episode_no: int = 1) -> DramaEpisodePaths:
     episode_no = normalize_episode_no(episode_no)
     root = paths.WORKSPACE_DIR / workspace
@@ -87,6 +125,7 @@ def episode_paths(workspace: str, *, episode_no: int = 1) -> DramaEpisodePaths:
         outputs_dir=outputs_dir,
         episodes_dir=episodes_dir,
         setup_path=episodes_dir / f"{stem}.setup.json",
+        hook_candidates_path=episodes_dir / f"{stem}.hooks.json",
         storyboard_path=episodes_dir / f"{stem}.storyboard.json",
         review_path=episodes_dir / f"{stem}.review.json",
         episode_path=episodes_dir / f"{stem}.json",

@@ -9,26 +9,25 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
-from .drama_schemas import episode_paths, normalize_episode_no
+from .drama_schemas import DramaHookCandidates, episode_paths, normalize_episode_no
 from .drama_planner import (
     _load_fixture,
     _load_wizard_input,
     build_system_prompt as _build_base_system_prompt,
     _log_prompt,
 )
+from .llm_client import LLMClient
+from .schemas import model_to_dict
 
 
 MAX_USED_HOOKS_IN_PROMPT = 20
 MAX_USED_HOOK_CONTENT_CHARS = 240
 
 
-def run(workspace: str, *, mock: bool = True, episode_no: int = 1) -> Dict[str, Any]:
+def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dict[str, Any]:
     """Run station 2 for ``workspace`` and return hook candidates."""
 
     episode_no = normalize_episode_no(episode_no)
-    if not mock:
-        raise NotImplementedError("iter 040+")
-
     setup_path = episode_paths(workspace, episode_no=episode_no).setup_path
     if not setup_path.is_file():
         raise FileNotFoundError(f"station 1 must complete before station 2; missing {setup_path}")
@@ -47,7 +46,21 @@ def run(workspace: str, *, mock: bool = True, episode_no: int = 1) -> Dict[str, 
     used_hooks = collect_used_hooks(workspace, before_episode_no=episode_no)
     system_prompt = build_system_prompt(workspace, wizard_input=wizard_input, used_hooks=used_hooks)
     _log_prompt(workspace, "hook_designer", system_prompt)
-    result = _load_fixture(track, "hooks_ep2" if episode_no > 1 else "hooks")
+    client = None if mock is True else LLMClient("drama_hooks")
+    use_mock = client.is_mock if mock is None and client is not None else bool(mock)
+    if use_mock:
+        result = _load_fixture(track, "hooks_ep2" if episode_no > 1 else "hooks")
+    else:
+        if client is None:
+            client = LLMClient("drama_hooks")
+        generated = client.complete_json(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "请输出恰好 3 个站②钩子候选 JSON。不要输出 Markdown，不要解释。"},
+            ],
+            DramaHookCandidates,
+        )
+        result = model_to_dict(generated)
     hooks = result.get("hooks")
     if not isinstance(hooks, list):
         raise ValueError("hook fixture must contain a hooks list")
@@ -55,7 +68,7 @@ def run(workspace: str, *, mock: bool = True, episode_no: int = 1) -> Dict[str, 
     fresh = [item for item in hooks if isinstance(item, dict) and _hook_key(item) not in used_keys]
     if episode_no > 1 and len(fresh) != 3:
         raise ValueError("later episode hook fixture must provide 3 unused candidates")
-    return {**result, "hooks": fresh}
+    return model_to_dict(DramaHookCandidates(hooks=fresh))
 
 
 def collect_used_hooks(workspace: str, *, before_episode_no: int) -> list[Dict[str, Any]]:

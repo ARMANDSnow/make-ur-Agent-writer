@@ -38,7 +38,9 @@ class DramaCharactersApiTests(DramaTestBase):
             p.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
 
     def _post_characters(self, name: str = "drama") -> dict:
-        status, _ct, body = routes.dispatch("POST", f"/api/workspace/{name}/drama/characters", b"{}")
+        job = self._dispatch_drama_job(name, "characters")
+        self.assertEqual(job["status"], "succeeded", job)
+        status, _ct, body = routes.dispatch("GET", f"/api/workspace/{name}/drama/characters")
         self.assertEqual(status, 200, body.decode())
         return json.loads(body)
 
@@ -66,9 +68,9 @@ class DramaCharactersApiTests(DramaTestBase):
         expected = character_designer.run("drama", mock=True)
         with patch.dict("os.environ", {"OPENAI_MODEL": "deepseek/deepseek-chat"}, clear=False):
             with patch("src.character_designer.run", return_value=expected) as spy:
-                status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/characters", b"{}")
-        self.assertEqual(status, 200, body.decode())
-        self.assertIs(spy.call_args.kwargs["mock"], True)
+                data = self._post_characters()
+        self.assertTrue(data["exists"])
+        self.assertIsNone(spy.call_args.kwargs["mock"])
 
     def test_put_saves_manual_override(self) -> None:
         self._workspace()
@@ -101,9 +103,8 @@ class DramaCharactersApiTests(DramaTestBase):
 
     def test_requires_storyboard_and_rejects_novel_workspace(self) -> None:
         self._workspace(storyboard=False)
-        status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/characters", b"{}")
-        self.assertEqual(status, 400)
-        self.assertIn("station 3", json.loads(body)["error"])
+        job = self._dispatch_drama_job("drama", "characters")
+        self.assertEqual(job["status"], "blocked")
 
         init_workspace("novel", type="novel")
         status, _ct, body = routes.dispatch("GET", "/api/workspace/novel/drama/characters")

@@ -146,7 +146,9 @@ def _load_completed_storyboard(workspace: str, *, episode_no: int = 1) -> Dict[s
     storyboard = read_json_optional(p, None)
     if not isinstance(storyboard, dict):
         raise FileNotFoundError(f"station 3 must complete before drama review; missing {p}")
-    DramaStoryboard(**storyboard)
+    board = DramaStoryboard(**storyboard)
+    if board.episode_no != episode_no:
+        raise ValueError("station 3 storyboard episode does not match requested episode")
     return storyboard
 
 

@@ -28,7 +28,9 @@ class DramaStoryboardGridTests(DramaTestBase):
         self._write_setup(name, hook=hook)
 
     def _post_storyboard(self, name: str = "drama") -> dict:
-        status, _ct, body = routes.dispatch("POST", f"/api/workspace/{name}/drama/storyboard", b"{}")
+        job = self._dispatch_drama_job(name, "storyboard")
+        self.assertEqual(job["status"], "succeeded", job)
+        status, _ct, body = routes.dispatch("GET", f"/api/workspace/{name}/drama/storyboard")
         self.assertEqual(status, 200, body.decode())
         return json.loads(body)
 
@@ -55,16 +57,16 @@ class DramaStoryboardGridTests(DramaTestBase):
         expected = storyboard_builder.run("drama", mock=True)
         with patch.dict("os.environ", {"OPENAI_MODEL": "deepseek/deepseek-chat"}, clear=False):
             with patch("src.storyboard_builder.run", return_value=expected) as spy:
-                status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/storyboard", b"{}")
-        self.assertEqual(status, 200, body.decode())
-        self.assertIs(spy.call_args.kwargs["mock"], True)
+                data = self._post_storyboard()
+        self.assertTrue(data["exists"])
+        self.assertIsNone(spy.call_args.kwargs["mock"])
 
     def test_post_runtime_error_returns_generic_card(self) -> None:
         self._workspace()
         with patch("src.storyboard_builder.run", side_effect=RuntimeError("secret TOKEN_TEST_VALUE /Users/me/.env prompt body")):
-            status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/storyboard", b"{}")
-        self.assertEqual(status, 500, body.decode())
-        text = body.decode("utf-8")
+            job = self._dispatch_drama_job("drama", "storyboard")
+        self.assertEqual(job["status"], "failed")
+        text = json.dumps(job, ensure_ascii=False)
         self.assertNotIn("TOKEN_TEST_VALUE", text)
         self.assertNotIn("/Users/me/.env", text)
         self.assertNotIn("prompt body", text)
@@ -184,9 +186,8 @@ class DramaStoryboardGridTests(DramaTestBase):
 
     def test_generate_requires_selected_hook(self) -> None:
         self._workspace(hook=False)
-        status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/storyboard", b"{}")
-        self.assertEqual(status, 400)
-        self.assertIn("station 2", json.loads(body)["error"])
+        job = self._dispatch_drama_job("drama", "storyboard")
+        self.assertEqual(job["status"], "blocked")
 
     def test_put_requires_selected_hook(self) -> None:
         self._workspace("source")

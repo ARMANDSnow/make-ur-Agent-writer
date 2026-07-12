@@ -101,3 +101,4 @@
 101. [Iteration 087 - 文风 Red Drift 定向重写与复测闭环](./iteration_087_style_drift_rewrite_loop.md)
 102. [Iteration 088 - 短剧四格式导出 + Insights + 第 2 集重生](./iteration_088_drama_exports_insights_episode2.md)
 103. [Iteration 089 - 短剧真实生图接入与视频 API 安全预备](./iteration_089_drama_real_image_video_api_guard.md)
+104. [Iteration 090 - 短剧五站真模型 Job 化 + 全链 Smoke](./iteration_090_drama_five_station_jobs_smoke.md)

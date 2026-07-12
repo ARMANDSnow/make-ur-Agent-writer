@@ -77,6 +77,22 @@
       "request_timeout": 400,
       "stream": false
     },
+    "drama_plan": {
+      "model_env": "DRAMA_MODEL",
+      "temperature": 0.5,
+      "max_tokens": 2200,
+      "context_limit": 128000,
+      "request_timeout": 400,
+      "stream": false
+    },
+    "drama_hooks": {
+      "model_env": "DRAMA_MODEL",
+      "temperature": 0.6,
+      "max_tokens": 1400,
+      "context_limit": 128000,
+      "request_timeout": 400,
+      "stream": false
+    },
     "drama_character": {
       "model_env": "DRAMA_MODEL",
       "temperature": 0.4,

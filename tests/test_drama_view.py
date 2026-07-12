@@ -82,8 +82,14 @@ class DramaViewTests(unittest.TestCase):
 
     def test_empty_workspace_statuses(self) -> None:
         data = collect_drama_progress("drama")
-        self.assertEqual([s["id"] for s in data["stations"]], ["setup", "hook", "storyboard", "characters"])
-        self.assertEqual([s["status"] for s in data["stations"]], ["todo", "locked", "locked", "locked"])
+        self.assertEqual(
+            [s["id"] for s in data["stations"]],
+            ["setup", "hook", "storyboard", "characters", "review"],
+        )
+        self.assertEqual(
+            [s["status"] for s in data["stations"]],
+            ["todo", "locked", "locked", "locked", "locked"],
+        )
         self.assertIsNone(data["wizard_input"])
 
     def test_wizard_input_is_returned_when_present(self) -> None:
@@ -158,7 +164,10 @@ class DramaViewTests(unittest.TestCase):
         data = collect_drama_progress("drama", episode_no=2)
 
         self.assertEqual(data["episode_no"], 2)
-        self.assertEqual([station["status"] for station in data["stations"]], ["done", "done", "done", "skipped"])
+        self.assertEqual(
+            [station["status"] for station in data["stations"]],
+            ["done", "done", "done", "skipped", "todo"],
+        )
         self.assertEqual(data["stations"][3]["data"]["episode_no"], 1)
         self.assertFalse(episode_paths("drama").setup_path.exists())
 

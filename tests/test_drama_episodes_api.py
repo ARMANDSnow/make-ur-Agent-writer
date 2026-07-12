@@ -37,16 +37,13 @@ class DramaEpisodesApiTests(DramaTestBase):
 
     def test_review_and_assemble_api_round_trip(self) -> None:
         self._workspace()
-        status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/review", b"{}")
-        self.assertEqual(status, 200, body.decode())
-        review = json.loads(body)["review"]
+        job = self._dispatch_drama_job("drama", "review")
+        self.assertEqual(job["status"], "succeeded", job)
+        review = json.loads(episode_paths("drama").review_path.read_text(encoding="utf-8"))
         self.assertEqual(review["verdict"], "Approve")
         self.assertTrue(episode_paths("drama").review_path.is_file())
-
-        status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/assemble", b"{}")
-        self.assertEqual(status, 200, body.decode())
-        assembled = json.loads(body)
-        self.assertEqual(assembled["episode"]["episode_no"], 1)
+        assembled = json.loads(episode_paths("drama").episode_path.read_text(encoding="utf-8"))
+        self.assertEqual(assembled["episode_no"], 1)
 
         status, _ct, body = routes.dispatch("GET", "/api/workspace/drama/drama/episodes")
         self.assertEqual(status, 200)
@@ -58,9 +55,8 @@ class DramaEpisodesApiTests(DramaTestBase):
 
     def test_review_requires_characters_and_rejects_novel_workspace(self) -> None:
         self._workspace(with_characters=False)
-        status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/review", b"{}")
-        self.assertEqual(status, 400)
-        self.assertIn("station 4", json.loads(body)["error"])
+        job = self._dispatch_drama_job("drama", "review")
+        self.assertEqual(job["status"], "blocked")
 
         init_workspace("novel", type="novel")
         status, _ct, body = routes.dispatch("GET", "/api/workspace/novel/drama/episodes")
@@ -82,9 +78,9 @@ class DramaEpisodesApiTests(DramaTestBase):
         expected = drama_reviewer.run("drama", mock=True)
         with patch.dict("os.environ", {"OPENAI_MODEL": "deepseek/deepseek-chat"}, clear=False):
             with patch("src.drama_reviewer.run", return_value=expected) as spy:
-                status, _ct, body = routes.dispatch("POST", "/api/workspace/drama/drama/review", b"{}")
-        self.assertEqual(status, 200, body.decode())
-        self.assertIs(spy.call_args.kwargs["mock"], True)
+                job = self._dispatch_drama_job("drama", "review")
+        self.assertEqual(job["status"], "succeeded")
+        self.assertIsNone(spy.call_args.kwargs["mock"])
 
     def test_assemble_busy_returns_409(self) -> None:
         self._workspace()
@@ -97,8 +93,7 @@ class DramaEpisodesApiTests(DramaTestBase):
 
     def test_apply_suggestion_updates_hook_and_marks_stale(self) -> None:
         self._workspace()
-        routes.dispatch("POST", "/api/workspace/drama/drama/review", b"{}")
-        routes.dispatch("POST", "/api/workspace/drama/drama/assemble", b"{}")
+        self.assertEqual(self._dispatch_drama_job("drama", "review")["status"], "succeeded")
         suggestion = {
             "station": "hook",
             "field": "content",

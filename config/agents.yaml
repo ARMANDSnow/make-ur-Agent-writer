@@ -145,7 +145,7 @@
   "drama_agents": {
     "drama_planner": {
       "role": "站 ① 核心设定 agent",
-      "provider": "mock_only",
+      "provider": "DRAMA_MODEL",
       "system_prompt_snapshot": "data/creation_standard.snapshot.md",
       "prompt_template": "prompts/drama/drama_planner.txt",
       "sections_required": ["一", "二", "三", "六", "七", "八"],
@@ -153,7 +153,7 @@
     },
     "hook_designer": {
       "role": "站 ② 钩子设计 agent",
-      "provider": "mock_only",
+      "provider": "DRAMA_MODEL",
       "system_prompt_snapshot": "data/creation_standard.snapshot.md",
       "prompt_template": "prompts/drama/hook_designer.txt",
       "sections_required": ["一", "二", "三", "七"],

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import patch
 
 from src import drama_planner, hook_designer, paths
 from src.drama_schemas import episode_paths
@@ -88,10 +89,24 @@ class HookDesignerTests(DramaTestBase):
         with self.assertRaisesRegex(ValueError, "unknown track"):
             hook_designer.run("bad_track")
 
-    def test_real_model_path_is_stubbed(self) -> None:
-        self._workspace("stub")
-        with self.assertRaisesRegex(NotImplementedError, "iter 040\\+"):
-            hook_designer.run("stub", mock=False)
+    def test_real_model_path_uses_drama_hooks_task(self) -> None:
+        self._workspace("real_hooks")
+        captured = {}
+
+        class FakeClient:
+            is_mock = False
+            def __init__(self, task): captured["task"] = task
+            def complete_json(self, messages, response_model):
+                return response_model(hooks=[
+                    {"type": "情绪钩", "content": "a"},
+                    {"type": "悬念钩", "content": "b"},
+                    {"type": "反差钩", "content": "c"},
+                ])
+
+        with patch.object(hook_designer, "LLMClient", FakeClient):
+            result = hook_designer.run("real_hooks", mock=False)
+        self.assertEqual(captured["task"], "drama_hooks")
+        self.assertEqual(len(result["hooks"]), 3)
 
     def test_run_logs_hook_prompt_provenance(self) -> None:
         self._workspace("log_hook")

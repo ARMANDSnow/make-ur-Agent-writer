@@ -401,7 +401,8 @@ def _complete_job(job_id: str, terminal: str, step: str, result: Any) -> None:
         job = _JOBS.get(job_id)
         if job is None:
             return
-        if job.get("cancel_requested"):
+        committed = isinstance(result, dict) and result.get("committed") is True
+        if job.get("cancel_requested") and not committed:
             job.update(
                 {
                     "status": "aborted",
@@ -1109,6 +1110,271 @@ def _step_rebuild_for_start(params: Dict[str, Any], progress_cb: Callable[[str, 
     return result
 
 
+def _drama_episode_no(params: Dict[str, Any]) -> int:
+    from ..drama_schemas import normalize_episode_no
+
+    return normalize_episode_no(params.get("episode_no", 1))
+
+
+def _drama_job_error(step: str, exc: BaseException) -> Dict[str, Any]:
+    """Return a public-safe drama failure without persisting provider text/paths."""
+    import sys
+
+    sys.stderr.write(f"[jobs] {step} failed: {type(exc).__name__} (details suppressed)\n")
+    return {
+        "status": "failed",
+        "error_code": "drama_generation_failed",
+        "station": step,
+    }
+
+
+_DRAMA_MODEL_TASKS = {
+    "drama-plan": "drama_plan",
+    "drama-hooks": "drama_hooks",
+    "drama-storyboard": "drama_storyboard",
+    "drama-characters": "drama_character",
+    "drama-review-assemble": "drama_review",
+}
+
+
+def _drama_budget_start(step: str, params: Dict[str, Any]) -> tuple[float, int]:
+    """Validate the last-hop real-text gate and capture this job's cost offset."""
+    from ..book_runner import _llm_log_line_count
+    from ..config import get_model_config
+
+    task = _DRAMA_MODEL_TASKS[step]
+    real_model = str(get_model_config(task).get("model") or "mock") != "mock"
+    budget_cny = _float_param(params, "budget_cny", 0.0)
+    timeout_minutes = _float_param(params, "timeout_minutes", 0.0)
+    if real_model and params.get("confirm_real_text") is not True:
+        raise ValueError("real drama generation requires explicit confirmation")
+    if real_model and budget_cny <= 0:
+        raise ValueError("real drama generation requires a positive budget")
+    if real_model and not 0 < timeout_minutes <= 1440:
+        raise ValueError("real drama generation requires a bounded positive timeout")
+    return budget_cny, _llm_log_line_count()
+
+
+def _drama_settle_budget(
+    budget_cny: float, line_offset: int, progress_cb: Callable[[str, float], None]
+) -> tuple[Optional[Dict[str, Any]], float]:
+    """Honor cancel/timeout, then settle cost before any generated artifact write."""
+    from ..cost_estimator import estimate_cost_since
+
+    progress_cb("settle-budget", 0.78)
+    cost_cny = float(
+        estimate_cost_since(line_offset, paths.workspace_root()).get("cost_cny", 0.0)
+    )
+    if budget_cny > 0 and cost_cny > budget_cny:
+        return {
+            "status": "budget_exceeded",
+            "error_code": "drama_budget_exceeded",
+            "budget_cny": budget_cny,
+            "cost_cny": cost_cny,
+        }, cost_cny
+    return None, cost_cny
+
+
+def _run_locked_drama_step(
+    step: str,
+    params: Dict[str, Any],
+    progress_cb: Callable[[str, float], None],
+    operation: Callable[[int], Dict[str, Any]],
+) -> Dict[str, Any]:
+    from ..workspace_lock import WorkspaceLocked, acquire_write_lock
+
+    episode_no = _drama_episode_no(params)
+    progress_cb("validate", 0.05)
+    try:
+        with acquire_write_lock(source=f"web-job-{step}"):
+            progress_cb("generate", 0.15)
+            return operation(episode_no)
+    except WorkspaceLocked as exc:
+        return _workspace_locked_blocked(exc)
+    except JobCancelled:
+        raise
+    except (FileNotFoundError, ValueError) as exc:
+        return _blocked("drama_prerequisite_invalid", "drama prerequisite is missing or invalid")
+    except Exception as exc:
+        return _drama_job_error(step, exc)
+
+
+def _restore_drama_artifacts(snapshots: Dict[Path, Optional[bytes]]) -> None:
+    """Best-effort exact rollback for a station-5 multi-file commit."""
+    import os
+    import threading
+
+    for path, payload in snapshots.items():
+        if payload is None:
+            path.unlink(missing_ok=True)
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + f".rollback.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_bytes(payload)
+        os.replace(tmp, path)
+
+
+def _step_drama_plan(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    from .. import drama_planner
+    from ..drama_schemas import episode_paths
+    from ..utils import write_json
+
+    def _op(episode_no: int) -> Dict[str, Any]:
+        if episode_no > 1:
+            raise ValueError("later episodes must be initialized through next-episode")
+        budget_cny, line_offset = _drama_budget_start("drama-plan", params)
+        result = drama_planner.run(paths.workspace_name(), mock=None, episode_no=episode_no)
+        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
+        if exceeded:
+            return {**exceeded, "station": "setup", "episode_no": episode_no}
+        progress_cb("commit", 0.85)
+        ep = episode_paths(paths.workspace_name(), episode_no=episode_no)
+        write_json(ep.setup_path, result)
+        ep.hook_candidates_path.unlink(missing_ok=True)
+        return {"status": "succeeded", "station": "setup", "episode_no": episode_no,
+                "budget_cny": budget_cny, "cost_cny": cost_cny, "committed": True}
+
+    return _run_locked_drama_step("drama-plan", params, progress_cb, _op)
+
+
+def _step_drama_hooks(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    from .. import hook_designer
+    from ..drama_schemas import episode_paths
+    from ..utils import write_json
+
+    def _op(episode_no: int) -> Dict[str, Any]:
+        workspace = paths.workspace_name()
+        budget_cny, line_offset = _drama_budget_start("drama-hooks", params)
+        result = hook_designer.run(workspace, mock=None, episode_no=episode_no)
+        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
+        if exceeded:
+            return {**exceeded, "station": "hook", "episode_no": episode_no}
+        progress_cb("commit", 0.85)
+        write_json(episode_paths(workspace, episode_no=episode_no).hook_candidates_path, result)
+        return {
+            "status": "succeeded",
+            "station": "hook",
+            "episode_no": episode_no,
+            "hook_count": len(result.get("hooks") or []),
+            "budget_cny": budget_cny,
+            "cost_cny": cost_cny,
+            "committed": True,
+        }
+
+    return _run_locked_drama_step("drama-hooks", params, progress_cb, _op)
+
+
+def _step_drama_storyboard(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    from .. import storyboard_builder
+    from ..drama_schemas import episode_paths
+    from ..utils import write_json
+
+    def _op(episode_no: int) -> Dict[str, Any]:
+        workspace = paths.workspace_name()
+        budget_cny, line_offset = _drama_budget_start("drama-storyboard", params)
+        result = storyboard_builder.run(workspace, mock=None, episode_no=episode_no)
+        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
+        if exceeded:
+            return {**exceeded, "station": "storyboard", "episode_no": episode_no}
+        progress_cb("commit", 0.85)
+        write_json(episode_paths(workspace, episode_no=episode_no).storyboard_path, result)
+        return {"status": "succeeded", "station": "storyboard", "episode_no": episode_no,
+                "budget_cny": budget_cny, "cost_cny": cost_cny, "committed": True}
+
+    return _run_locked_drama_step("drama-storyboard", params, progress_cb, _op)
+
+
+def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    from .. import character_designer
+    from ..drama_schemas import (
+        DramaStoryboard, character_paths, episode_paths, validate_storyboard_hard,
+    )
+    from ..utils import read_json_optional, write_json
+
+    def _op(episode_no: int) -> Dict[str, Any]:
+        workspace = paths.workspace_name()
+        ep = episode_paths(workspace, episode_no=episode_no)
+        storyboard_data = read_json_optional(ep.storyboard_path, None)
+        if not isinstance(storyboard_data, dict):
+            raise ValueError("station 3 storyboard is missing")
+        storyboard = DramaStoryboard(**storyboard_data)
+        if storyboard.episode_no != episode_no or validate_storyboard_hard(storyboard):
+            raise ValueError("station 3 storyboard is invalid")
+        setup = read_json_optional(episode_paths(workspace, episode_no=episode_no).setup_path, {})
+        introduces_new = bool(setup.get("introduces_new_characters")) if isinstance(setup, dict) else False
+        target = character_paths(workspace).sheet_path
+        existing = read_json_optional(target, None)
+        if episode_no > 1 and not introduces_new and isinstance(existing, dict):
+            character_designer.reuse_character_sheet_for_episode(existing, episode_no=episode_no)
+            progress_cb("reuse-validated", 0.85)
+            return {"status": "succeeded", "station": "characters", "episode_no": episode_no,
+                    "skipped": True, "budget_cny": 0.0, "cost_cny": 0.0}
+        budget_cny, line_offset = _drama_budget_start("drama-characters", params)
+        incoming = character_designer.run(workspace, mock=None, episode_no=episode_no)
+        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
+        if exceeded:
+            return {**exceeded, "station": "characters", "episode_no": episode_no}
+        result = character_designer.merge_character_sheet(existing if isinstance(existing, dict) else None, incoming)
+        progress_cb("commit", 0.85)
+        write_json(target, result)
+        return {"status": "succeeded", "station": "characters", "episode_no": episode_no,
+                "skipped": False, "budget_cny": budget_cny, "cost_cny": cost_cny,
+                "committed": True}
+
+    return _run_locked_drama_step("drama-characters", params, progress_cb, _op)
+
+
+def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    from .. import drama_reviewer, drama_store
+    from ..drama_schemas import CharacterSheet, character_paths, episode_paths
+    from ..utils import read_json_optional, write_json
+
+    def _op(episode_no: int) -> Dict[str, Any]:
+        workspace = paths.workspace_name()
+        setup = read_json_optional(episode_paths(workspace, episode_no=episode_no).setup_path, {})
+        sheet_data = read_json_optional(character_paths(workspace).sheet_path, {})
+        sheet = CharacterSheet(**sheet_data)
+        if (
+            episode_no > 1
+            and isinstance(setup, dict)
+            and setup.get("introduces_new_characters") is True
+            and sheet.episode_no != episode_no
+        ):
+            raise ValueError("station 4 must generate episode characters before drama review")
+        budget_cny, line_offset = _drama_budget_start("drama-review-assemble", params)
+        review = drama_reviewer.run(workspace, mock=None, episode_no=episode_no)
+        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
+        if exceeded:
+            return {**exceeded, "station": "review", "episode_no": episode_no}
+        # Treat an explicit parse failure as a review artifact requiring human
+        # attention; settle the already-incurred cost first, but do not publish it.
+        if review.get("parse_failed"):
+            raise ValueError("drama review parse failed")
+        ep = episode_paths(workspace, episode_no=episode_no)
+        targets = (ep.review_path, ep.episode_path, ep.meta_path)
+        snapshots = {path: path.read_bytes() if path.is_file() else None for path in targets}
+        try:
+            progress_cb("commit-review", 0.84)
+            write_json(ep.review_path, review)
+            progress_cb("assemble", 0.9)
+            result = drama_store.assemble_episode(workspace, episode_no=episode_no)
+        except BaseException:
+            _restore_drama_artifacts(snapshots)
+            raise
+        return {
+            "status": "succeeded",
+            "station": "review",
+            "episode_no": episode_no,
+            "verdict": review.get("verdict"),
+            "assembled": bool(result.get("episode")),
+            "budget_cny": budget_cny,
+            "cost_cny": cost_cny,
+            "committed": True,
+        }
+
+    return _run_locked_drama_step("drama-review-assemble", params, progress_cb, _op)
+
+
 # Hard-coded whitelist. Adding a step here = a code review event.
 STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]], Any]] = {
     "normalize": _step_normalize,
@@ -1127,6 +1393,11 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "rebuild-for-start": _step_rebuild_for_start,
     "expand-premise": _step_expand_premise,
     "extract-style": _step_extract_style,
+    "drama-plan": _step_drama_plan,
+    "drama-hooks": _step_drama_hooks,
+    "drama-storyboard": _step_drama_storyboard,
+    "drama-characters": _step_drama_characters,
+    "drama-review-assemble": _step_drama_review_assemble,
 }
 
 
@@ -1186,7 +1457,8 @@ def _worker(job_id: str) -> None:
         with use_workspace(workspace):
             _check_cancelled(job_id, deadline, timeout_minutes)
             result = handler(params, _progress)
-            _check_cancelled(job_id, deadline, timeout_minutes)
+            if not (isinstance(result, dict) and result.get("committed") is True):
+                _check_cancelled(job_id, deadline, timeout_minutes)
     except JobCancelled as exc:
         _update(
             job_id,
@@ -1246,6 +1518,16 @@ def _worker(job_id: str) -> None:
 def _summarize_result(step: str, result: Any) -> Any:
     """Coerce step-native return types into a JSON-safe summary the
     client can render without needing the full payload."""
+    if step.startswith("drama-") and isinstance(result, dict):
+        return {
+            key: result.get(key)
+            for key in (
+                "status", "station", "episode_no", "hook_count", "skipped",
+                "verdict", "assembled", "error_code",
+                "budget_cny", "cost_cny",
+            )
+            if key in result
+        }
     if step in {"auto-pipeline-greenfield", "auto-pipeline"} and isinstance(result, dict):
         write_part = result.get("write") or []
         summary: Dict[str, Any] = {"chapters_written": len(write_part)}
