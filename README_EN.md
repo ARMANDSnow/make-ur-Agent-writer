@@ -14,11 +14,11 @@ normalize the source → split into chapters → extract entities and settings �
 
 The CLI entry points are `write-readiness` and `write-book`. There is also a local web UI (`main.py web`) that puts the same flow in the browser.
 
-Books it has run on: Dragon Raja (龙族, by 江南), A Song of Ice and Fire (English), and a few original novels — all through the same pipeline. The most recent real-model test was Dragon Raja chapter 2: tier=mid passed, panel_score 7.58, cost ¥0.909.
+Books it has run on include Dragon Raja, A Song of Ice and Fire, and original novels. Current acceptance evidence and the distinction between implemented and real-model-validated paths live in [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md).
 
 ## A few design choices
 
-- Development defaults to mock. 590 unit tests finish in a few seconds without spending tokens; `tests/__init__.py` force-sets `OPENAI_MODEL=mock` so a stray `.env` can't leak into tests.
+- Development defaults to mock. The full unit suite runs without spending tokens; `tests/__init__.py` force-sets `OPENAI_MODEL=mock` so a stray `.env` cannot leak into tests. The current count is kept in the handoff rather than duplicated here.
 - Real-model runs go through preflight first. A few categories of FATAL checks — env, context limit, provider routing, manifest integrity — must pass before anything runs.
 - One workspace per book (`workspaces/<name>/`), switched with `--book`; books never share data.
 - Chinese/English chapter splitting is auto-detected; EPUB is converted to txt with the standard library (`zipfile + xml.etree + html.parser`), no new dependencies.
@@ -27,7 +27,7 @@ Books it has run on: Dragon Raja (龙族, by 江南), A Song of Ice and Fire (En
 
 ## Quick start
 
-Mock mode needs no key and no network:
+Mock mode needs no key and makes no billable model-provider calls. LiteLLM may refresh its public model-cost map during import and falls back to a bundled local copy on failure:
 
 ```bash
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
@@ -150,17 +150,18 @@ Don't edit the source text in `小说txt/` directly; to change settings, relatio
 
 ## Project status
 
-| Stage | Scope | Status |
+| Milestone | Iterations | Status |
 |---|---|---|
-| Stage 1 (iter 001-005) | Mock-first foundation, CLI, preflight | Done |
-| Stage 2 (iter 006-008) | First real-model smoke + structured debate voting | Done |
-| Stage 3 (iter 009-013) | Writing-quality axis: entity graph / consistency reviewer / multi-chapter | Done |
-| Stage 4 (iter 014-019) | Multi-workspace + multilingual + unattended + audit hardening | Done |
-| Stage 5 (iter 020+) | Web dashboard + local beta writing entry + UX polish | Done |
+| Mock foundation and first real-model chain | 001-008 | Done |
+| Writing quality, multi-chapter, generalized workspaces | 009-019 | Done |
+| Start-point safety, production runner, local Web beta | 020-050 | Done |
+| Real-model quality and long-run reliability | 051-079 | Engineering complete; novel capstone pending authorization |
+| Drama core and quantitative style loop | 080-087 | Done |
+| Drama delivery and real-media safety entry points | 088-092 | Engineering complete; real multimodal calibration pending staged authorization |
 
-The Chinese [README.md](README.md) carries the full node-by-node SOP status table — the living doc updated at the end of each iteration. As of iter 044 (2026-06-05) the latest work covered onboarding budget/timeout/cancel, mobile responsive layout, and the Insights schema compatibility; the real `longzu` chapter-2 tier=mid run remains the current production evidence.
+The Chinese [README.md](README.md) carries the living SOP table. The compact current snapshot is [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md); per-iteration evidence is indexed under [`docs/iterations/`](docs/iterations/README.md).
 
-Stage summaries: [stage_01](docs/stage_01_summary.md) · [stage_02](docs/stage_02_summary.md) · [stage_03](docs/stage_03_summary.md). Session continuity anchor: [docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md).
+Milestone history and durable lessons: [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md).
 
 ## Notes
 

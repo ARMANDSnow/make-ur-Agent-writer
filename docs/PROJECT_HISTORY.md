@@ -1,0 +1,139 @@
+# Project History
+
+> 压缩后的项目里程碑与长期工程教训。它用于追溯“为什么”，不是新 session 必读文件；逐轮证据仍以 [`iterations/`](iterations/README.md) 为准。
+
+## Timeline
+
+| 迭代 | 里程碑 | 形成的长期能力 |
+|---|---|---|
+| 001-005 | mock 工程基础到首次真模型 extract | CLI 可观测性、manifest/report guard、失败恢复、context overflow、preflight、结构化 debate 投票 |
+| 006-008 | 真模型 debate/write/review 首次闭环 | provider routing 守门、测试 mock 隔离、ballot/reviewer JSON repair、Reject 草稿完整落盘 |
+| 009-013 | 写作质量与多章架构 | 风格样例、continuation anchor、lint/polish、实体关系、一致性 review、滚动章节摘要与关系推进 |
+| 014-019 | 通用化与无人值守 | plot planner、五类 bootstrap、persona、多 workspace、多语言/EPUB、自动 advance、resume/retry、fail-closed review |
+| 020-032 | 算法根修复与本地 Web Beta | 9 阶段 SOP、起点防剧透、planner/writer/reviewer 上下文修复、生产 runner/readiness、Web 工作台与信息架构 |
+| 033-050 | Web 日常能力与全程可编辑 | 软删除、Insights、wizard、短剧 workspace 基础、真实 job 恢复、响应式 UX、Aeloon 双轨、设定/大纲/细纲/正文编辑闭环 |
+| 051-057 | 真模型质量与长程驱动 | premise 扩写、review 预算、drive-book、深起点重建、canon 锚定、diff oracle、per-call timeout、风格卡与长程结构修复 |
+| 058-073 | 安全、错误处理与交互硬化 | 预算/数值 fail-closed、坏 JSON 降级、路径穿越修复、错误脱敏、取消/进度、离开守卫、参数单一真源、计划履约检查 |
+| 074-079 | 编辑工具与 capstone 前可靠性 | 章节版本 diff、全文搜索、panel policy、预算预留、心跳/watchdog/supervisor、workspace 写锁、预算账本与 readiness 补偿 |
+| 080-082 | 短剧核心创作闭环 | 分镜 grid、角色表/角色库、AI 绘画骨架、drama reviewer、episode assembly 与复核页 |
+| 083-087 | 文风量化闭环 | baseline v2、漂移检测、定向建议、可靠性守门、red drift 最多一次重写与复测择优 |
+| 088-092 | 短剧交付与真实媒体安全入口 | 四导出、Insights、第 2 集、真生图安全下载、五站 job、视频 job、多模态可恢复状态机与受控生图重试 |
+| 093 | Agent 记忆与文档分层 | handoff 改为当前快照，阶段总结合并，iteration 索引压缩，默认必读链按需化 |
+
+## Iteration Implementation Index
+
+> 说明列控制在 50 字以内；文件列只列主要落点，不代替各轮完整文件汇总。路线图、草稿和审计快照仍从 [`iterations/README.md`](iterations/README.md) 按需进入。
+
+| Iter | 说明（≤50字） | 主要改动文件/目录 |
+|---|---|---|
+| 001-004 | 建立报告守门、真模型日志、preflight与切章置信度 | `main.py`、`src/llm_client.py`、`src/preflight.py`、`src/chapter_splitter.py`、`scripts/verify.sh` |
+| 005-008 | 打通真debate/write/review，修JSON并隔离测试 | `src/debater.py`、`src/reviewer.py`、`src/writer.py`、`src/schemas.py`、`tests/__init__.py` |
+| 009-013 | 加入风格、lint、实体关系、多章摘要和关系推进 | `src/style.py`、`src/linter.py`、`src/entities.py`、`src/chapter_summary.py`、`src/entity_advance.py` |
+| 014-019 | 实现规划、五类bootstrap、多书、多语言和无人值守 | `src/plot_planner.py`、`src/auto_bootstrap.py`、`src/paths.py`、`src/epub_to_txt.py`、`scripts/write_book.sh` |
+| 020-024 | 根修起点防剧透、上下文注入、预算与长程稳定性 | `src/start_point.py`、`src/source_excerpts.py`、`src/relationship_auditor.py`、`src/cost_estimator.py`、`src/writer.py` |
+| 025-032 | 从只读面板扩展到向导、生产runner和Web工作台 | `src/auto_pipeline.py`、`src/book_runner.py`、`src/chapter_status.py`、`src/web/`、`main.py` |
+| 033-035 | 补回收站、Insights、lint跳转、计划页和短剧定义 | `src/web/insights.py`、`src/web/trash.py`、`src/web/plan_view.py`、`docs/product/short_drama_module.md` |
+| 036-038 | 建立短剧workspace、前两站向导并完成全仓加固 | `src/drama_planner.py`、`src/hook_designer.py`、`src/web/`、`docs/product/short_drama_creation_standard.md` |
+| 039-042 | 修真实Web写作链、meta同步与三档评审；041仅诊断 | `src/writer.py`、`src/book_runner.py`、`src/reviewer.py`、`src/review_tier.py`、`src/web/jobs.py` |
+| 043-045 | 完成UX与响应式收口、任务取消和本地Beta入口 | `src/web/jobs.py`、`src/web/routes.py`、`src/web/templates.py`、`src/web/static.py` |
+| 046 | 实现AgentWrite分段生成并保持计划指纹兼容 | `src/schemas.py`、`src/plot_planner.py`、`src/writer.py`、`tests/test_plot_planner_segments.py`、`tests/test_writer_segments.py` |
+| 046B | workspace缺persona时debate失败，阻断默认人格泄漏 | `src/debater.py`、`tests/test_debater_persona_guard.py` |
+| 047 | 定义知识防剧透批次路线，实际由047a-d落地 | `docs/iterations/iteration_047_PLAN.md` |
+| 047a | 新增分层token预算装配器与统一token计数 | `src/context_budget.py`、`src/llm_client.py`、`tests/test_context_budget.py` |
+| 047b | 构建起点安全KB并接入写作、规划、辩论和外审 | `src/kb_view.py`、`src/writer.py`、`src/plot_planner.py`、`src/debater.py`、`src/book_runner.py` |
+| 047c | 新增伏笔registry、TTL GC和must-resolve闸门 | `src/foreshadowing.py`、`src/book_runner.py`、`src/compressor.py`、`src/preflight.py` |
+| 047d | 为事实和关系增加读者/角色已知防剧透轴 | `src/entities.py`、`src/manual_facts.py`、`src/schemas.py`、`tests/test_reader_character_filter.py` |
+| 047B2 | 对抗验收046/047并修坏JSON、起点、伏笔和预算 | `src/kb_view.py`、`src/start_point.py`、`src/foreshadowing.py`、`src/context_budget.py`、`src/writer.py` |
+| 048a | 搭四步工作台后端、premise建库和模型诊断 | `src/auto_pipeline.py`、`src/llm_client.py`、`src/web/jobs.py`、`src/web/wizard.py`、`src/web/diag.py` |
+| 048b | 上线四步工作台前端、阶段判定和大纲编辑 | `src/web/routes.py`、`src/web/templates.py`、`src/web/static.py`、`tests/test_workbench_e2e.py` |
+| 048c | 加入细纲预览/重生成并闭合写书指纹链 | `src/web/templates.py`、`src/web/static.py`、`tests/test_workbench_replan.py` |
+| 048d | 修工作台并发、step readiness和诊断脱敏 | `src/llm_client.py`、`src/web/settings.py`、`src/web/routes.py`、`src/web/jobs.py` |
+| 049 | 接入Aeloon插件、共享client/MCP和Bearer保护 | `integrations/aeloon_plugin/`、`integrations/novel_client/`、`integrations/novel_ops/`、`integrations/mcp_server/`、`src/web/auth.py` |
+| 050 | 打通细纲、正文、知识库和实体编辑，加入预算护栏 | `src/plot_planner.py`、`src/writer.py`、`src/web/routes.py`、`src/web/static.py`、`src/utils.py` |
+| 051 | 新增premise扩写与编辑，补评审预算和起点校验 | `src/premise_expansion.py`、`src/start_point.py`、`src/web/wizard.py`、`src/web/jobs.py`、`src/auto_pipeline.py` |
+| 052 | 正式化长程分段驱动、断点续跑、总预算和进程管理 | `src/book_driver.py`、`scripts/drive_book.sh`、`src/writer.py`、`src/config.py`、`tests/test_book_driver.py` |
+| 053 | 给辩论/规划加起点血统闸，强化canon和评审回灌 | `src/debater.py`、`src/plot_planner.py`、`src/writer.py`、`src/reviewer.py`、`src/auto_bootstrap.py` |
+| 054 | 建立深起点ingest/rebuild，按起点过滤派生知识 | `src/start_point.py`、`src/auto_pipeline.py`、`src/auto_bootstrap.py`、`src/compressor.py`、`src/book_runner.py` |
+| 055 | 为真模型加入分任务超时、分类重试和续抽策略 | `src/llm_client.py`、`src/extractor.py`、`src/config.py`、`config/models.yaml`、`src/auto_pipeline.py` |
+| 056 | 新增原创书风格卡、预置库、样本提取和缓存注入 | `src/writer_style.py`、`config/style_presets.json`、`src/writer.py`、`src/web/routes.py`、`src/web/jobs.py` |
+| 057 | 修规划指纹、流式卡死、旧章记忆和大纲漂移 | `src/book_driver.py`、`config/models.yaml`、`src/plot_planner.py`、`src/chapter_summary.py`、`src/outline_drift.py`、`scripts/migrate_plan_fingerprints.py` |
+| 058 | 补onboarding预算、抽取显错和非有限浮点守门 | `src/web/routes.py`、`src/web/wizard.py`、`src/web/jobs.py`、`src/auto_pipeline.py`、`tests/test_float_finite_guard.py` |
+| 059 | 将坏JSON、非法整数和坏上传转为可恢复blocker | `src/web/jobs.py`、`src/web/routes.py`、`src/chapter_status.py`、`src/book_driver.py`、`src/book_runner.py` |
+| 060 | 收口写端并发、原子写、取消检查点和残余输入守门 | `src/web/routes.py`、`src/web/jobs.py`、`src/book_runner.py`、`src/debater.py`、`tests/test_iter060_p2.py` |
+| 061 | 热修风格样本路径穿越，改用目录内随机token | `src/web/routes.py`、`src/web/jobs.py`、`tests/test_web_writer_style.py` |
+| 062 | 统一Web错误卡、步骤导航和未开放短剧页签锁定 | `src/web/errors.py`、`src/web/routes.py`、`src/web/settings.py`、`src/web/static.py`、`src/web/templates.py` |
+| 063 | 修复Web复审缺陷，并合并readiness语义目录 | `src/readiness_catalog.py`、`src/web/errors.py`、`src/web/jobs.py`、`src/web/routes.py`、`src/book_runner.py` |
+| 064 | 统一CLI/Web/driver参数校验和typed stale错误 | `src/run_params.py`、`main.py`、`src/book_driver.py`、`src/plot_planner.py`、`src/web/errors.py` |
+| 065 | 加入计划履约建议，并支持受控创建实体关系 | `src/reviewer.py`、`src/writer.py`、`src/entity_advance.py`、`src/book_runner.py`、`config/agents.yaml` |
+| 066 | 硬化实体推进与resume数值，放宽长程规划上限 | `src/entity_advance.py`、`src/book_runner.py`、`src/book_driver.py`、`src/run_params.py`、`main.py` |
+| 067 | 拒绝布尔/非有限数，并禁止JSON持久化NaN/Infinity | `src/run_params.py`、`src/book_driver.py`、`src/utils.py`、`tests/test_write_json_finite.py` |
+| 068 | 新增底座重建job、分阶段进度、取消和预算readiness | `src/web/routes.py`、`src/web/jobs.py`、`src/web/static.py`、`src/auto_pipeline.py`、`src/extractor.py`、`src/readiness_catalog.py` |
+| 069 | 重构首页三入口、顶栏命名和向导分流 | `src/web/templates.py`、`src/web/static.py`、`tests/test_web_routes_get.py` |
+| 070 | 统一首页导航并增加离开工作区任务确认 | `src/web/templates.py`、`src/web/static.py`、`tests/test_web_routes_get.py` |
+| 071 | 扩展离开守卫，新增active-jobs真源和模态焦点 | `src/web/templates.py`、`src/web/jobs.py`、`src/web/routes.py`、`src/web/static.py` |
+| 072 | 收口侧栏守卫、任务公开视图、排序和模态可访问性 | `src/web/templates.py`、`src/web/static.py`、`src/web/jobs.py`、`src/web/routes.py` |
+| 073 | 阻断计划失约/严重漂移，并硬化job公开投影 | `src/reviewer.py`、`src/book_runner.py`、`src/outline_drift.py`、`src/web/jobs.py`、`config/agents.yaml` |
+| 074 | 新增章节版本枚举、安全diff API和Web对比面板 | `src/web/chapter_diff.py`、`src/web/routes.py`、`src/web/static.py`、`tests/test_web_chapter_diff.py` |
+| 075 | 新增跨章全文搜索、范围过滤、高亮和结果页 | `src/search.py`、`src/web/routes.py`、`src/web/templates.py`、`src/web/static.py`、`tests/test_search.py` |
+| 076 | 硬化搜索/diff并加入长跑策略、预算预留和监督器 | `src/search.py`、`src/web/chapter_diff.py`、`src/book_runner.py`、`src/book_driver.py`、`scripts/drive_book_supervised.sh` |
+| 077 | 修伏笔边界、caveat恢复、陈旧拒稿和孤儿进程 | `src/foreshadowing.py`、`src/book_runner.py`、`src/book_driver.py`、`src/chapter_status.py`、`src/preflight.py` |
+| 078 | 完成评分、成本、锁、摘要顺序和实体补偿硬化 | `src/reviewer.py`、`src/workspace_lock.py`、`src/book_runner.py`、`src/entity_advance.py`、`src/cost_estimator.py` |
+| 079 | 收口Web/CLI写锁、实体提案缺口和mock预算演练 | `src/web/routes.py`、`src/web/jobs.py`、`main.py`、`src/book_runner.py`、`src/cost_estimator.py` |
+| 080 | 实现短剧站③分镜生成、编辑、排序和网格界面 | `src/drama_schemas.py`、`src/storyboard_builder.py`、`src/web/routes.py`、`src/web/static.py`、`tests/test_drama_storyboard_grid.py` |
+| 081 | 实现站④角色设计、角色库、引用图和绘图安全骨架 | `src/drama_schemas.py`、`src/character_designer.py`、`src/ai_draw_client.py`、`src/web/routes.py`、`src/web/static.py` |
+| 082 | 实现短剧评审、整集组装、建议应用和剧集详情页 | `src/drama_reviewer.py`、`src/drama_store.py`、`src/web/routes.py`、`src/web/templates.py`、`tests/test_drama_store.py` |
+| 083 | 建立本地文风指纹基线、草稿检测和CLI产物路径 | `src/style_fingerprint.py`、`config/style_fingerprint.yaml`、`src/paths.py`、`main.py` |
+| 084 | 新增文风漂移报告，接入写章meta和Web展示 | `src/style_drift.py`、`src/writer.py`、`src/web/templates.py`、`src/web/static.py`、`tests/test_style_drift.py` |
+| 085 | 将漂移映射为改写指令并接入非投票风格advisor | `src/schemas.py`、`src/style_drift.py`、`src/reviewer.py`、`tests/test_style_rewrite_directives.py` |
+| 086 | 指纹升至v2，硬化可靠度、哈希、聚合和Web状态 | `src/style_fingerprint.py`、`config/style_fingerprint.yaml`、`src/style_drift.py`、`main.py`、`src/web/static.py` |
+| 087 | 实现红灯单次文风改写、择优回退和状态展示 | `src/style_drift.py`、`src/writer.py`、`src/reviewer.py`、`src/chapter_status.py`、`src/web/static.py` |
+| 088 | 新增四格式导出、短剧Insights和第2集流程 | `src/comfy_workflow_exporter.py`、`src/web/drama_insights.py`、`src/drama_store.py`、`src/web/routes.py`、`tests/test_drama_exports.py` |
+| 089 | 接入真生图/视频客户端和授权、SSRF、落盘守门 | `src/ai_draw_client.py`、`src/drama_video_client.py`、`src/drama_image_smoke.py`、`src/preflight.py`、`src/web/routes.py` |
+| 090 | 五站改为可恢复job，加入真文本预算闸和全链smoke | `src/drama_planner.py`、`src/web/routes.py`、`src/web/jobs.py`、`src/drama_smoke.py`、`scripts/drama_smoke.sh` |
+| 091 | 实现单集真视频job、安全下载和Web播放闭环 | `src/drama_video.py`、`src/drama_video_client.py`、`src/drama_video_smoke.py`、`src/web/jobs.py`、`src/web/routes.py` |
+| 092 | 新增可恢复多模态联测和生图三次授权重试边界 | `src/drama_multimodal_smoke.py`、`scripts/drama_multimodal_smoke.sh`、`src/ai_draw_client.py`、`src/web/routes.py` |
+| 093 | 重构文档分层、压缩默认记忆并合并阶段总结 | `AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md`、`docs/iterations/README.md` |
+
+## Durable Decisions
+
+### Mock first
+
+- 单测与 `verify.sh` 永远强制 mock，不能从 `.env` 泄漏到真实 provider。
+- 可选知识源缺失时，裸仓库工程验证必须 graceful degrade。
+- mock 只能证明编排和守门，不能证明真模型质量、费用或时延。
+
+### Fail closed at paid and irreversible boundaries
+
+- 模型/provider、预算、超时、workspace、episode、fingerprint 与 artifact path 在调用或写盘前验证。
+- JSON/schema 失败不能静默 Approve；必要时修复已知字段，否则显式 Abstain/blocked。
+- 计费媒体使用独立确认和预算。授权不从旧 job/state 继承，也不跨文本、图片、视频阶段复用。
+
+### Keep state auditable
+
+- 每轮 iteration 保留 8 段结构、验收命令、审查结论与未修风险。
+- LLM 调用、writer meta、review、driver state、style drift 和媒体 attempt 只记录排障所需的有界、脱敏数据。
+- 运行中的草稿、失败、snapshot 和 resume 状态要完整落盘；成功/拒稿/中止不能靠文件是否存在猜测。
+
+### Separate current truth from history
+
+- `AGENTS.md` 是长期规则；`AGENT_HANDOFF.md` 是当前快照；README SOP 是节点状态；iteration 是历史证据。
+- handoff 不再累积 Phase Status。阶段性历史只在本文件归纳，细节链接到原 iteration。
+
+## Engineering Lessons
+
+1. **配置语义必须直观且硬校验**：早期 `rewrite_max` 的含义与名字不一致，最终改为 `max_review_attempts` 并移除兼容分支。模糊配置会变成运行时事故。
+2. **Prompt 约束不能替代本地 normalization**：真模型曾返回空 ballot、缺字段 review 和近似 JSON。可靠路径需要 schema、repair、retry 与 fail-closed fallback 配合。
+3. **测试隔离要有多层防线**：只在测试包入口设 mock 不够，直接 discovery 可能绕过它；配置加载和验证脚本也必须显式隔离。
+4. **起点安全是数据摄入问题**：仅在 prompt 里说“不要剧透”不构成硬保证。需要 start-aware 提取、知识视图、指纹和物理过滤；即便如此，模型预训练记忆仍只能缓解，不能绝对消除。
+5. **长流程必须能恢复而不是只会重跑**：预算账本、step timeout、snapshot、heartbeats、supervisor、workspace lock 和幂等 resume 是一组能力，缺一项都会在长跑中放大成本。
+6. **同一处置语义只能有一个真源**：readiness、runner、Web 卡片和 resume 曾多次因平行判断漂移。分类、参数和错误目录应下沉为共享纯函数或 schema。
+7. **媒体安全边界高于普通 LLM 文本**：URL、redirect、DNS/peer IP、MIME/magic、size、hash、原子落盘与重复计费都必须独立守门。
+8. **Mock fixture 不能总为空**：graceful-degrade 会让关键闸门零覆盖；涉及关系、预算、resume、媒体状态时应提供最小非空 fixture。
+9. **文档中的“当前”最容易过期**：测试数、最近 iter、下一步只保留在 handoff；产品说明和历史总结用范围化措辞并链接当前快照。
+
+## Historical Evidence Notes
+
+- 早期阶段测试数、调用数、成本估算与具体 snapshot 是当时证据，不代表当前值；需要时读对应 iteration 001-019。
+- 真模型小说路径曾完成 extract、debate、write/review、原创 premise 多章和深起点续写样本；最新生产证据与仍待授权项以 handoff 为准。
+- Aeloon 的 PR、部署方式和 vendored 同步状态由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护，不在这里复制。
+- 历史 roadmap 与 `PLAN_DRAFT` 是决策快照，保留在 `iterations/`，但不属于默认记忆入口。

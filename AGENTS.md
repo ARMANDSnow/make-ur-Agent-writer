@@ -1,143 +1,86 @@
-# AGENTS.md — 项目上下文锚点
+# AGENTS.md - 项目入口
 
-> **任何 AI agent（codex / claude / 其他）进入本仓库时，先读完本文件再做任何事。**
-> 这是省去每次重新解释项目背景的 entrypoint。预计 2-3 分钟读完。
+> 所有 agent 进入仓库先读本文件；随后只读 `docs/AGENT_HANDOFF.md`。其它历史文档按任务需要查阅，不再作为每次 session 的默认上下文。
 
-## 项目本质
+## 项目与边界
 
-Dragon Raja AI Continuer MVP：基于 LLM 多 agent 协作的中文小说续写流水线。当前主验证书目 龙族（江南），但目标是任意小说通用化。
+Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与短剧生成研究项目，目标是支持任意小说，而非只服务当前验证书目。
 
-**不许修改 `小说txt/` 原文。** 该目录含原作者版权文本，仅用于 normalize/extract 输入。
+- **禁止修改 `小说txt/` 原文**。原文及其衍生数据只用于本地处理，不进入仓库。
+- 默认 `OPENAI_MODEL=mock`，无 key、无计费模型请求即可完成工程验证。LiteLLM 导入时可能刷新公开 model cost map 并回落本地缓存，这不属于模型调用。
+- 真模型配置由用户维护在 `.env`；模型名必须包含 provider 前缀，例如 `deepseek/deepseek-chat`。
 
-## 默认模式
+## 新 Session 读取顺序
 
-- **mock-only（默认）**：`OPENAI_MODEL=mock`，无 API key，全流水线本地跑通用于工程验证
-- **真模型（用户手工切）**：`.env` 中 `OPENAI_MODEL=deepseek/deepseek-chat`（**必须带 provider 前缀**，iter 006 踩过坑）
+1. 本文件：长期规则、验证方式、路径。
+2. [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)：唯一当前状态、缺口、下一步和最新验收基线。
+3. 仅在本轮实施时读 [`docs/iterations/README.md`](docs/iterations/README.md) 与最新/相关 iteration 文档。
+4. 需要追溯历史决策时读 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md) 或具体 iteration；不要默认加载全部历史。
+5. 用户明确指向仓库外计划时再读 `~/.claude/plans/docs-rosy-wadler.md`；文件不存在则以用户当前指令为准，不自行补造计划。
 
-## 迭代工作流约定
+权威性顺序：当前行为以代码和测试为准；当前进度以 handoff 为准；节点级 SOP 以 README 为准；历史原因以 iteration 文档为准。
 
-- 每轮实现迭代必须显式使用 `iter-start` 和 `iter-finish` 两个 skill：开工先建/确认标准 8 段 iteration 文档，收官必须跑验收、审查、README SOP 与 `docs/AGENT_HANDOFF.md` 同步；收官审查默认必须调用至少 2 个只读 subagents 做多视角 bug/security 审查，并把 subagent 结论写入当轮 iteration `Acceptance Result` 或 `Notes`。
-- 用户已授权：后续 `iter-finish` 默认可以自动执行标准验收命令，包括 `scripts/verify.sh`。该脚本写入 gitignored `data/`、`outputs/`、`logs/` 验证产物不视为手工触碰用户私有内容；仍不得主动读取/改写私有样本或原文，不得改 `.env`，不得跑真模型 smoke。
-- 实现项目时可以适当使用 subagents 分摊只读审查、探索和互相独立的工作切片，以节约主线程上下文；每轮收官必须至少拆 correctness 与 security/boundary 两个独立只读 subagent 视角；subagent 不得触碰 `.env`、`data/`、`outputs/`、`小说txt/`，不得跑真模型 smoke。
+## 迭代工作流
 
-## 进入工作流前必读（按顺序）
+- 每轮实现必须显式使用 `iter-start` 和 `iter-finish`。
+- iteration 文档固定 8 段：`Context / Plan / Acceptance / Implementation Notes / Acceptance Result / 文件变更汇总 / 不在本轮范围 / Notes`。
+- `iter-start` 新建当轮文档并更新 iteration 索引。
+- `iter-finish` 跑标准验收、只读审查、更新 README SOP，并**就地更新** handoff 当前快照和“Latest Transition”；handoff 不再累计追加历轮 Phase Status。
+- 收官默认至少两个独立只读 subagent：correctness 与 security/boundary。Web、runner、多 workspace、真模型或计费入口按风险增加视角。
+- 只 commit，不 push，等待用户验收。
 
-1. **当前状态**：[docs/AGENT_HANDOFF.md](docs/AGENT_HANDOFF.md) — 截至最后一轮迭代的完整能力清单 + Next Candidates
-2. **迭代索引**：[docs/iterations/README.md](docs/iterations/README.md) — 按编号排列，每轮一个 .md
-3. **最新迭代详情**：上面索引里最大编号的那个 iteration_NNN_*.md（8 段标准结构）
-4. **阶段总结**：[docs/stage_01_summary.md](docs/stage_01_summary.md)、[docs/stage_02_summary.md](docs/stage_02_summary.md)、[docs/stage_03_summary.md](docs/stage_03_summary.md) — 阶段性回顾与工程教训
-5. **当前任务计划**：用户每轮把详细计划写在 `~/.claude/plans/docs-rosy-wadler.md`（仓库外），任务指令会指向该文件
+## 工程铁律
 
-## 工程铁律（违反必须给理由）
+1. **凭据安全**：看到疑似真实凭据立即停止。不得主动读写 `.env`；日志、错误和公开 job 投影不得泄露凭据、完整 prompt 或签名 URL。
+2. **版权边界**：不得主动读取、写入或提交 `小说txt/`、私有样本与原文片段。示例文件只放 schema 和 `<用户填写>` 占位符。
+3. **测试隔离**：单测必须是 mock；任何让 `unittest discover` 触发真模型的改动都是 bug。
+4. **Graceful degrade**：可选的 style examples、global facts、entity graph、continuation anchor 缺失时，mock 裸仓库仍须跑通。
+5. **真模型需逐次授权**：`scripts/{real,debate,write}_smoke.sh` 及任何真文本、真生图、真视频入口，必须等用户明确授权。
+6. **范围收敛**：不顺手改计划外文件；真实运行暴露的阻塞 bug 可例外，但必须在 iteration 中记录。
+7. **SOP 实时性**：收官同步 README 的项目状态、9 阶段 SOP 和真实日期；handoff 只保留当前值，不复制历史长日志。
+8. **收官审查**：优先使用内置代码/安全审查能力，并完成至少两个只读 subagent 视角。记录范围、结论、主线程复核和未修风险。
+9. **审查边界**：subagent 不得改文件、跑真模型、触碰 `.env`、`data/`、`outputs/`、`logs/` 或 `小说txt/`。
+10. **真生图超时策略**：仅在用户明确授权后使用。首次失败/超时后先查上游任务状态与账单，再经重新授权使用简化 prompt；首轮外最多 2 次，每次 180 秒。真视频仍是单次提交、超时不重试。
 
-1. **API key 安全**：任何时刻看到 `sk-` 模式立即停止。不主动改 `.env`，不主动跑真模型 smoke。`.env` 已在 `.gitignore`
-2. **小说原文版权**：`data/style_examples/*.md` 和 `data/entity_graph.json` 由用户本地手填，**不要主动写入任何 龙族 原文片段**。`*.example.json` 等示例文件只放 schema + `<用户填写>` 占位符
-3. **测试隔离**：单测必须 `OPENAI_MODEL=mock` 跑（`tests/__init__.py` 已强制），任何让 `unittest discover` 触发真模型调用的改动都是 bug
-4. **mock 路径 graceful degrade**：所有可选数据源（style_examples、global_facts、entity_graph、continuation_anchor）缺失时**不报错**，让 `verify.sh` 在裸仓库也能跑通
-5. **commit 不 push**：完成迭代后只 commit 不 push，等用户验收
-6. **真模型 smoke 必须等用户授权**：`scripts/{real,debate,write}_smoke.sh` 涉及真 API 调用，必须用户回"可以跑了"才能执行
-7. **scope 收敛**：不要把"顺手修一下"扩展到计划外文件。真模型暴露的真实 bug 例外（iter 008 修 reviewer/writer 是这种情况）但要在文档里诚实记录
-8. **SOP 实时性**（iter 021 新增）：每轮 iter 收官时必须同步 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) 表格的状态字段（✅/⚠️/❌）+ "最近一次更新" 时间戳 + `docs/AGENT_HANDOFF.md` 末尾追加 Phase Status。这个表是用户判断"哪里打通了 / 哪里还没"的单一真实来源
-9. **迭代末尾代码审查**（iter 031 引入，2026-06 升级为内置 skill；iter 084 起升级为强制多视角）：每轮 iter 收官前，必须对本轮改动做结构性/程序性只读审查。**优先用内置 skill**：跑 `代码审查`（正确性 bug + 复用/简化/效率）+ `/security-review`（API key / `.env` 泄漏自查，对口第 1 条）。同时默认必须调用至少 2 个独立只读 subagents 并行做多视角 bug/security 审查（至少 correctness + security/boundary 两个视角）；Web / runner / 多 workspace / 真模型入口等高风险改动，在此基础上增加更多独立视角 subagents。审查范围、subagent 结论、主线程复核、未修风险必须写进当轮 iteration 的 `Acceptance Result` 或 `Notes`，再提交。审查为只读：不得跑真模型 smoke、不得触碰 `.env`、`data/`、`outputs/`、`小说txt/`。
-10. **中转站真生图超时策略**（用户于 2026-07-12 明确指定）：中转站生图超过 **2 分钟**可能失败。只有在用户已明确授权真生图 smoke 时，首次失败/超时后才可先**简化 prompt**，再给予首轮之外最多 **2 次重试机会**，**每次 timeout=180 秒**。重试前先查询上游任务状态/账单，确认前一请求不会继续运行或重复计费；授权范围必须覆盖最多 3 次可能计费提交。该例外**仅适用于生图**，不得放宽真视频的「单次提交、超时不重试」边界。
-
-## 迭代记录格式
-
-每轮新建 `docs/iterations/iteration_NNN_<short_name>.md`，**必须 8 段**：
-
-```
-Context / Plan / Acceptance / Implementation Notes / Acceptance Result / 文件变更汇总 / 不在本轮范围 / Notes
-```
-
-同步更新 `docs/iterations/README.md` 索引 + `docs/AGENT_HANDOFF.md` 末尾追加。
-
-## 验证命令
+## 标准验证
 
 ```bash
-# 工程 sanity（每次改完代码先跑）
 PYTHONPYCACHEPREFIX="$PWD/.pycache" python3 -m unittest discover -s tests
 bash scripts/verify.sh
 python3 main.py preflight
-
-# 真模型 smoke（仅用户授权后）
-bash scripts/real_smoke.sh     # extract 小样本，~$0.03
-bash scripts/debate_smoke.sh   # debate 全链路，~$0.15
-bash scripts/write_smoke.sh    # write 1 章端到端，~$0.20-0.30
 ```
 
-## 关键路径速查
+`scripts/verify.sh` 写入 gitignored 的 `data/`、`outputs/`、`logs/` 验证产物已获默认授权。不得因此读取用户私有样本，也不得切换到真模型。
 
-```
-src/                      # 主代码
-  config.py               # load_config / ROOT / dotenv（dotenv 在测试态会被跳过）
-  llm_client.py           # 真/mock 模型抽象，cache_segments 注入，token 日志
-  preflight.py            # 上游守门 FATAL/WARN/INFO 三档
-  writer.py               # 章节生成 + lint + review + polish 循环
-  reviewer.py             # 7 agent review，agent_name repair
-  debater.py              # 6 轮辩论 + 裁决投票（ballot 字段修复）
-  linter.py               # 确定性句式 lint，含阈值化规则
-  extractor.py            # chunked extraction + rolling summary
-  compressor.py           # 全局知识库构建
-  chapter_splitter.py     # 章节切分 + confidence 评分
-  style.py                # data/style_examples/ loader
-  entities.py             # data/entity_graph.json loader（iter 011 引入）
-
-config/
-  agents.yaml             # max_review_attempts / polish_pass / continuation_anchor / review_agents
-  models.yaml             # 各 task 的 model/temperature/max_tokens/context_limit
-  linter.yaml             # 规则启用与阈值
-
-data/                     # 全部 gitignored（产物 + 用户私有内容）
-  normalized_texts/       # 原文规范化（衍生自 小说txt/）
-  extracted_jsons/        # 章节抽取
-  rolling_summaries/      # 跨章滚动摘要
-  knowledge_base/         # compress 产物
-  manual_overrides/       # 用户手填的 global_facts.json
-  style_examples/         # 用户手挑的江南文风片段
-  entity_graph.json       # 用户手填的实体关系图（iter 011 引入）
-  chapter_manifest.json   # 切章索引（含 confidence）
-
-outputs/                  # 全部 gitignored
-  debate/                 # decisions.json / outline.md / debate_log.jsonl / snapshots/
-  drafts/                 # chapter_NN.md + meta.json + snapshots/
-  reviews/                # 各章 review json
-
-logs/                     # 全部 gitignored
-  llm_calls.jsonl         # 每次调用的 model/status/token/hash（append-only）
-  *_smoke_<ts>.log        # 真模型 smoke 全程 stdout/stderr
-```
-
-## 当前阶段 & SOP 状态
-
-**最后更新**：iter 092（2026-07-12，收官）
-
-**SOP 实时状态**：见 [README.md「项目阶段 SOP（实时状态）」](README.md#项目阶段-sop实时状态) — 9 阶段表格 + ✅/⚠️/❌ 状态标记。每 iter 完成时由当轮负责的 agent 同步更新（工程铁律第 8 条）。
-
-**当前 iter**：092（短剧真实多模态联测编排与生图重试硬化；已收官，完整记录见 `docs/iterations/iteration_092_drama_multimodal_smoke_hardening.md`）
-**已完成阶段**：1-4 主链路全打通；Web 本地 Beta、生产 runner、Aeloon、可编辑、长跑可靠性与文风闭环已收口。短剧已有五站 job、四导出、Insights、第 2 集、真生图安全入口和 episode 1 单视频 202/job；iter092 新增 fresh workspace 可恢复的真文本→全角色图→重组→readiness→单次视频联测编排。
-**关键证据**：工程主链路 **STRUCTURE GO**；canonical **1903 tests OK**（较 1880 新增 23），`verify.sh` exit 0，mock preflight ok/无 WARN/FATAL，真实配置 preflight warn/无 FATAL，Python/shell/diff 通过。mock fresh+resume 多模态全链成功，**network_requests=0 / automatic_retries=0**。correctness、security/boundary、orchestrator/Web integration 三视角 findings 全修并复核 PASS。真文本、真生图、真视频均未跑，三类真实提交数均为 0。**缺口**：真多模态费用/时延/质量仍待分段授权校准；真 ComfyUI、小说 10-20 章 capstone 与文风真模型阈值仍未校准。
-**后续候选（iter093+）**：可分别授权五站真文本、全角色真生图和单次真视频 smoke；生图重试前必须查 provider 任务/账单，最多额外 2 次、每次 180s，真视频仍单次提交不重试。第 3 集+、小说 capstone 与文风校准仍为独立候选。
-**详细阶段总结**：[stage_03_summary.md](docs/stage_03_summary.md) + 最新 iteration .md 的 Notes / 下一步段落
-
-## 常用 git 操作
+真模型 smoke 入口仅供获授权后使用：
 
 ```bash
-# 完成一轮迭代
-git add <相关文件>
-git commit -m "Iteration NNN: <短描述>"
-# 不要 push，等用户验收
-
-# 用户验收完成后由用户或 claude 决定 push
+bash scripts/real_smoke.sh
+bash scripts/debate_smoke.sh
+bash scripts/write_smoke.sh
 ```
 
-提交 author 已配置为用户的 GitHub identity，commit 直接挂上。`.gitignore` 已覆盖 `.env / data/ / outputs/ / logs/ / .claude/settings.local.json / 小说txt/`。
+## 关键路径
 
-## 出现问题时
+```text
+main.py                  CLI 入口
+src/                     流水线、runner、Web、小说与短剧领域逻辑
+config/                  agent/model/linter/style 配置
+scripts/                 verify、mock/real smoke、长跑入口
+tests/                   mock 隔离测试
+docs/AGENT_HANDOFF.md    当前状态单一真源
+docs/PROJECT_HISTORY.md  压缩后的里程碑与工程教训
+docs/iterations/         每轮审计记录，按需读取
+workspaces/<name>/       每书本地隔离目录，内容不提交
+data/ outputs/ logs/     legacy/mock 与本地产物，均 gitignored
+```
 
-- 不确定计划意图 → 读 `~/.claude/plans/docs-rosy-wadler.md`
-- 不确定历史决策 → 读对应 `docs/iterations/iteration_NNN_*.md` 的 Context + Notes
-- 不确定工程教训 → 读 stage 总结 + AGENT_HANDOFF
-- 测试挂了 → 先确认 `OPENAI_MODEL=mock`，再看是否引入了未 mock 的真模型路径
-- 真模型调用挂了 → 看 `logs/llm_calls.jsonl` 末尾几条的 error 字段；常见原因：litellm provider 前缀错、key 过期、context overflow（已有 LLMContextOverflowError 守门）
+涉及 Aeloon 时读 `docs/AELOON_INTEGRATION.md`；涉及产品使用读 `docs/product/GETTING_STARTED.md`；涉及短剧协议读 `docs/product/short_drama_module.md` 和创作规范。
 
-**任何时候不确定，停下来问用户，不要猜。**
+## 排障顺序
+
+- 先确认 `OPENAI_MODEL=mock`，再复现聚焦测试。
+- 行为与文档不一致时，以代码/测试为准并修正文档。
+- 历史决策不清楚时，在 iteration 索引中定位相关轮次，不回读整个 handoff 历史。
+- 真模型失败仅在已授权范围内检查脱敏日志；未授权时停在 preflight。
+- 无法从代码、测试、handoff 或相关 iteration 得出结论时，再向用户确认。
