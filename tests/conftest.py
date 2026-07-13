@@ -1,6 +1,7 @@
 """iter047B2 M9: keep `pytest` runs mock-isolated, matching `unittest discover`.
 
-The canonical runner is `python -m unittest discover -s tests` (AGENTS.md:51),
+The canonical gate is `bash scripts/verify.sh`, which runs
+`python -m unittest discover -s tests` exactly once,
 under which tests/__init__.py + src/config + src/llm_client scrub .env so tests
 never hit a real model. Bare `pytest` historically reported 3 spurious failures
 (test_env_isolation + test_llm_client_cache x2): pytest wasn't detected as a test

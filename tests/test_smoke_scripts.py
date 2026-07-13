@@ -42,11 +42,19 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertIn("export OPENAI_MODEL=mock", text)
         self.assertIn("export LITELLM_LOCAL_MODEL_COST_MAP=true", text)
         self.assertIn("unset OPENAI_API_KEY OPENAI_BASE_URL", text)
-        self.assertIn("PLANNER_API_KEY PLANNER_BASE_URL PLANNER_MODEL", text)
+        self.assertIn('export OPENAI_API_KEY="" OPENAI_BASE_URL=""', text)
+        self.assertIn("PLANNER_API_KEY", text)
+        self.assertIn("PLANNER_MODEL=mock", text)
+        self.assertIn("DRAMA_MODEL=mock", text)
+        self.assertIn("SD_VIDEO_MODE=mock", text)
         self.assertIn("OPENAI_STREAM", text)
         self.assertNotIn('source "$ROOT/scripts/with_proxy.sh"', text)
         self.assertIn('PYTHON_BIN="$ROOT/.venv/bin/python3"', text)
-        self.assertNotIn("\\npython3 -m unittest", text)
+        self.assertNotIn('PYTHON_BIN="python3"', text)
+        self.assertEqual(text.count("-m unittest discover -s tests -v"), 1)
+        self.assertIn("scripts/check_agent_harness.py", text)
+        self.assertIn("scripts/write_acceptance.py start", text)
+        self.assertIn("run_main_step preflight preflight", text)
 
     def test_drama_mock_wrappers_pin_litellm_to_local_cost_map(self) -> None:
         for name in ("drama_smoke.sh", "drama_multimodal_smoke.sh", "drama_video_smoke.sh"):

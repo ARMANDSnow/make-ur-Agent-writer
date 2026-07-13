@@ -23,6 +23,7 @@ Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与�
 ## 迭代工作流
 
 - 每轮实现必须显式使用 `iter-start` 和 `iter-finish`。
+- 仓库内 `.agents/skills/{iter-start,iter-finish}` 是项目 workflow 的唯一真源；不得在用户目录维护项目专用副本。
 - iteration 文档固定 8 段：`Context / Plan / Acceptance / Implementation Notes / Acceptance Result / 文件变更汇总 / 不在本轮范围 / Notes`。
 - `iter-start` 新建当轮文档并更新 iteration 索引。
 - `iter-finish` 先跑聚焦检查，再完成只读多视角审查与修复，最后只跑一次标准全量验收；随后更新 README SOP，并**就地更新** handoff 当前快照和“Latest Transition”。
@@ -47,12 +48,10 @@ Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与�
 收官顺序固定为：聚焦测试/静态检查 → 多视角只读审查 → 修复 findings 并做聚焦回归 → 最终一次全量标准验证。不要在审查前先跑耗时的 `verify.sh`，以免修复后重复跑全量；最终全量失败时再按失败范围修复并重验。
 
 ```bash
-PYTHONPYCACHEPREFIX="$PWD/.pycache" python3 -m unittest discover -s tests
 bash scripts/verify.sh
-python3 main.py preflight
 ```
 
-`scripts/verify.sh` 写入 gitignored 的 `data/`、`outputs/`、`logs/` 验证产物已获默认授权。不得因此读取用户私有样本，也不得切换到真模型。
+`scripts/verify.sh` 固定使用项目 `.venv/bin/python3`，依次执行 harness 检查、语法检查、一次全量单测、mock pipeline 与 preflight，并写入 gitignored 的 `outputs/harness/acceptance.json`。其 `data/`、`outputs/`、`logs/` 验证产物已获默认授权；不得因此读取用户私有样本，也不得切换到真模型。聚焦 Python 检查同样使用 `.venv/bin/python3`。
 
 真模型 smoke 入口仅供获授权后使用：
 
@@ -68,7 +67,7 @@ bash scripts/write_smoke.sh
 main.py                  CLI 入口
 src/                     流水线、runner、Web、小说与短剧领域逻辑
 config/                  agent/model/linter/style 配置
-scripts/                 verify、mock/real smoke、长跑入口
+scripts/                 verify、harness checker、mock/real smoke、长跑入口
 tests/                   mock 隔离测试
 docs/AGENT_HANDOFF.md    当前状态单一真源
 docs/PROJECT_HISTORY.md  压缩后的里程碑与工程教训

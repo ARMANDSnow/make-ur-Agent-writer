@@ -23,11 +23,12 @@ mock 模式不需要 key、不调用模型 provider，也不会联网刷新 Lite
 ```bash
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
 cd make-ur-Agent-writer
-pip install -r requirements.txt
-python3 -m unittest discover -s tests
+python3 -m venv .venv
+.venv/bin/python3 -m pip install -r requirements.txt
 bash scripts/verify.sh
-python3 main.py preflight
 ```
+
+`verify.sh` 是唯一标准验收入口：固定使用项目虚拟环境，强制 mock/offline，只运行一次全量单测，并继续完成 mock pipeline、preflight 与 harness 一致性检查；脱敏结果写入 `outputs/harness/acceptance.json`。
 
 真模型配置放在本地 `.env`，先跑 preflight；真实 smoke 必须经过单独授权。
 
