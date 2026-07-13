@@ -77,7 +77,18 @@ class HookDesignerTests(DramaTestBase):
         self._workspace("no_snapshot", snapshot=False, setup=False)
         setup_path = paths.WORKSPACE_DIR / "no_snapshot" / "outputs" / "episodes" / "episode_01.setup.json"
         setup_path.parent.mkdir(parents=True, exist_ok=True)
-        setup_path.write_text(json.dumps({"core_setup": {"protagonist": "x"}}, ensure_ascii=False), encoding="utf-8")
+        setup_path.write_text(
+            json.dumps(
+                {
+                    "episode_no": 1,
+                    "track": "霸总",
+                    "target_duration_seconds": 60,
+                    "core_setup": {"protagonist": "x"},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         with self.assertRaisesRegex(FileNotFoundError, "creation_standard.snapshot"):
             hook_designer.run("no_snapshot")
 
@@ -85,7 +96,18 @@ class HookDesignerTests(DramaTestBase):
         self._workspace("bad_track", "未知", setup=False)
         setup_path = paths.WORKSPACE_DIR / "bad_track" / "outputs" / "episodes" / "episode_01.setup.json"
         setup_path.parent.mkdir(parents=True, exist_ok=True)
-        setup_path.write_text(json.dumps({"core_setup": {"protagonist": "x"}}, ensure_ascii=False), encoding="utf-8")
+        setup_path.write_text(
+            json.dumps(
+                {
+                    "episode_no": 1,
+                    "track": "未知",
+                    "target_duration_seconds": 60,
+                    "core_setup": {"protagonist": "x"},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         with self.assertRaisesRegex(ValueError, "unknown track"):
             hook_designer.run("bad_track")
 

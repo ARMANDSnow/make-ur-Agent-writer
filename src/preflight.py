@@ -47,6 +47,12 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     model = env_model or default_model
     is_global_mock = model.lower().startswith("mock")
 
+    drama_model = str(os.getenv("DRAMA_MODEL") or "").strip()
+    if is_global_mock and drama_model and not drama_model.lower().startswith("mock"):
+        fatal.append(
+            "DRAMA_MODEL is non-mock while OPENAI_MODEL is mock; the global mock guard overrides drama routing."
+        )
+
     _check_env(fatal, warn, is_global_mock)
     _check_agents_config(fatal, warn, root, info)
     _check_style_rewrite_config(warn)
@@ -108,7 +114,23 @@ def _check_env(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
         if base_url_env:
             base_url = os.getenv(base_url_env, "")
             parsed = urlparse(base_url)
-            if not base_url or not parsed.netloc:
+            host = str(parsed.hostname or "").rstrip(".").lower()
+            local_http = parsed.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}
+            try:
+                parsed.port
+                valid_port = True
+            except ValueError:
+                valid_port = False
+            if (
+                not base_url
+                or not parsed.netloc
+                or (parsed.scheme != "https" and not local_http)
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or not valid_port
+            ):
                 fatal.append(f"{base_url_env} is empty or invalid while task '{task}' model is not mock.")
 
 

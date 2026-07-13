@@ -30,13 +30,14 @@ from .ai_draw_client import (
     AIDrawTimeout,
     DEFAULT_IMAGE_MODEL,
     _atomic_write_bytes,
+    _detect_image_type,
     _images_generation_url,
     _resolve_openai_draw_credentials,
     _validate_public_endpoint,
     redraw_character_reference,
     validate_api_base_url,
 )
-from .drama_schemas import CharacterSheet, character_paths, episode_paths
+from .drama_schemas import CharacterSheet, ReferenceImage, character_paths, episode_paths
 from .config import get_model_config, load_dotenv_if_available
 from .schemas import model_to_dict
 from .secure_http import RequestNotSentError
@@ -246,17 +247,30 @@ def _adopt_durable_text_station(workspace: str, phase: Dict[str, Any], step: str
 
     if step not in TEXT_STEP_TASKS:
         return False
-    try:
-        with use_workspace(workspace):
+    with use_workspace(workspace):
+        try:
             ledger = web_jobs._load_drama_text_attempts(workspace)
             row = ledger["attempts"].get(f"{step}:1")
             if not isinstance(row, dict) or row.get("status") not in {"response_received", "succeeded"}:
                 return False
+        except (OSError, TypeError, ValueError):
+            return False
+        task = TEXT_STEP_TASKS[step]
+        current_provider = web_jobs._drama_text_provider_fingerprint(task)
+        current_input = web_jobs._drama_text_input_fingerprint(step, workspace, 1)
+        pinned_provider = (phase.get("provider_fingerprints") or {}).get(step)
+        if (
+            row.get("provider_fingerprint") != current_provider
+            or row.get("input_fingerprint") != current_input
+            or (pinned_provider is not None and row.get("provider_fingerprint") != pinned_provider)
+        ):
+            raise ValueError("durable drama text attempt identity changed before recovery")
+        try:
             if web_jobs._canonical_drama_text_result(step, workspace, 1, row) is None:
                 return False
-        phase.setdefault("artifact_fingerprints", {})[step] = _text_artifact_fingerprint(workspace, step)
-    except (OSError, TypeError, ValueError):
-        return False
+            phase.setdefault("artifact_fingerprints", {})[step] = _text_artifact_fingerprint(workspace, step)
+        except (OSError, TypeError, ValueError):
+            return False
     completed = phase.setdefault("completed_steps", [])
     if step not in completed:
         completed.append(step)
@@ -265,6 +279,8 @@ def _adopt_durable_text_station(workspace: str, phase: Dict[str, Any], step: str
         "recovered_from_durable_attempt": True,
         "call_count": int(row.get("attempt_count") or 1),
         "non_mock_call_count": int(row.get("attempt_count") or 1),
+        "pinned_model_call_count": int(row.get("attempt_count") or 1),
+        "model_sha256": (phase.get("model_fingerprints") or {}).get(step),
         "elapsed_seconds": 0.0,
     }
     phase.pop("active_step", None)
@@ -290,6 +306,9 @@ def _drama_call_counts(workspace: str) -> Dict[str, Dict[str, Any]]:
                 except (json.JSONDecodeError, ValueError):
                     continue
                 if not isinstance(row, dict):
+                    continue
+                final_of_attempts = row.get("final_of_attempts")
+                if type(final_of_attempts) is int and final_of_attempts > 0:
                     continue
                 task = row.get("task")
                 model = row.get("model")
@@ -364,8 +383,12 @@ def state_path(workspace: str) -> Path:
 
 def load_state(workspace: str) -> Dict[str, Any] | None:
     path = state_path(workspace)
-    if not path.exists():
+    try:
+        stat_result = path.lstat()
+    except FileNotFoundError:
         return None
+    if path.is_symlink() or not path.is_file() or stat_result.st_nlink < 1:
+        raise ValueError("multimodal smoke state must be a regular non-symlink file")
     # Paid orchestration state is not optional data: corrupt/unreadable state
     # must fail closed, never look like a fresh run.
     raw = read_json(path)
@@ -416,6 +439,11 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
                 artifact_path = row.get("artifact_path")
                 artifact_sha256 = row.get("artifact_sha256")
                 artifact_record = row.get("artifact_record")
+                artifact_record_sha256 = row.get("artifact_record_sha256")
+                try:
+                    normalized_record = model_to_dict(ReferenceImage(**artifact_record)) if isinstance(artifact_record, dict) else None
+                except Exception as exc:
+                    raise ValueError("multimodal smoke image artifact state is invalid") from exc
                 if (
                     not isinstance(artifact_path, str)
                     or not artifact_path
@@ -427,6 +455,13 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
                     or any(ch not in "0123456789abcdef" for ch in artifact_sha256)
                     or not isinstance(artifact_record, dict)
                     or artifact_record.get("path") != artifact_path
+                    or (
+                        artifact_record_sha256 is not None
+                        and (
+                            not isinstance(artifact_record_sha256, str)
+                            or artifact_record_sha256 != _canonical_sha256(normalized_record)
+                        )
+                    )
                 ):
                     raise ValueError("multimodal smoke image artifact state is invalid")
             estimated_sum += float(estimate)
@@ -472,6 +507,10 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
             value = text[key]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value < 0:
                 raise ValueError("multimodal smoke text billing state is invalid")
+    if "dirty_line_baseline" in text and (
+        type(text["dirty_line_baseline"]) is not int or text["dirty_line_baseline"] < 0
+    ):
+        raise ValueError("multimodal smoke text billing state is invalid")
     completed_steps = text.get("completed_steps")
     if completed_steps is not None and (
         not isinstance(completed_steps, list)
@@ -661,7 +700,25 @@ def _replace_character_reference(workspace: str, character_id: str, generated: D
     write_json(cp.sheet_path, payload)
 
 
-def _completed_image_is_current(workspace: str, character: Mapping[str, Any], records: list[Dict[str, Any]]) -> bool:
+def _workspace_path_uses_symlink(root: Path, relative_path: str) -> bool:
+    relative = Path(relative_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        return True
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            return True
+    return False
+
+
+def _completed_image_is_current(
+    workspace: str,
+    character: Mapping[str, Any],
+    records: list[Dict[str, Any]],
+    *,
+    provider_fingerprint: str | None = None,
+) -> bool:
     succeeded = next((row for row in reversed(records) if row.get("status") == "succeeded"), None)
     if succeeded is None:
         return False
@@ -669,13 +726,30 @@ def _completed_image_is_current(workspace: str, character: Mapping[str, Any], re
     if not isinstance(refs, list) or len(refs) != 1 or not isinstance(refs[0], dict):
         return False
     rel = str(succeeded.get("artifact_path") or "")
-    if refs[0].get("path") != rel or not rel:
+    try:
+        current_record = model_to_dict(ReferenceImage(**refs[0]))
+        paid_record = model_to_dict(ReferenceImage(**succeeded.get("artifact_record")))
+    except Exception:
+        return False
+    if (
+        current_record.get("path") != rel
+        or not rel
+        or _canonical_sha256(current_record) != succeeded.get("artifact_record_sha256")
+        or _canonical_sha256(paid_record) != succeeded.get("artifact_record_sha256")
+        or (provider_fingerprint is not None and succeeded.get("provider_fingerprint") != provider_fingerprint)
+    ):
         return False
     root = paths.workspace_root(workspace).resolve()
     try:
+        if _workspace_path_uses_symlink(root, rel):
+            return False
         target = (root / rel).resolve()
         target.relative_to(root)
-        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        if not target.is_file():
+            return False
+        data = target.read_bytes()
+        _detect_image_type(data)
+        digest = hashlib.sha256(data).hexdigest()
     except (OSError, ValueError):
         return False
     return digest == succeeded.get("artifact_sha256")
@@ -694,7 +768,12 @@ def _all_completed_images_are_current(workspace: str, state: Mapping[str, Any]) 
     attempts = state.get("image_attempts") or {}
     for character in characters:
         records = attempts.get(str(character["id"]))
-        if not isinstance(records, list) or not _completed_image_is_current(workspace, character, records):
+        if not isinstance(records, list) or not _completed_image_is_current(
+            workspace,
+            character,
+            records,
+            provider_fingerprint=phase.get("provider_fingerprint"),
+        ):
             return False
         succeeded = next(row for row in reversed(records) if row.get("status") == "succeeded")
         _prompt, _profile, current_hash = _profile_prompt(character, simplified=int(succeeded["attempt"]) > 1)
@@ -703,15 +782,19 @@ def _all_completed_images_are_current(workspace: str, state: Mapping[str, Any]) 
     return True
 
 
-def _insight_cost(workspace: str) -> float:
-    value = collect_drama_insights(workspace).get("llm_cost", {}).get("cost_cny", 0.0)
+def _insight_billing(workspace: str) -> tuple[float, int]:
+    ledger = collect_drama_insights(workspace).get("llm_cost", {})
+    value = ledger.get("cost_cny", 0.0)
     try:
         number = float(value or 0.0)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("drama text cost ledger is invalid") from exc
     if not math.isfinite(number) or number < 0:
         raise ValueError("drama text cost ledger is invalid")
-    return number
+    dirty = ledger.get("dirty_lines", 0)
+    if type(dirty) is not int or dirty < 0:
+        raise ValueError("drama text cost ledger is invalid")
+    return number, dirty
 
 
 def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any], *, real_image: bool) -> bool:
@@ -759,6 +842,20 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
     for character in characters:
         cid = str(character["id"])
         records = attempts.setdefault(cid, [])
+        if any(
+            row.get("status") in {"artifact_received", "succeeded"}
+            and not isinstance(row.get("artifact_record_sha256"), str)
+            for row in records
+            if isinstance(row, dict)
+        ):
+            phase.update({
+                "status": "blocked",
+                "error_code": "image_provenance_upgrade_required",
+                "character_id": cid,
+            })
+            state["status"] = "blocked"
+            _save(state)
+            return False
         if real_image and phase.get("provider_fingerprint") != _image_provider_fingerprint():
             raise ValueError("image provider identity changed during the authorized run")
         if records and records[-1].get("status") == "artifact_received":
@@ -767,14 +864,24 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
             rel = pending.get("artifact_path")
             if not isinstance(artifact_record, dict) or not isinstance(rel, str):
                 raise ValueError("received image attempt is missing recoverable artifact state")
+            if pending.get("provider_fingerprint") != provider_fingerprint:
+                raise ValueError("received image artifact provider identity changed before commit")
+            if pending.get("artifact_record_sha256") != _canonical_sha256(
+                model_to_dict(ReferenceImage(**artifact_record))
+            ):
+                raise ValueError("received image artifact metadata changed before commit")
             root = paths.workspace_root(workspace).resolve()
             target = root / rel
             try:
+                if _workspace_path_uses_symlink(root, rel):
+                    raise ValueError("received image artifact path uses a symbolic link")
                 resolved = target.resolve(strict=True)
                 resolved.relative_to(root)
                 if target.is_symlink() or not resolved.is_file():
                     raise ValueError("received image artifact is not a regular workspace file")
-                digest = hashlib.sha256(target.read_bytes()).hexdigest()
+                data = target.read_bytes()
+                _detect_image_type(data)
+                digest = hashlib.sha256(data).hexdigest()
             except (OSError, ValueError) as exc:
                 raise ValueError("received image artifact is missing") from exc
             if digest != pending.get("artifact_sha256"):
@@ -783,7 +890,9 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
             pending["status"] = "succeeded"
             _save(state)
         current = next((item for item in _appearing_characters(CharacterSheet(**read_json_optional(character_paths(workspace).sheet_path, None))) if item["id"] == cid), character)
-        if _completed_image_is_current(workspace, current, records):
+        if _completed_image_is_current(
+            workspace, current, records, provider_fingerprint=provider_fingerprint
+        ):
             continue
         attempt_no = len(records) + 1
         if attempt_no > MAX_IMAGE_ATTEMPTS_PER_CHARACTER:
@@ -861,14 +970,15 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
                 audit["file_size_bytes"] = (paths.workspace_root(workspace) / generated["path"]).stat().st_size
             except OSError:
                 pass
-            audit["artifact_record"] = {
+            audit["artifact_record"] = model_to_dict(ReferenceImage(**{
                 key: generated[key]
                 for key in (
                     "path", "generated_by", "prompt", "seed", "requested_model",
                     "provider_model", "requested_size", "provider_size", "width", "height",
                 )
                 if key in generated
-            }
+            }))
+            audit["artifact_record_sha256"] = _canonical_sha256(audit["artifact_record"])
             audit["status"] = "artifact_received"
             _save(state)
         except AIDrawTimeout:
@@ -924,22 +1034,36 @@ def _video_readiness(workspace: str, options: Mapping[str, Any], *, real_video: 
     if real_video:
         if options.get("confirm_real_video") is not True:
             raise MultimodalAuthorizationError("confirm_real_video=true is required for this invocation")
-        if options.get("confirm_asset_callback_same_process") is not True:
-            raise MultimodalAuthorizationError("operator must confirm provider callback reaches this same service process")
         budget = _positive(options.get("video_budget_cny"), "video_budget_cny")
         timeout = _positive(options.get("video_timeout_seconds"), "video_timeout_seconds", maximum=3600)
         os.environ["SD_VIDEO_MODE"] = "real"
+        submission = drama_video.read_video_submission(workspace)
+        needs_new_submission = submission is None
+        if needs_new_submission and options.get("confirm_asset_callback_same_process") is not True:
+            raise MultimodalAuthorizationError(
+                "operator must confirm provider callback reaches this same service process"
+            )
         _, _, estimate = drama_video.validate_real_video_gate({
             "confirm_real_video": True,
             "budget_cny": budget,
             "timeout_minutes": timeout / 60.0,
         })
-        public_base = str(os.getenv("SD_ASSET_PUBLIC_BASE_URL") or "").strip()
-        validate_api_base_url(public_base, label="SD_ASSET_PUBLIC_BASE_URL")
+        if needs_new_submission:
+            public_base = str(os.getenv("SD_ASSET_PUBLIC_BASE_URL") or "").strip()
+            validate_api_base_url(public_base, label="SD_ASSET_PUBLIC_BASE_URL")
         hosts = [item.strip() for item in str(os.getenv("SD_VIDEO_RESULT_HOSTS") or "").split(",") if item.strip()]
         if not hosts:
             raise ValueError("SD_VIDEO_RESULT_HOSTS must contain an exact provider result host")
-        result.update({"estimated_cost_cny": estimate, "budget_cny": budget, "callback_same_process_confirmed": True})
+        result.update({
+            "estimated_cost_cny": estimate,
+            "budget_cny": budget,
+            "callback_same_process_confirmed": bool(
+                options.get("confirm_asset_callback_same_process") is True
+            ),
+            "resuming_submitted_task": bool(
+                isinstance(submission, dict) and submission.get("status") == "submitted"
+            ),
+        })
     return result
 
 
@@ -961,8 +1085,6 @@ def _validate_invocation(real_text: bool, real_image: bool, real_video: bool, op
             raise MultimodalAuthorizationError("confirm_real_video=true is required for this invocation")
         _positive(opts.get("video_budget_cny"), "video_budget_cny")
         _positive(opts.get("video_timeout_seconds"), "video_timeout_seconds", maximum=3600)
-        if opts.get("confirm_asset_callback_same_process") is not True:
-            raise MultimodalAuthorizationError("operator must confirm provider callback reaches this same service process")
 
 
 def run(
@@ -980,7 +1102,12 @@ def run(
     opts = dict(options or {})
     _validate_invocation(real_text, real_image, real_video, opts)
     if real_text and not drama_smoke.real_text_tasks_ready():
-        raise RuntimeError("real_text_tasks_still_mock")
+        if any(
+            error.endswith(":model_mock")
+            for error in drama_smoke.real_text_readiness_errors()
+        ):
+            raise RuntimeError("real_text_tasks_still_mock")
+        drama_smoke.validate_real_text_tasks_ready()
     # Media-only resume normally runs in a fresh process after text completed.
     # Load the user's runtime configuration only after this invocation has
     # independently passed its strict authorization gate, and before image or
@@ -1066,11 +1193,17 @@ def _run_claimed(
             elif phase["provider_fingerprints"] != current_provider_fingerprints:
                 raise ValueError("text resume provider identity differs from the original authorization")
         if "cost_baseline_cny" not in phase:
-            phase["cost_baseline_cny"] = _insight_cost(workspace)
+            baseline_cost, baseline_dirty = _insight_billing(workspace)
+            phase["cost_baseline_cny"] = baseline_cost
+            phase["dirty_line_baseline"] = baseline_dirty
+        else:
+            phase.setdefault("dirty_line_baseline", 0)
         # Crash recovery reconciliation must happen before calculating a
         # remaining budget or starting the next station. LLM logs are durable
         # even if the previous process died before its exception handler.
-        current_cost = _insight_cost(workspace)
+        current_cost, current_dirty = _insight_billing(workspace)
+        if current_dirty != int(phase["dirty_line_baseline"]):
+            raise ValueError("drama text billing evidence became dirty during the paid run")
         cost_baseline = float(phase["cost_baseline_cny"])
         if current_cost < cost_baseline:
             raise ValueError("drama text cost ledger regressed below the run baseline")
@@ -1119,7 +1252,9 @@ def _run_claimed(
         _save(state)
 
         def settle_text_spend() -> float:
-            current = _insight_cost(workspace)
+            current, dirty = _insight_billing(workspace)
+            if dirty != int(phase["dirty_line_baseline"]):
+                raise ValueError("drama text billing evidence became dirty during the paid run")
             baseline = float(phase["cost_baseline_cny"])
             if current < baseline:
                 raise ValueError("drama text cost ledger regressed below the run baseline")
@@ -1234,6 +1369,7 @@ def _run_claimed(
                 "total_budget_cny": phase["total_budget_cny"],
                 "deadline_epoch": phase["deadline_epoch"],
                 "cost_baseline_cny": phase["cost_baseline_cny"],
+                "dirty_line_baseline": phase["dirty_line_baseline"],
                 "model_fingerprints": phase["model_fingerprints"],
                 "provider_fingerprints": phase.get("provider_fingerprints", {}),
             })
@@ -1330,6 +1466,7 @@ def _run_claimed(
             "submission_unknown_count": 0,
             "elapsed_seconds": result.get("elapsed_seconds"),
             "cost_cny": result.get("cost_cny"),
+            "cost_unreported": result.get("cost_unreported") is True,
             "budget_cny": result.get("budget_cny"),
             "file_size_bytes": result.get("file_size_bytes"),
             "duration_seconds": result.get("duration_seconds"),
@@ -1462,7 +1599,10 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
     if video_submission is not None:
         video_metrics["submission_status"] = ledger_status
         ledger_cost = _safe_non_negative(video_submission.get("cost_cny"))
-        if ledger_cost is not None:
+        if video_submission.get("cost_unreported") is True:
+            video_metrics["cost_status"] = "unreported"
+            video_metrics["cost_cny"] = None
+        elif ledger_cost is not None:
             video_metrics["cost_cny"] = round(ledger_cost, 6)
     for source, target in (
         (text.get("actual_cost_cny", text.get("spent_cost_cny")), "actual_cost_cny"),
@@ -1507,6 +1647,10 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
                 attempt[key] = value
         image_metrics["attempts"].append(attempt)
     for key in ("elapsed_seconds", "cost_cny", "budget_cny", "file_size_bytes", "duration_seconds"):
+        if key == "cost_cny" and video.get("cost_unreported") is True:
+            video_metrics["cost_status"] = "unreported"
+            video_metrics["cost_cny"] = None
+            continue
         value = _safe_non_negative(video.get(key))
         if value is not None:
             video_metrics[key] = round(value, 6 if "cost" in key or "budget" in key else 3)
@@ -1521,19 +1665,27 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
         len(successful_images) == _safe_count(images.get("character_count"))
         and bool(successful_images)
         and image_artifacts_current
+        and isinstance(images.get("provider_fingerprint"), str)
+        and len(images["provider_fingerprint"]) == 64
+        and images["provider_fingerprint"] != _model_sha256("mock")
         and all(
-        isinstance(row.get("generated_by"), str)
-        and "mock" not in row["generated_by"].lower()
-        for row in successful_images
+            isinstance(row.get("generated_by"), str)
+            and "mock" not in row["generated_by"].lower()
+            and row.get("provider_fingerprint") == images.get("provider_fingerprint")
+            and isinstance(row.get("artifact_record_sha256"), str)
+            and len(row["artifact_record_sha256"]) == 64
+            for row in successful_images
         )
     )
     pinned_models = text.get("model_fingerprints")
+    pinned_providers = text.get("provider_fingerprints")
     exact_text_steps = isinstance(completed_steps, list) and tuple(completed_steps) == tuple(TEXT_STEP_TASKS)
     text_provider_evidence = (
         exact_text_steps
         and _text_artifacts_current(workspace, text)
         and isinstance(station_evidence, dict)
         and isinstance(pinned_models, dict)
+        and isinstance(pinned_providers, dict)
         and all(
             isinstance(station_evidence.get(step), dict)
             and station_evidence[step].get("status") == "succeeded"
@@ -1543,6 +1695,8 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
             and len(pinned_models[step]) == 64
             and pinned_models[step] != _model_sha256("mock")
             and station_evidence[step].get("model_sha256") == pinned_models[step]
+            and isinstance(pinned_providers.get(step), str)
+            and len(pinned_providers[step]) == 64
             for step in TEXT_STEP_TASKS
         )
     )

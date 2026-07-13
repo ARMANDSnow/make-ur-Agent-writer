@@ -13,7 +13,13 @@ from .drama_planner import (
     _load_wizard_input,
     _log_prompt,
 )
-from .drama_schemas import CharacterSheet, DramaStoryboard, episode_paths, normalize_episode_no
+from .drama_schemas import (
+    CharacterSheet,
+    DramaStoryboard,
+    canonical_episode_identity,
+    episode_paths,
+    normalize_episode_no,
+)
 from .llm_client import LLMClient
 from .schemas import model_to_dict
 from .utils import read_json_optional
@@ -36,7 +42,9 @@ def run(
     wizard_input = _load_wizard_input(workspace)
     setup = _load_completed_setup(workspace, episode_no=episode_no)
     storyboard = _load_completed_storyboard(workspace, episode_no=episode_no)
-    track = str(wizard_input.get("track") or storyboard.get("track") or setup.get("track") or "")
+    track, _target_duration = canonical_episode_identity(
+        setup, wizard_input, storyboard, expected_episode_no=episode_no
+    )
     if track not in TRACK_PINYIN:
         raise ValueError(f"unknown track: {track!r}")
 
@@ -205,11 +213,16 @@ def build_system_prompt(
     episode_no: int = 1,
 ) -> str:
     episode_no = normalize_episode_no(episode_no)
-    data = wizard_input if wizard_input is not None else _load_wizard_input(workspace)
+    data = dict(wizard_input if wizard_input is not None else _load_wizard_input(workspace))
     setup_data = setup if setup is not None else _load_completed_setup(workspace, episode_no=episode_no)
     storyboard_data = (
         storyboard if storyboard is not None else _load_completed_storyboard(workspace, episode_no=episode_no)
     )
+    track, duration = canonical_episode_identity(
+        setup_data, data, storyboard_data, expected_episode_no=episode_no
+    )
+    data["track"] = track
+    data["episode_duration_seconds"] = duration
     template = _load_prompt_template("character_designer")
     snapshot = _load_snapshot(workspace)
     return template.format(
@@ -218,6 +231,7 @@ def build_system_prompt(
         track=data.get("track", ""),
         episode_count=data.get("episode_count", 0),
         episode_duration_seconds=data.get("episode_duration_seconds", 0),
+        episode_no=episode_no,
         setup_json=json.dumps(setup_data, ensure_ascii=False, indent=2),
         storyboard_json=json.dumps(_storyboard_prompt_view(storyboard_data), ensure_ascii=False, indent=2),
     )

@@ -10,6 +10,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable
+from urllib.parse import urlsplit
 
 # Direct ``python -m`` defaults to mock.  Pin before any project imports so a
 # real parent environment/.env cannot initialize LiteLLM first.  Programmatic
@@ -37,11 +38,61 @@ DRAMA_TEXT_TASKS = (
 )
 
 
+def real_text_readiness_errors() -> tuple[str, ...]:
+    """Return stable, secret-free reasons the five paid text tasks are not ready."""
+    errors: list[str] = []
+    for task in DRAMA_TEXT_TASKS:
+        cfg = get_model_config(task)
+        model = str(cfg.get("model") or "").strip()
+        if model.lower().startswith("mock"):
+            errors.append(f"{task}:model_mock")
+        elif "/" not in model or any(char in model for char in "\r\n\x00"):
+            errors.append(f"{task}:model_provider_prefix_invalid")
+        if not str(cfg.get("api_key") or "").strip():
+            errors.append(f"{task}:api_key_missing")
+        base_url = str(cfg.get("base_url") or "").strip()
+        parsed = urlsplit(base_url)
+        try:
+            parsed_port_valid = parsed.port is not None or parsed.scheme in {"http", "https"}
+        except ValueError:
+            parsed_port_valid = False
+        host = str(parsed.hostname or "").rstrip(".").lower()
+        local_http = parsed.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}
+        if (
+            not base_url
+            or (parsed.scheme != "https" and not local_http)
+            or not parsed.netloc
+            or not parsed_port_valid
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            errors.append(f"{task}:base_url_invalid")
+        api_key = str(cfg.get("api_key") or "")
+        if any(char in api_key for char in "\r\n\x00"):
+            errors.append(f"{task}:api_key_invalid")
+        context_limit = cfg.get("context_limit")
+        max_tokens = cfg.get("max_tokens")
+        if (
+            type(context_limit) is not int
+            or context_limit <= 0
+            or type(max_tokens) is not int
+            or max_tokens <= 0
+            or max_tokens >= context_limit * 0.9
+        ):
+            errors.append(f"{task}:context_or_max_tokens_invalid")
+    return tuple(errors)
+
+
 def real_text_tasks_ready() -> bool:
-    return all(
-        not str(get_model_config(task).get("model") or "mock").lower().startswith("mock")
-        for task in DRAMA_TEXT_TASKS
-    )
+    return not real_text_readiness_errors()
+
+
+def validate_real_text_tasks_ready() -> None:
+    errors = real_text_readiness_errors()
+    if errors:
+        raise RuntimeError("real_text_readiness_failed:" + ",".join(errors))
 
 
 def _jobs_module():
@@ -158,7 +209,10 @@ def run_smoke(
     elif not math.isfinite(budget_cny) or budget_cny <= 0:
         raise SystemExit("real drama text smoke requires a positive budget-cny")
     elif not real_text_tasks_ready():
-        raise RuntimeError("real_text_tasks_still_mock")
+        errors = real_text_readiness_errors()
+        if any(error.endswith(":model_mock") for error in errors):
+            raise RuntimeError("real_text_tasks_still_mock")
+        validate_real_text_tasks_ready()
 
     if real_image:
         raise SystemExit(

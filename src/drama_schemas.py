@@ -97,6 +97,51 @@ class DramaSetup(BaseModel):
         return _strict_schema_episode_no(value)
 
 
+def canonical_episode_identity(
+    setup: Dict[str, Any],
+    wizard_input: Dict[str, Any],
+    storyboard: Dict[str, Any] | None = None,
+    *,
+    expected_episode_no: int | None = None,
+) -> tuple[str, int]:
+    """Bind downstream stations to the completed episode setup.
+
+    Wizard input remains useful topic context, but it may be edited after a
+    paid station-1 result exists.  Such drift must stop before another model
+    call instead of silently creating a mixed-identity episode.
+    """
+    setup_track = str(setup.get("track") or "").strip()
+    setup_duration = setup.get("target_duration_seconds")
+    setup_episode_no = setup.get("episode_no")
+    if expected_episode_no is not None and setup_episode_no != expected_episode_no:
+        raise ValueError("completed episode setup belongs to a different episode")
+    if not setup_track or len(setup_track) > 20:
+        raise ValueError("completed episode setup has an invalid track")
+    if (
+        isinstance(setup_duration, bool)
+        or not isinstance(setup_duration, int)
+        or not 10 <= setup_duration <= 600
+    ):
+        raise ValueError("completed episode setup has an invalid target duration")
+    wizard_track = str(wizard_input.get("track") or "").strip()
+    wizard_duration = wizard_input.get("episode_duration_seconds")
+    if wizard_track and wizard_track != setup_track:
+        raise ValueError("wizard track drifted from completed episode setup")
+    if wizard_duration is not None and (
+        isinstance(wizard_duration, bool)
+        or not isinstance(wizard_duration, int)
+        or wizard_duration != setup_duration
+    ):
+        raise ValueError("wizard duration drifted from completed episode setup")
+    if storyboard is not None:
+        board = DramaStoryboard(**storyboard)
+        if expected_episode_no is not None and board.episode_no != expected_episode_no:
+            raise ValueError("storyboard belongs to a different episode")
+        if board.track != setup_track or board.target_duration_seconds != setup_duration:
+            raise ValueError("storyboard identity drifted from completed episode setup")
+    return setup_track, setup_duration
+
+
 class DramaHookCandidate(BaseModel):
     type: Literal["情绪钩", "悬念钩", "反差钩"]
     content: str = Field(min_length=1, max_length=600)

@@ -192,10 +192,13 @@ class Iter098DramaHardeningTests(DramaTestBase):
         client.get_task.assert_not_called()
 
     def test_image_report_uses_frozen_cast_and_latest_success_per_character(self) -> None:
+        provider_fingerprint = multi._model_sha256("provider/image-v1")
         state = multi.run("image-report")
         state["phases"]["all_character_images"]["real"] = True
+        state["phases"]["all_character_images"]["provider_fingerprint"] = provider_fingerprint
         for rows in state["image_attempts"].values():
             rows[-1]["generated_by"] = "provider-image-v1"
+            rows[-1]["provider_fingerprint"] = provider_fingerprint
         multi._save(state)
         sheet_path = character_paths("image-report").sheet_path
         sheet = read_json(sheet_path)
@@ -208,8 +211,10 @@ class Iter098DramaHardeningTests(DramaTestBase):
 
         state = multi.run("image-report-latest")
         state["phases"]["all_character_images"]["real"] = True
+        state["phases"]["all_character_images"]["provider_fingerprint"] = provider_fingerprint
         for rows in state["image_attempts"].values():
             rows[-1]["generated_by"] = "provider-image-v1"
+            rows[-1]["provider_fingerprint"] = provider_fingerprint
         repeated = dict(state["image_attempts"]["c001"][-1])
         repeated["attempt"] = 2
         repeated["generated_by"] = "provider-image-v2"

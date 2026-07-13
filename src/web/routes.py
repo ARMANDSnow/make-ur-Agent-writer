@@ -2898,7 +2898,9 @@ def api_drama_video_status(name: str) -> Tuple[int, str, bytes]:
             recent_state = str(recent.get("status") or "failed")
             if recent_state == "aborted":
                 recent_state = "timeout" if recent.get("current_step") == "timeout" else "cancelled"
-            if status.get("state") not in {"succeeded", "budget_exceeded"}:
+            if status.get("state") not in {
+                "succeeded", "budget_exceeded", "submitted", "submission_unknown",
+            }:
                 status["state"] = recent_state
             status["latest_attempt_state"] = recent_state
             status["job"] = jobs.public_job_detail_view(recent)

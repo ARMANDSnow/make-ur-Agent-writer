@@ -24,6 +24,7 @@
 | 096 | LiteLLM 严格离线 mock | 首次导入本地 cost map、零代理/tokenizer 网络准备、入口级网络审计与 verify 环境一致性 |
 | 097 | 短剧真模型全链审计硬化 | 一次性授权、provider/账号绑定、严格媒体下载、durable 视频提交账本与 crash-window 对账 |
 | 098 | 短剧真模型二次全链硬化 | 五站产物血统/付费恢复、实际 peer 传输、artifact 收尾与 MP4 实测复核 |
+| 099 | 短剧真模型第三次全链硬化 | 共享 readiness、episode 身份/脏账本、PNG 结构 provenance 与 submitted 零重提交恢复 |
 
 ## Iteration Implementation Index
 
@@ -103,6 +104,7 @@
 | 096 | 收紧 LiteLLM mock 为可审计的物理零网络路径 | `src/config.py`、`src/llm_client.py`、`src/context_budget.py`、`scripts/verify.sh`、`tests/test_mock_offline.py` |
 | 097 | 硬化短剧真文本/图片/视频付费恢复边界 | `src/drama_multimodal_smoke.py`、`src/drama_video.py`、`src/ai_draw_client.py`、`src/web/jobs.py`、`tests/test_drama_iter097_hardening.py` |
 | 098 | 收口短剧五站/媒体 crash 恢复与证据血统 | `src/secure_http.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`src/web/jobs.py`、`tests/test_drama_iter098_hardening.py` |
+| 099 | 收紧短剧 readiness、脏账本与媒体恢复身份 | `src/drama_smoke.py`、`src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_iter099_hardening.py` |
 
 ## Durable Decisions
 
@@ -154,6 +156,7 @@
 12. **“mock”必须审计传递依赖和真实动作**：只断言不调用 provider 仍可能漏掉 LiteLLM cost map、proxy socket 或 tiktoken 冷下载。可靠证明需要控制首次导入顺序，在临时冷缓存与网络阻断下执行 completion/preflight，并让验证脚本固定项目解释器。
 13. **付费“已确认”与“结果未知”必须分开**：请求前 marker 只能证明可能已提交，不能当作已确认扣费；但两者都必须阻止自动重发。付费恢复还需绑定输入、endpoint、model 和账号，独立 state 与 provider ledger 要在报告时交叉对账。
 14. **付费响应与本地 commit 是两个状态机**：provider 已返回、artifact 已落盘、canonical 产物已提交和 orchestrator callback 完成之间都可能崩溃。每个边界都要有可复算指纹与零网络收尾路径；只有 transport 证明未发送时才能安全释放付费机会。
+15. **媒体魔数不是解码证明，费用数字也不是账本证明**：真实媒体必须经过资源有界的结构/内容解析，无法可靠解析的格式应暂时 fail-closed；成本读取必须与 dirty 状态来自同一快照，未知或损坏证据不能降格为 0。
 
 ## Historical Evidence Notes
 

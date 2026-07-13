@@ -131,6 +131,7 @@ class DramaJobTests(DramaTestBase):
             "core_setup": {"protagonist": "p", "antagonist": "a", "emotional_hook": "e"},
         }
         with patch("src.config.get_model_config", return_value={"model": "deepseek/deepseek-chat"}), \
+                patch("src.drama_smoke.validate_real_text_tasks_ready"), \
                 patch("src.drama_planner.run", return_value=result), \
                 patch("src.cost_estimator.estimate_cost_since", return_value={"cost_cny": 2.0}):
             started = jobs.start_job("budget", "drama-plan", {

@@ -17,6 +17,7 @@ from .drama_schemas import (
     CharacterSheet,
     DramaStoryboard,
     StoryboardShot,
+    canonical_episode_identity,
     character_paths,
     episode_paths,
     normalize_storyboard_payload,
@@ -41,10 +42,11 @@ def run(
     episode_no = normalize_episode_no(episode_no)
     wizard_input = _load_wizard_input(workspace)
     setup = _load_completed_setup(workspace, episode_no=episode_no)
-    track = str(wizard_input.get("track") or setup.get("track") or "")
+    track, target_duration = canonical_episode_identity(
+        setup, wizard_input, expected_episode_no=episode_no
+    )
     if track not in TRACK_PINYIN:
         raise ValueError(f"unknown track: {track!r}")
-    target_duration = int(wizard_input.get("episode_duration_seconds") or 60)
 
     client = None if mock is True else LLMClient("drama_storyboard")
     use_mock = client.is_mock if mock is None and client is not None else bool(mock)
@@ -120,7 +122,9 @@ def rewrite_shot(
     if number > len(board.shots):
         raise ValueError(f"shot_no out of range: {number}")
 
-    track = str(wizard_input.get("track") or current.get("track") or setup.get("track") or "")
+    track, _target_duration = canonical_episode_identity(
+        setup, wizard_input, current, expected_episode_no=episode_no
+    )
     client = None if mock is True else LLMClient("drama_storyboard")
     use_mock = client.is_mock if mock is None and client is not None else bool(mock)
 
@@ -176,8 +180,13 @@ def build_system_prompt(
     episode_no: int = 1,
 ) -> str:
     episode_no = normalize_episode_no(episode_no)
-    data = wizard_input if wizard_input is not None else _load_wizard_input(workspace)
+    data = dict(wizard_input if wizard_input is not None else _load_wizard_input(workspace))
     setup_data = setup if setup is not None else _load_completed_setup(workspace, episode_no=episode_no)
+    track, duration = canonical_episode_identity(
+        setup_data, data, expected_episode_no=episode_no
+    )
+    data["track"] = track
+    data["episode_duration_seconds"] = duration
     template = _load_prompt_template("storyboard_builder")
     snapshot = _load_snapshot(workspace)
     prompt = template.format(
@@ -186,6 +195,7 @@ def build_system_prompt(
         track=data.get("track", ""),
         episode_count=data.get("episode_count", 0),
         episode_duration_seconds=data.get("episode_duration_seconds", 0),
+        episode_no=episode_no,
         setup_json=json.dumps(setup_data, ensure_ascii=False, indent=2),
     )
     signatures = _season_character_signature_view(workspace) if episode_no > 1 else []

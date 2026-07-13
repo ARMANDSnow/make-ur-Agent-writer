@@ -253,7 +253,16 @@ def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
         if not isinstance(ref, dict):
             raise DramaVideoInputError("reference image schema is invalid")
         rel = str(ref.get("path") or "")
-        target = (root / rel).resolve()
+        relative = Path(rel)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise DramaVideoInputError("reference image path is invalid")
+        candidate = root / relative
+        cursor = root
+        for part in relative.parts:
+            cursor = cursor / part
+            if cursor.is_symlink():
+                raise DramaVideoInputError("reference image path must not use symbolic links")
+        target = candidate.resolve()
         try:
             target.relative_to(root)
         except ValueError as exc:
@@ -317,20 +326,7 @@ def run_video_job(
     budget, timeout_minutes, estimate = validate_real_video_gate(params)
     deadline = monotonic() + timeout_minutes * 60.0
     authorization = _video_authorization(budget, timeout_minutes, estimate)
-    prompt = _video_prompt(inputs)
     model = os.getenv("SD_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL
-    # Validate every locally knowable paid-request field before asset upload.
-    build_video_payload(
-        prompt=prompt,
-        duration=VIDEO_DURATION_SECONDS,
-        resolution=VIDEO_RESOLUTION,
-        ratio=VIDEO_RATIO,
-        generate_audio=False,
-        watermark=False,
-        model=model,
-    )
-    public_base = (os.getenv("SD_ASSET_PUBLIC_BASE_URL") or "").strip().rstrip("/")
-    validate_api_base_url(public_base, label="SD_ASSET_PUBLIC_BASE_URL")
     result_hosts = _result_hosts(os.getenv("SD_VIDEO_RESULT_HOSTS") or "")
     if not result_hosts:
         raise ValueError("SD_VIDEO_RESULT_HOSTS must contain at least one exact hostname")
@@ -362,6 +358,20 @@ def run_video_job(
     final: Dict[str, Any] = {}
     task_id = str(submission.get("task_id") or "") if submission is not None else ""
     if submission is None:
+        prompt = _video_prompt(inputs)
+        # Callback topology and payload shape are prerequisites only for a new
+        # upload/create attempt. A durable submitted task needs neither.
+        build_video_payload(
+            prompt=prompt,
+            duration=VIDEO_DURATION_SECONDS,
+            resolution=VIDEO_RESOLUTION,
+            ratio=VIDEO_RATIO,
+            generate_audio=False,
+            watermark=False,
+            model=model,
+        )
+        public_base = (os.getenv("SD_ASSET_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        validate_api_base_url(public_base, label="SD_ASSET_PUBLIC_BASE_URL")
         asset_ids: List[str] = []
         public_tokens: List[str] = []
         try:

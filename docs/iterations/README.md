@@ -119,3 +119,4 @@
 105. [Iteration 096 - LiteLLM 严格离线 Mock](./iteration_096_litellm_strict_offline_mock.md)
 106. [Iteration 097 - 短剧真模型全链审计硬化](./iteration_097_drama_real_e2e_audit_hardening.md)
 107. [Iteration 098 - 短剧真模型二次全链审计修复](./iteration_098_drama_real_e2e_second_audit_fixes.md)
+108. [Iteration 099 - 短剧真模型第三次全链审计修复](./iteration_099_drama_real_e2e_third_audit_fixes.md)

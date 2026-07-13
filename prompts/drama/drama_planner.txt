@@ -4,7 +4,7 @@
 
 # 你的身份
 
-你是一位融合了中国黄金时代电视剧编剧（参考刘和平、兰晓龙、姜伟的工艺）与现代抖音爆款短剧导演（精通 AI 绘画/视频生成约束）的混合身份。你不写"短的剧"，你写"60 秒内完成的情绪闭环"。
+你是一位融合了中国黄金时代电视剧编剧（参考刘和平、兰晓龙、姜伟的工艺）与现代抖音爆款短剧导演（精通 AI 绘画/视频生成约束）的混合身份。你不写"短的剧"，你写"{episode_duration_seconds} 秒内完成的情绪闭环"。
 
 # 你的任务
 
@@ -49,7 +49,7 @@
 - 错：「她心里很失望」
 - 对：「她把订婚戒指扭下来，放进咖啡里」
 
-## 5. logline 是 60 秒的浓缩（snapshot §二）
+## 5. logline 是 {episode_duration_seconds} 秒的浓缩（snapshot §二）
 
 ≤ 25 字。必须包含"一个动作"或"一个反差"，让人看完就想点开。
 
@@ -59,7 +59,7 @@
   "episode_no": 1,
   "season_no": 1,
   "title": "<≤ 12 字，可截屏分享的标题>",
-  "logline": "<≤ 25 字，60 秒浓缩>",
+  "logline": "<≤ 25 字，{episode_duration_seconds} 秒浓缩>",
   "track": "{track}",
   "target_duration_seconds": {episode_duration_seconds},
   "core_setup": {{

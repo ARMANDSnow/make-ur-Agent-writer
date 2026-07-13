@@ -118,6 +118,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             "real": True,
             "llm_calls": 5,
             "model_fingerprints": {step: real_model_sha for step in multi.TEXT_STEP_TASKS},
+            "provider_fingerprints": {step: real_model_sha for step in multi.TEXT_STEP_TASKS},
             "station_evidence": {
                 step: {
                     "status": "succeeded", "call_count": 1,
@@ -128,8 +129,10 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             },
         })
         state["phases"]["all_character_images"]["real"] = True
+        state["phases"]["all_character_images"]["provider_fingerprint"] = real_model_sha
         for rows in state["image_attempts"].values():
             rows[-1]["generated_by"] = "image-provider/model-v1"
+            rows[-1]["provider_fingerprint"] = real_model_sha
         state["phases"]["real_video"].update({
             "real": True,
             "submission_consumed": True,
@@ -364,7 +367,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             raise RuntimeError("station two failed")
 
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
-                patch("src.drama_multimodal_smoke._insight_cost", side_effect=[0.0, 0.0, 4.0, 4.0]), \
+                patch("src.drama_multimodal_smoke._insight_billing", side_effect=[(0.0, 0), (0.0, 0), (4.0, 0), (4.0, 0)]), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=fail_after_one):
             with self.assertRaises(RuntimeError):
                 multi.run("text-resume", real_text=True, options=opts)
@@ -376,7 +379,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             seen["budget"] = kwargs["budget_cny"]
             return {"cost_cny": 0.5, "remaining_budget_cny": 0.5, "remaining_seconds": 10.0}
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
-                patch("src.drama_multimodal_smoke._insight_cost", return_value=4.5), \
+                patch("src.drama_multimodal_smoke._insight_billing", return_value=(4.5, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=resume):
             state = multi.run("text-resume", real_text=True, options=opts)
         self.assertEqual(seen["completed"], ["drama-plan"])
@@ -460,7 +463,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             time.sleep(0.01)
             raise RuntimeError("provider failed after billing")
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
-                patch("src.drama_multimodal_smoke._insight_cost", side_effect=[0.0, 0.0, 5.0]), \
+                patch("src.drama_multimodal_smoke._insight_billing", side_effect=[(0.0, 0), (0.0, 0), (5.0, 0)]), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=billed_failure):
             with self.assertRaises(RuntimeError):
                 multi.run("text-billed-fail", real_text=True, options=opts)
@@ -490,13 +493,13 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         model_b = {step: multi._model_sha256("provider/model-b") for step in multi.TEXT_STEP_TASKS}
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
                 patch("src.drama_multimodal_smoke._text_model_fingerprints", return_value=model_a), \
-                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke._insight_billing", return_value=(0.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=RuntimeError("stop")):
             with self.assertRaises(RuntimeError):
                 multi.run("text-model-pin", real_text=True, options=opts)
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
                 patch("src.drama_multimodal_smoke._text_model_fingerprints", return_value=model_b), \
-                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke._insight_billing", return_value=(0.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
             with self.assertRaisesRegex(ValueError, "model identity"):
                 multi.run("text-model-pin", real_text=True, options=opts)
@@ -508,13 +511,13 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         provider_b = {step: "b" * 64 for step in multi.TEXT_STEP_TASKS}
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
                 patch("src.drama_multimodal_smoke._text_provider_fingerprints", return_value=provider_a), \
-                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke._insight_billing", return_value=(0.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=RuntimeError("stop")):
             with self.assertRaises(RuntimeError):
                 multi.run("text-provider-pin", real_text=True, options=opts)
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
                 patch("src.drama_multimodal_smoke._text_provider_fingerprints", return_value=provider_b), \
-                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke._insight_billing", return_value=(0.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
             with self.assertRaisesRegex(ValueError, "provider identity"):
                 multi.run("text-provider-pin", real_text=True, options=opts)
@@ -553,7 +556,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             raise RuntimeError("provider failed")
 
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
-                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke._insight_billing", return_value=(0.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=fail_station):
             with self.assertRaises(RuntimeError):
                 multi.run("text-repeat-fail", real_text=True, options=opts)
@@ -592,7 +595,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         with log.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"task": "drama_plan", "model": "deepseek/deepseek-chat"}) + "\n")
         opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
-        with patch("src.drama_multimodal_smoke._insight_cost", return_value=5.0), \
+        with patch("src.drama_multimodal_smoke._insight_billing", return_value=(5.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
             awaiting = multi.run(workspace, real_text=True, options=opts)
             self.assertEqual(awaiting["status"], "awaiting_text_retry_authorization")
@@ -633,7 +636,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         multi._save(state)
         opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
-                patch("src.drama_multimodal_smoke._insight_cost", return_value=3.0), \
+                patch("src.drama_multimodal_smoke._insight_billing", return_value=(3.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", return_value={"cost_cny": 0.0, "remaining_seconds": 10.0}):
             resumed = multi.run("text-monotonic", real_text=True, options=opts)
         self.assertEqual(resumed["phases"]["real_text"]["spent_cost_cny"], 4.0)
@@ -648,7 +651,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         }
         multi._save(state)
         opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
-        with patch("src.drama_multimodal_smoke._insight_cost", return_value=5.0), \
+        with patch("src.drama_multimodal_smoke._insight_billing", return_value=(5.0, 0)), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
             with self.assertRaisesRegex(RuntimeError, "budget exhausted"):
                 multi.run("text-crash-cost", real_text=True, options=opts)

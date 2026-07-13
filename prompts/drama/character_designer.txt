@@ -18,7 +18,7 @@
 输出字段必须匹配 CharacterSheet：
 - schema_version: 1
 - season_no: 1
-- episode_no: 1
+- episode_no: {episode_no}
 - track/source_storyboard_title
 - characters: 1 到 8 个角色，主角和反派必须存在
 
@@ -32,7 +32,7 @@
 - visual_signature: 可跨集复用的一眼识别特征
 - prompt_template_sd: 英文 AI 绘画 prompt，可直接拼接到分镜 ai_draw_prompt
 - reference_images: 空数组
-- appearances: 本集出现则包含 1
+- appearances: 本集出现则包含 {episode_no}
 - manual_override: false
 - visual_contrast_with: 主角与反派必须互相指向，rules 写 color_temperature/camera_height/frame_position
 - agent_suggestions: 空数组

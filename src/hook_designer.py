@@ -9,7 +9,12 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
-from .drama_schemas import DramaHookCandidates, episode_paths, normalize_episode_no
+from .drama_schemas import (
+    DramaHookCandidates,
+    canonical_episode_identity,
+    episode_paths,
+    normalize_episode_no,
+)
 from .drama_planner import (
     _load_fixture,
     _load_wizard_input,
@@ -42,13 +47,16 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
         )
 
     wizard_input = _load_wizard_input(workspace)
-    track = str(setup.get("track") or wizard_input["track"])
+    track, _target_duration = canonical_episode_identity(
+        setup, wizard_input, expected_episode_no=episode_no
+    )
     used_hooks = collect_used_hooks(workspace, before_episode_no=episode_no)
     system_prompt = build_system_prompt(
         workspace,
         wizard_input=wizard_input,
         setup=setup,
         used_hooks=used_hooks,
+        episode_no=episode_no,
     )
     _log_prompt(workspace, "hook_designer", system_prompt)
     client = None if mock is True else LLMClient("drama_hooks")
@@ -137,15 +145,22 @@ def build_system_prompt(
     wizard_input: Dict[str, Any] | None = None,
     setup: Dict[str, Any] | None = None,
     used_hooks: list[Dict[str, Any]] | None = None,
+    episode_no: int | None = None,
 ) -> str:
     """Build station 2 from the bounded station-1 setup and hook history."""
 
-    data = wizard_input if wizard_input is not None else _load_wizard_input(workspace)
+    data = dict(wizard_input if wizard_input is not None else _load_wizard_input(workspace))
     if setup is None:
         raw = json.loads(episode_paths(workspace).setup_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("station 1 setup must be a JSON object")
         setup = raw
+    track, duration = canonical_episode_identity(
+        setup, data, expected_episode_no=episode_no
+    )
+    data["track"] = track
+    data["episode_duration_seconds"] = duration
+    data["episode_no"] = setup.get("episode_no", 1)
     prompt = (
         _build_base_system_prompt(workspace, "hook_designer", data)
         + "\n\n## 本集站①设定（候选必须与人物、冲突和情绪弧一致）\n"

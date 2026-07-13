@@ -18,6 +18,7 @@ import os
 import socket
 import tempfile
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
@@ -39,9 +40,9 @@ DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1024"
 SUPPORTED_ENDPOINT_IMAGE_TYPES = {
     "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
 }
+MAX_IMAGE_PIXELS = 40_000_000
+MAX_DECODED_IMAGE_BYTES = 64 * 1024 * 1024
 
 
 class AIDrawTimeout(TimeoutError):
@@ -171,6 +172,9 @@ def _call_draw_endpoint(
     data = response.body
 
     _suffix_for_content_type(content_type)
+    guessed_type = _magic_image_type(data)
+    if guessed_type is not None and content_type != guessed_type:
+        raise ValueError("AI draw image content-type does not match image bytes")
     detected_type, suffix = _detect_image_type(data)
     if content_type != detected_type:
         raise ValueError("AI draw response content-type does not match image bytes")
@@ -380,6 +384,9 @@ def _download_generated_image(
         connection.close()
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("AI draw image exceeds size limit")
+    guessed_type = _magic_image_type(data)
+    if guessed_type is not None and content_type != guessed_type:
+        raise ValueError("AI draw image content-type does not match image bytes")
     detected_type, suffix = _detect_image_type(data)
     if content_type != detected_type:
         raise ValueError("AI draw image content-type does not match image bytes")
@@ -388,12 +395,120 @@ def _download_generated_image(
 
 def _detect_image_type(data: bytes) -> tuple[str, str]:
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        _validate_png(data)
         return "image/png", ".png"
     if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg", ".jpg"
+        raise ValueError("AI draw JPEG is disabled until a bounded decoder is available")
     if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return "image/webp", ".webp"
-    raise ValueError("AI draw response bytes must be png, jpeg, or webp")
+        raise ValueError("AI draw WebP is disabled until a bounded decoder is available")
+    raise ValueError("AI draw response bytes must be a structurally valid PNG")
+
+
+def _magic_image_type(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _bounded_dimensions(width: int, height: int) -> tuple[int, int]:
+    if width <= 0 or height <= 0 or width > 100_000 or height > 100_000 or width * height > MAX_IMAGE_PIXELS:
+        raise ValueError("AI draw image dimensions are invalid or too large")
+    return width, height
+
+
+def _validate_png(data: bytes) -> tuple[int, int]:
+    offset = 8
+    saw_ihdr = saw_idat = saw_iend = False
+    dimensions: tuple[int, int] | None = None
+    bits_per_pixel = 0
+    interlace = 0
+    idat_chunks: list[bytes] = []
+    while offset + 12 <= len(data):
+        length = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        end = offset + 12 + length
+        if length > MAX_RESPONSE_BYTES or end > len(data):
+            raise ValueError("AI draw PNG chunk is truncated")
+        payload = data[offset + 8:offset + 8 + length]
+        expected_crc = int.from_bytes(data[offset + 8 + length:end], "big")
+        if zlib.crc32(kind + payload) & 0xFFFFFFFF != expected_crc:
+            raise ValueError("AI draw PNG chunk checksum is invalid")
+        if not saw_ihdr:
+            if kind != b"IHDR" or length != 13:
+                raise ValueError("AI draw PNG is missing a valid IHDR")
+            dimensions = _bounded_dimensions(
+                int.from_bytes(payload[:4], "big"), int.from_bytes(payload[4:8], "big")
+            )
+            bit_depth = payload[8]
+            color_type = payload[9]
+            valid_depths = {
+                0: {1, 2, 4, 8, 16}, 2: {8, 16}, 3: {1, 2, 4, 8},
+                4: {8, 16}, 6: {8, 16},
+            }
+            channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+            if (
+                color_type not in valid_depths
+                or bit_depth not in valid_depths[color_type]
+                or payload[10] != 0
+                or payload[11] != 0
+                or payload[12] not in {0, 1}
+            ):
+                raise ValueError("AI draw PNG IHDR encoding is unsupported")
+            bits_per_pixel = bit_depth * channels[color_type]
+            interlace = payload[12]
+            saw_ihdr = True
+        elif kind == b"IHDR":
+            raise ValueError("AI draw PNG contains duplicate IHDR")
+        if kind == b"IDAT":
+            saw_idat = True
+            idat_chunks.append(payload)
+        if kind == b"IEND":
+            if length != 0 or end != len(data):
+                raise ValueError("AI draw PNG has an invalid IEND")
+            saw_iend = True
+            break
+        offset = end
+    if not saw_ihdr or not saw_idat or not saw_iend or dimensions is None:
+        raise ValueError("AI draw PNG is structurally incomplete")
+    width, height = dimensions
+    passes = (
+        ((0, 0, 1, 1),)
+        if interlace == 0
+        else (
+            (0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4),
+            (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2),
+        )
+    )
+    row_layout: list[tuple[int, int]] = []
+    expected_decoded = 0
+    for start_x, start_y, step_x, step_y in passes:
+        pass_width = 0 if width <= start_x else (width - start_x + step_x - 1) // step_x
+        pass_height = 0 if height <= start_y else (height - start_y + step_y - 1) // step_y
+        if pass_width == 0 or pass_height == 0:
+            continue
+        row_bytes = (pass_width * bits_per_pixel + 7) // 8
+        row_layout.append((pass_height, row_bytes))
+        expected_decoded += pass_height * (row_bytes + 1)
+    if expected_decoded <= 0 or expected_decoded > MAX_DECODED_IMAGE_BYTES:
+        raise ValueError("AI draw PNG decoded payload is invalid or too large")
+    decoder = zlib.decompressobj()
+    try:
+        decoded = decoder.decompress(b"".join(idat_chunks), expected_decoded + 1)
+    except zlib.error as exc:
+        raise ValueError("AI draw PNG pixel payload is invalid") from exc
+    if len(decoded) != expected_decoded or not decoder.eof or decoder.unconsumed_tail:
+        raise ValueError("AI draw PNG pixel payload is truncated or oversized")
+    row_offset = 0
+    for pass_height, row_bytes in row_layout:
+        for _ in range(pass_height):
+            if decoded[row_offset] > 4:
+                raise ValueError("AI draw PNG scanline filter is invalid")
+            row_offset += row_bytes + 1
+    return dimensions
 
 
 def _persist_image(
@@ -414,6 +529,9 @@ def _persist_image(
 ) -> Dict[str, Any]:
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("AI draw image exceeds size limit")
+    detected_type, detected_suffix = _detect_image_type(data)
+    if detected_type != content_type or detected_suffix != suffix:
+        raise ValueError("AI draw persisted image metadata does not match image bytes")
     cp = character_paths(workspace, season_no=season_no)
     out_dir = cp.refs_dir / character.id
     out_path = out_dir / f"portrait_neutral{suffix}"
@@ -433,12 +551,9 @@ def _persist_image(
 
 
 def _image_dimensions(data: bytes, content_type: str) -> tuple[int | None, int | None]:
-    if content_type == "image/png" and len(data) >= 24 and data[12:16] == b"IHDR":
-        width = int.from_bytes(data[16:20], "big")
-        height = int.from_bytes(data[20:24], "big")
-        if width > 0 and height > 0:
-            return width, height
-    return None, None
+    if content_type == "image/png":
+        return _validate_png(data)
+    raise ValueError("AI draw image content type must be image/png")
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -477,7 +592,7 @@ def validate_api_base_url(value: str, *, label: str, allow_http: bool = False):
 def _suffix_for_content_type(content_type: str) -> str:
     suffix = SUPPORTED_ENDPOINT_IMAGE_TYPES.get(content_type)
     if suffix is None:
-        raise ValueError("AI draw response content-type must be png, jpeg, or webp")
+        raise ValueError("AI draw response content-type must be image/png")
     return suffix
 
 

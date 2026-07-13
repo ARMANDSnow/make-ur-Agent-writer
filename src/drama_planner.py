@@ -156,6 +156,7 @@ def _compose_prompt(snapshot: str, template: str, wizard_input: Dict[str, Any]) 
         track=wizard_input.get("track", ""),
         episode_count=wizard_input.get("episode_count", 0),
         episode_duration_seconds=wizard_input.get("episode_duration_seconds", 0),
+        episode_no=wizard_input.get("episode_no", 1),
     )
 
 

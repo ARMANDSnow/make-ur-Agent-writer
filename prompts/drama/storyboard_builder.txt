@@ -15,9 +15,9 @@
 输出字段必须匹配 DramaStoryboard：
 - schema_version: 1
 - season_no: 1
-- episode_no: 1
+- episode_no: {episode_no}
 - track/title/target_duration_seconds/hook
-- narrative: 本集 60 秒内的连续剧情文本
+- narrative: 本集 {episode_duration_seconds} 秒内的连续剧情文本
 - shots: 6 到 9 个镜头，shot_no 从 1 连续递增
 
 每个镜头字段：

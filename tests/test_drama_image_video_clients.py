@@ -16,12 +16,8 @@ from src.secure_http import BoundedResponse
 from tests._drama_base import DramaTestBase
 
 
-PNG_BYTES = (
-    b"\x89PNG\r\n\x1a\n"
-    + b"\x00\x00\x00\rIHDR"
-    + (1024).to_bytes(4, "big")
-    + (1024).to_bytes(4, "big")
-    + b"iter089-test-image"
+PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
 
 
@@ -113,7 +109,7 @@ class DramaImageClientTests(DramaTestBase):
         self.assertEqual(result["requested_model"], "gpt-image-2")
         self.assertEqual(result["requested_size"], "1024x1024")
         self.assertEqual(result["provider_size"], "auto")
-        self.assertEqual((result["width"], result["height"]), (1024, 1024))
+        self.assertEqual((result["width"], result["height"]), (1, 1))
         self.assertNotIn("test-image-key", json.dumps(result))
         self.assertEqual((character_paths("image").root / result["path"]).read_bytes(), PNG_BYTES)
 

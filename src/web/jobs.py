@@ -1314,7 +1314,7 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
     from ..config import get_model_config
 
     task = _DRAMA_MODEL_TASKS[step]
-    if str(get_model_config(task).get("model") or "mock") == "mock":
+    if str(get_model_config(task).get("model") or "mock").lower().startswith("mock"):
         return None
     workspace = paths.workspace_name()
     ledger = _load_drama_text_attempts(workspace)
@@ -1322,6 +1322,11 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
     existing = ledger["attempts"].get(key)
     provider = _drama_text_provider_fingerprint(task)
     input_fingerprint = _drama_text_input_fingerprint(step, workspace, episode_no)
+    if isinstance(existing, dict) and (
+        existing.get("provider_fingerprint") != provider
+        or existing.get("input_fingerprint") != input_fingerprint
+    ):
+        raise ValueError("drama text retry provider or input identity changed")
     if isinstance(existing, dict) and existing.get("status") in {"response_received", "succeeded"}:
         recovered = _canonical_drama_text_result(step, workspace, episode_no, existing)
         if recovered is not None:
@@ -1332,8 +1337,6 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
     if isinstance(existing, dict) and existing.get("status") in {
         "submitting", "response_received", "failed_after_submission",
     }:
-        if existing.get("provider_fingerprint") != provider or existing.get("input_fingerprint") != input_fingerprint:
-            raise ValueError("drama text retry provider or input identity changed")
         if not (
             params.get("confirm_text_retry") is True
             and params.get("confirm_upstream_status_and_billing_checked") is True
@@ -1415,7 +1418,7 @@ def _drama_budget_start(step: str, params: Dict[str, Any]) -> tuple[float, int]:
     from ..config import get_model_config
 
     task = _DRAMA_MODEL_TASKS[step]
-    real_model = str(get_model_config(task).get("model") or "mock") != "mock"
+    real_model = not str(get_model_config(task).get("model") or "mock").lower().startswith("mock")
     budget_cny = _float_param(params, "budget_cny", 0.0)
     timeout_minutes = _float_param(params, "timeout_minutes", 0.0)
     if real_model and params.get("confirm_real_text") is not True:
@@ -1424,6 +1427,10 @@ def _drama_budget_start(step: str, params: Dict[str, Any]) -> tuple[float, int]:
         raise ValueError("real drama generation requires a positive budget")
     if real_model and not 0 < timeout_minutes <= 1440:
         raise ValueError("real drama generation requires a bounded positive timeout")
+    if real_model:
+        from ..drama_smoke import validate_real_text_tasks_ready
+
+        validate_real_text_tasks_ready()
     return budget_cny, _llm_log_line_count()
 
 
@@ -1434,9 +1441,10 @@ def _drama_settle_budget(
     from ..cost_estimator import estimate_cost_since
 
     progress_cb("settle-budget", 0.78)
-    cost_cny = float(
-        estimate_cost_since(line_offset, paths.workspace_root()).get("cost_cny", 0.0)
-    )
+    report = estimate_cost_since(line_offset, paths.workspace_root())
+    if int(report.get("dirty_lines") or 0) > 0:
+        raise ValueError("drama billing evidence is invalid")
+    cost_cny = float(report.get("cost_cny", 0.0))
     if budget_cny > 0 and cost_cny > budget_cny:
         return {
             "status": "budget_exceeded",

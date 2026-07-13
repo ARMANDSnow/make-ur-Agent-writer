@@ -66,7 +66,7 @@ class SettingsTests(unittest.TestCase):
         status, _ct, body = routes.dispatch(
             "PUT",
             "/api/settings",
-            json.dumps({"OPENAI_MODEL": "mock", "DRAMA_MODEL": "deepseek/deepseek-chat"}).encode(),
+            json.dumps({"OPENAI_MODEL": "deepseek/deepseek-chat", "DRAMA_MODEL": "deepseek/deepseek-chat"}).encode(),
         )
         self.assertEqual(status, 200)
         data = json.loads(body)
@@ -74,10 +74,19 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(data["restart_required"])
         # Untouched keys preserved on disk
         on_disk = Path(self._tmp.name).read_text(encoding="utf-8")
-        self.assertIn("OPENAI_MODEL=mock", on_disk)
+        self.assertIn("OPENAI_MODEL=deepseek/deepseek-chat", on_disk)
         self.assertIn("DRAMA_MODEL=deepseek/deepseek-chat", on_disk)
         self.assertIn("UNRELATED_VAR=keep-me", on_disk)
         self.assertIn("OPENAI_API_KEY=test-api-key-1234567890abcdefghij", on_disk)
+
+    def test_put_rejects_drama_real_hidden_by_global_mock(self) -> None:
+        status, _ct, body = routes.dispatch(
+            "PUT",
+            "/api/settings",
+            json.dumps({"OPENAI_MODEL": "mock", "DRAMA_MODEL": "deepseek/deepseek-chat"}).encode(),
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("global mock guard", json.loads(body)["error"])
 
     def test_put_masked_secret_does_not_overwrite(self) -> None:
         status, _ct, body = routes.dispatch(
