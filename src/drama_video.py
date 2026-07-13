@@ -15,7 +15,6 @@ import math
 import os
 import secrets
 import tempfile
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,8 +46,8 @@ MAX_REFERENCE_ASSETS = 8
 _TERMINAL_SUCCESS = frozenset({"success", "succeeded", "completed", "done"})
 _TERMINAL_FAILURE = frozenset({"failed", "failure", "error", "cancelled", "canceled"})
 _RUNNING = frozenset({"pending", "queued", "queueing", "processing", "running", "generating", "in_progress"})
-_PUBLIC_ASSET_TOKENS: Dict[str, tuple[bytes, str, float]] = {}
-_PUBLIC_ASSET_LOCK = threading.Lock()
+PUBLIC_ASSET_STORE_SCHEMA_VERSION = 1
+PUBLIC_ASSET_STORE_DIRNAME = ".drama_public_assets"
 _MOCK_MP4 = base64.b64decode(
     "AAAAHGZ0eXBtcDQyAAAAAWlzb21tcDQxbXA0MgAAAAFtZGF0AAAAAAAAAH8AAAA1BgUtR1ZK3FxMQz+U78URPNFDqAEAAAMAAQMAAAMAAQIAAeYACwAAAwAAAwAACVYMA5EIAIAAAAAyJbggH94I5Uz/gswem1JEAFF721iPegoZHua5g6fVtrKB82GsqGNvqOenAAA2gBXDPRgAAAKnbW9vdgAAAGxtdmhkAAAAAOZ5GRPmeRkUAAACWAAAACgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAjN0cmFrAAAAXHRraGQAAAAB5nkZFOZ5GRQAAAABAAAAAAAAACgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAAoAAAAAAABAAAAAAGrbWRpYQAAACBtZGhkAAAAAOZ5GRTmeRkUAAACWAAAAChVxAAAAAAAMWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABDb3JlIE1lZGlhIFZpZGVvAAAAAVJtaW5mAAAAFHZtaGQAAAABAAAAAAAAAAAAAAAkZGluZgAAABxkcmVmAAAAAAAAAAEAAAAMdXJsIAAAAAEAAAESc3RibAAAAKFzdHNkAAAAAAAAAAEAAACRYXZjMQAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAQABAASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAACdhdmNDAWQAC//hAAwnZAALrFZQw3gWYKUBAAQo7jyw/fj4AAAAAApmaWVsAQAAAAAKY2hybQAAAAAAGHN0dHMAAAAAAAAAAQAAAAEAAAAoAAAADXNkdHAAAAAAIAAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAABvAAAAAQAAABRzdGNvAAAAAAAAAAEAAAAs"
 )
@@ -145,6 +144,15 @@ def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, A
         or any(ch not in "0123456789abcdef" for ch in provider_fingerprint)
     ):
         raise ValueError("video submission provider fingerprint is invalid")
+    result_hosts_fingerprint = raw.get("result_hosts_fingerprint")
+    if result_hosts_fingerprint is not None and (
+        not isinstance(result_hosts_fingerprint, str)
+        or len(result_hosts_fingerprint) != 64
+        or any(ch not in "0123456789abcdef" for ch in result_hosts_fingerprint)
+    ):
+        raise ValueError("video submission result-host fingerprint is invalid")
+    if status == "submitted" and result_hosts_fingerprint is None:
+        raise ValueError("video submitted ledger requires result-host reconciliation")
     task_id = raw.get("task_id")
     if status in {"submitted", "failed", "succeeded"}:
         _extract_resource_id({"id": task_id}, "task")
@@ -330,6 +338,7 @@ def run_video_job(
     result_hosts = _result_hosts(os.getenv("SD_VIDEO_RESULT_HOSTS") or "")
     if not result_hosts:
         raise ValueError("SD_VIDEO_RESULT_HOSTS must contain at least one exact hostname")
+    result_hosts_fingerprint = sha256_data(sorted(result_hosts))
     api = client or DramaVideoClient(request_timeout_seconds=min(60.0, timeout_minutes * 60.0))
     provider_fingerprint = _video_provider_fingerprint(api, model)
     submission = read_video_submission(workspace)
@@ -345,8 +354,62 @@ def run_video_job(
         submission.get(key) != value for key, value in authorization.items()
     ):
         raise DramaVideoProviderError("video submission ledger belongs to different authorization")
+    if (
+        submission is not None
+        and submission.get("result_hosts_fingerprint") is not None
+        and submission.get("result_hosts_fingerprint") != result_hosts_fingerprint
+    ):
+        raise DramaVideoProviderError("video submission result-host allowlist changed")
+    if submission is not None and submission.get("status") == "submitted":
+        # The process may have crashed after committing the verified MP4/meta
+        # pair but before advancing the durable submission ledger.  Adopt that
+        # exact local result before polling an expired provider task or URL.
+        out = video_paths(workspace)
+        local_meta = read_json_optional(out.meta_path, None)
+        if (
+            isinstance(local_meta, dict)
+            and local_meta.get("task_id") == submission.get("task_id")
+            and local_meta.get("input_fingerprint") == inputs.fingerprint
+            and local_meta.get("provider_fingerprint") == submission.get("provider_fingerprint")
+        ):
+            try:
+                _data, meta = read_video(workspace, episode_no=1)
+                reported_cost, cost_unreported = _validated_video_cost_state(local_meta)
+            except (FileNotFoundError, OSError, TypeError, ValueError):
+                pass
+            else:
+                _write_video_submission(workspace, {
+                    "status": "succeeded",
+                    "input_fingerprint": inputs.fingerprint,
+                    "provider_fingerprint": provider_fingerprint,
+                    "result_hosts_fingerprint": result_hosts_fingerprint,
+                    "submission_count": 1,
+                    "task_id": submission["task_id"],
+                    "cost_cny": reported_cost,
+                    "cost_unreported": cost_unreported,
+                    **authorization,
+                    "updated_at": int(time.time()),
+                })
+                return {**meta, "committed": True, "resumed": True, "network_requests": 0}
     if submission is not None and submission.get("status") == "succeeded":
+        raw_meta = read_json_optional(video_paths(workspace).meta_path, None)
+        if not isinstance(raw_meta, dict):
+            raise DramaVideoProviderError("video submission artifact metadata is missing")
         _data, meta = read_video(workspace, episode_no=1)
+        reported_cost, cost_unreported = _validated_video_cost_state(raw_meta)
+        ledger_cost = submission.get("cost_cny")
+        if (
+            raw_meta.get("task_id") != submission.get("task_id")
+            or raw_meta.get("provider_fingerprint") != submission.get("provider_fingerprint")
+            or submission.get("cost_unreported") is not cost_unreported
+            or isinstance(ledger_cost, bool)
+            or not isinstance(ledger_cost, (int, float))
+            or not math.isclose(
+                float(ledger_cost), 0.0 if cost_unreported else reported_cost,
+                rel_tol=0.0, abs_tol=1e-9,
+            )
+        ):
+            raise DramaVideoProviderError("video submission ledger and artifact lineage differ")
         return {**meta, "committed": True, "resumed": True, "network_requests": 0}
     if submission is not None and submission.get("status") == "submitting":
         raise DramaVideoSubmissionUnknown(
@@ -380,11 +443,10 @@ def run_video_job(
                 token = register_public_asset(asset_path, expires_at=deadline)
                 public_tokens.append(token)
                 asset_url = public_base + "/media/drama-assets/" + quote(token, safe="")
-                # A CLI process has no callback server and a separate Web
-                # process cannot see this in-memory capability.  Prove the
-                # exact public URL reaches this process before the first
-                # provider upload; injected test clients exercise protocol
-                # logic without external callback topology.
+                # Prove the exact public URL reaches the shared durable
+                # capability store before the first provider upload. Injected
+                # test clients exercise protocol logic without external
+                # callback topology.
                 if index == 0 and client is None:
                     _verify_public_asset_callback(asset_url, asset_path, deadline, monotonic)
                 _set_api_timeout(api, deadline, monotonic)
@@ -444,6 +506,7 @@ def run_video_job(
                 "status": "submitting",
                 "input_fingerprint": inputs.fingerprint,
                 "provider_fingerprint": provider_fingerprint,
+                "result_hosts_fingerprint": result_hosts_fingerprint,
                 "submission_count": 1,
                 **authorization,
                 "updated_at": int(time.time()),
@@ -471,6 +534,7 @@ def run_video_job(
                 "status": "submitted",
                 "input_fingerprint": inputs.fingerprint,
                 "provider_fingerprint": provider_fingerprint,
+                "result_hosts_fingerprint": result_hosts_fingerprint,
                 "submission_count": 1,
                 "task_id": task_id,
                 **authorization,
@@ -496,6 +560,7 @@ def run_video_job(
                 "status": "failed",
                 "input_fingerprint": inputs.fingerprint,
                 "provider_fingerprint": provider_fingerprint,
+                "result_hosts_fingerprint": result_hosts_fingerprint,
                 "submission_count": 1,
                 "task_id": task_id,
                 "cost_cny": terminal_cost if terminal_cost is not None else 0.0,
@@ -538,6 +603,7 @@ def run_video_job(
         "status": terminal_status,
         "provider": urlparse(api.base_url).hostname or "",
         "provider_model": str(os.getenv("SD_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL)[:120],
+        "provider_fingerprint": provider_fingerprint,
         "task_id": task_id,
         "input_fingerprint": inputs.fingerprint,
         "duration_seconds": round(spec.duration_seconds, 3),
@@ -556,6 +622,7 @@ def run_video_job(
         "status": "succeeded",
         "input_fingerprint": inputs.fingerprint,
         "provider_fingerprint": provider_fingerprint,
+        "result_hosts_fingerprint": result_hosts_fingerprint,
         "submission_count": 1,
         "task_id": task_id,
         "cost_cny": cost_cny if cost_cny is not None else 0.0,
@@ -622,6 +689,7 @@ def read_video(workspace: str, *, episode_no: int = 1) -> tuple[bytes, Dict[str,
         raise ValueError("stored video size does not match metadata")
     if meta.get("video_sha256") != hashlib.sha256(data).hexdigest():
         raise ValueError("stored video hash does not match metadata")
+    _validated_video_cost_state(meta)
     if meta.get("provider") != "mock":
         probed = _probe_mp4(data)
         if (
@@ -638,9 +706,34 @@ def read_video(workspace: str, *, episode_no: int = 1) -> tuple[bytes, Dict[str,
     return data, _safe_video_meta(meta)
 
 
+def _validated_video_cost_state(meta: Mapping[str, Any]) -> tuple[float, bool]:
+    unreported = meta.get("cost_unreported")
+    cost = meta.get("cost_cny")
+    if type(unreported) is not bool:
+        raise ValueError("stored video cost reporting state is invalid")
+    if unreported:
+        if cost is not None:
+            raise ValueError("stored video unreported cost must remain null")
+        return 0.0, True
+    if (
+        isinstance(cost, bool)
+        or not isinstance(cost, (int, float))
+        or not math.isfinite(float(cost))
+        or float(cost) < 0
+    ):
+        raise ValueError("stored video reported cost is invalid")
+    return float(cost), False
+
+
 def register_public_asset(path: Path, *, expires_at: float) -> str:
-    """Register an exact file behind an unguessable, process-local short URL."""
-    if not math.isfinite(expires_at) or expires_at <= time.monotonic():
+    """Freeze an exact image behind an unguessable, host-local short URL.
+
+    The callback route may live in a different Web process from the CLI
+    orchestrator, so the capability is persisted under the gitignored
+    workspaces root instead of relying on process memory.
+    """
+    remaining = expires_at - time.monotonic()
+    if not math.isfinite(expires_at) or not math.isfinite(remaining) or remaining <= 0:
         raise ValueError("public asset expiry must be in the future")
     try:
         data = path.read_bytes()
@@ -648,33 +741,138 @@ def register_public_asset(path: Path, *, expires_at: float) -> str:
         raise DramaVideoInputError("public drama asset is unreadable") from exc
     if len(data) <= 0 or len(data) > MAX_IMAGE_BYTES:
         raise DramaVideoInputError("public drama asset size is invalid")
-    content_type, _suffix = _detect_image_type(data)
+    try:
+        content_type, _suffix = _detect_image_type(data)
+    except ValueError as exc:
+        raise DramaVideoInputError("public drama asset is invalid") from exc
     token = secrets.token_urlsafe(32)
-    with _PUBLIC_ASSET_LOCK:
-        # Freeze the validated bytes.  A mutable path would allow a local
-        # replacement/symlink race between callback proof and provider fetch.
-        _PUBLIC_ASSET_TOKENS[token] = (data, content_type, expires_at)
+    data_path, meta_path = _public_asset_paths(token, create_store=True)
+    try:
+        _atomic_write(data_path, data)
+        write_json(meta_path, {
+            "schema_version": PUBLIC_ASSET_STORE_SCHEMA_VERSION,
+            "token": token,
+            "content_type": content_type,
+            "file_size_bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "expires_at_epoch": time.time() + remaining,
+        })
+    except BaseException:
+        meta_path.unlink(missing_ok=True)
+        data_path.unlink(missing_ok=True)
+        raise
     return token
 
 
 def revoke_public_assets(tokens: Iterable[str]) -> None:
-    with _PUBLIC_ASSET_LOCK:
-        for token in tokens:
-            _PUBLIC_ASSET_TOKENS.pop(token, None)
+    for token in tokens:
+        if not _valid_public_asset_token(token):
+            continue
+        try:
+            data_path, meta_path = _public_asset_paths(token)
+        except (FileNotFoundError, OSError, ValueError):
+            continue
+        meta_path.unlink(missing_ok=True)
+        data_path.unlink(missing_ok=True)
 
 
 def read_public_asset(token: str) -> tuple[bytes, str]:
-    if not isinstance(token, str) or not 32 <= len(token) <= 64 or any(ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for ch in token):
+    if not _valid_public_asset_token(token):
         raise FileNotFoundError("public drama asset token not found")
-    with _PUBLIC_ASSET_LOCK:
-        record = _PUBLIC_ASSET_TOKENS.get(token)
-        if record is None:
+    try:
+        data_path, meta_path = _public_asset_paths(token)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise FileNotFoundError("public drama asset token not found") from exc
+    try:
+        if (
+            data_path.is_symlink()
+            or meta_path.is_symlink()
+            or not data_path.is_file()
+            or not meta_path.is_file()
+        ):
             raise FileNotFoundError("public drama asset token not found")
-        data, content_type, expires_at = record
-        if time.monotonic() >= expires_at:
-            _PUBLIC_ASSET_TOKENS.pop(token, None)
-            raise FileNotFoundError("public drama asset token expired")
+        meta = json.loads(_read_public_asset_file(meta_path, 16_384).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FileNotFoundError("public drama asset token not found") from exc
+    if (
+        not isinstance(meta, dict)
+        or meta.get("schema_version") != PUBLIC_ASSET_STORE_SCHEMA_VERSION
+        or meta.get("token") != token
+        or meta.get("content_type") != "image/png"
+        or type(meta.get("file_size_bytes")) is not int
+        or not 0 < meta["file_size_bytes"] <= MAX_IMAGE_BYTES
+        or not isinstance(meta.get("sha256"), str)
+        or len(meta["sha256"]) != 64
+        or isinstance(meta.get("expires_at_epoch"), bool)
+        or not isinstance(meta.get("expires_at_epoch"), (int, float))
+        or not math.isfinite(float(meta["expires_at_epoch"]))
+    ):
+        raise FileNotFoundError("public drama asset token not found")
+    if time.time() >= float(meta["expires_at_epoch"]):
+        revoke_public_assets([token])
+        raise FileNotFoundError("public drama asset token expired")
+    try:
+        data = _read_public_asset_file(data_path, MAX_IMAGE_BYTES)
+    except OSError as exc:
+        raise FileNotFoundError("public drama asset token not found") from exc
+    try:
+        content_type, _suffix = _detect_image_type(data)
+    except ValueError as exc:
+        raise FileNotFoundError("public drama asset token not found") from exc
+    if (
+        len(data) != meta["file_size_bytes"]
+        or hashlib.sha256(data).hexdigest() != meta["sha256"]
+    ):
+        raise FileNotFoundError("public drama asset token not found")
     return data, content_type
+
+
+def _valid_public_asset_token(token: Any) -> bool:
+    return (
+        isinstance(token, str)
+        and 32 <= len(token) <= 64
+        and all(
+            ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+            for ch in token
+        )
+    )
+
+
+def _public_asset_store(*, create: bool = False) -> Path:
+    root = paths.WORKSPACE_DIR
+    store = root / PUBLIC_ASSET_STORE_DIRNAME
+    if create:
+        store.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        stat_result = store.lstat()
+    except OSError:
+        raise
+    if store.is_symlink() or not store.is_dir() or stat_result.st_nlink < 1:
+        raise ValueError("public drama asset store must be a regular directory")
+    resolved = store.resolve(strict=True)
+    try:
+        resolved.relative_to(root.resolve(strict=True))
+    except (OSError, ValueError) as exc:
+        raise ValueError("public drama asset store escapes the workspace root") from exc
+    return resolved
+
+
+def _public_asset_paths(token: str, *, create_store: bool = False) -> tuple[Path, Path]:
+    store = _public_asset_store(create=create_store)
+    return store / f"{token}.bin", store / f"{token}.json"
+
+
+def _read_public_asset_file(path: Path, maximum: int) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            data = handle.read(maximum + 1)
+    finally:
+        os.close(fd)
+    if len(data) > maximum:
+        raise ValueError("public drama asset store file exceeds its size limit")
+    return data
 
 
 def _verify_public_asset_callback(
@@ -683,11 +881,11 @@ def _verify_public_asset_callback(
     deadline: float,
     monotonic: Callable[[], float],
 ) -> None:
-    """Prove the public callback serves this process's exact capability.
+    """Prove the public callback serves this host's exact frozen capability.
 
     This zero-provider-cost GET is deliberately completed before any asset API
-    request.  It catches the common but unsafe topology where the CLI owns the
-    in-memory token while a different Web process owns the public route.
+    request.  This also proves that a separate Web process shares the same
+    bounded capability store before the provider sees any asset URL.
     """
 
     parsed = urlparse(url)

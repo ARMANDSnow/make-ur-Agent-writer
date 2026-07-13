@@ -25,6 +25,7 @@
 | 097 | 短剧真模型全链审计硬化 | 一次性授权、provider/账号绑定、严格媒体下载、durable 视频提交账本与 crash-window 对账 |
 | 098 | 短剧真模型二次全链硬化 | 五站产物血统/付费恢复、实际 peer 传输、artifact 收尾与 MP4 实测复核 |
 | 099 | 短剧真模型第三次全链硬化 | 共享 readiness、episode 身份/脏账本、PNG 结构 provenance 与 submitted 零重提交恢复 |
+| 100 | 短剧真模型全链阻塞修复 | 稳定恢复身份、跨进程 callback、媒体 crash receipt、result-host 血统与 Web 逐次授权 |
 
 ## Iteration Implementation Index
 
@@ -105,6 +106,7 @@
 | 097 | 硬化短剧真文本/图片/视频付费恢复边界 | `src/drama_multimodal_smoke.py`、`src/drama_video.py`、`src/ai_draw_client.py`、`src/web/jobs.py`、`tests/test_drama_iter097_hardening.py` |
 | 098 | 收口短剧五站/媒体 crash 恢复与证据血统 | `src/secure_http.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`src/web/jobs.py`、`tests/test_drama_iter098_hardening.py` |
 | 099 | 收紧短剧 readiness、脏账本与媒体恢复身份 | `src/drama_smoke.py`、`src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_iter099_hardening.py` |
+| 100 | 修复短剧真模型全链恢复与入口阻塞 | `src/web/jobs.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`src/web/static.py`、`tests/test_drama_iter100_hardening.py` |
 
 ## Durable Decisions
 
@@ -127,6 +129,7 @@
 - 聚合交付包从 canonical assembled JSON 重建；不直接归档工作目录，manifest 只公开受控字段并对成员做 SHA-256。
 - LLM 调用、writer meta、review、driver state、style drift 和媒体 attempt 只记录排障所需的有界、脱敏数据。
 - 运行中的草稿、失败、snapshot 和 resume 状态要完整落盘；成功/拒稿/中止不能靠文件是否存在猜测。
+- 计费恢复身份要区分不可变上游输入与本次站点输出；callback/ledger 提交前崩溃时只能凭 durable receipt、provider 与产物血统零网络收尾，不能用会被本次结果改写的全量输入指纹判断 stale。
 
 ### Separate current truth from history
 

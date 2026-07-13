@@ -140,9 +140,10 @@ class Iter098DramaHardeningTests(DramaTestBase):
             "image_estimated_cost_cny": 1, "image_timeout_seconds": 120,
         }
 
-        def fake_draw(workspace, character, **_kwargs):
-            rel = f"data/character_refs/{character['id']}/portrait_neutral.png"
-            multi._atomic_write_bytes(multi.paths.workspace_root(workspace) / rel, multi._PNG_1X1)
+        def fake_draw(workspace, character, **kwargs):
+            target = kwargs["output_path"]
+            multi._atomic_write_bytes(target, multi._PNG_1X1)
+            rel = str(target.relative_to(multi.paths.workspace_root(workspace)))
             return {"path": rel, "generated_by": "provider-a", "prompt": "x"}
 
         original_replace = multi._replace_character_reference
@@ -171,6 +172,7 @@ class Iter098DramaHardeningTests(DramaTestBase):
         drama_video._write_video_submission("video-auth", {
             "status": "submitted", "input_fingerprint": inputs.fingerprint,
             "provider_fingerprint": provider, "submission_count": 1,
+            "result_hosts_fingerprint": drama_video.sha256_data(["result.example.test"]),
             "task_id": "task-one", **drama_video._video_authorization(3.0, 1.0, 2.0),
             "updated_at": int(time.time()),
         })

@@ -287,7 +287,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             ai_draw_client.redraw_character_reference("deadline", character, mock=False, timeout_seconds=180)
         self.assertEqual(download.call_args.kwargs["timeout_seconds"], 1.0)
 
-    def test_video_readiness_requires_same_process_callback_confirmation(self) -> None:
+    def test_video_readiness_requires_shared_callback_reachability_confirmation(self) -> None:
         multi.run("ready-base")
         with patch("src.drama_multimodal_smoke.drama_video.load_video_inputs"), \
                 patch("src.drama_multimodal_smoke.drama_video.validate_real_video_gate") as gate:
@@ -405,7 +405,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         state["status"] = "awaiting_video_authorization"
         multi._save(state)
         opts = {
-            "confirm_real_video": True, "confirm_asset_callback_same_process": True,
+            "confirm_real_video": True, "confirm_asset_callback_reachable": True,
             "video_budget_cny": 10, "video_timeout_seconds": 300,
         }
         with patch("src.drama_multimodal_smoke._video_readiness", return_value={"reference_count": 2}), \
@@ -535,6 +535,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             "provider_fingerprint": multi.drama_video._video_provider_fingerprint(
                 client, multi.drama_video.DEFAULT_VIDEO_MODEL
             ),
+            "result_hosts_fingerprint": multi.drama_video.sha256_data(["result.example.test"]),
             "submission_count": 1,
             "task_id": "video-task-1",
             "updated_at": int(time.time()),

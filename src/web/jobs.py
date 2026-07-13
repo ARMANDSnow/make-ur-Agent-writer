@@ -1181,10 +1181,16 @@ def _drama_text_provider_fingerprint(task: str) -> str:
     ).hexdigest()
 
 
-def _drama_text_input_fingerprint(step: str, workspace: str, episode_no: int) -> str:
+def _drama_text_input_payload(
+    step: str,
+    workspace: str,
+    episode_no: int,
+    *,
+    stable_recovery: bool,
+) -> Dict[str, Any]:
     import hashlib
     from ..drama_schemas import character_paths, episode_paths
-    from ..utils import read_json_optional, sha256_data
+    from ..utils import read_json_optional
 
     ep = episode_paths(workspace, episode_no=episode_no)
     root = paths.workspace_root(workspace)
@@ -1200,10 +1206,13 @@ def _drama_text_input_fingerprint(step: str, workspace: str, episode_no: int) ->
         "creation_standard_sha256": snapshot_sha256,
     }
     if step in {"drama-hooks", "drama-storyboard", "drama-characters", "drama-review-assemble"}:
-        sources["setup"] = read_json_optional(ep.setup_path, None)
+        setup = read_json_optional(ep.setup_path, None)
+        if stable_recovery and step == "drama-hooks" and isinstance(setup, dict):
+            setup = {key: value for key, value in setup.items() if key != "hook"}
+        sources["setup"] = setup
     if step in {"drama-characters", "drama-review-assemble"}:
         sources["storyboard"] = read_json_optional(ep.storyboard_path, None)
-    if step == "drama-characters":
+    if step == "drama-characters" and not stable_recovery:
         sources["existing_characters"] = read_json_optional(character_paths(workspace).sheet_path, None)
     if step == "drama-hooks" and episode_no > 1:
         sources["previous_hooks"] = [
@@ -1212,7 +1221,52 @@ def _drama_text_input_fingerprint(step: str, workspace: str, episode_no: int) ->
         ]
     if step == "drama-review-assemble":
         sources["characters"] = read_json_optional(character_paths(workspace).sheet_path, None)
-    return sha256_data(sources)
+    return sources
+
+
+def _drama_text_input_fingerprint(step: str, workspace: str, episode_no: int) -> str:
+    from ..utils import sha256_data
+
+    return sha256_data(_drama_text_input_payload(
+        step, workspace, episode_no, stable_recovery=False
+    ))
+
+
+def _drama_text_recovery_fingerprint(step: str, workspace: str, episode_no: int) -> str:
+    from ..utils import sha256_data
+
+    return sha256_data(_drama_text_input_payload(
+        step, workspace, episode_no, stable_recovery=True
+    ))
+
+
+def _drama_text_recovery_fingerprint_matches(
+    step: str,
+    workspace: str,
+    episode_no: int,
+    row: Dict[str, Any],
+) -> bool:
+    """Accept current recovery identity plus the safe first-sheet legacy shape."""
+
+    from ..utils import sha256_data
+
+    current = _drama_text_recovery_fingerprint(step, workspace, episode_no)
+    recorded = row.get("recovery_fingerprint")
+    if isinstance(recorded, str):
+        return recorded == current
+    legacy = row.get("input_fingerprint")
+    if legacy == current:
+        return True
+    if step == "drama-characters":
+        # Before recovery_fingerprint existed, the first character generation
+        # hashed an explicit null sheet.  That state is reconstructible without
+        # trusting the now-written output; later merge inputs remain fail-closed.
+        payload = _drama_text_input_payload(
+            step, workspace, episode_no, stable_recovery=True
+        )
+        payload["existing_characters"] = None
+        return legacy == sha256_data(payload)
+    return False
 
 
 def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
@@ -1254,6 +1308,12 @@ def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
             value = row.get(field)
             if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
                 raise ValueError("drama text attempt ledger fingerprint is invalid")
+        recovery = row.get("recovery_fingerprint")
+        if recovery is not None and (
+            not isinstance(recovery, str)
+            or re.fullmatch(r"[0-9a-f]{64}", recovery) is None
+        ):
+            raise ValueError("drama text attempt recovery fingerprint is invalid")
         artifact = row.get("artifact_fingerprint")
         if artifact is not None and (
             not isinstance(artifact, str) or re.fullmatch(r"[0-9a-f]{64}", artifact) is None
@@ -1275,7 +1335,14 @@ def _save_drama_text_attempts(workspace: str, ledger: Dict[str, Any]) -> None:
     write_json(_drama_text_attempt_path(workspace), ledger)
 
 
-def _canonical_drama_text_result(step: str, workspace: str, episode_no: int, row: Dict[str, Any]) -> Dict[str, Any] | None:
+def _canonical_drama_text_result(
+    step: str,
+    workspace: str,
+    episode_no: int,
+    row: Dict[str, Any],
+    *,
+    allow_selected_hook: bool = False,
+) -> Dict[str, Any] | None:
     """Recover a committed station result without another provider call."""
     from ..drama_schemas import character_paths, episode_paths
     from ..utils import read_json_optional, sha256_data
@@ -1288,10 +1355,12 @@ def _canonical_drama_text_result(step: str, workspace: str, episode_no: int, row
         value = read_json_optional(ep.hook_candidates_path, None)
         if isinstance(value, dict):
             candidate = value
-        else:
+        elif allow_selected_hook:
             setup = read_json_optional(ep.setup_path, None)
             hook = setup.get("hook") if isinstance(setup, dict) else None
             candidate = {"hooks": [hook]} if isinstance(hook, dict) else None
+        else:
+            return None
         fingerprints = row.get("candidate_fingerprints") or []
         hooks = candidate.get("hooks") if isinstance(candidate, dict) else None
         if not isinstance(hooks, list) or not hooks or not all(sha256_data(hook) in fingerprints for hook in hooks):
@@ -1322,11 +1391,15 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
     existing = ledger["attempts"].get(key)
     provider = _drama_text_provider_fingerprint(task)
     input_fingerprint = _drama_text_input_fingerprint(step, workspace, episode_no)
-    if isinstance(existing, dict) and (
-        existing.get("provider_fingerprint") != provider
-        or existing.get("input_fingerprint") != input_fingerprint
-    ):
-        raise ValueError("drama text retry provider or input identity changed")
+    recovery_fingerprint = _drama_text_recovery_fingerprint(step, workspace, episode_no)
+    if isinstance(existing, dict):
+        if (
+            existing.get("provider_fingerprint") != provider
+            or not _drama_text_recovery_fingerprint_matches(
+                step, workspace, episode_no, existing
+            )
+        ):
+            raise ValueError("drama text retry provider or input identity changed")
     if isinstance(existing, dict) and existing.get("status") in {"response_received", "succeeded"}:
         recovered = _canonical_drama_text_result(step, workspace, episode_no, existing)
         if recovered is not None:
@@ -1334,8 +1407,10 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
             return key, {**existing, "_recovered_result": recovered}
         if existing.get("status") == "succeeded":
             raise ValueError("committed drama text artifact no longer matches its paid attempt")
+    if isinstance(existing, dict) and existing.get("input_fingerprint") != input_fingerprint:
+        raise ValueError("drama text retry exact input identity changed")
     if isinstance(existing, dict) and existing.get("status") in {
-        "submitting", "response_received", "failed_after_submission",
+        "submitting", "response_received", "failed_after_submission", "budget_exceeded",
     }:
         if not (
             params.get("confirm_text_retry") is True
@@ -1350,6 +1425,7 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
         "attempt_count": count,
         "provider_fingerprint": provider,
         "input_fingerprint": input_fingerprint,
+        "recovery_fingerprint": recovery_fingerprint,
         "updated_at": int(time.time()),
     }
     ledger["attempts"][key] = row

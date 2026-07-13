@@ -70,6 +70,7 @@ def redraw_character_reference(
     mock: bool | None = None,
     prompt_override: str | None = None,
     timeout_seconds: float | None = None,
+    output_path: Path | None = None,
 ) -> Dict[str, Any]:
     char = character if isinstance(character, DramaCharacter) else DramaCharacter(**character)
     endpoint = os.getenv("AI_DRAW_ENDPOINT", "").strip()
@@ -100,6 +101,7 @@ def redraw_character_reference(
         season_no=season_no,
         prompt_override=prompt_override,
         timeout_seconds=timeout_seconds,
+        output_path=output_path,
     )
 
 
@@ -200,6 +202,7 @@ def _call_openai_image_api(
     season_no: int,
     prompt_override: str | None = None,
     timeout_seconds: float | None = None,
+    output_path: Path | None = None,
 ) -> Dict[str, Any]:
     endpoint = _images_generation_url(base_url)
     parsed = validate_api_base_url(endpoint, label="AI draw base URL")
@@ -218,7 +221,6 @@ def _call_openai_image_api(
         "prompt": prompt,
         "size": DEFAULT_IMAGE_SIZE,
         "n": 1,
-        "response_format": "b64_json",
     }
     request_body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request_headers = {
@@ -293,6 +295,7 @@ def _call_openai_image_api(
         provider_size=provider_size,
         width=width,
         height=height,
+        output_path=output_path,
     )
 
 
@@ -422,9 +425,12 @@ def _bounded_dimensions(width: int, height: int) -> tuple[int, int]:
 
 def _validate_png(data: bytes) -> tuple[int, int]:
     offset = 8
-    saw_ihdr = saw_idat = saw_iend = False
+    saw_ihdr = saw_plte = saw_idat = saw_iend = False
+    left_idat_sequence = False
     dimensions: tuple[int, int] | None = None
     bits_per_pixel = 0
+    bit_depth = 0
+    color_type = -1
     interlace = 0
     idat_chunks: list[bytes] = []
     while offset + 12 <= len(data):
@@ -463,9 +469,25 @@ def _validate_png(data: bytes) -> tuple[int, int]:
             saw_ihdr = True
         elif kind == b"IHDR":
             raise ValueError("AI draw PNG contains duplicate IHDR")
+        elif kind not in {b"PLTE", b"IDAT", b"IEND"} and 65 <= kind[0] <= 90:
+            raise ValueError("AI draw PNG contains an unsupported critical chunk")
+        if kind == b"PLTE":
+            if saw_plte or saw_idat or color_type in {0, 4}:
+                raise ValueError("AI draw PNG has an invalid PLTE chunk")
+            if length == 0 or length > 768 or length % 3 != 0:
+                raise ValueError("AI draw PNG has an invalid PLTE chunk")
+            if color_type == 3 and length // 3 > 2 ** bit_depth:
+                raise ValueError("AI draw PNG palette exceeds its bit depth")
+            saw_plte = True
         if kind == b"IDAT":
+            if left_idat_sequence:
+                raise ValueError("AI draw PNG IDAT chunks must be consecutive")
+            if color_type == 3 and not saw_plte:
+                raise ValueError("AI draw indexed PNG is missing PLTE")
             saw_idat = True
             idat_chunks.append(payload)
+        elif saw_idat and kind != b"IEND":
+            left_idat_sequence = True
         if kind == b"IEND":
             if length != 0 or end != len(data):
                 raise ValueError("AI draw PNG has an invalid IEND")
@@ -500,7 +522,12 @@ def _validate_png(data: bytes) -> tuple[int, int]:
         decoded = decoder.decompress(b"".join(idat_chunks), expected_decoded + 1)
     except zlib.error as exc:
         raise ValueError("AI draw PNG pixel payload is invalid") from exc
-    if len(decoded) != expected_decoded or not decoder.eof or decoder.unconsumed_tail:
+    if (
+        len(decoded) != expected_decoded
+        or not decoder.eof
+        or decoder.unconsumed_tail
+        or decoder.unused_data
+    ):
         raise ValueError("AI draw PNG pixel payload is truncated or oversized")
     row_offset = 0
     for pass_height, row_bytes in row_layout:
@@ -526,6 +553,7 @@ def _persist_image(
     provider_size: str = "",
     width: int | None = None,
     height: int | None = None,
+    output_path: Path | None = None,
 ) -> Dict[str, Any]:
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("AI draw image exceeds size limit")
@@ -534,20 +562,32 @@ def _persist_image(
         raise ValueError("AI draw persisted image metadata does not match image bytes")
     cp = character_paths(workspace, season_no=season_no)
     out_dir = cp.refs_dir / character.id
-    out_path = out_dir / f"portrait_neutral{suffix}"
-    image = ReferenceImage(
-        path=_workspace_relative(cp.root, out_path),
-        generated_by=generated_by or content_type,
-        prompt=prompt[:1000],
-        seed=None,
-        requested_model=requested_model,
-        requested_size=requested_size,
-        provider_size=provider_size,
-        width=width,
-        height=height,
-    )
+    out_path = output_path if output_path is not None else out_dir / f"portrait_neutral{suffix}"
+    try:
+        out_path.resolve().relative_to(cp.root.resolve())
+    except (OSError, ValueError) as exc:
+        raise ValueError("AI draw output path must remain inside the workspace") from exc
+    if out_path.suffix.lower() != suffix:
+        raise ValueError("AI draw output path suffix does not match image bytes")
+    relative_path = _workspace_relative(cp.root, out_path)
+    record = {
+        "path": relative_path,
+        "generated_by": generated_by or content_type,
+        "prompt": prompt[:1000],
+        "seed": None,
+        "requested_model": requested_model,
+        "requested_size": requested_size,
+        "provider_size": provider_size,
+        "width": width,
+        "height": height,
+    }
+    # A paid attempt first writes to a private logs/ staging path.  That path
+    # is intentionally not a valid public ReferenceImage path; the orchestrator
+    # validates and promotes it to data/character_refs before schema commit.
+    if output_path is None:
+        record = ReferenceImage(**record).model_dump()
     _atomic_write_bytes(out_path, data)
-    return image.model_dump()
+    return record
 
 
 def _image_dimensions(data: bytes, content_type: str) -> tuple[int | None, int | None]:

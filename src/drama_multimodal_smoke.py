@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import os
+import secrets
 import sys
 import time
 from contextlib import contextmanager
@@ -29,8 +30,10 @@ from .ai_draw_client import (
     AIDrawProviderError,
     AIDrawTimeout,
     DEFAULT_IMAGE_MODEL,
+    DEFAULT_IMAGE_SIZE,
     _atomic_write_bytes,
     _detect_image_type,
+    _image_dimensions,
     _images_generation_url,
     _resolve_openai_draw_credentials,
     _validate_public_endpoint,
@@ -50,12 +53,14 @@ from .workspace_lock import acquire_write_lock
 PHASES = ("real_text", "all_character_images", "reassemble", "video_readiness", "real_video")
 PHASE_STATUSES = {
     "pending", "running", "succeeded", "failed", "blocked",
+    "budget_exceeded",
     "awaiting_retry_authorization", "awaiting_real_video_authorization",
     "awaiting_text_retry_authorization",
     "submission_consumed", "failed_after_submission",
 }
 RUN_STATUSES = {
     "pending", "running", "succeeded", "failed", "blocked",
+    "budget_exceeded",
     "awaiting_retry_authorization", "awaiting_text_authorization",
     "awaiting_text_retry_authorization",
     "awaiting_image_authorization", "awaiting_video_authorization",
@@ -257,16 +262,19 @@ def _adopt_durable_text_station(workspace: str, phase: Dict[str, Any], step: str
             return False
         task = TEXT_STEP_TASKS[step]
         current_provider = web_jobs._drama_text_provider_fingerprint(task)
-        current_input = web_jobs._drama_text_input_fingerprint(step, workspace, 1)
         pinned_provider = (phase.get("provider_fingerprints") or {}).get(step)
         if (
             row.get("provider_fingerprint") != current_provider
-            or row.get("input_fingerprint") != current_input
+            or not web_jobs._drama_text_recovery_fingerprint_matches(
+                step, workspace, 1, row
+            )
             or (pinned_provider is not None and row.get("provider_fingerprint") != pinned_provider)
         ):
             raise ValueError("durable drama text attempt identity changed before recovery")
         try:
-            if web_jobs._canonical_drama_text_result(step, workspace, 1, row) is None:
+            if web_jobs._canonical_drama_text_result(
+                step, workspace, 1, row, allow_selected_hook=True
+            ) is None:
                 return False
             phase.setdefault("artifact_fingerprints", {})[step] = _text_artifact_fingerprint(workspace, step)
         except (OSError, TypeError, ValueError):
@@ -381,6 +389,27 @@ def state_path(workspace: str) -> Path:
     return paths.workspace_root(workspace) / "logs" / "drama_multimodal_smoke_state.json"
 
 
+def _valid_image_staging_path(cid: str, row: Mapping[str, Any]) -> bool:
+    value = row.get("staging_path")
+    attempt = row.get("attempt")
+    if not isinstance(value, str) or type(attempt) is not int:
+        return False
+    path = Path(value)
+    if path.is_absolute() or path.parts[:3] != ("logs", "drama_multimodal_images", cid):
+        return False
+    if len(path.parts) != 4:
+        return False
+    prefix = f"attempt_{attempt}_"
+    filename = path.name
+    if not filename.startswith(prefix) or not filename.endswith(".png"):
+        return False
+    token = filename[len(prefix):-4]
+    return len(token) == 16 and all(
+        ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        for ch in token
+    )
+
+
 def load_state(workspace: str) -> Dict[str, Any] | None:
     path = state_path(workspace)
     try:
@@ -435,6 +464,8 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
                 or any(ch not in "0123456789abcdef" for ch in provider_fingerprint)
             ):
                 raise ValueError("multimodal smoke image provider state is invalid")
+            if row.get("staging_path") is not None and not _valid_image_staging_path(cid, row):
+                raise ValueError("multimodal smoke image staging state is invalid")
             if row.get("status") in {"artifact_received", "succeeded"}:
                 artifact_path = row.get("artifact_path")
                 artifact_sha256 = row.get("artifact_sha256")
@@ -712,6 +743,103 @@ def _workspace_path_uses_symlink(root: Path, relative_path: str) -> bool:
     return False
 
 
+def _read_attempt_image(workspace: str, relative_path: str) -> bytes:
+    root = paths.workspace_root(workspace).resolve()
+    if not relative_path or _workspace_path_uses_symlink(root, relative_path):
+        raise ValueError("image attempt path is unsafe")
+    target = root / relative_path
+    resolved = target.resolve(strict=True)
+    resolved.relative_to(root)
+    if target.is_symlink() or not resolved.is_file():
+        raise ValueError("image attempt artifact is not a regular workspace file")
+    data = target.read_bytes()
+    _detect_image_type(data)
+    return data
+
+
+def _recover_started_image_receipt(
+    workspace: str,
+    character: Mapping[str, Any],
+    audit: Dict[str, Any],
+) -> bool:
+    staging_rel = audit.get("staging_path")
+    cid = str(character.get("id") or "")
+    if (
+        audit.get("status") != "started"
+        or not _valid_image_staging_path(cid, audit)
+        or not isinstance(staging_rel, str)
+    ):
+        return False
+    try:
+        data = _read_attempt_image(workspace, staging_rel)
+    except (OSError, ValueError):
+        return False
+    canonical_rel = f"data/character_refs/{cid}/portrait_neutral.png"
+    requested_model = _safe_short_text(audit.get("requested_model")) or DEFAULT_IMAGE_MODEL
+    prompt_profile = str(audit.get("prompt_profile") or "full")[:40]
+    prompt_sha = str(audit.get("prompt_sha256") or "")
+    width, height = _image_dimensions(data, "image/png")
+    record = model_to_dict(ReferenceImage(**{
+        "path": canonical_rel,
+        "generated_by": requested_model,
+        "prompt": f"<{prompt_profile}:{prompt_sha[:16]}>",
+        "requested_model": requested_model,
+        "requested_size": DEFAULT_IMAGE_SIZE,
+        "width": width,
+        "height": height,
+    }))
+    audit.update({
+        "artifact_path": canonical_rel,
+        "artifact_sha256": hashlib.sha256(data).hexdigest(),
+        "artifact_record": record,
+        "artifact_record_sha256": _canonical_sha256(record),
+        "file_size_bytes": len(data),
+        "width": width,
+        "height": height,
+        "status": "artifact_received",
+        "recovered_from_staging": True,
+    })
+    return True
+
+
+def _commit_received_image_attempt(
+    workspace: str,
+    character_id: str,
+    audit: Dict[str, Any],
+    *,
+    provider_fingerprint: str,
+) -> None:
+    artifact_record = audit.get("artifact_record")
+    canonical_rel = audit.get("artifact_path")
+    staging_rel = audit.get("staging_path")
+    if not isinstance(artifact_record, dict) or not isinstance(canonical_rel, str):
+        raise ValueError("received image attempt is missing recoverable artifact state")
+    if audit.get("provider_fingerprint") != provider_fingerprint:
+        raise ValueError("received image artifact provider identity changed before commit")
+    if isinstance(staging_rel, str) and not _valid_image_staging_path(character_id, audit):
+        raise ValueError("received image artifact staging identity changed before commit")
+    normalized = model_to_dict(ReferenceImage(**artifact_record))
+    if audit.get("artifact_record_sha256") != _canonical_sha256(normalized):
+        raise ValueError("received image artifact metadata changed before commit")
+    source_rel = staging_rel if isinstance(staging_rel, str) else canonical_rel
+    try:
+        data = _read_attempt_image(workspace, source_rel)
+    except (OSError, ValueError):
+        if source_rel == canonical_rel:
+            raise
+        data = _read_attempt_image(workspace, canonical_rel)
+    if hashlib.sha256(data).hexdigest() != audit.get("artifact_sha256"):
+        raise ValueError("received image artifact hash changed before commit")
+    root = paths.workspace_root(workspace)
+    canonical_path = root / canonical_rel
+    if source_rel != canonical_rel:
+        _atomic_write_bytes(canonical_path, data)
+    _replace_character_reference(workspace, character_id, normalized)
+    audit["status"] = "succeeded"
+    if isinstance(staging_rel, str) and staging_rel != canonical_rel:
+        (root / staging_rel).unlink(missing_ok=True)
+
+
 def _completed_image_is_current(
     workspace: str,
     character: Mapping[str, Any],
@@ -858,36 +986,18 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
             return False
         if real_image and phase.get("provider_fingerprint") != _image_provider_fingerprint():
             raise ValueError("image provider identity changed during the authorized run")
+        if records and real_image and _recover_started_image_receipt(
+            workspace, character, records[-1]
+        ):
+            _save(state)
         if records and records[-1].get("status") == "artifact_received":
             pending = records[-1]
-            artifact_record = pending.get("artifact_record")
-            rel = pending.get("artifact_path")
-            if not isinstance(artifact_record, dict) or not isinstance(rel, str):
-                raise ValueError("received image attempt is missing recoverable artifact state")
-            if pending.get("provider_fingerprint") != provider_fingerprint:
-                raise ValueError("received image artifact provider identity changed before commit")
-            if pending.get("artifact_record_sha256") != _canonical_sha256(
-                model_to_dict(ReferenceImage(**artifact_record))
-            ):
-                raise ValueError("received image artifact metadata changed before commit")
-            root = paths.workspace_root(workspace).resolve()
-            target = root / rel
             try:
-                if _workspace_path_uses_symlink(root, rel):
-                    raise ValueError("received image artifact path uses a symbolic link")
-                resolved = target.resolve(strict=True)
-                resolved.relative_to(root)
-                if target.is_symlink() or not resolved.is_file():
-                    raise ValueError("received image artifact is not a regular workspace file")
-                data = target.read_bytes()
-                _detect_image_type(data)
-                digest = hashlib.sha256(data).hexdigest()
+                _commit_received_image_attempt(
+                    workspace, cid, pending, provider_fingerprint=provider_fingerprint
+                )
             except (OSError, ValueError) as exc:
                 raise ValueError("received image artifact is missing") from exc
-            if digest != pending.get("artifact_sha256"):
-                raise ValueError("received image artifact hash changed before commit")
-            _replace_character_reference(workspace, cid, artifact_record)
-            pending["status"] = "succeeded"
             _save(state)
         current = next((item for item in _appearing_characters(CharacterSheet(**read_json_optional(character_paths(workspace).sheet_path, None))) if item["id"] == cid), character)
         if _completed_image_is_current(
@@ -922,6 +1032,16 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
             "provider_fingerprint": provider_fingerprint,
             "status": "started",
         }
+        if real_image:
+            staging_rel = (
+                f"logs/drama_multimodal_images/{cid}/"
+                f"attempt_{attempt_no}_{secrets.token_urlsafe(12)}.png"
+            )
+            audit.update({
+                "staging_path": staging_rel,
+                "requested_model": str(os.getenv("AI_DRAW_MODEL") or DEFAULT_IMAGE_MODEL),
+                "requested_size": DEFAULT_IMAGE_SIZE,
+            })
         records.append(audit)
         if real_image:
             state["image_estimated_spend_cny"] = round(float(state["image_estimated_spend_cny"]) + estimate, 6)
@@ -935,6 +1055,7 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
                     mock=False,
                     prompt_override=prompt,
                     timeout_seconds=timeout,
+                    output_path=paths.workspace_root(workspace) / audit["staging_path"],
                 )
             else:
                 rel = f"data/character_refs/{cid}/portrait_neutral.png"
@@ -947,11 +1068,14 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
                 }
             # Keep request prompts out of the public character projection. The
             # canonical source prompt remains untouched on the character itself.
+            source_rel = str(generated["path"])
+            if real_image and source_rel != audit.get("staging_path"):
+                raise ValueError("AI draw provider did not use the authorized staging path")
+            source_data = _read_attempt_image(workspace, source_rel)
             generated["prompt"] = f"<{profile}:{prompt_hash[:16]}>"
+            generated["path"] = f"data/character_refs/{cid}/portrait_neutral.png"
             audit["artifact_path"] = generated["path"]
-            audit["artifact_sha256"] = hashlib.sha256(
-                (paths.workspace_root(workspace) / generated["path"]).read_bytes()
-            ).hexdigest()
+            audit["artifact_sha256"] = hashlib.sha256(source_data).hexdigest()
             for source, target in (
                 ("generated_by", "generated_by"),
                 ("requested_model", "requested_model"),
@@ -967,7 +1091,7 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
                 if type(value) is int and 0 < value <= 100_000:
                     audit[target] = value
             try:
-                audit["file_size_bytes"] = (paths.workspace_root(workspace) / generated["path"]).stat().st_size
+                audit["file_size_bytes"] = len(source_data)
             except OSError:
                 pass
             audit["artifact_record"] = model_to_dict(ReferenceImage(**{
@@ -1001,12 +1125,13 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
             audit["status"] = "local_error"
         if audit["status"] == "artifact_received":
             try:
-                _replace_character_reference(workspace, cid, audit["artifact_record"])
+                _commit_received_image_attempt(
+                    workspace, cid, audit, provider_fingerprint=provider_fingerprint
+                )
             except Exception:
                 audit["elapsed_seconds"] = round(max(0.0, time.monotonic() - attempt_started), 3)
                 _save(state)
                 raise
-            audit["status"] = "succeeded"
         audit["elapsed_seconds"] = round(max(0.0, time.monotonic() - attempt_started), 3)
         _save(state)
         if audit["status"] != "succeeded":
@@ -1039,9 +1164,13 @@ def _video_readiness(workspace: str, options: Mapping[str, Any], *, real_video: 
         os.environ["SD_VIDEO_MODE"] = "real"
         submission = drama_video.read_video_submission(workspace)
         needs_new_submission = submission is None
-        if needs_new_submission and options.get("confirm_asset_callback_same_process") is not True:
+        callback_confirmed = (
+            options.get("confirm_asset_callback_reachable") is True
+            or options.get("confirm_asset_callback_same_process") is True
+        )
+        if needs_new_submission and not callback_confirmed:
             raise MultimodalAuthorizationError(
-                "operator must confirm provider callback reaches this same service process"
+                "operator must confirm the provider callback URL reaches the shared asset service"
             )
         _, _, estimate = drama_video.validate_real_video_gate({
             "confirm_real_video": True,
@@ -1057,9 +1186,7 @@ def _video_readiness(workspace: str, options: Mapping[str, Any], *, real_video: 
         result.update({
             "estimated_cost_cny": estimate,
             "budget_cny": budget,
-            "callback_same_process_confirmed": bool(
-                options.get("confirm_asset_callback_same_process") is True
-            ),
+            "callback_reachability_confirmed": callback_confirmed,
             "resuming_submitted_task": bool(
                 isinstance(submission, dict) and submission.get("status") == "submitted"
             ),
@@ -1458,8 +1585,12 @@ def _run_claimed(
         submitted = submission is not None and submission.get("status") == "succeeded"
         if real_video and not submitted:
             raise RuntimeError("real video job returned without a succeeded durable submission ledger")
+        result_status = str(result.get("status") or "")
+        if real_video and result_status not in {"succeeded", "budget_exceeded"}:
+            raise RuntimeError("real video job returned an unsupported terminal status")
+        phase_status = "budget_exceeded" if result_status == "budget_exceeded" else "succeeded"
         state["phases"]["real_video"] = {
-            "status": "succeeded", "real": real_video,
+            "status": phase_status, "real": real_video,
             "submission_consumed": submitted, "attempt": 1 if submitted else 0,
             "automatic_retries": 0, "network_requests": result.get("network_requests", 0),
             "paid_submission_count": 1 if submitted else 0,
@@ -1473,8 +1604,10 @@ def _run_claimed(
             "ratio": result.get("ratio"),
             "resolution": result.get("resolution"),
         }
-        state["status"] = "succeeded"
+        state["status"] = phase_status
         _save(state)
+        if phase_status == "budget_exceeded":
+            return state
     if all(state["phases"][phase].get("status") == "succeeded" for phase in PHASES):
         state["status"] = "succeeded"
         _save(state)
@@ -1797,6 +1930,9 @@ def main() -> int:
     parser.add_argument("--confirm-image-retry", action="store_true")
     parser.add_argument("--confirm-upstream-status-and-billing-checked", action="store_true")
     parser.add_argument("--confirm-real-video", action="store_true")
+    parser.add_argument("--confirm-asset-callback-reachable", action="store_true")
+    # Deprecated compatibility alias: same-process is a stronger form of
+    # reachability, but no longer the required topology with the shared store.
     parser.add_argument("--confirm-asset-callback-same-process", action="store_true")
     parser.add_argument("--text-budget-cny", type=float)
     parser.add_argument("--text-timeout-seconds", type=float)
@@ -1828,10 +1964,12 @@ def main() -> int:
         and flags.get("confirm_real_text") is True
         and not drama_smoke.real_text_tasks_ready()
     ):
+        readiness_errors = drama_smoke.real_text_readiness_errors()
         print(json.dumps({
             "ok": False,
             "workspace": workspace,
-            "error_code": "real_text_tasks_still_mock",
+            "error_code": drama_smoke.real_text_readiness_error_code(readiness_errors),
+            "readiness_errors": list(readiness_errors),
         }, ensure_ascii=False))
         return 64
     try:

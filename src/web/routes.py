@@ -1627,6 +1627,15 @@ def _drama_endpoint_error(name: str) -> Optional[Tuple[int, str, bytes]]:
     return None
 
 
+_DRAMA_STEP_TASKS = {
+    "drama-plan": "drama_plan",
+    "drama-hooks": "drama_hooks",
+    "drama-storyboard": "drama_storyboard",
+    "drama-characters": "drama_character",
+    "drama-review-assemble": "drama_review",
+}
+
+
 def api_drama_progress(name: str, raw_episode_no: Any = 1) -> Tuple[int, str, bytes]:
     error = _drama_endpoint_error(name)
     if error:
@@ -1637,16 +1646,16 @@ def api_drama_progress(name: str, raw_episode_no: Any = 1) -> Tuple[int, str, by
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
     from .drama_view import collect_drama_progress
 
-    return _json(200, collect_drama_progress(name, episode_no=episode_no))
-
-
-_DRAMA_STEP_TASKS = {
-    "drama-plan": "drama_plan",
-    "drama-hooks": "drama_hooks",
-    "drama-storyboard": "drama_storyboard",
-    "drama-characters": "drama_character",
-    "drama-review-assemble": "drama_review",
-}
+    payload = collect_drama_progress(name, episode_no=episode_no)
+    # Expose only a boolean mode decision, never provider names, endpoints, or
+    # credential-related config.  The UI uses this immediately before each
+    # station invocation so one-shot paid authorization is neither guessed nor
+    # retained across requests.
+    payload["real_text_steps"] = {
+        step: str(get_model_config(task).get("model") or "mock") != "mock"
+        for step, task in _DRAMA_STEP_TASKS.items()
+    }
+    return _json(200, payload)
 
 
 def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:

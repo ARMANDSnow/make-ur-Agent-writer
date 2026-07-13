@@ -260,6 +260,7 @@ class Iter099DramaHardeningTests(DramaTestBase):
             "provider_fingerprint": drama_video._video_provider_fingerprint(
                 client, drama_video.DEFAULT_VIDEO_MODEL
             ),
+            "result_hosts_fingerprint": drama_video.sha256_data(["result.example.test"]),
             "submission_count": 1,
             "task_id": "video-task-1",
             **drama_video._video_authorization(3.0, 1.0, 2.0),

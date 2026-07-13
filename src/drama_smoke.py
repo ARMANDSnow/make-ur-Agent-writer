@@ -95,6 +95,15 @@ def validate_real_text_tasks_ready() -> None:
         raise RuntimeError("real_text_readiness_failed:" + ",".join(errors))
 
 
+def real_text_readiness_error_code(errors: Iterable[str] | None = None) -> str:
+    reasons = tuple(errors) if errors is not None else real_text_readiness_errors()
+    return (
+        "real_text_tasks_still_mock"
+        if any(reason.endswith(":model_mock") for reason in reasons)
+        else "real_text_readiness_failed"
+    )
+
+
 def _jobs_module():
     # Importing jobs pulls in the LLM stack; defer until run_smoke() has pinned
     # mock or explicitly validated a real-text invocation.
@@ -189,7 +198,7 @@ def run_smoke(
     real_image: bool = False,
     timeout_seconds: float = 900.0,
     budget_cny: float = 0.0,
-    reset_jobs: bool = True,
+    reset_jobs: bool = False,
     completed_steps: Iterable[str] = (),
     on_step_start: Callable[[str], None] | None = None,
     on_step_complete: Callable[[str, Dict[str, Any]], None] | None = None,
@@ -352,13 +361,15 @@ def main() -> int:
         and os.getenv("CONFIRM_REAL_MODEL_SMOKE") == "可以跑了"
         and not real_text_tasks_ready()
     ):
+        readiness_errors = real_text_readiness_errors()
         print(json.dumps({
             "ok": False,
             "workspace": args.book,
             "real_text": True,
             "real_image": args.real_image,
             "video_requests": 0,
-            "error_code": "real_text_tasks_still_mock",
+            "error_code": real_text_readiness_error_code(readiness_errors),
+            "readiness_errors": list(readiness_errors),
         }, ensure_ascii=False))
         return 64
     try:

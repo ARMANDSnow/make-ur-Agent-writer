@@ -5005,6 +5005,40 @@ JS_DASHBOARD = """\
     return Object.assign({}, payload || {}, { episode_no: dramaEpisodeNo() });
   }
 
+  async function dramaGenerationPayload(step, payload, episodeNo) {
+    const targetEpisode = Number(episodeNo || dramaEpisodeNo());
+    const progress = await fetchJson(dramaApiUrlFor("/drama/progress", targetEpisode));
+    const realSteps = progress.real_text_steps || {};
+    const out = Object.assign({}, payload || {}, { episode_no: targetEpisode });
+    if (realSteps[step] !== true) return out;
+
+    const confirmed = window.confirm(
+      "当前站使用真模型，可能产生费用。是否仅授权本次生成？"
+    );
+    if (!confirmed) throw new Error("已取消本次真模型生成");
+    const budgetRaw = window.prompt("请输入本次预算上限（CNY，必须大于 0）", "10");
+    if (budgetRaw == null) throw new Error("已取消本次真模型生成");
+    const timeoutRaw = window.prompt("请输入本次超时分钟数（0 < 分钟数 <= 1440）", "10");
+    if (timeoutRaw == null) throw new Error("已取消本次真模型生成");
+    const budget = Number(budgetRaw);
+    const timeout = Number(timeoutRaw);
+    if (!Number.isFinite(budget) || budget <= 0) throw new Error("真模型预算必须大于 0");
+    if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 1440) {
+      throw new Error("真模型超时必须大于 0 且不超过 1440 分钟");
+    }
+    out.confirm_real_text = true;
+    out.budget_cny = budget;
+    out.timeout_minutes = timeout;
+    const reconciled = window.confirm(
+      "仅当这是失败后的重试，且你已核对上游任务状态与账单时选择“确定”；首次生成请选择“取消”。"
+    );
+    if (reconciled) {
+      out.confirm_text_retry = true;
+      out.confirm_upstream_status_and_billing_checked = true;
+    }
+    return out;
+  }
+
   async function initDramaWrite() {
     bindHashTabs();
     bindHookPickDelegate();
@@ -5131,7 +5165,9 @@ JS_DASHBOARD = """\
       genBtn.addEventListener("click", async function () {
         genBtn.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/plan"), dramaPayload({}));
+          const data = await postJson(
+            wsUrl("/drama/plan"), await dramaGenerationPayload("drama-plan", {})
+          );
           const pane = document.querySelector('[data-station-pane="setup"]');
           await pollJob(data.job_id, pane, genBtn, async function (job) {
             if (job.status !== "succeeded") return;
@@ -5152,7 +5188,9 @@ JS_DASHBOARD = """\
       regenBtn.addEventListener("click", async function () {
         regenBtn.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/plan"), dramaPayload({}));
+          const data = await postJson(
+            wsUrl("/drama/plan"), await dramaGenerationPayload("drama-plan", {})
+          );
           const pane = document.querySelector('[data-station-pane="setup"]');
           await pollJob(data.job_id, pane, regenBtn, async function (job) {
             if (job.status !== "succeeded") return;
@@ -5256,7 +5294,9 @@ JS_DASHBOARD = """\
       try {
         const pane = document.querySelector('[data-station-pane="hook"]');
         if (!pane) return;
-        const data = await postJson(wsUrl("/drama/hooks"), dramaPayload({}));
+        const data = await postJson(
+          wsUrl("/drama/hooks"), await dramaGenerationPayload("drama-hooks", {})
+        );
         await pollJob(data.job_id, pane, btn, async function (job) {
           if (job.status !== "succeeded") return;
           const candidates = await fetchJson(dramaApiUrl("/drama/hook-candidates"));
@@ -5451,7 +5491,9 @@ JS_DASHBOARD = """\
       genBtn.addEventListener("click", async function () {
         genBtn.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/storyboard"), dramaPayload({}));
+          const data = await postJson(
+            wsUrl("/drama/storyboard"), await dramaGenerationPayload("drama-storyboard", {})
+          );
           await pollJob(data.job_id, pane, genBtn, async function (job) {
             if (job.status !== "succeeded") return;
             await loadStationStoryboard();
@@ -5489,7 +5531,9 @@ JS_DASHBOARD = """\
       regenBtn.addEventListener("click", async function () {
         regenBtn.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/storyboard"), dramaPayload({}));
+          const data = await postJson(
+            wsUrl("/drama/storyboard"), await dramaGenerationPayload("drama-storyboard", {})
+          );
           await pollJob(data.job_id, pane, regenBtn, async function (job) {
             if (job.status !== "succeeded") return;
             await loadStationStoryboard();
@@ -5771,7 +5815,10 @@ JS_DASHBOARD = """\
       gen.addEventListener("click", async function () {
         gen.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/characters"), characterPayload({}));
+          const data = await postJson(
+            wsUrl("/drama/characters"),
+            await dramaGenerationPayload("drama-characters", {}, targetEpisode)
+          );
           const terminal = await pollJob(data.job_id, root, gen, async function (job) {
             if (job.status !== "succeeded") return;
             if (root.id === "characters-page-root") await loadDramaCharactersPage(root, targetEpisode);
@@ -5830,7 +5877,10 @@ JS_DASHBOARD = """\
       reviewBtn.addEventListener("click", async function () {
         reviewBtn.disabled = true;
         try {
-          const data = await postJson(wsUrl("/drama/review"), characterPayload({}));
+          const data = await postJson(
+            wsUrl("/drama/review"),
+            await dramaGenerationPayload("drama-review-assemble", {}, targetEpisode)
+          );
           await pollJob(data.job_id, root, reviewBtn, async function (job) {
             if (job.status !== "succeeded") return;
             window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(targetEpisode));

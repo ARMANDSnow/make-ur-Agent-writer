@@ -102,7 +102,7 @@ class DramaImageClientTests(DramaTestBase):
         self.assertEqual(request_call.call_args.kwargs["timeout_seconds"], ai_draw_client.IMAGE_GENERATION_TIMEOUT_SECONDS)
         payload = json.loads(request_call.call_args.kwargs["body"])
         self.assertEqual(payload["model"], "gpt-image-2")
-        self.assertEqual(payload["response_format"], "b64_json")
+        self.assertNotIn("response_format", payload)
         self.assertEqual(request_call.call_args.kwargs["headers"]["Authorization"], "Bearer test-image-key")
         self.assertEqual(request_call.call_args.kwargs["headers"]["User-Agent"], ai_draw_client.USER_AGENT)
         self.assertEqual(result["generated_by"], "gpt-image-2-provider-alias")

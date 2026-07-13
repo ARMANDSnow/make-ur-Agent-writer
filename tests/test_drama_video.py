@@ -200,6 +200,7 @@ class DramaVideoPipelineTests(DramaTestBase):
             "provider_fingerprint": drama_video._video_provider_fingerprint(
                 _FakeVideoClient(), drama_video.DEFAULT_VIDEO_MODEL
             ),
+            "result_hosts_fingerprint": drama_video.sha256_data(["result.example.test"]),
             "submission_count": 1,
             "task_id": "video-task-1",
             **drama_video._video_authorization(3.0, 1.0, 2.0),
@@ -267,6 +268,7 @@ class DramaVideoPipelineTests(DramaTestBase):
             "provider_fingerprint": drama_video._video_provider_fingerprint(
                 first, drama_video.DEFAULT_VIDEO_MODEL
             ),
+            "result_hosts_fingerprint": drama_video.sha256_data(["result.example.test"]),
             "submission_count": 1,
             "task_id": "video-task-1",
             "updated_at": int(time.time()),
