@@ -16,6 +16,8 @@ from .drama_schemas import CharacterSheet, character_paths
 from .schemas import model_to_dict
 from .utils import read_json_optional, write_json
 from .web import jobs
+from .web.workspace_ctx import use_workspace
+from .workspace_lock import acquire_write_lock
 
 
 REAL_CONFIRMATION = "可以跑真实视频 smoke"
@@ -37,29 +39,32 @@ def _wait(job_id: str, timeout_seconds: float) -> Dict[str, Any]:
 
 def _prepare_mock_inputs(workspace: str) -> None:
     drama_smoke.run_smoke(workspace, real_text=False, real_image=False, timeout_seconds=30)
-    sheet_path = character_paths(workspace).sheet_path
-    raw = read_json_optional(sheet_path, None)
-    sheet = CharacterSheet(**raw)
-    payload = model_to_dict(sheet)
-    root = paths.workspace_root(workspace)
-    for character in payload["characters"]:
-        cid = character["id"]
-        rel = f"data/character_refs/{cid}/portrait_neutral.png"
-        target = root / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(_PNG_1X1)
-        character["reference_images"] = [{
-            "path": rel,
-            "generated_by": "mock-video-smoke",
-            "prompt": "原创角色参考图占位",
-            "requested_model": "mock",
-            "requested_size": "1x1",
-            "provider_size": "1x1",
-            "width": 1,
-            "height": 1,
-        }]
-    write_json(sheet_path, payload)
-    drama_store.assemble_episode(workspace, episode_no=1)
+    with use_workspace(workspace):
+        with acquire_write_lock(source="drama-video-smoke-prepare"):
+            sheet_path = character_paths(workspace).sheet_path
+            raw = read_json_optional(sheet_path, None)
+            sheet = CharacterSheet(**raw)
+            payload = model_to_dict(sheet)
+            root = paths.workspace_root(workspace)
+            for character in payload["characters"]:
+                cid = character["id"]
+                rel = f"data/character_refs/{cid}/portrait_neutral.png"
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(_PNG_1X1)
+                character["reference_images"] = [{
+                    "path": rel,
+                    "generated_by": "mock-video-smoke",
+                    "prompt": "原创角色参考图占位",
+                    "requested_model": "mock",
+                    "requested_size": "1x1",
+                    "provider_size": "1x1",
+                    "width": 1,
+                    "height": 1,
+                }]
+            drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
+            write_json(sheet_path, payload)
+            drama_store.assemble_episode(workspace, episode_no=1)
 
 
 def run_smoke(

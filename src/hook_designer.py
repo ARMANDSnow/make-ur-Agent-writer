@@ -50,6 +50,8 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
     use_mock = client.is_mock if mock is None and client is not None else bool(mock)
     if use_mock:
         result = _load_fixture(track, "hooks_ep2" if episode_no > 1 else "hooks")
+        if episode_no > 2:
+            result = _derive_mock_hooks_for_episode(result, episode_no=episode_no)
     else:
         if client is None:
             client = LLMClient("drama_hooks")
@@ -72,7 +74,12 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
 
 
 def collect_used_hooks(workspace: str, *, before_episode_no: int) -> list[Dict[str, Any]]:
-    """Return a bounded, prompt-safe view of earlier selected hooks."""
+    """Return every valid earlier selected hook for exact local de-duplication.
+
+    Prompt construction applies its own 20-row bound. Keeping the full list
+    here prevents episode 22+ from reusing a hook merely because it fell out of
+    the model context window.
+    """
 
     before_episode_no = normalize_episode_no(before_episode_no)
     hooks: list[Dict[str, Any]] = []
@@ -90,10 +97,33 @@ def collect_used_hooks(workspace: str, *, before_episode_no: int) -> list[Dict[s
         if isinstance(raw_type, (dict, list)) or isinstance(raw_content, (dict, list)):
             continue
         hook_type = str(raw_type or "")[:80]
-        content = str(raw_content or "")[:MAX_USED_HOOK_CONTENT_CHARS]
+        # Keep the full local value for exact de-duplication. Prompt shaping is
+        # the only place where hook content is truncated.
+        content = str(raw_content or "")
         if hook_type or content:
             hooks.append({"episode_no": number, "type": hook_type, "content": content})
-    return hooks[-MAX_USED_HOOKS_IN_PROMPT:]
+    return hooks
+
+
+def _derive_mock_hooks_for_episode(result: Dict[str, Any], *, episode_no: int) -> Dict[str, Any]:
+    """Derive deterministic ep3+ mock candidates from the ep2 fixture."""
+
+    hooks = result.get("hooks")
+    if not isinstance(hooks, list):
+        return result
+    suffix = f"（第 {episode_no} 集候选）"
+    derived: list[Dict[str, Any]] = []
+    for raw in hooks:
+        if not isinstance(raw, dict):
+            continue
+        content = str(raw.get("content") or "")
+        derived.append(
+            {
+                **raw,
+                "content": content[: max(0, 600 - len(suffix))] + suffix,
+            }
+        )
+    return {**result, "hooks": derived}
 
 
 def build_system_prompt(

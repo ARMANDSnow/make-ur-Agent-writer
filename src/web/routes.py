@@ -2210,6 +2210,7 @@ def api_drama_characters_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
     if not isinstance(raw, dict):
         return _json(400, {"error": "character sheet must be a JSON object"})
 
+    from .. import drama_store
     from ..drama_schemas import CharacterSheet, character_paths
     from ..schemas import model_to_dict
     from ..utils import write_json
@@ -2223,7 +2224,10 @@ def api_drama_characters_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
                 data = model_to_dict(CharacterSheet(**raw))
             except Exception as exc:
                 return _json(400, errors.exception_body(exc))
-            write_json(character_paths(name).sheet_path, data)
+            sheet_path = character_paths(name).sheet_path
+            if sheet_path.is_file():
+                drama_store.migrate_fresh_episode_fingerprints_v2(name)
+            write_json(sheet_path, data)
     except RuntimeError as exc:
         conflict = _write_conflict_response(exc)
         if conflict:
@@ -2260,7 +2264,7 @@ def api_drama_character_redraw(
     except (TypeError, ValueError):
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
 
-    from .. import ai_draw_client
+    from .. import ai_draw_client, drama_store
     from ..drama_schemas import CharacterSheet, character_paths
     from ..schemas import model_to_dict
     from ..utils import write_json
@@ -2295,6 +2299,7 @@ def api_drama_character_redraw(
             refs.insert(0, image)
             target["reference_images"] = refs
             data = model_to_dict(CharacterSheet(**{**model_to_dict(sheet), "characters": characters}))
+            drama_store.migrate_fresh_episode_fingerprints_v2(name)
             write_json(sheet_path, data)
     except RuntimeError as exc:
         conflict = _write_conflict_response(exc)
@@ -2419,39 +2424,269 @@ def api_drama_assemble(name: str, body: bytes) -> Tuple[int, str, bytes]:
     return _json(200, result)
 
 
+_DRAMA_EPISODE_ARTIFACT_ATTRS = (
+    "setup_path",
+    "hook_candidates_path",
+    "storyboard_path",
+    "review_path",
+    "episode_path",
+    "meta_path",
+)
+_DRAMA_DERIVED_EXPORT_SUFFIXES = (
+    ".storyboard.md",
+    ".storyboard.csv",
+    ".comfy.json",
+)
+
+
+def _valid_inherited_drama_setup(raw: Any, *, episode_no: int) -> bool:
+    """Validate the intentionally partial setup used to resume episode N+1."""
+
+    from ..drama_planner import TRACK_PINYIN
+    from ..drama_schemas import DramaCoreSetup, DramaHookCandidate
+
+    if not isinstance(raw, dict):
+        return False
+    identity = raw.get("episode_no")
+    season = raw.get("season_no", 1)
+    duration = raw.get("target_duration_seconds")
+    if (
+        not isinstance(identity, int)
+        or isinstance(identity, bool)
+        or identity != episode_no
+        or not isinstance(season, int)
+        or isinstance(season, bool)
+        or season != 1
+        or not isinstance(duration, int)
+        or isinstance(duration, bool)
+        or not 10 <= duration <= 600
+        or not isinstance(raw.get("track"), str)
+        or raw.get("track") not in TRACK_PINYIN
+    ):
+        return False
+    for field, limit in (("title", 120), ("logline", 1200), ("episode_mainline", 2000)):
+        value = raw.get(field, "")
+        if not isinstance(value, str) or len(value) > limit:
+            return False
+    if not isinstance(raw.get("introduces_new_characters", False), bool):
+        return False
+    try:
+        core = DramaCoreSetup(**raw.get("core_setup"))
+        if not core.protagonist:
+            return False
+        if "hook" in raw:
+            DramaHookCandidate(**raw["hook"])
+    except Exception:
+        return False
+    return True
+
+
+def _drama_next_episode_state(name: str) -> Dict[str, Any]:
+    """Return the single route-level continuation decision used by GET/POST."""
+
+    from .. import drama_store
+    from ..drama_schemas import DramaEpisode, DramaEpisodeMeta, episode_paths
+    from ..schemas import model_to_dict
+    from ..utils import sha256_data
+
+    wizard_input = read_json_optional(
+        paths.WORKSPACE_DIR / name / "data" / "wizard_input.json", None
+    )
+    try:
+        raw_planned = wizard_input.get("episode_count") if isinstance(wizard_input, dict) else None
+        if not isinstance(raw_planned, int) or isinstance(raw_planned, bool):
+            raise ValueError("wizard episode_count is invalid")
+        planned = _parse_episode_no(raw_planned)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("wizard episode_count is invalid") from exc
+
+    artifacts: Dict[int, set[str]] = {}
+    for episode_no in range(1, 101):
+        ep = episode_paths(name, episode_no=episode_no)
+        present = {
+            attr
+            for attr in _DRAMA_EPISODE_ARTIFACT_ATTRS
+            if getattr(ep, attr).is_file()
+        }
+        stem = f"episode_{episode_no:02d}"
+        if any(
+            (ep.episodes_dir / f"{stem}{suffix}").is_file()
+            for suffix in _DRAMA_DERIVED_EXPORT_SUFFIXES
+        ):
+            present.add("derived_export")
+        if present:
+            artifacts[episode_no] = present
+
+    episodes = drama_store.list_episodes(name)
+    rows_by_no = {int(row["episode_no"]): row for row in episodes}
+    contiguous_rows: List[Dict[str, Any]] = []
+    blocked_reason: Optional[str] = None
+    blocked_message = ""
+    repair_episode_no: Optional[int] = None
+    latest_is_fresh = False
+
+    assembled_nos = sorted(
+        episode_no
+        for episode_no, names in artifacts.items()
+        if "episode_path" in names or "meta_path" in names
+    )
+    expected = 1
+    for episode_no in assembled_nos:
+        names = artifacts[episode_no]
+        if episode_no != expected:
+            blocked_reason = "episode_sequence_gap"
+            blocked_message = "assembled episodes must form a continuous sequence from episode 1"
+            repair_episode_no = expected
+            break
+        if not {"episode_path", "meta_path"} <= names:
+            blocked_reason = "previous_episode_incomplete"
+            blocked_message = "previous episode must be fully assembled before starting the next episode"
+            repair_episode_no = episode_no
+            break
+        ep = episode_paths(name, episode_no=episode_no)
+        raw_episode = read_json_optional(ep.episode_path, None)
+        raw_meta = read_json_optional(ep.meta_path, None)
+        try:
+            if not isinstance(raw_episode, dict) or not isinstance(raw_meta, dict):
+                raise ValueError("episode and meta must be JSON objects")
+            episode_model = DramaEpisode(**raw_episode)
+            meta_model = DramaEpisodeMeta(**raw_meta)
+        except Exception:
+            blocked_reason = "previous_episode_incomplete"
+            blocked_message = "previous episode artifacts are incomplete or invalid"
+            repair_episode_no = episode_no
+            break
+        if episode_model.episode_no != episode_no or meta_model.episode_no != episode_no:
+            blocked_reason = "previous_episode_artifact_mismatch"
+            blocked_message = "previous episode artifact number does not match"
+            repair_episode_no = episode_no
+            break
+        if not meta_model.input_fingerprint:
+            blocked_reason = "previous_episode_fingerprint_missing"
+            blocked_message = "previous episode fingerprint is missing"
+            repair_episode_no = episode_no
+            break
+        if meta_model.episode_sha256 != sha256_data(model_to_dict(episode_model)):
+            blocked_reason = "previous_episode_sha_mismatch"
+            blocked_message = "previous episode content hash does not match its meta"
+            repair_episode_no = episode_no
+            break
+        row = rows_by_no.get(episode_no)
+        if row is None:
+            blocked_reason = "previous_episode_incomplete"
+            blocked_message = "previous episode must be fully assembled before starting the next episode"
+            repair_episode_no = episode_no
+            break
+        contiguous_rows.append(row)
+        latest_is_fresh = not bool(row.get("stale"))
+        expected += 1
+
+    latest_episode_no = len(contiguous_rows)
+    candidate_next = latest_episode_no + 1
+    next_episode_no: Optional[int] = candidate_next if candidate_next <= 100 else None
+    next_setup: Optional[Dict[str, Any]] = None
+    next_initialized = False
+
+    if blocked_reason is None:
+        later_nos = [episode_no for episode_no in artifacts if episode_no > candidate_next]
+        if later_nos:
+            has_assembled_gap = any(
+                {"episode_path", "meta_path"} <= artifacts[episode_no]
+                for episode_no in later_nos
+            )
+            blocked_reason = (
+                "episode_sequence_gap" if has_assembled_gap else "orphan_episode_artifact"
+            )
+            blocked_message = (
+                "episode artifacts contain a sequence gap"
+                if has_assembled_gap
+                else "orphan episode artifacts exist beyond the next episode"
+            )
+            repair_episode_no = candidate_next
+
+    current_artifacts = (
+        artifacts.get(candidate_next, set()) if candidate_next <= 100 else set()
+    )
+    if candidate_next <= 100 and "setup_path" in current_artifacts:
+        raw_setup = read_json_optional(
+            episode_paths(name, episode_no=candidate_next).setup_path, None
+        )
+        if _valid_inherited_drama_setup(raw_setup, episode_no=candidate_next):
+            next_setup = raw_setup
+            next_initialized = True
+        if not next_initialized and blocked_reason is None:
+            blocked_reason = "next_episode_setup_invalid"
+            blocked_message = "next episode setup is invalid and cannot be resumed"
+            repair_episode_no = candidate_next
+        elif (
+            next_initialized
+            and "derived_export" in current_artifacts
+            and "episode_path" not in current_artifacts
+            and blocked_reason is None
+        ):
+            blocked_reason = "orphan_episode_artifact"
+            blocked_message = "next episode has a derived export without an assembled episode"
+            repair_episode_no = candidate_next
+    elif current_artifacts and blocked_reason is None:
+        blocked_reason = "orphan_episode_artifact"
+        blocked_message = "next episode artifacts exist without a valid setup"
+
+    if blocked_reason is None and latest_episode_no >= planned:
+        blocked_reason = "planned_episode_count_reached"
+        blocked_message = "planned episode_count has been reached"
+    elif blocked_reason is None and latest_episode_no > 0 and not latest_is_fresh:
+        blocked_reason = "previous_episode_stale"
+        blocked_message = "previous episode is stale; review and assemble it again first"
+        repair_episode_no = latest_episode_no
+
+    can_start_next = (
+        latest_episode_no > 0
+        and candidate_next <= planned
+        and candidate_next <= 100
+        and blocked_reason is None
+    )
+    broken_prefix_reasons = {
+        "episode_sequence_gap",
+        "previous_episode_incomplete",
+        "previous_episode_artifact_mismatch",
+        "previous_episode_fingerprint_missing",
+        "previous_episode_sha_mismatch",
+    }
+    return {
+        "episodes": contiguous_rows if blocked_reason in broken_prefix_reasons else episodes,
+        "planned_episode_count": planned,
+        "next_episode_no": next_episode_no,
+        "next_episode_initialized": next_initialized,
+        "next_episode_blocked_reason": blocked_reason,
+        "next_episode_blocked_message": blocked_message,
+        "next_episode_repair_no": repair_episode_no,
+        "can_start_next": can_start_next,
+        "_next_setup": next_setup,
+        "_latest_episode_no": latest_episode_no,
+    }
+
+
 def api_drama_episodes(name: str) -> Tuple[int, str, bytes]:
     error = _drama_endpoint_error(name)
     if error:
         return error
-    from .. import drama_store
+    from .. import drama_season_export
 
-    episodes = drama_store.list_episodes(name)
-    candidate_next_episode_no = max((int(item["episode_no"]) for item in episodes), default=0) + 1
-    next_episode_no: Optional[int]
     try:
-        next_episode_no = _parse_episode_no(candidate_next_episode_no)
-    except (TypeError, ValueError):
-        next_episode_no = None
-    can_start_next = False
-    if episodes:
-        try:
-            wizard_input = read_json_optional(paths.WORKSPACE_DIR / name / "data" / "wizard_input.json", {})
-            planned = _parse_episode_no((wizard_input or {}).get("episode_count", 1)) if isinstance(wizard_input, dict) else 1
-            last = max(episodes, key=lambda item: int(item["episode_no"]))
-            can_start_next = (
-                next_episode_no is not None
-                and next_episode_no == 2
-                and next_episode_no <= planned
-                and not bool(last.get("stale"))
-            )
-        except (TypeError, ValueError):
-            can_start_next = False
+        state = _drama_next_episode_state(name)
+        season_export = drama_season_export.public_season_export_readiness(
+            name, season_no=1
+        )
+    except ValueError as exc:
+        return _json(400, errors.exception_body(exc))
+    public_state = {
+        key: value for key, value in state.items() if not key.startswith("_")
+    }
     return _json(
         200,
         {
-            "episodes": episodes,
-            "next_episode_no": next_episode_no if episodes else 1,
-            "can_start_next": can_start_next,
+            **public_state,
+            "season_export": season_export,
         },
     )
 
@@ -2468,51 +2703,61 @@ def api_drama_next_episode(name: str, body: bytes) -> Tuple[int, str, bytes]:
     assert payload is not None
     try:
         after_episode_no = _parse_episode_no(payload.get("after_episode_no", 1))
-        episode_no = _parse_episode_no(after_episode_no + 1)
     except (TypeError, ValueError):
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
-    if episode_no != 2:
-        return _json(400, {"error": "iteration 088 supports initializing episode 2 only"})
-
-    from .. import drama_planner, drama_store
-    from ..drama_schemas import DramaEpisode, DramaEpisodeMeta, episode_paths
+    from .. import drama_planner
+    from ..drama_schemas import episode_paths
     from ..utils import write_json
 
     try:
         with _workspace_write_guard(name, "web-manual-drama-next-episode"):
-            previous = episode_paths(name, episode_no=after_episode_no)
-            current = episode_paths(name, episode_no=episode_no)
-            previous_episode = read_json_optional(previous.episode_path, None)
-            previous_meta = read_json_optional(previous.meta_path, None)
-            if not isinstance(previous_episode, dict) or not isinstance(previous_meta, dict):
-                return _json(400, {"error": "previous episode must be fully assembled before starting the next episode"})
             try:
-                episode_model = DramaEpisode(**previous_episode)
-                meta_model = DramaEpisodeMeta(**previous_meta)
-            except Exception as exc:
+                state = _drama_next_episode_state(name)
+            except (FileNotFoundError, ValueError) as exc:
                 return _json(400, errors.exception_body(exc))
-            if episode_model.episode_no != after_episode_no or meta_model.episode_no != after_episode_no:
-                return _json(409, {"error": "previous episode artifact number does not match"})
-            if not meta_model.input_fingerprint:
-                return _json(409, {"error": "previous episode fingerprint is missing"})
-            if drama_store.is_episode_stale(name, episode_no=after_episode_no):
-                return _json(409, {"error": "previous episode is stale; review and assemble it again first"})
-            wizard_input = read_json_optional(paths.WORKSPACE_DIR / name / "data" / "wizard_input.json", None)
+            blocked_reason = state.get("next_episode_blocked_reason")
+            if blocked_reason:
+                status = 400 if blocked_reason in {
+                    "previous_episode_incomplete",
+                    "planned_episode_count_reached",
+                } else 409
+                return _json(
+                    status,
+                    {
+                        "error": state.get("next_episode_blocked_message")
+                        or "next episode is blocked",
+                        "code": blocked_reason,
+                    },
+                )
+            if state.get("_latest_episode_no") != after_episode_no:
+                return _json(
+                    409,
+                    {
+                        "error": "after_episode_no must reference the latest continuous episode",
+                        "code": "after_episode_mismatch",
+                    },
+                )
             try:
-                planned = _parse_episode_no(wizard_input.get("episode_count")) if isinstance(wizard_input, dict) else 0
+                episode_no = _parse_episode_no(state.get("next_episode_no"))
             except (TypeError, ValueError):
-                return _json(400, {"error": "wizard episode_count is invalid"})
-            if episode_no > planned:
-                return _json(400, {"error": "planned episode_count has been reached"})
-            if current.setup_path.is_file():
-                setup = read_json_optional(current.setup_path, None)
-                if not isinstance(setup, dict):
-                    return _json(500, {"error": "next episode setup file must be a JSON object"})
-                if setup.get("episode_no") != episode_no:
-                    return _json(409, {"error": "next episode setup number does not match"})
-                core = setup.get("core_setup")
-                if not isinstance(core, dict) or not core.get("protagonist"):
-                    return _json(409, {"error": "next episode setup is incomplete"})
+                return _json(
+                    400,
+                    {
+                        "error": "episode limit has been reached",
+                        "code": "episode_limit_reached",
+                    },
+                )
+            if not state.get("can_start_next"):
+                return _json(
+                    409,
+                    {
+                        "error": "next episode cannot be initialized",
+                        "code": "next_episode_blocked",
+                    },
+                )
+            current = episode_paths(name, episode_no=episode_no)
+            setup = state.get("_next_setup")
+            if isinstance(setup, dict):
                 created = False
             else:
                 setup = drama_planner.run(name, mock=True, episode_no=episode_no)
@@ -2743,6 +2988,53 @@ def api_drama_episode_export(name: str, episode: str, export_format: Any) -> Web
     )
 
 
+def api_drama_season_export(name: str, season: str, mode: Any) -> WebResponse:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    if season != "1":
+        return _json(400, {"error": "season_no must be 1"})
+    if not isinstance(mode, str) or mode not in {"master", "snapshot"}:
+        return _json(400, {"error": "mode must be one of: master, snapshot"})
+
+    from .. import drama_season_export
+
+    try:
+        with _workspace_write_guard(name, "web-manual-drama-season-export"):
+            artifact = drama_season_export.export_season(
+                name, season_no=1, mode=mode
+            )
+    except drama_season_export.SeasonExportConflict as exc:
+        return _json(409, {"error": str(exc), "code": exc.code})
+    except (FileNotFoundError, ValueError) as exc:
+        return _json(400, errors.exception_body(exc))
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        if str(exc).startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+
+    filename = str(artifact.filename)
+    if not re.fullmatch(r"season_01_(?:master|snapshot)\.zip", filename):
+        _log_degraded(
+            "drama_season_export_filename",
+            ValueError("unsafe generated season export filename"),
+        )
+        return _json(500, errors.error_body(errors.build_card("server_error")))
+    return (
+        200,
+        "application/zip",
+        bytes(artifact.body),
+        {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 def api_drama_apply_suggestion(name: str, body: bytes) -> Tuple[int, str, bytes]:
     error = _drama_endpoint_error(name)
     if error:
@@ -2782,6 +3074,7 @@ def api_drama_apply_suggestion(name: str, body: bytes) -> Tuple[int, str, bytes]
 
 
 def _apply_drama_suggestion(name: str, suggestion: Dict[str, Any], *, episode_no: int = 1) -> Dict[str, Any]:
+    from .. import drama_store
     from ..drama_schemas import CharacterSheet, DramaStoryboard, episode_paths, character_paths, normalize_storyboard_payload
     from ..schemas import model_to_dict
     from ..utils import write_json
@@ -2851,6 +3144,7 @@ def _apply_drama_suggestion(name: str, suggestion: Dict[str, Any], *, episode_no
             raise ValueError("unsupported character suggestion field")
         target[field] = new_value
         result = model_to_dict(CharacterSheet(**data))
+        drama_store.migrate_fresh_episode_fingerprints_v2(name)
         write_json(path, result)
         return {"station": station, "target": f"{cid}:{field}"}
     raise ValueError("unsupported suggestion station")
@@ -3814,6 +4108,17 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/next-episode/?$"),
         lambda name, _body=b"", **_: api_drama_next_episode(name, _body),
+    ),
+    (
+        "GET",
+        re.compile(
+            r"^/api/workspace/(?P<name>[^/]+)/drama/season/(?P<season>[^/]+)/export/?$"
+        ),
+        lambda name, season, _query=None, **_: api_drama_season_export(
+            name,
+            season,
+            ((_query or {}).get("mode", [""])[0]),
+        ),
     ),
     (
         "GET",

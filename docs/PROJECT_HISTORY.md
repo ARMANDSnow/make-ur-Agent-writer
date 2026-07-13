@@ -20,6 +20,7 @@
 | 088-092 | 短剧交付与真实媒体安全入口 | 四导出、Insights、第 2 集、真生图安全下载、五站 job、视频 job、多模态可恢复状态机与受控生图重试 |
 | 093 | Agent 记忆与文档分层 | 将累计 handoff 压缩为当前快照、合并阶段总结并压缩索引；后续复盘确认压缩幅度过大 |
 | 094 | 多模态校准证据与记忆再平衡 | 增加真实/模拟证据区分、调用/耗时/产物对账；恢复阶段级工作记忆并调整收官验收顺序 |
+| 095 | 短剧多集与整季交付闭环 | 连续 N+1、episode-scoped freshness v2、角色跨集出场、严格 master 与阶段 snapshot、安全确定性季包 |
 
 ## Iteration Implementation Index
 
@@ -95,6 +96,7 @@
 | 092 | 新增可恢复多模态联测和生图三次授权重试边界 | `src/drama_multimodal_smoke.py`、`scripts/drama_multimodal_smoke.sh`、`src/ai_draw_client.py`、`src/web/routes.py` |
 | 093 | 重构文档分层、压缩默认记忆并合并阶段总结 | `AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md`、`docs/iterations/README.md` |
 | 094 | 硬化多模态校准证据并再平衡项目记忆/收官顺序 | `src/drama_multimodal_smoke.py`、`src/drama_smoke.py`、`tests/test_drama_multimodal_smoke.py`、`AGENTS.md`、`docs/` |
+| 095 | 实现连续多集、freshness v2 与整季双包交付 | `src/drama_store.py`、`src/drama_season_export.py`、`src/web/routes.py`、`src/web/static.py`、`tests/test_drama_iter095_*.py` |
 
 ## Durable Decisions
 
@@ -113,6 +115,7 @@
 ### Keep state auditable
 
 - 每轮 iteration 保留 8 段结构、验收命令、审查结论与未修风险。
+- 聚合交付包从 canonical assembled JSON 重建；不直接归档工作目录，manifest 只公开受控字段并对成员做 SHA-256。
 - LLM 调用、writer meta、review、driver state、style drift 和媒体 attempt 只记录排障所需的有界、脱敏数据。
 - 运行中的草稿、失败、snapshot 和 resume 状态要完整落盘；成功/拒稿/中止不能靠文件是否存在猜测。
 

@@ -93,18 +93,23 @@ def _inherit_previous_setup(workspace: str, *, episode_no: int) -> Dict[str, Any
     if track not in TRACK_PINYIN:
         raise ValueError(f"unknown track: {track!r}")
 
-    result = dict(previous)
-    result.pop("hook", None)
-    result["episode_no"] = episode_no
-    result["track"] = track
-    result["core_setup"] = dict(core_setup)
-    result["target_duration_seconds"] = previous.get(
-        "target_duration_seconds",
-        wizard_input.get("episode_duration_seconds", 60),
-    )
-    result["introduces_new_characters"] = False
-    result.setdefault("episode_mainline", "")
-    return result
+    # Only series-level fields cross the episode boundary. Episode-local
+    # creative choices must start empty so ep3+ cannot accidentally continue
+    # an earlier episode's title, logline, mainline, hook, or cast decision.
+    return {
+        "episode_no": episode_no,
+        "season_no": 1,
+        "title": "",
+        "logline": "",
+        "track": track,
+        "target_duration_seconds": previous.get(
+            "target_duration_seconds",
+            wizard_input.get("episode_duration_seconds", 60),
+        ),
+        "core_setup": dict(core_setup),
+        "episode_mainline": "",
+        "introduces_new_characters": False,
+    }
 
 
 def build_system_prompt(workspace: str, template_name: str, wizard_input: Dict[str, Any] | None = None) -> str:

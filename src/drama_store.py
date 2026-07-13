@@ -22,6 +22,7 @@ from .drama_schemas import (
     DramaStoryboard,
     episode_paths,
     character_paths,
+    normalize_episode_no,
 )
 from .schemas import model_to_dict
 from .utils import read_json_optional, sha256_data, write_json
@@ -41,6 +42,8 @@ _STORYBOARD_FIELDS = (
     "is_highlight",
 )
 
+INPUT_FINGERPRINT_VERSION = 2
+
 
 @dataclass(frozen=True)
 class EpisodeExport:
@@ -59,7 +62,18 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     storyboard = _load_storyboard(workspace, episode_no=episode_no)
     characters = _load_characters(workspace)
     review = _load_review(workspace, episode_no=episode_no)
-    fingerprint = input_fingerprint(setup=setup, storyboard=storyboard, characters=characters, review=review)
+    fingerprint_ids = episode_character_fingerprint_ids(
+        characters, episode_no=episode_no
+    )
+    fingerprint = input_fingerprint(
+        setup=setup,
+        storyboard=storyboard,
+        characters=characters,
+        review=review,
+        episode_no=episode_no,
+        version=INPUT_FINGERPRINT_VERSION,
+        character_ids=fingerprint_ids,
+    )
 
     board = DramaStoryboard(**storyboard)
     core = setup.get("core_setup") if isinstance(setup.get("core_setup"), dict) else {}
@@ -95,6 +109,7 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
         target=target,
         estimate=estimated_duration,
         fingerprint=fingerprint,
+        character_fingerprint_ids=fingerprint_ids,
         episode_sha256=sha256_data(episode_data),
     )
 
@@ -357,7 +372,26 @@ def is_episode_stale(workspace: str, *, episode_no: int = 1) -> bool:
         review = _load_review(workspace, episode_no=episode_no)
     except (FileNotFoundError, ValueError):
         return True
-    return input_fingerprint(setup=setup, storyboard=storyboard, characters=characters, review=review) != previous
+    if "input_fingerprint_version" not in meta:
+        version = 1
+    else:
+        raw_version = meta.get("input_fingerprint_version")
+        if not isinstance(raw_version, int) or isinstance(raw_version, bool) or raw_version not in (1, 2):
+            return True
+        version = raw_version
+    return input_fingerprint(
+        setup=setup,
+        storyboard=storyboard,
+        characters=characters,
+        review=review,
+        episode_no=episode_no,
+        version=version,
+        character_ids=(
+            meta.get("character_fingerprint_ids")
+            if version == INPUT_FINGERPRINT_VERSION
+            else None
+        ),
+    ) != previous
 
 
 def input_fingerprint(
@@ -366,15 +400,149 @@ def input_fingerprint(
     storyboard: Dict[str, Any],
     characters: Dict[str, Any],
     review: Dict[str, Any],
+    episode_no: int | None = None,
+    version: int = 1,
+    character_ids: List[str] | None = None,
 ) -> str:
+    if not isinstance(version, int) or isinstance(version, bool) or version not in (1, INPUT_FINGERPRINT_VERSION):
+        raise ValueError("unsupported drama input fingerprint version")
+    character_payload = characters
+    if version == INPUT_FINGERPRINT_VERSION:
+        if episode_no is None:
+            raise ValueError("episode_no is required for fingerprint v2")
+        character_payload = _episode_character_fingerprint_view(
+            characters,
+            episode_no=episode_no,
+            character_ids=character_ids,
+        )
     return sha256_data(
         {
             "setup": setup,
             "storyboard": storyboard,
-            "characters": characters,
+            "characters": character_payload,
             "review": review,
         }
     )
+
+
+def _episode_character_fingerprint_view(
+    characters: Dict[str, Any], *, episode_no: int, character_ids: List[str] | None = None
+) -> Dict[str, Any]:
+    """Return only character inputs capable of changing one episode."""
+
+    episode_no = normalize_episode_no(episode_no)
+    rows = characters.get("characters")
+    active: List[Dict[str, Any]] = []
+    if isinstance(rows, list):
+        valid_rows = [raw for raw in rows if isinstance(raw, dict)]
+        selected_ids = set(
+            character_ids
+            or episode_character_fingerprint_ids(
+                characters, episode_no=episode_no
+            )
+        )
+        selected = [raw for raw in valid_rows if raw.get("id") in selected_ids]
+        for raw in selected:
+            row = dict(raw)
+            # Later appearance bookkeeping must not invalidate this episode.
+            row["appearances"] = [episode_no]
+            # Review-only suggestions and lock state do not change rendered
+            # character identity; future locked merges may update both.
+            row.pop("agent_suggestions", None)
+            row.pop("manual_override", None)
+            active.append(row)
+    return {
+        "schema_version": characters.get("schema_version", 1),
+        "season_no": characters.get("season_no", 1),
+        "track": characters.get("track", ""),
+        "characters": active,
+    }
+
+
+def episode_character_fingerprint_ids(
+    characters: Dict[str, Any], *, episode_no: int
+) -> List[str]:
+    """Freeze the cast that participates in one episode fingerprint."""
+
+    episode_no = normalize_episode_no(episode_no)
+    rows = characters.get("characters")
+    if not isinstance(rows, list):
+        return []
+    valid_rows = [
+        row
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    ]
+    active = [
+        str(row["id"])
+        for row in valid_rows
+        if isinstance(row.get("appearances"), list)
+        and episode_no in row.get("appearances", [])
+    ]
+    # Legacy skipped station-4 files omitted later appearances, and older or
+    # manually edited episode-1 sheets may use [] for the default cast. Freeze
+    # the current ids once so future characters cannot enter this fingerprint.
+    return sorted(set(active or [str(row["id"]) for row in valid_rows]))
+
+
+def migrate_fresh_episode_fingerprints_v2(workspace: str) -> List[int]:
+    """Migrate fresh legacy episode meta before the season sheet is changed.
+
+    Callers must invoke this while holding the workspace write lock and before
+    persisting character-table edits. Stale or malformed legacy episodes are
+    deliberately left on v1 so migration cannot bless already-diverged data.
+    """
+
+    try:
+        characters = _load_characters(workspace)
+    except (FileNotFoundError, ValueError):
+        # A manual save may be repairing an invalid or missing legacy sheet.
+        # In that case no legacy meta can be proven fresh, so migrate none and
+        # let the subsequent validated write make existing episodes stale.
+        return []
+    migrated: List[int] = []
+    for item in list_episodes(workspace):
+        episode_no = item["episode_no"]
+        paths = episode_paths(workspace, episode_no=episode_no)
+        meta = read_json_optional(paths.meta_path, None)
+        if not isinstance(meta, dict):
+            continue
+        raw_version = meta.get("input_fingerprint_version", 1)
+        if (
+            not isinstance(raw_version, int)
+            or isinstance(raw_version, bool)
+            or raw_version != 1
+            or is_episode_stale(workspace, episode_no=episode_no)
+        ):
+            continue
+        try:
+            fingerprint_ids = episode_character_fingerprint_ids(
+                characters, episode_no=episode_no
+            )
+            fingerprint = input_fingerprint(
+                setup=_load_setup(workspace, episode_no=episode_no),
+                storyboard=_load_storyboard(workspace, episode_no=episode_no),
+                characters=characters,
+                review=_load_review(workspace, episode_no=episode_no),
+                episode_no=episode_no,
+                version=INPUT_FINGERPRINT_VERSION,
+                character_ids=fingerprint_ids,
+            )
+            updated = model_to_dict(
+                DramaEpisodeMeta(
+                    **{
+                        **meta,
+                        "input_fingerprint": fingerprint,
+                        "input_fingerprint_version": INPUT_FINGERPRINT_VERSION,
+                        "character_fingerprint_ids": fingerprint_ids,
+                    }
+                )
+            )
+        except (FileNotFoundError, ValueError):
+            continue
+        write_json(paths.meta_path, updated)
+        migrated.append(episode_no)
+    return migrated
 
 
 def _load_setup(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
@@ -429,6 +597,7 @@ def _episode_meta(
     target: int,
     estimate: int,
     fingerprint: str,
+    character_fingerprint_ids: List[str],
     episode_sha256: str,
 ) -> DramaEpisodeMeta:
     review_model = DramaReview(**review)
@@ -443,6 +612,8 @@ def _episode_meta(
         highlight_shot_no=highlight_shot_no,
         duration_estimate_vs_target={"target": target, "estimate": estimate, "delta": estimate - target},
         input_fingerprint=fingerprint,
+        input_fingerprint_version=INPUT_FINGERPRINT_VERSION,
+        character_fingerprint_ids=character_fingerprint_ids,
         episode_sha256=episode_sha256,
         stale=False,
     )

@@ -506,7 +506,7 @@ def render_workspace_episodes(name: str, workspaces: Iterable[str]) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">短剧</p>'
         '<h1>剧集</h1>'
-        '<p class="muted">查看已组装的单集成片 JSON 真源与评审状态。</p>'
+        '<p class="muted">继续连续创作，并从已组装 JSON 真源导出单集或整季交付包。</p>'
         '</div>'
         '<div class="cluster">'
         f'<a class="btn btn-secondary" href="/w/{escape(name)}/write#characters">回到写作向导</a>'

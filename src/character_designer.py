@@ -81,6 +81,7 @@ def run(
 
 
 def _include_episode_in_appearances(payload: Dict[str, Any], episode_no: int) -> None:
+    episode_no = normalize_episode_no(episode_no)
     rows = payload.get("characters")
     if not isinstance(rows, list):
         return
@@ -89,8 +90,7 @@ def _include_episode_in_appearances(payload: Dict[str, Any], episode_no: int) ->
             continue
         raw = row.get("appearances")
         appearances = list(raw) if isinstance(raw, list) else []
-        if episode_no not in appearances:
-            appearances.append(episode_no)
+        appearances.append(episode_no)
         row["appearances"] = appearances
 
 
@@ -137,6 +137,9 @@ def merge_character_sheet(existing: Dict[str, Any] | CharacterSheet | None, inco
             merged.append(data)
         else:
             data = model_to_dict(fresh)
+            data["appearances"] = sorted(
+                set(old_character.appearances) | set(fresh.appearances)
+            )
             refs = _merge_reference_images(
                 [model_to_dict(ref) for ref in old_character.reference_images],
                 list(data.get("reference_images") or []),
@@ -173,6 +176,7 @@ def reuse_character_sheet_for_episode(
     sheet = existing if isinstance(existing, CharacterSheet) else CharacterSheet(**existing)
     data = model_to_dict(sheet)
     data["episode_no"] = number
+    _include_episode_in_appearances(data, number)
     return model_to_dict(CharacterSheet(**data))
 
 

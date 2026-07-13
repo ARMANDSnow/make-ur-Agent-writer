@@ -5844,6 +5844,22 @@ JS_DASHBOARD = """\
   }
 
   // ===== page: drama episodes =============================================
+  function dramaNextEpisodeReason(data) {
+    const code = String(data.next_episode_blocked_reason || "");
+    const labels = {
+      episode_sequence_gap: "检测到剧集断档，请先修复本地产物。",
+      orphan_episode_artifact: "检测到孤儿剧集产物，请先清理或恢复对应剧集。",
+      previous_episode_incomplete: "上一集尚未完整组装。",
+      previous_episode_artifact_mismatch: "上一集产物的集数不一致。",
+      previous_episode_fingerprint_missing: "上一集缺少输入指纹，需要重新组装。",
+      previous_episode_sha_mismatch: "上一集内容与 meta 校验值不一致，需要重新组装。",
+      previous_episode_stale: "上一集输入已变化，请先重新评审并组装。",
+      next_episode_setup_invalid: "下一集 setup 无法恢复，请修复后再继续。",
+      planned_episode_count_reached: "已达到计划集数。"
+    };
+    return labels[code] || String(data.next_episode_blocked_message || "下一集暂不可开始。");
+  }
+
   async function initDramaEpisodes() {
     const box = document.getElementById("episodes-panel");
     if (!box) return;
@@ -5851,10 +5867,6 @@ JS_DASHBOARD = """\
     try {
       const data = await fetchJson(wsUrl("/drama/episodes"));
       const episodes = data.episodes || [];
-      if (!episodes.length) {
-        box.innerHTML = emptyState("尚无已组装剧集", "完成站④后点击「评审并组装」，这里会出现单集成片。", '<a class="btn btn-primary" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write#characters">回到站④</a>');
-        return;
-      }
       const rows = episodes.map(function (ep) {
         return '<tr>' +
           '<td>第 ' + escapeHtml(String(ep.episode_no || "")) + ' 集</td>' +
@@ -5865,11 +5877,49 @@ JS_DASHBOARD = """\
           '<td><a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(ep.episode_no || 1)) + '">查看</a></td>' +
           '</tr>';
       }).join("");
+      const episodeList = episodes.length
+        ? tableScroll('<table class="table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>')
+        : emptyState("尚无已组装剧集", "从第 1 集写作向导开始；完成评审并组装后，成片会出现在这里。", "");
       const nextNo = Number(data.next_episode_no || 0);
-      const nextAction = data.can_start_next && Number.isSafeInteger(nextNo)
-        ? '<div class="form-actions"><button type="button" class="btn btn-primary" data-start-next-episode="' + escapeHtml(String(nextNo)) + '">开始第 ' + escapeHtml(String(nextNo)) + ' 集 →</button></div>'
-        : '<p class="muted">已达到计划集数，或上一集需要先重新组装。</p>';
-      box.innerHTML = tableScroll('<table class="table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>') + nextAction;
+      let nextAction = "";
+      if (Number.isSafeInteger(nextNo) && nextNo === 1 && !data.next_episode_blocked_reason) {
+        const label = data.next_episode_initialized ? "继续第 1 集" : "开始第 1 集";
+        nextAction = '<div class="form-actions"><a class="btn btn-primary" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=1">' + label + ' →</a></div>';
+      } else if (data.can_start_next && Number.isSafeInteger(nextNo)) {
+        const label = data.next_episode_initialized ? "继续第 " : "开始第 ";
+        nextAction = '<div class="form-actions"><button type="button" class="btn btn-primary" data-start-next-episode="' + escapeHtml(String(nextNo)) + '">' + label + escapeHtml(String(nextNo)) + ' 集 →</button></div>';
+      } else {
+        const repairNo = Number(data.next_episode_repair_no || 0);
+        const repairLink = Number.isSafeInteger(repairNo) && repairNo > 0
+          ? ' <a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(repairNo)) + '">修复第 ' + escapeHtml(String(repairNo)) + ' 集</a>'
+          : '';
+        nextAction = '<div class="alert info"><span>' + escapeHtml(dramaNextEpisodeReason(data)) + '</span>' + repairLink + '</div>';
+      }
+
+      const season = data.season_export || {};
+      const eligible = Array.isArray(season.eligible_episode_nos) ? season.eligible_episode_nos.length : 0;
+      const planned = Number(data.planned_episode_count || season.planned_episode_count || 0);
+      const seasonBase = wsUrl("/drama/season/1/export?mode=");
+      const masterButton = season.master_ready
+        ? '<a class="btn btn-primary" href="' + seasonBase + 'master" download>导出整季母包</a>'
+        : '<button type="button" class="btn btn-primary" disabled title="整季母包要求计划内全部剧集 fresh 且完整">导出整季母包</button>';
+      const snapshotButton = season.snapshot_ready
+        ? '<a class="btn btn-secondary" href="' + seasonBase + 'snapshot" download>导出阶段快照</a>'
+        : '<button type="button" class="btn btn-secondary" disabled title="至少需要一集 fresh 完整剧集">导出阶段快照</button>';
+      const excluded = Array.isArray(season.excluded) ? season.excluded : [];
+      const missingRefs = Array.isArray(season.missing_reference_images) ? season.missing_reference_images.length : 0;
+      const assetErrors = Array.isArray(season.asset_errors) ? season.asset_errors.length : 0;
+      let seasonHint = "计划内剧集与角色引用均已就绪。";
+      if (!season.master_ready) {
+        const reasons = [];
+        if (excluded.length) reasons.push(String(excluded.length) + " 集 incomplete/stale");
+        if (missingRefs) reasons.push(String(missingRefs) + " 个引用图缺失");
+        if (assetErrors) reasons.push(String(assetErrors) + " 个引用资产不安全或无效");
+        seasonHint = "母包未就绪：" + (reasons.length ? reasons.join("，") : "等待完整剧集或角色引用") + "。";
+        seasonHint += season.snapshot_ready ? " 可先导出阶段快照。" : " 当前也没有可导出的阶段快照。";
+      }
+      const exportCard = '<div class="card" style="margin-top:16px"><div class="card-header"><h3 class="ornament">整季交付</h3><span class="badge">可交付 ' + escapeHtml(String(eligible)) + '/' + escapeHtml(String(planned)) + ' 集</span></div><div class="card-body stack"><p class="muted">' + escapeHtml(seasonHint) + '</p><div class="cluster">' + masterButton + snapshotButton + '</div></div></div>';
+      box.innerHTML = episodeList + nextAction + exportCard;
       const nextBtn = box.querySelector("[data-start-next-episode]");
       if (nextBtn) {
         nextBtn.addEventListener("click", async function () {

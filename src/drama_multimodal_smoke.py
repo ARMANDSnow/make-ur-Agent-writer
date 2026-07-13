@@ -393,6 +393,7 @@ def _replace_character_reference(workspace: str, character_id: str, generated: D
             break
     if not found:
         raise ValueError("character disappeared before image commit")
+    drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
     write_json(cp.sheet_path, payload)
 
 

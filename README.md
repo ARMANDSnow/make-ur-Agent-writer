@@ -12,7 +12,7 @@
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
 - **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
-- **短剧**：五站 job、分镜 grid、角色库、review/assembly、四种导出、第 2 集、角色生图与 episode 1 视频安全入口。
+- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照，以及角色生图与 episode 1 视频安全入口。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -119,13 +119,14 @@ docs/iterations/           逐轮审计记录
 | 真模型质量、长程驱动、安全与可靠性 | 051-079 | ✅ 工程闭环；小说 capstone 待授权实跑 |
 | 短剧核心与文风量化闭环 | 080-087 | ✅ 完成 |
 | 短剧交付与真实媒体安全入口 | 088-092 | ⚠️ 工程闭环；真多模态待分段授权校准 |
+| 短剧多集与整季交付闭环 | 095 | ✅ mock 工程闭环；真多模态仍待分段授权 |
 | Agent 记忆、历史归档与收官流程 | 093-094 | ✅ 当前/历史职责分离；恢复精选工作记忆；全量验收后置 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 094**（2026-07-13，收官）。多模态 smoke 已补齐文本模型/调用账本、失败恢复耗时、图片 attempt、视频容器/指纹与脱敏校准报告；mock 证据与真实样本明确分离，本轮未运行真实计费请求。项目记忆在 iter 093 分层基础上恢复精选阶段上下文，收官固定先多视角审查修复、最后执行一次全量验收。
+最近一次更新：**iter 095**（2026-07-13，收官）。短剧流程已从第 2 集推广到按计划连续创建任意下一集（最多 100 集），加入 episode-scoped freshness v2、严格整季母包和阶段快照包；Web/API 会给出下一集与季包的明确阻断原因。本轮只运行 mock 验证，未发起真实文本、生图或视频请求。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
@@ -140,7 +141,7 @@ docs/iterations/           逐轮审计记录
 | 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
 | 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | ⚠️ | 工程已通；10-20 章真模型 capstone 待授权 |
-| Web/短剧 | 可编辑工作台；短剧五站、导出、图片/视频 job、校准证据报告 | ⚠️ | mock 工程与对账闭环；真多模态待分段授权与人工质量判断 |
+| Web/短剧 | 可编辑工作台；短剧五站、连续多集、下一集 readiness、单集/季级导出、安全 manifest、图片/视频 job、校准证据报告 | ⚠️ | 多集与季包 mock 工程闭环；真多模态待分段授权与人工质量判断 |
 
 ## 文档导航
 

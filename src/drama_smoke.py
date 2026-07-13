@@ -18,6 +18,8 @@ from .schemas import model_to_dict
 from .utils import read_json_optional, write_json
 from .web import jobs, wizard
 from .web.drama_insights import collect_drama_insights
+from .web.workspace_ctx import use_workspace
+from .workspace_lock import acquire_write_lock
 
 
 class DramaSmokeTimeout(TimeoutError):
@@ -193,18 +195,21 @@ def run_smoke(
     image_meta: Dict[str, Any] | None = None
     if real_image:
         os.environ["AI_DRAW_MODEL"] = DEFAULT_IMAGE_MODEL
-        sheet_data = read_json_optional(character_paths(workspace).sheet_path, None)
-        sheet = CharacterSheet(**sheet_data)
-        character = sheet.characters[0]
-        try:
-            generated = redraw_character_reference(workspace, character, mock=False)
-        except TimeoutError as exc:
-            raise DramaSmokeTimeout("image") from exc
-        char_data = model_to_dict(character)
-        char_data["reference_images"] = [*char_data.get("reference_images", []), generated][-8:]
-        sheet_payload = model_to_dict(sheet)
-        sheet_payload["characters"][0] = char_data
-        write_json(character_paths(workspace).sheet_path, sheet_payload)
+        with use_workspace(workspace):
+            with acquire_write_lock(source="drama-smoke-image"):
+                sheet_data = read_json_optional(character_paths(workspace).sheet_path, None)
+                sheet = CharacterSheet(**sheet_data)
+                character = sheet.characters[0]
+                try:
+                    generated = redraw_character_reference(workspace, character, mock=False)
+                except TimeoutError as exc:
+                    raise DramaSmokeTimeout("image") from exc
+                char_data = model_to_dict(character)
+                char_data["reference_images"] = [*char_data.get("reference_images", []), generated][-8:]
+                sheet_payload = model_to_dict(sheet)
+                sheet_payload["characters"][0] = char_data
+                drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
+                write_json(character_paths(workspace).sheet_path, sheet_payload)
         output = paths.WORKSPACE_DIR / workspace / generated["path"]
         image_meta = {
             "generated_by": generated.get("generated_by"),

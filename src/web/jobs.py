@@ -1285,7 +1285,7 @@ def _step_drama_storyboard(params: Dict[str, Any], progress_cb: Callable[[str, f
 
 
 def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    from .. import character_designer
+    from .. import character_designer, drama_store
     from ..drama_schemas import (
         DramaStoryboard, character_paths, episode_paths, validate_storyboard_hard,
     )
@@ -1305,10 +1305,15 @@ def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, f
         target = character_paths(workspace).sheet_path
         existing = read_json_optional(target, None)
         if episode_no > 1 and not introduces_new and isinstance(existing, dict):
-            character_designer.reuse_character_sheet_for_episode(existing, episode_no=episode_no)
-            progress_cb("reuse-validated", 0.85)
+            drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
+            result = character_designer.reuse_character_sheet_for_episode(
+                existing, episode_no=episode_no
+            )
+            progress_cb("commit", 0.85)
+            write_json(target, result)
             return {"status": "succeeded", "station": "characters", "episode_no": episode_no,
-                    "skipped": True, "budget_cny": 0.0, "cost_cny": 0.0}
+                    "skipped": True, "budget_cny": 0.0, "cost_cny": 0.0,
+                    "committed": True}
         budget_cny, line_offset = _drama_budget_start("drama-characters", params)
         incoming = character_designer.run(workspace, mock=None, episode_no=episode_no)
         exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
@@ -1316,6 +1321,8 @@ def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, f
             return {**exceeded, "station": "characters", "episode_no": episode_no}
         result = character_designer.merge_character_sheet(existing if isinstance(existing, dict) else None, incoming)
         progress_cb("commit", 0.85)
+        if isinstance(existing, dict):
+            drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
         write_json(target, result)
         return {"status": "succeeded", "station": "characters", "episode_no": episode_no,
                 "skipped": False, "budget_cny": budget_cny, "cost_cny": cost_cny,

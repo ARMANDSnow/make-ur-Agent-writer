@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -326,7 +327,7 @@ class DramaCharacter(BaseModel):
     visual_signature: str = Field(default="", max_length=120)
     prompt_template_sd: str = Field(default="", max_length=1200)
     reference_images: List[ReferenceImage] = Field(default_factory=list, max_length=8)
-    appearances: List[int] = Field(default_factory=list, max_length=80)
+    appearances: List[int] = Field(default_factory=list, max_length=MAX_DRAMA_EPISODE_NO)
     manual_override: bool = False
     visual_contrast_with: Dict[str, Any] = Field(default_factory=dict)
     agent_suggestions: List[Dict[str, Any]] = Field(default_factory=list, max_length=12)
@@ -357,20 +358,21 @@ class DramaCharacter(BaseModel):
 
     @field_validator("appearances", mode="before")
     @classmethod
-    def _appearances_are_positive_ints(cls, value: Any) -> List[int]:
+    def _appearances_are_strict_episode_numbers(cls, value: Any) -> List[int]:
         if value is None:
             return []
         if not isinstance(value, list):
             raise ValueError("appearances must be a list")
-        out: List[int] = []
+        out = set()
         for raw in value:
-            if isinstance(raw, bool):
-                raise ValueError("appearance episode numbers must not be bool")
-            number = int(raw)
-            if number < 1:
-                raise ValueError("appearance episode numbers must be positive")
-            out.append(number)
-        return out
+            if not isinstance(raw, int) or isinstance(raw, bool):
+                raise ValueError("appearance episode numbers must be strict integers")
+            if raw < 1 or raw > MAX_DRAMA_EPISODE_NO:
+                raise ValueError(
+                    f"appearance episode numbers must be between 1 and {MAX_DRAMA_EPISODE_NO}"
+                )
+            out.add(raw)
+        return sorted(out)
 
     @field_validator("visual_contrast_with", mode="before")
     @classmethod
@@ -573,6 +575,8 @@ class DramaEpisodeMeta(BaseModel):
     highlight_shot_no: Optional[int] = None
     duration_estimate_vs_target: DurationEstimate
     input_fingerprint: str = ""
+    input_fingerprint_version: int = Field(default=1, ge=1, le=2)
+    character_fingerprint_ids: List[str] = Field(default_factory=list, max_length=8)
     episode_sha256: str = Field(default="", pattern=r"^(?:|[0-9a-f]{64})$")
     stale: bool = False
 
@@ -580,6 +584,27 @@ class DramaEpisodeMeta(BaseModel):
     @classmethod
     def _episode_no_is_strict(cls, value: Any) -> int:
         return _strict_schema_episode_no(value)
+
+    @field_validator("input_fingerprint_version", mode="before")
+    @classmethod
+    def _fingerprint_version_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool) or value not in (1, 2):
+            raise ValueError("input_fingerprint_version must be 1 or 2")
+        return value
+
+    @field_validator("character_fingerprint_ids", mode="before")
+    @classmethod
+    def _character_fingerprint_ids_are_strict(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("character_fingerprint_ids must be a list")
+        ids: List[str] = []
+        for raw in value:
+            if not isinstance(raw, str) or re.fullmatch(r"c\d{3}", raw) is None:
+                raise ValueError("character_fingerprint_ids must contain character ids")
+            ids.append(raw)
+        return sorted(set(ids))
 
 
 class DramaEpisode(BaseModel):

@@ -142,7 +142,8 @@ class CharacterDesignerTests(DramaTestBase):
         view = character_designer.reuse_character_sheet_for_episode(existing, episode_no=2)
 
         self.assertEqual(CharacterSheet(**view).episode_no, 2)
-        self.assertEqual(view["characters"], existing["characters"])
+        self.assertTrue(all(row["appearances"] == [1, 2] for row in view["characters"]))
+        self.assertTrue(all(row["appearances"] == [1] for row in existing["characters"]))
         self.assertEqual(existing["episode_no"], 1)
         self.assertEqual(json.dumps(existing, ensure_ascii=False, sort_keys=True), before)
 

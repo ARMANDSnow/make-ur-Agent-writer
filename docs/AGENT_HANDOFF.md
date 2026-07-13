@@ -6,12 +6,12 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 094，2026-07-13 收官 |
+| 更新时间 | iter 095，2026-07-13 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无计费模型请求；LiteLLM 可能刷新公开 cost map |
-| Canonical 基线 | **1915 tests OK** |
+| Canonical 基线 | **1942 tests OK** |
 | 标准验收 | `verify.sh` exit 0；mock preflight 无 WARN/FATAL；真实配置 preflight 无 FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter 094 工程与流程补充已收官 |
+| 当前开发轮次 | 无；iter 095 多集与整季交付工程闭环已收官 |
 
 ## Capability Map
 
@@ -21,18 +21,17 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、分镜 grid、角色库、review/assembly、四导出、Insights、第 2 集、episode 1 视频 job、多模态可恢复编排；校准报告可区分 mock/真实记录并核对调用、耗时、成本与产物指纹 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；第 3 集以上未做 |
+| 短剧 | 五站 job、分镜 grid、角色库、review/assembly、连续多集（计划上限 100）、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；校准报告可区分 mock/真实记录并核对调用、耗时、成本与产物指纹 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；episode 2+ 视频与真 ComfyUI 未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- iter 094 为多模态 smoke 增加只读校准报告：明确区分工程 mock、未核验的本地真实记录和人工质量结论；未执行的真实样本不会被写成通过。
-- 文本五站增加模型 SHA 固定、逐站耗时/调用账本与失败恢复核对；图片/视频增加 attempt、提交数、尺寸、SHA、输入指纹与容器一致性证据，公开报告继续做有界脱敏。
-- mock 全链 `iter094_mock_final` 成功，报告为 engineering mock verified、real sample incomplete，真实网络请求与付费提交均为 0；本轮没有真文本、真生图或真视频调用。
-- canonical **1915 tests OK**；`verify.sh` exit 0；mock preflight 无 WARN/FATAL；语法、shell、diff 检查通过。该基线在本轮文档/流程补充前已完成，补充后按用户要求未重跑全量。
-- correctness、security/billing、multimodal/provider 三个只读视角的 findings 已修复，最终均 PASS；聚焦多模态回归为 35 tests OK。
-- iter 093 的 93 行 handoff 被判定过度压缩；iter 094 改为“当前快照 + 经筛选的工作记忆”，并恢复 `PROJECT_HISTORY.md` 为新 session 默认伴随读物。
-- 收官顺序改为“聚焦检查 → 多视角审查 → 修复与聚焦回归 → 最终一次全量验收 → 文档同步”，避免在审查修复前重复执行耗时 `verify.sh`。
+- iter 095 将 `next-episode` 与剧集状态统一到连续性判定，覆盖第 1→2→3 集、幂等恢复、断档/孤儿/stale/计划上限和严格整数 1-100；episode 3+ 只继承跨集设定。
+- episode-scoped freshness v2 冻结本集活跃角色集合：未来角色/appearance 不误伤旧集，旧集活跃角色视觉或参考图变化仍会 stale；fresh v1 meta 在角色表变化前按需迁移。
+- 新增确定性 master/snapshot 季包：从 assembled JSON 重建单集四格式，安全投影角色与引用资产，固定 ZIP 元数据/顺序，并以 dirfd、`O_NOFOLLOW`、大小预算和原子替换守住路径与失败恢复边界。
+- canonical **1942 tests OK**；短剧聚焦 **252 tests OK**；`verify.sh` exit 0；mock preflight 无 WARN/FATAL；语法和 `git diff --check` 通过。真实文本、生图、视频提交均为 0。
+- correctness、security/export、Web/API 三个只读视角的 findings 已修复，最终均 PASS；保留一个 P3：100 集状态查询仍会重复读取部分文件，可后续做只读性能优化。
+- iter 094 的多模态证据边界继续有效：工程 mock、未核验本地记录和人工质量结论保持分离，真实阶段仍需逐段授权。
 
 ## Retained Working Memory
 
@@ -90,7 +89,8 @@
 
 ### 8. 短剧创作与媒体链
 
-- 短剧主流程已覆盖五站文本、站③分镜 grid、站④角色/角色库、review/assembly、四格式导出、Insights 和 episode 2 继承；episode 3+ 与整季编排仍未实现。
+- 短剧主流程已覆盖五站文本、站③分镜 grid、站④角色/角色库、review/assembly、连续多集、四格式单集导出、Insights，以及严格整季母包/阶段快照；episode 1 视频边界保持不变。
+- 下一集只能从最新连续、完整且 fresh 的前集初始化；`episode_count` 是计划真源。季包只从 assembled JSON 和安全投影重建，不能把 setup、候选钩子、评审原文、prompt、日志或 provider state 混入交付物。
 - 真实媒体下载必须同时校验 scheme、redirect、DNS 与 peer IP、MIME/magic、size、hash、容器和原子落盘。仅检查扩展名或响应头不构成安全边界。
 - Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 在此基础上补齐校准证据，不改变“未授权时零真实提交”的原则。
 - Iter 094 文本证据按五站记录 task/model SHA、调用数、耗时与 cost；模型在同一链路中漂移会 fail-closed。失败和 crash-active step 的调用/耗时需要在恢复时对账，防止低报。
@@ -188,6 +188,12 @@
 - iter 094 采用四层记忆：AGENTS 长期规则、handoff 当前事实+工作记忆、PROJECT_HISTORY 阶段原因、iteration 逐轮证据。优化指标是接力质量，不是最低行数。
 - 同轮将耗时全量验收移到多视角审查/修复之后；前置聚焦检查仍保证审查基于可运行代码，后置 full gate 保证最终状态没有降低验收强度。
 
+#### Phase L — iter 095：连续多集与整季交付
+
+- 下一集创建统一为计划内连续 N+1，只有最新连续、完整且 fresh 的前集可推进；有效 setup 可幂等恢复，跳集、断档、孤儿与 stale 均 fail-closed。
+- freshness v2 冻结本集活跃角色范围，角色 appearances 可累积至 100；未来角色变化不误伤旧集，但旧集活跃角色视觉与参考图仍参与 stale 判定。
+- master/snapshot 都从 assembled JSON 重建并使用受控 manifest、成员 hash、固定 ZIP 元数据、安全有界读取和原子替换；工作目录不能直接作为交付包来源。
+
 ## Operating Boundaries
 
 - 不读写 `.env`、`小说txt/`、私有 `data/` 样本；不把原文、凭据、完整 prompt 或上游响应写入文档/日志。
@@ -201,15 +207,16 @@
 1. **短剧真实多模态校准**：分别验证五站真文本、全角色真生图、单次真视频的费用、耗时和质量。每段都需单独授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **ComfyUI 与季级短剧**：真 ComfyUI workflow、第 3 集以上和整季编排未验证。
+4. **短剧媒体**：真 ComfyUI workflow、episode 2+ 视频及真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **严格离线 mock**：mock 不发计费 provider 请求，但 LiteLLM 导入可能刷新公开 model cost map；若要求物理零网络，可后续统一设置 `LITELLM_LOCAL_MODEL_COST_MAP=true` 并回归。
+7. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 
 ## Next Candidates
 
 - 低风险工程轮：将 LiteLLM cost map 固定为本地、继续测试可维护性或已登记 P2 技债。
 - 需授权验证轮：五站真文本 smoke；全角色真生图 smoke；episode 1 单次真视频 smoke；小说 capstone。不要把这些授权合并推定。
-- 产品轮：第 3 集以上的季级继承/编排，或真 ComfyUI 导出校准。
+- 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
 ## Recovery Commands
 
@@ -245,4 +252,4 @@ python3 main.py write-readiness --chapters N
 
 ## Latest Transition
 
-iter 094 完成短剧多模态校准证据硬化：文本模型与调用账本、失败/恢复耗时、图片 attempt、视频容器/指纹和脱敏报告均可审计，mock 全链验证通过但未运行任何真实计费请求。作为补充，项目记忆由 iter 093 的过度压缩调整为“当前快照 + 数百行阶段级工作记忆 + 默认读取历史”，收官流程也改为审查修复后再执行一次全量验收。
+iter 095 完成短剧多集与整季交付闭环：下一集创建推广到计划内连续 N+1（最多 100 集），episode-scoped freshness v2 解决未来角色变化误伤旧集，master/snapshot 季包提供确定性、安全、原子交付；Web/API 同步展示可枚举 blocker 与可交付集数。最终 1942 项 canonical、252 项短剧聚焦、`verify.sh` 和 mock preflight 全绿，未运行真实计费请求。
