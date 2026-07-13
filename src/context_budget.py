@@ -86,12 +86,19 @@ def count_tokens(text: str, model: str = "") -> Tuple[int, str]:
 
     iter078 P1-3: deepseek 前缀模型对 CJK 文本加 ``min(raw, cjk_estimate)``
     修正（cl100k_base 对中文虚高 1.5-2×，导致截断过狠 / 预算虚耗）；cap
-    生效时 method 标 ``tiktoken_cjk_capped``。mock/gpt/claude 路径逐字节
-    不变（全部单测走 mock → 零日志计数漂移）。
+    生效时 method 标 ``tiktoken_cjk_capped``。gpt/claude 等真实模型路径
+    保持原行为；iter096 起 mock 在导入 tiktoken 前改用本地 char estimate，
+    以避免冷缓存下载编码文件。
     """
 
     if not text:
         return 0, "tiktoken"
+    # Iter 096: a cold tiktoken cache downloads cl100k_base on first use.
+    # Mock must be physically offline, so use the existing deterministic
+    # fallback estimate before importing tiktoken at all.  Real models retain
+    # the historical tokenizer/capped behavior.
+    if str(model or "").lower().startswith("mock"):
+        return math.ceil(len(text) / 1.6), "estimate"
     try:
         import tiktoken  # type: ignore
 

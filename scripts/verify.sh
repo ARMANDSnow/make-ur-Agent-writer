@@ -3,6 +3,7 @@ set -euo pipefail
 
 # verify.sh is mock-only sanity. Drop real-model env so it never burns tokens.
 export OPENAI_MODEL=mock
+export LITELLM_LOCAL_MODEL_COST_MAP=true
 unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_STREAM
 unset PLANNER_API_KEY PLANNER_BASE_URL PLANNER_MODEL
 unset DISABLE_PROMPT_CACHE WRITE_MAX_TOKENS WRITE_PROMPT_PROFILE
@@ -10,12 +11,14 @@ unset DISABLE_PROMPT_CACHE WRITE_MAX_TOKENS WRITE_PROMPT_PROFILE
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# Iter 027: keep entry-point shape consistent with the real-model
-# scripts. verify.sh is mock-only (no network), so this is a no-op for
-# correctness — just guarantees the future-self who ports verify.sh to a
-# non-mock smoke doesn't have to remember the proxy dance again.
-# shellcheck source=with_proxy.sh
-source "$ROOT/scripts/with_proxy.sh"
+# Keep the standard gate on the same dependency set as the project test
+# command.  Falling back preserves bootstrap usability before the venv exists.
+PYTHON_BIN="$ROOT/.venv/bin/python3"
+[[ -x "$PYTHON_BIN" ]] || PYTHON_BIN="python3"
+
+# Iter 096: verify is physically offline, not merely free of billable model
+# calls.  Do not source with_proxy.sh here: its localhost probe is itself a
+# network attempt and is only relevant to separately-authorized real runs.
 
 export PYTHONPYCACHEPREFIX="$ROOT/.pycache"
 
@@ -37,19 +40,19 @@ if [ -n "$BOOK" ]; then
   BOOK_ARG="--book $BOOK"
 fi
 
-python3 -m py_compile main.py src/*.py src/web/*.py tests/*.py
-python3 -m unittest discover -s tests -v
-python3 main.py $BOOK_ARG normalize
-python3 main.py $BOOK_ARG split
+"$PYTHON_BIN" -m py_compile main.py src/*.py src/web/*.py tests/*.py
+"$PYTHON_BIN" -m unittest discover -s tests -v
+"$PYTHON_BIN" main.py $BOOK_ARG normalize
+"$PYTHON_BIN" main.py $BOOK_ARG split
 # Iter 026: auto-pipeline replaces run-all here. run-all only ran
 # 6 steps (normalize→split→extract→compress→debate→write), skipping
 # bootstrap-apply and plan-chapters. auto-pipeline runs all 9 SOP
 # steps and is the same function the WebUI wizard's worker invokes,
 # keeping CLI / GUI on one orchestration code path.
-python3 main.py $BOOK_ARG auto-pipeline --extract-limit 2 --chapters 1 --force
-python3 main.py $BOOK_ARG status
-python3 main.py $BOOK_ARG check-manifest
-python3 main.py $BOOK_ARG manifest-report
-python3 main.py $BOOK_ARG review-summary
-python3 main.py $BOOK_ARG check-reports
-python3 main.py $BOOK_ARG estimate-cost
+"$PYTHON_BIN" main.py $BOOK_ARG auto-pipeline --extract-limit 2 --chapters 1 --force
+"$PYTHON_BIN" main.py $BOOK_ARG status
+"$PYTHON_BIN" main.py $BOOK_ARG check-manifest
+"$PYTHON_BIN" main.py $BOOK_ARG manifest-report
+"$PYTHON_BIN" main.py $BOOK_ARG review-summary
+"$PYTHON_BIN" main.py $BOOK_ARG check-reports
+"$PYTHON_BIN" main.py $BOOK_ARG estimate-cost

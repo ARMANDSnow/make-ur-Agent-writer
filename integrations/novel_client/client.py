@@ -81,6 +81,13 @@ class NovelClient:
             raise NovelApiError(
                 0, None, f"cannot reach continuer at {self.base_url}: {exc.reason}"
             ) from exc
+        except TimeoutError as exc:
+            # urllib usually wraps transport failures in URLError, but a
+            # socket read timeout may escape directly on some Python/platform
+            # combinations.  Keep the public client contract deterministic.
+            raise NovelApiError(
+                0, None, f"cannot reach continuer at {self.base_url}: timed out"
+            ) from exc
         body: Any = {}
         if raw:
             try:

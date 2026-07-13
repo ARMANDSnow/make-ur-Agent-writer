@@ -41,9 +41,19 @@ class SmokeScriptTests(unittest.TestCase):
     def test_verify_sh_unsets_real_model_env(self) -> None:
         text = Path("scripts/verify.sh").read_text(encoding="utf-8")
         self.assertIn("export OPENAI_MODEL=mock", text)
+        self.assertIn("export LITELLM_LOCAL_MODEL_COST_MAP=true", text)
         self.assertIn("unset OPENAI_API_KEY OPENAI_BASE_URL", text)
         self.assertIn("PLANNER_API_KEY PLANNER_BASE_URL PLANNER_MODEL", text)
         self.assertIn("OPENAI_STREAM", text)
+        self.assertNotIn('source "$ROOT/scripts/with_proxy.sh"', text)
+        self.assertIn('PYTHON_BIN="$ROOT/.venv/bin/python3"', text)
+        self.assertNotIn("\\npython3 -m unittest", text)
+
+    def test_drama_mock_wrappers_pin_litellm_to_local_cost_map(self) -> None:
+        for name in ("drama_smoke.sh", "drama_multimodal_smoke.sh"):
+            text = Path(f"scripts/{name}").read_text(encoding="utf-8")
+            self.assertIn("LITELLM_LOCAL_MODEL_COST_MAP=true", text)
+            self.assertIn("OPENAI_MODEL=mock", text)
 
     def test_debate_smoke_creates_snapshot_block(self) -> None:
         text = Path("scripts/debate_smoke.sh").read_text(encoding="utf-8")

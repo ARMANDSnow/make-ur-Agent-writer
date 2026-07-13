@@ -9,6 +9,7 @@ import json
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import patch
 from urllib.parse import parse_qs, unquote, urlparse
 
 from integrations.novel_client import NovelApiError, NovelClient, TERMINAL_STATUSES
@@ -267,7 +268,10 @@ class NovelClientTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_connection_error_raises(self):
         dead = NovelClient("http://127.0.0.1:1", request_timeout_s=1.0)
-        with self.assertRaises(NovelApiError) as ctx:
+        with patch(
+            "integrations.novel_client.client.urllib.request.urlopen",
+            side_effect=TimeoutError("timed out"),
+        ), self.assertRaises(NovelApiError) as ctx:
             await dead.list_workspaces()
         self.assertEqual(ctx.exception.status_code, 0)
 

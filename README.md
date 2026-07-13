@@ -18,7 +18,7 @@
 
 ## 快速开始
 
-mock 模式不需要 key，也不调用模型 provider。LiteLLM 导入时可能刷新公开 model cost map，失败后自动使用本地备份：
+mock 模式不需要 key、不调用模型 provider，也不会联网刷新 LiteLLM cost map；项目会在 LiteLLM 首次导入前强制使用其内置副本并跳过真实模型代理探测：
 
 ```bash
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git
@@ -121,17 +121,19 @@ docs/iterations/           逐轮审计记录
 | 短剧交付与真实媒体安全入口 | 088-092 | ⚠️ 工程闭环；真多模态待分段授权校准 |
 | 短剧多集与整季交付闭环 | 095 | ✅ mock 工程闭环；真多模态仍待分段授权 |
 | Agent 记忆、历史归档与收官流程 | 093-094 | ✅ 当前/历史职责分离；恢复精选工作记忆；全量验收后置 |
+| Mock 严格离线与验证环境一致性 | 096 | ✅ 本地 cost map、零代理探测、零 tokenizer 下载；verify 固定项目虚拟环境 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 095**（2026-07-13，收官）。短剧流程已从第 2 集推广到按计划连续创建任意下一集（最多 100 集），加入 episode-scoped freshness v2、严格整季母包和阶段快照包；Web/API 会给出下一集与季包的明确阻断原因。本轮只运行 mock 验证，未发起真实文本、生图或视频请求。
+最近一次更新：**iter 096**（2026-07-13，收官）。mock 会在 LiteLLM 首次导入前强制本地 cost map、跳过代理探测，并以确定性本地估算取代可能冷下载编码的 token 统计；CLI、Web、短剧入口、单测和标准验证共享同一离线语义。未发起真实文本、生图或视频请求。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
 | 阶段 | 当前能力 | 状态 | 关键迭代 |
 |---|---|---|---|
+| 运行基础 | mock 严格离线、测试配置隔离、标准验证固定项目虚拟环境 | ✅ | 006-008, 047B2, 096 |
 | 1. 输入准备 | normalize、split、manifest、多语言/EPUB | ✅ | 001-002, 018 |
 | 2. 知识抽取 | extract、compress、五类 bootstrap/apply | ✅ | 003-004, 015-016 |
 | 3. 起点判断 | start point、anchor、长程起点一致性硬门 | ✅ | 021, 027 |

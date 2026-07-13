@@ -6,19 +6,19 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 095，2026-07-13 收官 |
-| 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无计费模型请求；LiteLLM 可能刷新公开 cost map |
-| Canonical 基线 | **1942 tests OK** |
-| 标准验收 | `verify.sh` exit 0；mock preflight 无 WARN/FATAL；真实配置 preflight 无 FATAL |
+| 更新时间 | iter 096，2026-07-13 收官 |
+| 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
+| Canonical 基线 | **1952 tests OK** |
+| 标准验收 | `verify.sh` exit 0（项目虚拟环境）；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter 095 多集与整季交付工程闭环已收官 |
+| 当前开发轮次 | 无；iter 096 LiteLLM 严格离线 mock 已收官 |
 
 ## Capability Map
 
 | 领域 | 已打通 | 仍未闭环 |
 |---|---|---|
 | 小说主链 | normalize、split、extract、compress、debate、plan、write、review、滚动摘要、关系推进、多 workspace、多语言 | 10-20 章真模型 capstone 与长期质量阈值校准 |
-| 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
+| 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
 | 短剧 | 五站 job、分镜 grid、角色库、review/assembly、连续多集（计划上限 100）、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；校准报告可区分 mock/真实记录并核对调用、耗时、成本与产物指纹 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；episode 2+ 视频与真 ComfyUI 未做 |
@@ -26,12 +26,12 @@
 
 ## Latest Accepted Evidence
 
-- iter 095 将 `next-episode` 与剧集状态统一到连续性判定，覆盖第 1→2→3 集、幂等恢复、断档/孤儿/stale/计划上限和严格整数 1-100；episode 3+ 只继承跨集设定。
-- episode-scoped freshness v2 冻结本集活跃角色集合：未来角色/appearance 不误伤旧集，旧集活跃角色视觉或参考图变化仍会 stale；fresh v1 meta 在角色表变化前按需迁移。
-- 新增确定性 master/snapshot 季包：从 assembled JSON 重建单集四格式，安全投影角色与引用资产，固定 ZIP 元数据/顺序，并以 dirfd、`O_NOFOLLOW`、大小预算和原子替换守住路径与失败恢复边界。
-- canonical **1942 tests OK**；短剧聚焦 **252 tests OK**；`verify.sh` exit 0；mock preflight 无 WARN/FATAL；语法和 `git diff --check` 通过。真实文本、生图、视频提交均为 0。
-- correctness、security/export、Web/API 三个只读视角的 findings 已修复，最终均 PASS；保留一个 P3：100 集状态查询仍会重复读取部分文件，可后续做只读性能优化。
-- iter 094 的多模态证据边界继续有效：工程 mock、未核验本地记录和人工质量结论保持分离，真实阶段仍需逐段授权。
+- `prepare_litellm_environment()` 在 LiteLLM 首次导入前解析有效配置：mock 强制本地 cost map 并跳过代理探测，真实分支不改写 cost map 开关且保留原 provider 路由。
+- unittest、pytest、CLI、Web、短剧模块入口与 `verify.sh` 已统一 mock 初始化；网络审计覆盖 DNS/TCP/urllib、实际 mock completion、冷 tiktoken cache、临时根 preflight、缺失 LiteLLM fallback 和 fake 真实分支。
+- mock token 统计改为确定性本地估算，短剧 programmatic 入口延迟导入 LLM 栈；`verify.sh` 固定项目虚拟环境，消除系统 Python 版本/依赖漂移。
+- NovelClient 的裸 `TimeoutError` 统一归一化为 `NovelApiError(status=0)`，对应测试不再真实连接 loopback 死端口。
+- canonical **1952 tests OK**；`verify.sh` 全链 exit 0；mock preflight 无 WARN/FATAL；语法和 `git diff --check` 通过。真实文本、生图、视频及计费 provider 请求均为 0。
+- correctness、security/boundary、tests/entry 三个只读视角的初审 findings 均已修复，第二轮全部 PASS，无未解决风险；审查代理曾误触一次公开 cost-map 刷新并离线回退，未调用模型/provider。
 
 ## Retained Working Memory
 
@@ -47,7 +47,7 @@
 ### 2. Mock、真实调用与凭据安全
 
 - 所有单测、`verify.sh` 和默认开发链必须强制 `OPENAI_MODEL=mock`。测试环境即使存在 `.env` 也不能触发真实 provider；任何 discovery 路径能绕过 mock 都是 P0/P1 级回归。
-- LiteLLM import 可能刷新公开 cost map 并回落缓存，这与模型计费请求不同；若任务要求物理零网络，需要额外启用本地 cost map 并回归，不能把“无模型调用”偷换成“零网络”。
+- mock 必须在 LiteLLM 首次导入前强制本地 cost map、跳过 proxy setup，并让 token 统计走本地 estimate；新入口若不能提前 pin 环境，就必须延迟导入 LLM 栈。网络审计要执行实际 completion/preflight，而不只验证 import。
 - `.env` 由用户维护，agent 不主动读取或修改。日志、异常、job 公开视图与报告不得包含 key、Authorization、完整 prompt、签名 URL、上游响应正文或无界自由文本。
 - 真文本、真生图、真视频是三类独立授权。授权只适用于本次精确入口、模型/服务、提交上限、预算与超时，不跨阶段、不从旧对话或 resume state 继承。
 - 真实 smoke 失败时先停在可恢复状态。生图首次失败/超时后先查上游任务和账单，再申请新授权；最多额外 2 次简化 prompt、每次 180 秒。视频单次提交，超时不重试。
@@ -209,12 +209,11 @@
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
 4. **短剧媒体**：真 ComfyUI workflow、episode 2+ 视频及真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
-6. **严格离线 mock**：mock 不发计费 provider 请求，但 LiteLLM 导入可能刷新公开 model cost map；若要求物理零网络，可后续统一设置 `LITELLM_LOCAL_MODEL_COST_MAP=true` 并回归。
-7. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
+6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 
 ## Next Candidates
 
-- 低风险工程轮：将 LiteLLM cost map 固定为本地、继续测试可维护性或已登记 P2 技债。
+- 低风险工程轮：继续测试可维护性、100 集只读扫描优化或已登记 P2 技债。
 - 需授权验证轮：五站真文本 smoke；全角色真生图 smoke；episode 1 单次真视频 smoke；小说 capstone。不要把这些授权合并推定。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -252,4 +251,4 @@ python3 main.py write-readiness --chapters N
 
 ## Latest Transition
 
-iter 095 完成短剧多集与整季交付闭环：下一集创建推广到计划内连续 N+1（最多 100 集），episode-scoped freshness v2 解决未来角色变化误伤旧集，master/snapshot 季包提供确定性、安全、原子交付；Web/API 同步展示可枚举 blocker 与可交付集数。最终 1942 项 canonical、252 项短剧聚焦、`verify.sh` 和 mock preflight 全绿，未运行真实计费请求。
+iter 096 将默认 mock 从“无计费调用”收紧为可审计的严格离线边界：LiteLLM 首次导入固定本地 cost map、跳过代理探测，mock token 统计不触发 tokenizer 下载，CLI/Web/短剧/测试/verify 入口一致；同时修复 NovelClient timeout 归一化和 verify 解释器漂移。最终 1952 项 canonical、标准 `verify.sh` 与 mock preflight 全绿，三视角复审 PASS，未运行真实计费请求。

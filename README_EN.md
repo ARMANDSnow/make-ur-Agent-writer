@@ -27,7 +27,7 @@ Books it has run on include Dragon Raja, A Song of Ice and Fire, and original no
 
 ## Quick start
 
-Mock mode needs no key and makes no billable model-provider calls. LiteLLM may refresh its public model-cost map during import and falls back to a bundled local copy on failure:
+Mock mode needs no key, makes no billable model-provider calls, and does not refresh LiteLLM's cost map over the network. Before LiteLLM's first import, the project forces its bundled map and skips real-model proxy probing:
 
 ```bash
 git clone https://github.com/ARMANDSnow/make-ur-Agent-writer.git

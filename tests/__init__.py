@@ -3,6 +3,7 @@
 import os
 
 os.environ["OPENAI_MODEL"] = "mock"
+os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
 for key in (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",

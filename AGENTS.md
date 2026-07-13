@@ -7,7 +7,7 @@
 Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与短剧生成研究项目，目标是支持任意小说，而非只服务当前验证书目。
 
 - **禁止修改 `小说txt/` 原文**。原文及其衍生数据只用于本地处理，不进入仓库。
-- 默认 `OPENAI_MODEL=mock`，无 key、无计费模型请求即可完成工程验证。LiteLLM 导入时可能刷新公开 model cost map 并回落本地缓存，这不属于模型调用。
+- 默认 `OPENAI_MODEL=mock`，无 key、无计费模型请求即可完成工程验证；mock 会在 LiteLLM 首次导入前强制使用内置 cost map 并跳过代理探测，保持严格离线。真实模型仍按既有 provider/代理配置运行。
 - 真模型配置由用户维护在 `.env`；模型名必须包含 provider 前缀，例如 `deepseek/deepseek-chat`。
 
 ## 新 Session 读取顺序

@@ -34,9 +34,20 @@ _MOCK_SCRUB_KEYS = (
 )
 
 
-@pytest.fixture(autouse=True)
-def _force_mock_env():
+def _apply_mock_env() -> None:
     os.environ["OPENAI_MODEL"] = "mock"
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
     for key in _MOCK_SCRUB_KEYS:
         os.environ.pop(key, None)
+
+
+# conftest is imported before pytest collects test modules.  Pin mock here so
+# import-time LiteLLM initialization cannot observe a real parent environment;
+# the fixture below reasserts the same boundary after tests mutate os.environ.
+_apply_mock_env()
+
+
+@pytest.fixture(autouse=True)
+def _force_mock_env():
+    _apply_mock_env()
     yield

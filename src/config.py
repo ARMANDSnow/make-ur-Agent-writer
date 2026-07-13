@@ -16,6 +16,7 @@ DEFAULT_CONTEXT_LIMITS = {
     "deepseek": 64000,
     "claude": 200000,
 }
+LITELLM_LOCAL_MODEL_COST_MAP_ENV = "LITELLM_LOCAL_MODEL_COST_MAP"
 
 
 def load_dotenv_if_available() -> None:
@@ -85,6 +86,29 @@ def load_config(name: str) -> Dict[str, Any]:
     if not path.exists():
         return {}
     return load_structured_config(path)
+
+
+def prepare_litellm_environment() -> bool:
+    """Prepare LiteLLM before its first import and return global mock mode.
+
+    LiteLLM fetches its public model-cost map at import time unless
+    ``LITELLM_LOCAL_MODEL_COST_MAP=true`` is already present.  The project
+    loads ``.env`` lazily, so this guard must resolve the effective global
+    model *before* importing LiteLLM: explicit ``OPENAI_MODEL`` wins, then
+    the configured default.  Mock is fail-closed and overwrites a conflicting
+    inherited/dotenv value; real-model processes retain the caller's existing
+    LiteLLM choice and proxy behavior.
+    """
+
+    load_dotenv_if_available()
+    model_cfg = load_config("models.yaml")
+    default_model = str(model_cfg.get("default", {}).get("model") or "mock")
+    env_model = os.getenv("OPENAI_MODEL")
+    effective_model = env_model or default_model
+    is_mock = str(effective_model).lower().startswith("mock")
+    if is_mock:
+        os.environ[LITELLM_LOCAL_MODEL_COST_MAP_ENV] = "true"
+    return is_mock
 
 
 def get_model_config(task: str = "default") -> Dict[str, Any]:

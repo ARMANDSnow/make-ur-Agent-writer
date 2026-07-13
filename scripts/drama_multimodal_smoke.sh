@@ -44,4 +44,9 @@ fi
 if [[ "$REAL_IMAGE" -eq 1 ]]; then
   export CONFIRM_REAL_IMAGE_SMOKE="可以跑生图"
 fi
+if [[ "$REAL_TEXT" -eq 0 ]]; then
+  export OPENAI_MODEL=mock
+  export DRAMA_MODEL=mock
+  export LITELLM_LOCAL_MODEL_COST_MAP=true
+fi
 exec "$PYTHON_BIN" -m src.drama_multimodal_smoke "$@"

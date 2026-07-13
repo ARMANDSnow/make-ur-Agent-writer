@@ -9,10 +9,19 @@ import hashlib
 import json
 import math
 import os
+import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Mapping
+
+# As with drama_smoke, direct module execution defaults to mock text.  This
+# must happen before any transitive LLM import; programmatic run() repeats the
+# pin after it receives the explicit real_text flag.
+if __name__ == "__main__" and "--real-text" not in sys.argv[1:]:
+    os.environ["OPENAI_MODEL"] = "mock"
+    os.environ["DRAMA_MODEL"] = "mock"
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
 
 from . import drama_smoke, drama_store, drama_video, paths
 from .ai_draw_client import (
@@ -25,7 +34,6 @@ from .ai_draw_client import (
     validate_api_base_url,
 )
 from .drama_schemas import CharacterSheet, character_paths
-from .drama_video_smoke import run_smoke as run_video_smoke
 from .config import get_model_config
 from .schemas import model_to_dict
 from .utils import read_json, read_json_optional, write_json
@@ -64,6 +72,15 @@ _PNG_1X1 = base64.b64decode(
 
 class MultimodalAuthorizationError(PermissionError):
     pass
+
+
+def run_video_smoke(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    # drama_video_smoke imports web.jobs (and therefore the LLM stack).  Keep
+    # the public wrapper patchable for tests while deferring that import until
+    # run() has pinned mock or validated real-text authorization.
+    from .drama_video_smoke import run_smoke
+
+    return run_smoke(*args, **kwargs)
 
 
 def _positive(value: Any, label: str, *, maximum: float = 1_000_000.0) -> float:
@@ -634,6 +651,10 @@ def run(
     real_video: bool = False,
     options: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
+    if not real_text:
+        os.environ["OPENAI_MODEL"] = "mock"
+        os.environ["DRAMA_MODEL"] = "mock"
+        os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
     opts = dict(options or {})
     _validate_invocation(real_text, real_image, real_video, opts)
     with _orchestrator_lock(workspace):

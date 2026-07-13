@@ -146,6 +146,19 @@ class CountTokensParityTests(unittest.TestCase):
         ):
             self.assertEqual(count_tokens("hello", "m"), (math.ceil(5 / 1.6), "estimate"))
 
+    def test_mock_never_initializes_tiktoken(self) -> None:
+        import tiktoken
+
+        with patch.object(
+            tiktoken, "encoding_for_model", side_effect=AssertionError("mock touched tiktoken")
+        ), patch.object(
+            tiktoken, "get_encoding", side_effect=AssertionError("mock touched tiktoken")
+        ):
+            self.assertEqual(
+                count_tokens("offline mock prompt", "mock"),
+                (math.ceil(len("offline mock prompt") / 1.6), "estimate"),
+            )
+
 
 class HelperTests(unittest.TestCase):
     def test_token_counter_for_returns_int_callable(self) -> None:
@@ -216,15 +229,14 @@ class Iter078CjkCapTests(unittest.TestCase):
         self.assertEqual(capped, raw)
         self.assertEqual(method, "tiktoken")
 
-    def test_mock_and_other_models_never_capped(self) -> None:
+    def test_mock_estimates_and_other_models_never_capped(self) -> None:
         text = "龙族少年在雨夜里沉默地走过长街。" * 20
         base = count_tokens(text, "")
-        # mock/claude 走 cl100k fallback → 与空 model 逐字节相同；gpt-4o 有
-        # 自己的 encoding（o200k，本就与 base 不同，iter078 之前即如此）——
-        # 共同不变式是：非 deepseek 模型绝不进 cjk_capped 分支。
-        for model in ("mock", "claude-3"):
-            with self.subTest(model=model):
-                self.assertEqual(count_tokens(text, model), base)
+        # Iter096: mock deliberately bypasses tiktoken for strict offline
+        # operation.  Real non-DeepSeek models keep their historical tokenizer
+        # behavior; none may enter the DeepSeek-only CJK cap branch.
+        self.assertEqual(count_tokens(text, "mock"), (math.ceil(len(text) / 1.6), "estimate"))
+        self.assertEqual(count_tokens(text, "claude-3"), base)
         for model in ("mock", "gpt-4o", "claude-3"):
             with self.subTest(model=model, check="method"):
                 self.assertNotEqual(count_tokens(text, model)[1], "tiktoken_cjk_capped")

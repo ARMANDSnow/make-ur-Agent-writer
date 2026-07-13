@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from .config import ROOT
-from .config import _env_int, _safe_int, get_model_config
+from .config import _env_int, _safe_int, get_model_config, prepare_litellm_environment
 from .schemas import model_to_dict
 from .utils import append_jsonl, extract_json_object
 
@@ -85,7 +85,13 @@ def _setup_proxy() -> None:
             os.environ.pop(k, None)
 
 
-_setup_proxy()
+# Iter 096: LiteLLM reads its cost-map source during import.  Resolve the
+# effective global model first so mock processes force the bundled map and do
+# not even probe the localhost proxy.  Real-model processes preserve the
+# existing proxy adaptation and remote-map behavior.
+_LITELLM_MOCK_OFFLINE = prepare_litellm_environment()
+if not _LITELLM_MOCK_OFFLINE:
+    _setup_proxy()
 
 
 # Iter 027: GPT-5 family rejects ``temperature != 1`` (and a handful of

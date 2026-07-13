@@ -21,6 +21,7 @@
 | 093 | Agent 记忆与文档分层 | 将累计 handoff 压缩为当前快照、合并阶段总结并压缩索引；后续复盘确认压缩幅度过大 |
 | 094 | 多模态校准证据与记忆再平衡 | 增加真实/模拟证据区分、调用/耗时/产物对账；恢复阶段级工作记忆并调整收官验收顺序 |
 | 095 | 短剧多集与整季交付闭环 | 连续 N+1、episode-scoped freshness v2、角色跨集出场、严格 master 与阶段 snapshot、安全确定性季包 |
+| 096 | LiteLLM 严格离线 mock | 首次导入本地 cost map、零代理/tokenizer 网络准备、入口级网络审计与 verify 环境一致性 |
 
 ## Iteration Implementation Index
 
@@ -97,12 +98,14 @@
 | 093 | 重构文档分层、压缩默认记忆并合并阶段总结 | `AGENTS.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md`、`docs/iterations/README.md` |
 | 094 | 硬化多模态校准证据并再平衡项目记忆/收官顺序 | `src/drama_multimodal_smoke.py`、`src/drama_smoke.py`、`tests/test_drama_multimodal_smoke.py`、`AGENTS.md`、`docs/` |
 | 095 | 实现连续多集、freshness v2 与整季双包交付 | `src/drama_store.py`、`src/drama_season_export.py`、`src/web/routes.py`、`src/web/static.py`、`tests/test_drama_iter095_*.py` |
+| 096 | 收紧 LiteLLM mock 为可审计的物理零网络路径 | `src/config.py`、`src/llm_client.py`、`src/context_budget.py`、`scripts/verify.sh`、`tests/test_mock_offline.py` |
 
 ## Durable Decisions
 
 ### Mock first
 
 - 单测与 `verify.sh` 永远强制 mock，不能从 `.env` 泄漏到真实 provider。
+- mock 的边界包含 LiteLLM import、代理准备和 tokenizer 冷缓存：必须在首次导入前固定本地 cost map，跳过代理探测，并以网络审计执行实际 completion/preflight；真实分支保持原 provider 行为。
 - 可选知识源缺失时，裸仓库工程验证必须 graceful degrade。
 - mock 只能证明编排和守门，不能证明真模型质量、费用或时延。
 
@@ -144,6 +147,7 @@
 9. **文档中的“当前”最容易过期**：测试数、最近 iter、下一步只保留在 handoff；产品说明和历史总结用范围化措辞并链接当前快照。
 10. **项目记忆不能只按行数优化**：iter 093 将 2216 行 handoff 一次压到约 93 行，虽去掉重复，却也损失了接力所需的事故模式和阶段上下文。合理结构是短当前快照、数百行精选工作记忆、阶段历史和按需逐轮证据四层并存。
 11. **昂贵验收应在审查修复之后**：先跑 `verify.sh` 再审查会在 findings 修复后重复全量。聚焦反馈前置、独立审查居中、全量闸门后置更节省时间，也不会降低最终验收强度。
+12. **“mock”必须审计传递依赖和真实动作**：只断言不调用 provider 仍可能漏掉 LiteLLM cost map、proxy socket 或 tiktoken 冷下载。可靠证明需要控制首次导入顺序，在临时冷缓存与网络阻断下执行 completion/preflight，并让验证脚本固定项目解释器。
 
 ## Historical Evidence Notes
 

@@ -6,9 +6,18 @@ import argparse
 import json
 import math
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable
+
+# Direct ``python -m`` defaults to mock.  Pin before any project imports so a
+# real parent environment/.env cannot initialize LiteLLM first.  Programmatic
+# callers are handled by run_smoke() plus lazy Web imports below.
+if __name__ == "__main__" and "--real-text" not in sys.argv[1:]:
+    os.environ["OPENAI_MODEL"] = "mock"
+    os.environ["DRAMA_MODEL"] = "mock"
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
 
 from . import drama_store, paths
 from .ai_draw_client import DEFAULT_IMAGE_MODEL, redraw_character_reference
@@ -16,7 +25,6 @@ from .config import load_dotenv_if_available
 from .drama_schemas import CharacterSheet, character_paths, episode_paths
 from .schemas import model_to_dict
 from .utils import read_json_optional, write_json
-from .web import jobs, wizard
 from .web.drama_insights import collect_drama_insights
 from .web.workspace_ctx import use_workspace
 from .workspace_lock import acquire_write_lock
@@ -28,7 +36,22 @@ class DramaSmokeTimeout(TimeoutError):
         self.stage = stage
 
 
+def _jobs_module():
+    # Importing jobs pulls in the LLM stack; defer until run_smoke() has pinned
+    # mock or explicitly validated a real-text invocation.
+    from .web import jobs
+
+    return jobs
+
+
+def _wizard_module():
+    from .web import wizard
+
+    return wizard
+
+
 def _wait_job(job_id: str, timeout_seconds: float) -> Dict[str, Any]:
+    jobs = _jobs_module()
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         record = jobs.get_job(job_id)
@@ -48,6 +71,7 @@ def _run_step(
     real_text: bool = False,
     budget_cny: float = 0.0,
 ) -> Dict[str, Any]:
+    jobs = _jobs_module()
     params: Dict[str, Any] = {"episode_no": episode_no}
     if real_text:
         params.update({
@@ -74,6 +98,7 @@ def _run_step(
 
 
 def _create_workspace(workspace: str, track: str) -> None:
+    wizard = _wizard_module()
     payload = {
         "workspace": workspace,
         "topic": "原创都市悬疑：失忆调香师发现每瓶香水都封存一段未来记忆",
@@ -127,6 +152,7 @@ def run_smoke(
     if create_workspace:
         _create_workspace(workspace, track)
     if reset_jobs:
+        jobs = _jobs_module()
         jobs.reset_for_tests()
     steps = []
     completed = set(completed_steps)

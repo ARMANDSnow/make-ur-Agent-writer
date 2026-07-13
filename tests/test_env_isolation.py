@@ -5,6 +5,7 @@ import unittest
 class TestEnvIsolationTests(unittest.TestCase):
     def test_test_env_forces_mock_model(self) -> None:
         self.assertEqual(os.environ.get("OPENAI_MODEL"), "mock")
+        self.assertEqual(os.environ.get("LITELLM_LOCAL_MODEL_COST_MAP"), "true")
         self.assertNotIn("OPENAI_API_KEY", os.environ)
         self.assertNotIn("OPENAI_BASE_URL", os.environ)
         self.assertNotIn("PLANNER_API_KEY", os.environ)

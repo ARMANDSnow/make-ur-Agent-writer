@@ -27,6 +27,12 @@ if [[ "$REAL_IMAGE" == "1" && "${CONFIRM_REAL_IMAGE_SMOKE:-}" != "可以跑生�
   exit 64
 fi
 
+if [[ "$REAL_TEXT" == "0" ]]; then
+  export OPENAI_MODEL=mock
+  export DRAMA_MODEL=mock
+  export LITELLM_LOCAL_MODEL_COST_MAP=true
+fi
+
 cd "$ROOT"
 if [[ ${#ARGS[@]} -gt 0 ]]; then
   exec "$ROOT/.venv/bin/python3" -m src.drama_smoke --book "$BOOK" "${ARGS[@]}"
