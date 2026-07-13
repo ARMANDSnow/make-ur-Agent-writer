@@ -5813,7 +5813,7 @@ JS_DASHBOARD = """\
           root.__characterSheet = saved.sheet;
           const data = await postJson(
             wsUrl("/drama/characters/" + encodeURIComponent(cid) + "/redraw"),
-            characterPayload({ confirm_real_image: true })
+            characterPayload({})
           );
           root.__characterSheet = data.sheet;
           root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped);

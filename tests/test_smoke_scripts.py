@@ -22,12 +22,11 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertIn("(terminal.result_summary || {}).skipped", source)
         self.assertNotIn("showToast(data.skipped ?", source)
 
-    def test_drama_image_smoke_requires_explicit_confirmation_and_never_calls_video(self) -> None:
+    def test_legacy_drama_image_smoke_is_disabled(self) -> None:
         text = Path("scripts/drama_image_smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("--confirm-real-image-smoke", text)
-        self.assertIn("CONFIRM_REAL_IMAGE_SMOKE", text)
-        self.assertIn("src.drama_image_smoke", text)
-        self.assertNotIn("/v1/video/generate", text)
+        self.assertIn("disabled", text)
+        self.assertIn("drama_multimodal_smoke.sh", text)
+        self.assertIn("exit 64", text)
 
     def test_drama_video_smoke_has_two_confirmation_layers_and_no_retry_loop(self) -> None:
         shell = Path("scripts/drama_video_smoke.sh").read_text(encoding="utf-8")
@@ -50,7 +49,7 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertNotIn("\\npython3 -m unittest", text)
 
     def test_drama_mock_wrappers_pin_litellm_to_local_cost_map(self) -> None:
-        for name in ("drama_smoke.sh", "drama_multimodal_smoke.sh"):
+        for name in ("drama_smoke.sh", "drama_multimodal_smoke.sh", "drama_video_smoke.sh"):
             text = Path(f"scripts/{name}").read_text(encoding="utf-8")
             self.assertIn("LITELLM_LOCAL_MODEL_COST_MAP=true", text)
             self.assertIn("OPENAI_MODEL=mock", text)

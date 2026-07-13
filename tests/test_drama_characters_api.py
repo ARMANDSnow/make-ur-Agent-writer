@@ -132,7 +132,7 @@ class DramaCharactersApiTests(DramaTestBase):
             status, _ct, body = routes.dispatch(
                 "POST",
                 "/api/workspace/drama/drama/characters/c001/redraw",
-                b'{"confirm_real_image":true}',
+                b'{}',
                 {"content-type": "application/json"},
             )
         self.assertEqual(status, 200, body.decode())

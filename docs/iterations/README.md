@@ -117,3 +117,4 @@
 103. [Iteration 094 - 短剧真实多模态校准](./iteration_094_drama_real_multimodal_calibration.md)
 104. [Iteration 095 - 短剧多集与整季交付闭环](./iteration_095_drama_multiepisode_season_delivery.md)
 105. [Iteration 096 - LiteLLM 严格离线 Mock](./iteration_096_litellm_strict_offline_mock.md)
+106. [Iteration 097 - 短剧真模型全链审计硬化](./iteration_097_drama_real_e2e_audit_hardening.md)

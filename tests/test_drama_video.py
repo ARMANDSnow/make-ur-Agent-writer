@@ -76,14 +76,24 @@ class DramaVideoPipelineTests(DramaTestBase):
         with self.assertRaisesRegex(drama_video.DramaVideoInputError, "episode 1"):
             drama_video.load_video_inputs("video", episode_no=2)
 
-    def test_character_episode_and_assembled_episode_hash_fail_closed(self) -> None:
+    def test_shared_character_sheet_episode_marker_does_not_break_episode_one_video(self) -> None:
         self._prepare()
+        before = drama_video.load_video_inputs("video").fingerprint
+        with patch.dict(os.environ, {"SD_VIDEO_MODE": "mock"}, clear=False):
+            drama_video.run_video_job("video", {}, lambda *_: None)
         sheet_path = character_paths("video").sheet_path
         sheet = read_json(sheet_path)
         sheet["episode_no"] = 2
+        sheet["characters"][0]["appearances"] = [1, 2]
+        future = dict(sheet["characters"][0])
+        future.update({"id": "c099", "name": "未来角色", "appearances": [2], "reference_images": []})
+        sheet["characters"].append(future)
         write_json(sheet_path, sheet)
-        with self.assertRaisesRegex(drama_video.DramaVideoInputError, "belong to episode 1"):
-            drama_video.load_video_inputs("video")
+        after = drama_video.load_video_inputs("video")
+        self.assertTrue(after.references)
+        self.assertEqual(after.fingerprint, before)
+        _video, persisted_meta = drama_video.read_video("video")
+        self.assertEqual(persisted_meta["status"], "succeeded")
 
         self._prepare("video-hash")
         episode_path = drama_video.episode_paths("video-hash").episode_path
@@ -112,6 +122,7 @@ class DramaVideoPipelineTests(DramaTestBase):
             "SD_VIDEO_ESTIMATED_COST_CNY": "2",
             "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
             "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+            "SD_VIDEO_MODEL": drama_video.DEFAULT_VIDEO_MODEL,
         }
         mp4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2\x00\x00\x00\x08mdat"
         with patch.dict(os.environ, env, clear=False), \
@@ -171,6 +182,111 @@ class DramaVideoPipelineTests(DramaTestBase):
                     lambda *_: None, client=client, sleep=lambda _seconds: None,
                 )
         self.assertEqual(client.submissions, 0)
+        self.assertIsNone(drama_video.read_video_submission("video"))
+
+    def test_submitted_ledger_resumes_polling_without_upload_or_second_post(self) -> None:
+        self._prepare()
+        fingerprint = drama_video.load_video_inputs("video").fingerprint
+        drama_video._write_video_submission("video", {
+            "status": "submitted",
+            "input_fingerprint": fingerprint,
+            "provider_fingerprint": drama_video._video_provider_fingerprint(
+                _FakeVideoClient(), drama_video.DEFAULT_VIDEO_MODEL
+            ),
+            "submission_count": 1,
+            "task_id": "video-task-1",
+            "updated_at": int(time.time()),
+        })
+        client = _FakeVideoClient()
+        client.get_task = Mock(return_value={"task": {
+            "id": "video-task-1",
+            "status": "completed",
+            "video_url": "https://result.example.test/resumed.mp4",
+            "cost_cny": 1.0,
+        }})
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+            "SD_VIDEO_MODEL": drama_video.DEFAULT_VIDEO_MODEL,
+        }
+        with patch.dict(os.environ, env, clear=False), patch(
+            "src.drama_video.download_video", return_value=(drama_video._MOCK_MP4, "video/mp4")
+        ):
+            result = drama_video.run_video_job(
+                "video",
+                {"confirm_real_video": True, "budget_cny": 3, "timeout_minutes": 1},
+                lambda *_: None,
+                client=client,
+                sleep=lambda _seconds: None,
+            )
+        self.assertTrue(result["committed"])
+        self.assertEqual(client.uploads, 0)
+        self.assertEqual(client.submissions, 0)
+        self.assertEqual(drama_video.read_video_submission("video")["status"], "succeeded")
+
+    def test_corrupt_submission_ledger_fails_closed_without_provider_calls(self) -> None:
+        self._prepare()
+        drama_video.video_submission_path("video").write_text("{bad", encoding="utf-8")
+        client = _FakeVideoClient()
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+                drama_video.run_video_job(
+                    "video",
+                    {"confirm_real_video": True, "budget_cny": 3, "timeout_minutes": 1},
+                    lambda *_: None,
+                    client=client,
+                )
+        self.assertEqual((client.uploads, client.submissions, client.polls), (0, 0, 0))
+
+    def test_resume_rejects_provider_account_change_before_poll(self) -> None:
+        self._prepare()
+        first = _FakeVideoClient()
+        first.api_key = "account-a-secret"
+        fingerprint = drama_video.load_video_inputs("video").fingerprint
+        drama_video._write_video_submission("video", {
+            "status": "submitted",
+            "input_fingerprint": fingerprint,
+            "provider_fingerprint": drama_video._video_provider_fingerprint(
+                first, drama_video.DEFAULT_VIDEO_MODEL
+            ),
+            "submission_count": 1,
+            "task_id": "video-task-1",
+            "updated_at": int(time.time()),
+        })
+        second = _FakeVideoClient()
+        second.api_key = "account-b-secret"
+        env = {
+            "SD_VIDEO_MODE": "real", "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaisesRegex(drama_video.DramaVideoProviderError, "provider configuration"):
+                drama_video.run_video_job(
+                    "video",
+                    {"confirm_real_video": True, "budget_cny": 3, "timeout_minutes": 1},
+                    lambda *_: None,
+                    client=second,
+                )
+        self.assertEqual(second.polls, 0)
+
+    def test_conflicting_provider_task_ids_fail_closed(self) -> None:
+        with self.assertRaisesRegex(drama_video.DramaVideoProviderError, "conflicting task ids"):
+            drama_video._extract_resource_id(
+                {"id": "task-a", "task": {"id": "task-b", "status": "completed"}},
+                "task",
+            )
+
+    def test_boolean_provider_cost_is_not_accepted_as_currency(self) -> None:
+        self.assertIsNone(drama_video._task_cost_cny({"task": {"cost_cny": True}}))
 
     def test_prompt_newlines_are_normalized_before_upload(self) -> None:
         self._prepare()
@@ -335,6 +451,16 @@ class DramaVideoPipelineTests(DramaTestBase):
         response = routes.dispatch("GET", f"/media/drama-assets/{token}")
         self.assertEqual(response[0], 404)
         self.assertNotIn("video", response[2].decode().lower())
+
+    def test_public_asset_capability_freezes_registered_bytes(self) -> None:
+        self._prepare()
+        asset = drama_video.load_video_inputs("video").references[0][2]
+        original = asset.read_bytes()
+        token = drama_video.register_public_asset(asset, expires_at=time.monotonic() + 30)
+        asset.write_bytes(b"replaced-after-registration")
+        data, _content_type = drama_video.read_public_asset(token)
+        self.assertEqual(data, original)
+        drama_video.revoke_public_assets([token])
 
     def test_default_smoke_reports_zero_network_and_no_retries(self) -> None:
         result = drama_video_smoke.run_smoke("smoke-video", timeout_seconds=30)

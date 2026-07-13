@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import base64
-import io
 import json
 import os
-import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
-from urllib.error import HTTPError
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from src import ai_draw_client, character_designer, drama_image_smoke, drama_video_client, preflight, storyboard_builder
 from src.drama_schemas import character_paths, episode_paths
@@ -238,19 +234,20 @@ class DramaImageClientTests(DramaTestBase):
 
     def test_signed_result_url_http_error_does_not_leak_url_or_token(self) -> None:
         signed_url = "https://93.184.216.34/image.png?signature=secret-query-token"
-        error = HTTPError(signed_url, 403, "Forbidden", {}, None)
-        opener = _CaptureOpener(
-            [
-                _FakeResponse(json.dumps({"data": [{"url": signed_url}]}).encode()),
-                error,
-            ]
-        )
+        opener = _CaptureOpener([
+            _FakeResponse(json.dumps({"data": [{"url": signed_url}]}).encode())
+        ])
+        response = Mock(status=403)
+        connection = Mock()
+        connection.sock.getpeername.return_value = ("93.184.216.34", 443)
+        connection.getresponse.return_value = response
         with patch.dict(
             "os.environ",
             {"AI_DRAW_BASE_URL": "https://93.184.216.34/v1", "AI_DRAW_API_KEY": "test-image-key"},
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", return_value=opener):
+            with patch("src.ai_draw_client.build_opener", return_value=opener), \
+                    patch("src.ai_draw_client.http.client.HTTPSConnection", return_value=connection):
                 with self.assertRaises(ValueError) as caught:
                     ai_draw_client.redraw_character_reference("image", self.character, mock=False)
         message = str(caught.exception)
@@ -258,7 +255,35 @@ class DramaImageClientTests(DramaTestBase):
         self.assertNotIn("secret-query-token", message)
         self.assertNotIn(signed_url, message)
 
-    def test_web_redraw_delegates_auto_mode(self) -> None:
+    def test_signed_result_download_rejects_private_actual_peer_before_path(self) -> None:
+        connection = Mock()
+        connection.sock.getpeername.return_value = ("127.0.0.1", 443)
+        with patch("src.ai_draw_client.http.client.HTTPSConnection", return_value=connection):
+            with self.assertRaisesRegex(ValueError, "public address"):
+                ai_draw_client._download_generated_image(
+                    "https://93.184.216.34/image.png?signature=secret",
+                    api_hostname="93.184.216.34",
+                )
+        connection.connect.assert_called_once()
+        connection.request.assert_not_called()
+
+    def test_signed_result_download_requires_matching_image_mime(self) -> None:
+        response = Mock(status=200)
+        response.getheader.side_effect = lambda key, default=None: {
+            "content-type": "", "content-length": str(len(PNG_BYTES)),
+        }.get(key, default)
+        response.read.return_value = PNG_BYTES
+        connection = Mock()
+        connection.sock.getpeername.return_value = ("93.184.216.34", 443)
+        connection.getresponse.return_value = response
+        with patch("src.ai_draw_client.http.client.HTTPSConnection", return_value=connection):
+            with self.assertRaisesRegex(ValueError, "content-type"):
+                ai_draw_client._download_generated_image(
+                    "https://93.184.216.34/image.png",
+                    api_hostname="93.184.216.34",
+                )
+
+    def test_web_redraw_is_pinned_to_mock_mode(self) -> None:
         sheet = character_designer.run("image", mock=True)
         path = character_paths("image").sheet_path
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,26 +298,27 @@ class DramaImageClientTests(DramaTestBase):
             status, _ct, body = routes.dispatch(
                 "POST",
                 "/api/workspace/image/drama/characters/c001/redraw",
-                b'{"confirm_real_image":true}',
+                b'{}',
                 {"content-type": "application/json"},
             )
         self.assertEqual(status, 200, body.decode())
-        self.assertIsNone(redraw.call_args.kwargs["mock"])
+        self.assertIs(redraw.call_args.kwargs["mock"], True)
 
-    def test_web_redraw_rejects_missing_per_request_confirmation(self) -> None:
+    def test_web_redraw_rejects_real_configuration_and_requires_multimodal(self) -> None:
         sheet = character_designer.run("image", mock=True)
         path = character_paths("image").sheet_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
-        with patch("src.ai_draw_client.redraw_character_reference") as redraw:
+        with patch.dict(os.environ, {"AI_DRAW_MODEL": "gpt-image-2"}, clear=False), \
+                patch("src.ai_draw_client.redraw_character_reference") as redraw:
             status, _ct, body = routes.dispatch(
                 "POST",
                 "/api/workspace/image/drama/characters/c001/redraw",
                 b"{}",
                 {"content-type": "application/json"},
             )
-        self.assertEqual(status, 400, body.decode())
-        self.assertIn("confirm_real_image", json.loads(body)["error"])
+        self.assertEqual(status, 409, body.decode())
+        self.assertIn("multimodal", json.loads(body)["error"])
         redraw.assert_not_called()
 
     def test_web_redraw_rejects_text_plain_csrf_shape_before_drawing(self) -> None:
@@ -380,7 +406,7 @@ class DramaMediaConfigAndSmokeTests(unittest.TestCase):
     def test_web_redraw_saves_current_form_before_confirmed_generation(self) -> None:
         source = Path("src/web/static.py").read_text(encoding="utf-8")
         save_pos = source.index('const saved = await putJson(wsUrl("/drama/characters")')
-        redraw_pos = source.index('confirm_real_image: true', save_pos)
+        redraw_pos = source.index('wsUrl("/drama/characters/"', save_pos)
         self.assertLess(save_pos, redraw_pos)
         self.assertIn(".character-ref-img { object-fit: contain; }", source)
 
@@ -423,51 +449,10 @@ class DramaMediaConfigAndSmokeTests(unittest.TestCase):
         self.assertNotIn("image-secret", rendered)
         self.assertNotIn("video-secret", rendered)
 
-    def test_python_smoke_entrypoint_enforces_confirmation_before_dotenv(self) -> None:
-        with patch.dict("os.environ", {}, clear=True):
-            with patch.object(drama_image_smoke, "load_dotenv_if_available") as load_env:
-                with patch.object(drama_image_smoke, "redraw_character_reference") as redraw:
-                    with self.assertRaisesRegex(SystemExit, "refusing real image smoke"):
-                        drama_image_smoke.main()
-        load_env.assert_not_called()
-        redraw.assert_not_called()
-
-    def test_python_smoke_records_safe_provider_and_dimension_metadata(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace_dir = Path(tmp)
-            root = workspace_dir / drama_image_smoke.SMOKE_WORKSPACE
-            image_path = root / "data" / "character_refs" / "c001" / "portrait_neutral.png"
-            image_path.parent.mkdir(parents=True)
-            image_path.write_bytes(PNG_BYTES)
-            result = {
-                "path": "data/character_refs/c001/portrait_neutral.png",
-                "generated_by": "gpt-image-2-provider-alias",
-                "requested_model": "gpt-image-2",
-                "requested_size": "1024x1024",
-                "provider_size": "auto",
-                "width": 940,
-                "height": 1673,
-            }
-            output = io.StringIO()
-            with patch.dict(
-                "os.environ",
-                {
-                    "CONFIRM_REAL_IMAGE_SMOKE": "可以跑生图",
-                    "OPENAI_BASE_URL": "https://93.184.216.34/v1",
-                    "OPENAI_API_KEY": "test-key",
-                },
-                clear=True,
-            ):
-                with patch.object(drama_image_smoke.paths, "WORKSPACE_DIR", workspace_dir):
-                    with patch.object(drama_image_smoke, "load_dotenv_if_available"):
-                        with patch.object(drama_image_smoke, "redraw_character_reference", return_value=result):
-                            with redirect_stdout(output):
-                                self.assertEqual(drama_image_smoke.main(), 0)
-            rendered = json.loads(output.getvalue())
-            saved = json.loads((image_path.parent / "smoke_result.json").read_text(encoding="utf-8"))
-            self.assertEqual((rendered["width"], rendered["height"]), (940, 1673))
-            self.assertEqual(saved["provider_size"], "auto")
-            self.assertNotIn("test-key", json.dumps(saved))
+    def test_python_legacy_image_smoke_is_always_disabled(self) -> None:
+        with patch.dict("os.environ", {"CONFIRM_REAL_IMAGE_SMOKE": "可以跑生图"}, clear=True):
+            with self.assertRaisesRegex(SystemExit, "drama_multimodal_smoke"):
+                drama_image_smoke.main()
 
 
 if __name__ == "__main__":

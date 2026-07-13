@@ -26,4 +26,10 @@ else
   unset SD_API_KEY SD_API_BASE_URL SD_ASSET_PUBLIC_BASE_URL SD_VIDEO_RESULT_HOSTS SD_VIDEO_ESTIMATED_COST_CNY
 fi
 
+# Video-only smoke never authorizes text generation. Pin this before Python
+# imports web.jobs/LLM dependencies, including in --real-video mode.
+export OPENAI_MODEL=mock
+export DRAMA_MODEL=mock
+export LITELLM_LOCAL_MODEL_COST_MAP=true
+
 exec "$PYTHON_BIN" -m src.drama_video_smoke "$@"

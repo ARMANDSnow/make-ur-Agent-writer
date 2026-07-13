@@ -8,6 +8,8 @@ import re
 import sys as _sys
 import types
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
@@ -136,6 +138,24 @@ class LLMContextOverflowError(RuntimeError):
     pass
 
 
+class LLMCallDeadlineExceeded(TimeoutError):
+    pass
+
+
+_LLM_DEADLINE: ContextVar[float | None] = ContextVar("llm_deadline", default=None)
+
+
+@contextmanager
+def llm_deadline_scope(deadline: float | None):
+    """Bound every provider attempt in this thread/task to an outer job deadline."""
+
+    token = _LLM_DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        _LLM_DEADLINE.reset(token)
+
+
 # iter055 轨B: 中转站抖动(Cloudflare Tunnel 530/1033、provider 过载 50x、连接/读取
 # 超时)是 transient,应重试;schema/context/JSON 等确定性错立即抛(重试纯浪费且掩盖
 # bug,现状空耗 5 次 ≈ 20s)。鸭子判定(类名 + 错误串关键词)而非 isinstance(litellm.X)
@@ -163,7 +183,7 @@ _TRANSIENT_ERR_MARKERS = (
 
 
 def _is_transient(exc: BaseException) -> bool:
-    if isinstance(exc, LLMContextOverflowError):  # context 溢出确定性,绝不重试
+    if isinstance(exc, (LLMContextOverflowError, LLMCallDeadlineExceeded)):
         return False
     # stdlib 连接/超时(含 ConnectionReset/Aborted/BrokenPipe 等子类、socket.timeout)
     # 稳定类型,用 isinstance 兜住 —— 流式中途断流即走这里。
@@ -261,6 +281,10 @@ class LLMClient:
         cache_downgraded = False
         for attempt in range(1, attempts + 1):
             try:
+                deadline = _LLM_DEADLINE.get()
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise LLMCallDeadlineExceeded("LLM job deadline expired before provider attempt")
                 kwargs: Dict[str, Any] = {
                     "model": self.model,
                     "messages": prepared_messages,
@@ -269,8 +293,11 @@ class LLMClient:
                 }
                 # iter055 轨A: per-call 超时(覆盖连接+读取)。>0 才加 → 未配(=0)时不含
                 # timeout key，逐字节兼容旧行为。litellm drop_params 不丢顶层 timeout(R9)。
-                if self.config.get("request_timeout"):
-                    kwargs["timeout"] = float(self.config["request_timeout"])
+                configured_timeout = float(self.config.get("request_timeout") or 0.0)
+                if remaining is not None:
+                    kwargs["timeout"] = min(configured_timeout, remaining) if configured_timeout > 0 else remaining
+                elif configured_timeout > 0:
+                    kwargs["timeout"] = configured_timeout
                 # iter055 真模型实测修正: 自管重试(轨B transient 分类 + 指数退避),禁 litellm
                 # 内部重试 —— 否则它在我们每次 attempt 内再重试,叠加放大墙钟(实测 timeout=5
                 # 下单 attempt ~19s 而非 ~5s),且绕过我们的分类/退避,拖慢卡死检测。
@@ -329,6 +356,12 @@ class LLMClient:
                     cap = float(self.config.get("retry_backoff_cap_seconds", 30))
                     jitter = float(self.config.get("retry_backoff_jitter_seconds", 1))
                     delay = min(base * (2 ** (attempt - 1)), cap) + random.uniform(0, jitter)
+                    deadline = _LLM_DEADLINE.get()
+                    if deadline is not None and time.monotonic() + delay >= deadline:
+                        last_exc = LLMCallDeadlineExceeded(
+                            "LLM job deadline would expire during retry backoff"
+                        )
+                        break
                     time.sleep(delay)
                 else:
                     break

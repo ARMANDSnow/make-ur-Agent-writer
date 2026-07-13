@@ -16,7 +16,15 @@ from .llm_client import LLMClient
 from .utils import read_json, read_json_optional
 
 
-TASKS = ("extract", "compress", "debate", "write", "review", "plot_planner")
+NOVEL_TASKS = ("extract", "compress", "debate", "write", "review", "plot_planner")
+DRAMA_TEXT_TASKS = (
+    "drama_plan",
+    "drama_hooks",
+    "drama_storyboard",
+    "drama_character",
+    "drama_review",
+)
+TASKS = NOVEL_TASKS + DRAMA_TEXT_TASKS
 CACHE_PROVIDER_HINTS = ("anthropic", "bedrock", "claude", "deepseek")
 
 

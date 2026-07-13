@@ -158,14 +158,35 @@ _PUBLIC_JOB_DETAIL_FIELDS = _PUBLIC_JOB_SUMMARY_FIELDS + (
 )
 
 
+def _public_retry_params(value: Any) -> Dict[str, Any]:
+    """Return replayable parameters without one-shot paid authorization.
+
+    Job history is durable and the UI can repost these parameters months later.
+    A confirmation is consent for one invocation, not reusable job state, so no
+    ``confirm_*`` field may cross this projection boundary.
+    """
+
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: item
+        for key, item in value.items()
+        if isinstance(key, str) and not key.startswith("confirm_")
+    }
+
+
 def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project for /jobs/recent (sidebar + jobs table) — drops internal cancel_*."""
-    return {key: job.get(key) for key in _PUBLIC_JOB_SUMMARY_FIELDS}
+    projected = {key: job.get(key) for key in _PUBLIC_JOB_SUMMARY_FIELDS}
+    projected["params"] = _public_retry_params(job.get("params"))
+    return projected
 
 
 def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project for /job/<id> — adds cancel_* (poll banner) on top of summary."""
-    return {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
+    projected = {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
+    projected["params"] = _public_retry_params(job.get("params"))
+    return projected
 
 
 def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1477,7 +1498,9 @@ def _worker(job_id: str) -> None:
 
     _update(job_id, status="running", started_at=_now(), current_step=step)
     try:
-        with use_workspace(workspace):
+        from ..llm_client import llm_deadline_scope
+
+        with use_workspace(workspace), llm_deadline_scope(deadline):
             _check_cancelled(job_id, deadline, timeout_minutes)
             result = handler(params, _progress)
             if not (isinstance(result, dict) and result.get("committed") is True):

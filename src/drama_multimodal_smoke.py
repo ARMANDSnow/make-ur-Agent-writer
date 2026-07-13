@@ -34,7 +34,7 @@ from .ai_draw_client import (
     validate_api_base_url,
 )
 from .drama_schemas import CharacterSheet, character_paths
-from .config import get_model_config
+from .config import get_model_config, load_dotenv_if_available
 from .schemas import model_to_dict
 from .utils import read_json, read_json_optional, write_json
 from .web.drama_insights import collect_drama_insights
@@ -46,11 +46,13 @@ PHASES = ("real_text", "all_character_images", "reassemble", "video_readiness", 
 PHASE_STATUSES = {
     "pending", "running", "succeeded", "failed", "blocked",
     "awaiting_retry_authorization", "awaiting_real_video_authorization",
+    "awaiting_text_retry_authorization",
     "submission_consumed", "failed_after_submission",
 }
 RUN_STATUSES = {
     "pending", "running", "succeeded", "failed", "blocked",
     "awaiting_retry_authorization", "awaiting_text_authorization",
+    "awaiting_text_retry_authorization",
     "awaiting_image_authorization", "awaiting_video_authorization",
     "failed_after_video_submission", "video_submission_already_consumed",
 }
@@ -139,6 +141,27 @@ def _text_model_fingerprints() -> Dict[str, str]:
         step: _model_sha256(str(get_model_config(task).get("model") or "mock"))
         for step, task in TEXT_STEP_TASKS.items()
     }
+
+
+def _text_provider_fingerprints() -> Dict[str, str]:
+    """Hash non-public provider routing/account identity without persisting secrets."""
+
+    result: Dict[str, str] = {}
+    for step, task in TEXT_STEP_TASKS.items():
+        config = get_model_config(task)
+        payload = {
+            "model": str(config.get("model") or "mock").strip(),
+            "base_url": str(config.get("base_url") or "").strip().rstrip("/"),
+            "base_url_env": str(config.get("base_url_env") or ""),
+            "api_key_env": str(config.get("api_key_env") or ""),
+            # API keys are expected to be high-entropy.  Only their SHA-256
+            # contribution survives, binding a resume to the same account.
+            "api_key": str(config.get("api_key") or ""),
+        }
+        result[step] = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+    return result
 
 
 def _drama_call_counts(workspace: str) -> Dict[str, Dict[str, Any]]:
@@ -292,8 +315,15 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
         raise ValueError("multimodal smoke video attempt ledger is invalid")
     if "paid_submission_count" in video:
         paid = video["paid_submission_count"]
-        if type(paid) is not int or paid not in {0, 1} or paid != int(video.get("submission_consumed") is True):
+        if type(paid) is not int or paid not in {0, 1}:
             raise ValueError("multimodal smoke video paid submission ledger is invalid")
+    else:
+        paid = 0
+    unknown = video.get("submission_unknown_count", 0)
+    if type(unknown) is not int or unknown not in {0, 1}:
+        raise ValueError("multimodal smoke video unknown submission ledger is invalid")
+    if paid + unknown != int(video.get("submission_consumed") is True):
+        raise ValueError("multimodal smoke video submission accounting is inconsistent")
     for phase_name in ("real_text", "all_character_images", "real_video"):
         real = phases[phase_name].get("real")
         if real is not None and type(real) is not bool:
@@ -329,6 +359,18 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
         )
     ):
         raise ValueError("multimodal smoke text model identity state is invalid")
+    provider_fingerprints = text.get("provider_fingerprints")
+    if provider_fingerprints is not None and (
+        not isinstance(provider_fingerprints, dict)
+        or tuple(provider_fingerprints) != tuple(TEXT_STEP_TASKS)
+        or any(
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(ch not in "0123456789abcdef" for ch in value)
+            for value in provider_fingerprints.values()
+        )
+    ):
+        raise ValueError("multimodal smoke text provider identity state is invalid")
     return raw
 
 
@@ -657,6 +699,15 @@ def run(
         os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
     opts = dict(options or {})
     _validate_invocation(real_text, real_image, real_video, opts)
+    if real_text and not drama_smoke.real_text_tasks_ready():
+        raise RuntimeError("real_text_tasks_still_mock")
+    # Media-only resume normally runs in a fresh process after text completed.
+    # Load the user's runtime configuration only after this invocation has
+    # independently passed its strict authorization gate, and before image or
+    # video readiness reads any media variable.  Mock/report-only paths never
+    # come through this branch.
+    if real_image or real_video:
+        load_dotenv_if_available()
     with _orchestrator_lock(workspace):
         return _run_claimed(
             workspace, real_text=real_text, real_image=real_image,
@@ -713,6 +764,11 @@ def _run_claimed(
                 phase["model_fingerprints"] = current_fingerprints
             elif phase["model_fingerprints"] != current_fingerprints:
                 raise ValueError("text resume model identity differs from the original authorization")
+            current_provider_fingerprints = _text_provider_fingerprints()
+            if "provider_fingerprints" not in phase:
+                phase["provider_fingerprints"] = current_provider_fingerprints
+            elif phase["provider_fingerprints"] != current_provider_fingerprints:
+                raise ValueError("text resume provider identity differs from the original authorization")
         if "cost_baseline_cny" not in phase:
             phase["cost_baseline_cny"] = _insight_cost(workspace)
         # Crash recovery reconciliation must happen before calculating a
@@ -726,9 +782,25 @@ def _run_claimed(
             max(float(phase["spent_cost_cny"]), current_cost - cost_baseline), 6
         )
         # A previous process may have died after persisting active_step and
-        # making a provider call. Reconcile that durable ledger before a
-        # budget/deadline gate can stop this resume without another request.
+        # making a provider call.  Unlike an exception handled in this process,
+        # that submission outcome is ambiguous: never clear/retry it from state
+        # alone.  Require an explicit operator reconciliation on the resume.
+        retry_step = (
+            phase.get("active_step")
+            if phase.get("active_step") in TEXT_STEP_TASKS
+            else phase.get("retry_required_step")
+        )
+        if real_text and retry_step in TEXT_STEP_TASKS and not (
+            opts.get("confirm_text_retry") is True
+            and opts.get("confirm_upstream_status_and_billing_checked") is True
+        ):
+            phase["status"] = "awaiting_text_retry_authorization"
+            state["status"] = "awaiting_text_retry_authorization"
+            _save(state)
+            return state
         _reconcile_failed_text_station(workspace, phase, real_text=real_text)
+        if retry_step in TEXT_STEP_TASKS:
+            phase.pop("retry_required_step", None)
         _save(state)
         if real_text:
             if "total_budget_cny" not in phase:
@@ -770,6 +842,8 @@ def _run_claimed(
                 raise ValueError("drama text smoke reported an unknown station")
             if real_text and phase.get("model_fingerprints") != _text_model_fingerprints():
                 raise ValueError("text model identity changed during the authorized run")
+            if real_text and phase.get("provider_fingerprints") != _text_provider_fingerprints():
+                raise ValueError("text provider identity changed during the authorized run")
             spent = settle_text_spend()
             previous = phase["station_evidence"].get(step)
             previous_elapsed = (
@@ -823,10 +897,16 @@ def _run_claimed(
                 on_step_complete=text_step_done,
                 create_workspace=False,
             )
-        except Exception:
+        except Exception as exc:
             settle_text_spend()
             settle_text_runtime()
+            failed_step = phase.get("active_step")
             _reconcile_failed_text_station(workspace, phase, real_text=real_text)
+            if real_text and failed_step in TEXT_STEP_TASKS:
+                phase["retry_required_step"] = failed_step
+            phase["status"] = "failed"
+            phase["error_code"] = type(exc).__name__
+            state["status"] = "failed"
             _save(state)
             raise
         total_spent = settle_text_spend()
@@ -850,6 +930,7 @@ def _run_claimed(
                 "deadline_epoch": phase["deadline_epoch"],
                 "cost_baseline_cny": phase["cost_baseline_cny"],
                 "model_fingerprints": phase["model_fingerprints"],
+                "provider_fingerprints": phase.get("provider_fingerprints", {}),
             })
         _save(state)
 
@@ -893,18 +974,15 @@ def _run_claimed(
 
     if state["phases"]["real_video"]["status"] != "succeeded":
         video_phase = state["phases"]["real_video"]
+        submission = drama_video.read_video_submission(workspace) if real_video else None
         if real_video and video_phase.get("submission_consumed") is True:
-            state["status"] = "video_submission_already_consumed"
-            _save(state)
-            return state
-        if real_video:
-            # Persist the one-shot token before any upload/submission. A crash,
-            # timeout or ambiguous provider response can never authorize a new POST.
-            video_phase.update({
-                "status": "submission_consumed", "submission_consumed": True,
-                "attempt": 1, "automatic_retries": 0, "paid_submission_count": 1,
-            })
-            _save(state)
+            # A durable task id is resumable without another paid POST.  An old
+            # state with no ledger, an ambiguous POST, or a terminal provider
+            # failure remains fail-closed.
+            if submission is None or submission.get("status") in {"submitting", "failed"}:
+                state["status"] = "video_submission_already_consumed"
+                _save(state)
+                return state
         video_started = time.monotonic()
         try:
             result = run_video_smoke(
@@ -917,19 +995,34 @@ def _run_claimed(
                 reset_jobs=False,
             )
         except Exception as exc:
+            submission = drama_video.read_video_submission(workspace) if real_video else None
+            ledger_status = submission.get("status") if submission is not None else None
+            consumed = submission is not None
+            paid = int(ledger_status in {"submitted", "failed", "succeeded"})
+            unknown = int(ledger_status == "submitting")
             video_phase.update({
-                "status": "failed_after_submission",
+                "status": "failed_after_submission" if consumed else "failed",
                 "error_code": type(exc).__name__,
                 "elapsed_seconds": round(max(0.0, time.monotonic() - video_started), 3),
+                "submission_consumed": consumed,
+                "attempt": 1 if consumed else 0,
+                "paid_submission_count": paid,
+                "submission_unknown_count": unknown,
+                "automatic_retries": 0,
             })
-            state["status"] = "failed_after_video_submission"
+            state["status"] = "failed_after_video_submission" if consumed else "failed"
             _save(state)
             raise
+        submission = drama_video.read_video_submission(workspace) if real_video else None
+        submitted = submission is not None and submission.get("status") == "succeeded"
+        if real_video and not submitted:
+            raise RuntimeError("real video job returned without a succeeded durable submission ledger")
         state["phases"]["real_video"] = {
             "status": "succeeded", "real": real_video,
-            "submission_consumed": bool(real_video), "attempt": 1 if real_video else 0,
+            "submission_consumed": submitted, "attempt": 1 if submitted else 0,
             "automatic_retries": 0, "network_requests": result.get("network_requests", 0),
-            "paid_submission_count": 1 if real_video else 0,
+            "paid_submission_count": 1 if submitted else 0,
+            "submission_unknown_count": 0,
             "elapsed_seconds": result.get("elapsed_seconds"),
             "cost_cny": result.get("cost_cny"),
             "budget_cny": result.get("budget_cny"),
@@ -1002,7 +1095,16 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
         video_artifact_current = False
 
     text_request_count = _safe_count(text.get("llm_calls"))
-    video_request_count = _safe_count(video.get("paid_submission_count"))
+    video_submission = drama_video.read_video_submission(workspace)
+    ledger_status = video_submission.get("status") if video_submission is not None else None
+    video_request_count = max(
+        _safe_count(video.get("paid_submission_count")),
+        int(ledger_status in {"submitted", "failed", "succeeded"}),
+    )
+    video_unknown_count = max(
+        _safe_count(video.get("submission_unknown_count")),
+        int(ledger_status == "submitting"),
+    )
     completed_steps = text.get("completed_steps")
     text_metrics: Dict[str, Any] = {
         "request_count": text_request_count,
@@ -1020,8 +1122,14 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
     video_metrics: Dict[str, Any] = {
         "request_count": video_request_count,
         "request_semantics": "paid_submission_count",
+        "submission_unknown_count": video_unknown_count,
         "automatic_retries": _safe_count(video.get("automatic_retries")),
     }
+    if video_submission is not None:
+        video_metrics["submission_status"] = ledger_status
+        ledger_cost = _safe_non_negative(video_submission.get("cost_cny"))
+        if ledger_cost is not None:
+            video_metrics["cost_cny"] = round(ledger_cost, 6)
     for source, target in (
         (text.get("actual_cost_cny", text.get("spent_cost_cny")), "actual_cost_cny"),
         (text.get("elapsed_seconds"), "elapsed_seconds"),
@@ -1195,6 +1303,7 @@ def main() -> int:
     parser.add_argument("--real-video", action="store_true")
     parser.add_argument("--report-only", action="store_true")
     parser.add_argument("--confirm-real-text", action="store_true")
+    parser.add_argument("--confirm-text-retry", action="store_true")
     parser.add_argument("--confirm-real-image", action="store_true")
     parser.add_argument("--confirm-image-retry", action="store_true")
     parser.add_argument("--confirm-upstream-status-and-billing-checked", action="store_true")
@@ -1225,6 +1334,17 @@ def main() -> int:
             return 1
         print(json.dumps({"ok": True, **report}, ensure_ascii=False))
         return 0
+    if (
+        real_text
+        and flags.get("confirm_real_text") is True
+        and not drama_smoke.real_text_tasks_ready()
+    ):
+        print(json.dumps({
+            "ok": False,
+            "workspace": workspace,
+            "error_code": "real_text_tasks_still_mock",
+        }, ensure_ascii=False))
+        return 64
     try:
         state = run(workspace, real_text=real_text, real_image=real_image, real_video=real_video, options=flags)
     except Exception as exc:

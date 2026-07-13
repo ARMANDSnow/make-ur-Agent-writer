@@ -29,7 +29,13 @@ from .schemas import model_to_dict
 from .utils import read_json_optional
 
 
-def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dict[str, Any]:
+def run(
+    workspace: str,
+    *,
+    mock: bool | None = None,
+    episode_no: int = 1,
+    season_no: int = 1,
+) -> Dict[str, Any]:
     """Run station 3 for ``workspace`` and return a validated storyboard."""
 
     episode_no = normalize_episode_no(episode_no)
@@ -38,6 +44,7 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
     track = str(wizard_input.get("track") or setup.get("track") or "")
     if track not in TRACK_PINYIN:
         raise ValueError(f"unknown track: {track!r}")
+    target_duration = int(wizard_input.get("episode_duration_seconds") or 60)
 
     client = None if mock is True else LLMClient("drama_storyboard")
     use_mock = client.is_mock if mock is None and client is not None else bool(mock)
@@ -54,9 +61,8 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
         payload = _without_alt_shots(payload)
         payload["track"] = track
         payload["episode_no"] = episode_no
-        payload["target_duration_seconds"] = int(
-            wizard_input.get("episode_duration_seconds") or payload.get("target_duration_seconds") or 60
-        )
+        payload["season_no"] = season_no
+        payload["target_duration_seconds"] = target_duration
         payload["hook"] = _hook_snapshot(setup)
         board = DramaStoryboard(**normalize_storyboard_payload(payload))
     else:
@@ -74,6 +80,9 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
         )
         payload = model_to_dict(generated)
         payload["episode_no"] = episode_no
+        payload["season_no"] = season_no
+        payload["track"] = track
+        payload["target_duration_seconds"] = target_duration
         board = DramaStoryboard(**normalize_storyboard_payload(payload))
 
     hard_errors = validate_storyboard_hard(board)

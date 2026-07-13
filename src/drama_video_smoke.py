@@ -11,6 +11,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
+# This entrypoint is video-only even in real-video mode.  It must never let a
+# poisoned parent/.env initialize the text LLM stack before the project imports
+# below.  Real video configuration uses the separate SD_* namespace.
+if __name__ == "__main__":
+    os.environ["OPENAI_MODEL"] = "mock"
+    os.environ["DRAMA_MODEL"] = "mock"
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
+
 from . import drama_smoke, drama_store, drama_video, paths
 from .drama_schemas import CharacterSheet, character_paths
 from .schemas import model_to_dict

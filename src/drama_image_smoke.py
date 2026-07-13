@@ -1,16 +1,6 @@
-"""One-image real smoke for the iter089 drama image integration."""
+"""Compatibility blocker for the retired unbudgeted one-image smoke."""
 
 from __future__ import annotations
-
-import json
-import os
-
-from . import paths
-from .ai_draw_client import DEFAULT_IMAGE_MODEL, redraw_character_reference
-from .cli_workspace import init_workspace
-from .config import load_dotenv_if_available
-from .utils import write_json
-
 
 SMOKE_WORKSPACE = "iter089_image_smoke"
 
@@ -40,46 +30,10 @@ def build_smoke_character() -> dict:
 
 
 def main() -> int:
-    if os.getenv("CONFIRM_REAL_IMAGE_SMOKE") != "可以跑生图":
-        raise SystemExit("refusing real image smoke without CONFIRM_REAL_IMAGE_SMOKE=可以跑生图")
-    load_dotenv_if_available()
-    if os.getenv("AI_DRAW_ENDPOINT"):
-        raise SystemExit("image smoke requires OpenAI-compatible mode; unset AI_DRAW_ENDPOINT")
-    if not (os.getenv("AI_DRAW_BASE_URL") or os.getenv("OPENAI_BASE_URL")):
-        raise SystemExit("image smoke requires AI_DRAW_BASE_URL or OPENAI_BASE_URL")
-    if not (os.getenv("AI_DRAW_API_KEY") or os.getenv("OPENAI_API_KEY")):
-        raise SystemExit("image smoke requires AI_DRAW_API_KEY or OPENAI_API_KEY")
-    # Process-local pin only. Never writes .env.
-    os.environ["AI_DRAW_MODEL"] = DEFAULT_IMAGE_MODEL
-    root = paths.WORKSPACE_DIR / SMOKE_WORKSPACE
-    if not root.exists():
-        init_workspace(SMOKE_WORKSPACE, type="drama")
-    character = build_smoke_character()
-    result = redraw_character_reference(SMOKE_WORKSPACE, character, mock=False)
-    if not str(result.get("requested_model") or "").startswith(DEFAULT_IMAGE_MODEL):
-        raise SystemExit("image smoke did not exercise the gpt-image-2 compatible path")
-    output = root / result["path"]
-    safe_result = {
-        "ok": True,
-        "workspace": SMOKE_WORKSPACE,
-        "generated_by": result["generated_by"],
-        "requested_model": result.get("requested_model", ""),
-        "requested_size": result.get("requested_size", ""),
-        "provider_size": result.get("provider_size", ""),
-        "width": result.get("width"),
-        "height": result.get("height"),
-        "path": result["path"],
-        "bytes": output.stat().st_size,
-    }
-    metadata_path = output.parent / "smoke_result.json"
-    write_json(metadata_path, safe_result)
-    print(
-        json.dumps(
-            {**safe_result, "metadata_path": str(metadata_path.relative_to(root))},
-            ensure_ascii=False,
-        )
+    raise SystemExit(
+        "legacy drama_image_smoke is disabled; use drama_multimodal_smoke "
+        "for budgeted all-character image testing"
     )
-    return 0
 
 
 if __name__ == "__main__":

@@ -75,6 +75,8 @@ def run(
         payload = model_to_dict(generated)
         payload["episode_no"] = episode_no
         payload["season_no"] = season_no
+        payload["track"] = track
+        payload["source_storyboard_title"] = str(storyboard.get("title") or "")
         _include_episode_in_appearances(payload, episode_no)
         sheet = CharacterSheet(**payload)
     return model_to_dict(sheet)

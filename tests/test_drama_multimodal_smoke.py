@@ -16,6 +16,17 @@ from tests._drama_base import DramaTestBase
 
 
 class DramaMultimodalSmokeTests(DramaTestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        # These orchestration tests intentionally simulate "real mode" with
+        # mock providers.  Production core-entry guards are covered separately.
+        ready = patch(
+            "src.drama_multimodal_smoke.drama_smoke.real_text_tasks_ready",
+            return_value=True,
+        )
+        ready.start()
+        self.addCleanup(ready.stop)
+
     def _prepare_real_text(self, name: str) -> None:
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了", "DRAMA_MODEL": "mock"}, clear=False):
             state = multi.run(name, real_text=True, options={
@@ -372,7 +383,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         self.assertEqual(state["phases"]["real_text"]["status"], "succeeded")
         self.assertEqual(state["status"], "awaiting_retry_authorization")
 
-    def test_video_failure_consumes_single_submission_and_resume_is_zero_network(self) -> None:
+    def test_video_pre_submit_failure_is_not_misreported_and_can_retry(self) -> None:
         state = multi.run("video-once")
         # Convert the mock fixture into the staged pre-video state for a focused
         # one-shot ledger test without any provider/network activity.
@@ -390,13 +401,13 @@ class DramaMultimodalSmokeTests(DramaTestBase):
                 multi.run("video-once", real_video=True, options=opts)
         self.assertEqual(submit.call_count, 1)
         failed_report = multi.calibration_report("video-once")
-        self.assertEqual(failed_report["stages"]["video"]["metrics"]["request_count"], 1)
+        self.assertEqual(failed_report["stages"]["video"]["metrics"]["request_count"], 0)
         self.assertIn("elapsed_seconds", failed_report["stages"]["video"]["metrics"])
         with patch("src.drama_multimodal_smoke._video_readiness", return_value={"reference_count": 2}), \
-                patch("src.drama_multimodal_smoke.run_video_smoke") as submit:
-            resumed = multi.run("video-once", real_video=True, options=opts)
-        submit.assert_not_called()
-        self.assertEqual(resumed["status"], "video_submission_already_consumed")
+                patch("src.drama_multimodal_smoke.run_video_smoke", side_effect=TimeoutError("pre-submit again")) as submit:
+            with self.assertRaises(TimeoutError):
+                multi.run("video-once", real_video=True, options=opts)
+        submit.assert_called_once()
 
     def test_corrupt_paid_state_fails_closed(self) -> None:
         multi.run("corrupt")
@@ -453,8 +464,14 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         self.assertGreater(failed_station["elapsed_seconds"], 0)
         self.assertEqual(failed_station["cumulative_cost_cny"], 5.0)
         with patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
+            awaiting = multi.run("text-billed-fail", real_text=True, options=opts)
+            self.assertEqual(awaiting["status"], "awaiting_text_retry_authorization")
             with self.assertRaisesRegex(RuntimeError, "budget exhausted"):
-                multi.run("text-billed-fail", real_text=True, options=opts)
+                multi.run("text-billed-fail", real_text=True, options={
+                    **opts,
+                    "confirm_text_retry": True,
+                    "confirm_upstream_status_and_billing_checked": True,
+                })
         network.assert_not_called()
 
     def test_real_text_resume_rejects_model_identity_drift_before_network(self) -> None:
@@ -475,6 +492,44 @@ class DramaMultimodalSmokeTests(DramaTestBase):
                 multi.run("text-model-pin", real_text=True, options=opts)
         network.assert_not_called()
 
+    def test_real_text_resume_rejects_provider_account_or_endpoint_drift(self) -> None:
+        opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
+        provider_a = {step: "a" * 64 for step in multi.TEXT_STEP_TASKS}
+        provider_b = {step: "b" * 64 for step in multi.TEXT_STEP_TASKS}
+        with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
+                patch("src.drama_multimodal_smoke._text_provider_fingerprints", return_value=provider_a), \
+                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke.drama_smoke.run_smoke", side_effect=RuntimeError("stop")):
+            with self.assertRaises(RuntimeError):
+                multi.run("text-provider-pin", real_text=True, options=opts)
+        with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了"}, clear=False), \
+                patch("src.drama_multimodal_smoke._text_provider_fingerprints", return_value=provider_b), \
+                patch("src.drama_multimodal_smoke._insight_cost", return_value=0.0), \
+                patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
+            with self.assertRaisesRegex(ValueError, "provider identity"):
+                multi.run("text-provider-pin", real_text=True, options=opts)
+        network.assert_not_called()
+
+    def test_calibration_uses_durable_video_ledger_across_state_crash_window(self) -> None:
+        state = multi.run("video-ledger-report")
+        state["phases"]["real_video"] = {"status": "running", "real": True}
+        state["status"] = "running"
+        multi._save(state)
+        client = Mock(base_url="https://video.example.test", api_key="account-secret")
+        multi.drama_video._write_video_submission("video-ledger-report", {
+            "status": "submitted",
+            "input_fingerprint": multi.drama_video.load_video_inputs("video-ledger-report").fingerprint,
+            "provider_fingerprint": multi.drama_video._video_provider_fingerprint(
+                client, multi.drama_video.DEFAULT_VIDEO_MODEL
+            ),
+            "submission_count": 1,
+            "task_id": "video-task-1",
+            "updated_at": int(time.time()),
+        })
+        metrics = multi.calibration_report("video-ledger-report")["stages"]["video"]["metrics"]
+        self.assertEqual(metrics["request_count"], 1)
+        self.assertEqual(metrics["submission_status"], "submitted")
+
     def test_repeated_text_station_failures_refresh_cumulative_evidence(self) -> None:
         opts = {"confirm_real_text": True, "text_budget_cny": 10, "text_timeout_seconds": 20}
 
@@ -493,8 +548,14 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             with self.assertRaises(RuntimeError):
                 multi.run("text-repeat-fail", real_text=True, options=opts)
             first = multi.calibration_report("text-repeat-fail")["stages"]["text"]["metrics"]["stations"]["drama-plan"]
+            awaiting = multi.run("text-repeat-fail", real_text=True, options=opts)
+            self.assertEqual(awaiting["status"], "awaiting_text_retry_authorization")
             with self.assertRaises(RuntimeError):
-                multi.run("text-repeat-fail", real_text=True, options=opts)
+                multi.run("text-repeat-fail", real_text=True, options={
+                    **opts,
+                    "confirm_text_retry": True,
+                    "confirm_upstream_status_and_billing_checked": True,
+                })
         second = multi.calibration_report("text-repeat-fail")["stages"]["text"]["metrics"]["stations"]["drama-plan"]
         self.assertEqual(first["call_count"], 1)
         self.assertEqual(second["call_count"], 2)
@@ -523,8 +584,14 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
         with patch("src.drama_multimodal_smoke._insight_cost", return_value=5.0), \
                 patch("src.drama_multimodal_smoke.drama_smoke.run_smoke") as network:
+            awaiting = multi.run(workspace, real_text=True, options=opts)
+            self.assertEqual(awaiting["status"], "awaiting_text_retry_authorization")
             with self.assertRaisesRegex(RuntimeError, "budget exhausted"):
-                multi.run(workspace, real_text=True, options=opts)
+                multi.run(workspace, real_text=True, options={
+                    **opts,
+                    "confirm_text_retry": True,
+                    "confirm_upstream_status_and_billing_checked": True,
+                })
         network.assert_not_called()
         station = multi.calibration_report(workspace)["stages"]["text"]["metrics"]["stations"]["drama-plan"]
         self.assertEqual(station["status"], "failed")

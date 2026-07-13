@@ -471,6 +471,8 @@ class DramaSubScores(BaseModel):
         data = dict(value)
         warnings = list(data.get("score_warnings") or [])
         for field in DRAMA_REVIEW_SCORE_FIELDS:
+            if field not in data:
+                warnings.append(f"{field}:missing")
             number, field_warnings = _clean_drama_score(field, data.get(field, 0))
             data[field] = number
             warnings.extend(field_warnings)

@@ -2257,8 +2257,10 @@ def api_drama_character_redraw(
     if parse_error:
         return parse_error
     assert payload is not None
-    if payload.get("confirm_real_image") is not True:
-        return _json(400, {"error": "confirm_real_image=true is required for character redraw"})
+    # Manual Web redraw is mock-only. Real image generation must use the
+    # multimodal runner so budget/attempt/retry state is durable.
+    if (os.getenv("AI_DRAW_ENDPOINT") or os.getenv("AI_DRAW_MODEL") or "").strip():
+        return _json(409, {"error": "real_image_requires_multimodal_runner"})
     try:
         episode_no = _parse_episode_no(payload.get("episode_no", 1))
     except (TypeError, ValueError):
@@ -2287,7 +2289,7 @@ def api_drama_character_redraw(
             if target is None:
                 return _json(404, {"error": "character not found"})
             try:
-                image = ai_draw_client.redraw_character_reference(name, target, mock=None)
+                image = ai_draw_client.redraw_character_reference(name, target, mock=True)
             except Exception as exc:
                 _log_degraded("drama_character_redraw", exc)
                 return _json(500, errors.error_body(errors.build_card("server_error")))

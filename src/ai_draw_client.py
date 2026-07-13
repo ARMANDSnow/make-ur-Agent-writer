@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import binascii
 import html
+import http.client
 import ipaddress
 import json
 import math
@@ -315,6 +316,7 @@ def _download_generated_image(
         or not parsed.netloc
         or parsed.username
         or parsed.password
+        or parsed.fragment
     ):
         raise ValueError("AI draw image URL must be an https URL")
     allowed_hosts = {api_hostname.rstrip(".").lower()} if api_hostname else set()
@@ -327,23 +329,51 @@ def _download_generated_image(
     if result_host not in allowed_hosts:
         raise ValueError("AI draw image URL host is not in the trusted result-host allowlist")
     _validate_public_endpoint(parsed.hostname)
-    opener = build_opener(_NoRedirect)
+    connection = http.client.HTTPSConnection(
+        result_host,
+        port=parsed.port or 443,
+        timeout=timeout_seconds,
+    )
     try:
-        with opener.open(Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout_seconds) as response:
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-            data = response.read(MAX_RESPONSE_BYTES + 1)
-    except HTTPError as exc:
-        raise AIDrawProviderError(f"AI draw image download failed with HTTP {exc.code}") from None
+        # Resolve/connect/TLS first, then inspect the actual peer before sending
+        # the provider-controlled signed path.  A DNS precheck alone is subject
+        # to rebinding between getaddrinfo() and the real connection.
+        connection.connect()
+        peer_ip = connection.sock.getpeername()[0] if connection.sock is not None else ""
+        _validate_public_endpoint(peer_ip)
+        target = parsed.path or "/"
+        if parsed.query:
+            target += "?" + parsed.query
+        connection.request("GET", target, headers={"User-Agent": USER_AGENT})
+        response = connection.getresponse()
+        if 300 <= response.status < 400:
+            raise AIDrawProviderError("AI draw image download redirects are not allowed")
+        if response.status != 200:
+            raise AIDrawProviderError(
+                f"AI draw image download failed with HTTP {response.status}"
+            )
+        content_type = response.getheader("content-type", "").split(";", 1)[0].strip().lower()
+        content_length = response.getheader("content-length")
+        if content_length:
+            try:
+                declared_length = int(content_length)
+            except ValueError as exc:
+                raise AIDrawProviderError("AI draw image content-length is invalid") from exc
+            if declared_length < 0:
+                raise AIDrawProviderError("AI draw image content-length is invalid")
+            if declared_length > MAX_RESPONSE_BYTES:
+                raise AIDrawProviderError("AI draw image exceeds size limit")
+        data = response.read(MAX_RESPONSE_BYTES + 1)
     except (socket.timeout, TimeoutError) as exc:
         raise AIDrawTimeout("AI draw image download timed out") from exc
-    except URLError as exc:
-        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
-            raise AIDrawTimeout("AI draw image download timed out") from exc
+    except (OSError, http.client.HTTPException) as exc:
         raise AIDrawNetworkError("AI draw image download failed due to a network error") from exc
+    finally:
+        connection.close()
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("AI draw image exceeds size limit")
     detected_type, suffix = _detect_image_type(data)
-    if content_type and content_type != detected_type:
+    if content_type != detected_type:
         raise ValueError("AI draw image content-type does not match image bytes")
     return data, detected_type, suffix
 

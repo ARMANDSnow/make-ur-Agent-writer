@@ -75,6 +75,21 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
             )
             payload = model_to_dict(generated)
             payload["episode_no"] = episode_no
+            payload["season_no"] = int(characters.get("season_no") or 1)
+            payload["agent_name"] = "drama_reviewer"
+            score_warnings = (
+                (payload.get("sub_scores") or {}).get("score_warnings")
+                if isinstance(payload.get("sub_scores"), dict)
+                else []
+            )
+            if any(
+                isinstance(item, str) and item.endswith(":missing")
+                for item in (score_warnings or [])
+            ):
+                return parse_failed_review(
+                    episode_no=episode_no,
+                    season_no=int(characters.get("season_no") or 1),
+                )
             review = DramaReview(**payload)
         except Exception:
             return parse_failed_review(episode_no=episode_no, season_no=int(characters.get("season_no") or 1))

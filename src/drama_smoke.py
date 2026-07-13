@@ -20,20 +20,28 @@ if __name__ == "__main__" and "--real-text" not in sys.argv[1:]:
     os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
 
 from . import drama_store, paths
-from .ai_draw_client import DEFAULT_IMAGE_MODEL, redraw_character_reference
-from .config import load_dotenv_if_available
-from .drama_schemas import CharacterSheet, character_paths, episode_paths
-from .schemas import model_to_dict
+from .config import get_model_config
+from .drama_schemas import episode_paths
 from .utils import read_json_optional, write_json
 from .web.drama_insights import collect_drama_insights
-from .web.workspace_ctx import use_workspace
-from .workspace_lock import acquire_write_lock
 
 
 class DramaSmokeTimeout(TimeoutError):
     def __init__(self, stage: str) -> None:
         super().__init__(f"drama smoke {stage} stage timed out")
         self.stage = stage
+
+
+DRAMA_TEXT_TASKS = (
+    "drama_plan", "drama_hooks", "drama_storyboard", "drama_character", "drama_review"
+)
+
+
+def real_text_tasks_ready() -> bool:
+    return all(
+        not str(get_model_config(task).get("model") or "mock").lower().startswith("mock")
+        for task in DRAMA_TEXT_TASKS
+    )
 
 
 def _jobs_module():
@@ -141,13 +149,14 @@ def run_smoke(
         raise SystemExit("refusing real drama text smoke without explicit confirmation")
     elif not math.isfinite(budget_cny) or budget_cny <= 0:
         raise SystemExit("real drama text smoke requires a positive budget-cny")
+    elif not real_text_tasks_ready():
+        raise RuntimeError("real_text_tasks_still_mock")
 
-    if real_image and os.getenv("CONFIRM_REAL_IMAGE_SMOKE") != "可以跑生图":
-        raise SystemExit("refusing real image smoke without explicit confirmation")
     if real_image:
-        load_dotenv_if_available()
-        if os.getenv("AI_DRAW_ENDPOINT"):
-            raise RuntimeError("real image smoke requires OpenAI-compatible mode")
+        raise SystemExit(
+            "legacy drama_smoke real-image mode is disabled; use drama_multimodal_smoke "
+            "for budgeted all-character image testing"
+        )
 
     if create_workspace:
         _create_workspace(workspace, track)
@@ -218,57 +227,6 @@ def run_smoke(
         if real_text and actual > budget_cny:
             raise RuntimeError("drama text smoke budget exceeded")
 
-    image_meta: Dict[str, Any] | None = None
-    if real_image:
-        os.environ["AI_DRAW_MODEL"] = DEFAULT_IMAGE_MODEL
-        with use_workspace(workspace):
-            with acquire_write_lock(source="drama-smoke-image"):
-                sheet_data = read_json_optional(character_paths(workspace).sheet_path, None)
-                sheet = CharacterSheet(**sheet_data)
-                character = sheet.characters[0]
-                try:
-                    generated = redraw_character_reference(workspace, character, mock=False)
-                except TimeoutError as exc:
-                    raise DramaSmokeTimeout("image") from exc
-                char_data = model_to_dict(character)
-                char_data["reference_images"] = [*char_data.get("reference_images", []), generated][-8:]
-                sheet_payload = model_to_dict(sheet)
-                sheet_payload["characters"][0] = char_data
-                drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
-                write_json(character_paths(workspace).sheet_path, sheet_payload)
-        output = paths.WORKSPACE_DIR / workspace / generated["path"]
-        image_meta = {
-            "generated_by": generated.get("generated_by"),
-            "requested_model": generated.get("requested_model"),
-            "provider_model": generated.get("provider_model"),
-            "requested_size": generated.get("requested_size"),
-            "provider_size": generated.get("provider_size"),
-            "width": generated.get("width"),
-            "height": generated.get("height"),
-            "bytes": output.stat().st_size,
-            "path": generated.get("path"),
-        }
-        # Character references participate in the assembled fingerprint. Refresh
-        # station ⑤ so the successful image smoke does not leave episode_01 stale.
-        remaining_seconds = deadline - time.monotonic()
-        spent = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
-        remaining_budget = max(0.0, budget_cny - spent) if real_text else 0.0
-        if real_text and (remaining_seconds <= 0 or remaining_budget <= 0):
-            raise DramaSmokeTimeout("text") if remaining_seconds <= 0 else RuntimeError("drama text smoke budget exhausted")
-        steps.append(_run_step(
-            workspace, "drama-review-assemble", 1, max(0.001, remaining_seconds),
-            real_text=real_text,
-            budget_cny=remaining_budget,
-        ))
-        actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
-        steps[-1]["actual_cost_cny"] = round(actual, 6)
-        steps[-1]["remaining_budget_cny"] = round(max(0.0, budget_cny - actual), 6)
-        steps[-1]["remaining_seconds"] = round(max(0.0, deadline - time.monotonic()), 3)
-        if on_step_complete is not None:
-            on_step_complete("drama-review-assemble", steps[-1])
-        if real_text and actual > budget_cny:
-            raise RuntimeError("drama text smoke budget exceeded")
-
     exports = {}
     for fmt in ("json", "md", "csv", "comfy"):
         artifact = drama_store.export_episode(workspace, episode_no=1, format=fmt)
@@ -287,7 +245,7 @@ def run_smoke(
         "cost_cny": round(max(0.0, float(insights.get("llm_cost", {}).get("cost_cny", 0.0) or 0) - baseline_cost), 6),
         "remaining_budget_cny": round(max(0.0, budget_cny - max(0.0, float(insights.get("llm_cost", {}).get("cost_cny", 0.0) or 0) - baseline_cost)), 6),
         "remaining_seconds": round(max(0.0, deadline - time.monotonic()), 3),
-        "image": image_meta,
+        "image": None,
     }
     log_path = paths.WORKSPACE_DIR / workspace / "logs" / f"drama_smoke_{int(time.time())}.json"
     write_json(log_path, result)
@@ -310,6 +268,30 @@ def main() -> int:
         raise SystemExit("budget-cny must be finite and non-negative")
     if args.real_text and args.budget_cny <= 0:
         raise SystemExit("real drama text smoke requires a positive budget-cny")
+    if args.real_image:
+        print(json.dumps({
+            "ok": False,
+            "workspace": args.book,
+            "real_text": args.real_text,
+            "real_image": True,
+            "video_requests": 0,
+            "error_code": "legacy_real_image_requires_multimodal",
+        }, ensure_ascii=False))
+        return 64
+    if (
+        args.real_text
+        and os.getenv("CONFIRM_REAL_MODEL_SMOKE") == "可以跑了"
+        and not real_text_tasks_ready()
+    ):
+        print(json.dumps({
+            "ok": False,
+            "workspace": args.book,
+            "real_text": True,
+            "real_image": args.real_image,
+            "video_requests": 0,
+            "error_code": "real_text_tasks_still_mock",
+        }, ensure_ascii=False))
+        return 64
     try:
         result = run_smoke(
             args.book,

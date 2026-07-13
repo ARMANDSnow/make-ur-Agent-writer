@@ -19,12 +19,17 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 from urllib.parse import quote, urlparse
 
 from . import paths
 from .ai_draw_client import MAX_RESPONSE_BYTES as MAX_IMAGE_BYTES
-from .ai_draw_client import _detect_image_type, _validate_public_endpoint, validate_api_base_url
+from .ai_draw_client import (
+    _detect_image_type,
+    _download_generated_image,
+    _validate_public_endpoint,
+    validate_api_base_url,
+)
 from .drama_schemas import CharacterSheet, DramaEpisode, DramaEpisodeMeta, DramaStoryboard, character_paths, episode_paths
 from .drama_store import is_episode_stale
 from .drama_video_client import DEFAULT_VIDEO_MODEL, DramaVideoClient, build_video_payload
@@ -41,7 +46,7 @@ MAX_REFERENCE_ASSETS = 8
 _TERMINAL_SUCCESS = frozenset({"success", "succeeded", "completed", "done"})
 _TERMINAL_FAILURE = frozenset({"failed", "failure", "error", "cancelled", "canceled"})
 _RUNNING = frozenset({"pending", "queued", "queueing", "processing", "running", "generating", "in_progress"})
-_PUBLIC_ASSET_TOKENS: Dict[str, tuple[Path, float]] = {}
+_PUBLIC_ASSET_TOKENS: Dict[str, tuple[bytes, str, float]] = {}
 _PUBLIC_ASSET_LOCK = threading.Lock()
 _MOCK_MP4 = base64.b64decode(
     "AAAAHGZ0eXBtcDQyAAAAAWlzb21tcDQxbXA0MgAAAAFtZGF0AAAAAAAAAH8AAAA1BgUtR1ZK3FxMQz+U78URPNFDqAEAAAMAAQMAAAMAAQIAAeYACwAAAwAAAwAACVYMA5EIAIAAAAAyJbggH94I5Uz/gswem1JEAFF721iPegoZHua5g6fVtrKB82GsqGNvqOenAAA2gBXDPRgAAAKnbW9vdgAAAGxtdmhkAAAAAOZ5GRPmeRkUAAACWAAAACgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAjN0cmFrAAAAXHRraGQAAAAB5nkZFOZ5GRQAAAABAAAAAAAAACgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAAoAAAAAAABAAAAAAGrbWRpYQAAACBtZGhkAAAAAOZ5GRTmeRkUAAACWAAAAChVxAAAAAAAMWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABDb3JlIE1lZGlhIFZpZGVvAAAAAVJtaW5mAAAAFHZtaGQAAAABAAAAAAAAAAAAAAAkZGluZgAAABxkcmVmAAAAAAAAAAEAAAAMdXJsIAAAAAEAAAESc3RibAAAAKFzdHNkAAAAAAAAAAEAAACRYXZjMQAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAQABAASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAACdhdmNDAWQAC//hAAwnZAALrFZQw3gWYKUBAAQo7jyw/fj4AAAAAApmaWVsAQAAAAAKY2hybQAAAAAAGHN0dHMAAAAAAAAAAQAAAAEAAAAoAAAADXNkdHAAAAAAIAAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAABvAAAAAQAAABRzdGNvAAAAAAAAAAEAAAAs"
@@ -58,6 +63,10 @@ class DramaVideoProviderError(RuntimeError):
 
 class DramaVideoTimedOut(TimeoutError):
     """Polling crossed the finite user-authorized deadline."""
+
+
+class DramaVideoSubmissionUnknown(RuntimeError):
+    """A paid POST may have reached the provider but returned no task id."""
 
 
 @dataclass(frozen=True)
@@ -85,6 +94,65 @@ def video_paths(workspace: str, *, episode_no: int = 1) -> VideoPaths:
         video_path=ep.episodes_dir / "episode_01.video.mp4",
         meta_path=ep.episodes_dir / "episode_01.video.meta.json",
     )
+
+
+def video_submission_path(workspace: str, *, episode_no: int = 1) -> Path:
+    if episode_no != 1:
+        raise DramaVideoInputError("video MVP supports episode 1 only")
+    return paths.workspace_root(workspace) / "logs" / "drama_video_submission.json"
+
+
+def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, Any] | None:
+    ledger_path = video_submission_path(workspace, episode_no=episode_no)
+    try:
+        ledger_path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ValueError("video submission ledger is unreadable") from exc
+    if ledger_path.is_symlink() or not ledger_path.is_file():
+        raise ValueError("video submission ledger must be a regular file")
+    try:
+        raw = json.loads(ledger_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("video submission ledger is unreadable") from exc
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1 or raw.get("episode_no") != 1:
+        raise ValueError("video submission ledger is invalid")
+    status = raw.get("status")
+    if status not in {"submitting", "submitted", "failed", "succeeded"}:
+        raise ValueError("video submission ledger status is invalid")
+    fingerprint = raw.get("input_fingerprint")
+    if (
+        not isinstance(fingerprint, str)
+        or len(fingerprint) != 64
+        or any(ch not in "0123456789abcdef" for ch in fingerprint)
+    ):
+        raise ValueError("video submission ledger fingerprint is invalid")
+    if raw.get("submission_count") != 1:
+        raise ValueError("video submission ledger count is invalid")
+    provider_fingerprint = raw.get("provider_fingerprint")
+    if (
+        not isinstance(provider_fingerprint, str)
+        or len(provider_fingerprint) != 64
+        or any(ch not in "0123456789abcdef" for ch in provider_fingerprint)
+    ):
+        raise ValueError("video submission provider fingerprint is invalid")
+    task_id = raw.get("task_id")
+    if status in {"submitted", "failed", "succeeded"}:
+        _extract_resource_id({"id": task_id}, "task")
+    elif task_id is not None:
+        raise ValueError("video submitting ledger must not claim a task id")
+    if "cost_cny" in raw:
+        cost = raw.get("cost_cny")
+        if isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(float(cost)) or cost < 0:
+            raise ValueError("video submission ledger cost is invalid")
+    if "cost_unreported" in raw and type(raw.get("cost_unreported")) is not bool:
+        raise ValueError("video submission ledger cost state is invalid")
+    return raw
+
+
+def _write_video_submission(workspace: str, payload: Mapping[str, Any]) -> None:
+    write_json(video_submission_path(workspace), {"schema_version": 1, "episode_no": 1, **dict(payload)})
 
 
 def real_video_enabled() -> bool:
@@ -122,7 +190,7 @@ def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
         episode["episode_no"] != 1
         or meta["episode_no"] != 1
         or storyboard["episode_no"] != 1
-        or characters["episode_no"] != 1
+        or characters["season_no"] != 1
     ):
         raise DramaVideoInputError("video inputs must all belong to episode 1")
     if not meta.get("episode_sha256") or meta["episode_sha256"] != sha256_data(episode):
@@ -130,10 +198,16 @@ def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
     if not meta.get("input_fingerprint") or is_episode_stale(workspace, episode_no=1):
         raise DramaVideoInputError("episode is stale; review and assemble it again before video generation")
     references: List[tuple[str, str, Path]] = []
+    episode_characters: List[Dict[str, Any]] = []
     root = paths.workspace_root(workspace).resolve()
     for character in characters.get("characters", []):
         if not isinstance(character, dict) or 1 not in (character.get("appearances") or [1]):
             continue
+        stable_character = dict(character)
+        stable_character["appearances"] = [1]
+        stable_character.pop("agent_suggestions", None)
+        stable_character.pop("manual_override", None)
+        episode_characters.append(stable_character)
         refs = character.get("reference_images") or []
         if not isinstance(refs, list) or not refs:
             raise DramaVideoInputError("every episode-1 character must have a current reference image")
@@ -160,19 +234,31 @@ def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
             break
     if not references:
         raise DramaVideoInputError("at least one episode-1 reference image is required")
+    # CharacterSheet is season-scoped and its top-level episode_no/source title
+    # move forward as later episodes are produced.  Episode-1 video lineage must
+    # depend only on the characters that actually appear in episode 1.
+    character_projection = {
+        "schema_version": characters.get("schema_version", 1),
+        "season_no": characters.get("season_no", 1),
+        "track": characters.get("track", ""),
+        "characters": episode_characters,
+    }
     fingerprint = sha256_data(
         {
             "episode": episode,
             "episode_meta_fingerprint": meta.get("input_fingerprint"),
             "storyboard": storyboard,
-            "characters": characters,
+            "characters": character_projection,
             "reference_files": [
                 {"character_id": cid, "filename": name, "sha256": _sha256_file(path)}
                 for cid, name, path in references
             ],
         }
     )
-    return VideoInputs(workspace, episode, meta, storyboard, characters, tuple(references), fingerprint)
+    return VideoInputs(
+        workspace, episode, meta, storyboard, character_projection,
+        tuple(references), fingerprint,
+    )
 
 
 def run_video_job(
@@ -210,76 +296,165 @@ def run_video_job(
     if not result_hosts:
         raise ValueError("SD_VIDEO_RESULT_HOSTS must contain at least one exact hostname")
     api = client or DramaVideoClient(request_timeout_seconds=min(60.0, timeout_minutes * 60.0))
-    asset_ids: List[str] = []
-    public_tokens: List[str] = []
-    try:
-        for cid, _filename, asset_path in inputs.references:
-            _deadline_checkpoint(deadline, monotonic)
-            _set_api_timeout(api, deadline, monotonic)
-            token = register_public_asset(asset_path, expires_at=deadline)
-            public_tokens.append(token)
-            asset_url = public_base + "/media/drama-assets/" + quote(token, safe="")
-            response = api.upload_asset(url=asset_url, name=f"episode-1-{cid}", asset_type="Image")
-            asset_ids.append(_extract_resource_id(response, "asset"))
-            progress_cb("upload-assets", 0.12 + 0.18 * len(asset_ids) / len(inputs.references))
-        for asset_id in asset_ids:
-            while True:
+    provider_fingerprint = _video_provider_fingerprint(api, model)
+    submission = read_video_submission(workspace)
+    if submission is not None and submission.get("input_fingerprint") != inputs.fingerprint:
+        raise DramaVideoInputError("video submission ledger belongs to different inputs")
+    if (
+        submission is not None
+        and submission.get("status") != "succeeded"
+        and submission.get("provider_fingerprint") != provider_fingerprint
+    ):
+        raise DramaVideoProviderError("video submission ledger belongs to different provider configuration")
+    if submission is not None and submission.get("status") == "succeeded":
+        _data, meta = read_video(workspace, episode_no=1)
+        return {**meta, "committed": True, "resumed": True, "network_requests": 0}
+    if submission is not None and submission.get("status") == "submitting":
+        raise DramaVideoSubmissionUnknown(
+            "video submission outcome is unknown; reconcile provider task/billing before any retry"
+        )
+    if submission is not None and submission.get("status") == "failed":
+        raise DramaVideoProviderError("the one authorized video submission already failed")
+
+    final: Dict[str, Any] = {}
+    task_id = str(submission.get("task_id") or "") if submission is not None else ""
+    if submission is None:
+        asset_ids: List[str] = []
+        public_tokens: List[str] = []
+        try:
+            for index, (cid, _filename, asset_path) in enumerate(inputs.references):
                 _deadline_checkpoint(deadline, monotonic)
+                token = register_public_asset(asset_path, expires_at=deadline)
+                public_tokens.append(token)
+                asset_url = public_base + "/media/drama-assets/" + quote(token, safe="")
+                # A CLI process has no callback server and a separate Web
+                # process cannot see this in-memory capability.  Prove the
+                # exact public URL reaches this process before the first
+                # provider upload; injected test clients exercise protocol
+                # logic without external callback topology.
+                if index == 0 and client is None:
+                    _verify_public_asset_callback(asset_url, asset_path, deadline, monotonic)
                 _set_api_timeout(api, deadline, monotonic)
-                asset = api.get_asset(asset_id)
-                asset_obj = asset.get("asset") if isinstance(asset.get("asset"), dict) else asset.get("data")
-                if not isinstance(asset_obj, dict) or str(_first(asset_obj, "id", "asset_id", "AssetID", "ID") or "") != asset_id:
-                    raise DramaVideoProviderError("uploaded asset query did not match the requested asset")
-                asset_status = str(_first(asset_obj, "status", "Status") or "").strip().lower()
-                if asset_status in {"ready", "available", "completed", "succeeded", "success"}:
-                    break
-                if not asset_status:
-                    raise DramaVideoProviderError("uploaded asset response is missing status")
-                if asset_status in _TERMINAL_FAILURE:
-                    raise DramaVideoProviderError("uploaded asset processing failed")
-                if asset_status not in _RUNNING:
-                    raise DramaVideoProviderError("uploaded asset returned an unsupported status")
-                progress_cb("upload-assets", 0.31)
-                sleep(min(POLL_INTERVAL_SECONDS, max(0.0, deadline - monotonic())))
-        progress_cb("queued", 0.34)
-        # Exactly one possibly-billable submission. Never wrap this in retry logic.
-        _set_api_timeout(api, deadline, monotonic)
-        created = api.create_video_task(
-            prompt=prompt,
-            reference_asset_ids=asset_ids,
-            duration=VIDEO_DURATION_SECONDS,
-            resolution=VIDEO_RESOLUTION,
-            ratio=VIDEO_RATIO,
-            generate_audio=False,
-            watermark=False,
-            model=model,
-            allow_real_video=True,
-        )
-        task_id = _extract_resource_id(created, "task")
-        progress_cb("queued", 0.4)
-        final: Dict[str, Any] = created
-        while True:
-            _deadline_checkpoint(deadline, monotonic)
+                response = api.upload_asset(
+                    url=asset_url,
+                    name=f"episode-1-{cid}",
+                    asset_type="Image",
+                )
+                asset_ids.append(_extract_resource_id(response, "asset"))
+                progress_cb(
+                    "upload-assets",
+                    0.12 + 0.18 * len(asset_ids) / len(inputs.references),
+                )
+            for asset_id in asset_ids:
+                while True:
+                    _deadline_checkpoint(deadline, monotonic)
+                    _set_api_timeout(api, deadline, monotonic)
+                    asset = api.get_asset(asset_id)
+                    asset_obj = (
+                        asset.get("asset")
+                        if isinstance(asset.get("asset"), dict)
+                        else asset.get("data")
+                    )
+                    if (
+                        not isinstance(asset_obj, dict)
+                        or str(_first(asset_obj, "id", "asset_id", "AssetID", "ID") or "")
+                        != asset_id
+                    ):
+                        raise DramaVideoProviderError(
+                            "uploaded asset query did not match the requested asset"
+                        )
+                    asset_status = str(
+                        _first(asset_obj, "status", "Status") or ""
+                    ).strip().lower()
+                    if asset_status in {
+                        "ready", "available", "completed", "succeeded", "success"
+                    }:
+                        break
+                    if not asset_status:
+                        raise DramaVideoProviderError(
+                            "uploaded asset response is missing status"
+                        )
+                    if asset_status in _TERMINAL_FAILURE:
+                        raise DramaVideoProviderError("uploaded asset processing failed")
+                    if asset_status not in _RUNNING:
+                        raise DramaVideoProviderError(
+                            "uploaded asset returned an unsupported status"
+                        )
+                    progress_cb("upload-assets", 0.31)
+                    sleep(min(POLL_INTERVAL_SECONDS, max(0.0, deadline - monotonic())))
+            progress_cb("queued", 0.34)
             _set_api_timeout(api, deadline, monotonic)
-            final = api.get_task(task_id)
-            status = _task_status(final)
-            if status in _TERMINAL_SUCCESS:
-                break
-            if status in _TERMINAL_FAILURE:
-                raise DramaVideoProviderError(f"video task ended with status={status}")
-            if status not in _RUNNING:
-                raise DramaVideoProviderError("video task returned an unsupported status")
-            progress_cb("generating" if status not in {"pending", "queued", "queueing"} else "queued", 0.45)
-            sleep(min(POLL_INTERVAL_SECONDS, max(0.0, deadline - monotonic())))
-        progress_cb("download", 0.82)
-        result_url = _task_result_url(final)
-        video_bytes, content_type = download_video(
-            result_url,
-            allowed_hosts=result_hosts,
-            timeout_seconds=_remaining_timeout(deadline, monotonic),
+            # Persist the ambiguity boundary immediately before the one and only
+            # possibly-billable POST.  Any exception before this point is safe
+            # to retry; any exception after it requires reconciliation.
+            _write_video_submission(workspace, {
+                "status": "submitting",
+                "input_fingerprint": inputs.fingerprint,
+                "provider_fingerprint": provider_fingerprint,
+                "submission_count": 1,
+                "updated_at": int(time.time()),
+            })
+            created = api.create_video_task(
+                prompt=prompt,
+                reference_asset_ids=asset_ids,
+                duration=VIDEO_DURATION_SECONDS,
+                resolution=VIDEO_RESOLUTION,
+                ratio=VIDEO_RATIO,
+                generate_audio=False,
+                watermark=False,
+                model=model,
+                allow_real_video=True,
+            )
+            task_id = _extract_resource_id(created, "task")
+            _write_video_submission(workspace, {
+                "status": "submitted",
+                "input_fingerprint": inputs.fingerprint,
+                "provider_fingerprint": provider_fingerprint,
+                "submission_count": 1,
+                "task_id": task_id,
+                "updated_at": int(time.time()),
+            })
+            progress_cb("queued", 0.4)
+            final = created
+        finally:
+            revoke_public_assets(public_tokens)
+
+    while True:
+        _deadline_checkpoint(deadline, monotonic)
+        _set_api_timeout(api, deadline, monotonic)
+        final = api.get_task(task_id)
+        if _extract_resource_id(final, "task") != task_id:
+            raise DramaVideoProviderError("video task query did not match the requested task")
+        status = _task_status(final)
+        if status in _TERMINAL_SUCCESS:
+            break
+        if status in _TERMINAL_FAILURE:
+            terminal_cost = _task_cost_cny(final)
+            _write_video_submission(workspace, {
+                "status": "failed",
+                "input_fingerprint": inputs.fingerprint,
+                "provider_fingerprint": provider_fingerprint,
+                "submission_count": 1,
+                "task_id": task_id,
+                "cost_cny": terminal_cost if terminal_cost is not None else 0.0,
+                "cost_unreported": terminal_cost is None,
+                "updated_at": int(time.time()),
+            })
+            raise DramaVideoProviderError(f"video task ended with status={status}")
+        if status not in _RUNNING:
+            raise DramaVideoProviderError("video task returned an unsupported status")
+        progress_cb(
+            "generating" if status not in {"pending", "queued", "queueing"} else "queued",
+            0.45,
         )
-    finally:
-        revoke_public_assets(public_tokens)
+        sleep(min(POLL_INTERVAL_SECONDS, max(0.0, deadline - monotonic())))
+    progress_cb("download", 0.82)
+    result_url = _task_result_url(final)
+    video_bytes, content_type = download_video(
+        result_url,
+        allowed_hosts=result_hosts,
+        timeout_seconds=_remaining_timeout(deadline, monotonic),
+    )
     _deadline_checkpoint(deadline, monotonic)
     if load_video_inputs(workspace, episode_no=1).fingerprint != inputs.fingerprint:
         raise DramaVideoInputError("video inputs changed while the provider task was running")
@@ -306,6 +481,16 @@ def run_video_job(
         "estimated_cost_cny": estimate,
     }
     _commit_video_pair(out, video_bytes, safe_meta)
+    _write_video_submission(workspace, {
+        "status": "succeeded",
+        "input_fingerprint": inputs.fingerprint,
+        "provider_fingerprint": provider_fingerprint,
+        "submission_count": 1,
+        "task_id": task_id,
+        "cost_cny": cost_cny if cost_cny is not None else 0.0,
+        "cost_unreported": cost_cny is None,
+        "updated_at": int(time.time()),
+    })
     progress_cb(terminal_status, 1.0)
     return {**safe_meta, "committed": True}
 
@@ -350,10 +535,18 @@ def register_public_asset(path: Path, *, expires_at: float) -> str:
     """Register an exact file behind an unguessable, process-local short URL."""
     if not math.isfinite(expires_at) or expires_at <= time.monotonic():
         raise ValueError("public asset expiry must be in the future")
-    resolved = path.resolve()
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise DramaVideoInputError("public drama asset is unreadable") from exc
+    if len(data) <= 0 or len(data) > MAX_IMAGE_BYTES:
+        raise DramaVideoInputError("public drama asset size is invalid")
+    content_type, _suffix = _detect_image_type(data)
     token = secrets.token_urlsafe(32)
     with _PUBLIC_ASSET_LOCK:
-        _PUBLIC_ASSET_TOKENS[token] = (resolved, expires_at)
+        # Freeze the validated bytes.  A mutable path would allow a local
+        # replacement/symlink race between callback proof and provider fetch.
+        _PUBLIC_ASSET_TOKENS[token] = (data, content_type, expires_at)
     return token
 
 
@@ -370,15 +563,38 @@ def read_public_asset(token: str) -> tuple[bytes, str]:
         record = _PUBLIC_ASSET_TOKENS.get(token)
         if record is None:
             raise FileNotFoundError("public drama asset token not found")
-        path, expires_at = record
+        data, content_type, expires_at = record
         if time.monotonic() >= expires_at:
             _PUBLIC_ASSET_TOKENS.pop(token, None)
             raise FileNotFoundError("public drama asset token expired")
-    data = path.read_bytes()
-    if len(data) <= 0 or len(data) > MAX_IMAGE_BYTES:
-        raise ValueError("public drama asset size is invalid")
-    content_type, _suffix = _detect_image_type(data)
     return data, content_type
+
+
+def _verify_public_asset_callback(
+    url: str,
+    expected_path: Path,
+    deadline: float,
+    monotonic: Callable[[], float],
+) -> None:
+    """Prove the public callback serves this process's exact capability.
+
+    This zero-provider-cost GET is deliberately completed before any asset API
+    request.  It catches the common but unsafe topology where the CLI owns the
+    in-memory token while a different Web process owns the public route.
+    """
+
+    parsed = urlparse(url)
+    data, _content_type, _suffix = _download_generated_image(
+        url,
+        api_hostname=parsed.hostname or "",
+        timeout_seconds=_remaining_timeout(deadline, monotonic, maximum=15.0),
+    )
+    try:
+        expected = expected_path.read_bytes()
+    except OSError as exc:
+        raise DramaVideoInputError("callback source asset disappeared") from exc
+    if not secrets.compare_digest(hashlib.sha256(data).digest(), hashlib.sha256(expected).digest()):
+        raise DramaVideoInputError("public asset callback did not return the registered image")
 
 
 def download_video(url: str, *, allowed_hosts: Iterable[str], timeout_seconds: float) -> tuple[bytes, str]:
@@ -411,7 +627,10 @@ def download_video(url: str, *, allowed_hosts: Iterable[str], timeout_seconds: f
         content_length = response.getheader("content-length")
         if content_length:
             try:
-                if int(content_length) > MAX_VIDEO_BYTES:
+                declared_length = int(content_length)
+                if declared_length < 0:
+                    raise ValueError("video content-length is invalid")
+                if declared_length > MAX_VIDEO_BYTES:
                     raise ValueError("video download exceeds size limit")
             except ValueError as exc:
                 if "exceeds" in str(exc):
@@ -466,23 +685,43 @@ def _video_prompt(inputs: VideoInputs) -> str:
     return f"竖屏短剧，第1集高光片段。{visual}。角色外观严格参考上传素材；镜头连贯，无文字水印。"
 
 
+def _video_provider_fingerprint(api: Any, model: str) -> str:
+    """Bind a resumable task id to the exact non-secret provider configuration."""
+
+    base_url = str(getattr(api, "base_url", "") or "").strip().rstrip("/")
+    if not base_url:
+        raise ValueError("video provider base URL is required")
+    return sha256_data({
+        "base_url": base_url,
+        "model": model,
+        "api_key": str(getattr(api, "api_key", "") or ""),
+    })
+
+
 def _extract_resource_id(response: Mapping[str, Any], kind: str) -> str:
     nested = response.get(kind) if isinstance(response.get(kind), dict) else None
     data = response.get("data") if isinstance(response.get("data"), dict) else None
-    candidates: Sequence[Any] = (
-        _first(response, "id", "ID", f"{kind}_id"),
-        _first(nested or {}, "id", "ID", f"{kind}_id", "AssetID", "TaskID"),
-        _first(data or {}, "id", "ID", f"{kind}_id", "AssetID", "TaskID"),
-    )
+    candidates: List[Any] = []
+    keys = ("id", "ID", f"{kind}_id", "AssetID", "TaskID")
+    for container in (response, nested or {}, data or {}):
+        candidates.extend(container[key] for key in keys if key in container)
+    valid: List[str] = []
     for value in candidates:
-        if (
+        if value is None:
+            continue
+        if not (
             isinstance(value, str)
             and value.isascii()
             and value
             and len(value) <= 128
             and all(ch.isalnum() or ch in "_-" for ch in value)
         ):
-            return value
+            raise DramaVideoProviderError(f"video API response contains an invalid {kind} id")
+        valid.append(value)
+    if valid:
+        if len(set(valid)) != 1:
+            raise DramaVideoProviderError(f"video API response contains conflicting {kind} ids")
+        return valid[0]
     raise DramaVideoProviderError(f"video API response is missing a valid {kind} id")
 
 
@@ -518,9 +757,11 @@ def _task_result_url(response: Mapping[str, Any]) -> str:
 def _task_cost_cny(response: Mapping[str, Any]) -> Optional[float]:
     task = _task_object(response)
     for raw in (task.get("cost_cny"), (task.get("usage") or {}).get("cost_cny") if isinstance(task.get("usage"), dict) else None):
+        if isinstance(raw, bool):
+            continue
         try:
             value = float(raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if math.isfinite(value) and value >= 0:
             return value

@@ -122,7 +122,7 @@ class MockOfflineSubprocessTests(unittest.TestCase):
             assert network_events == [], network_events
             """
         )
-        for module in ("src.drama_smoke", "src.drama_multimodal_smoke"):
+        for module in ("src.drama_smoke", "src.drama_multimodal_smoke", "src.drama_video_smoke"):
             env = os.environ.copy()
             env["OPENAI_MODEL"] = "deepseek/deepseek-chat"
             env["LITELLM_LOCAL_MODEL_COST_MAP"] = "false"

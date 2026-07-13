@@ -30,15 +30,9 @@ class DramaSmokeTests(DramaTestBase):
             with self.assertRaises(SystemExit):
                 drama_smoke.run_smoke("bad_budget", budget_cny=value)
 
-    def test_real_image_rejects_custom_draw_endpoint(self) -> None:
-        with patch.dict(os.environ, {
-            "CONFIRM_REAL_IMAGE_SMOKE": "可以跑生图",
-            "AI_DRAW_ENDPOINT": "https://example.test/draw",
-        }, clear=False), patch("src.drama_smoke.load_dotenv_if_available"), \
-                patch("src.drama_smoke.redraw_character_reference") as redraw:
-            with self.assertRaisesRegex(RuntimeError, "OpenAI-compatible"):
-                drama_smoke.run_smoke("custom_endpoint", real_image=True, timeout_seconds=10)
-        redraw.assert_not_called()
+    def test_legacy_real_image_mode_is_disabled_in_favor_of_multimodal_runner(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "drama_multimodal_smoke"):
+            drama_smoke.run_smoke("legacy-image", real_image=True, timeout_seconds=10)
 
     def test_text_timeout_has_text_error_code(self) -> None:
         argv = ["drama_smoke", "--book", "timeout"]
