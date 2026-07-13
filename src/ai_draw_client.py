@@ -21,10 +21,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
-from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler
 
 from .drama_schemas import DramaCharacter, ReferenceImage, character_paths
+from .secure_http import RequestNotSentError, request_bytes
 
 
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
@@ -156,13 +156,19 @@ def _call_draw_endpoint(
         raise ValueError("AI_DRAW_API_KEY contains control characters")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    request = Request(endpoint, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), headers=headers)
-    opener = build_opener(_NoRedirect)
-    with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-        data = response.read(MAX_RESPONSE_BYTES + 1)
-    if len(data) > MAX_RESPONSE_BYTES:
-        raise ValueError("AI draw response exceeds size limit")
+    response = request_bytes(
+        endpoint,
+        method="POST",
+        body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        timeout_seconds=REQUEST_TIMEOUT_SECONDS,
+        max_response_bytes=MAX_RESPONSE_BYTES,
+        peer_validator=_validate_public_endpoint,
+    )
+    if response.status != 200:
+        raise AIDrawProviderError(f"AI draw endpoint failed with HTTP {response.status}")
+    content_type = response.content_type
+    data = response.body
 
     _suffix_for_content_type(content_type)
     detected_type, suffix = _detect_image_type(data)
@@ -210,31 +216,33 @@ def _call_openai_image_api(
         "n": 1,
         "response_format": "b64_json",
     }
-    request = Request(
-        endpoint,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={
+    request_body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request_headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
             "User-Agent": USER_AGENT,
-        },
-    )
-    opener = build_opener(_NoRedirect)
+        }
     started_at = time.monotonic()
     try:
-        with opener.open(request, timeout=timeout) as response:
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-            raw = response.read(MAX_JSON_RESPONSE_BYTES + 1)
-    except HTTPError as exc:
-        raise AIDrawProviderError(f"AI draw API request failed with HTTP {exc.code}") from None
+        response = request_bytes(
+            endpoint,
+            method="POST",
+            body=request_body,
+            headers=request_headers,
+            timeout_seconds=timeout,
+            max_response_bytes=MAX_JSON_RESPONSE_BYTES,
+            peer_validator=_validate_public_endpoint,
+        )
+        if response.status != 200:
+            raise AIDrawProviderError(f"AI draw API request failed with HTTP {response.status}")
+        content_type = response.content_type
+        raw = response.body
     except (socket.timeout, TimeoutError) as exc:
         raise AIDrawTimeout("AI draw API request timed out") from exc
-    except URLError as exc:
-        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
-            raise AIDrawTimeout("AI draw API request timed out") from exc
+    except RequestNotSentError:
+        raise
+    except OSError as exc:
         raise AIDrawNetworkError("AI draw API request failed due to a network error") from exc
-    if len(raw) > MAX_JSON_RESPONSE_BYTES:
-        raise ValueError("AI draw JSON response exceeds size limit")
     if content_type not in {"", "application/json"}:
         raise ValueError("AI draw API response content-type must be application/json")
     try:

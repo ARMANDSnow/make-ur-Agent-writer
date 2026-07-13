@@ -123,12 +123,13 @@ docs/iterations/           逐轮审计记录
 | Agent 记忆、历史归档与收官流程 | 093-094 | ✅ 当前/历史职责分离；恢复精选工作记忆；全量验收后置 |
 | Mock 严格离线与验证环境一致性 | 096 | ✅ 本地 cost map、零代理探测、零 tokenizer 下载；verify 固定项目虚拟环境 |
 | 短剧真模型全链审计硬化 | 097 | ✅ 付费授权/恢复、provider 身份、媒体下载与 durable submission ledger 已收口；真校准仍待分段授权 |
+| 短剧真模型二次全链硬化 | 098 | ✅ 五站产物血统、付费 crash 恢复、实际 peer 传输与媒体规格复核已收口；真校准仍待分段授权 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 097**（2026-07-13，收官）。短剧真文本/全角色生图/单次视频入口完成多视角审计：一次性授权不再重放，恢复绑定 model/provider/账号指纹，视频 `submitting/submitted/failed/succeeded` 以严格 durable ledger 防重复付费，签名媒体下载校验实际 peer IP。旧的无预算真生图及 Web 付费重画旁路已禁用，真媒体统一从 multimodal runner 进入。本轮未运行真实文本、生图或视频。
+最近一次更新：**iter 098**（2026-07-13，收官）。短剧全链二次审计补齐站①→②上下文、五站 canonical 产物血统和 Web 付费 attempt 恢复；图片/视频带凭据请求在发送敏感数据前校验实际 peer，图片 artifact 收到后可零网络收尾，视频区分确定未发送与提交未知并复核 MP4 实测规格。校准报告交叉读取 durable ledger，避免 crash-window 低报。本轮未运行真实文本、生图或视频。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
@@ -144,7 +145,7 @@ docs/iterations/           逐轮审计记录
 | 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
 | 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | ⚠️ | 工程已通；10-20 章真模型 capstone 待授权 |
-| Web/短剧 | 可编辑工作台；短剧五站、连续多集、下一集 readiness、单集/季级导出、安全 manifest、全角色图片/单次视频受控编排、durable 付费提交账本与校准证据报告 | ⚠️ | mock 工程与真跑前安全闭环；真多模态待分段授权与人工质量判断 |
+| Web/短剧 | 可编辑工作台；短剧五站、连续多集、下一集 readiness、单集/季级导出、安全 manifest、全角色图片/单次视频受控编排、五站/媒体 durable 付费账本、产物血统与校准证据报告 | ⚠️ | mock 工程与真跑前安全闭环；真多模态待分段授权与人工质量判断 |
 
 ## 文档导航
 

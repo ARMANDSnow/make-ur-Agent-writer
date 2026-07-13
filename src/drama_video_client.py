@@ -12,10 +12,10 @@ import os
 import re
 from typing import Any, Dict, List, Sequence
 from urllib.parse import quote, urlparse
-from urllib.request import Request, build_opener
 
-from .ai_draw_client import _NoRedirect, _validate_public_endpoint, validate_api_base_url
+from .ai_draw_client import _validate_public_endpoint, validate_api_base_url
 from .config import load_dotenv_if_available
+from .secure_http import request_bytes
 
 
 DEFAULT_SD_BASE_URL = "https://model.service-inference.ai"
@@ -110,13 +110,19 @@ class DramaVideoClient:
         _validate_public_endpoint(urlparse(self.base_url).hostname)
         body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        request = Request(self.base_url + path, data=body, headers=headers, method=method)
-        opener = build_opener(_NoRedirect)
-        with opener.open(request, timeout=self.request_timeout_seconds) as response:
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-            raw = response.read(MAX_JSON_RESPONSE_BYTES + 1)
-        if len(raw) > MAX_JSON_RESPONSE_BYTES:
-            raise ValueError("video API response exceeds size limit")
+        response = request_bytes(
+            self.base_url + path,
+            method=method,
+            body=body,
+            headers=headers,
+            timeout_seconds=self.request_timeout_seconds,
+            max_response_bytes=MAX_JSON_RESPONSE_BYTES,
+            peer_validator=_validate_public_endpoint,
+        )
+        if response.status != 200:
+            raise ValueError(f"video API request failed with HTTP {response.status}")
+        content_type = response.content_type
+        raw = response.body
         if content_type != "application/json":
             raise ValueError("video API response content-type must be application/json")
         try:

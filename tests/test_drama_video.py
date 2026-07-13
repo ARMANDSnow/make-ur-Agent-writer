@@ -126,7 +126,8 @@ class DramaVideoPipelineTests(DramaTestBase):
         }
         mp4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2\x00\x00\x00\x08mdat"
         with patch.dict(os.environ, env, clear=False), \
-                patch("src.drama_video.download_video", return_value=(mp4, "video/mp4")):
+                patch("src.drama_video.download_video", return_value=(mp4, "video/mp4")), \
+                patch("src.drama_video._probe_mp4", return_value=drama_video.VideoSpec(5.0, 720, 1280)):
             result = drama_video.run_video_job(
                 "video",
                 {"confirm_real_video": True, "budget_cny": 3, "timeout_minutes": 1},
@@ -157,14 +158,20 @@ class DramaVideoPipelineTests(DramaTestBase):
         }
         mp4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2\x00\x00\x00\x08mdat"
         with patch.dict(os.environ, env, clear=False), \
-                patch("src.drama_video.download_video", return_value=(mp4, "video/mp4")):
+                patch("src.drama_video.download_video", return_value=(mp4, "video/mp4")), \
+                patch("src.drama_video._probe_mp4", return_value=drama_video.VideoSpec(5.0, 720, 1280)):
             result = drama_video.run_video_job(
                 "video", {"confirm_real_video": True, "budget_cny": 3, "timeout_minutes": 1},
                 lambda *_: None, client=client, sleep=lambda _seconds: None,
             )
         self.assertEqual(result["status"], "budget_exceeded")
-        self.assertTrue(drama_video.video_status("video")["download_ready"])
-        self.assertEqual(drama_video.video_status("video")["state"], "budget_exceeded")
+        with patch(
+            "src.drama_video._probe_mp4",
+            return_value=drama_video.VideoSpec(5.0, 720, 1280),
+        ):
+            status = drama_video.video_status("video")
+            self.assertTrue(status["download_ready"])
+            self.assertEqual(status["state"], "budget_exceeded")
 
     def test_asset_missing_status_fails_before_paid_submission(self) -> None:
         self._prepare()
@@ -195,6 +202,7 @@ class DramaVideoPipelineTests(DramaTestBase):
             ),
             "submission_count": 1,
             "task_id": "video-task-1",
+            **drama_video._video_authorization(3.0, 1.0, 2.0),
             "updated_at": int(time.time()),
         })
         client = _FakeVideoClient()
@@ -213,6 +221,8 @@ class DramaVideoPipelineTests(DramaTestBase):
         }
         with patch.dict(os.environ, env, clear=False), patch(
             "src.drama_video.download_video", return_value=(drama_video._MOCK_MP4, "video/mp4")
+        ), patch(
+            "src.drama_video._probe_mp4", return_value=drama_video.VideoSpec(5.0, 720, 1280)
         ):
             result = drama_video.run_video_job(
                 "video",

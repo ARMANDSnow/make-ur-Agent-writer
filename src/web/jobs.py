@@ -216,8 +216,10 @@ def _persist_job(job: Dict[str, Any]) -> None:
     try:
         path = _job_log_path(str(job.get("workspace") or ""))
         path.parent.mkdir(parents=True, exist_ok=True)
+        durable = dict(job)
+        durable["params"] = _public_retry_params(job.get("params"))
         with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(_finite_json_safe(job), ensure_ascii=False) + "\n")
+            fh.write(json.dumps(_finite_json_safe(durable), ensure_ascii=False) + "\n")
     except OSError:
         return
 
@@ -1158,6 +1160,255 @@ _DRAMA_MODEL_TASKS = {
 }
 
 
+def _drama_text_attempt_path(workspace: str) -> Path:
+    return paths.workspace_root(workspace) / "logs" / "drama_text_attempts.json"
+
+
+def _drama_text_provider_fingerprint(task: str) -> str:
+    import hashlib
+    from ..config import get_model_config
+
+    config = get_model_config(task)
+    payload = {
+        "model": str(config.get("model") or "mock").strip(),
+        "base_url": str(config.get("base_url") or "").strip().rstrip("/"),
+        "base_url_env": str(config.get("base_url_env") or ""),
+        "api_key_env": str(config.get("api_key_env") or ""),
+        "api_key": str(config.get("api_key") or ""),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _drama_text_input_fingerprint(step: str, workspace: str, episode_no: int) -> str:
+    import hashlib
+    from ..drama_schemas import character_paths, episode_paths
+    from ..utils import read_json_optional, sha256_data
+
+    ep = episode_paths(workspace, episode_no=episode_no)
+    root = paths.workspace_root(workspace)
+    snapshot = root / "data" / "creation_standard.snapshot.md"
+    try:
+        snapshot_sha256 = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    except OSError:
+        snapshot_sha256 = "missing"
+    sources: Dict[str, Any] = {
+        "step": step,
+        "episode_no": episode_no,
+        "wizard": read_json_optional(root / "data" / "wizard_input.json", None),
+        "creation_standard_sha256": snapshot_sha256,
+    }
+    if step in {"drama-hooks", "drama-storyboard", "drama-characters", "drama-review-assemble"}:
+        sources["setup"] = read_json_optional(ep.setup_path, None)
+    if step in {"drama-characters", "drama-review-assemble"}:
+        sources["storyboard"] = read_json_optional(ep.storyboard_path, None)
+    if step == "drama-characters":
+        sources["existing_characters"] = read_json_optional(character_paths(workspace).sheet_path, None)
+    if step == "drama-hooks" and episode_no > 1:
+        sources["previous_hooks"] = [
+            read_json_optional(episode_paths(workspace, episode_no=number).setup_path, None)
+            for number in range(1, episode_no)
+        ]
+    if step == "drama-review-assemble":
+        sources["characters"] = read_json_optional(character_paths(workspace).sheet_path, None)
+    return sha256_data(sources)
+
+
+def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
+    from ..utils import read_json
+
+    path = _drama_text_attempt_path(workspace)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return {"schema_version": 1, "attempts": {}}
+    except OSError as exc:
+        raise ValueError("drama text attempt ledger is unreadable") from exc
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("drama text attempt ledger must be a regular file")
+    try:
+        raw = read_json(path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("drama text attempt ledger is unreadable") from exc
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1 or not isinstance(raw.get("attempts"), dict):
+        raise ValueError("drama text attempt ledger is invalid")
+    allowed = {
+        "submitting", "response_received", "failed_after_submission",
+        "succeeded", "budget_exceeded",
+    }
+    for key, row in raw["attempts"].items():
+        if (
+            not isinstance(key, str)
+            or not isinstance(row, dict)
+            or row.get("status") not in allowed
+            or row.get("step") not in _DRAMA_MODEL_TASKS
+            or type(row.get("episode_no")) is not int
+            or row["episode_no"] < 1
+            or type(row.get("attempt_count")) is not int
+            or row["attempt_count"] < 1
+            or key != f'{row["step"]}:{row["episode_no"]}'
+        ):
+            raise ValueError("drama text attempt ledger row is invalid")
+        for field in ("provider_fingerprint", "input_fingerprint"):
+            value = row.get(field)
+            if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                raise ValueError("drama text attempt ledger fingerprint is invalid")
+        artifact = row.get("artifact_fingerprint")
+        if artifact is not None and (
+            not isinstance(artifact, str) or re.fullmatch(r"[0-9a-f]{64}", artifact) is None
+        ):
+            raise ValueError("drama text attempt artifact fingerprint is invalid")
+        candidates = row.get("candidate_fingerprints")
+        if candidates is not None and (
+            not isinstance(candidates, list)
+            or not candidates
+            or any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None for value in candidates)
+        ):
+            raise ValueError("drama text attempt candidate fingerprints are invalid")
+    return raw
+
+
+def _save_drama_text_attempts(workspace: str, ledger: Dict[str, Any]) -> None:
+    from ..utils import write_json
+
+    write_json(_drama_text_attempt_path(workspace), ledger)
+
+
+def _canonical_drama_text_result(step: str, workspace: str, episode_no: int, row: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Recover a committed station result without another provider call."""
+    from ..drama_schemas import character_paths, episode_paths
+    from ..utils import read_json_optional, sha256_data
+
+    ep = episode_paths(workspace, episode_no=episode_no)
+    if step == "drama-plan":
+        value = read_json_optional(ep.setup_path, None)
+        candidate = {key: item for key, item in value.items() if key != "hook"} if isinstance(value, dict) else None
+    elif step == "drama-hooks":
+        value = read_json_optional(ep.hook_candidates_path, None)
+        if isinstance(value, dict):
+            candidate = value
+        else:
+            setup = read_json_optional(ep.setup_path, None)
+            hook = setup.get("hook") if isinstance(setup, dict) else None
+            candidate = {"hooks": [hook]} if isinstance(hook, dict) else None
+        fingerprints = row.get("candidate_fingerprints") or []
+        hooks = candidate.get("hooks") if isinstance(candidate, dict) else None
+        if not isinstance(hooks, list) or not hooks or not all(sha256_data(hook) in fingerprints for hook in hooks):
+            return None
+        return candidate
+    elif step == "drama-storyboard":
+        candidate = read_json_optional(ep.storyboard_path, None)
+    elif step == "drama-characters":
+        candidate = read_json_optional(character_paths(workspace).sheet_path, None)
+    elif step == "drama-review-assemble":
+        candidate = read_json_optional(ep.review_path, None)
+    else:
+        return None
+    if not isinstance(candidate, dict) or sha256_data(candidate) != row.get("artifact_fingerprint"):
+        return None
+    return candidate
+
+
+def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int) -> tuple[str, Dict[str, Any]] | None:
+    from ..config import get_model_config
+
+    task = _DRAMA_MODEL_TASKS[step]
+    if str(get_model_config(task).get("model") or "mock") == "mock":
+        return None
+    workspace = paths.workspace_name()
+    ledger = _load_drama_text_attempts(workspace)
+    key = f"{step}:{episode_no}"
+    existing = ledger["attempts"].get(key)
+    provider = _drama_text_provider_fingerprint(task)
+    input_fingerprint = _drama_text_input_fingerprint(step, workspace, episode_no)
+    if isinstance(existing, dict) and existing.get("status") in {"response_received", "succeeded"}:
+        recovered = _canonical_drama_text_result(step, workspace, episode_no, existing)
+        if recovered is not None:
+            # Ephemeral only: never persist model output in the billing ledger.
+            return key, {**existing, "_recovered_result": recovered}
+        if existing.get("status") == "succeeded":
+            raise ValueError("committed drama text artifact no longer matches its paid attempt")
+    if isinstance(existing, dict) and existing.get("status") in {
+        "submitting", "response_received", "failed_after_submission",
+    }:
+        if existing.get("provider_fingerprint") != provider or existing.get("input_fingerprint") != input_fingerprint:
+            raise ValueError("drama text retry provider or input identity changed")
+        if not (
+            params.get("confirm_text_retry") is True
+            and params.get("confirm_upstream_status_and_billing_checked") is True
+        ):
+            raise ValueError("drama text retry requires upstream task and billing reconciliation")
+    count = int(existing.get("attempt_count") or 0) + 1 if isinstance(existing, dict) else 1
+    row = {
+        "status": "submitting",
+        "step": step,
+        "episode_no": episode_no,
+        "attempt_count": count,
+        "provider_fingerprint": provider,
+        "input_fingerprint": input_fingerprint,
+        "updated_at": int(time.time()),
+    }
+    ledger["attempts"][key] = row
+    _save_drama_text_attempts(workspace, ledger)
+    return key, row
+
+
+def _mark_drama_text_attempt(token: tuple[str, Dict[str, Any]] | None, status: str) -> None:
+    if token is None:
+        return
+    key, expected = token
+    workspace = paths.workspace_name()
+    ledger = _load_drama_text_attempts(workspace)
+    current = ledger["attempts"].get(key)
+    if not isinstance(current, dict) or current.get("attempt_count") != expected.get("attempt_count"):
+        raise ValueError("drama text attempt ledger changed during generation")
+    current["status"] = status
+    current["updated_at"] = int(time.time())
+    _save_drama_text_attempts(workspace, ledger)
+
+
+def _bind_drama_text_artifact(
+    token: tuple[str, Dict[str, Any]] | None,
+    artifact: Dict[str, Any],
+    *,
+    candidates: list[Dict[str, Any]] | None = None,
+) -> None:
+    if token is None:
+        return
+    from ..utils import sha256_data
+
+    key, expected = token
+    workspace = paths.workspace_name()
+    ledger = _load_drama_text_attempts(workspace)
+    current = ledger["attempts"].get(key)
+    if not isinstance(current, dict) or current.get("attempt_count") != expected.get("attempt_count"):
+        raise ValueError("drama text attempt ledger changed during artifact binding")
+    current["artifact_fingerprint"] = sha256_data(artifact)
+    if candidates is not None:
+        current["candidate_fingerprints"] = [sha256_data(item) for item in candidates]
+    current["updated_at"] = int(time.time())
+    _save_drama_text_attempts(workspace, ledger)
+
+
+def _call_drama_text_model(
+    step: str,
+    params: Dict[str, Any],
+    episode_no: int,
+    operation: Callable[[], Dict[str, Any]],
+) -> tuple[Dict[str, Any], tuple[str, Dict[str, Any]] | None]:
+    token = _begin_drama_text_attempt(step, params, episode_no)
+    if token is not None and isinstance(token[1].get("_recovered_result"), dict):
+        return dict(token[1]["_recovered_result"]), token
+    try:
+        result = operation()
+    except BaseException:
+        _mark_drama_text_attempt(token, "failed_after_submission")
+        raise
+    _mark_drama_text_attempt(token, "response_received")
+    return result, token
+
+
 def _drama_budget_start(step: str, params: Dict[str, Any]) -> tuple[float, int]:
     """Validate the last-hop real-text gate and capture this job's cost offset."""
     from ..book_runner import _llm_log_line_count
@@ -1244,14 +1495,20 @@ def _step_drama_plan(params: Dict[str, Any], progress_cb: Callable[[str, float],
         if episode_no > 1:
             raise ValueError("later episodes must be initialized through next-episode")
         budget_cny, line_offset = _drama_budget_start("drama-plan", params)
-        result = drama_planner.run(paths.workspace_name(), mock=None, episode_no=episode_no)
+        result, attempt = _call_drama_text_model(
+            "drama-plan", params, episode_no,
+            lambda: drama_planner.run(paths.workspace_name(), mock=None, episode_no=episode_no),
+        )
         exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
         if exceeded:
+            _mark_drama_text_attempt(attempt, "budget_exceeded")
             return {**exceeded, "station": "setup", "episode_no": episode_no}
         progress_cb("commit", 0.85)
         ep = episode_paths(paths.workspace_name(), episode_no=episode_no)
+        _bind_drama_text_artifact(attempt, {key: value for key, value in result.items() if key != "hook"})
         write_json(ep.setup_path, result)
         ep.hook_candidates_path.unlink(missing_ok=True)
+        _mark_drama_text_attempt(attempt, "succeeded")
         return {"status": "succeeded", "station": "setup", "episode_no": episode_no,
                 "budget_cny": budget_cny, "cost_cny": cost_cny, "committed": True}
 
@@ -1266,12 +1523,19 @@ def _step_drama_hooks(params: Dict[str, Any], progress_cb: Callable[[str, float]
     def _op(episode_no: int) -> Dict[str, Any]:
         workspace = paths.workspace_name()
         budget_cny, line_offset = _drama_budget_start("drama-hooks", params)
-        result = hook_designer.run(workspace, mock=None, episode_no=episode_no)
+        result, attempt = _call_drama_text_model(
+            "drama-hooks", params, episode_no,
+            lambda: hook_designer.run(workspace, mock=None, episode_no=episode_no),
+        )
         exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
         if exceeded:
+            _mark_drama_text_attempt(attempt, "budget_exceeded")
             return {**exceeded, "station": "hook", "episode_no": episode_no}
         progress_cb("commit", 0.85)
+        hooks = result.get("hooks") or []
+        _bind_drama_text_artifact(attempt, result, candidates=hooks if isinstance(hooks, list) else None)
         write_json(episode_paths(workspace, episode_no=episode_no).hook_candidates_path, result)
+        _mark_drama_text_attempt(attempt, "succeeded")
         return {
             "status": "succeeded",
             "station": "hook",
@@ -1293,12 +1557,18 @@ def _step_drama_storyboard(params: Dict[str, Any], progress_cb: Callable[[str, f
     def _op(episode_no: int) -> Dict[str, Any]:
         workspace = paths.workspace_name()
         budget_cny, line_offset = _drama_budget_start("drama-storyboard", params)
-        result = storyboard_builder.run(workspace, mock=None, episode_no=episode_no)
+        result, attempt = _call_drama_text_model(
+            "drama-storyboard", params, episode_no,
+            lambda: storyboard_builder.run(workspace, mock=None, episode_no=episode_no),
+        )
         exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
         if exceeded:
+            _mark_drama_text_attempt(attempt, "budget_exceeded")
             return {**exceeded, "station": "storyboard", "episode_no": episode_no}
         progress_cb("commit", 0.85)
+        _bind_drama_text_artifact(attempt, result)
         write_json(episode_paths(workspace, episode_no=episode_no).storyboard_path, result)
+        _mark_drama_text_attempt(attempt, "succeeded")
         return {"status": "succeeded", "station": "storyboard", "episode_no": episode_no,
                 "budget_cny": budget_cny, "cost_cny": cost_cny, "committed": True}
 
@@ -1336,15 +1606,21 @@ def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, f
                     "skipped": True, "budget_cny": 0.0, "cost_cny": 0.0,
                     "committed": True}
         budget_cny, line_offset = _drama_budget_start("drama-characters", params)
-        incoming = character_designer.run(workspace, mock=None, episode_no=episode_no)
+        incoming, attempt = _call_drama_text_model(
+            "drama-characters", params, episode_no,
+            lambda: character_designer.run(workspace, mock=None, episode_no=episode_no),
+        )
         exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
         if exceeded:
+            _mark_drama_text_attempt(attempt, "budget_exceeded")
             return {**exceeded, "station": "characters", "episode_no": episode_no}
         result = character_designer.merge_character_sheet(existing if isinstance(existing, dict) else None, incoming)
         progress_cb("commit", 0.85)
         if isinstance(existing, dict):
             drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
+        _bind_drama_text_artifact(attempt, result)
         write_json(target, result)
+        _mark_drama_text_attempt(attempt, "succeeded")
         return {"status": "succeeded", "station": "characters", "episode_no": episode_no,
                 "skipped": False, "budget_cny": budget_cny, "cost_cny": cost_cny,
                 "committed": True}
@@ -1370,15 +1646,20 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
         ):
             raise ValueError("station 4 must generate episode characters before drama review")
         budget_cny, line_offset = _drama_budget_start("drama-review-assemble", params)
-        review = drama_reviewer.run(workspace, mock=None, episode_no=episode_no)
+        review, attempt = _call_drama_text_model(
+            "drama-review-assemble", params, episode_no,
+            lambda: drama_reviewer.run(workspace, mock=None, episode_no=episode_no),
+        )
         exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
         if exceeded:
+            _mark_drama_text_attempt(attempt, "budget_exceeded")
             return {**exceeded, "station": "review", "episode_no": episode_no}
         # Treat an explicit parse failure as a review artifact requiring human
         # attention; settle the already-incurred cost first, but do not publish it.
         if review.get("parse_failed"):
             raise ValueError("drama review parse failed")
         ep = episode_paths(workspace, episode_no=episode_no)
+        _bind_drama_text_artifact(attempt, review)
         targets = (ep.review_path, ep.episode_path, ep.meta_path)
         snapshots = {path: path.read_bytes() if path.is_file() else None for path in targets}
         try:
@@ -1389,6 +1670,7 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
         except BaseException:
             _restore_drama_artifacts(snapshots)
             raise
+        _mark_drama_text_attempt(attempt, "succeeded")
         return {
             "status": "succeeded",
             "station": "review",

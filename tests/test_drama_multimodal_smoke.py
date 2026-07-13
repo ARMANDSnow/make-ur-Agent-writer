@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from src import ai_draw_client, drama_multimodal_smoke as multi
 from src.drama_schemas import character_paths
 from src.utils import read_json
+from src.secure_http import BoundedResponse
 from src.web import routes
 from tests._drama_base import DramaTestBase
 
@@ -26,6 +27,19 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         )
         ready.start()
         self.addCleanup(ready.stop)
+        media_env = patch.dict(os.environ, {
+            "AI_DRAW_BASE_URL": "https://93.184.216.34/v1",
+            "AI_DRAW_API_KEY": "iter98-fake-image-key",
+            "AI_DRAW_MODEL": "gpt-image-2",
+        }, clear=False)
+        media_env.start()
+        self.addCleanup(media_env.stop)
+        image_provider = patch(
+            "src.drama_multimodal_smoke._image_provider_fingerprint",
+            return_value="f" * 64,
+        )
+        image_provider.start()
+        self.addCleanup(image_provider.stop)
 
     def _prepare_real_text(self, name: str) -> None:
         with patch.dict(os.environ, {"CONFIRM_REAL_MODEL_SMOKE": "可以跑了", "DRAMA_MODEL": "mock"}, clear=False):
@@ -253,23 +267,18 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         character = {"id": "c001", "name": "A", "lora_token": "char_a", "visual_signature": "coat", "prompt_template_sd": "long prompt"}
         with patch.dict(os.environ, {"AI_DRAW_BASE_URL": "https://api.example.test", "AI_DRAW_API_KEY": "test-key", "AI_DRAW_MODEL": "image"}, clear=False), \
                 patch("src.ai_draw_client._validate_public_endpoint"), \
-                patch("src.ai_draw_client.build_opener") as opener:
-            opener.return_value.open.side_effect = socket.timeout()
+                patch("src.ai_draw_client.request_bytes", side_effect=socket.timeout()):
             with self.assertRaises(ai_draw_client.AIDrawTimeout):
                 ai_draw_client.redraw_character_reference("x", character, mock=False, timeout_seconds=12)
 
     def test_image_url_download_only_receives_attempt_deadline_remainder(self) -> None:
         character = {"id": "c001", "name": "A", "lora_token": "char_a", "visual_signature": "coat", "prompt_template_sd": "long prompt"}
-        response = Mock()
-        response.__enter__ = Mock(return_value=response)
-        response.__exit__ = Mock(return_value=False)
-        response.headers = {"content-type": "application/json"}
-        response.read.return_value = b'{"data":[{"url":"https://result.example.test/x.png"}]}'
-        opener = Mock()
-        opener.open.return_value = response
+        response = BoundedResponse(
+            200, "application/json", b'{"data":[{"url":"https://result.example.test/x.png"}]}'
+        )
         with patch.dict(os.environ, {"AI_DRAW_BASE_URL": "https://api.example.test", "AI_DRAW_API_KEY": "test-key", "AI_DRAW_MODEL": "image"}, clear=False), \
                 patch("src.ai_draw_client._validate_public_endpoint"), \
-                patch("src.ai_draw_client.build_opener", return_value=opener), \
+                patch("src.ai_draw_client.request_bytes", return_value=response), \
                 patch("src.ai_draw_client.time.monotonic", side_effect=[10.0, 189.0]), \
                 patch("src.ai_draw_client._download_generated_image", return_value=(multi._PNG_1X1, "image/png", ".png")) as download:
             ai_draw_client.redraw_character_reference("deadline", character, mock=False, timeout_seconds=180)
@@ -350,6 +359,7 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         opts = {"confirm_real_text": True, "text_budget_cny": 5, "text_timeout_seconds": 20}
 
         def fail_after_one(*_args, **kwargs):
+            self._write_setup("text-resume", hook=False)
             kwargs["on_step_complete"]("drama-plan", {"status": "succeeded", "actual_cost_cny": 4.0})
             raise RuntimeError("station two failed")
 

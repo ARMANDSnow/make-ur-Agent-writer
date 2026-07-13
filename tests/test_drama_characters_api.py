@@ -10,6 +10,7 @@ from unittest.mock import patch
 from src import ai_draw_client, character_designer, storyboard_builder
 from src.cli_workspace import init_workspace
 from src.drama_schemas import character_paths, episode_paths
+from src.secure_http import BoundedResponse
 from src.web import jobs, routes
 from tests._drama_base import DramaTestBase
 
@@ -128,7 +129,7 @@ class DramaCharactersApiTests(DramaTestBase):
     def test_redraw_writes_placeholder_svg_without_network(self) -> None:
         self._workspace()
         self._post_characters()
-        with patch("src.ai_draw_client.build_opener", side_effect=AssertionError("network attempted")):
+        with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
             status, _ct, body = routes.dispatch(
                 "POST",
                 "/api/workspace/drama/drama/characters/c001/redraw",
@@ -151,7 +152,7 @@ class DramaCharactersApiTests(DramaTestBase):
         self._workspace()
         sheet = self._post_characters()["sheet"]
         with patch.dict("os.environ", {"AI_DRAW_ENDPOINT": "http://127.0.0.1/draw"}, clear=False):
-            with patch("src.ai_draw_client.build_opener", side_effect=AssertionError("network attempted")):
+            with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
                 with self.assertRaisesRegex(ValueError, "public address"):
                     ai_draw_client.redraw_character_reference("drama", sheet["characters"][0], mock=False)
 
@@ -159,25 +160,11 @@ class DramaCharactersApiTests(DramaTestBase):
         self._workspace()
         sheet = self._post_characters()["sheet"]
 
-        class FakeResponse:
-            headers = {"content-type": "text/html; charset=utf-8"}
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return b"<html>not an image</html>"
-
-        class FakeOpener:
-            def open(self, _request, timeout):  # noqa: ANN001
-                self.timeout = timeout
-                return FakeResponse()
-
         with patch.dict("os.environ", {"AI_DRAW_ENDPOINT": "https://93.184.216.34/draw"}, clear=False):
-            with patch("src.ai_draw_client.build_opener", return_value=FakeOpener()):
+            with patch(
+                "src.ai_draw_client.request_bytes",
+                return_value=BoundedResponse(200, "text/html", b"<html>not an image</html>"),
+            ):
                 with self.assertRaisesRegex(ValueError, "content-type"):
                     ai_draw_client.redraw_character_reference("drama", sheet["characters"][0], mock=False)
         self.assertFalse((character_paths("drama").refs_dir / "c001").exists())

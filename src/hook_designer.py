@@ -44,7 +44,12 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
     wizard_input = _load_wizard_input(workspace)
     track = str(setup.get("track") or wizard_input["track"])
     used_hooks = collect_used_hooks(workspace, before_episode_no=episode_no)
-    system_prompt = build_system_prompt(workspace, wizard_input=wizard_input, used_hooks=used_hooks)
+    system_prompt = build_system_prompt(
+        workspace,
+        wizard_input=wizard_input,
+        setup=setup,
+        used_hooks=used_hooks,
+    )
     _log_prompt(workspace, "hook_designer", system_prompt)
     client = None if mock is True else LLMClient("drama_hooks")
     use_mock = client.is_mock if mock is None and client is not None else bool(mock)
@@ -130,12 +135,23 @@ def build_system_prompt(
     workspace: str,
     *,
     wizard_input: Dict[str, Any] | None = None,
+    setup: Dict[str, Any] | None = None,
     used_hooks: list[Dict[str, Any]] | None = None,
 ) -> str:
-    """Build the station-2 prompt with a bounded no-repeat history."""
+    """Build station 2 from the bounded station-1 setup and hook history."""
 
     data = wizard_input if wizard_input is not None else _load_wizard_input(workspace)
-    prompt = _build_base_system_prompt(workspace, "hook_designer", data)
+    if setup is None:
+        raw = json.loads(episode_paths(workspace).setup_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("station 1 setup must be a JSON object")
+        setup = raw
+    prompt = (
+        _build_base_system_prompt(workspace, "hook_designer", data)
+        + "\n\n## 本集站①设定（候选必须与人物、冲突和情绪弧一致）\n"
+        + json.dumps(_bounded_setup_view(setup), ensure_ascii=False, indent=2)
+        + "\n\n输出顺序固定为：情绪钩、悬念钩、反差钩；每类恰好一个。"
+    )
     bounded = _bounded_used_hook_view(used_hooks or [])
     if not bounded:
         return prompt
@@ -144,6 +160,27 @@ def build_system_prompt(
         + "\n\n## 已使用钩子（本集候选不得重复）\n"
         + json.dumps(bounded, ensure_ascii=False, indent=2)
     )
+
+
+def _bounded_setup_view(setup: Dict[str, Any]) -> Dict[str, Any]:
+    """Project only schema-bounded station-1 fields into the paid prompt."""
+
+    core = setup.get("core_setup")
+    if not isinstance(core, dict):
+        raise ValueError("station 1 setup is missing core_setup")
+    return {
+        "episode_no": setup.get("episode_no"),
+        "season_no": setup.get("season_no"),
+        "title": str(setup.get("title") or "")[:120],
+        "logline": str(setup.get("logline") or "")[:1200],
+        "track": str(setup.get("track") or "")[:20],
+        "target_duration_seconds": setup.get("target_duration_seconds"),
+        "core_setup": {
+            "protagonist": str(core.get("protagonist") or "")[:800],
+            "antagonist": str(core.get("antagonist") or "")[:800],
+            "emotional_hook": str(core.get("emotional_hook") or "")[:800],
+        },
+    }
 
 
 def _hook_key(hook: Dict[str, Any]) -> tuple[str, str]:

@@ -98,7 +98,7 @@ class DramaSetup(BaseModel):
 
 
 class DramaHookCandidate(BaseModel):
-    type: str = Field(min_length=1, max_length=80)
+    type: Literal["情绪钩", "悬念钩", "反差钩"]
     content: str = Field(min_length=1, max_length=600)
 
 
@@ -110,6 +110,8 @@ class DramaHookCandidates(BaseModel):
         keys = {(item.type.strip(), item.content.strip()) for item in self.hooks}
         if len(keys) != len(self.hooks):
             raise ValueError("hook candidates must be unique")
+        if [item.type for item in self.hooks] != ["情绪钩", "悬念钩", "反差钩"]:
+            raise ValueError("hook candidates must be ordered as emotion, suspense, contrast")
         return self
 
 

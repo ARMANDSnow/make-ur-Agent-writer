@@ -6,12 +6,12 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 097，2026-07-13 收官 |
+| 更新时间 | iter 098，2026-07-13 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **1970 tests OK** |
+| Canonical 基线 | **1987 tests OK** |
 | 标准验收 | `verify.sh` exit 0（项目虚拟环境）；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter 097 短剧真模型全链审计硬化已收官 |
+| 当前开发轮次 | 无；iter 098 短剧真模型二次全链审计修复已收官 |
 
 ## Capability Map
 
@@ -21,18 +21,19 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、分镜 grid、角色库、review/assembly、连续多集（计划上限 100）、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；真跑前已收紧一次性授权、provider/账号指纹、实际 peer-IP/MIME 下载、callback 冻结快照与 durable video submission ledger | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；episode 2+ 视频、实际 MP4 规格解析与真 ComfyUI 未做 |
+| 短剧 | 五站 job、分镜 grid、角色库、review/assembly、连续多集（计划上限 100）、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；真跑前已收紧五站/媒体 durable attempt、产物血统、provider/账号与实际 peer，并解析复核 MP4 时长/尺寸/比例 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- 五个短剧文本 task 已进入 preflight；core 入口会在创建 workspace/job 前拒绝仍为 mock 的“真文本”运行，每次 provider attempt 受 job deadline 约束。
-- 真文本恢复持久绑定 model、endpoint 和账号哈希；crash/已捕获 provider 失败都需 `confirm_text_retry` + 上游任务/账单已核对，历史 job 不再投影 `confirm_*`。
-- 视频付费边界持久化 `submitting/submitted/failed/succeeded` 账本；损坏/符号链接账本、输入/provider/账号漂移和冲突 task id 均在网络前 fail-closed，`submitting` 与已确认付费分开报告。
-- 签名图片经 TLS connect 后校验实际 peer IP，强制 MIME/magic；视频 callback 注册时冻结验证过的 bytes，阻断文件置换/TOCTOU。旧的无预算真生图和 Web 真重画旁路已禁用。
-- 模型不再控制 storyboard/character/review 的 season、track、duration、source 或 reviewer identity；评分缺失一律 `Abstain + parse_failed`，episode 2+ 共享角色表不再误伤 episode 1 视频指纹/回读。
-- canonical **1970 tests OK**；`verify.sh` exit 0；mock preflight **0 FATAL / 0 WARN**；277 项短剧聚焦回归、Python/shell 语法与 `git diff --check` 通过。未运行真文本、真生图或真视频。
-- correctness/schema、security/boundary、billing/resume/provider 三个独立只读 subagent 共确认 6 类高优先级边界；主线逐项修复并聚焦复验，无未修 P0/P1。
+- 站②真模型 prompt 注入有界站①设定视图；钩子 schema 本地固定“情绪/悬念/反差”三类与顺序，不能由模型任意改型。
+- 五站 Web 真文本 attempt ledger 严格拒绝损坏/符号链接，绑定输入/provider/账号与 canonical 产物；付费响应已提交但 callback/终态账本未完成时可零网络采纳，无法证明才要求核账重试。
+- 图片冻结 provider、cast 与渲染输入；确定未发送不占 attempt/预算，`artifact_received` 后本地写盘失败保持可恢复，恢复路径被限制为 workspace 内普通文件。
+- 带凭据图片/视频 API 统一在 TLS connect 后校验实际 socket peer，再发送 path/body/Authorization；redirect 与超限响应继续 fail-closed。
+- 视频 ledger 冻结授权预算/估价/timeout；`RequestNotSentError` 不消耗单次提交，其他提交异常保持 unknown；回读和状态会重解析 MP4 时长、尺寸、比例与 sample table。
+- 校准报告交叉读取 durable text/video ledger，并把 image pre-request marker 单列为 unknown，避免 crash-window 报告 0 exposure。
+- canonical **1987 tests OK**；`verify.sh` exit 0；mock preflight **0 FATAL / 0 WARN**；294 项短剧聚焦回归、Python/shell 语法与 `git diff --check` 通过。未运行真文本、真生图或真视频。
+- 6 个调研 subagent + correctness、security/boundary、billing/resume 3 个收官只读 subagent 完成复核；确认 findings 已修复，无未修 P0/P1。
 
 ## Retained Working Memory
 
@@ -93,9 +94,9 @@
 - 短剧主流程已覆盖五站文本、站③分镜 grid、站④角色/角色库、review/assembly、连续多集、四格式单集导出、Insights，以及严格整季母包/阶段快照；episode 1 视频边界保持不变。
 - 下一集只能从最新连续、完整且 fresh 的前集初始化；`episode_count` 是计划真源。季包只从 assembled JSON 和安全投影重建，不能把 setup、候选钩子、评审原文、prompt、日志或 provider state 混入交付物。
 - 真实媒体下载必须同时校验 scheme、redirect、DNS 与 peer IP、MIME/magic、size、hash、容器和原子落盘。仅检查扩展名或响应头不构成安全边界。
-- Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 补齐校准证据；Iter 097 再把旧授权/生图旁路、provider 身份与视频 crash window 收口。
-- 文本证据按五站记录 task/model SHA、调用数、耗时与 cost，恢复另绑定 endpoint/账号哈希；失败和 crash-active step 在再次付费前必须对账。
-- 图片证据按角色/attempt 记录 objective metadata、耗时、尺寸和 SHA；视频以 durable ledger 区分提交未知、已提交、终态失败与成功，报告同时重读 ledger 和本地产物，避免 crash window 低报付费请求。
+- Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 补齐校准证据；Iter 097-098 继续收口旧旁路、provider 身份、五站/媒体 crash window、产物血统与实际媒体规格。
+- 文本证据按五站记录 task/model SHA、调用数、耗时与 cost，并以严格 attempt ledger 绑定 endpoint/账号/输入/产物；成功产物可零网络恢复，未知提交才要求对账。
+- 图片证据按角色/attempt 记录 objective metadata、耗时、尺寸和 SHA；视频以 durable ledger 区分确定未发送、提交未知、已提交、终态失败与成功，报告交叉重读 ledger 和本地产物，避免 crash window 低报付费请求。
 - 校准报告只说明证据完整度，不自动给真实作品质量打通过。`real_execution_recorded_unverified` 仍需 operator quality review；本地存在记录也不能证明本次真实调用已发生。
 
 ### 9. 历史事故模式与排障顺序
@@ -208,13 +209,13 @@
 1. **短剧真实多模态校准**：分别验证五站真文本、全角色真生图、单次真视频的费用、耗时和质量。每段都需单独授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体**：真 ComfyUI workflow、episode 2+ 视频、实际 MP4 时长/分辨率解析及真实多模态质量仍未验证。
+4. **短剧媒体**：真 ComfyUI workflow、episode 2+ 视频、更广 codec/容器支持及真实多模态质量仍未验证；当前 MP4 有界解析仍需真实供应商样本校准。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 
 ## Next Candidates
 
-- 低风险工程轮：实际 MP4 规格解析/provider 幂等键调研、100 集只读扫描优化或已登记 P2 技债。
+- 低风险工程轮：provider 幂等键/资产上传恢复调研、100 集只读扫描优化或已登记 P2 技债。
 - 需授权验证轮：五站真文本 smoke；全角色真生图 smoke；episode 1 单次真视频 smoke；小说 capstone。不要把这些授权合并推定。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -252,4 +253,4 @@ python3 main.py write-readiness --chapters N
 
 ## Latest Transition
 
-iter 097 用 text-chain、media-chain、billing/resume 三个独立只读视角审计“真文本 → 全角色真生图 → 单次真视频”。主线修复了授权重放、core mock 伪真跑、文本重试核账、provider/账号漂移、图片 DNS rebinding/MIME、callback TOCTOU、视频重复提交/crash-window 证据、跨集角色指纹与模型身份字段污染；旧的无预算真生图与 Web 真重画旁路已 fail-closed。最终 1970 项 canonical、`verify.sh` 与 0 WARN/FATAL mock preflight 全绿，未运行真文本、真生图或真视频。
+iter 098 以 6 个调研视角和 3 个收官审查视角继续审计“真文本 → 全角色真生图 → 单次真视频”。主线补齐站①→②上下文、钩子 schema、五站 canonical 产物血统与 Web 付费 attempt 恢复；图片/视频请求在敏感数据发送前校验实际 peer，图片 artifact 可零网络收尾，视频区分确定未发送/提交未知并重解析 MP4 规格；校准报告交叉 durable ledger。最终 1987 项 canonical、`verify.sh` 与 0 WARN/FATAL mock preflight 全绿，未运行真文本、真生图或真视频。

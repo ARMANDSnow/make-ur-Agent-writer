@@ -30,12 +30,16 @@ from .ai_draw_client import (
     AIDrawTimeout,
     DEFAULT_IMAGE_MODEL,
     _atomic_write_bytes,
+    _images_generation_url,
+    _resolve_openai_draw_credentials,
+    _validate_public_endpoint,
     redraw_character_reference,
     validate_api_base_url,
 )
-from .drama_schemas import CharacterSheet, character_paths
+from .drama_schemas import CharacterSheet, character_paths, episode_paths
 from .config import get_model_config, load_dotenv_if_available
 from .schemas import model_to_dict
+from .secure_http import RequestNotSentError
 from .utils import read_json, read_json_optional, write_json
 from .web.drama_insights import collect_drama_insights
 from .web.workspace_ctx import use_workspace
@@ -164,6 +168,111 @@ def _text_provider_fingerprints() -> Dict[str, str]:
     return result
 
 
+def _canonical_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _text_artifact_fingerprint(workspace: str, step: str) -> str:
+    """Hash the stable canonical output of one text station."""
+
+    ep = episode_paths(workspace, episode_no=1)
+    if step == "drama-plan":
+        raw = read_json_optional(ep.setup_path, None)
+        if not isinstance(raw, dict):
+            raise ValueError("drama plan artifact is missing")
+        payload = {key: value for key, value in raw.items() if key != "hook"}
+    elif step == "drama-hooks":
+        raw = read_json_optional(ep.setup_path, None)
+        if not isinstance(raw, dict) or not isinstance(raw.get("hook"), dict):
+            raise ValueError("selected drama hook artifact is missing")
+        payload = raw["hook"]
+    elif step == "drama-storyboard":
+        payload = read_json_optional(ep.storyboard_path, None)
+    elif step == "drama-characters":
+        raw = read_json_optional(character_paths(workspace).sheet_path, None)
+        if not isinstance(raw, dict):
+            raise ValueError("drama character artifact is missing")
+        payload = dict(raw)
+        characters = []
+        for item in raw.get("characters") or []:
+            if isinstance(item, dict):
+                characters.append({key: value for key, value in item.items() if key != "reference_images"})
+        payload["characters"] = characters
+    elif step == "drama-review-assemble":
+        review = read_json_optional(ep.review_path, None)
+        episode = read_json_optional(ep.episode_path, None)
+        meta = read_json_optional(ep.meta_path, None)
+        if not isinstance(review, dict) or not isinstance(episode, dict) or not isinstance(meta, dict):
+            raise ValueError("assembled drama station artifacts are missing")
+        # Image-reference reassembly intentionally refreshes the input
+        # fingerprint.  Everything else is stable evidence produced by the
+        # text station and must remain bound to it.
+        stable_meta = {
+            key: value for key, value in meta.items()
+            if key not in {"input_fingerprint", "episode_sha256"}
+        }
+        stable_episode = {
+            key: value for key, value in episode.items()
+            if key != "ai_friendly_constraints"
+        }
+        payload = {"review": review, "episode": stable_episode, "meta": stable_meta}
+    else:
+        raise ValueError("unknown drama text artifact step")
+    if not isinstance(payload, (dict, list)):
+        raise ValueError("drama text station artifact is missing or invalid")
+    return _canonical_sha256(payload)
+
+
+def _text_artifacts_current(workspace: str, phase: Mapping[str, Any]) -> bool:
+    completed = phase.get("completed_steps")
+    frozen = phase.get("artifact_fingerprints")
+    if not isinstance(completed, list) or not isinstance(frozen, dict):
+        return False
+    try:
+        return all(
+            isinstance(frozen.get(step), str)
+            and frozen[step] == _text_artifact_fingerprint(workspace, step)
+            for step in completed
+        )
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _adopt_durable_text_station(workspace: str, phase: Dict[str, Any], step: str) -> bool:
+    """Adopt a paid Web station committed before the smoke callback ran."""
+    from .web import jobs as web_jobs
+
+    if step not in TEXT_STEP_TASKS:
+        return False
+    try:
+        with use_workspace(workspace):
+            ledger = web_jobs._load_drama_text_attempts(workspace)
+            row = ledger["attempts"].get(f"{step}:1")
+            if not isinstance(row, dict) or row.get("status") not in {"response_received", "succeeded"}:
+                return False
+            if web_jobs._canonical_drama_text_result(step, workspace, 1, row) is None:
+                return False
+        phase.setdefault("artifact_fingerprints", {})[step] = _text_artifact_fingerprint(workspace, step)
+    except (OSError, TypeError, ValueError):
+        return False
+    completed = phase.setdefault("completed_steps", [])
+    if step not in completed:
+        completed.append(step)
+    phase.setdefault("station_evidence", {})[step] = {
+        "status": "succeeded",
+        "recovered_from_durable_attempt": True,
+        "call_count": int(row.get("attempt_count") or 1),
+        "non_mock_call_count": int(row.get("attempt_count") or 1),
+        "elapsed_seconds": 0.0,
+    }
+    phase.pop("active_step", None)
+    phase.pop("active_step_started_at", None)
+    phase.pop("retry_required_step", None)
+    return True
+
+
 def _drama_call_counts(workspace: str) -> Dict[str, Dict[str, Any]]:
     """Count only safe task/model facts from the local LLM audit ledger."""
     result = {
@@ -278,7 +387,10 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
     if not isinstance(attempts, dict):
         raise ValueError("multimodal smoke image attempt state is invalid")
     estimated_sum = 0.0
-    allowed_status = {"started", "succeeded", "timeout", "network_error", "provider_error", "local_error"}
+    allowed_status = {
+        "started", "artifact_received", "succeeded", "timeout",
+        "network_error", "provider_error", "local_error",
+    }
     for cid, rows in attempts.items():
         if not isinstance(cid, str) or not isinstance(rows, list) or len(rows) > MAX_IMAGE_ATTEMPTS_PER_CHARACTER:
             raise ValueError("multimodal smoke image attempt state is invalid")
@@ -293,22 +405,48 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
                 or row.get("status") not in allowed_status
             ):
                 raise ValueError("multimodal smoke image attempt billing state is invalid")
-            if row.get("status") == "succeeded":
+            provider_fingerprint = row.get("provider_fingerprint")
+            if provider_fingerprint is not None and (
+                not isinstance(provider_fingerprint, str)
+                or len(provider_fingerprint) != 64
+                or any(ch not in "0123456789abcdef" for ch in provider_fingerprint)
+            ):
+                raise ValueError("multimodal smoke image provider state is invalid")
+            if row.get("status") in {"artifact_received", "succeeded"}:
                 artifact_path = row.get("artifact_path")
                 artifact_sha256 = row.get("artifact_sha256")
+                artifact_record = row.get("artifact_record")
                 if (
                     not isinstance(artifact_path, str)
                     or not artifact_path
                     or Path(artifact_path).is_absolute()
+                    or ".." in Path(artifact_path).parts
+                    or Path(artifact_path).parts[:3] != ("data", "character_refs", cid)
                     or not isinstance(artifact_sha256, str)
                     or len(artifact_sha256) != 64
                     or any(ch not in "0123456789abcdef" for ch in artifact_sha256)
+                    or not isinstance(artifact_record, dict)
+                    or artifact_record.get("path") != artifact_path
                 ):
                     raise ValueError("multimodal smoke image artifact state is invalid")
             estimated_sum += float(estimate)
     if not math.isclose(estimated_sum, float(spend), rel_tol=0.0, abs_tol=1e-6):
         raise ValueError("multimodal smoke image spend does not match attempt ledger")
     video = phases["real_video"]
+    image_phase = phases["all_character_images"]
+    if "cast_ids" in image_phase and (
+        not isinstance(image_phase["cast_ids"], list)
+        or image_phase["cast_ids"] != sorted(image_phase["cast_ids"])
+        or any(not isinstance(cid, str) or not cid for cid in image_phase["cast_ids"])
+    ):
+        raise ValueError("multimodal smoke image cast state is invalid")
+    for key in ("cast_fingerprint", "provider_fingerprint"):
+        value = image_phase.get(key)
+        if value is not None and (
+            not isinstance(value, str) or len(value) != 64
+            or any(ch not in "0123456789abcdef" for ch in value)
+        ):
+            raise ValueError("multimodal smoke image provenance state is invalid")
     if "submission_consumed" in video and type(video["submission_consumed"]) is not bool:
         raise ValueError("multimodal smoke video consumed state is invalid")
     if video.get("submission_consumed") is True and video.get("attempt") != 1:
@@ -418,7 +556,8 @@ def _save(state: Dict[str, Any]) -> None:
 
 def _profile_prompt(character: Mapping[str, Any], *, simplified: bool) -> tuple[str, str, str]:
     name = str(character.get("name") or "原创角色")[:80]
-    signature = str(character.get("visual_signature") or character.get("prompt_template_sd") or name)
+    render_view = _character_render_view(character)
+    signature = json.dumps(render_view, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     if simplified:
         profile = "retry_simplified_v1"
         prompt = f"原创角色{name}，{signature[:240]}，单人全身立绘，纯净背景，无文字无水印。"
@@ -430,6 +569,72 @@ def _profile_prompt(character: Mapping[str, Any], *, simplified: bool) -> tuple[
         )
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     return prompt, profile, digest
+
+
+def _character_render_view(character: Mapping[str, Any]) -> Dict[str, Any]:
+    """Canonical visual inputs; references/appearances are provenance, not prompt."""
+
+    def bounded(value: Any, limit: int) -> Any:
+        if isinstance(value, str):
+            return value[:limit]
+        if isinstance(value, list):
+            return [bounded(item, limit) for item in value[:20]]
+        if isinstance(value, dict):
+            return {
+                str(key)[:80]: bounded(item, limit)
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))[:40]
+            }
+        if value is None or type(value) in {bool, int, float}:
+            return value
+        return str(value)[:limit]
+
+    return {
+        key: bounded(character.get(key), 800)
+        for key in (
+            "id", "name", "role", "age_range", "gender", "lora_token",
+            "visual_features", "wardrobe_default", "expression_keywords",
+            "visual_signature", "prompt_template_sd", "visual_contrast_with",
+        )
+    }
+
+
+def _image_cast_fingerprint(characters: list[Dict[str, Any]]) -> str:
+    payload = [
+        _character_render_view(item)
+        for item in sorted(characters, key=lambda row: str(row.get("id") or ""))
+    ]
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _image_provider_fingerprint() -> str:
+    if str(os.getenv("AI_DRAW_ENDPOINT") or "").strip():
+        raise ValueError("multimodal image smoke requires the bounded OpenAI-compatible image API")
+    base_url, api_key = _resolve_openai_draw_credentials()
+    if not base_url or not api_key:
+        raise ValueError("AI draw requires a base URL and API key")
+    endpoint = _images_generation_url(base_url)
+    parsed = validate_api_base_url(endpoint, label="AI draw base URL")
+    _validate_public_endpoint(parsed.hostname)
+    model = str(os.getenv("AI_DRAW_MODEL") or DEFAULT_IMAGE_MODEL).strip()
+    if not model or len(model) > 80 or any(char in model for char in "\r\n\x00"):
+        raise ValueError("AI_DRAW_MODEL must be 1-80 characters without controls")
+    if any(char in api_key for char in "\r\n\x00"):
+        raise ValueError("AI draw API key contains control characters")
+    payload = {
+        "endpoint": endpoint.rstrip("/"),
+        "model": model,
+        "account_sha256": hashlib.sha256(api_key.encode("utf-8")).hexdigest(),
+        "result_hosts": sorted(
+            item.strip().rstrip(".").lower()
+            for item in str(os.getenv("AI_DRAW_RESULT_HOSTS") or "").split(",")
+            if item.strip()
+        ),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def _appearing_characters(sheet: CharacterSheet) -> list[Dict[str, Any]]:
@@ -479,8 +684,15 @@ def _completed_image_is_current(workspace: str, character: Mapping[str, Any], re
 def _all_completed_images_are_current(workspace: str, state: Mapping[str, Any]) -> bool:
     raw = read_json_optional(character_paths(workspace).sheet_path, None)
     sheet = CharacterSheet(**raw)
+    characters = _appearing_characters(sheet)
+    phase = (state.get("phases") or {}).get("all_character_images") or {}
+    current_ids = sorted(str(item.get("id") or "") for item in characters)
+    if phase.get("cast_ids") != current_ids:
+        return False
+    if phase.get("cast_fingerprint") != _image_cast_fingerprint(characters):
+        return False
     attempts = state.get("image_attempts") or {}
-    for character in _appearing_characters(sheet):
+    for character in characters:
         records = attempts.get(str(character["id"]))
         if not isinstance(records, list) or not _completed_image_is_current(workspace, character, records):
             return False
@@ -518,21 +730,58 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
         image_budget = _positive(options.get("image_budget_cny"), "image_budget_cny")
         estimate = _positive(options.get("image_estimated_cost_cny"), "image_estimated_cost_cny")
         initial_timeout = _positive(options.get("image_timeout_seconds"), "image_timeout_seconds", maximum=3600)
-        if str(os.getenv("AI_DRAW_ENDPOINT") or "").strip():
-            raise ValueError("multimodal image smoke requires the bounded OpenAI-compatible image API")
+        os.environ["AI_DRAW_MODEL"] = os.getenv("AI_DRAW_MODEL") or DEFAULT_IMAGE_MODEL
+        provider_fingerprint = _image_provider_fingerprint()
         if "total_budget_cny" not in phase:
             phase["total_budget_cny"] = image_budget
             phase["estimated_cost_per_attempt_cny"] = estimate
         elif image_budget != float(phase["total_budget_cny"]) or estimate != float(phase["estimated_cost_per_attempt_cny"]):
             raise ValueError("image resume budget and estimate must match the original image-stage authorization")
-        os.environ["AI_DRAW_MODEL"] = os.getenv("AI_DRAW_MODEL") or DEFAULT_IMAGE_MODEL
     else:
         image_budget, estimate, initial_timeout = 0.0, 0.0, 30.0
+        provider_fingerprint = _model_sha256("mock")
+
+    cast_ids = sorted(str(item.get("id") or "") for item in characters)
+    cast_fingerprint = _image_cast_fingerprint(characters)
+    if "cast_ids" not in phase:
+        phase["cast_ids"] = cast_ids
+        phase["cast_fingerprint"] = cast_fingerprint
+        phase["provider_fingerprint"] = provider_fingerprint
+    elif (
+        phase.get("cast_ids") != cast_ids
+        or phase.get("cast_fingerprint") != cast_fingerprint
+        or phase.get("provider_fingerprint") != provider_fingerprint
+    ):
+        raise ValueError("image resume cast, rendering inputs, or provider identity changed")
+    _save(state)
 
     attempts = state.setdefault("image_attempts", {})
     for character in characters:
         cid = str(character["id"])
         records = attempts.setdefault(cid, [])
+        if real_image and phase.get("provider_fingerprint") != _image_provider_fingerprint():
+            raise ValueError("image provider identity changed during the authorized run")
+        if records and records[-1].get("status") == "artifact_received":
+            pending = records[-1]
+            artifact_record = pending.get("artifact_record")
+            rel = pending.get("artifact_path")
+            if not isinstance(artifact_record, dict) or not isinstance(rel, str):
+                raise ValueError("received image attempt is missing recoverable artifact state")
+            root = paths.workspace_root(workspace).resolve()
+            target = root / rel
+            try:
+                resolved = target.resolve(strict=True)
+                resolved.relative_to(root)
+                if target.is_symlink() or not resolved.is_file():
+                    raise ValueError("received image artifact is not a regular workspace file")
+                digest = hashlib.sha256(target.read_bytes()).hexdigest()
+            except (OSError, ValueError) as exc:
+                raise ValueError("received image artifact is missing") from exc
+            if digest != pending.get("artifact_sha256"):
+                raise ValueError("received image artifact hash changed before commit")
+            _replace_character_reference(workspace, cid, artifact_record)
+            pending["status"] = "succeeded"
+            _save(state)
         current = next((item for item in _appearing_characters(CharacterSheet(**read_json_optional(character_paths(workspace).sheet_path, None))) if item["id"] == cid), character)
         if _completed_image_is_current(workspace, current, records):
             continue
@@ -561,6 +810,7 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
             "prompt_profile": profile,
             "prompt_sha256": prompt_hash,
             "estimated_cost_cny": estimate if real_image else 0.0,
+            "provider_fingerprint": provider_fingerprint,
             "status": "started",
         }
         records.append(audit)
@@ -589,8 +839,6 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
             # Keep request prompts out of the public character projection. The
             # canonical source prompt remains untouched on the character itself.
             generated["prompt"] = f"<{profile}:{prompt_hash[:16]}>"
-            _replace_character_reference(workspace, cid, generated)
-            audit["status"] = "succeeded"
             audit["artifact_path"] = generated["path"]
             audit["artifact_sha256"] = hashlib.sha256(
                 (paths.workspace_root(workspace) / generated["path"]).read_bytes()
@@ -613,14 +861,42 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
                 audit["file_size_bytes"] = (paths.workspace_root(workspace) / generated["path"]).stat().st_size
             except OSError:
                 pass
+            audit["artifact_record"] = {
+                key: generated[key]
+                for key in (
+                    "path", "generated_by", "prompt", "seed", "requested_model",
+                    "provider_model", "requested_size", "provider_size", "width", "height",
+                )
+                if key in generated
+            }
+            audit["status"] = "artifact_received"
+            _save(state)
         except AIDrawTimeout:
             audit["status"] = "timeout"
         except AIDrawNetworkError:
             audit["status"] = "network_error"
         except AIDrawProviderError:
             audit["status"] = "provider_error"
+        except RequestNotSentError:
+            records.pop()
+            if real_image:
+                state["image_estimated_spend_cny"] = round(
+                    max(0.0, float(state["image_estimated_spend_cny"]) - estimate), 6
+                )
+            phase.update({"status": "blocked", "error_code": "image_request_not_sent", "character_id": cid})
+            state["status"] = "blocked"
+            _save(state)
+            return False
         except Exception:
             audit["status"] = "local_error"
+        if audit["status"] == "artifact_received":
+            try:
+                _replace_character_reference(workspace, cid, audit["artifact_record"])
+            except Exception:
+                audit["elapsed_seconds"] = round(max(0.0, time.monotonic() - attempt_started), 3)
+                _save(state)
+                raise
+            audit["status"] = "succeeded"
         audit["elapsed_seconds"] = round(max(0.0, time.monotonic() - attempt_started), 3)
         _save(state)
         if audit["status"] != "succeeded":
@@ -632,7 +908,11 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
                 state["status"] = "failed"
             _save(state)
             return False
-    phase.update({"status": "succeeded", "real": real_image, "character_count": len(characters)})
+    phase.update({
+        "status": "succeeded", "real": real_image, "character_count": len(characters),
+        "cast_ids": cast_ids, "cast_fingerprint": cast_fingerprint,
+        "provider_fingerprint": provider_fingerprint,
+    })
     state["status"] = "running"
     _save(state)
     return True
@@ -742,6 +1022,16 @@ def _run_claimed(
     state["status"] = "running"
     _save(state)
 
+    completed_text = state["phases"]["real_text"]
+    if (
+        completed_text.get("status") == "succeeded"
+        and not _text_artifacts_current(workspace, completed_text)
+    ):
+        completed_text.update({"status": "blocked", "error_code": "text_artifact_drift"})
+        state["status"] = "blocked"
+        _save(state)
+        return state
+
     if state["phases"]["real_text"]["status"] != "succeeded":
         if not (real_text or mock_all):
             state["status"] = "awaiting_text_authorization"
@@ -758,6 +1048,12 @@ def _run_claimed(
         phase.setdefault("elapsed_seconds", 0.0)
         phase.setdefault("station_evidence", {})
         phase.setdefault("call_baseline", _drama_call_counts(workspace))
+        phase.setdefault("artifact_fingerprints", {})
+        if phase["completed_steps"] and not _text_artifacts_current(workspace, phase):
+            phase.update({"status": "blocked", "error_code": "text_artifact_drift"})
+            state["status"] = "blocked"
+            _save(state)
+            return state
         if real_text:
             current_fingerprints = _text_model_fingerprints()
             if "model_fingerprints" not in phase:
@@ -790,6 +1086,9 @@ def _run_claimed(
             if phase.get("active_step") in TEXT_STEP_TASKS
             else phase.get("retry_required_step")
         )
+        if real_text and retry_step in TEXT_STEP_TASKS and _adopt_durable_text_station(workspace, phase, retry_step):
+            retry_step = None
+            _save(state)
         if real_text and retry_step in TEXT_STEP_TASKS and not (
             opts.get("confirm_text_retry") is True
             and opts.get("confirm_upstream_status_and_billing_checked") is True
@@ -869,6 +1168,7 @@ def _run_claimed(
                 "cumulative_cost_cny": round(spent, 6),
                 "model_sha256": (phase.get("model_fingerprints") or {}).get(step),
             }
+            phase["artifact_fingerprints"][step] = _text_artifact_fingerprint(workspace, step)
             phase.pop("active_step", None)
             phase.pop("active_step_started_at", None)
             if step not in phase["completed_steps"]:
@@ -896,6 +1196,10 @@ def _run_claimed(
                 completed_steps=phase["completed_steps"], on_step_start=text_step_started,
                 on_step_complete=text_step_done,
                 create_workspace=False,
+                confirm_text_retry=opts.get("confirm_text_retry") is True,
+                confirm_upstream_status_and_billing_checked=(
+                    opts.get("confirm_upstream_status_and_billing_checked") is True
+                ),
             )
         except Exception as exc:
             settle_text_spend()
@@ -922,6 +1226,7 @@ def _run_claimed(
             "llm_calls": phase["llm_calls"],
             "station_evidence": phase["station_evidence"],
             "call_baseline": phase["call_baseline"],
+            "artifact_fingerprints": phase["artifact_fingerprints"],
             "budget_semantics": "single_station_may_overshoot_before_settlement",
         }
         if real_text:
@@ -1082,7 +1387,18 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
         for row in rows
         if isinstance(row, dict)
     ]
-    successful_images = [row for row in image_attempts if row.get("status") == "succeeded"]
+    successful_images: list[Dict[str, Any]] = []
+    frozen_cast = images.get("cast_ids") if isinstance(images.get("cast_ids"), list) else []
+    for cid in frozen_cast:
+        rows = state.get("image_attempts", {}).get(cid)
+        if not isinstance(rows, list):
+            continue
+        latest = next(
+            (row for row in reversed(rows) if isinstance(row, dict) and row.get("status") == "succeeded"),
+            None,
+        )
+        if latest is not None:
+            successful_images.append(latest)
     try:
         image_artifacts_current = _all_completed_images_are_current(workspace, state)
     except (OSError, TypeError, ValueError):
@@ -1095,6 +1411,20 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
         video_artifact_current = False
 
     text_request_count = _safe_count(text.get("llm_calls"))
+    text_unknown_count = 0
+    if text.get("real") is True:
+        from .web import jobs as web_jobs
+        with use_workspace(workspace):
+            text_ledger = web_jobs._load_drama_text_attempts(workspace)
+        ledger_attempts = list(text_ledger.get("attempts", {}).values())
+        ledger_exposure = sum(_safe_count(row.get("attempt_count")) for row in ledger_attempts if isinstance(row, dict))
+        text_unknown_count = sum(
+            1 for row in ledger_attempts
+            if isinstance(row, dict) and row.get("status") == "submitting"
+        )
+        # Do not add the LLM audit count to the attempt ledger: they normally
+        # describe the same requests.  Max is conservative without double count.
+        text_request_count = max(text_request_count, ledger_exposure)
     video_submission = drama_video.read_video_submission(workspace)
     ledger_status = video_submission.get("status") if video_submission is not None else None
     video_request_count = max(
@@ -1108,11 +1438,15 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
     completed_steps = text.get("completed_steps")
     text_metrics: Dict[str, Any] = {
         "request_count": text_request_count,
+        "submission_unknown_count": text_unknown_count,
+        "request_semantics": "durable_attempt_exposure_deduplicated_with_llm_audit",
         "completed_station_count": len(completed_steps) if isinstance(completed_steps, list) else 0,
         "stations": {},
     }
     image_metrics: Dict[str, Any] = {
         "request_count": len(image_attempts) if images.get("real") is True else 0,
+        "submission_unknown_count": sum(1 for row in image_attempts if row.get("status") == "started") if images.get("real") is True else 0,
+        "request_semantics": "attempt_exposure_including_pre_request_unknown",
         "successful_character_count": len(successful_images),
         "character_count": _safe_count(images.get("character_count")),
         "estimated_cost_cny": round(float(state.get("image_estimated_spend_cny") or 0.0), 6),
@@ -1197,6 +1531,7 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
     exact_text_steps = isinstance(completed_steps, list) and tuple(completed_steps) == tuple(TEXT_STEP_TASKS)
     text_provider_evidence = (
         exact_text_steps
+        and _text_artifacts_current(workspace, text)
         and isinstance(station_evidence, dict)
         and isinstance(pinned_models, dict)
         and all(

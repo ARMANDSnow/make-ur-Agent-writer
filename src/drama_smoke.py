@@ -78,6 +78,8 @@ def _run_step(
     *,
     real_text: bool = False,
     budget_cny: float = 0.0,
+    confirm_text_retry: bool = False,
+    confirm_upstream_status_and_billing_checked: bool = False,
 ) -> Dict[str, Any]:
     jobs = _jobs_module()
     params: Dict[str, Any] = {"episode_no": episode_no}
@@ -87,6 +89,10 @@ def _run_step(
             "budget_cny": budget_cny,
             "timeout_minutes": timeout_seconds / 60.0,
         })
+        if confirm_text_retry:
+            params["confirm_text_retry"] = True
+        if confirm_upstream_status_and_billing_checked:
+            params["confirm_upstream_status_and_billing_checked"] = True
     started_at = time.monotonic()
     started = jobs.start_job(workspace, step, params)
     try:
@@ -137,6 +143,8 @@ def run_smoke(
     on_step_start: Callable[[str], None] | None = None,
     on_step_complete: Callable[[str, Dict[str, Any]], None] | None = None,
     create_workspace: bool = True,
+    confirm_text_retry: bool = False,
+    confirm_upstream_status_and_billing_checked: bool = False,
 ) -> Dict[str, Any]:
     if not math.isfinite(budget_cny) or budget_cny < 0:
         raise SystemExit("budget-cny must be finite and non-negative")
@@ -180,13 +188,15 @@ def run_smoke(
         if on_step_start is not None:
             on_step_start(step)
         steps.append(_run_step(
-            workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget
+            workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget,
+            confirm_text_retry=confirm_text_retry,
+            confirm_upstream_status_and_billing_checked=confirm_upstream_status_and_billing_checked,
         ))
         actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
         steps[-1]["actual_cost_cny"] = round(actual, 6)
         steps[-1]["remaining_budget_cny"] = round(max(0.0, budget_cny - actual), 6)
         steps[-1]["remaining_seconds"] = round(max(0.0, deadline - time.monotonic()), 3)
-        if on_step_complete is not None:
+        if on_step_complete is not None and step != "drama-hooks":
             on_step_complete(step, steps[-1])
         if real_text and actual > budget_cny:
             raise RuntimeError("drama text smoke budget exceeded")
@@ -203,6 +213,9 @@ def run_smoke(
         ep.hook_candidates_path.unlink(missing_ok=True)
     elif not isinstance(setup.get("hook"), dict):
         raise RuntimeError("drama hook job did not persist three candidates")
+    if "drama-hooks" not in completed and on_step_complete is not None:
+        hook_result = next(row for row in reversed(steps) if row.get("step") == "drama-hooks")
+        on_step_complete("drama-hooks", hook_result)
 
     for step in ("drama-storyboard", "drama-characters", "drama-review-assemble"):
         if step in completed:
@@ -216,7 +229,9 @@ def run_smoke(
         if on_step_start is not None:
             on_step_start(step)
         steps.append(_run_step(
-            workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget
+            workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget,
+            confirm_text_retry=confirm_text_retry,
+            confirm_upstream_status_and_billing_checked=confirm_upstream_status_and_billing_checked,
         ))
         actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
         steps[-1]["actual_cost_cny"] = round(actual, 6)

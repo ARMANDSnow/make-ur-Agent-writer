@@ -34,6 +34,7 @@ from .drama_schemas import CharacterSheet, DramaEpisode, DramaEpisodeMeta, Drama
 from .drama_store import is_episode_stale
 from .drama_video_client import DEFAULT_VIDEO_MODEL, DramaVideoClient, build_video_payload
 from .schemas import model_to_dict
+from .secure_http import RequestNotSentError
 from .utils import read_json_optional, sha256_data, write_json
 
 
@@ -84,6 +85,13 @@ class VideoInputs:
     characters: Dict[str, Any]
     references: tuple[tuple[str, str, Path], ...]
     fingerprint: str
+
+
+@dataclass(frozen=True)
+class VideoSpec:
+    duration_seconds: float
+    width: int
+    height: int
 
 
 def video_paths(workspace: str, *, episode_no: int = 1) -> VideoPaths:
@@ -148,6 +156,26 @@ def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, A
             raise ValueError("video submission ledger cost is invalid")
     if "cost_unreported" in raw and type(raw.get("cost_unreported")) is not bool:
         raise ValueError("video submission ledger cost state is invalid")
+    present_authorization = {
+        key for key in (
+            "authorized_budget_cny", "authorized_timeout_minutes",
+            "estimated_cost_cny", "authorization_fingerprint",
+        ) if key in raw
+    }
+    if present_authorization and len(present_authorization) != 4:
+        raise ValueError("video submission authorization state is incomplete")
+    if present_authorization:
+        for key in ("authorized_budget_cny", "authorized_timeout_minutes", "estimated_cost_cny"):
+            value = raw.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value <= 0:
+                raise ValueError("video submission authorization value is invalid")
+        expected = _video_authorization(
+            float(raw["authorized_budget_cny"]),
+            float(raw["authorized_timeout_minutes"]),
+            float(raw["estimated_cost_cny"]),
+        )["authorization_fingerprint"]
+        if raw.get("authorization_fingerprint") != expected:
+            raise ValueError("video submission authorization fingerprint is invalid")
     return raw
 
 
@@ -170,6 +198,16 @@ def validate_real_video_gate(params: Mapping[str, Any]) -> tuple[float, float, f
     if estimate > budget:
         raise PermissionError("video estimated cost exceeds the authorized budget")
     return budget, timeout_minutes, estimate
+
+
+def _video_authorization(budget: float, timeout_minutes: float, estimate: float) -> Dict[str, Any]:
+    payload = {
+        "authorized_budget_cny": budget,
+        "authorized_timeout_minutes": timeout_minutes,
+        "estimated_cost_cny": estimate,
+    }
+    payload["authorization_fingerprint"] = sha256_data(payload)
+    return payload
 
 
 def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
@@ -278,6 +316,7 @@ def run_video_job(
         return _run_mock_video(inputs, progress_cb)
     budget, timeout_minutes, estimate = validate_real_video_gate(params)
     deadline = monotonic() + timeout_minutes * 60.0
+    authorization = _video_authorization(budget, timeout_minutes, estimate)
     prompt = _video_prompt(inputs)
     model = os.getenv("SD_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL
     # Validate every locally knowable paid-request field before asset upload.
@@ -306,6 +345,10 @@ def run_video_job(
         and submission.get("provider_fingerprint") != provider_fingerprint
     ):
         raise DramaVideoProviderError("video submission ledger belongs to different provider configuration")
+    if submission is not None and any(
+        submission.get(key) != value for key, value in authorization.items()
+    ):
+        raise DramaVideoProviderError("video submission ledger belongs to different authorization")
     if submission is not None and submission.get("status") == "succeeded":
         _data, meta = read_video(workspace, episode_no=1)
         return {**meta, "committed": True, "resumed": True, "network_requests": 0}
@@ -392,19 +435,27 @@ def run_video_job(
                 "input_fingerprint": inputs.fingerprint,
                 "provider_fingerprint": provider_fingerprint,
                 "submission_count": 1,
+                **authorization,
                 "updated_at": int(time.time()),
             })
-            created = api.create_video_task(
-                prompt=prompt,
-                reference_asset_ids=asset_ids,
-                duration=VIDEO_DURATION_SECONDS,
-                resolution=VIDEO_RESOLUTION,
-                ratio=VIDEO_RATIO,
-                generate_audio=False,
-                watermark=False,
-                model=model,
-                allow_real_video=True,
-            )
+            try:
+                created = api.create_video_task(
+                    prompt=prompt,
+                    reference_asset_ids=asset_ids,
+                    duration=VIDEO_DURATION_SECONDS,
+                    resolution=VIDEO_RESOLUTION,
+                    ratio=VIDEO_RATIO,
+                    generate_audio=False,
+                    watermark=False,
+                    model=model,
+                    allow_real_video=True,
+                )
+            except RequestNotSentError:
+                # The transport proves that no request headers/body crossed
+                # the socket.  Remove only the marker created immediately
+                # above so the single paid opportunity is not falsely spent.
+                video_submission_path(workspace).unlink(missing_ok=True)
+                raise
             task_id = _extract_resource_id(created, "task")
             _write_video_submission(workspace, {
                 "status": "submitted",
@@ -412,6 +463,7 @@ def run_video_job(
                 "provider_fingerprint": provider_fingerprint,
                 "submission_count": 1,
                 "task_id": task_id,
+                **authorization,
                 "updated_at": int(time.time()),
             })
             progress_cb("queued", 0.4)
@@ -438,6 +490,7 @@ def run_video_job(
                 "task_id": task_id,
                 "cost_cny": terminal_cost if terminal_cost is not None else 0.0,
                 "cost_unreported": terminal_cost is None,
+                **authorization,
                 "updated_at": int(time.time()),
             })
             raise DramaVideoProviderError(f"video task ended with status={status}")
@@ -455,6 +508,14 @@ def run_video_job(
         allowed_hosts=result_hosts,
         timeout_seconds=_remaining_timeout(deadline, monotonic),
     )
+    if content_type != "video/mp4":
+        raise ValueError("real video result must be an MP4 for strict specification validation")
+    spec = _probe_mp4(video_bytes)
+    if (
+        abs(spec.duration_seconds - VIDEO_DURATION_SECONDS) > 0.25
+        or (spec.width, spec.height) != (720, 1280)
+    ):
+        raise ValueError("video result does not match the authorized duration, ratio, or resolution")
     _deadline_checkpoint(deadline, monotonic)
     if load_video_inputs(workspace, episode_no=1).fingerprint != inputs.fingerprint:
         raise DramaVideoInputError("video inputs changed while the provider task was running")
@@ -469,9 +530,9 @@ def run_video_job(
         "provider_model": str(os.getenv("SD_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL)[:120],
         "task_id": task_id,
         "input_fingerprint": inputs.fingerprint,
-        "duration_seconds": VIDEO_DURATION_SECONDS,
-        "ratio": VIDEO_RATIO,
-        "resolution": VIDEO_RESOLUTION,
+        "duration_seconds": round(spec.duration_seconds, 3),
+        "ratio": f"{spec.width // math.gcd(spec.width, spec.height)}:{spec.height // math.gcd(spec.width, spec.height)}",
+        "resolution": f"{spec.width}x{spec.height}px",
         "content_type": content_type,
         "file_size_bytes": len(video_bytes),
         "video_sha256": hashlib.sha256(video_bytes).hexdigest(),
@@ -489,6 +550,7 @@ def run_video_job(
         "task_id": task_id,
         "cost_cny": cost_cny if cost_cny is not None else 0.0,
         "cost_unreported": cost_cny is None,
+        **authorization,
         "updated_at": int(time.time()),
     })
     progress_cb(terminal_status, 1.0)
@@ -497,15 +559,40 @@ def run_video_job(
 
 def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     out = video_paths(workspace, episode_no=episode_no)
+    try:
+        submission = read_video_submission(workspace, episode_no=episode_no)
+    except ValueError:
+        return {
+            "state": "blocked",
+            "error_code": "video_submission_ledger_invalid",
+            "download_ready": False,
+        }
     meta = read_json_optional(out.meta_path, None)
     if isinstance(meta, dict) and out.video_path.is_file():
         try:
-            current = load_video_inputs(workspace, episode_no=episode_no)
-        except (DramaVideoInputError, ValueError):
-            current = None
-        if current is not None and meta.get("input_fingerprint") == current.fingerprint:
-            return {"state": str(meta.get("status") or "succeeded"), "video": _safe_video_meta(meta), "download_ready": True}
+            _data, safe_meta = read_video(workspace, episode_no=episode_no)
+        except (FileNotFoundError, OSError, DramaVideoInputError, ValueError):
+            safe_meta = None
+        if safe_meta is not None:
+            return {"state": str(safe_meta.get("status") or "succeeded"), "video": safe_meta, "download_ready": True}
         return {"state": "not_ready", "stale_video": True, "download_ready": False}
+    if submission is not None:
+        ledger_status = submission.get("status")
+        if ledger_status == "submitting":
+            return {
+                "state": "submission_unknown",
+                "requires_reconciliation": True,
+                "download_ready": False,
+            }
+        if ledger_status == "submitted":
+            return {"state": "submitted", "resumable_poll": True, "download_ready": False}
+        if ledger_status == "failed":
+            return {"state": "failed", "submission_consumed": True, "download_ready": False}
+        return {
+            "state": "blocked",
+            "error_code": "video_submission_artifact_missing",
+            "download_ready": False,
+        }
     try:
         load_video_inputs(workspace, episode_no=episode_no)
     except (DramaVideoInputError, ValueError):
@@ -525,6 +612,16 @@ def read_video(workspace: str, *, episode_no: int = 1) -> tuple[bytes, Dict[str,
         raise ValueError("stored video size does not match metadata")
     if meta.get("video_sha256") != hashlib.sha256(data).hexdigest():
         raise ValueError("stored video hash does not match metadata")
+    if meta.get("provider") != "mock":
+        probed = _probe_mp4(data)
+        if (
+            abs(probed.duration_seconds - VIDEO_DURATION_SECONDS) > 0.25
+            or (probed.width, probed.height) != (720, 1280)
+            or meta.get("duration_seconds") != round(probed.duration_seconds, 3)
+            or meta.get("resolution") != f"{probed.width}x{probed.height}px"
+            or meta.get("ratio") != VIDEO_RATIO
+        ):
+            raise ValueError("stored video measured specification is invalid")
     current = load_video_inputs(workspace, episode_no=episode_no)
     if meta.get("input_fingerprint") != current.fingerprint:
         raise ValueError("stored video is stale for the current episode inputs")
@@ -790,6 +887,100 @@ def _detect_video_container(data: bytes) -> str:
     if data.startswith(b"\x1a\x45\xdf\xa3"):
         return "webm"
     raise ValueError("video bytes must be an MP4 or WebM container")
+
+
+def _mp4_boxes(data: bytes, start: int, end: int) -> list[tuple[bytes, int, int]]:
+    boxes: list[tuple[bytes, int, int]] = []
+    cursor = start
+    while cursor < end:
+        if end - cursor < 8:
+            raise ValueError("MP4 contains a truncated box header")
+        size = int.from_bytes(data[cursor:cursor + 4], "big")
+        box_type = data[cursor + 4:cursor + 8]
+        header = 8
+        if size == 1:
+            if end - cursor < 16:
+                raise ValueError("MP4 contains a truncated extended box header")
+            size = int.from_bytes(data[cursor + 8:cursor + 16], "big")
+            header = 16
+        elif size == 0:
+            size = end - cursor
+        if size < header or cursor + size > end:
+            raise ValueError("MP4 box size is invalid")
+        boxes.append((box_type, cursor + header, cursor + size))
+        cursor += size
+    return boxes
+
+
+def _first_mp4_box(data: bytes, start: int, end: int, wanted: bytes) -> tuple[int, int]:
+    for box_type, payload_start, box_end in _mp4_boxes(data, start, end):
+        if box_type == wanted:
+            return payload_start, box_end
+    raise ValueError(f"MP4 is missing required {wanted.decode('ascii', 'ignore')} box")
+
+
+def _probe_mp4(data: bytes) -> VideoSpec:
+    """Parse bounded ISO-BMFF metadata without trusting MIME or filename."""
+
+    top = _mp4_boxes(data, 0, len(data))
+    types = {box_type for box_type, _start, _end in top}
+    if not {b"ftyp", b"moov", b"mdat"}.issubset(types):
+        raise ValueError("MP4 must contain ftyp, moov, and mdat boxes")
+    if not any(box_type == b"mdat" and box_end > payload_start for box_type, payload_start, box_end in top):
+        raise ValueError("MP4 media data is empty")
+    moov_start, moov_end = _first_mp4_box(data, 0, len(data), b"moov")
+    mvhd_start, mvhd_end = _first_mp4_box(data, moov_start, moov_end, b"mvhd")
+    mvhd = data[mvhd_start:mvhd_end]
+    if len(mvhd) < 20:
+        raise ValueError("MP4 mvhd box is truncated")
+    version = mvhd[0]
+    if version == 0:
+        timescale = int.from_bytes(mvhd[12:16], "big")
+        duration = int.from_bytes(mvhd[16:20], "big")
+    elif version == 1 and len(mvhd) >= 32:
+        timescale = int.from_bytes(mvhd[20:24], "big")
+        duration = int.from_bytes(mvhd[24:32], "big")
+    else:
+        raise ValueError("MP4 mvhd version is unsupported or truncated")
+    if timescale <= 0 or duration <= 0:
+        raise ValueError("MP4 duration metadata is invalid")
+
+    width = height = 0
+    for box_type, trak_start, trak_end in _mp4_boxes(data, moov_start, moov_end):
+        if box_type != b"trak":
+            continue
+        try:
+            mdia_start, mdia_end = _first_mp4_box(data, trak_start, trak_end, b"mdia")
+            hdlr_start, hdlr_end = _first_mp4_box(data, mdia_start, mdia_end, b"hdlr")
+            hdlr = data[hdlr_start:hdlr_end]
+            if len(hdlr) < 12 or hdlr[8:12] != b"vide":
+                continue
+            minf_start, minf_end = _first_mp4_box(data, mdia_start, mdia_end, b"minf")
+            stbl_start, stbl_end = _first_mp4_box(data, minf_start, minf_end, b"stbl")
+            stsd_start, stsd_end = _first_mp4_box(data, stbl_start, stbl_end, b"stsd")
+            stsz_start, stsz_end = _first_mp4_box(data, stbl_start, stbl_end, b"stsz")
+            stsd = data[stsd_start:stsd_end]
+            stsz = data[stsz_start:stsz_end]
+            if (
+                len(stsd) < 8 or int.from_bytes(stsd[4:8], "big") <= 0
+                or len(stsz) < 12 or int.from_bytes(stsz[8:12], "big") <= 0
+            ):
+                raise ValueError("MP4 video sample table is empty or truncated")
+            tkhd_start, tkhd_end = _first_mp4_box(data, trak_start, trak_end, b"tkhd")
+            tkhd = data[tkhd_start:tkhd_end]
+            if not tkhd:
+                continue
+            offset = 76 if tkhd[0] == 0 else 88 if tkhd[0] == 1 else -1
+            if offset < 0 or len(tkhd) < offset + 8:
+                raise ValueError("MP4 tkhd box is truncated")
+            width = int.from_bytes(tkhd[offset:offset + 4], "big") >> 16
+            height = int.from_bytes(tkhd[offset + 4:offset + 8], "big") >> 16
+            break
+        except ValueError:
+            continue
+    if width <= 0 or height <= 0:
+        raise ValueError("MP4 has no valid video track dimensions")
+    return VideoSpec(duration / timescale, width, height)
 
 
 def _result_hosts(raw: str) -> frozenset[str]:

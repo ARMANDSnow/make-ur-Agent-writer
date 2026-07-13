@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 from src import ai_draw_client, character_designer, drama_image_smoke, drama_video_client, preflight, storyboard_builder
 from src.drama_schemas import character_paths, episode_paths
 from src.web import routes
+from src.secure_http import BoundedResponse
 from tests._drama_base import DramaTestBase
 
 
@@ -77,7 +78,7 @@ class DramaImageClientTests(DramaTestBase):
             },
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", side_effect=AssertionError("network attempted")):
+            with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
                 result = ai_draw_client.redraw_character_reference("image", self.character, mock=None)
         self.assertEqual(result["generated_by"], "placeholder_svg")
 
@@ -89,7 +90,6 @@ class DramaImageClientTests(DramaTestBase):
                 "data": [{"b64_json": base64.b64encode(PNG_BYTES).decode("ascii")}],
             }
         ).encode()
-        opener = _CaptureOpener([_FakeResponse(response)])
         with patch.dict(
             "os.environ",
             {
@@ -99,17 +99,16 @@ class DramaImageClientTests(DramaTestBase):
             },
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", return_value=opener):
+            with patch("src.ai_draw_client.request_bytes", return_value=BoundedResponse(200, "application/json", response)) as request_call:
                 result = ai_draw_client.redraw_character_reference("image", self.character, mock=False)
 
-        request, timeout = opener.requests[0]
-        self.assertEqual(request.full_url, "https://93.184.216.34/api/v1/images/generations")
-        self.assertEqual(timeout, ai_draw_client.IMAGE_GENERATION_TIMEOUT_SECONDS)
-        payload = json.loads(request.data)
+        self.assertEqual(request_call.call_args.args[0], "https://93.184.216.34/api/v1/images/generations")
+        self.assertEqual(request_call.call_args.kwargs["timeout_seconds"], ai_draw_client.IMAGE_GENERATION_TIMEOUT_SECONDS)
+        payload = json.loads(request_call.call_args.kwargs["body"])
         self.assertEqual(payload["model"], "gpt-image-2")
         self.assertEqual(payload["response_format"], "b64_json")
-        self.assertEqual(request.headers["Authorization"], "Bearer test-image-key")
-        self.assertEqual(request.headers["User-agent"], ai_draw_client.USER_AGENT)
+        self.assertEqual(request_call.call_args.kwargs["headers"]["Authorization"], "Bearer test-image-key")
+        self.assertEqual(request_call.call_args.kwargs["headers"]["User-Agent"], ai_draw_client.USER_AGENT)
         self.assertEqual(result["generated_by"], "gpt-image-2-provider-alias")
         self.assertEqual(result["requested_model"], "gpt-image-2")
         self.assertEqual(result["requested_size"], "1024x1024")
@@ -119,7 +118,6 @@ class DramaImageClientTests(DramaTestBase):
         self.assertEqual((character_paths("image").root / result["path"]).read_bytes(), PNG_BYTES)
 
     def test_bad_base64_is_rejected_without_artifact(self) -> None:
-        opener = _CaptureOpener([_FakeResponse(b'{"data":[{"b64_json":"%%%"}]}')])
         with patch.dict(
             "os.environ",
             {
@@ -128,7 +126,7 @@ class DramaImageClientTests(DramaTestBase):
             },
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", return_value=opener):
+            with patch("src.ai_draw_client.request_bytes", return_value=BoundedResponse(200, "application/json", b'{"data":[{"b64_json":"%%%"}]}')):
                 with self.assertRaisesRegex(ValueError, "base64"):
                     ai_draw_client.redraw_character_reference("image", self.character, mock=False)
         self.assertFalse((character_paths("image").refs_dir / self.character["id"]).exists())
@@ -142,7 +140,7 @@ class DramaImageClientTests(DramaTestBase):
             },
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", side_effect=AssertionError("network attempted")):
+            with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
                 with self.assertRaisesRegex(ValueError, "base URL"):
                     ai_draw_client.redraw_character_reference("image", self.character, mock=False)
 
@@ -155,7 +153,7 @@ class DramaImageClientTests(DramaTestBase):
             },
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", side_effect=AssertionError("network attempted")):
+            with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
                 with self.assertRaisesRegex(ValueError, "https URL"):
                     ai_draw_client.redraw_character_reference("image", self.character, mock=False)
 
@@ -170,13 +168,12 @@ class DramaImageClientTests(DramaTestBase):
             clear=False,
         ):
             os.environ.pop("AI_DRAW_API_KEY", None)
-            with patch("src.ai_draw_client.build_opener", side_effect=AssertionError("network attempted")):
+            with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
                 with self.assertRaisesRegex(ValueError, "configured together"):
                     ai_draw_client.redraw_character_reference("image", self.character, mock=None)
 
     def test_explicit_image_model_enables_real_path_even_when_text_model_is_mock(self) -> None:
         response = json.dumps({"data": [{"b64_json": base64.b64encode(PNG_BYTES).decode("ascii")}]}).encode()
-        opener = _CaptureOpener([_FakeResponse(response)])
         with patch.dict(
             "os.environ",
             {
@@ -187,10 +184,10 @@ class DramaImageClientTests(DramaTestBase):
             },
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", return_value=opener):
+            with patch("src.ai_draw_client.request_bytes", return_value=BoundedResponse(200, "application/json", response)) as request_call:
                 result = ai_draw_client.redraw_character_reference("image", self.character, mock=None)
         self.assertEqual(result["requested_model"], "gpt-image-2")
-        self.assertEqual(len(opener.requests), 1)
+        request_call.assert_called_once()
 
     def test_atomic_replace_failure_preserves_existing_image(self) -> None:
         path = character_paths("image").refs_dir / self.character["id"] / "portrait_neutral.png"
@@ -203,7 +200,6 @@ class DramaImageClientTests(DramaTestBase):
         self.assertEqual(list(path.parent.glob(".portrait_neutral.png.tmp.*")), [])
 
     def test_private_result_url_is_rejected_before_download(self) -> None:
-        opener = _CaptureOpener([_FakeResponse(b'{"data":[{"url":"https://127.0.0.1/image.png"}]}')])
         with patch.dict(
             "os.environ",
             {
@@ -213,30 +209,24 @@ class DramaImageClientTests(DramaTestBase):
             },
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", return_value=opener):
+            with patch("src.ai_draw_client.request_bytes", return_value=BoundedResponse(200, "application/json", b'{"data":[{"url":"https://127.0.0.1/image.png"}]}')) as request_call:
                 with self.assertRaisesRegex(ValueError, "public address"):
                     ai_draw_client.redraw_character_reference("image", self.character, mock=False)
-        self.assertEqual(len(opener.requests), 1)
+        request_call.assert_called_once()
 
     def test_untrusted_public_result_host_is_rejected_before_download(self) -> None:
-        opener = _CaptureOpener(
-            [_FakeResponse(b'{"data":[{"url":"https://93.184.216.35/image.png"}]}')]
-        )
         with patch.dict(
             "os.environ",
             {"AI_DRAW_BASE_URL": "https://93.184.216.34/v1", "AI_DRAW_API_KEY": "test-image-key"},
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", return_value=opener):
+            with patch("src.ai_draw_client.request_bytes", return_value=BoundedResponse(200, "application/json", b'{"data":[{"url":"https://93.184.216.35/image.png"}]}')) as request_call:
                 with self.assertRaisesRegex(ValueError, "trusted result-host allowlist"):
                     ai_draw_client.redraw_character_reference("image", self.character, mock=False)
-        self.assertEqual(len(opener.requests), 1)
+        request_call.assert_called_once()
 
     def test_signed_result_url_http_error_does_not_leak_url_or_token(self) -> None:
         signed_url = "https://93.184.216.34/image.png?signature=secret-query-token"
-        opener = _CaptureOpener([
-            _FakeResponse(json.dumps({"data": [{"url": signed_url}]}).encode())
-        ])
         response = Mock(status=403)
         connection = Mock()
         connection.sock.getpeername.return_value = ("93.184.216.34", 443)
@@ -246,7 +236,7 @@ class DramaImageClientTests(DramaTestBase):
             {"AI_DRAW_BASE_URL": "https://93.184.216.34/v1", "AI_DRAW_API_KEY": "test-image-key"},
             clear=False,
         ):
-            with patch("src.ai_draw_client.build_opener", return_value=opener), \
+            with patch("src.ai_draw_client.request_bytes", return_value=BoundedResponse(200, "application/json", json.dumps({"data": [{"url": signed_url}]}).encode())), \
                     patch("src.ai_draw_client.http.client.HTTPSConnection", return_value=connection):
                 with self.assertRaises(ValueError) as caught:
                     ai_draw_client.redraw_character_reference("image", self.character, mock=False)
@@ -363,15 +353,13 @@ class DramaVideoClientTests(unittest.TestCase):
                 client.create_video_task(prompt="不要真的生成", allow_real_video=False)
 
     def test_task_query_uses_bearer_without_returning_key(self) -> None:
-        opener = _CaptureOpener([_FakeResponse(b'{"task":{"id":"mvt-test","status":"processing"}}')])
-        with patch("src.drama_video_client.build_opener", return_value=opener):
+        with patch("src.drama_video_client.request_bytes", return_value=BoundedResponse(200, "application/json", b'{"task":{"id":"mvt-test","status":"processing"}}')) as request_call:
             client = drama_video_client.DramaVideoClient(
                 base_url="https://93.184.216.34", api_key="test-video-key"
             )
             result = client.get_task("mvt-test")
-        request, _timeout = opener.requests[0]
-        self.assertEqual(request.full_url, "https://93.184.216.34/v1/video/tasks/mvt-test")
-        self.assertEqual(request.headers["Authorization"], "Bearer test-video-key")
+        self.assertEqual(request_call.call_args.args[0], "https://93.184.216.34/v1/video/tasks/mvt-test")
+        self.assertEqual(request_call.call_args.kwargs["headers"]["Authorization"], "Bearer test-video-key")
         self.assertNotIn("test-video-key", json.dumps(result))
 
     def test_video_base_url_rejects_query_before_request(self) -> None:
@@ -381,15 +369,13 @@ class DramaVideoClientTests(unittest.TestCase):
             )
 
     def test_explicit_video_authorization_posts_documented_endpoint(self) -> None:
-        opener = _CaptureOpener([_FakeResponse(b'{"task":{"id":"mvt-test","status":"pending"}}')])
-        with patch("src.drama_video_client.build_opener", return_value=opener):
+        with patch("src.drama_video_client.request_bytes", return_value=BoundedResponse(200, "application/json", b'{"task":{"id":"mvt-test","status":"pending"}}')) as request_call:
             client = drama_video_client.DramaVideoClient(
                 base_url="https://93.184.216.34", api_key="test-video-key"
             )
             result = client.create_video_task(prompt="原创镜头", allow_real_video=True)
-        request, _timeout = opener.requests[0]
-        self.assertEqual(request.full_url, "https://93.184.216.34/v1/video/generate")
-        self.assertEqual(json.loads(request.data)["model"], drama_video_client.DEFAULT_VIDEO_MODEL)
+        self.assertEqual(request_call.call_args.args[0], "https://93.184.216.34/v1/video/generate")
+        self.assertEqual(json.loads(request_call.call_args.kwargs["body"])["model"], drama_video_client.DEFAULT_VIDEO_MODEL)
         self.assertEqual(result["task"]["status"], "pending")
 
     def test_resource_ids_and_asset_urls_are_fail_closed(self) -> None:

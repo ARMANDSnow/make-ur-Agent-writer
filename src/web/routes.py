@@ -1654,7 +1654,10 @@ def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional
 
     if step not in _DRAMA_STEP_TASKS:
         return "unknown drama step", {}
-    unknown = set(params) - {"episode_no", "confirm_real_text", "budget_cny", "timeout_minutes"}
+    unknown = set(params) - {
+        "episode_no", "confirm_real_text", "confirm_text_retry",
+        "confirm_upstream_status_and_billing_checked", "budget_cny", "timeout_minutes",
+    }
     if unknown:
         return f"unknown drama params: {', '.join(sorted(unknown))}", {}
     try:
@@ -1668,6 +1671,9 @@ def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional
         return "confirm_real_text=true is required for real drama generation", {}
     if "confirm_real_text" in params and not isinstance(params.get("confirm_real_text"), bool):
         return "confirm_real_text must be boolean", {}
+    for key in ("confirm_text_retry", "confirm_upstream_status_and_billing_checked"):
+        if key in params and not isinstance(params.get(key), bool):
+            return f"{key} must be boolean", {}
     raw_budget = params.get("budget_cny")
     if real_model or raw_budget is not None:
         error, budget = _float_param(params, "budget_cny", 0.0, minimum=0.0, maximum=1_000_000.0)
@@ -1688,6 +1694,9 @@ def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional
             out["timeout_minutes"] = timeout
     if real_model:
         out["confirm_real_text"] = True
+    for key in ("confirm_text_retry", "confirm_upstream_status_and_billing_checked"):
+        if params.get(key) is True:
+            out[key] = True
     return None, out
 
 
