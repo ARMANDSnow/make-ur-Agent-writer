@@ -33,8 +33,18 @@ class WebHandler(BaseHTTPRequestHandler):
         # this local dev tool a compact single line is enough; keep it
         # on stderr so it doesn't pollute --capture in test runs.
         import sys
+        import re
 
-        sys.stderr.write(f"[web] {self.address_string()} {fmt % args}\n")
+        rendered = fmt % args
+        # The video provider callback uses a bearer capability in the path.
+        # BaseHTTPRequestHandler's request line would otherwise persist that
+        # live token verbatim in stderr/access logs.
+        rendered = re.sub(
+            r"/media/drama-assets/[A-Za-z0-9_-]{32,64}",
+            "/media/drama-assets/<redacted>",
+            rendered,
+        )
+        sys.stderr.write(f"[web] {self.address_string()} {rendered}\n")
 
     def _respond(self, method: str, path: str) -> None:
         # iter 026: POST / PUT carry bodies. Hard cap at 64 MB so a

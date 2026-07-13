@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Literal, Tuple
 
 from . import drama_store, paths
+from .ai_draw_client import _detect_image_type
 from .comfy_workflow_exporter import build_workflow
 from .drama_schemas import (
     CharacterSheet,
@@ -154,7 +155,12 @@ def export_season(
             }
         )
 
-    character_payload = _json_bytes(_season_character_projection(sheet))
+    packaged_reference_members = {member for member, _payload in state["_references"]}
+    character_payload = _json_bytes(
+        _season_character_projection(
+            sheet, packaged_reference_members=packaged_reference_members
+        )
+    )
     member_bytes = _add_member(
         members,
         "characters/season_01.json",
@@ -320,6 +326,13 @@ def _character_assets(
                 continue
             seen_paths.add(rel)
             pure = PurePosixPath(rel)
+            if (
+                len(pure.parts) != 4
+                or pure.parts[:3] != ("data", "character_refs", character_id)
+                or pure.suffix.lower() != ".png"
+            ):
+                errors.append("reference_character_or_path_mismatch")
+                continue
             try:
                 payload = _read_reference_safely(root, pure)
             except FileNotFoundError:
@@ -330,6 +343,11 @@ def _character_assets(
                 continue
             except OSError:
                 errors.append("reference_symlink_or_unreadable")
+                continue
+            try:
+                _detect_image_type(payload)
+            except ValueError:
+                errors.append("invalid_reference_image")
                 continue
             total_size += len(payload)
             if total_size > MAX_SEASON_PACKAGE_BYTES:
@@ -420,7 +438,9 @@ def _read_workspace_file_safely(
                 pass
 
 
-def _season_character_projection(sheet: Dict[str, Any]) -> Dict[str, Any]:
+def _season_character_projection(
+    sheet: Dict[str, Any], *, packaged_reference_members: set[str] | None = None
+) -> Dict[str, Any]:
     """Expose deliverable character data without prompts, provider state or review notes."""
 
     characters: List[Dict[str, Any]] = []
@@ -444,15 +464,26 @@ def _season_character_projection(sheet: Dict[str, Any]) -> Dict[str, Any]:
                 "visual_contrast_with",
             )
         }
-        row["reference_images"] = [
+        projected_references = [
             {
-                key: ref.get(key)
-                for key in ("path", "width", "height")
-                if ref.get(key) is not None
+                **{
+                    "path": f"character_refs/{raw.get('id', '')}/{PurePosixPath(str(ref.get('path') or '')).name}",
+                },
+                **{
+                    key: ref.get(key)
+                    for key in ("width", "height")
+                    if ref.get(key) is not None
+                },
             }
             for ref in raw.get("reference_images", [])
             if isinstance(ref, dict)
         ]
+        if packaged_reference_members is not None:
+            projected_references = [
+                ref for ref in projected_references
+                if ref["path"] in packaged_reference_members
+            ]
+        row["reference_images"] = projected_references
         characters.append(row)
     return {
         "schema_version": sheet.get("schema_version", 1),

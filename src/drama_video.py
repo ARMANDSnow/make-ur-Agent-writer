@@ -329,9 +329,27 @@ def run_video_job(
 
     inputs = load_video_inputs(workspace, episode_no=1)
     progress_cb("upload-assets", 0.12)
+    submission = read_video_submission(workspace)
     if not real_video_enabled():
+        if submission is not None:
+            raise DramaVideoProviderError(
+                "durable real video submission exists; restore the original real provider configuration"
+            )
         return _run_mock_video(inputs, progress_cb)
-    budget, timeout_minutes, estimate = validate_real_video_gate(params)
+    resuming_submitted = params.get("resume_submitted") is True
+    if resuming_submitted:
+        if submission is None or submission.get("status") != "submitted":
+            raise DramaVideoProviderError("no submitted video task is available to resume")
+        try:
+            budget = float(submission["authorized_budget_cny"])
+            timeout_minutes = float(submission["authorized_timeout_minutes"])
+            estimate = float(submission["estimated_cost_cny"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DramaVideoProviderError(
+                "submitted video task is missing its original authorization"
+            ) from exc
+    else:
+        budget, timeout_minutes, estimate = validate_real_video_gate(params)
     deadline = monotonic() + timeout_minutes * 60.0
     authorization = _video_authorization(budget, timeout_minutes, estimate)
     model = os.getenv("SD_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL
@@ -341,7 +359,6 @@ def run_video_job(
     result_hosts_fingerprint = sha256_data(sorted(result_hosts))
     api = client or DramaVideoClient(request_timeout_seconds=min(60.0, timeout_minutes * 60.0))
     provider_fingerprint = _video_provider_fingerprint(api, model)
-    submission = read_video_submission(workspace)
     if submission is not None and submission.get("input_fingerprint") != inputs.fingerprint:
         raise DramaVideoInputError("video submission ledger belongs to different inputs")
     if (
@@ -631,7 +648,7 @@ def run_video_job(
         "updated_at": int(time.time()),
     })
     progress_cb(terminal_status, 1.0)
-    return {**safe_meta, "committed": True}
+    return {**safe_meta, "committed": True, "resumed": resuming_submitted}
 
 
 def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
@@ -644,6 +661,29 @@ def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
             "error_code": "video_submission_ledger_invalid",
             "download_ready": False,
         }
+    if submission is not None:
+        ledger_status = submission.get("status")
+        if ledger_status in {"submitting", "submitted", "failed"}:
+            authorization_keys = {
+                "authorized_budget_cny", "authorized_timeout_minutes",
+                "estimated_cost_cny", "authorization_fingerprint",
+            }
+            if ledger_status == "submitted" and not authorization_keys.issubset(submission):
+                return {
+                    "state": "blocked",
+                    "error_code": "video_submission_authorization_reconciliation_required",
+                    "requires_reconciliation": True,
+                    "download_ready": False,
+                }
+            if ledger_status == "submitting":
+                return {
+                    "state": "submission_unknown",
+                    "requires_reconciliation": True,
+                    "download_ready": False,
+                }
+            if ledger_status == "submitted":
+                return {"state": "submitted", "resumable_poll": True, "download_ready": False}
+            return {"state": "failed", "submission_consumed": True, "download_ready": False}
     meta = read_json_optional(out.meta_path, None)
     if isinstance(meta, dict) and out.video_path.is_file():
         try:
@@ -654,17 +694,6 @@ def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
             return {"state": str(safe_meta.get("status") or "succeeded"), "video": safe_meta, "download_ready": True}
         return {"state": "not_ready", "stale_video": True, "download_ready": False}
     if submission is not None:
-        ledger_status = submission.get("status")
-        if ledger_status == "submitting":
-            return {
-                "state": "submission_unknown",
-                "requires_reconciliation": True,
-                "download_ready": False,
-            }
-        if ledger_status == "submitted":
-            return {"state": "submitted", "resumable_poll": True, "download_ready": False}
-        if ledger_status == "failed":
-            return {"state": "failed", "submission_consumed": True, "download_ready": False}
         return {
             "state": "blocked",
             "error_code": "video_submission_artifact_missing",

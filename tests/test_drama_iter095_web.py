@@ -204,14 +204,13 @@ class DramaIter095WebTests(DramaTestBase):
         character_paths("drama").sheet_path.write_text(
             json.dumps(sheet, ensure_ascii=False), encoding="utf-8"
         )
-        base_review = drama_reviewer.run("drama", mock=True)
         for episode_no in range(1, 101):
             ep = episode_paths("drama", episode_no=episode_no)
             setup = {**base_setup, "episode_no": episode_no}
             board = {**base_board, "episode_no": episode_no, "title": f"第 {episode_no} 集"}
-            review = {**base_review, "episode_no": episode_no}
             ep.setup_path.write_text(json.dumps(setup, ensure_ascii=False), encoding="utf-8")
             ep.storyboard_path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")
+            review = drama_reviewer.run("drama", mock=True, episode_no=episode_no)
             ep.review_path.write_text(json.dumps(review, ensure_ascii=False), encoding="utf-8")
             drama_store.assemble_episode("drama", episode_no=episode_no)
 

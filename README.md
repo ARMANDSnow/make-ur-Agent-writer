@@ -126,14 +126,15 @@ docs/iterations/           逐轮审计记录
 | 短剧真模型二次全链硬化 | 098 | ✅ 五站产物血统、付费 crash 恢复、实际 peer 传输与媒体规格复核已收口；真校准仍待分段授权 |
 | 短剧真模型第三次全链硬化 | 099 | ✅ readiness/身份/脏账本、图片结构与 submitted 恢复已收口；真校准仍待分段授权 |
 | 短剧真模型全链阻塞修复 | 100 | ✅ 跨进程 callback、稳定恢复身份、媒体 crash receipt 与 Web 逐次授权已收口；真校准仍待分段授权 |
+| 短剧完整链路残余阻塞修复 | 101 | ✅ 文本 revision、Approve 血统、旧 workspace 媒体接管、多集角色与 submitted 纯轮询恢复已收口；真校准仍待分段授权 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 100**（2026-07-13，收官）。短剧真模型全链改用稳定上游恢复身份，修复 hooks/characters 自变异指纹与 `budget_exceeded` 二次付费风险；素材 callback capability 可跨本机进程校验，图片 staging receipt 和视频本地产物可在 crash 后零付费收尾；Web 五站真实文本逐次收集一次性确认、预算和超时。未运行真实文本、生图或视频。
+最近一次更新：**iter 101**（2026-07-14，收官）。短剧真文本成功站现可显式开新 revision；Reject/Abstain 不再保留可导出旧组装，Approve review 与 setup/storyboard/本集角色血统一致才能组装。普通 Web workspace 可在锁内验证后进入真生图；季角色库与单次/单集 8 人上限已分离，submitted 视频使用 durable 原授权纯轮询恢复。未运行真实文本、生图或视频。
 
-上一轮 **iter 099** 统一五站真文本 readiness 与 episode-local setup 身份，收紧脏费用证据、PNG provenance 和 submitted 视频零重提交恢复。
+上一轮 **iter 100** 建立稳定上游恢复身份、跨进程 callback 与媒体 crash receipt，并收口 Web 五站逐次授权。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
@@ -149,7 +150,7 @@ docs/iterations/           逐轮审计记录
 | 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
 | 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | ⚠️ | 工程已通；10-20 章真模型 capstone 待授权 |
-| Web/短剧 | 可编辑工作台；短剧五站、连续多集、下一集 readiness、单集/季级导出、安全 manifest、全角色图片/单次视频受控编排、共享真文本 readiness、逐次 Web 授权、稳定上游恢复身份、跨进程素材 callback、媒体 crash receipt、PNG 结构/provenance 与 submitted 零重提交恢复 | ⚠️ | mock 工程与真跑前安全闭环；真多模态待分段授权与人工质量判断（088-100） |
+| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集 8 人边界、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt 与 submitted 纯轮询恢复 | ⚠️ | mock 工程与真跑前安全闭环；真多模态待分段授权与人工质量判断（088-101） |
 
 ## 文档导航
 

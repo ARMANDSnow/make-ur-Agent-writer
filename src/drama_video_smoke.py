@@ -84,6 +84,7 @@ def run_smoke(
     timeout_seconds: float = 300.0,
     prepare_inputs: bool = True,
     reset_jobs: bool = True,
+    resume_submitted: bool = False,
 ) -> Dict[str, Any]:
     if not math.isfinite(timeout_seconds) or not 1 <= timeout_seconds <= 3600:
         raise SystemExit("timeout-seconds must be finite and between 1 and 3600")
@@ -92,7 +93,7 @@ def run_smoke(
     if real_video:
         if not confirm_real_video or os.getenv("CONFIRM_REAL_VIDEO_SMOKE") != REAL_CONFIRMATION:
             raise SystemExit("refusing real video smoke without CLI and shell confirmation")
-        if budget_cny <= 0:
+        if budget_cny <= 0 and not resume_submitted:
             raise SystemExit("real video smoke requires a finite positive budget")
         os.environ["SD_VIDEO_MODE"] = "real"
         # Do not prepare text/image artifacts: that would expand video consent.
@@ -105,11 +106,14 @@ def run_smoke(
         jobs.reset_for_tests()
     params: Dict[str, Any] = {"episode_no": 1}
     if real_video:
-        params.update({
-            "confirm_real_video": True,
-            "budget_cny": budget_cny,
-            "timeout_minutes": timeout_seconds / 60.0,
-        })
+        if resume_submitted:
+            params["resume_submitted"] = True
+        else:
+            params.update({
+                "confirm_real_video": True,
+                "budget_cny": budget_cny,
+                "timeout_minutes": timeout_seconds / 60.0,
+            })
     started_at = time.monotonic()
     started = jobs.start_job(workspace, "drama-video", params)
     terminal = _wait(started["job_id"], timeout_seconds)

@@ -6,12 +6,12 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 100，2026-07-13 收官 |
+| 更新时间 | iter 101，2026-07-14 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2023 tests OK** |
+| Canonical 基线 | **2044 tests OK** |
 | 标准验收 | `verify.sh` exit 0（项目虚拟环境）；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter 100 短剧真模型全链阻塞修复已收官 |
+| 当前开发轮次 | 无；iter 101 短剧完整链路残余阻塞修复已收官 |
 
 ## Capability Map
 
@@ -21,18 +21,19 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、分镜 grid、角色库、review/assembly、连续多集（计划上限 100）、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；真跑前已有共享 readiness、逐站 Web 一次性授权、稳定上游恢复身份、dirty ledger fail-closed、跨进程 callback capability、图片 staging receipt、durable 视频 provider/result-host/cost 血统、PNG 有界结构校验和 submitted 零网络收尾 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；当前真图片入口仅支持严格 PNG，episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单次/单集 8 人边界、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；普通 Web workspace 可在锁内验证后进入真生图，submitted 视频可沿用 durable 原授权纯轮询 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；当前真图片入口仅支持严格 PNG，episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- hooks/characters attempt 以不含本次输出的稳定上游投影恢复；canonical 已提交而 callback 崩溃时可零 provider 调用采纳，真实 setup/storyboard/provider 漂移仍在网络前阻断。
-- `budget_exceeded`、未知提交和脏费用证据都进入独立 reconciliation 边界；Web 五站每次真实调用重新收集一次性确认、预算与超时，公开 job/history 不持久化确认字段。
-- 素材 capability 改为本机 durable、限时、hash/size/type 绑定的不可猜 token，独立 Web/CLI 进程可读取同一冻结 PNG；新视频提交以 result-host、provider、task、cost 血统共同守门。
-- 图片先写严格绑定 attempt 的私有 staging 与 durable receipt，再提交 canonical reference；视频若 MP4/meta 已完整落盘而 ledger 尚为 `submitted`，可 0 poll/0 download 补写成功账本。
-- 图片真实入口继续仅接受严格 PNG，并新增 PLTE、critical chunk、IDAT 顺序和 zlib 尾部守门；GPT Image 2 生成请求移除旧式 `response_format`，按当前默认 base64 响应解析。
-- canonical **2023 tests OK**（首次沙箱运行仅因 12 项 loopback bind 权限失败，允许本机回环后全绿）；`verify.sh` exit 0；显式 mock preflight **0 FATAL / 0 WARN**；272 项聚焦回归及最终 79 项 findings 回归、Python/JS 静态检查和 `git diff --check` 通过。未运行真文本、真生图或真视频。
-- 3 个调研 subagent + correctness、security/boundary、E2E/operator 3 个收官只读 subagent 完成复核；P0/P1 findings 均修复并经原审查视角复核，无未修 P0/P1。
+- 真文本成功 attempt 可经新一次授权开启新 revision，旧成功记录以有界审计历史保留；crash/retry 仍不自动重提交。
+- Reject/Abstain 只保留最新 review，删除旧 episode/meta 并禁止导出；Approve 必须与 setup/storyboard/本集角色指纹一致才能组装。旧 review 仅在已组装 episode/meta 可证明原血统时原地迁移。
+- 普通 Web drama workspace 在任何真生图请求前，于同一 workspace 锁内复核 Approve/freshness/路径边界；state、staging 和 PNG 写入使用 dirfd + `O_NOFOLLOW`。
+- 季角色库可跨集增长，单次生成和单集 active cast 仍最多 8 人；revision 只替换本集首登角色，新角色使用冲突安全 ID，旧 schema 站④标记 fail-closed。
+- submitted 真视频在 Web 与 multimodal runner 中均使用 durable 原预算/超时/估价纯 poll，mode 漂移时禁止 mock 覆盖；旧本地视频不再遮蔽上游 submitted 状态。
+- 导出仅使用 schema 投影和真实打包的参考图 member，参考图绑定角色目录并做严格 PNG 结构校验；callback capability 不进入 access log。
+- canonical **2044 tests OK**（项目 `.venv`）；短剧 **350 tests OK**；`verify.sh` exit 0；mock preflight **0 FATAL / 0 WARN**；`git diff --check` 通过。未运行真文本、真生图或真视频。
+- correctness、security/boundary、runner/multi/recovery 3 个只读 subagent 复核；无未修 P0/P1，correctness 与 runner 无残余 P0-P2 blocker。仅保留一项严格本地对手在项目锁外竞态交换 JSON 父目录的 P2 威胁模型缺口；静态 symlink 与项目内并发已封闭。
 
 ## Retained Working Memory
 
@@ -93,7 +94,7 @@
 - 短剧主流程已覆盖五站文本、站③分镜 grid、站④角色/角色库、review/assembly、连续多集、四格式单集导出、Insights，以及严格整季母包/阶段快照；episode 1 视频边界保持不变。
 - 下一集只能从最新连续、完整且 fresh 的前集初始化；`episode_count` 是计划真源。季包只从 assembled JSON 和安全投影重建，不能把 setup、候选钩子、评审原文、prompt、日志或 provider state 混入交付物。
 - 真实媒体下载必须同时校验 scheme、redirect、DNS 与 peer IP、MIME/magic、size、hash、容器和原子落盘。仅检查扩展名或响应头不构成安全边界。
-- Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 补齐校准证据；Iter 097-100 继续收口旧旁路、provider 身份、稳定恢复身份、五站/媒体 crash window、跨进程 callback、episode 身份、脏费用证据、产物血统与实际媒体规格。
+- Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 补齐校准证据；Iter 097-101 继续收口旧旁路、provider 身份、文本 revision/review 血统、五站/媒体 crash window、跨进程 callback、旧 workspace 接管、多集角色和 submitted 纯轮询恢复。
 - 文本证据按五站记录 task/model SHA、调用数、耗时与 cost，并以严格 attempt ledger 绑定 endpoint/账号/输入/产物；成功产物可零网络恢复，未知提交才要求对账。
 - 图片证据按角色/attempt 记录 objective metadata、规范化记录 SHA、文件 SHA、provider、耗时和尺寸；当前真实图片只接受严格 PNG。视频以 durable ledger 区分确定未发送、提交未知、已提交、终态失败与成功，报告交叉重读 ledger 和本地产物，避免 crash window 低报付费请求。
 - 校准报告只说明证据完整度，不自动给真实作品质量打通过。`real_execution_recorded_unverified` 仍需 operator quality review；本地存在记录也不能证明本次真实调用已发生。
@@ -211,6 +212,7 @@
 4. **短剧媒体**：真 ComfyUI workflow、episode 2+ 视频、可靠且资源有界的 JPEG/WebP decoder、更广视频 codec/容器支持及真实多模态质量仍未验证；当前真图片入口仅支持严格 PNG，MP4 有界解析仍需真实供应商样本校准。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
+7. **严格本地对手 TOCTOU**：项目锁可阻止本项目 Web/runner 并发，state/PNG 已使用 nofollow dirfd；若威胁模型包含本机其他进程在 lstat 后竞态交换 JSON 父目录，仍需将全部 canonical JSON 读写统一迁到 dirfd API。
 
 ## Next Candidates
 
@@ -221,11 +223,11 @@
 ## Recovery Commands
 
 ```bash
-PYTHONPYCACHEPREFIX="$PWD/.pycache" python3 -m unittest discover -s tests
+PYTHONPYCACHEPREFIX="$PWD/.pycache" .venv/bin/python3 -m unittest discover -s tests
 bash scripts/verify.sh
-python3 main.py preflight
-python3 main.py status
-python3 main.py write-readiness --chapters N
+.venv/bin/python3 main.py preflight
+.venv/bin/python3 main.py status
+.venv/bin/python3 main.py write-readiness --chapters N
 ```
 
 先以 mock 复现。真模型入口、长跑参数和计费边界必须读对应最新 iteration 与脚本帮助，不能从历史示例照抄。
@@ -252,4 +254,4 @@ python3 main.py write-readiness --chapters N
 
 ## Latest Transition
 
-iter 100 以文本状态机、媒体链、入口/E2E 3 个调研视角定位真模型全流程阻塞，再由 correctness、security/boundary、E2E/operator 3 个收官视角复核。主线修复 hooks/characters 自变异恢复指纹、`budget_exceeded` 二次付费、跨进程 callback、图片/video crash 收尾、result-host/provider/cost 血统及 Web 五站逐次授权；GPT Image 2 请求按当前官方示例移除 `response_format`。最终 2023 项 canonical、`verify.sh` 与 0 WARN/FATAL mock preflight 全绿，复审无未修 P0/P1，未运行真文本、真生图或真视频。
+iter 101 从 correctness、security/boundary、runner/multi/recovery 三个视角复核短剧完整链路，修复成功文本无法返修、Reject 旧组装仍可导出、旧 review/workspace 在真生图后才阻断、季角色库/单集容量冲突、submitted 视频模式漂移和导出悬空引用。最终项目 `.venv` 下 2044 项 canonical、短剧 350 项聚焦、`verify.sh` 和 0 WARN/FATAL mock preflight 全绿，无未修 P0/P1；保留一项严格本地对手 JSON TOCTOU P2，未运行真文本、真生图或真视频。

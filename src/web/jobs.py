@@ -1326,6 +1326,36 @@ def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
             or any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None for value in candidates)
         ):
             raise ValueError("drama text attempt candidate fingerprints are invalid")
+        revision = row.get("revision", 1)
+        if type(revision) is not int or revision < 1:
+            raise ValueError("drama text attempt revision is invalid")
+        history = row.get("completed_revisions", [])
+        if not isinstance(history, list) or len(history) > 100:
+            raise ValueError("drama text attempt revision history is invalid")
+        for previous in history:
+            if (
+                not isinstance(previous, dict)
+                or previous.get("status") != "succeeded"
+                or previous.get("step") != row.get("step")
+                or previous.get("episode_no") != row.get("episode_no")
+                or type(previous.get("attempt_count")) is not int
+                or previous["attempt_count"] < 1
+                or type(previous.get("revision")) is not int
+                or previous["revision"] < 1
+                or any(
+                    not isinstance(previous.get(field), str)
+                    or re.fullmatch(r"[0-9a-f]{64}", previous[field]) is None
+                    for field in ("provider_fingerprint", "input_fingerprint")
+                )
+            ):
+                raise ValueError("drama text attempt revision history is invalid")
+            for field in ("recovery_fingerprint", "artifact_fingerprint"):
+                value = previous.get(field)
+                if value is not None and (
+                    not isinstance(value, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", value) is None
+                ):
+                    raise ValueError("drama text attempt revision history is invalid")
     return raw
 
 
@@ -1392,6 +1422,41 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
     provider = _drama_text_provider_fingerprint(task)
     input_fingerprint = _drama_text_input_fingerprint(step, workspace, episode_no)
     recovery_fingerprint = _drama_text_recovery_fingerprint(step, workspace, episode_no)
+    start_new_revision = params.get("confirm_new_text_revision") is True
+    if (
+        isinstance(existing, dict)
+        and existing.get("status") == "succeeded"
+        and start_new_revision
+    ):
+        if params.get("confirm_real_text") is not True:
+            raise ValueError("new drama text revision requires fresh real-text authorization")
+        previous = {
+            key: value
+            for key, value in existing.items()
+            if key in {
+                "status", "step", "episode_no", "attempt_count", "revision",
+                "provider_fingerprint", "input_fingerprint", "recovery_fingerprint",
+                "artifact_fingerprint", "candidate_fingerprints", "updated_at",
+            }
+        }
+        previous["revision"] = int(existing.get("revision") or 1)
+        history = list(existing.get("completed_revisions") or [])
+        history.append(previous)
+        row = {
+            "status": "submitting",
+            "step": step,
+            "episode_no": episode_no,
+            "attempt_count": int(existing.get("attempt_count") or 0) + 1,
+            "revision": previous["revision"] + 1,
+            "completed_revisions": history[-100:],
+            "provider_fingerprint": provider,
+            "input_fingerprint": input_fingerprint,
+            "recovery_fingerprint": recovery_fingerprint,
+            "updated_at": int(time.time()),
+        }
+        ledger["attempts"][key] = row
+        _save_drama_text_attempts(workspace, ledger)
+        return key, row
     if isinstance(existing, dict):
         if (
             existing.get("provider_fingerprint") != provider
@@ -1423,11 +1488,14 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
         "step": step,
         "episode_no": episode_no,
         "attempt_count": count,
+        "revision": int(existing.get("revision") or 1) if isinstance(existing, dict) else 1,
         "provider_fingerprint": provider,
         "input_fingerprint": input_fingerprint,
         "recovery_fingerprint": recovery_fingerprint,
         "updated_at": int(time.time()),
     }
+    if isinstance(existing, dict) and existing.get("completed_revisions"):
+        row["completed_revisions"] = list(existing["completed_revisions"])
     ledger["attempts"][key] = row
     _save_drama_text_attempts(workspace, ledger)
     return key, row
@@ -1713,7 +1781,7 @@ def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, f
 
 
 def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    from .. import drama_reviewer, drama_store
+    from .. import character_designer, drama_reviewer, drama_store
     from ..drama_schemas import CharacterSheet, character_paths, episode_paths
     from ..utils import read_json_optional, write_json
 
@@ -1726,7 +1794,9 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
             episode_no > 1
             and isinstance(setup, dict)
             and setup.get("introduces_new_characters") is True
-            and sheet.episode_no != episode_no
+            and not character_designer.character_sheet_generated_for_episode(
+                sheet, episode_no=episode_no
+            )
         ):
             raise ValueError("station 4 must generate episode characters before drama review")
         budget_cny, line_offset = _drama_budget_start("drama-review-assemble", params)
@@ -1749,8 +1819,17 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
         try:
             progress_cb("commit-review", 0.84)
             write_json(ep.review_path, review)
-            progress_cb("assemble", 0.9)
-            result = drama_store.assemble_episode(workspace, episode_no=episode_no)
+            if review.get("verdict") == "Approve":
+                progress_cb("assemble", 0.9)
+                result = drama_store.assemble_episode(workspace, episode_no=episode_no)
+            else:
+                # Persist advisor evidence, but never publish a Reject/Abstain
+                # as a fresh episode.  Remove a previously approved assembly
+                # so neither the UI nor an export route can present it as the
+                # current result after this review committed.
+                ep.episode_path.unlink(missing_ok=True)
+                ep.meta_path.unlink(missing_ok=True)
+                result = {"episode": None, "meta": None, "stale": True}
         except BaseException:
             _restore_drama_artifacts(snapshots)
             raise
@@ -1761,6 +1840,7 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
             "episode_no": episode_no,
             "verdict": review.get("verdict"),
             "assembled": bool(result.get("episode")),
+            "needs_human_review": review.get("verdict") != "Approve",
             "budget_cny": budget_cny,
             "cost_cny": cost_cny,
             "committed": True,

@@ -1664,7 +1664,7 @@ def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional
     if step not in _DRAMA_STEP_TASKS:
         return "unknown drama step", {}
     unknown = set(params) - {
-        "episode_no", "confirm_real_text", "confirm_text_retry",
+        "episode_no", "confirm_real_text", "confirm_text_retry", "confirm_new_text_revision",
         "confirm_upstream_status_and_billing_checked", "budget_cny", "timeout_minutes",
     }
     if unknown:
@@ -1680,7 +1680,10 @@ def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional
         return "confirm_real_text=true is required for real drama generation", {}
     if "confirm_real_text" in params and not isinstance(params.get("confirm_real_text"), bool):
         return "confirm_real_text must be boolean", {}
-    for key in ("confirm_text_retry", "confirm_upstream_status_and_billing_checked"):
+    for key in (
+        "confirm_text_retry", "confirm_new_text_revision",
+        "confirm_upstream_status_and_billing_checked",
+    ):
         if key in params and not isinstance(params.get(key), bool):
             return f"{key} must be boolean", {}
     raw_budget = params.get("budget_cny")
@@ -1703,7 +1706,10 @@ def _validated_drama_params(step: str, params: Dict[str, Any]) -> Tuple[Optional
             out["timeout_minutes"] = timeout
     if real_model:
         out["confirm_real_text"] = True
-    for key in ("confirm_text_retry", "confirm_upstream_status_and_billing_checked"):
+    for key in (
+        "confirm_text_retry", "confirm_new_text_revision",
+        "confirm_upstream_status_and_billing_checked",
+    ):
         if params.get(key) is True:
             out[key] = True
     return None, out
@@ -2171,6 +2177,7 @@ def api_drama_characters_get(name: str, raw_episode_no: Any = 1) -> Tuple[int, s
     prereq = _drama_characters_prereq_error(name, episode_no=episode_no)
     if prereq:
         return prereq
+    from .. import character_designer
     from ..drama_schemas import CharacterSheet, character_paths
 
     data = read_json_optional(character_paths(name).sheet_path, None)
@@ -2181,7 +2188,9 @@ def api_drama_characters_get(name: str, raw_episode_no: Any = 1) -> Tuple[int, s
     try:
         sheet = CharacterSheet(**data)
         introduces_new = _drama_episode_introduces_new_characters(name, episode_no=episode_no)
-        if introduces_new and sheet.episode_no != episode_no:
+        if introduces_new and not character_designer.character_sheet_generated_for_episode(
+            sheet, episode_no=episode_no
+        ):
             return _json(
                 200,
                 {
@@ -2373,6 +2382,7 @@ def _parse_episode_no(raw: Any = 1) -> int:
 
 
 def _drama_review_prereq_error(name: str, *, episode_no: int = 1) -> Optional[Tuple[int, str, bytes]]:
+    from .. import character_designer
     from ..drama_schemas import CharacterSheet, character_paths
 
     prereq = _drama_characters_prereq_error(name, episode_no=episode_no)
@@ -2387,7 +2397,9 @@ def _drama_review_prereq_error(name: str, *, episode_no: int = 1) -> Optional[Tu
         return _json(400, errors.exception_body(exc))
     if (
         _drama_episode_introduces_new_characters(name, episode_no=episode_no)
-        and sheet.episode_no != episode_no
+        and not character_designer.character_sheet_generated_for_episode(
+            sheet, episode_no=episode_no
+        )
     ):
         return _json(400, {"error": "station 4 must generate episode characters before drama review"})
     return None
@@ -2825,7 +2837,10 @@ def api_drama_episode_detail(name: str, episode: str) -> Tuple[int, str, bytes]:
 def _validated_drama_video_params(payload: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
     from .. import drama_video
 
-    unknown = set(payload) - {"episode_no", "confirm_real_video", "budget_cny", "timeout_minutes"}
+    unknown = set(payload) - {
+        "episode_no", "confirm_real_video", "resume_submitted",
+        "budget_cny", "timeout_minutes",
+    }
     if unknown:
         return f"unknown drama video params: {', '.join(sorted(unknown))}", {}
     try:
@@ -2836,8 +2851,15 @@ def _validated_drama_video_params(payload: Dict[str, Any]) -> Tuple[Optional[str
         return "episode_no must be 1 for the video MVP", {}
     if "confirm_real_video" in payload and not isinstance(payload.get("confirm_real_video"), bool):
         return "confirm_real_video must be boolean", {}
+    if "resume_submitted" in payload and not isinstance(payload.get("resume_submitted"), bool):
+        return "resume_submitted must be boolean", {}
     out: Dict[str, Any] = {"episode_no": 1}
+    if payload.get("resume_submitted") is True and not drama_video.real_video_enabled():
+        return "restore real video provider configuration before resuming the submitted task", {}
     if drama_video.real_video_enabled():
+        if payload.get("resume_submitted") is True:
+            out["resume_submitted"] = True
+            return None, out
         if payload.get("confirm_real_video") is not True:
             return "confirm_real_video=true is required for real video generation", {}
         for key, maximum in (("budget_cny", 1_000_000.0), ("timeout_minutes", 60.0)):
@@ -2871,6 +2893,10 @@ def api_drama_video_generate(name: str, body: bytes) -> Tuple[int, str, bytes]:
         from .. import drama_video
 
         drama_video.load_video_inputs(name, episode_no=1)
+        if params.get("resume_submitted") is True:
+            submission = drama_video.read_video_submission(name)
+            if submission is None or submission.get("status") != "submitted":
+                return _json(409, {"error": "no submitted video task is available to resume"})
         job = jobs.start_job(name, "drama-video", params)
     except (FileNotFoundError, ValueError) as exc:
         return _json(400, errors.exception_body(exc))

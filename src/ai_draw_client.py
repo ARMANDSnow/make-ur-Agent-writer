@@ -15,8 +15,8 @@ import ipaddress
 import json
 import math
 import os
+import secrets
 import socket
-import tempfile
 import time
 import zlib
 from pathlib import Path
@@ -597,20 +597,70 @@ def _image_dimensions(data: bytes, content_type: str) -> tuple[int | None, int |
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.tmp.", dir=str(path.parent))
-    tmp = Path(tmp_name)
+    """Atomically write without following a symlink in any path component."""
+
+    absolute = path.absolute()
+    # macOS exposes /var and /tmp as trusted system aliases into /private.
+    # Canonicalize only those fixed aliases; never resolve workspace-owned
+    # components, which would reintroduce symlink traversal.
+    if len(absolute.parts) > 1 and absolute.parts[1] in {"var", "tmp"}:
+        alias = Path(absolute.anchor) / absolute.parts[1]
+        if alias.is_symlink():
+            absolute = alias.resolve() / Path(*absolute.parts[2:])
+    if not absolute.name or absolute.name in {".", ".."}:
+        raise ValueError("AI draw output path is invalid")
+    flags_dir = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    opened_dirs: list[int] = []
+    file_fd: int | None = None
+    temp_name: str | None = None
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        current = os.open(absolute.anchor or "/", flags_dir)
+        opened_dirs.append(current)
+        for part in absolute.parent.parts[1:]:
+            try:
+                os.mkdir(part, mode=0o755, dir_fd=current)
+            except FileExistsError:
+                pass
+            current = os.open(part, flags_dir, dir_fd=current)
+            opened_dirs.append(current)
+        for _ in range(16):
+            candidate = f".{absolute.name}.tmp.{secrets.token_hex(16)}"
+            try:
+                file_fd = os.open(
+                    candidate,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=current,
+                )
+                temp_name = candidate
+                break
+            except FileExistsError:
+                continue
+        if file_fd is None or temp_name is None:
+            raise OSError("could not allocate AI draw output temp file")
+        view = memoryview(data)
+        offset = 0
+        while offset < len(view):
+            written = os.write(file_fd, view[offset:])
+            if written <= 0:
+                raise OSError("short write while persisting AI draw output")
+            offset += written
+        os.fchmod(file_fd, 0o644)
+        os.fsync(file_fd)
+        os.close(file_fd)
+        file_fd = None
+        os.replace(temp_name, absolute.name, src_dir_fd=current, dst_dir_fd=current)
+        temp_name = None
     finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+        if file_fd is not None:
+            os.close(file_fd)
+        if temp_name is not None and opened_dirs:
+            try:
+                os.unlink(temp_name, dir_fd=opened_dirs[-1])
+            except FileNotFoundError:
+                pass
+        for fd in reversed(opened_dirs):
+            os.close(fd)
 
 
 def validate_api_base_url(value: str, *, label: str, allow_http: bool = False):

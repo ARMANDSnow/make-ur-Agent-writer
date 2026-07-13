@@ -5189,7 +5189,9 @@ JS_DASHBOARD = """\
         regenBtn.disabled = true;
         try {
           const data = await postJson(
-            wsUrl("/drama/plan"), await dramaGenerationPayload("drama-plan", {})
+            wsUrl("/drama/plan"), await dramaGenerationPayload(
+              "drama-plan", { confirm_new_text_revision: true }
+            )
           );
           const pane = document.querySelector('[data-station-pane="setup"]');
           await pollJob(data.job_id, pane, regenBtn, async function (job) {
@@ -5295,7 +5297,7 @@ JS_DASHBOARD = """\
         const pane = document.querySelector('[data-station-pane="hook"]');
         if (!pane) return;
         const data = await postJson(
-          wsUrl("/drama/hooks"), await dramaGenerationPayload("drama-hooks", {})
+          wsUrl("/drama/hooks"), await dramaGenerationPayload("drama-hooks", { confirm_new_text_revision: true })
         );
         await pollJob(data.job_id, pane, btn, async function (job) {
           if (job.status !== "succeeded") return;
@@ -5532,7 +5534,9 @@ JS_DASHBOARD = """\
         regenBtn.disabled = true;
         try {
           const data = await postJson(
-            wsUrl("/drama/storyboard"), await dramaGenerationPayload("drama-storyboard", {})
+            wsUrl("/drama/storyboard"), await dramaGenerationPayload(
+              "drama-storyboard", { confirm_new_text_revision: true }
+            )
           );
           await pollJob(data.job_id, pane, regenBtn, async function (job) {
             if (job.status !== "succeeded") return;
@@ -5817,7 +5821,7 @@ JS_DASHBOARD = """\
         try {
           const data = await postJson(
             wsUrl("/drama/characters"),
-            await dramaGenerationPayload("drama-characters", {}, targetEpisode)
+            await dramaGenerationPayload("drama-characters", { confirm_new_text_revision: true }, targetEpisode)
           );
           const terminal = await pollJob(data.job_id, root, gen, async function (job) {
             if (job.status !== "succeeded") return;
@@ -5879,7 +5883,7 @@ JS_DASHBOARD = """\
         try {
           const data = await postJson(
             wsUrl("/drama/review"),
-            await dramaGenerationPayload("drama-review-assemble", {}, targetEpisode)
+            await dramaGenerationPayload("drama-review-assemble", { confirm_new_text_revision: true }, targetEpisode)
           );
           await pollJob(data.job_id, root, reviewBtn, async function (job) {
             if (job.status !== "succeeded") return;
@@ -6003,6 +6007,7 @@ JS_DASHBOARD = """\
   }
 
   function renderDramaEpisodeDetail(data) {
+    const assembled = !!data.episode;
     const episode = data.episode || {};
     const meta = data.meta || {};
     const review = data.review || {};
@@ -6011,9 +6016,11 @@ JS_DASHBOARD = """\
     const staleHtml = stale ? '<div class="alert warn">分站内容已变更，请重新评审并组装。</div>' : "";
     const scriptBox = document.getElementById("tab-script");
     if (scriptBox) {
-      scriptBox.innerHTML = staleHtml +
+      scriptBox.innerHTML = !assembled
+        ? '<div class="alert warn">本集评审尚未 Approve，未发布组装产物；请在“评审”页查看并应用建议。</div>'
+        : staleHtml +
         '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(episode.title || "未命名") + '</h3>' +
-        verdictBadge(meta.verdict || "") + '</div><div class="card-body stack">' +
+        verdictBadge((stale && review.verdict) || meta.verdict || "") + '</div><div class="card-body stack">' +
         '<div class="kv-list compact">' +
         '<div class="k">logline</div><div class="v">' + escapeHtml(episode.logline || "") + '</div>' +
         '<div class="k">track</div><div class="v"><code>' + escapeHtml(episode.track || "") + '</code></div>' +
@@ -6050,7 +6057,7 @@ JS_DASHBOARD = """\
     }
     const reviewBox = document.getElementById("tab-review");
     if (reviewBox) {
-      const agents = meta.agent_reviews || (review ? [review] : []);
+      const agents = review && review.verdict ? [review] : (meta.agent_reviews || []);
       const suggestions = review.suggestions || [];
       const suggestionHtml = suggestions.length
         ? '<div class="stack">' + suggestions.map(renderDramaSuggestion).join("") + '</div>'
@@ -6074,7 +6081,9 @@ JS_DASHBOARD = """\
         const href = wsUrl("/drama/episode/" + encodeURIComponent(String(episodeNo)) + "/export?format=" + encodeURIComponent(item[0]));
         return '<a class="btn btn-secondary" download href="' + href + '">' + escapeHtml(item[1]) + '</a>';
       }).join("");
-      exportBox.innerHTML = staleHtml + '<div class="card"><div class="card-header"><h3 class="ornament">导出</h3></div><div class="card-body stack"><p class="muted">所有格式均来自已组装的 episode JSON 真源。Comfy 为模板级 workflow，导入后仍需接入本地 checkpoint、LoRA 与节点。</p><div class="cluster">' + buttons + '</div></div></div>';
+      exportBox.innerHTML = !assembled
+        ? '<div class="alert warn">评审通过并组装后才能导出。</div>'
+        : staleHtml + '<div class="card"><div class="card-header"><h3 class="ornament">导出</h3></div><div class="card-body stack"><p class="muted">所有格式均来自已组装的 episode JSON 真源。Comfy 为模板级 workflow，导入后仍需接入本地 checkpoint、LoRA 与节点。</p><div class="cluster">' + buttons + '</div></div></div>';
     }
     loadDramaVideoPanel();
   }
@@ -6136,7 +6145,7 @@ JS_DASHBOARD = """\
         body += '<div class="alert warn">提交结果未知，请先查上游任务与账单；系统不会自动重试。</div>';
       }
       body += '<p class="muted">MVP 固定生成 1 个 5 秒、9:16、720p、无音频无水印的视频任务。</p>' +
-        (data.real_mode
+        (data.real_mode && state !== "submitted"
           ? '<div class="alert warn">真实视频是独立计费授权，不继承真文本或真生图确认。预估费用：¥' + escapeHtml(String(data.estimated_cost_cny == null ? "未配置" : data.estimated_cost_cny)) + '</div>' +
             '<div class="form-grid-2"><div class="field"><label for="video-budget">预算上限（元）</label><input id="video-budget" type="number" min="0.01" step="0.01"></div>' +
             '<div class="field"><label for="video-timeout">超时（分钟）</label><input id="video-timeout" type="number" min="1" max="60" step="1" value="5"></div></div>' +
@@ -6151,7 +6160,9 @@ JS_DASHBOARD = """\
       generate.disabled = true;
       try {
         const payload = { episode_no: 1 };
-        if (data.real_mode) {
+        if (state === "submitted") {
+          payload.resume_submitted = true;
+        } else if (data.real_mode) {
           payload.confirm_real_video = !!(document.getElementById("video-confirm") && document.getElementById("video-confirm").checked);
           payload.budget_cny = Number(document.getElementById("video-budget") && document.getElementById("video-budget").value);
           payload.timeout_minutes = Number(document.getElementById("video-timeout") && document.getElementById("video-timeout").value);

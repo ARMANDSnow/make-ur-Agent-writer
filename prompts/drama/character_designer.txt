@@ -15,15 +15,21 @@
 已完成站③分镜：
 {storyboard_json}
 
+本季已有角色表（可能为空）：
+{existing_characters_json}
+
+本次生成模式：{generation_mode}
+{generation_instruction}
+
 输出字段必须匹配 CharacterSheet：
 - schema_version: 1
 - season_no: 1
 - episode_no: {episode_no}
 - track/source_storyboard_title
-- characters: 1 到 8 个角色，主角和反派必须存在
+- characters: 本次输出 1 到 {generation_limit} 个角色。这是扣除本集已有角色后的硬上限；若已有角色表为空，主角和反派必须存在；revision 模式输出本集替代角色集合
 
 每个角色字段：
-- id: c001/c002/c003 这种连续编号
+- id: c001/c002/c003 这种编号；new_roles 模式必须避开已有 ID，revision 模式优先复用 revision_candidates
 - name/role/age_range/gender
 - lora_token: 小写英文、数字、下划线，可作为 LoRA 触发词
 - visual_features: face/hair/body 等可绘特征，禁止主观词
@@ -39,5 +45,6 @@
 
 硬要求：
 - 主角与反派视觉对照要能服务分镜构图
+- new_roles 模式不得重写、改名或复用已有角色 ID；revision 模式仅可修订 revision_candidates
 - prompt_template_sd 不要写 beautiful/handsome/premium/高级感/漂亮/帅气/好看
 - 不要使用任何已有小说专名或原文片段

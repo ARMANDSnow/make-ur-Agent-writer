@@ -62,6 +62,33 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     storyboard = _load_storyboard(workspace, episode_no=episode_no)
     characters = _load_characters(workspace)
     review = _load_review(workspace, episode_no=episode_no)
+    review_model = DramaReview(**review)
+    if review_model.verdict != "Approve":
+        raise ValueError("drama review verdict must be Approve before episode assembly")
+    expected_review_fingerprint = review_input_fingerprint(
+        setup=setup,
+        storyboard=storyboard,
+        characters=characters,
+        episode_no=episode_no,
+    )
+    upgrading_legacy_review = False
+    if not review_model.input_fingerprint:
+        if not _legacy_review_matches_assembled_episode(
+            workspace,
+            episode_no=episode_no,
+            setup=setup,
+            storyboard=storyboard,
+            characters=characters,
+            review=review,
+        ):
+            raise ValueError("drama review is missing its input fingerprint; run review again")
+        review = model_to_dict(review_model)
+        review["input_fingerprint"] = expected_review_fingerprint
+        review_model = DramaReview(**review)
+        review = model_to_dict(review_model)
+        upgrading_legacy_review = True
+    if review_model.input_fingerprint != expected_review_fingerprint:
+        raise ValueError("drama review inputs changed; run review again before episode assembly")
     fingerprint_ids = episode_character_fingerprint_ids(
         characters, episode_no=episode_no
     )
@@ -115,9 +142,78 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
 
     paths = episode_paths(workspace, episode_no=episode_no)
     meta_data = model_to_dict(meta)
-    write_json(paths.episode_path, episode_data)
-    write_json(paths.meta_path, meta_data)
+    targets = (paths.review_path, paths.episode_path, paths.meta_path)
+    snapshots = {
+        path: path.read_bytes() if path.is_file() else None
+        for path in targets
+    }
+    try:
+        if upgrading_legacy_review:
+            write_json(paths.review_path, review)
+        write_json(paths.episode_path, episode_data)
+        write_json(paths.meta_path, meta_data)
+    except BaseException:
+        for path, payload in snapshots.items():
+            if payload is None:
+                path.unlink(missing_ok=True)
+            else:
+                _write_bytes_atomic(path, payload)
+        raise
     return {"episode": episode_data, "meta": meta_data, "stale": False}
+
+
+def _legacy_review_matches_assembled_episode(
+    workspace: str,
+    *,
+    episode_no: int,
+    setup: Dict[str, Any],
+    storyboard: Dict[str, Any],
+    characters: Dict[str, Any],
+    review: Dict[str, Any],
+) -> bool:
+    """Prove an old approved review was already assembled with these inputs.
+
+    Iterations before review-lineage hashes persisted an assembly fingerprint
+    that included the raw review.  That signed local relationship is the only
+    safe basis for an in-place compatibility upgrade; missing, stale or
+    hand-mixed artifacts must be reviewed again.
+    """
+
+    paths = episode_paths(workspace, episode_no=episode_no)
+    episode = read_json_optional(paths.episode_path, None)
+    meta = read_json_optional(paths.meta_path, None)
+    if not isinstance(episode, dict) or not isinstance(meta, dict):
+        return False
+    try:
+        episode_data = model_to_dict(DramaEpisode(**episode))
+        meta_model = DramaEpisodeMeta(**meta)
+    except (TypeError, ValueError):
+        return False
+    if (
+        meta_model.episode_no != episode_no
+        or meta_model.verdict != "Approve"
+        or meta_model.episode_sha256 != sha256_data(episode_data)
+        or not meta_model.input_fingerprint
+    ):
+        return False
+    version = meta_model.input_fingerprint_version
+    try:
+        current = input_fingerprint(
+            setup=setup,
+            storyboard=storyboard,
+            characters=characters,
+            review=review,
+            episode_no=episode_no,
+            version=version,
+            character_ids=(
+                meta_model.character_fingerprint_ids
+                if version == INPUT_FINGERPRINT_VERSION
+                else None
+            ),
+        )
+    except (TypeError, ValueError):
+        return False
+    return current == meta_model.input_fingerprint
 
 
 def list_episodes(workspace: str) -> List[Dict[str, Any]]:
@@ -243,11 +339,21 @@ def export_episode(
     ):
         raise ValueError("assembled episode_no does not match requested episode")
     validated = model_to_dict(DramaEpisode(**episode))
+    review = _load_review(workspace, episode_no=episode_no)
+    if DramaReview(**review).verdict != "Approve" or is_episode_stale(
+        workspace, episode_no=episode_no
+    ):
+        raise ValueError("assembled episode is stale or no longer approved")
 
     stem = f"episode_{episode_no:02d}"
     if format == "json":
         target = ep.episode_path
-        payload = source_payload
+        # Never pass through unmodelled fields from a hand-edited or legacy
+        # source file.  All public JSON exports use the same schema projection
+        # as the other formats and the season package.
+        payload = (
+            json.dumps(validated, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+        ).encode("utf-8")
         content_type = "application/json; charset=utf-8"
     elif format == "md":
         target = ep.episodes_dir / f"{stem}.storyboard.md"
@@ -328,15 +434,16 @@ def _write_bytes_atomic(path: Path, payload: bytes) -> None:
 def episode_detail(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     paths = episode_paths(workspace, episode_no=episode_no)
     episode = read_json_optional(paths.episode_path, None)
-    if not isinstance(episode, dict):
-        raise FileNotFoundError(f"missing assembled episode: {paths.episode_path}")
-    episode_model = DramaEpisode(**episode)
-    if episode_model.episode_no != episode_no:
-        raise ValueError("assembled episode_no does not match requested episode")
-    episode = model_to_dict(episode_model)
     meta = read_json_optional(paths.meta_path, None)
     review = read_json_optional(paths.review_path, None)
     characters = read_json_optional(character_paths(workspace).sheet_path, None)
+    if not isinstance(episode, dict) and not isinstance(review, dict):
+        raise FileNotFoundError(f"missing assembled episode: {paths.episode_path}")
+    if isinstance(episode, dict):
+        episode_model = DramaEpisode(**episode)
+        if episode_model.episode_no != episode_no:
+            raise ValueError("assembled episode_no does not match requested episode")
+        episode = model_to_dict(episode_model)
     if isinstance(meta, dict):
         meta_model = DramaEpisodeMeta(**meta)
         if meta_model.episode_no != episode_no:
@@ -347,9 +454,11 @@ def episode_detail(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
         if review_model.episode_no != episode_no:
             raise ValueError("episode review number does not match requested episode")
         review = model_to_dict(review_model)
-    stale = is_episode_stale(workspace, episode_no=episode_no)
+    stale = True if not isinstance(episode, dict) else is_episode_stale(
+        workspace, episode_no=episode_no
+    )
     return {
-        "episode": episode,
+        "episode": episode if isinstance(episode, dict) else None,
         "meta": meta if isinstance(meta, dict) else None,
         "review": review if isinstance(review, dict) else None,
         "characters": characters if isinstance(characters, dict) else None,
@@ -425,6 +534,36 @@ def input_fingerprint(
     )
 
 
+def review_input_fingerprint(
+    *,
+    setup: Dict[str, Any],
+    storyboard: Dict[str, Any],
+    characters: Dict[str, Any],
+    episode_no: int,
+) -> str:
+    """Hash inputs that the text reviewer actually evaluates.
+
+    Reference-image provenance is intentionally excluded: it is generated only
+    after text approval and does not change the reviewed character identity.
+    Season-level bookkeeping is also excluded by the episode-scoped view.
+    """
+
+    number = normalize_episode_no(episode_no)
+    character_view = _episode_character_fingerprint_view(
+        characters,
+        episode_no=number,
+    )
+    for row in character_view.get("characters", []):
+        if isinstance(row, dict):
+            row.pop("reference_images", None)
+    return sha256_data({
+        "setup": setup,
+        "storyboard": storyboard,
+        "characters": character_view,
+        "episode_no": number,
+    })
+
+
 def _episode_character_fingerprint_view(
     characters: Dict[str, Any], *, episode_no: int, character_ids: List[str] | None = None
 ) -> Dict[str, Any]:
@@ -482,7 +621,10 @@ def episode_character_fingerprint_ids(
     # Legacy skipped station-4 files omitted later appearances, and older or
     # manually edited episode-1 sheets may use [] for the default cast. Freeze
     # the current ids once so future characters cannot enter this fingerprint.
-    return sorted(set(active or [str(row["id"]) for row in valid_rows]))
+    selected = sorted(set(active or [str(row["id"]) for row in valid_rows]))
+    if len(selected) > 8:
+        raise ValueError("an episode may include at most 8 characters")
+    return selected
 
 
 def migrate_fresh_episode_fingerprints_v2(workspace: str) -> List[int]:

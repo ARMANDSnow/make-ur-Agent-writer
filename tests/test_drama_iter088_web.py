@@ -17,6 +17,7 @@ from src.drama_schemas import (
     episode_paths,
 )
 from src.web import jobs, routes
+from src.utils import write_json
 from tests._drama_base import DramaTestBase
 
 
@@ -172,6 +173,10 @@ class DramaIter088WebTests(DramaTestBase):
         )
         self.assertEqual(status, 409)
 
+        write_json(
+            ep1.review_path,
+            drama_reviewer.run("drama", mock=True, episode_no=1),
+        )
         drama_store.assemble_episode("drama", episode_no=1)
         status, _ct, body = routes.dispatch(
             "POST",
@@ -318,9 +323,11 @@ class DramaIter088WebTests(DramaTestBase):
         result = json.loads(body)
         self.assertFalse(result["skipped"])
         self.assertEqual(result["sheet"]["episode_no"], 2)
-        self.assertTrue(
-            all(2 in row.get("appearances", []) for row in result["sheet"]["characters"])
-        )
+        self.assertIn(2, result["sheet"]["generated_episode_nos"])
+        self.assertTrue(any(
+            row.get("name") == "新增角色2" and 2 in row.get("appearances", [])
+            for row in result["sheet"]["characters"]
+        ))
 
     def test_drama_insights_page_api_and_static_contract(self) -> None:
         self._assembled_episode_one()

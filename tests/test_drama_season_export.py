@@ -7,7 +7,7 @@ import json
 import zipfile
 from unittest import mock
 
-from src import character_designer, drama_reviewer, drama_season_export, drama_store, paths, storyboard_builder
+from src import character_designer, drama_multimodal_smoke as multi, drama_reviewer, drama_season_export, drama_store, paths, storyboard_builder
 from src.drama_schemas import character_paths, episode_paths
 from src.utils import write_json
 from tests._drama_base import DramaTestBase
@@ -129,13 +129,13 @@ class DramaSeasonExportTests(DramaTestBase):
 
     def test_valid_reference_is_included_and_hashed(self) -> None:
         rel = "data/character_refs/c001/ref.png"
-        self._assembled_episode_one(reference_path=rel, reference_bytes=b"safe-png")
+        self._assembled_episode_one(reference_path=rel, reference_bytes=multi._PNG_1X1)
         artifact = drama_season_export.export_season("season", mode="master")
         with zipfile.ZipFile(io.BytesIO(artifact.body)) as archive:
             member = "character_refs/c001/ref.png"
-            self.assertEqual(archive.read(member), b"safe-png")
+            self.assertEqual(archive.read(member), multi._PNG_1X1)
         record = next(row for row in artifact.manifest["files"] if row["path"] == member)
-        self.assertEqual(record["size"], len(b"safe-png"))
+        self.assertEqual(record["size"], len(multi._PNG_1X1))
         self.assertEqual(len(record["sha256"]), 64)
 
     def test_failed_rebuild_does_not_overwrite_previous_master(self) -> None:
@@ -152,7 +152,7 @@ class DramaSeasonExportTests(DramaTestBase):
 
     def test_package_normalizes_episode_json_and_projects_character_secrets(self) -> None:
         rel = "data/character_refs/c001/ref.png"
-        self._assembled_episode_one(reference_path=rel, reference_bytes=b"safe-png")
+        self._assembled_episode_one(reference_path=rel, reference_bytes=multi._PNG_1X1)
         sheet_path = character_paths("season").sheet_path
         sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
         row = sheet["characters"][0]

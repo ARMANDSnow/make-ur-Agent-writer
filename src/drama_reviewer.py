@@ -89,15 +89,31 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
                 isinstance(item, str) and item.endswith(":missing")
                 for item in (score_warnings or [])
             ):
-                return parse_failed_review(
+                review = DramaReview(**parse_failed_review(
                     episode_no=episode_no,
                     season_no=int(characters.get("season_no") or 1),
-                )
-            review = DramaReview(**payload)
+                ))
+            else:
+                review = DramaReview(**payload)
         except Exception:
-            return parse_failed_review(episode_no=episode_no, season_no=int(characters.get("season_no") or 1))
+            review = DramaReview(**parse_failed_review(
+                episode_no=episode_no,
+                season_no=int(characters.get("season_no") or 1),
+            ))
 
-    return model_to_dict(review)
+    # Bind the review to the exact text/character identity it evaluated.  The
+    # assembler independently recomputes this value, so stale or hand-mixed
+    # station files cannot be blessed by a manual assemble call.
+    from .drama_store import review_input_fingerprint
+
+    result = model_to_dict(review)
+    result["input_fingerprint"] = review_input_fingerprint(
+        setup=setup,
+        storyboard=storyboard,
+        characters=characters,
+        episode_no=episode_no,
+    )
+    return model_to_dict(DramaReview(**result))
 
 
 def parse_failed_review(*, episode_no: int = 1, season_no: int = 1) -> Dict[str, Any]:

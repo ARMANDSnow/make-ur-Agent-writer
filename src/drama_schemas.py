@@ -441,14 +441,27 @@ class CharacterSheet(BaseModel):
     schema_version: int = 1
     season_no: int = Field(default=1, ge=1)
     episode_no: int = Field(default=1, ge=1, le=MAX_DRAMA_EPISODE_NO)
+    generated_episode_nos: List[int] = Field(default_factory=list, max_length=MAX_DRAMA_EPISODE_NO)
     track: str = Field(default="", max_length=20)
     source_storyboard_title: str = Field(default="", max_length=80)
-    characters: List[DramaCharacter] = Field(min_length=1, max_length=8)
+    # A single station invocation is checked separately at the station boundary.
+    # This model is the season-wide library; c001-c999 is the durable id space.
+    characters: List[DramaCharacter] = Field(min_length=1, max_length=999)
 
     @field_validator("episode_no", mode="before")
     @classmethod
     def _episode_no_is_strict(cls, value: Any) -> int:
         return _strict_schema_episode_no(value)
+
+    @field_validator("generated_episode_nos", mode="before")
+    @classmethod
+    def _generated_episode_nos_are_strict(cls, value: Any) -> List[int]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("generated_episode_nos must be a list")
+        numbers = [_strict_schema_episode_no(item) for item in value]
+        return sorted(set(numbers))
 
     @model_validator(mode="after")
     def _ids_unique_and_contrast_targets_exist(self) -> "CharacterSheet":
@@ -580,6 +593,10 @@ class DramaReview(BaseModel):
     reject_station: Optional[DramaReviewStation] = None
     verdict_warning: str = ""
     parse_failed: bool = False
+    # Hash of the exact setup/storyboard/episode-cast identity reviewed by the
+    # agent.  It deliberately excludes generated reference-image metadata so a
+    # paid image phase can reassemble without pretending the text was re-read.
+    input_fingerprint: str = Field(default="", pattern=r"^(?:|[0-9a-f]{64})$")
 
     @field_validator("episode_no", mode="before")
     @classmethod

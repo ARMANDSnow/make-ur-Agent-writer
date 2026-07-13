@@ -217,19 +217,16 @@ class DramaExportTests(DramaTestBase):
                     drama_store.export_episode("missing", format=export_format)
         self.assertFalse(list(episode_paths("missing").episodes_dir.glob("episode_*")))
 
-    def test_stale_episode_exports_assembled_source_without_reassembly(self) -> None:
+    def test_stale_episode_export_fails_closed(self) -> None:
         self._assembled_workspace()
         ep = episode_paths("exports")
-        original = json.loads(ep.episode_path.read_text(encoding="utf-8"))
         board = json.loads(ep.storyboard_path.read_text(encoding="utf-8"))
         board["title"] = "站点文件已修改"
         write_json(ep.storyboard_path, board)
 
-        artifact = drama_store.export_episode("exports", format="md")
-        self.assertTrue(artifact.stale)
-        text = artifact.body.decode("utf-8")
-        self.assertIn(original["title"], text)
-        self.assertNotIn("站点文件已修改", text)
+        with self.assertRaisesRegex(ValueError, "stale or no longer approved"):
+            drama_store.export_episode("exports", format="md")
+        self.assertFalse((ep.episodes_dir / "episode_01.storyboard.md").exists())
 
     def test_list_episodes_uses_numeric_sort_and_skips_dirty_numbers(self) -> None:
         self._make_drama_workspace("listing", "霸总")
