@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 102，2026-07-14 收官 |
+| 更新时间 | iter 103，2026-07-14 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2069 tests OK** |
-| Accepted implementation commit | `43d3dd99fe0243360c74f7e0779248a1b371098a` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`；隔离 synthetic workspace；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
+| Canonical 基线 | **2080 tests OK** |
+| Accepted implementation commit | `4207237af94e68ae4700e1570eb885b35e1b554e` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`；必跑独立 `local-e2e` 短剧组件证据；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | iter 103 本地 fake-provider 整链进行中 |
+| 当前开发轮次 | 无；下一轮按计划为 iter 104 crash/restart 与状态矩阵 |
 
 ## Capability Map
 
@@ -22,7 +22,7 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单次/单集 8 人边界、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；普通 Web workspace 可在锁内验证后进入真生图，submitted 视频可沿用 durable 原授权纯轮询 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；当前真图片入口仅支持严格 PNG，episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单次/单集 8 人边界、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 已覆盖图片/视频/callback/五站授权整链 `local-e2e` | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；当前真图片入口仅支持严格 PNG，episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
@@ -33,7 +33,8 @@
 - 季角色库可跨集增长，单次生成和单集 active cast 仍最多 8 人；revision 只替换本集首登角色，新角色使用冲突安全 ID，旧 schema 站④标记 fail-closed。
 - submitted 真视频在 Web 与 multimodal runner 中均使用 durable 原预算/超时/估价纯 poll，mode 漂移时禁止 mock 覆盖；旧本地视频不再遮蔽上游 submitted 状态。
 - 导出仅使用 schema 投影和真实打包的参考图 member，参考图绑定角色目录并做严格 PNG 结构校验；callback capability 不进入 access log。
-- canonical **2069 tests OK**（项目 `.venv`）；`verify.sh` 在 accepted implementation commit `43d3dd9` 上 exit 0；evidence schema v2 绑定 HEAD/tree，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。未运行真文本、真生图或真视频。
+- canonical **2080 tests OK**（项目 `.venv`）；`verify.sh` 在 accepted implementation commit `4207237` 上 exit 0；evidence schema v2 绑定 HEAD/tree，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。未运行真文本、真生图或真视频。
+- mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`：2 次图片生成、2 asset upload/poll、1 video create、2 poll、1 download、2 跨进程 callback，成功后 resume 零网络；五站授权闭包 5/5。
 - 标准验收不再接受 named workspace；所有 pipeline 步骤只在带 marker 的系统临时 synthetic workspace 运行，并在 Python 启动前物理短路 dotenv。普通未跟踪 `docs/**` 报告不阻断，代码/测试/workflow 漂移 fail-closed。
 - correctness/behavior、security/boundary、harness/git 3 个只读 subagent 复核；无未修 P0/P1。保留 cleanup check 到删除之间同 UID 竞态的 P2，以及既有项目锁外 JSON 父目录竞态 P2。
 
@@ -256,4 +257,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 102 将 canonical `verify.sh` 收口为无参数、隔离 synthetic workspace 的 mock/offline 入口，新增 dotenv 物理短路、schema v2 evidence 的 HEAD/tree/cleanliness 绑定、accepted implementation commit 和 Acceptance ID 闭包守门。首次全量验收抓到并修复默认图片模型污染进程环境；重验后 `43d3dd9` 上 2069 项 canonical 与 0 WARN/FATAL mock preflight 全绿。未运行任何真 provider。
+iter 103 在不修改生产 localhost/SSRF 守门的前提下，建立只存在测试作用域的 loopback fake provider，打通图片 staging/receipt/canonical、独立 callback 进程与视频 create/poll/result/ledger、五站一次性授权闭包。Canonical 现必跑同 run/HEAD/tree 绑定的 `local-e2e` 组件证据，但总等级仍为 `mock-functional`。`4207237` 上 2080 项 canonical 与 0 WARN/FATAL preflight 全绿，三视角复核无残余 P0-P2，未运行真 provider。

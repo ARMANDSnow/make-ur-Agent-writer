@@ -34,7 +34,14 @@ iter 102 已将 canonical 验收隔离到 synthetic workspace 并绑定审计基
 
 ## Acceptance Result
 
-<待 iter-finish 逐项回填 A103-01 至 A103-06。>
+- `A103-01`：通过。fake provider 只绑定 `127.0.0.1:0`，返回结构一致的严格 PNG/MP4 fixture；对外 evidence 仅含固定请求分类与次数。
+- `A103-02`：通过。两个 synthetic 角色均经生产 OpenAI image adapter 完成真实 loopback HTTP、staging、receipt、canonical promote；持久 state、文件 hash、record hash 与角色 reference 一致，每角色仅 1 次请求。
+- `A103-03`：通过。独立 callback 进程被 fake provider 实际请求 2 次；视频链完成 2 asset upload/poll、1 create、2 poll、1 strict MP4 download，ledger/meta/canonical 一致；成功后 resume 为零网络且 create 计数不增。
+- `A103-04`：通过。实际 `JS_DASHBOARD` 锁定三条授权赋值，五站 route 守门与 worker 均 5/5 收到当次参数；三类公开 job 投影移除 `confirm_*`，下一次无授权请求全部返回 400。
+- `A103-05`：通过。OpenAI image 与 compatible video golden 分离，记录 `reviewed_at=2026-07-14` 与 `local-contract-fixture-only`，未将本地合同表述为供应商权威。
+- `A103-06`：通过。canonical evidence 仍为 `mock-functional`，并必含 `local_drama_e2e` step；组件 evidence 为 `local-e2e`、`provider_validated=false`，与同一 run/HEAD/tree 绑定，缺失、陈旧、symlink、伪造或 skip 均 fail-closed。
+- 只读审查：correctness/behavior、security/boundary、provider-contract/Web-callback 三视角完成；所有有效 findings 均修复并复核，无残余 P0-P2。结构 MP4 只证明当前本地 parser/contract，不证明真供应商编码质量。
+- implementation commit `4207237af94e68ae4700e1570eb885b35e1b554e` 上 `bash scripts/verify.sh` exit 0，**2080 tests OK**，15 个 canonical steps 全部完成，mock preflight 0 FATAL / 0 WARN；component local-E2E 计数与上述合同完全一致。未触发外网或真实 provider。
 
 ## 文件变更汇总
 

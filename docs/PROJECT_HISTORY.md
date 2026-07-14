@@ -28,6 +28,7 @@
 | 100 | 短剧真模型全链阻塞修复 | 稳定恢复身份、跨进程 callback、媒体 crash receipt、result-host 血统与 Web 逐次授权 |
 | 101 | 短剧完整链路残余阻塞修复 | 文本 revision、Approve 血统、旧 workspace 媒体接管、季角色库与 submitted 纯轮询恢复 |
 | 102 | 标准验收隔离与审计基线 | synthetic workspace、dotenv 物理短路、evidence v2、accepted commit 与 Acceptance ID 闭包 |
+| 103 | 本地 Fake Provider 整链 | 图片/视频/callback/五站授权 loopback E2E，组件证据与 canonical identity 绑定 |
 
 ## Iteration Implementation Index
 
@@ -111,6 +112,7 @@
 | 100 | 修复短剧真模型全链恢复与入口阻塞 | `src/web/jobs.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`src/web/static.py`、`tests/test_drama_iter100_hardening.py` |
 | 101 | 修复短剧完整链路残余阻塞 | `src/drama_store.py`、`src/character_designer.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_iter101_blockers.py` |
 | 102 | 隔离 canonical 验收并绑定审计基线 | `scripts/verify.sh`、`scripts/write_acceptance.py`、`scripts/check_agent_harness.py`、`src/config.py`、`tests/test_agent_harness.py` |
+| 103 | 建立本地 fake-provider 短剧整链验收 | `scripts/run_local_drama_e2e.py`、`tests/support/local_drama_*.py`、`scripts/verify.sh`、`tests/test_local_drama_e2e.py` |
 
 ## Durable Decisions
 
@@ -167,6 +169,7 @@
 16. **付费前门禁必须与请求处在同一锁域**：先在锁外判断 fresh，再进锁调 provider，会留下 Web 编辑 TOCTOU；旧产物迁移也应在首次 runner state 前完成，否则 crash 会把新产物与旧指纹拆开。
 17. **季库容量、单次输出和单集 cast 是三个边界**：共用一个 schema 上限会让“第 9 个季角色”与“单集最多 8 人”互相阻塞。Prompt 的剩余槽位、merge 后 active cast 和 meta 必须使用同一语义。
 18. **验收要隔离输入，也要绑定被验收实体**：只强制 mock 不足以阻止 ambient workspace、dotenv 或全局进程环境污染。Canonical 入口应使用 synthetic workspace，在 import 前物理短路 dotenv，并用 HEAD/tree/cleanliness 证明证据对应哪个 implementation commit。聚焦 Python 检查也必须使用同等的 dotenv 隔离前置。
+19. **本地 E2E 的难点是防止假阳性，不是启动一个 HTTP server**：必须证明请求真的经过生产 adapter/transport，并重读 durable state、复算 hash、穷尽计数、验证零网络 resume。组件证据必须与 canonical run/commit 绑定，而 `local-e2e` 不能借任何字段升格为 `provider-validated`。
 
 ## Historical Evidence Notes
 

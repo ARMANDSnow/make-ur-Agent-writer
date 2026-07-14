@@ -129,18 +129,19 @@ docs/iterations/           逐轮审计记录
 | 短剧真模型全链阻塞修复 | 100 | ✅ 跨进程 callback、稳定恢复身份、媒体 crash receipt 与 Web 逐次授权已收口；真校准仍待分段授权 |
 | 短剧完整链路残余阻塞修复 | 101 | ✅ 文本 revision、Approve 血统、旧 workspace 媒体接管、多集角色与 submitted 纯轮询恢复已收口；真校准仍待分段授权 |
 | 标准验收隔离与审计基线 | 102 | ✅ 无参数 canonical 入口、synthetic workspace、dotenv 物理短路、evidence v2 与 accepted commit 守门已收口 |
+| 本地 Fake Provider 整链 | 103 | ✅ 图片/视频/callback/五站授权 loopback `local-e2e` 已纳入 canonical；不代表真供应商验证 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 102**（2026-07-14，收官）。标准验收已收口为无参数 canonical mock/offline 入口：不承接私有 workspace，只在带 marker 的系统临时 synthetic workspace 运行，并以 schema v2 evidence 绑定 accepted implementation commit、Git tree 与 tracked cleanliness。未运行真实文本、生图或视频。
+最近一次更新：**iter 103**（2026-07-14，收官）。Canonical 验收现必跑本地 fake-provider 短剧整链：图片经真实 loopback HTTP 完成 staging/receipt/canonical，视频经独立 callback 进程完成 create/poll/result/ledger，五站一次性授权完整闭包。组件证据为 `local-e2e`，总验收仍为 `mock-functional`，不等于真供应商校准。未运行真实文本、生图或视频。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
 | 阶段 | 当前能力 | 状态 | 关键迭代 |
 |---|---|---|---|
-| 运行基础 | mock 严格离线、dotenv 物理短路、隔离 synthetic workspace、accepted commit/evidence 审计绑定 | ✅ | 006-008, 047B2, 096, 102 |
+| 运行基础 | mock 严格离线、dotenv 物理短路、隔离 synthetic workspace、accepted commit/evidence 审计绑定、必跑 local-drama E2E | ✅ | 006-008, 047B2, 096, 102-103 |
 | 1. 输入准备 | normalize、split、manifest、多语言/EPUB | ✅ | 001-002, 018 |
 | 2. 知识抽取 | extract、compress、五类 bootstrap/apply | ✅ | 003-004, 015-016 |
 | 3. 起点判断 | start point、anchor、长程起点一致性硬门 | ✅ | 021, 027 |
@@ -150,7 +151,7 @@ docs/iterations/           逐轮审计记录
 | 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
 | 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | ⚠️ | 工程已通；10-20 章真模型 capstone 待授权 |
-| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集 8 人边界、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt 与 submitted 纯轮询恢复 | ⚠️ | mock 工程与真跑前安全闭环；真多模态待分段授权与人工质量判断（088-101） |
+| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集 8 人边界、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt、submitted 纯轮询恢复与 fake-provider local-E2E | ⚠️ | local-E2E 与真跑前安全闭环；真多模态待分段授权与人工质量判断（088-103） |
 
 ## 文档导航
 
