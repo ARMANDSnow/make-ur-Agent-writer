@@ -1,13 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage: bash scripts/verify.sh
+
+Runs the single canonical mock/offline acceptance in an isolated synthetic
+workspace. Named/private workspaces are intentionally unsupported.
+EOF
+}
+
+if [[ $# -gt 0 ]]; then
+  if [[ $# -eq 1 && "$1" == "--help" ]]; then
+    usage
+    exit 0
+  fi
+  echo "[FATAL] verify.sh accepts no workspace or other arguments" >&2
+  usage >&2
+  exit 64
+fi
+
 # verify.sh is the single canonical mock/offline acceptance entry. Pin every
 # provider surface before any Python process can load the user's .env.
+unset WORKSPACE_NAME BOOK
 export OPENAI_MODEL=mock
 export DRAMA_MODEL=mock
 export PLANNER_MODEL=mock
 export SD_VIDEO_MODE=mock
 export LITELLM_LOCAL_MODEL_COST_MAP=true
+export DRAGON_RAJA_SKIP_DOTENV=1
+export PYTHON_DOTENV_DISABLED=1
 unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_STREAM
 unset PLANNER_API_KEY PLANNER_BASE_URL
 unset AI_DRAW_ENDPOINT AI_DRAW_BASE_URL AI_DRAW_MODEL AI_DRAW_API_KEY AI_DRAW_RESULT_HOSTS
@@ -76,7 +98,10 @@ on_exit() {
     rm -f "$COUNT_FILE"
   fi
   if [[ -n "$RUN_DIR" ]]; then
-    rmdir "$RUN_DIR" 2>/dev/null || true
+    if [[ ! -L "$RUN_DIR" && ! -L "$RUN_DIR/.dragon-raja-verify-owned" \
+      && -f "$RUN_DIR/.dragon-raja-verify-owned" ]]; then
+      rm -rf -- "$RUN_DIR"
+    fi
   fi
   if [[ "$evidence_ok" -eq 1 && "$exit_code" -eq 0 ]]; then
     echo "Acceptance evidence: $ROOT/outputs/harness/acceptance.json"
@@ -94,7 +119,19 @@ fi
 
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dragon-raja-verify.XXXXXX")"
 chmod 700 "$RUN_DIR"
+touch "$RUN_DIR/.dragon-raja-verify-owned"
+chmod 600 "$RUN_DIR/.dragon-raja-verify-owned"
 COUNT_FILE="$RUN_DIR/unittest-count"
+VERIFY_WORKSPACE_ROOT="$RUN_DIR/workspaces"
+VERIFY_BOOK_ROOT="$VERIFY_WORKSPACE_ROOT/verify"
+mkdir -p "$VERIFY_BOOK_ROOT/小说txt"
+touch "$VERIFY_WORKSPACE_ROOT/.dragon-raja-verify-owned"
+chmod 600 "$VERIFY_WORKSPACE_ROOT/.dragon-raja-verify-owned"
+cat > "$VERIFY_BOOK_ROOT/小说txt/verify-placeholder.txt" <<'EOF'
+第一章 离线验收占位
+
+<用户填写正文>
+EOF
 
 complete_step() {
   if [[ -n "$COMPLETED_STEPS" ]]; then
@@ -125,36 +162,12 @@ run_step() {
 run_main_step() {
   local step="$1"
   shift
-  if [[ -n "$BOOK" ]]; then
-    run_step "$step" "$PYTHON_BIN" main.py --book "$BOOK" "$@"
-  else
-    run_step "$step" "$PYTHON_BIN" main.py "$@"
-  fi
+  run_step "$step" "$PYTHON_BIN" scripts/run_isolated_cli.py \
+    --workspace-root "$VERIFY_WORKSPACE_ROOT" "$@"
 }
-
-# iter 017: accept --book / $WORKSPACE_NAME so verify can target a per-book
-# workspace. Default (no flag, no env) is legacy mode = repo-root paths.
-BOOK="${WORKSPACE_NAME:-${BOOK:-}}"
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --book)
-      if [[ $# -lt 2 ]]; then
-        CURRENT_STEP="argument_parsing"
-        echo "[FATAL] --book requires a workspace name" >&2
-        exit 64
-      fi
-      BOOK="$2"
-      shift 2
-      ;;
-    --book=*) BOOK="${1#--book=}"; shift;;
-    *) shift;;
-  esac
-done
-if [ -n "$BOOK" ]; then
-  export WORKSPACE_NAME="$BOOK"
-fi
+run_step repository_state "$PYTHON_BIN" scripts/write_acceptance.py check-repository --root "$ROOT"
 run_step harness_check "$PYTHON_BIN" scripts/check_agent_harness.py
-run_step py_compile "$PYTHON_BIN" -m py_compile main.py src/*.py src/web/*.py tests/*.py
+run_step py_compile "$PYTHON_BIN" -m py_compile main.py src/*.py src/web/*.py tests/*.py scripts/run_isolated_cli.py
 
 CURRENT_STEP="unittest"
 set +e

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -15,6 +16,64 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MockOfflineConfigTests(unittest.TestCase):
+    def test_python_dotenv_global_disable_prevents_file_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / ".env"
+            env_file.write_text("ITER102_DOTENV_SENTINEL=secret\n", encoding="utf-8")
+            code = textwrap.dedent(
+                """
+                import os
+                target = os.environ["ITER102_ENV_PATH"]
+                opened = []
+                def audit(event, args):
+                    if event == "open" and args and os.fspath(args[0]) == target:
+                        opened.append(target)
+                import sys
+                sys.addaudithook(audit)
+                from dotenv import load_dotenv
+                assert load_dotenv(target) is False
+                assert "ITER102_DOTENV_SENTINEL" not in os.environ
+                assert opened == []
+                """
+            )
+            env = os.environ.copy()
+            env.pop("ITER102_DOTENV_SENTINEL", None)
+            env["PYTHON_DOTENV_DISABLED"] = "1"
+            env["ITER102_ENV_PATH"] = str(env_file)
+            result = subprocess.run(
+                [sys.executable, "-c", code], env=env, text=True,
+                capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_verify_skip_dotenv_returns_before_importing_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_root = Path(tmp)
+            marker = fake_root / "dotenv-imported"
+            (fake_root / "dotenv.py").write_text(
+                "from pathlib import Path\n"
+                f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\n"
+                "def load_dotenv(*args, **kwargs): raise AssertionError('called')\n",
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["DRAGON_RAJA_SKIP_DOTENV"] = "1"
+            env["PYTHONPATH"] = os.pathsep.join((str(fake_root), str(ROOT)))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "from src.config import load_dotenv_if_available; load_dotenv_if_available()",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+
     def test_mock_overrides_conflicting_cost_map_setting(self) -> None:
         models = {"default": {"model": "mock"}}
         with patch.dict(

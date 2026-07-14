@@ -17,9 +17,14 @@ DEFAULT_CONTEXT_LIMITS = {
     "claude": 200000,
 }
 LITELLM_LOCAL_MODEL_COST_MAP_ENV = "LITELLM_LOCAL_MODEL_COST_MAP"
+SKIP_DOTENV_ENV = "DRAGON_RAJA_SKIP_DOTENV"
 
 
 def load_dotenv_if_available() -> None:
+    # Canonical verification must not even open or parse the user's .env.
+    # Check before importing python-dotenv or constructing the file path.
+    if os.environ.get(SKIP_DOTENV_ENV) == "1":
+        return
     if _running_under_unittest_discover():
         os.environ["OPENAI_MODEL"] = "mock"
         for key in RUNTIME_ENV_KEYS:

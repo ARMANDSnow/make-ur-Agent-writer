@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +28,17 @@ INDEX_ENTRY_RE = re.compile(
     re.MULTILINE,
 )
 HANDOFF_ITER_RE = re.compile(r"\|\s*更新时间\s*\|\s*iter\s+(\d{3})\b")
+HANDOFF_COMMIT_RE = re.compile(
+    r"\|\s*Accepted implementation commit\s*\|\s*`?([0-9a-f]{40})`?\s*\|"
+)
 README_ITER_RE = re.compile(r"最近一次更新：\*\*iter\s+(\d{3})\*\*")
+ACCEPTANCE_ID_RE = re.compile(r"\bA\d{3}-\d{2}\b")
+ALLOWED_CLOSURE_FILES = {
+    "README.md",
+    "docs/AGENT_HANDOFF.md",
+    "docs/PROJECT_HISTORY.md",
+    "docs/iterations/README.md",
+}
 
 
 @dataclass(frozen=True)
@@ -84,6 +95,87 @@ def _section(text: str, name: str) -> str:
 def _frontmatter_name(text: str) -> str | None:
     match = re.match(r"\A---\s*\n.*?^name:\s*([^\n]+)\n.*?^---\s*$", text, re.M | re.S)
     return match.group(1).strip().strip('"\'') if match else None
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _git_paths(root: Path, *args: str) -> tuple[int, list[str]]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 1, []
+    return result.returncode, [
+        value.decode("utf-8", errors="surrogateescape")
+        for value in result.stdout.split(b"\0")
+        if value
+    ]
+
+
+def _allowed_closure_path(path: str, accepted_target: str | None) -> bool:
+    if path in ALLOWED_CLOSURE_FILES:
+        return True
+    return bool(accepted_target and path == f"docs/iterations/{accepted_target}")
+
+
+def _check_accepted_baseline(
+    root: Path,
+    accepted_target: str | None,
+    accepted_commit: str | None,
+    active: str | None,
+    errors: list[str],
+) -> None:
+    if not accepted_commit:
+        return
+    exists = _git(root, "cat-file", "-e", f"{accepted_commit}^{{commit}}")
+    if exists is None or exists.returncode != 0:
+        errors.append("accepted implementation commit does not exist")
+        return
+    ancestor = _git(root, "merge-base", "--is-ancestor", accepted_commit, "HEAD")
+    if ancestor is None or ancestor.returncode != 0:
+        errors.append("accepted implementation commit must be an ancestor of HEAD")
+        return
+    if active is not None:
+        return
+
+    changed_rc, changed_paths = _git_paths(
+        root, "diff", "--name-only", "-z", accepted_commit, "--"
+    )
+    if changed_rc:
+        errors.append("cannot compare accepted implementation commit to worktree")
+        return
+    forbidden = [
+        path for path in changed_paths if not _allowed_closure_path(path, accepted_target)
+    ]
+    untracked_rc, untracked_paths = _git_paths(
+        root, "ls-files", "--others", "--exclude-standard", "-z"
+    )
+    if untracked_rc:
+        errors.append("cannot inspect untracked repository paths")
+        return
+    forbidden.extend(
+        path for path in untracked_paths if not path.startswith("docs/")
+    )
+    if forbidden:
+        errors.append(
+            "implementation drift exists after the accepted commit: "
+            + ", ".join(sorted(set(forbidden))[:10])
+        )
 
 
 def _check_skills(root: Path, errors: list[str]) -> None:
@@ -163,6 +255,9 @@ def check_harness(root: Path) -> list[str]:
     accepted = _single_match(
         HANDOFF_ITER_RE, handoff_text, "handoff accepted iteration", errors
     )
+    accepted_commit = _single_match(
+        HANDOFF_COMMIT_RE, handoff_text, "handoff accepted implementation commit", errors
+    )
     readme_iter = _single_match(
         README_ITER_RE, readme_text, "README latest iteration", errors
     )
@@ -172,6 +267,7 @@ def check_harness(root: Path) -> list[str]:
         )
 
     active: str | None = None
+    accepted_target: str | None = None
     if entries and accepted:
         latest = entries[-1]
         accepted_entries = [entry for entry in entries if entry.iteration == accepted]
@@ -182,6 +278,7 @@ def check_harness(root: Path) -> list[str]:
             )
         else:
             accepted_entry = accepted_entries[0]
+            accepted_target = accepted_entry.target
             if not accepted_entry.target.startswith(f"iteration_{accepted}_"):
                 errors.append(
                     f"accepted index target must start with iteration_{accepted}_: "
@@ -209,12 +306,32 @@ def check_harness(root: Path) -> list[str]:
             )
         latest_path = valid_targets.get(latest.target)
         if latest_path is not None:
-            headings = _h2_headings(_read(latest_path, errors))
+            latest_text = _read(latest_path, errors)
+            headings = _h2_headings(latest_text)
             if headings != EXPECTED_ITERATION_SECTIONS:
                 errors.append(
                     f"latest indexed iteration must have exactly the 8 canonical sections; "
                     f"found {headings}"
                 )
+            acceptance_ids = ACCEPTANCE_ID_RE.findall(_section(latest_text, "Acceptance"))
+            if len(acceptance_ids) != len(set(acceptance_ids)):
+                errors.append("latest iteration Acceptance IDs must be unique")
+            require_ids = latest.iteration.isdigit() and int(latest.iteration) >= 102
+            expected_prefix = f"A{latest.iteration}-"
+            if require_ids and not acceptance_ids:
+                errors.append("latest iteration must define at least one Acceptance ID")
+            if any(not value.startswith(expected_prefix) for value in acceptance_ids):
+                errors.append("latest iteration Acceptance IDs must match its iteration number")
+            if active is None and acceptance_ids:
+                result_id_list = ACCEPTANCE_ID_RE.findall(
+                    _section(latest_text, "Acceptance Result")
+                )
+                if len(result_id_list) != len(set(result_id_list)):
+                    errors.append("Acceptance Result IDs must be unique")
+                if set(acceptance_ids) != set(result_id_list):
+                    errors.append(
+                        "accepted iteration Acceptance and Result ID sets must match"
+                    )
 
     agents_text = _read(root / "AGENTS.md", errors)
     validation = _section(agents_text, "标准验证")
@@ -234,6 +351,7 @@ def check_harness(root: Path) -> list[str]:
         errors.append("README quick start duplicates the unittest run inside verify.sh")
 
     _check_skills(root, errors)
+    _check_accepted_baseline(root, accepted_target, accepted_commit, active, errors)
     return errors
 
 

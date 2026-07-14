@@ -28,6 +28,7 @@ Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与�
 - `iter-start` 新建当轮文档并更新 iteration 索引。
 - `iter-finish` 先跑聚焦检查，再完成只读多视角审查与修复，最后只跑一次标准全量验收；随后更新 README SOP，并**就地更新** handoff 当前快照和“Latest Transition”。
 - 收官默认至少两个独立只读 subagent：correctness 与 security/boundary。Web、runner、多 workspace、真模型或计费入口按风险增加视角。
+- 验收结论固定分为 `safe-blocked`、`mock-functional`、`local-e2e`、`provider-validated`；标准 `verify.sh` 只能产生 `mock-functional`，不得据此宣称真实 provider 已验证。
 - 只 commit，不 push，等待用户验收。
 
 ## 工程铁律
@@ -52,6 +53,8 @@ bash scripts/verify.sh
 ```
 
 `scripts/verify.sh` 固定使用项目 `.venv/bin/python3`，依次执行 harness 检查、语法检查、一次全量单测、mock pipeline 与 preflight，并写入 gitignored 的 `outputs/harness/acceptance.json`。其 `data/`、`outputs/`、`logs/` 验证产物已获默认授权；不得因此读取用户私有样本，也不得切换到真模型。聚焦 Python 检查同样使用 `.venv/bin/python3`。
+
+canonical `verify.sh` 不接受 `--book`，不继承 ambient workspace，并在系统临时目录使用 synthetic workspace。收官实现/测试/workflow 先形成 implementation commit，在该 commit 上验收；随后只允许 docs-only 收官提交。
 
 真模型 smoke 入口仅供获授权后使用：
 

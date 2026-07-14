@@ -64,6 +64,25 @@ class DramaMultimodalSmokeTests(DramaTestBase):
         self.assertEqual(read_json(multi.state_path("multi"))["image_attempts"], state["image_attempts"])
         self.assertNotEqual(before, b"")
 
+    def test_real_image_default_model_does_not_mutate_process_environment(self) -> None:
+        with patch.dict(os.environ, {
+            "CONFIRM_REAL_MODEL_SMOKE": "可以跑了",
+            "DRAMA_MODEL": "mock",
+        }, clear=False), patch.dict(os.environ, {"AI_DRAW_MODEL": ""}, clear=False), \
+                patch("src.drama_multimodal_smoke.redraw_character_reference") as redraw:
+            redraw.return_value = {"status": "succeeded", "path": "unused"}
+            state = multi.run("default-model-env", real_text=True, real_image=True, options={
+                "confirm_real_text": True,
+                "text_budget_cny": 5,
+                "text_timeout_seconds": 20,
+                "confirm_real_image": True,
+                "image_budget_cny": 5,
+                "image_estimated_cost_cny": 1,
+                "image_timeout_seconds": 20,
+            })
+            self.assertIn(state["status"], {"awaiting_video_authorization", "awaiting_retry_authorization"})
+            self.assertEqual(os.environ.get("AI_DRAW_MODEL"), "")
+
     def test_calibration_report_separates_mock_from_real_evidence(self) -> None:
         multi.run("calibration-mock")
         report = multi.calibration_report("calibration-mock")

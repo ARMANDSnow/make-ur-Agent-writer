@@ -17,18 +17,20 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_RECORD_BYTES = 64 * 1024
+ACCEPTANCE_LEVEL = "mock-functional"
+VERIFICATION_PROFILE = "canonical-mock-offline"
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _git_head(root: Path) -> str | None:
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
             text=True,
             capture_output=True,
             timeout=5,
@@ -36,8 +38,48 @@ def _git_head(root: Path) -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    value = result.stdout.strip()
-    return value if result.returncode == 0 and len(value) == 40 else None
+
+
+def _git_paths(root: Path, *args: str) -> tuple[int, list[str]]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 1, []
+    paths = [os.fsdecode(value) for value in result.stdout.split(b"\0") if value]
+    return result.returncode, paths
+
+
+def _git_identity(root: Path) -> dict[str, Any]:
+    head_result = _git(root, "rev-parse", "HEAD")
+    tree_result = _git(root, "rev-parse", "HEAD^{tree}")
+    head = head_result.stdout.strip() if head_result and head_result.returncode == 0 else None
+    tree = tree_result.stdout.strip() if tree_result and tree_result.returncode == 0 else None
+    clean = bool(head and len(head) == 40 and tree and len(tree) == 40)
+    protected_paths: list[str] = []
+    worktree_rc, worktree_paths = _git_paths(root, "diff", "--name-only", "-z", "--")
+    index_rc, index_paths = _git_paths(root, "diff", "--cached", "--name-only", "-z", "--")
+    untracked_rc, untracked_paths = _git_paths(
+        root, "ls-files", "--others", "--exclude-standard", "-z"
+    )
+    if worktree_rc or index_rc or untracked_rc:
+        clean = False
+    else:
+        protected_paths.extend(worktree_paths)
+        protected_paths.extend(index_paths)
+        protected_paths.extend(path for path in untracked_paths if not path.startswith("docs/"))
+        if protected_paths:
+            clean = False
+    return {
+        "git_head": head if head and len(head) == 40 else None,
+        "git_tree": tree if tree and len(tree) == 40 else None,
+        "tracked_scope_clean": clean,
+        "protected_paths": sorted(set(protected_paths)),
+    }
 
 
 def _open_child_dir(parent_fd: int, name: str) -> int:
@@ -150,18 +192,24 @@ def _atomic_write(harness_fd: int, payload: dict[str, Any]) -> None:
 
 def start_record(root: Path, python_runtime: str) -> str:
     run_id = uuid.uuid4().hex
+    identity = _git_identity(root)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
         "status": "running",
         "exit_code": None,
         "mock_offline": True,
+        "acceptance_level": ACCEPTANCE_LEVEL,
+        "verification_profile": VERIFICATION_PROFILE,
+        "workspace_scope": {"mode": "isolated-mock"},
         "python_runtime": python_runtime,
         "test_count": None,
         "started_at": _utc_now(),
         "completed_at": None,
         "duration_seconds": None,
-        "git_head": _git_head(root),
+        "git_head": identity["git_head"],
+        "git_tree": identity["git_tree"],
+        "tracked_scope_clean": identity["tracked_scope_clean"],
         "completed_steps": [],
         "failed_step": None,
     }
@@ -194,6 +242,20 @@ def finish_record(
                 raise ValueError("acceptance schema version changed during the run")
             if payload.get("run_id") != run_id or payload.get("status") != "running":
                 raise ValueError("acceptance run identity changed during the run")
+            identity = _git_identity(root)
+            if identity["git_head"] != payload.get("git_head"):
+                raise ValueError("git HEAD changed during acceptance")
+            if identity["git_tree"] != payload.get("git_tree"):
+                raise ValueError("git tree changed during acceptance")
+            if payload.get("tracked_scope_clean") and not identity["tracked_scope_clean"]:
+                raise ValueError("repository scope became dirty during acceptance")
+            if status == "passed" and (
+                not payload.get("tracked_scope_clean")
+                or not identity["tracked_scope_clean"]
+                or not payload.get("git_head")
+                or not payload.get("git_tree")
+            ):
+                raise ValueError("passed acceptance requires a clean, committed git identity")
             payload.update(
                 {
                     "status": status,
@@ -219,6 +281,9 @@ def main() -> int:
     start.add_argument("--root", type=Path, required=True)
     start.add_argument("--python-runtime", required=True)
 
+    check_repository = subparsers.add_parser("check-repository")
+    check_repository.add_argument("--root", type=Path, required=True)
+
     finish = subparsers.add_parser("finish")
     finish.add_argument("--root", type=Path, required=True)
     finish.add_argument("--run-id", required=True)
@@ -233,6 +298,11 @@ def main() -> int:
     try:
         if args.command == "start":
             print(start_record(args.root, args.python_runtime))
+        elif args.command == "check-repository":
+            identity = _git_identity(args.root)
+            if not identity["tracked_scope_clean"]:
+                paths = ", ".join(identity["protected_paths"][:10]) or "git metadata unavailable"
+                raise ValueError(f"repository scope is not clean: {paths}")
         else:
             finish_record(
                 args.root,

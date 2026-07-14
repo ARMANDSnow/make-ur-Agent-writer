@@ -70,11 +70,15 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertIn("Snapshot saved: $snap", text)
 
     def test_smoke_scripts_accept_book_flag(self) -> None:
-        """Iter 017: all smoke scripts must accept --book / $WORKSPACE_NAME."""
-        for name in ("debate_smoke.sh", "write_smoke.sh", "real_smoke.sh", "write_book.sh", "verify.sh"):
+        """Named production smokes keep iter017; canonical verify is isolated."""
+        for name in ("debate_smoke.sh", "write_smoke.sh", "real_smoke.sh", "write_book.sh"):
             text = Path(f"scripts/{name}").read_text(encoding="utf-8")
             self.assertIn("--book", text, f"{name} must accept --book flag")
             self.assertIn("WORKSPACE_NAME", text, f"{name} must honor WORKSPACE_NAME env var")
+        verify = Path("scripts/verify.sh").read_text(encoding="utf-8")
+        self.assertIn("unset WORKSPACE_NAME BOOK", verify)
+        self.assertIn("accepts no workspace", verify)
+        self.assertNotIn('BOOK="${WORKSPACE_NAME', verify)
 
     def test_write_book_sh_dropped_manual_proposal_idx_placeholder(self) -> None:
         """Iter 019: the human-targeted '--proposal-idx <comma-list>'

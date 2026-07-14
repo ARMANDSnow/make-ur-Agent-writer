@@ -1063,7 +1063,6 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
         image_budget = _positive(options.get("image_budget_cny"), "image_budget_cny")
         estimate = _positive(options.get("image_estimated_cost_cny"), "image_estimated_cost_cny")
         initial_timeout = _positive(options.get("image_timeout_seconds"), "image_timeout_seconds", maximum=3600)
-        os.environ["AI_DRAW_MODEL"] = os.getenv("AI_DRAW_MODEL") or DEFAULT_IMAGE_MODEL
         provider_fingerprint = _image_provider_fingerprint()
         if "total_budget_cny" not in phase:
             phase["total_budget_cny"] = image_budget

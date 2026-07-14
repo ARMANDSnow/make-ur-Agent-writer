@@ -9,9 +9,10 @@
 | 更新时间 | iter 101，2026-07-14 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
 | Canonical 基线 | **2044 tests OK** |
+| Accepted implementation commit | `78726b4225ad63f1ba84f557662b07639d7c1639` |
 | 标准验收 | `verify.sh` exit 0（项目虚拟环境）；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter 101 短剧完整链路残余阻塞修复已收官 |
+| 当前开发轮次 | iter 102 标准验收隔离与审计基线收口进行中 |
 
 ## Capability Map
 

@@ -41,6 +41,8 @@ git diff --check
 
 ### 3. 最终只运行一次标准验收
 
+审查与聚焦回归完成后，先把实现、测试、workflow 和 active iteration 文档提交为 implementation commit，确保 tracked tree 干净；再执行最终验收。`verify.sh` 只产生 `mock-functional` 证据。
+
 审查、修复和聚焦回归结束后，只执行：
 
 ```bash
@@ -50,6 +52,8 @@ bash scripts/verify.sh
 `verify.sh` 固定使用项目 `.venv/bin/python3`，强制 mock/offline，执行 harness 检查、语法检查、一次全量 unittest、mock pipeline 与 preflight，并生成脱敏的 `outputs/harness/acceptance.json`。不得在它前后再单独重复全量 unittest 或 preflight。
 
 失败时按失败范围修复后重验；无法解决则停止，不同步完成态文档。成功后从控制台和 acceptance JSON 提取 canonical 测试数、步骤与结果，回填当轮 `Acceptance Result`。
+
+同时逐项引用 Acceptance ID，并把 evidence 的 `git_head` 记录为 handoff 的 `Accepted implementation commit`。随后只做 README、handoff、history、iteration/index 的 docs-only 收官提交。
 
 ### 4. 就地更新 README
 

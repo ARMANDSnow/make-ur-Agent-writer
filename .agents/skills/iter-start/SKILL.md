@@ -43,7 +43,7 @@ docs/iterations/iteration_NNN_<slug>.md
 <逐项写预期行为和改动范围。>
 
 ## Acceptance
-<聚焦检查、审查要求，以及最终 bash scripts/verify.sh 的判据。>
+<使用 A<NNN>-01 形式的唯一 Acceptance ID，写聚焦检查、审查要求、验收等级，以及最终 bash scripts/verify.sh 的判据。>
 
 ## Implementation Notes
 <实施中的选择、踩坑和范围变化。>
@@ -78,6 +78,8 @@ docs/iterations/iteration_NNN_<slug>.md
 ```
 
 确认索引链接存在、编号一致、最新 iteration 为固定 8 段。不得为了通过检查改写旧 iteration 历史。
+
+Acceptance 中每项可验证承诺使用唯一 `A<NNN>-<两位序号>`；收官时 Acceptance Result 必须逐项引用闭合。验收等级只能使用 `safe-blocked`、`mock-functional`、`local-e2e`、`provider-validated`。
 
 ### 5. 提醒收官同步
 
