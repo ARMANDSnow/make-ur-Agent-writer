@@ -43,6 +43,11 @@ from ..book_runner import BookRunBlocked, BudgetExceeded, run_write_book
 from ..debater import run_debate
 from ..extractor import ExtractionBatchFailure, extract_all
 from ..plot_planner import OutlineStale, generate_chapter_plan
+from ..paid_recovery_states import (
+    TEXT_ATTEMPT_STATUSES,
+    TEXT_CANONICAL_RECOVERY_STATUSES,
+    TEXT_RECONCILIATION_REQUIRED_STATUSES,
+)
 from ..text_normalizer import normalize_all
 from ..writer import write_chapters
 from .workspace_ctx import use_workspace
@@ -1287,15 +1292,11 @@ def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
         raise ValueError("drama text attempt ledger is unreadable") from exc
     if not isinstance(raw, dict) or raw.get("schema_version") != 1 or not isinstance(raw.get("attempts"), dict):
         raise ValueError("drama text attempt ledger is invalid")
-    allowed = {
-        "submitting", "response_received", "failed_after_submission",
-        "succeeded", "budget_exceeded",
-    }
     for key, row in raw["attempts"].items():
         if (
             not isinstance(key, str)
             or not isinstance(row, dict)
-            or row.get("status") not in allowed
+            or row.get("status") not in TEXT_ATTEMPT_STATUSES
             or row.get("step") not in _DRAMA_MODEL_TASKS
             or type(row.get("episode_no")) is not int
             or row["episode_no"] < 1
@@ -1465,7 +1466,7 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
             )
         ):
             raise ValueError("drama text retry provider or input identity changed")
-    if isinstance(existing, dict) and existing.get("status") in {"response_received", "succeeded"}:
+    if isinstance(existing, dict) and existing.get("status") in TEXT_CANONICAL_RECOVERY_STATUSES:
         recovered = _canonical_drama_text_result(step, workspace, episode_no, existing)
         if recovered is not None:
             # Ephemeral only: never persist model output in the billing ledger.
@@ -1474,9 +1475,10 @@ def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int
             raise ValueError("committed drama text artifact no longer matches its paid attempt")
     if isinstance(existing, dict) and existing.get("input_fingerprint") != input_fingerprint:
         raise ValueError("drama text retry exact input identity changed")
-    if isinstance(existing, dict) and existing.get("status") in {
-        "submitting", "response_received", "failed_after_submission", "budget_exceeded",
-    }:
+    if (
+        isinstance(existing, dict)
+        and existing.get("status") in TEXT_RECONCILIATION_REQUIRED_STATUSES
+    ):
         if not (
             params.get("confirm_text_retry") is True
             and params.get("confirm_upstream_status_and_billing_checked") is True

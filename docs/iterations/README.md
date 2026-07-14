@@ -124,3 +124,4 @@
 110. [Iteration 101 - 短剧完整链路残余阻塞修复](./iteration_101_drama_e2e_residual_blocker_fixes.md)
 111. [Iteration 102 - 标准验收隔离与审计基线收口](./iteration_102_acceptance_isolation_baseline_integrity.md)
 112. [Iteration 103 - 本地 Fake Provider 整链](./iteration_103_local_fake_provider_e2e.md)
+113. [Iteration 104 - Crash/Restart 与状态矩阵](./iteration_104_crash_restart_state_matrix.md)

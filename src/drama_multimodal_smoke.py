@@ -43,6 +43,13 @@ from .ai_draw_client import (
 )
 from .drama_schemas import CharacterSheet, ReferenceImage, character_paths, episode_paths
 from .config import get_model_config, load_dotenv_if_available
+from .paid_recovery_states import (
+    IMAGE_ATTEMPT_STATUSES,
+    IMAGE_RECEIPT_STATUSES,
+    TEXT_CANONICAL_RECOVERY_STATUSES,
+    VIDEO_NON_RESUMABLE_STATUSES,
+    VIDEO_PAID_SUBMISSION_STATUSES,
+)
 from .schemas import model_to_dict
 from .secure_http import RequestNotSentError
 from .utils import read_json, read_json_optional, write_json
@@ -257,7 +264,10 @@ def _adopt_durable_text_station(workspace: str, phase: Dict[str, Any], step: str
         try:
             ledger = web_jobs._load_drama_text_attempts(workspace)
             row = ledger["attempts"].get(f"{step}:1")
-            if not isinstance(row, dict) or row.get("status") not in {"response_received", "succeeded"}:
+            if (
+                not isinstance(row, dict)
+                or row.get("status") not in TEXT_CANONICAL_RECOVERY_STATUSES
+            ):
                 return False
         except (OSError, TypeError, ValueError):
             return False
@@ -445,10 +455,6 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
     if not isinstance(attempts, dict):
         raise ValueError("multimodal smoke image attempt state is invalid")
     estimated_sum = 0.0
-    allowed_status = {
-        "started", "artifact_received", "succeeded", "timeout",
-        "network_error", "provider_error", "local_error",
-    }
     for cid, rows in attempts.items():
         if not isinstance(cid, str) or not isinstance(rows, list) or len(rows) > MAX_IMAGE_ATTEMPTS_PER_CHARACTER:
             raise ValueError("multimodal smoke image attempt state is invalid")
@@ -460,7 +466,7 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
             if (
                 isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(float(timeout)) or timeout <= 0
                 or isinstance(estimate, bool) or not isinstance(estimate, (int, float)) or not math.isfinite(float(estimate)) or estimate < 0
-                or row.get("status") not in allowed_status
+                or row.get("status") not in IMAGE_ATTEMPT_STATUSES
             ):
                 raise ValueError("multimodal smoke image attempt billing state is invalid")
             provider_fingerprint = row.get("provider_fingerprint")
@@ -472,7 +478,7 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
                 raise ValueError("multimodal smoke image provider state is invalid")
             if row.get("staging_path") is not None and not _valid_image_staging_path(cid, row):
                 raise ValueError("multimodal smoke image staging state is invalid")
-            if row.get("status") in {"artifact_received", "succeeded"}:
+            if row.get("status") in IMAGE_RECEIPT_STATUSES:
                 artifact_path = row.get("artifact_path")
                 artifact_sha256 = row.get("artifact_sha256")
                 artifact_record = row.get("artifact_record")
@@ -1092,7 +1098,7 @@ def _run_images(workspace: str, state: Dict[str, Any], options: Mapping[str, Any
         cid = str(character["id"])
         records = attempts.setdefault(cid, [])
         if any(
-            row.get("status") in {"artifact_received", "succeeded"}
+            row.get("status") in IMAGE_RECEIPT_STATUSES
             and not isinstance(row.get("artifact_record_sha256"), str)
             for row in records
             if isinstance(row, dict)
@@ -1716,7 +1722,7 @@ def _run_claimed(
             # A durable task id is resumable without another paid POST.  An old
             # state with no ledger, an ambiguous POST, or a terminal provider
             # failure remains fail-closed.
-            if submission is None or submission.get("status") in {"submitting", "failed"}:
+            if submission is None or submission.get("status") in VIDEO_NON_RESUMABLE_STATUSES:
                 state["status"] = "video_submission_already_consumed"
                 _save(state)
                 return state
@@ -1756,7 +1762,7 @@ def _run_claimed(
             submission = drama_video.read_video_submission(workspace) if real_video else None
             ledger_status = submission.get("status") if submission is not None else None
             consumed = submission is not None
-            paid = int(ledger_status in {"submitted", "failed", "succeeded"})
+            paid = int(ledger_status in VIDEO_PAID_SUBMISSION_STATUSES)
             unknown = int(ledger_status == "submitting")
             video_phase.update({
                 "status": "failed_after_submission" if consumed else "failed",
@@ -1889,7 +1895,7 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
     ledger_status = video_submission.get("status") if video_submission is not None else None
     video_request_count = max(
         _safe_count(video.get("paid_submission_count")),
-        int(ledger_status in {"submitted", "failed", "succeeded"}),
+        int(ledger_status in VIDEO_PAID_SUBMISSION_STATUSES),
     )
     video_unknown_count = max(
         _safe_count(video.get("submission_unknown_count")),

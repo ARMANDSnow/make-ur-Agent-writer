@@ -32,6 +32,11 @@ from .ai_draw_client import (
 from .drama_schemas import CharacterSheet, DramaEpisode, DramaEpisodeMeta, DramaStoryboard, character_paths, episode_paths
 from .drama_store import is_episode_stale
 from .drama_video_client import DEFAULT_VIDEO_MODEL, DramaVideoClient, build_video_payload
+from .paid_recovery_states import (
+    VIDEO_INCOMPLETE_STATUSES,
+    VIDEO_LEDGER_STATUSES,
+    VIDEO_TASK_ID_STATUSES,
+)
 from .schemas import model_to_dict
 from .secure_http import RequestNotSentError
 from .utils import read_json_optional, sha256_data, write_json
@@ -126,7 +131,7 @@ def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, A
     if not isinstance(raw, dict) or raw.get("schema_version") != 1 or raw.get("episode_no") != 1:
         raise ValueError("video submission ledger is invalid")
     status = raw.get("status")
-    if status not in {"submitting", "submitted", "failed", "succeeded"}:
+    if status not in VIDEO_LEDGER_STATUSES:
         raise ValueError("video submission ledger status is invalid")
     fingerprint = raw.get("input_fingerprint")
     if (
@@ -154,7 +159,7 @@ def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, A
     if status == "submitted" and result_hosts_fingerprint is None:
         raise ValueError("video submitted ledger requires result-host reconciliation")
     task_id = raw.get("task_id")
-    if status in {"submitted", "failed", "succeeded"}:
+    if status in VIDEO_TASK_ID_STATUSES:
         _extract_resource_id({"id": task_id}, "task")
     elif task_id is not None:
         raise ValueError("video submitting ledger must not claim a task id")
@@ -663,7 +668,7 @@ def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
         }
     if submission is not None:
         ledger_status = submission.get("status")
-        if ledger_status in {"submitting", "submitted", "failed"}:
+        if ledger_status in VIDEO_INCOMPLETE_STATUSES:
             authorization_keys = {
                 "authorized_budget_cny", "authorized_timeout_minutes",
                 "estimated_cost_cny", "authorization_fingerprint",
