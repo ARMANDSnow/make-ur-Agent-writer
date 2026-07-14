@@ -55,7 +55,12 @@ class EpisodeExport:
     stale: bool
 
 
-def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
+def assemble_episode(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    character_ids: List[str] | None = None,
+) -> Dict[str, Any]:
     """Assemble station outputs into the episode JSON export source of truth."""
 
     setup = _load_setup(workspace, episode_no=episode_no)
@@ -65,11 +70,24 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     review_model = DramaReview(**review)
     if review_model.verdict != "Approve":
         raise ValueError("drama review verdict must be Approve before episode assembly")
+    fingerprint_ids = (
+        list(character_ids)
+        if character_ids is not None
+        else episode_character_fingerprint_ids(
+            characters, episode_no=episode_no
+        )
+    )
+    character_projection = episode_character_projection(
+        characters,
+        episode_no=episode_no,
+        character_ids=fingerprint_ids,
+    )
     expected_review_fingerprint = review_input_fingerprint(
         setup=setup,
         storyboard=storyboard,
         characters=characters,
         episode_no=episode_no,
+        character_ids=fingerprint_ids,
     )
     upgrading_legacy_review = False
     if not review_model.input_fingerprint:
@@ -89,9 +107,6 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
         upgrading_legacy_review = True
     if review_model.input_fingerprint != expected_review_fingerprint:
         raise ValueError("drama review inputs changed; run review again before episode assembly")
-    fingerprint_ids = episode_character_fingerprint_ids(
-        characters, episode_no=episode_no
-    )
     fingerprint = input_fingerprint(
         setup=setup,
         storyboard=storyboard,
@@ -117,7 +132,9 @@ def assemble_episode(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
         target_duration_seconds=target,
         estimated_duration_seconds=estimated_duration,
         core_setup=core,
-        ai_friendly_constraints=_ai_friendly_constraints(storyboard, characters),
+        ai_friendly_constraints=_ai_friendly_constraints(
+            storyboard, character_projection
+        ),
         narrative=str(storyboard.get("narrative") or ""),
         storyboard=[_episode_shot(row) for row in storyboard.get("shots", []) if isinstance(row, dict)],
         ending_hook=hook,
@@ -370,7 +387,23 @@ def export_episode(
         characters = read_json_optional(character_paths(workspace).sheet_path, None)
         if not isinstance(characters, dict):
             raise FileNotFoundError("station 4 must complete before Comfy export")
-        workflow = build_workflow(validated, characters)
+        meta_raw = read_json_optional(ep.meta_path, None)
+        if not isinstance(meta_raw, dict):
+            raise ValueError("assembled episode metadata is missing")
+        meta = DramaEpisodeMeta(**meta_raw)
+        if meta.episode_no != episode_no:
+            raise ValueError("episode meta number does not match requested episode")
+        frozen_ids = (
+            list(meta.character_fingerprint_ids)
+            if meta.input_fingerprint_version == INPUT_FINGERPRINT_VERSION
+            else None
+        )
+        projection = episode_character_projection(
+            characters,
+            episode_no=episode_no,
+            character_ids=frozen_ids,
+        )
+        workflow = build_workflow(validated, projection)
         payload = (
             json.dumps(workflow, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         ).encode("utf-8")
@@ -468,11 +501,18 @@ def episode_detail(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
 
 def is_episode_stale(workspace: str, *, episode_no: int = 1) -> bool:
     paths = episode_paths(workspace, episode_no=episode_no)
-    meta = read_json_optional(paths.meta_path, None)
-    if not isinstance(meta, dict):
+    meta_raw = read_json_optional(paths.meta_path, None)
+    if not isinstance(meta_raw, dict):
         return True
-    previous = str(meta.get("input_fingerprint") or "")
-    if not previous:
+    try:
+        meta = DramaEpisodeMeta(**meta_raw)
+    except (TypeError, ValueError):
+        return True
+    if (
+        meta.episode_no != episode_no
+        or meta.verdict != "Approve"
+        or not meta.input_fingerprint
+    ):
         return True
     try:
         setup = _load_setup(workspace, episode_no=episode_no)
@@ -481,26 +521,26 @@ def is_episode_stale(workspace: str, *, episode_no: int = 1) -> bool:
         review = _load_review(workspace, episode_no=episode_no)
     except (FileNotFoundError, ValueError):
         return True
-    if "input_fingerprint_version" not in meta:
-        version = 1
-    else:
-        raw_version = meta.get("input_fingerprint_version")
-        if not isinstance(raw_version, int) or isinstance(raw_version, bool) or raw_version not in (1, 2):
-            return True
-        version = raw_version
-    return input_fingerprint(
-        setup=setup,
-        storyboard=storyboard,
-        characters=characters,
-        review=review,
-        episode_no=episode_no,
-        version=version,
-        character_ids=(
-            meta.get("character_fingerprint_ids")
-            if version == INPUT_FINGERPRINT_VERSION
-            else None
-        ),
-    ) != previous
+    if meta.season_no != int(characters.get("season_no") or 1):
+        return True
+    version = meta.input_fingerprint_version
+    try:
+        current = input_fingerprint(
+            setup=setup,
+            storyboard=storyboard,
+            characters=characters,
+            review=review,
+            episode_no=episode_no,
+            version=version,
+            character_ids=(
+                list(meta.character_fingerprint_ids)
+                if version == INPUT_FINGERPRINT_VERSION
+                else None
+            ),
+        )
+    except (TypeError, ValueError):
+        return True
+    return current != meta.input_fingerprint
 
 
 def input_fingerprint(
@@ -540,6 +580,7 @@ def review_input_fingerprint(
     storyboard: Dict[str, Any],
     characters: Dict[str, Any],
     episode_no: int,
+    character_ids: List[str] | None = None,
 ) -> str:
     """Hash inputs that the text reviewer actually evaluates.
 
@@ -552,6 +593,7 @@ def review_input_fingerprint(
     character_view = _episode_character_fingerprint_view(
         characters,
         episode_no=number,
+        character_ids=character_ids,
     )
     for row in character_view.get("characters", []):
         if isinstance(row, dict):
@@ -569,31 +611,83 @@ def _episode_character_fingerprint_view(
 ) -> Dict[str, Any]:
     """Return only character inputs capable of changing one episode."""
 
-    episode_no = normalize_episode_no(episode_no)
-    rows = characters.get("characters")
-    active: List[Dict[str, Any]] = []
-    if isinstance(rows, list):
-        valid_rows = [raw for raw in rows if isinstance(raw, dict)]
-        selected_ids = set(
-            character_ids
-            or episode_character_fingerprint_ids(
-                characters, episode_no=episode_no
-            )
+    return episode_character_projection(
+        characters,
+        episode_no=episode_no,
+        character_ids=character_ids,
+    )
+
+
+def episode_character_projection(
+    characters: Dict[str, Any],
+    *,
+    episode_no: int,
+    character_ids: List[str] | None = None,
+) -> Dict[str, Any]:
+    """Return the validated, immutable cast projection for one episode.
+
+    ``character_ids`` is the frozen assembly lineage when present.  It is
+    validated strictly instead of being treated as a hint: a missing or
+    duplicated id must never widen the projection back to the season library.
+    """
+
+    number = normalize_episode_no(episode_no)
+    sheet = model_to_dict(CharacterSheet(**characters))
+    rows = sheet["characters"]
+    if character_ids is None:
+        selected_ids = episode_character_fingerprint_ids(
+            sheet, episode_no=number
         )
-        selected = [raw for raw in valid_rows if raw.get("id") in selected_ids]
-        for raw in selected:
-            row = dict(raw)
-            # Later appearance bookkeeping must not invalidate this episode.
-            row["appearances"] = [episode_no]
-            # Review-only suggestions and lock state do not change rendered
-            # character identity; future locked merges may update both.
-            row.pop("agent_suggestions", None)
-            row.pop("manual_override", None)
-            active.append(row)
+    else:
+        if not isinstance(character_ids, list):
+            raise ValueError("episode character ids must be a list")
+        if not character_ids:
+            raise ValueError("episode character ids must not be empty")
+        if any(not isinstance(item, str) for item in character_ids):
+            raise ValueError("episode character ids must contain character ids")
+        if len(character_ids) != len(set(character_ids)):
+            raise ValueError("episode character ids must be unique")
+        if len(character_ids) > 8:
+            raise ValueError("an episode may include at most 8 characters")
+        selected_ids = list(character_ids)
+
+    selected_set = set(selected_ids)
+    known_ids = {str(row["id"]) for row in rows}
+    missing = selected_set - known_ids
+    if missing:
+        raise ValueError(
+            "episode character ids not found: " + ", ".join(sorted(missing))
+        )
+
+    active: List[Dict[str, Any]] = []
+    for raw in rows:
+        if raw.get("id") not in selected_set:
+            continue
+        row = dict(raw)
+        # Later appearance bookkeeping must not invalidate this episode.
+        row["appearances"] = [number]
+        # Review-only suggestions and lock state do not change rendered
+        # character identity; future locked merges may update both.
+        row.pop("agent_suggestions", None)
+        row.pop("manual_override", None)
+        contrast = row.get("visual_contrast_with")
+        if (
+            isinstance(contrast, dict)
+            and contrast.get("target_id")
+            and contrast.get("target_id") not in selected_set
+        ):
+            # A valid season-level contrast may point at a character that does
+            # not participate in this episode.  Keeping that dangling id would
+            # make the projected CharacterSheet invalid and leak another
+            # episode's identity into review/export inputs.
+            row["visual_contrast_with"] = {}
+        active.append(row)
+    if len(active) != len(selected_ids):
+        raise ValueError("episode character projection is incomplete")
     return {
-        "schema_version": characters.get("schema_version", 1),
-        "season_no": characters.get("season_no", 1),
-        "track": characters.get("track", ""),
+        "schema_version": sheet.get("schema_version", 1),
+        "season_no": sheet.get("season_no", 1),
+        "track": sheet.get("track", ""),
         "characters": active,
     }
 
@@ -618,10 +712,25 @@ def episode_character_fingerprint_ids(
         if isinstance(row.get("appearances"), list)
         and episode_no in row.get("appearances", [])
     ]
-    # Legacy skipped station-4 files omitted later appearances, and older or
-    # manually edited episode-1 sheets may use [] for the default cast. Freeze
-    # the current ids once so future characters cannot enter this fingerprint.
-    selected = sorted(set(active or [str(row["id"]) for row in valid_rows]))
+    # Older or manually edited episode-1 sheets may use [] for the default
+    # cast.  Only those unassigned rows are a safe legacy fallback; rows marked
+    # exclusively for future episodes must never enter episode 1.
+    if active:
+        selected = sorted(set(active))
+    elif episode_no == 1:
+        selected = sorted({
+            str(row["id"])
+            for row in valid_rows
+            if not row.get("appearances")
+        })
+        if not selected:
+            raise ValueError(
+                "episode character cast is ambiguous; rerun station 4 before review"
+            )
+    else:
+        raise ValueError(
+            "episode character cast is ambiguous; rerun station 4 before review"
+        )
     if len(selected) > 8:
         raise ValueError("an episode may include at most 8 characters")
     return selected

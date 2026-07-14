@@ -670,7 +670,9 @@ class DramaEpisodeMeta(BaseModel):
             if not isinstance(raw, str) or re.fullmatch(r"c\d{3}", raw) is None:
                 raise ValueError("character_fingerprint_ids must contain character ids")
             ids.append(raw)
-        return sorted(set(ids))
+        if len(ids) != len(set(ids)):
+            raise ValueError("character_fingerprint_ids must be unique")
+        return sorted(ids)
 
 
 class DramaEpisode(BaseModel):

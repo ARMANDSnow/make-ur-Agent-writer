@@ -31,7 +31,13 @@ from .schemas import model_to_dict
 from .utils import read_json_optional
 
 
-def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dict[str, Any]:
+def run(
+    workspace: str,
+    *,
+    mock: bool | None = None,
+    episode_no: int = 1,
+    character_ids: list[str] | None = None,
+) -> Dict[str, Any]:
     """Run the lightweight drama reviewer and return a validated review."""
 
     episode_no = normalize_episode_no(episode_no)
@@ -54,6 +60,7 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
         storyboard=storyboard,
         characters=characters,
         episode_no=episode_no,
+        character_ids=character_ids,
     )
     _log_prompt(workspace, "drama_reviewer", prompt)
 
@@ -112,6 +119,7 @@ def run(workspace: str, *, mock: bool | None = None, episode_no: int = 1) -> Dic
         storyboard=storyboard,
         characters=characters,
         episode_no=episode_no,
+        character_ids=character_ids,
     )
     return model_to_dict(DramaReview(**result))
 
@@ -139,6 +147,7 @@ def build_system_prompt(
     storyboard: Dict[str, Any] | None = None,
     characters: Dict[str, Any] | None = None,
     episode_no: int = 1,
+    character_ids: list[str] | None = None,
 ) -> str:
     episode_no = normalize_episode_no(episode_no)
     data = dict(wizard_input if wizard_input is not None else _load_wizard_input(workspace))
@@ -154,6 +163,13 @@ def build_system_prompt(
     data["episode_duration_seconds"] = duration
     template = _load_prompt_template("drama_reviewer")
     snapshot = _load_snapshot(workspace)
+    from .drama_store import episode_character_projection
+
+    character_projection = episode_character_projection(
+        character_data,
+        episode_no=episode_no,
+        character_ids=character_ids,
+    )
     return template.format(
         snapshot=snapshot,
         topic=data.get("topic", ""),
@@ -163,7 +179,11 @@ def build_system_prompt(
         episode_no=episode_no,
         setup_json=json.dumps(setup_data, ensure_ascii=False, indent=2),
         storyboard_json=json.dumps(_storyboard_prompt_view(storyboard_data), ensure_ascii=False, indent=2),
-        characters_json=json.dumps(_characters_prompt_view(character_data), ensure_ascii=False, indent=2),
+        characters_json=json.dumps(
+            _characters_prompt_view(character_projection),
+            ensure_ascii=False,
+            indent=2,
+        ),
     )
 
 

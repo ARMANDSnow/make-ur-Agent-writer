@@ -36,12 +36,10 @@ def build_workflow(
         for character in character_sheet.characters
         if episode_model.episode_no in character.appearances
     ]
-    # Episode 2 may intentionally skip station ④ and reuse the season sheet
-    # byte-for-byte. In that case the legacy appearances list still names
-    # episode 1; reuse the established season cast instead of silently dropping
-    # every character prompt from the exported workflow.
-    if episode_model.episode_no > 1 and not active_characters:
-        active_characters = list(character_sheet.characters)
+    if not active_characters:
+        raise ValueError("episode character projection is empty")
+    if len(active_characters) > 8:
+        raise ValueError("an episode may include at most 8 characters")
 
     workflow: Dict[str, Any] = {
         "_generator": GENERATOR_VERSION,

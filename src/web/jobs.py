@@ -1784,7 +1784,12 @@ def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, f
 
 def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     from .. import character_designer, drama_reviewer, drama_store
-    from ..drama_schemas import CharacterSheet, character_paths, episode_paths
+    from ..drama_schemas import (
+        CharacterSheet,
+        DramaEpisodeMeta,
+        character_paths,
+        episode_paths,
+    )
     from ..utils import read_json_optional, write_json
 
     def _op(episode_no: int) -> Dict[str, Any]:
@@ -1792,19 +1797,60 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
         setup = read_json_optional(episode_paths(workspace, episode_no=episode_no).setup_path, {})
         sheet_data = read_json_optional(character_paths(workspace).sheet_path, {})
         sheet = CharacterSheet(**sheet_data)
+        introduces_new = bool(
+            isinstance(setup, dict)
+            and setup.get("introduces_new_characters") is True
+        )
         if (
             episode_no > 1
-            and isinstance(setup, dict)
-            and setup.get("introduces_new_characters") is True
+            and introduces_new
             and not character_designer.character_sheet_generated_for_episode(
                 sheet, episode_no=episode_no
             )
         ):
             raise ValueError("station 4 must generate episode characters before drama review")
+        character_ids = None
+        has_active_cast = any(
+            episode_no in character.appearances for character in sheet.characters
+        )
+        if episode_no > 1 and not introduces_new and not has_active_cast:
+            previous_raw = read_json_optional(
+                episode_paths(workspace, episode_no=episode_no - 1).meta_path,
+                None,
+            )
+            if not isinstance(previous_raw, dict):
+                raise ValueError(
+                    "previous episode character cast is unavailable; rerun station 4"
+                )
+            previous_meta = DramaEpisodeMeta(**previous_raw)
+            if (
+                previous_meta.episode_no != episode_no - 1
+                or previous_meta.season_no != sheet.season_no
+                or previous_meta.verdict != "Approve"
+                or previous_meta.input_fingerprint_version != drama_store.INPUT_FINGERPRINT_VERSION
+                or not previous_meta.character_fingerprint_ids
+                or drama_store.is_episode_stale(
+                    workspace, episode_no=episode_no - 1
+                )
+            ):
+                raise ValueError(
+                    "previous episode character cast is stale; rerun station 4"
+                )
+            character_ids = list(previous_meta.character_fingerprint_ids)
+            drama_store.episode_character_projection(
+                sheet_data,
+                episode_no=episode_no,
+                character_ids=character_ids,
+            )
         budget_cny, line_offset = _drama_budget_start("drama-review-assemble", params)
         review, attempt = _call_drama_text_model(
             "drama-review-assemble", params, episode_no,
-            lambda: drama_reviewer.run(workspace, mock=None, episode_no=episode_no),
+            lambda: drama_reviewer.run(
+                workspace,
+                mock=None,
+                episode_no=episode_no,
+                character_ids=character_ids,
+            ),
         )
         exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
         if exceeded:
@@ -1823,7 +1869,11 @@ def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[s
             write_json(ep.review_path, review)
             if review.get("verdict") == "Approve":
                 progress_cb("assemble", 0.9)
-                result = drama_store.assemble_episode(workspace, episode_no=episode_no)
+                result = drama_store.assemble_episode(
+                    workspace,
+                    episode_no=episode_no,
+                    character_ids=character_ids,
+                )
             else:
                 # Persist advisor evidence, but never publish a Reject/Abstain
                 # as a fresh episode.  Remove a previously approved assembly

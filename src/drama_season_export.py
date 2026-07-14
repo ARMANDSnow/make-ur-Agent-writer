@@ -60,16 +60,21 @@ def season_export_readiness(workspace: str, *, season_no: int = 1) -> Dict[str, 
 
     _validate_season_no(season_no)
     planned = _planned_episode_count(workspace)
+    sheet, references, missing_references, asset_errors = _character_assets(workspace)
     eligible: List[Dict[str, Any]] = []
     excluded: List[Dict[str, Any]] = []
     for episode_no in range(1, planned + 1):
-        item, reason = _classify_episode(workspace, episode_no=episode_no, season_no=season_no)
+        item, reason = _classify_episode(
+            workspace,
+            episode_no=episode_no,
+            season_no=season_no,
+            characters=sheet,
+        )
         if item is None:
             excluded.append({"episode_no": episode_no, "reason": reason})
         else:
             eligible.append(item)
 
-    sheet, references, missing_references, asset_errors = _character_assets(workspace)
     blockers: List[str] = []
     if any(item["reason"] == "incomplete" for item in excluded):
         blockers.append("incomplete_episode")
@@ -137,6 +142,7 @@ def export_season(
                 export_format=export_format,
                 episode=item["_episode"],
                 characters=sheet,
+                character_ids=item["_character_fingerprint_ids"],
             )
             member = f"episodes/{filename}"
             _validate_member_name(member)
@@ -236,6 +242,7 @@ def _classify_episode(
     *,
     episode_no: int,
     season_no: int,
+    characters: Dict[str, Any] | None,
 ) -> Tuple[Dict[str, Any] | None, str]:
     ep = episode_paths(workspace, episode_no=episode_no)
     root = paths.WORKSPACE_DIR / workspace
@@ -272,6 +279,21 @@ def _classify_episode(
         return None, "stale"
     if drama_store.is_episode_stale(workspace, episode_no=episode_no):
         return None, "stale"
+    if not isinstance(characters, dict):
+        return None, "incomplete"
+    frozen_ids = (
+        list(meta.character_fingerprint_ids)
+        if meta.input_fingerprint_version == drama_store.INPUT_FINGERPRINT_VERSION
+        else None
+    )
+    try:
+        drama_store.episode_character_projection(
+            characters,
+            episode_no=episode_no,
+            character_ids=frozen_ids,
+        )
+    except (TypeError, ValueError):
+        return None, "stale"
     return (
         {
             "episode_no": episode_no,
@@ -280,6 +302,7 @@ def _classify_episode(
             "needs_human_review": meta.needs_human_review,
             "episode_sha256": meta.episode_sha256,
             "_episode": episode_data,
+            "_character_fingerprint_ids": frozen_ids,
         },
         "",
     )
@@ -499,6 +522,7 @@ def _render_episode_member(
     export_format: str,
     episode: Dict[str, Any],
     characters: Dict[str, Any],
+    character_ids: List[str] | None,
 ) -> Tuple[str, bytes]:
     stem = f"episode_{episode_no:02d}"
     if export_format == "json":
@@ -508,7 +532,12 @@ def _render_episode_member(
     if export_format == "csv":
         return f"{stem}.storyboard.csv", drama_store.to_csv(episode)
     if export_format == "comfy":
-        workflow = build_workflow(episode, characters)
+        projection = drama_store.episode_character_projection(
+            characters,
+            episode_no=episode_no,
+            character_ids=character_ids,
+        )
+        workflow = build_workflow(episode, projection)
         return f"{stem}.comfy.json", _json_bytes(workflow)
     raise ValueError("unsupported episode export format")
 

@@ -30,7 +30,7 @@ from .ai_draw_client import (
     validate_api_base_url,
 )
 from .drama_schemas import CharacterSheet, DramaEpisode, DramaEpisodeMeta, DramaStoryboard, character_paths, episode_paths
-from .drama_store import is_episode_stale
+from .drama_store import episode_character_projection, is_episode_stale
 from .drama_video_client import DEFAULT_VIDEO_MODEL, DramaVideoClient, build_video_payload
 from .paid_recovery_states import (
     VIDEO_INCOMPLETE_STATUSES,
@@ -248,17 +248,23 @@ def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
         raise DramaVideoInputError("assembled episode content does not match its fresh metadata")
     if not meta.get("input_fingerprint") or is_episode_stale(workspace, episode_no=1):
         raise DramaVideoInputError("episode is stale; review and assemble it again before video generation")
+    frozen_ids = (
+        list(meta["character_fingerprint_ids"])
+        if meta.get("input_fingerprint_version") == 2
+        else None
+    )
+    try:
+        character_projection = episode_character_projection(
+            characters,
+            episode_no=1,
+            character_ids=frozen_ids,
+        )
+    except ValueError as exc:
+        raise DramaVideoInputError(str(exc)) from exc
+
     references: List[tuple[str, str, Path]] = []
-    episode_characters: List[Dict[str, Any]] = []
     root = paths.workspace_root(workspace).resolve()
-    for character in characters.get("characters", []):
-        if not isinstance(character, dict) or 1 not in (character.get("appearances") or [1]):
-            continue
-        stable_character = dict(character)
-        stable_character["appearances"] = [1]
-        stable_character.pop("agent_suggestions", None)
-        stable_character.pop("manual_override", None)
-        episode_characters.append(stable_character)
+    for character in character_projection["characters"]:
         refs = character.get("reference_images") or []
         if not isinstance(refs, list) or not refs:
             raise DramaVideoInputError("every episode-1 character must have a current reference image")
@@ -294,15 +300,6 @@ def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
             break
     if not references:
         raise DramaVideoInputError("at least one episode-1 reference image is required")
-    # CharacterSheet is season-scoped and its top-level episode_no/source title
-    # move forward as later episodes are produced.  Episode-1 video lineage must
-    # depend only on the characters that actually appear in episode 1.
-    character_projection = {
-        "schema_version": characters.get("schema_version", 1),
-        "season_no": characters.get("season_no", 1),
-        "track": characters.get("track", ""),
-        "characters": episode_characters,
-    }
     fingerprint = sha256_data(
         {
             "episode": episode,

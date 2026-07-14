@@ -192,13 +192,23 @@ class DramaExportTests(DramaTestBase):
         self.assertNotIn("http://", encoded)
         self.assertNotIn("https://", encoded)
 
-    def test_episode_two_comfy_reuses_season_cast_when_station_four_skips(self) -> None:
+    def test_episode_two_comfy_uses_bounded_reuse_projection(self) -> None:
         episode = _minimal_episode(episode_no=2)
-        characters = _minimal_characters(episode_no=1)
+        characters = character_designer.reuse_character_sheet_for_episode(
+            _minimal_characters(episode_no=1),
+            episode_no=2,
+        )
         workflow = build_workflow(episode, characters)
         encoded = json.dumps(workflow, ensure_ascii=False)
         self.assertIn("Chinese detective, scar under left eye", encoded)
         self.assertIn("lin_mo.safetensors", encoded)
+
+    def test_episode_two_comfy_rejects_ambiguous_legacy_season_cast(self) -> None:
+        with self.assertRaisesRegex(ValueError, "projection is empty"):
+            build_workflow(
+                _minimal_episode(episode_no=2),
+                _minimal_characters(episode_no=1),
+            )
 
     def test_format_is_an_exact_whitelist(self) -> None:
         self._assembled_workspace()

@@ -147,6 +147,12 @@ class DramaReviewerTests(DramaTestBase):
             json.dumps(board, ensure_ascii=False),
             encoding="utf-8",
         )
+        sheet_path = character_paths("review_episode_two").sheet_path
+        sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
+        sheet = character_designer.reuse_character_sheet_for_episode(
+            sheet, episode_no=2
+        )
+        sheet_path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
         mock_result = drama_reviewer.run("review_episode_two", mock=True, episode_no=2)
         self.assertEqual(mock_result["episode_no"], 2)
         expected = DramaReview(**{**mock_result, "episode_no": 1})

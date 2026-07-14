@@ -195,7 +195,7 @@ class DramaIter095CoreTests(DramaTestBase):
             [],
         )
 
-    def test_v2_legacy_skip_fallback_keeps_shared_cast_visuals_in_scope(self) -> None:
+    def test_v2_legacy_skip_requires_frozen_cast_and_tracks_its_visuals(self) -> None:
         characters = {
             "schema_version": 1,
             "season_no": 1,
@@ -218,9 +218,11 @@ class DramaIter095CoreTests(DramaTestBase):
             "episode_no": 2,
             "version": 2,
         }
-        frozen_ids = drama_store.episode_character_fingerprint_ids(
-            characters, episode_no=2
-        )
+        with self.assertRaisesRegex(ValueError, "cast is ambiguous"):
+            drama_store.episode_character_fingerprint_ids(
+                characters, episode_no=2
+            )
+        frozen_ids = ["c001"]
         legacy = drama_store.input_fingerprint(
             characters=characters,
             character_ids=frozen_ids,
