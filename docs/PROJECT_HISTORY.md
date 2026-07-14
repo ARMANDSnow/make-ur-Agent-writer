@@ -30,6 +30,7 @@
 | 102 | 标准验收隔离与审计基线 | synthetic workspace、dotenv 物理短路、evidence v2、accepted commit 与 Acceptance ID 闭包 |
 | 103 | 本地 Fake Provider 整链 | 图片/视频/callback/五站授权 loopback E2E，组件证据与 canonical identity 绑定 |
 | 104 | Crash/Restart 与状态矩阵 | 集中付费状态；五站、图片、视频生产恢复入口与跨进程 crash 矩阵 |
+| 105 | 短剧单集角色投影一致性 | reviewer、组装、Comfy 与 episode 1 视频共享冻结阵容；歧义旧数据 fail-closed |
 
 ## Iteration Implementation Index
 
@@ -115,6 +116,7 @@
 | 102 | 隔离 canonical 验收并绑定审计基线 | `scripts/verify.sh`、`scripts/write_acceptance.py`、`scripts/check_agent_harness.py`、`src/config.py`、`tests/test_agent_harness.py` |
 | 103 | 建立本地 fake-provider 短剧整链验收 | `scripts/run_local_drama_e2e.py`、`tests/support/local_drama_*.py`、`scripts/verify.sh`、`tests/test_local_drama_e2e.py` |
 | 104 | 建立跨进程 crash/restart 与付费状态矩阵 | `src/paid_recovery_states.py`、`src/web/jobs.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_*matrix.py` |
+| 105 | 统一短剧单集冻结角色投影与消费端血统 | `src/drama_store.py`、`src/drama_reviewer.py`、`src/drama_season_export.py`、`src/drama_video.py`、`tests/test_drama_iter105_character_projection.py` |
 
 ## Durable Decisions
 
@@ -174,6 +176,7 @@
 18. **验收要隔离输入，也要绑定被验收实体**：只强制 mock 不足以阻止 ambient workspace、dotenv 或全局进程环境污染。Canonical 入口应使用 synthetic workspace，在 import 前物理短路 dotenv，并用 HEAD/tree/cleanliness 证明证据对应哪个 implementation commit。聚焦 Python 检查也必须使用同等的 dotenv 隔离前置。
 19. **本地 E2E 的难点是防止假阳性，不是启动一个 HTTP server**：必须证明请求真的经过生产 adapter/transport，并重读 durable state、复算 hash、穷尽计数、验证零网络 resume。组件证据必须与 canonical run/commit 绑定，而 `local-e2e` 不能借任何字段升格为 `provider-validated`。
 20. **Crash 测试不能用异常或策略表代替进程死亡**：`KeyboardInterrupt`、同进程 Mock 和手工 ledger 会经过 finally、重用模块状态或自证预期。可靠矩阵要在生产 seam 后 `os._exit`，由新解释器重读 durable state，并用进程外持久 counter 区分付费 create 与合法 poll/download；这仍只证明进程 crash，不等于断电安全。
+21. **全季库存与单集消费必须经同一投影分层**：角色库可以跨集增长，但 reviewer、fingerprint、组装、导出和视频若各自筛选，会让实际输入与血统漂移。应由共享纯函数冻结单集阵容；不能证明阵容的旧数据宁可要求重新评审，也不能回退整季库存。
 
 ## Historical Evidence Notes
 

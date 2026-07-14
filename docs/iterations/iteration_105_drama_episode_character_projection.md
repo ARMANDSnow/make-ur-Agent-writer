@@ -33,7 +33,14 @@ iter 095/101 已将季角色库容量与单集最多 8 人的 active cast 分离
 
 ## Acceptance Result
 
-由 `iter-finish` 按 A105-01 至 A105-06 逐项回填测试数、审查结论、最终 acceptance evidence 与未修风险。
+- **A105-01 通过**：`episode_character_projection` 对 episode、`CharacterSheet` 与显式 frozen IDs 做严格校验；重复、缺失、空集合和 9 人以上均显式失败。聚焦用例验证确定顺序、最多 8 人以及输入/季角色文件不变。
+- **A105-02 通过**：reviewer 在 provider 调用前完成本集投影，只接收白名单角色字段；future-only 与其他集角色、内部 prompt/provider/review 字段均不进入 prompt，review lineage 与实际 prompt 阵容同源。
+- **A105-03 通过**：assemble 的 `main_character_count`、review/input fingerprint 和 `meta.character_fingerprint_ids` 均取自同一投影；stale 检查同时校验 schema、episode/season/verdict 与冻结阵容。
+- **A105-04 通过**：standalone 与 season-package Comfy 均显式消费 meta frozen IDs，9 人以上季库不会突破单集上限；episode 2+ 歧义旧数据和 legacy v1 readiness fail-closed，合法 skip/reuse 可由上一集 fresh v2 meta 证明阵容。
+- **A105-05 通过**：角色生成、防冲突 merge、Web 全表编辑和 `characters/season_01.json` 继续使用全季角色库；无 schema/ledger migration，未运行真实文本、图片或视频 provider。
+- **A105-06 通过**：聚焦回归 **134 tests OK**，语法、harness 与 diff 检查通过；correctness/behavior、security/boundary、multi-episode/export 三视角审查的 2 个 P1、2 个 P2、1 个 P3 均已闭合，最终无未处理 P0-P3。
+- 最终唯一一次 `bash scripts/verify.sh` 在 implementation commit `c5a084e478d7117f6ebb96eae7092c291af5555b`、tree `266115a24b67d212fcd3ac093d944bc089254ab7` 上 exit 0：**2108 tests OK**、15 steps、141 秒、`tracked_scope_clean=true`、preflight **0 FATAL / 0 WARN**。Canonical evidence 为 schema v2 `mock-functional` / `canonical-mock-offline`；独立短剧组件仍为 `local-e2e`、`provider_validated=false`，不代表真实供应商校准。
+- 未修风险：本轮范围内无未处理 P0-P3；真多模态、episode 2+ 视频、真 ComfyUI、JPEG/WebP 与既有项目级 TOCTOU 风险继续保留在 handoff，不由本轮验收覆盖。
 
 ## 文件变更汇总
 
@@ -47,6 +54,7 @@ iter 095/101 已将季角色库容量与单集最多 8 人的 active cast 分离
 | `src/drama_video.py` | episode 1 视频只读取和校验冻结阵容及其参考图 |
 | `tests/test_drama_iter105_character_projection.py` | 新增单集投影、双集 Web/导出、legacy、隐私与视频专项回归 |
 | `tests/test_drama_exports.py`、`tests/test_drama_reviewer.py`、`tests/test_drama_iter095_core.py` | 更新 skip/reuse 与 legacy fail-closed 历史契约 |
+| `README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md` | 就地同步实时 SOP、当前接力点与阶段级工程记忆 |
 
 ## 不在本轮范围
 
