@@ -30,11 +30,18 @@ iter 097-101 已多轮修复短剧真文本、图片和视频链路的恢复边�
 - 图片矩阵执行生产 `_run_images` 覆盖六个窗口。`response_received` 在当前 adapter 中没有独立持久状态，因此用独立外部 response event 证明“响应已到但 staging 未 durable”，随后与 submission unknown 一样保持 `started` 并 fail-closed；staging、receipt、canonical fallback 均验证 provider total/delta、receipt/bytes/projection hash 和 staging 清理。代表性 canonical projection seam 使用真实 `os._exit` 后零 provider 恢复。
 - 视频矩阵执行生产 `video_status` 与 `run_video_job` 覆盖六个窗口，分别统计 upload/create/poll/download。额外在真实 `create_video_task` 内记录首次 create 后、task-id 落盘前执行 `os._exit`，fresh restart 保持 `submitting`、总 create=1、poll/download=0；media/meta torn pair 也经 fresh process 修复。零重复付费只约束 create，submitted 后合法 poll/download 可增加。
 - 中期审查发现初版策略表自证，已改为生产入口驱动；最终审查又发现 submitting create-response-loss、model/endpoint 独立漂移、canonical fallback、response 可观察性与测试 workspace escape 缺口，均在测试侧闭合。测试明确只证明进程 crash/restart，不外推为断电或内核崩溃安全。
-- 聚焦回归：findings 修复后，新状态/矩阵与既有代表性恢复用例共 **25 项通过**。最终 canonical 数量与 evidence 待 implementation commit 后唯一一次 `verify.sh` 回填。
+- 聚焦回归：findings 修复后，新状态/矩阵与既有代表性恢复用例共 **25 项通过**；implementation commit 上唯一一次 canonical 验收 **2100 tests OK**，完整 evidence 见下节。
 
 ## Acceptance Result
 
-待 `iter-finish 104` 逐项引用 A104-01 至 A104-06 回填。
+- **A104-01 — 通过。** 两个测试专用 driver 在导入生产模块前固定 skip-dotenv/mock 白名单环境，只写带 marker 的系统临时 synthetic workspace；seam marker 含 PID 与 import nonce，随后执行 `os._exit(86)`，恢复进程的 nonce 不同。生产代码未增加 fault-injection 环境变量、真实 provider 旁路或 localhost 放行。
+- **A104-02 — 通过。** 五站逐项遍历 `TEXT_ATTEMPT_STATUSES`、unknown、精确 canonical 恢复及 input/model/endpoint/account 单字段漂移；所有不安全状态都在 provider 前 fail-closed。五站还分别验证 durable `submitting` 进程死亡后 fresh restart 不自动发请求并要求 reconciliation。
+- **A104-03 — 通过。** 图片六阶段均执行生产 `_run_images`：每场景总 generate=1，恢复增量仅 not-sent=1，其余=0；staging/receipt/canonical fallback 最终 bytes SHA、receipt SHA、projection/record SHA 一致并清理 staging。当前 adapter 没有独立 durable response 状态，矩阵用持久 `image_response_received` event 区分“响应已到”与 submission unknown，二者均安全收敛到 `started` fail-closed。canonical projection 代表 seam 经 fresh process 零 provider 收尾。
+- **A104-04 — 通过。** 视频六阶段均执行生产 `video_status` 与 `run_video_job`：只有 pre-submit create=1；submitted/media 合法 poll+download 各 1；meta/succeeded 零网络。create-response-loss seam 在生产 `create_video_task` 内先持久化第 1 次 create，再于 task-id 落盘前 `os._exit(86)`；fresh restart 保持 `submitting`、总 create=1、poll/download=0。media/meta torn pair 也经 fresh process 修复为 ledger/artifact/hash 一致。
+- **A104-05 — 通过。** `src/paid_recovery_states.py` 以 `frozenset` 集中三域现有状态与分类，production validator/branch 与穷举测试引用同一真源。矩阵未复现新的生产行为缺陷，因此只做等价集合替换；无 ledger schema migration、无预防性 paid-ledger 大重构。
+- **A104-06 — 通过。** correctness/behavior、security/boundary、acceptance-closure/harness 三视角初审发现 1 个 P1、4 个 P2 验收缺口，全部修复并复核清零；最终无未处理 P0-P2。聚焦回归 **25 tests OK**。唯一一次 `bash scripts/verify.sh` 在 implementation commit `e10a585f51fc9a3868586e5ca2ba57a9e85f1fbb`（tree `f185ac00232b9eaa3c235797eaf87b17dc6efff3`）上 exit 0：**2100 tests OK**，15 steps / 142 秒，schema v2、`mock-functional`、`canonical-mock-offline`、`isolated-mock`、`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- 独立短剧组件证据与同一 run/HEAD/tree 绑定：`local-e2e`、`provider_validated=false`；2 image generate、2 asset upload、2 asset poll、1 video create、2 video poll、1 video download、2 callback fetch，五站授权 5/5，成功后 zero-network resume。未运行真实文本、图片、视频 provider 或账单接口。
+- 用户未跟踪的 `docs/2026-7-14体检报告.md` 保持原样，未读取、未 stage、未 commit。
 
 ## 文件变更汇总
 
@@ -51,6 +58,9 @@ iter 097-101 已多轮修复短剧真文本、图片和视频链路的恢复边�
 | `tests/test_drama_paid_recovery_states.py` | 状态集合、分类和生产 validator 穷举测试 |
 | `tests/test_drama_crash_restart_matrix.py` | 文本、图片、视频生产入口矩阵与代表性跨进程恢复测试 |
 | `tests/test_drama_text_crash_restart_matrix.py` | 五站全状态、漂移与逐站 fresh-process crash 矩阵 |
+| `README.md` | 同步 iter104 项目状态与实时 SOP |
+| `docs/AGENT_HANDOFF.md` | 更新 canonical 基线、accepted commit、能力、缺口与 transition |
+| `docs/PROJECT_HISTORY.md` | 追加 iter104 里程碑、实现索引、长期决策与工程教训 |
 
 ## 不在本轮范围
 

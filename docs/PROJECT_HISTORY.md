@@ -29,6 +29,7 @@
 | 101 | 短剧完整链路残余阻塞修复 | 文本 revision、Approve 血统、旧 workspace 媒体接管、季角色库与 submitted 纯轮询恢复 |
 | 102 | 标准验收隔离与审计基线 | synthetic workspace、dotenv 物理短路、evidence v2、accepted commit 与 Acceptance ID 闭包 |
 | 103 | 本地 Fake Provider 整链 | 图片/视频/callback/五站授权 loopback E2E，组件证据与 canonical identity 绑定 |
+| 104 | Crash/Restart 与状态矩阵 | 集中付费状态；五站、图片、视频生产恢复入口与跨进程 crash 矩阵 |
 
 ## Iteration Implementation Index
 
@@ -113,6 +114,7 @@
 | 101 | 修复短剧完整链路残余阻塞 | `src/drama_store.py`、`src/character_designer.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_iter101_blockers.py` |
 | 102 | 隔离 canonical 验收并绑定审计基线 | `scripts/verify.sh`、`scripts/write_acceptance.py`、`scripts/check_agent_harness.py`、`src/config.py`、`tests/test_agent_harness.py` |
 | 103 | 建立本地 fake-provider 短剧整链验收 | `scripts/run_local_drama_e2e.py`、`tests/support/local_drama_*.py`、`scripts/verify.sh`、`tests/test_local_drama_e2e.py` |
+| 104 | 建立跨进程 crash/restart 与付费状态矩阵 | `src/paid_recovery_states.py`、`src/web/jobs.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_*matrix.py` |
 
 ## Durable Decisions
 
@@ -128,6 +130,7 @@
 - 模型/provider、预算、超时、workspace、episode、fingerprint 与 artifact path 在调用或写盘前验证。
 - JSON/schema 失败不能静默 Approve；必要时修复已知字段，否则显式 Abstain/blocked。
 - 计费媒体使用独立确认和预算。授权不从旧 job/state 继承，也不跨文本、图片、视频阶段复用。
+- 文本、图片、视频可以保留各自 ledger schema，但持久状态词汇与关键分类必须由共享不可变常量驱动；新增状态会让矩阵失败，直到完成显式分类，不为统一外观提前迁移 paid ledger。
 
 ### Keep state auditable
 
@@ -170,6 +173,7 @@
 17. **季库容量、单次输出和单集 cast 是三个边界**：共用一个 schema 上限会让“第 9 个季角色”与“单集最多 8 人”互相阻塞。Prompt 的剩余槽位、merge 后 active cast 和 meta 必须使用同一语义。
 18. **验收要隔离输入，也要绑定被验收实体**：只强制 mock 不足以阻止 ambient workspace、dotenv 或全局进程环境污染。Canonical 入口应使用 synthetic workspace，在 import 前物理短路 dotenv，并用 HEAD/tree/cleanliness 证明证据对应哪个 implementation commit。聚焦 Python 检查也必须使用同等的 dotenv 隔离前置。
 19. **本地 E2E 的难点是防止假阳性，不是启动一个 HTTP server**：必须证明请求真的经过生产 adapter/transport，并重读 durable state、复算 hash、穷尽计数、验证零网络 resume。组件证据必须与 canonical run/commit 绑定，而 `local-e2e` 不能借任何字段升格为 `provider-validated`。
+20. **Crash 测试不能用异常或策略表代替进程死亡**：`KeyboardInterrupt`、同进程 Mock 和手工 ledger 会经过 finally、重用模块状态或自证预期。可靠矩阵要在生产 seam 后 `os._exit`，由新解释器重读 durable state，并用进程外持久 counter 区分付费 create 与合法 poll/download；这仍只证明进程 crash，不等于断电安全。
 
 ## Historical Evidence Notes
 
