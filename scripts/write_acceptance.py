@@ -21,6 +21,9 @@ SCHEMA_VERSION = 2
 MAX_RECORD_BYTES = 64 * 1024
 ACCEPTANCE_LEVEL = "mock-functional"
 VERIFICATION_PROFILE = "canonical-mock-offline"
+LOCAL_E2E_FILENAME = "local_drama_e2e.json"
+LOCAL_E2E_SCHEMA_VERSION = 1
+LOCAL_E2E_PROFILE = "loopback-fake-provider"
 
 
 def _utc_now() -> str:
@@ -128,6 +131,154 @@ def _read_current(harness_fd: int) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("existing acceptance record must be a JSON object")
     return value
+
+
+def _read_json_record(harness_fd: int, filename: str) -> dict[str, Any]:
+    """Read one fixed harness record without following links or path changes."""
+    nofollow = getattr(os, "O_NOFOLLOW")
+    fd = os.open(filename, os.O_RDONLY | nofollow, dir_fd=harness_fd)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise ValueError(f"{filename} must be a single-link regular file")
+        chunks: list[bytes] = []
+        remaining = MAX_RECORD_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(remaining, 8192))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(fd)
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ):
+            raise ValueError(f"{filename} changed while it was read")
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) > MAX_RECORD_BYTES:
+        raise ValueError(f"{filename} exceeds the size limit")
+    value = json.loads(data.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{filename} must be a JSON object")
+    return value
+
+
+def _validate_local_e2e_evidence(
+    harness_fd: int,
+    *,
+    run_id: str,
+    git_head: str,
+    git_tree: str,
+) -> None:
+    component = _read_json_record(harness_fd, LOCAL_E2E_FILENAME)
+    expected = {
+        "schema_version": LOCAL_E2E_SCHEMA_VERSION,
+        "status": "passed",
+        "acceptance_level": "local-e2e",
+        "verification_profile": LOCAL_E2E_PROFILE,
+        "acceptance_run_id": run_id,
+        "git_head": git_head,
+        "git_tree": git_tree,
+        "provider_validated": False,
+    }
+    for key, wanted in expected.items():
+        if component.get(key) != wanted:
+            raise ValueError(
+                f"{LOCAL_E2E_FILENAME} has invalid {key}: expected {wanted!r}"
+            )
+    # Local fake-provider evidence cannot upgrade or imply real-provider
+    # validation through an alternate or nested field.
+    def claims_provider_validation(value: Any) -> bool:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                normalized_key = "".join(
+                    char for char in str(key).lower() if char.isalnum()
+                )
+                if (
+                    "provider" in normalized_key
+                    and "validat" in normalized_key
+                    and child not in (
+                    False,
+                    None,
+                    "",
+                    )
+                ):
+                    return True
+                if claims_provider_validation(child):
+                    return True
+            return False
+        if isinstance(value, list):
+            return any(claims_provider_validation(child) for child in value)
+        if isinstance(value, str):
+            normalized = "".join(char for char in value.lower() if char.isalnum())
+            return "provider" in normalized and "validat" in normalized
+        return False
+
+    if claims_provider_validation(component):
+        raise ValueError(f"{LOCAL_E2E_FILENAME} claims provider validation")
+    components = component.get("components")
+    if set(component) != set(expected) | {"components"}:
+        raise ValueError(f"{LOCAL_E2E_FILENAME} has unexpected fields")
+    if not isinstance(components, dict):
+        raise ValueError(f"{LOCAL_E2E_FILENAME} is missing component results")
+    required_components = {
+        "image_runner", "video_runner", "five_station_authorization",
+        "provider_request_counts",
+    }
+    if set(components) != required_components:
+        raise ValueError(f"{LOCAL_E2E_FILENAME} has incomplete component results")
+    image = components.get("image_runner")
+    video = components.get("video_runner")
+    stations = components.get("five_station_authorization")
+    counts = components.get("provider_request_counts")
+    if not all(isinstance(value, dict) for value in (image, video, stations, counts)):
+        raise ValueError(f"{LOCAL_E2E_FILENAME} component results must be objects")
+    if set(image) != {"character_count", "canonical_count", "request_count"}:
+        raise ValueError(f"{LOCAL_E2E_FILENAME} image component has unexpected fields")
+    if set(video) != {
+        "submission_count", "request_count", "poll_completed",
+        "callback_process", "zero_network_resume",
+    }:
+        raise ValueError(f"{LOCAL_E2E_FILENAME} video component has unexpected fields")
+    if set(stations) != {"station_count", "worker_receive_count"}:
+        raise ValueError(f"{LOCAL_E2E_FILENAME} station component has unexpected fields")
+    image_count = image.get("character_count")
+    if (
+        type(image_count) is not int
+        or image_count <= 0
+        or image.get("canonical_count") != image_count
+        or image.get("request_count") != image_count
+    ):
+        raise ValueError(f"{LOCAL_E2E_FILENAME} image component is incomplete")
+    if (
+        video.get("submission_count") != 1
+        or video.get("request_count") != 1
+        or video.get("poll_completed") is not True
+        or video.get("callback_process") is not True
+        or video.get("zero_network_resume") is not True
+    ):
+        raise ValueError(f"{LOCAL_E2E_FILENAME} video component is incomplete")
+    if (
+        stations.get("station_count") != 5
+        or stations.get("worker_receive_count") != 5
+    ):
+        raise ValueError(f"{LOCAL_E2E_FILENAME} station component is incomplete")
+    expected_counts = {
+        "image_generate": image_count,
+        "asset_upload": 2,
+        "asset_poll": 2,
+        "video_create": 1,
+        "video_poll": 2,
+        "video_download": 1,
+        "callback_fetch": 2,
+    }
+    if counts != expected_counts:
+        raise ValueError(f"{LOCAL_E2E_FILENAME} request counts differ from the contract")
 
 
 @contextmanager
@@ -256,6 +407,16 @@ def finish_record(
                 or not payload.get("git_tree")
             ):
                 raise ValueError("passed acceptance requires a clean, committed git identity")
+            steps = [step for step in completed_steps.splitlines() if step]
+            if status == "passed" and "local_drama_e2e" not in steps:
+                raise ValueError("passed canonical acceptance requires local_drama_e2e")
+            if status == "passed":
+                _validate_local_e2e_evidence(
+                    harness_fd,
+                    run_id=run_id,
+                    git_head=payload["git_head"],
+                    git_tree=payload["git_tree"],
+                )
             payload.update(
                 {
                     "status": status,
@@ -263,9 +424,7 @@ def finish_record(
                     "test_count": test_count,
                     "completed_at": _utc_now(),
                     "duration_seconds": max(0, duration_seconds),
-                    "completed_steps": [
-                        step for step in completed_steps.splitlines() if step
-                    ],
+                    "completed_steps": steps,
                     "failed_step": failed_step or None,
                 }
             )

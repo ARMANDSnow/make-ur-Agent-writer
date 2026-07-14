@@ -12,7 +12,7 @@
 | Accepted implementation commit | `43d3dd99fe0243360c74f7e0779248a1b371098a` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`；隔离 synthetic workspace；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；下一轮按计划为 iter 103 本地 fake-provider 整链 |
+| 当前开发轮次 | iter 103 本地 fake-provider 整链进行中 |
 
 ## Capability Map
 

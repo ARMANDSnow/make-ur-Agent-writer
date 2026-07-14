@@ -1,0 +1,21 @@
+{
+  "adapter": "short-drama-compatible-video",
+  "authority": "local-contract-fixture-only",
+  "reviewed_at": "2026-07-14",
+  "request": {
+    "required_fields": ["model", "content", "duration", "resolution", "ratio", "generate_audio", "watermark"],
+    "fixed_values": {
+      "duration": 5,
+      "resolution": "720p",
+      "ratio": "9:16",
+      "generate_audio": false,
+      "watermark": false
+    },
+    "reference_contract": "asset://<resource-id>"
+  },
+  "response": {
+    "create_status": "pending",
+    "poll_statuses": ["processing", "completed"],
+    "content_contract": "strict-mp4-5s-720x1280"
+  }
+}

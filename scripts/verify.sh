@@ -124,7 +124,11 @@ chmod 600 "$RUN_DIR/.dragon-raja-verify-owned"
 COUNT_FILE="$RUN_DIR/unittest-count"
 VERIFY_WORKSPACE_ROOT="$RUN_DIR/workspaces"
 VERIFY_BOOK_ROOT="$VERIFY_WORKSPACE_ROOT/verify"
+VERIFY_DRAMA_ROOT="$RUN_DIR/drama-e2e"
 mkdir -p "$VERIFY_BOOK_ROOT/小说txt"
+mkdir -p "$VERIFY_DRAMA_ROOT"
+touch "$VERIFY_DRAMA_ROOT/.dragon-raja-local-e2e"
+chmod 600 "$VERIFY_DRAMA_ROOT/.dragon-raja-local-e2e"
 touch "$VERIFY_WORKSPACE_ROOT/.dragon-raja-verify-owned"
 chmod 600 "$VERIFY_WORKSPACE_ROOT/.dragon-raja-verify-owned"
 cat > "$VERIFY_BOOK_ROOT/小说txt/verify-placeholder.txt" <<'EOF'
@@ -191,6 +195,16 @@ if [[ ! "$TEST_COUNT" =~ ^[1-9][0-9]*$ ]]; then
 fi
 complete_step
 pin_empty_runtime_env
+
+# Iter 103: this is a mandatory loopback fake-provider component test.  It
+# shares the canonical run/git identity, writes separate local-e2e evidence,
+# and may never be treated as an optional skip.
+run_step local_drama_e2e "$PYTHON_BIN" scripts/run_local_drama_e2e.py \
+  --workspace-root "$VERIFY_DRAMA_ROOT" \
+  --run-id "$RUN_ID" \
+  --evidence-path "$ROOT/outputs/harness/local_drama_e2e.json" \
+  --git-head "$(git rev-parse HEAD)" \
+  --git-tree "$(git rev-parse 'HEAD^{tree}')"
 
 run_main_step normalize normalize
 run_main_step split split

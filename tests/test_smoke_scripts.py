@@ -54,6 +54,10 @@ class SmokeScriptTests(unittest.TestCase):
         self.assertEqual(text.count("-m unittest discover -s tests -v"), 1)
         self.assertIn("scripts/check_agent_harness.py", text)
         self.assertIn("scripts/write_acceptance.py start", text)
+        self.assertIn("run_step local_drama_e2e", text)
+        self.assertIn("scripts/run_local_drama_e2e.py", text)
+        self.assertIn("local_drama_e2e.json", text)
+        self.assertIn(".dragon-raja-local-e2e", text)
         self.assertIn("run_main_step preflight preflight", text)
 
     def test_drama_mock_wrappers_pin_litellm_to_local_cost_map(self) -> None:

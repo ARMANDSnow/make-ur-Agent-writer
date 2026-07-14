@@ -1,0 +1,15 @@
+{
+  "adapter": "openai-image",
+  "authority": "local-contract-fixture-only",
+  "reviewed_at": "2026-07-14",
+  "request": {
+    "required_fields": ["model", "prompt", "size", "n"],
+    "fixed_values": {"size": "1024x1024", "n": 1},
+    "maximum_prompt_characters": 4000
+  },
+  "response": {
+    "required_fields": ["model", "size", "data"],
+    "image_field": "data[0].b64_json",
+    "content_contract": "strict-png"
+  }
+}
