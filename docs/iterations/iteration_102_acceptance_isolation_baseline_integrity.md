@@ -34,7 +34,14 @@
 
 ## Acceptance Result
 
-<待 iter-finish 回填 A102-01 至 A102-06、测试数、统一验收和审查结论。>
+- `A102-01`：通过。canonical 参数守门在 evidence/workspace 之前拒绝 `--book` 与未知参数（exit 64），并清除 ambient `WORKSPACE_NAME` / `BOOK`。
+- `A102-02`：通过。normalize 至 preflight 仅运行于带本轮 marker 的系统临时 synthetic workspace，成功/失败路径都验证安全清理且 sentinel 不变。
+- `A102-03`：通过。子进程回归证明 `DRAGON_RAJA_SKIP_DOTENV=1` 在 dotenv import 和 `.env` 路径构造前返回；LiteLLM 同时由 `PYTHON_DOTENV_DISABLED=1` 阻断。
+- `A102-04`：通过。`acceptance.json` schema v2 记录 `mock-functional` / `canonical-mock-offline` / `isolated-mock`、HEAD/tree/cleanliness，脱敏字段不含书名、workspace 路径、正文或凭据。
+- `A102-05`：通过。accepted commit 存在性/祖先关系、active iteration 例外和精确 docs-only 收官 allowlist 均有回归，未跟踪生产代码 fail-closed，普通 `docs/**` 报告不误报。
+- `A102-06`：通过。102 起 Acceptance ID 必填、唯一且收官闭包；旧 schema 覆盖、symlink/no-follow、并发 evidence、缺 `.venv` 与零测试守门继续通过。
+- 只读审查：correctness/behavior、security/boundary、harness/git 三视角完成；主线复核并修复所有有效 findings，无未修 P0/P1。保留一项严格本机同 UID 对手在 cleanup check 与 `rm` 之间竞态交换临时目录的 P2 威胁模型缺口。
+- 首次统一验收发现并修复 `AI_DRAW_MODEL` 进程环境污染；按 workflow 重验后，implementation commit `43d3dd99fe0243360c74f7e0779248a1b371098a` 上 `bash scripts/verify.sh` exit 0，**2069 tests OK**，mock preflight 0 FATAL / 0 WARN。evidence status `passed`，`tracked_scope_clean=true`，14 个 canonical steps 全部完成。
 
 ## 文件变更汇总
 

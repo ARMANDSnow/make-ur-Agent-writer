@@ -28,7 +28,7 @@ python3 -m venv .venv
 bash scripts/verify.sh
 ```
 
-`verify.sh` 是唯一标准验收入口：固定使用项目虚拟环境，强制 mock/offline，只运行一次全量单测，并继续完成 mock pipeline、preflight 与 harness 一致性检查；脱敏结果写入 `outputs/harness/acceptance.json`。
+`verify.sh` 是唯一标准验收入口：只接受无参数运行，固定使用项目虚拟环境，强制 mock/offline，在系统临时 synthetic workspace 中只运行一次全量单测、mock pipeline、preflight 与 harness 一致性检查；脱敏 schema v2 结果写入 `outputs/harness/acceptance.json`。它只能产生 `mock-functional` 级别证据。
 
 真模型配置放在本地 `.env`，先跑 preflight；真实 smoke 必须经过单独授权。
 
@@ -128,20 +128,19 @@ docs/iterations/           逐轮审计记录
 | 短剧真模型第三次全链硬化 | 099 | ✅ readiness/身份/脏账本、图片结构与 submitted 恢复已收口；真校准仍待分段授权 |
 | 短剧真模型全链阻塞修复 | 100 | ✅ 跨进程 callback、稳定恢复身份、媒体 crash receipt 与 Web 逐次授权已收口；真校准仍待分段授权 |
 | 短剧完整链路残余阻塞修复 | 101 | ✅ 文本 revision、Approve 血统、旧 workspace 媒体接管、多集角色与 submitted 纯轮询恢复已收口；真校准仍待分段授权 |
+| 标准验收隔离与审计基线 | 102 | ✅ 无参数 canonical 入口、synthetic workspace、dotenv 物理短路、evidence v2 与 accepted commit 守门已收口 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 101**（2026-07-14，收官）。短剧真文本成功站现可显式开新 revision；Reject/Abstain 不再保留可导出旧组装，Approve review 与 setup/storyboard/本集角色血统一致才能组装。普通 Web workspace 可在锁内验证后进入真生图；季角色库与单次/单集 8 人上限已分离，submitted 视频使用 durable 原授权纯轮询恢复。未运行真实文本、生图或视频。
-
-上一轮 **iter 100** 建立稳定上游恢复身份、跨进程 callback 与媒体 crash receipt，并收口 Web 五站逐次授权。
+最近一次更新：**iter 102**（2026-07-14，收官）。标准验收已收口为无参数 canonical mock/offline 入口：不承接私有 workspace，只在带 marker 的系统临时 synthetic workspace 运行，并以 schema v2 evidence 绑定 accepted implementation commit、Git tree 与 tracked cleanliness。未运行真实文本、生图或视频。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
 | 阶段 | 当前能力 | 状态 | 关键迭代 |
 |---|---|---|---|
-| 运行基础 | mock 严格离线、测试配置隔离、标准验证固定项目虚拟环境 | ✅ | 006-008, 047B2, 096 |
+| 运行基础 | mock 严格离线、dotenv 物理短路、隔离 synthetic workspace、accepted commit/evidence 审计绑定 | ✅ | 006-008, 047B2, 096, 102 |
 | 1. 输入准备 | normalize、split、manifest、多语言/EPUB | ✅ | 001-002, 018 |
 | 2. 知识抽取 | extract、compress、五类 bootstrap/apply | ✅ | 003-004, 015-016 |
 | 3. 起点判断 | start point、anchor、长程起点一致性硬门 | ✅ | 021, 027 |

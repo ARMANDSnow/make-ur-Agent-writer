@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 101，2026-07-14 收官 |
+| 更新时间 | iter 102，2026-07-14 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2044 tests OK** |
-| Accepted implementation commit | `78726b4225ad63f1ba84f557662b07639d7c1639` |
-| 标准验收 | `verify.sh` exit 0（项目虚拟环境）；mock preflight 无 WARN/FATAL |
+| Canonical 基线 | **2069 tests OK** |
+| Accepted implementation commit | `43d3dd99fe0243360c74f7e0779248a1b371098a` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`；隔离 synthetic workspace；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | iter 102 标准验收隔离与审计基线收口进行中 |
+| 当前开发轮次 | 无；下一轮按计划为 iter 103 本地 fake-provider 整链 |
 
 ## Capability Map
 
@@ -33,8 +33,9 @@
 - 季角色库可跨集增长，单次生成和单集 active cast 仍最多 8 人；revision 只替换本集首登角色，新角色使用冲突安全 ID，旧 schema 站④标记 fail-closed。
 - submitted 真视频在 Web 与 multimodal runner 中均使用 durable 原预算/超时/估价纯 poll，mode 漂移时禁止 mock 覆盖；旧本地视频不再遮蔽上游 submitted 状态。
 - 导出仅使用 schema 投影和真实打包的参考图 member，参考图绑定角色目录并做严格 PNG 结构校验；callback capability 不进入 access log。
-- canonical **2044 tests OK**（项目 `.venv`）；短剧 **350 tests OK**；`verify.sh` exit 0；mock preflight **0 FATAL / 0 WARN**；`git diff --check` 通过。未运行真文本、真生图或真视频。
-- correctness、security/boundary、runner/multi/recovery 3 个只读 subagent 复核；无未修 P0/P1，correctness 与 runner 无残余 P0-P2 blocker。仅保留一项严格本地对手在项目锁外竞态交换 JSON 父目录的 P2 威胁模型缺口；静态 symlink 与项目内并发已封闭。
+- canonical **2069 tests OK**（项目 `.venv`）；`verify.sh` 在 accepted implementation commit `43d3dd9` 上 exit 0；evidence schema v2 绑定 HEAD/tree，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。未运行真文本、真生图或真视频。
+- 标准验收不再接受 named workspace；所有 pipeline 步骤只在带 marker 的系统临时 synthetic workspace 运行，并在 Python 启动前物理短路 dotenv。普通未跟踪 `docs/**` 报告不阻断，代码/测试/workflow 漂移 fail-closed。
+- correctness/behavior、security/boundary、harness/git 3 个只读 subagent 复核；无未修 P0/P1。保留 cleanup check 到删除之间同 UID 竞态的 P2，以及既有项目锁外 JSON 父目录竞态 P2。
 
 ## Retained Working Memory
 
@@ -255,4 +256,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 101 从 correctness、security/boundary、runner/multi/recovery 三个视角复核短剧完整链路，修复成功文本无法返修、Reject 旧组装仍可导出、旧 review/workspace 在真生图后才阻断、季角色库/单集容量冲突、submitted 视频模式漂移和导出悬空引用。最终项目 `.venv` 下 2044 项 canonical、短剧 350 项聚焦、`verify.sh` 和 0 WARN/FATAL mock preflight 全绿，无未修 P0/P1；保留一项严格本地对手 JSON TOCTOU P2，未运行真文本、真生图或真视频。
+iter 102 将 canonical `verify.sh` 收口为无参数、隔离 synthetic workspace 的 mock/offline 入口，新增 dotenv 物理短路、schema v2 evidence 的 HEAD/tree/cleanliness 绑定、accepted implementation commit 和 Acceptance ID 闭包守门。首次全量验收抓到并修复默认图片模型污染进程环境；重验后 `43d3dd9` 上 2069 项 canonical 与 0 WARN/FATAL mock preflight 全绿。未运行任何真 provider。

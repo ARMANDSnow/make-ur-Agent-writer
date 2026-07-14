@@ -27,6 +27,7 @@
 | 099 | 短剧真模型第三次全链硬化 | 共享 readiness、episode 身份/脏账本、PNG 结构 provenance 与 submitted 零重提交恢复 |
 | 100 | 短剧真模型全链阻塞修复 | 稳定恢复身份、跨进程 callback、媒体 crash receipt、result-host 血统与 Web 逐次授权 |
 | 101 | 短剧完整链路残余阻塞修复 | 文本 revision、Approve 血统、旧 workspace 媒体接管、季角色库与 submitted 纯轮询恢复 |
+| 102 | 标准验收隔离与审计基线 | synthetic workspace、dotenv 物理短路、evidence v2、accepted commit 与 Acceptance ID 闭包 |
 
 ## Iteration Implementation Index
 
@@ -109,6 +110,7 @@
 | 099 | 收紧短剧 readiness、脏账本与媒体恢复身份 | `src/drama_smoke.py`、`src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_iter099_hardening.py` |
 | 100 | 修复短剧真模型全链恢复与入口阻塞 | `src/web/jobs.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`src/web/static.py`、`tests/test_drama_iter100_hardening.py` |
 | 101 | 修复短剧完整链路残余阻塞 | `src/drama_store.py`、`src/character_designer.py`、`src/drama_multimodal_smoke.py`、`src/drama_video.py`、`tests/test_drama_iter101_blockers.py` |
+| 102 | 隔离 canonical 验收并绑定审计基线 | `scripts/verify.sh`、`scripts/write_acceptance.py`、`scripts/check_agent_harness.py`、`src/config.py`、`tests/test_agent_harness.py` |
 
 ## Durable Decisions
 
@@ -164,6 +166,7 @@
 15. **媒体魔数不是解码证明，费用数字也不是账本证明**：真实媒体必须经过资源有界的结构/内容解析，无法可靠解析的格式应暂时 fail-closed；成本读取必须与 dirty 状态来自同一快照，未知或损坏证据不能降格为 0。
 16. **付费前门禁必须与请求处在同一锁域**：先在锁外判断 fresh，再进锁调 provider，会留下 Web 编辑 TOCTOU；旧产物迁移也应在首次 runner state 前完成，否则 crash 会把新产物与旧指纹拆开。
 17. **季库容量、单次输出和单集 cast 是三个边界**：共用一个 schema 上限会让“第 9 个季角色”与“单集最多 8 人”互相阻塞。Prompt 的剩余槽位、merge 后 active cast 和 meta 必须使用同一语义。
+18. **验收要隔离输入，也要绑定被验收实体**：只强制 mock 不足以阻止 ambient workspace、dotenv 或全局进程环境污染。Canonical 入口应使用 synthetic workspace，在 import 前物理短路 dotenv，并用 HEAD/tree/cleanliness 证明证据对应哪个 implementation commit。聚焦 Python 检查也必须使用同等的 dotenv 隔离前置。
 
 ## Historical Evidence Notes
 
