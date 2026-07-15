@@ -128,3 +128,4 @@
 113. [Iteration 104 - Crash/Restart 与状态矩阵](./iteration_104_crash_restart_state_matrix.md)
 114. [Iteration 105 - 短剧单集角色投影一致性](./iteration_105_drama_episode_character_projection.md)
 115. [Iteration 106 - 短剧渲染计划与创作陈旧性边界](./iteration_106_drama_render_plan_stale_boundary.md)
+116. [Iteration 107 - 短剧角色资产版本与冻结选择](./iteration_107_drama_character_asset_version_selection.md)

@@ -701,6 +701,7 @@ class DramaEpisode(BaseModel):
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 _SHOT_ID_PATTERN = r"^shot_[0-9a-f]{24}$"
 _SEGMENT_ID_PATTERN = r"^segment_[0-9a-f]{24}$"
+_ASSET_VERSION_ID_PATTERN = r"^av_[0-9a-f]{24}$"
 
 
 def _canonical_sha256(data: Any) -> str:
@@ -722,6 +723,210 @@ class ArtDirectionRef(BaseModel):
     art_direction_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     version_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,79}$")
     fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+
+class AssetArtifact(BaseModel):
+    """Bounded local artifact identity without provider or prompt data."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=1, le=5 * 1024 * 1024)
+
+    @field_validator("path")
+    @classmethod
+    def _asset_path_is_character_reference(cls, value: str) -> str:
+        text = value.replace("\\", "/")
+        if (
+            text.startswith("/")
+            or text.startswith("../")
+            or "/../" in text
+            or text == ".."
+        ):
+            raise ValueError("asset artifact path must stay inside the workspace")
+        if text.startswith("./"):
+            text = text[2:]
+        if not text.startswith("data/character_refs/"):
+            raise ValueError("asset artifact path must live under data/character_refs")
+        return text
+
+    @field_validator("size_bytes", mode="before")
+    @classmethod
+    def _asset_size_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("asset artifact size must be a strict integer")
+        return value
+
+
+AssetVersionSource = Literal[
+    "identity_snapshot",
+    "legacy_reference",
+    "appended_candidate",
+]
+
+
+class AssetVersion(BaseModel):
+    """One immutable, content-addressed character asset version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    asset_id: str = Field(pattern=r"^c\d{3}$")
+    asset_version_id: str = Field(pattern=_ASSET_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    derived_from: Optional[str] = Field(default=None, pattern=_ASSET_VERSION_ID_PATTERN)
+    source_kind: AssetVersionSource
+    identity_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    artifact: Optional[AssetArtifact] = None
+
+    @model_validator(mode="after")
+    def _asset_version_is_content_addressed(self) -> "AssetVersion":
+        if self.derived_from == self.asset_version_id:
+            raise ValueError("asset version cannot derive from itself")
+        source_payload = {
+            "asset_id": self.asset_id,
+            "identity_fingerprint": self.identity_fingerprint,
+            "source_kind": self.source_kind,
+            "artifact": (
+                self.artifact.model_dump() if self.artifact is not None else None
+            ),
+        }
+        if _canonical_sha256(source_payload) != self.source_fingerprint:
+            raise ValueError("asset version source fingerprint is invalid")
+        payload = self.model_dump(
+            exclude={"asset_version_id", "version_fingerprint"}
+        )
+        fingerprint = _canonical_sha256(payload)
+        if fingerprint != self.version_fingerprint:
+            raise ValueError("asset version fingerprint does not match its payload")
+        if self.asset_version_id != f"av_{fingerprint[:24]}":
+            raise ValueError("asset version id does not match its fingerprint")
+        return self
+
+
+class CharacterAsset(BaseModel):
+    """Version history and explicit selection for one stable character id."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    asset_id: str = Field(pattern=r"^c\d{3}$")
+    identity_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    versions: List[AssetVersion] = Field(min_length=1, max_length=256)
+    selected_version_id: str = Field(pattern=_ASSET_VERSION_ID_PATTERN)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+
+    @field_validator("selection_revision", mode="before")
+    @classmethod
+    def _selection_revision_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("selection revision must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _character_asset_history_is_consistent(self) -> "CharacterAsset":
+        if any(version.asset_id != self.asset_id for version in self.versions):
+            raise ValueError("asset versions must belong to the same character asset")
+        ids = [version.asset_version_id for version in self.versions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("asset version ids must be unique")
+        if self.selected_version_id not in set(ids):
+            raise ValueError("selected asset version does not exist")
+        parents = {
+            version.asset_version_id: version.derived_from
+            for version in self.versions
+        }
+        for version_id, parent in parents.items():
+            if parent is not None and parent not in parents:
+                raise ValueError("derived asset version does not exist")
+            seen: set[str] = set()
+            current: Optional[str] = version_id
+            while current is not None:
+                if current in seen:
+                    raise ValueError("asset version derivation contains a cycle")
+                seen.add(current)
+                current = parents[current]
+        return self
+
+
+class AssetRef(BaseModel):
+    """Frozen reference to one exact character asset version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["character"] = "character"
+    asset_id: str = Field(pattern=r"^c\d{3}$")
+    asset_version_id: str = Field(pattern=_ASSET_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    artifact_sha256: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+
+
+class CharacterAssetCatalog(BaseModel):
+    """Season-level render-side character asset truth."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    assets: List[CharacterAsset] = Field(min_length=1, max_length=999)
+    catalog_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _catalog_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict positive integer")
+        return value
+
+    @model_validator(mode="after")
+    def _catalog_is_internally_consistent(self) -> "CharacterAssetCatalog":
+        ids = [asset.asset_id for asset in self.assets]
+        if len(ids) != len(set(ids)):
+            raise ValueError("character asset ids must be unique")
+        payload = self.model_dump(exclude={"catalog_fingerprint"})
+        if _canonical_sha256(payload) != self.catalog_fingerprint:
+            raise ValueError("character asset catalog fingerprint does not match its payload")
+        return self
+
+
+class EpisodeAssetManifest(BaseModel):
+    """Episode-scoped frozen selections bound to one fresh RenderPlan."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    selection_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    asset_refs: List[AssetRef] = Field(min_length=1, max_length=8)
+    manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _manifest_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict positive integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _manifest_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _manifest_is_internally_consistent(self) -> "EpisodeAssetManifest":
+        ids = [ref.asset_id for ref in self.asset_refs]
+        if len(ids) != len(set(ids)):
+            raise ValueError("episode asset refs must be unique")
+        selection_payload = [ref.model_dump() for ref in self.asset_refs]
+        if _canonical_sha256(selection_payload) != self.selection_fingerprint:
+            raise ValueError("episode asset selection fingerprint is invalid")
+        payload = self.model_dump(exclude={"manifest_fingerprint"})
+        if _canonical_sha256(payload) != self.manifest_fingerprint:
+            raise ValueError("episode asset manifest fingerprint does not match its payload")
+        return self
 
 
 AudioPolicy = Literal[

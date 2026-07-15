@@ -110,6 +110,7 @@ def _read_strict_workspace_bytes(
         raise ValueError("render source path is invalid")
     nofollow = getattr(os, "O_NOFOLLOW", None)
     directory = getattr(os, "O_DIRECTORY", None)
+    nonblock = getattr(os, "O_NONBLOCK", 0)
     if nofollow is None or directory is None:
         raise ValueError("strict no-follow workspace reads are unavailable")
 
@@ -127,7 +128,7 @@ def _read_strict_workspace_bytes(
             directory_fd = next_fd
         file_fd = os.open(
             relative.parts[-1],
-            os.O_RDONLY | nofollow,
+            os.O_RDONLY | nofollow | nonblock,
             dir_fd=directory_fd,
         )
         info = os.fstat(file_fd)
