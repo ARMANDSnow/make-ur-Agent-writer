@@ -6,10 +6,10 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 107，2026-07-15；iter108 evidence 重绑定中 |
+| 更新时间 | iter 108，2026-07-15 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
 | Canonical 基线 | **2175 tests OK** |
-| Accepted implementation commit | `7f0e5f4047cc99bf6cc2ededdd662922a0fb1d4e` |
+| Accepted implementation commit | `59e422948cad3bf0ec6aaf4098eebe247ad3f861` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
 | 当前开发轮次 | 无；短剧 A2/B 的 ArtDirection selected-ref 桥接已闭环，不代表通用 visual override 或阶段 B 整体完成 |
@@ -31,7 +31,7 @@
 - season 级 `ArtDirectionCatalog` 使用完整内容指纹与 `ad_<24hex>` 不可变候选；append whole-catalog CAS 不自动选择，select 使用 revision + 当前 ID 双 CAS 防 ABA。无 catalog 的 legacy `None` 保持兼容，invalid catalog、孤儿/伪造 ref 均 fail-closed。
 - 未选 ArtDirection 候选不使 RenderPlan stale；selected 改变精确使 RenderPlan stale，并沿既有依赖使 `EpisodeAssetManifest` stale，显式重建后恢复 fresh。角色 catalog/manifest 的 active-only freshness 语义保持不变。
 - submitted 真视频在 Web 与 multimodal runner 中均使用 durable 原预算/超时/估价纯 poll，mode 漂移时禁止 mock 覆盖；旧本地视频不再遮蔽上游 submitted 状态。
-- canonical **2175 tests OK**（项目 `.venv`）；authoritative `verify.sh` evidence 在 accepted implementation baseline `7f0e5f4047cc99bf6cc2ededdd662922a0fb1d4e` 上 exit 0，15 steps / 139 秒，run `33477285a4d6417fb7db76c37e001a86`；schema v2 绑定 tree `d97799cb2c5a7e269fa7066262bd8de7f6b831a8`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。受限沙箱首跑因 loopback/xcrun 临时文件限制失败，同一离线命令在沙箱外重验通过；未运行真文本、真生图或真视频。
+- canonical **2175 tests OK**（项目 `.venv`）；authoritative `verify.sh` evidence 在 accepted baseline `59e422948cad3bf0ec6aaf4098eebe247ad3f861` 上 exit 0，15 steps / 138 秒，run `a54565f5b5c4489fa88e8009696118d1`；schema v2 绑定 tree `4f1cd79623f64ebc5f05f5aeddb76981f0445c3b`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。受限沙箱首跑因 loopback/xcrun 临时文件限制失败；其后同一离线命令在沙箱外通过，并在产品 SOP 纳入 accepted tree 后完成最终 evidence 重绑定。未运行真文本、真生图或真视频。
 - mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`：2 次图片生成、2 asset upload/poll、1 video create、2 poll、1 download、2 跨进程 callback，成功后 resume 零网络；五站授权闭包 5/5。
 - 标准验收不再接受 named workspace；所有 pipeline 步骤只在带 marker 的系统临时 synthetic workspace 运行，并在 Python 启动前物理短路 dotenv。普通未跟踪 `docs/**` 报告不阻断，代码/测试/workflow 漂移 fail-closed。
 - 五站文本遍历全部 durable 状态和 input/model/endpoint/account 单项漂移；图片六阶段核对 provider total/delta 与 receipt/canonical/projection hash；视频六阶段核对 create/poll/download，create-response-loss fresh restart 保持总 create=1。状态字符串集中为共享 `frozenset`，无 schema migration 或 paid-ledger 大重构。
@@ -259,4 +259,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 108 在不修改创作真源、RenderPlan v1 shape 和 creative fingerprint 的前提下，建立“season ArtDirection 不可变候选 → 显式 selected/revision → RenderPlan 冻结 ref → manifest stale 传播”的纯本地闭环。新候选不自动 selected，双 CAS 防 ABA；legacy 无 catalog + `None` 继续兼容，invalid/孤儿 ref fail-closed。`7f0e5f4` 上 2175 项 canonical 与 0 WARN/FATAL preflight 全绿，local-E2E 仍 `provider_validated=false`，未运行真 provider。
+iter 108 在不修改创作真源、RenderPlan v1 shape 和 creative fingerprint 的前提下，建立“season ArtDirection 不可变候选 → 显式 selected/revision → RenderPlan 冻结 ref → manifest stale 传播”的纯本地闭环。新候选不自动 selected，双 CAS 防 ABA；legacy 无 catalog + `None` 继续兼容，invalid/孤儿 ref fail-closed。代码 implementation commit 为 `7f0e5f4`，含实时产品 SOP 的 accepted baseline `59e4229` 上 2175 项 canonical 与 0 WARN/FATAL preflight 全绿，local-E2E 仍 `provider_validated=false`，未运行真 provider。

@@ -140,7 +140,7 @@ docs/iterations/           逐轮审计记录
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 107**（2026-07-15，iter108 evidence 重绑定中）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准；短剧的完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。本轮完成 ArtDirection 不可变候选、显式 selected CAS 及其向 RenderPlan/单集 manifest 的精确 stale 传播；总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
+最近一次更新：**iter 108**（2026-07-15，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准；短剧的完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。本轮完成 ArtDirection 不可变候选、显式 selected CAS 及其向 RenderPlan/单集 manifest 的精确 stale 传播；总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
