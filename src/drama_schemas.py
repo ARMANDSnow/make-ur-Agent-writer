@@ -1677,6 +1677,428 @@ class EpisodePropOrClueAssetManifest(BaseModel):
         return self
 
 
+ShotImageReferenceKind = Literal["character", "scene", "prop", "clue"]
+ShotImageRequestStatus = Literal["assembled", "blocked"]
+ShotImageWarningCode = Literal[
+    "reference_limit_exceeded",
+    "scene_artifact_missing",
+    "prop_clue_artifact_missing",
+]
+ShotImageBlockedReason = Literal["character_artifact_missing"]
+
+
+class ShotImageReference(BaseModel):
+    """One exact local image reference frozen for a shot request."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: ShotImageReferenceKind
+    asset_id: str = Field(pattern=r"^(?:c|s|p|l)[0-9]{3}$")
+    asset_version_id: str = Field(
+        pattern=r"^(?:av|sv|pcv)_[0-9a-f]{24}$",
+    )
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    artifact_path: str = Field(min_length=1, max_length=240)
+    artifact_sha256: str = Field(pattern=_SHA256_PATTERN)
+    artifact_size_bytes: int = Field(ge=1, le=5 * 1024 * 1024)
+    position: int = Field(ge=1, le=25)
+
+    @field_validator("artifact_path", mode="before")
+    @classmethod
+    def _shot_image_artifact_path_is_strict(cls, value: Any) -> str:
+        if not isinstance(value, str) or "\\" in value:
+            raise ValueError("shot image reference path must be a POSIX relative path")
+        if (
+            value.startswith("/")
+            or value.startswith("./")
+            or "//" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or re.fullmatch(
+                r"data/(?:character_refs/c[0-9]{3}|scene_refs/s[0-9]{3}|"
+                r"prop_clue_refs/(?:p|l)[0-9]{3})/"
+                r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}"
+                r"(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,119})*",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("shot image reference path must stay inside the workspace")
+        return value
+
+    @field_validator("artifact_size_bytes", "position", mode="before")
+    @classmethod
+    def _shot_image_reference_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_image_reference_matches_kind(self) -> "ShotImageReference":
+        expected = {
+            "character": ("c", "av_", "data/character_refs/"),
+            "scene": ("s", "sv_", "data/scene_refs/"),
+            "prop": ("p", "pcv_", "data/prop_clue_refs/"),
+            "clue": ("l", "pcv_", "data/prop_clue_refs/"),
+        }[self.kind]
+        if not self.asset_id.startswith(expected[0]) or not self.asset_version_id.startswith(
+            expected[1]
+        ):
+            raise ValueError("shot image reference id does not match its kind")
+        if not self.artifact_path.startswith(
+            f"{expected[2]}{self.asset_id}/"
+        ):
+            raise ValueError("shot image reference artifact belongs to another asset")
+        return self
+
+
+class ShotImageReferencePolicy(BaseModel):
+    """Provider-neutral, versioned reference ordering and truncation policy."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    max_reference_images: int = Field(ge=1, le=25)
+    priority_version: Literal["character_scene_prop_clue_v1"] = (
+        "character_scene_prop_clue_v1"
+    )
+    policy_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("max_reference_images", mode="before")
+    @classmethod
+    def _shot_image_reference_limit_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("max_reference_images must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_image_policy_is_content_addressed(self) -> "ShotImageReferencePolicy":
+        payload = self.model_dump(exclude={"policy_fingerprint"})
+        if _canonical_sha256(payload) != self.policy_fingerprint:
+            raise ValueError("shot image reference policy fingerprint is invalid")
+        return self
+
+
+class ShotCharacterBinding(BaseModel):
+    """Explicit stable-shot character participation; never inferred from text."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    character_ids: List[str] = Field(max_length=8)
+
+    @field_validator("character_ids", mode="before")
+    @classmethod
+    def _shot_character_ids_are_strict(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("character_ids must be a list")
+        if any(
+            not isinstance(item, str) or re.fullmatch(r"c[0-9]{3}", item) is None
+            for item in value
+        ):
+            raise ValueError("character_ids contain an invalid id")
+        if len(value) != len(set(value)):
+            raise ValueError("character_ids must be unique")
+        return value
+
+
+class ShotImageRequestSpec(BaseModel):
+    """Pure, provider-neutral image input for one stable RenderShot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    status: ShotImageRequestStatus
+    shot_size: ShotSize
+    camera_movement: CameraMovement
+    visual_action: str = Field(min_length=1, max_length=500)
+    image_prompt: str = Field(default="", max_length=800)
+    transition_hint: str = Field(default="", max_length=120)
+    art_direction_ref: Optional[ArtDirectionRef] = None
+    art_direction_version: Optional[ArtDirectionVersion] = None
+    reference_policy_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    character_refs: List[AssetRef] = Field(max_length=8)
+    character_versions: List[AssetVersion] = Field(max_length=8)
+    scene_ref: SceneAssetRef
+    scene_version: SceneAssetVersion
+    prop_clue_refs: List[PropOrClueAssetRef] = Field(max_length=16)
+    prop_clue_versions: List[PropOrClueAssetVersion] = Field(max_length=16)
+    image_references: List[ShotImageReference] = Field(max_length=25)
+    warning_codes: List[ShotImageWarningCode] = Field(max_length=3)
+    dropped_reference_count: int = Field(ge=0, le=25)
+    blocked_reasons: List[ShotImageBlockedReason] = Field(max_length=8)
+    request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("warning_codes", "blocked_reasons", mode="before")
+    @classmethod
+    def _shot_image_codes_are_unique_lists(cls, value: Any, info: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        if len(value) != len(set(value)):
+            raise ValueError(f"{info.field_name} must be unique")
+        return value
+
+    @field_validator("dropped_reference_count", mode="before")
+    @classmethod
+    def _dropped_reference_count_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("dropped_reference_count must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_image_request_is_consistent(self) -> "ShotImageRequestSpec":
+        if (self.status == "blocked") != bool(self.blocked_reasons):
+            raise ValueError("shot image request status does not match blocked reasons")
+        if [item.position for item in self.image_references] != list(
+            range(1, len(self.image_references) + 1)
+        ):
+            raise ValueError("shot image reference positions must be contiguous")
+        ref_keys = [(item.kind, item.asset_id) for item in self.image_references]
+        if len(ref_keys) != len(set(ref_keys)):
+            raise ValueError("shot image references must be unique")
+        character_pairs = [
+            (item.asset_id, item.asset_version_id, item.version_fingerprint)
+            for item in self.character_refs
+        ]
+        character_version_pairs = [
+            (item.asset_id, item.asset_version_id, item.version_fingerprint)
+            for item in self.character_versions
+        ]
+        if character_pairs != character_version_pairs:
+            raise ValueError("shot image character refs do not match exact versions")
+        if [item.artifact_sha256 for item in self.character_refs] != [
+            item.artifact.sha256 if item.artifact is not None else None
+            for item in self.character_versions
+        ]:
+            raise ValueError("shot image character refs do not match exact artifacts")
+        if self.scene_ref.scene_id != self.scene_version.scene_id or (
+            self.scene_ref.scene_version_id != self.scene_version.scene_version_id
+            or self.scene_ref.version_fingerprint
+            != self.scene_version.version_fingerprint
+            or self.scene_ref.artifact_sha256
+            != (
+                self.scene_version.artifact.sha256
+                if self.scene_version.artifact is not None
+                else None
+            )
+        ):
+            raise ValueError("shot image scene ref does not match its exact version")
+        prop_pairs = [
+            (item.asset_id, item.asset_version_id, item.version_fingerprint)
+            for item in self.prop_clue_refs
+        ]
+        version_pairs = [
+            (item.asset_id, item.asset_version_id, item.version_fingerprint)
+            for item in self.prop_clue_versions
+        ]
+        if prop_pairs != version_pairs:
+            raise ValueError("shot image prop/clue refs do not match exact versions")
+        if [item.artifact_sha256 for item in self.prop_clue_refs] != [
+            item.artifact.sha256 if item.artifact is not None else None
+            for item in self.prop_clue_versions
+        ]:
+            raise ValueError("shot image prop/clue refs do not match exact artifacts")
+        if (self.art_direction_ref is None) != (self.art_direction_version is None):
+            raise ValueError("art direction ref and exact version must be present together")
+        if self.art_direction_ref is not None:
+            version = self.art_direction_version
+            assert version is not None
+            if (
+                self.art_direction_ref.art_direction_id != version.art_direction_id
+                or self.art_direction_ref.version_id != version.version_id
+                or self.art_direction_ref.fingerprint != version.version_fingerprint
+            ):
+                raise ValueError("art direction ref does not match its exact version")
+        expected_references: list[dict[str, Any]] = []
+        missing_character = False
+        for version in self.character_versions:
+            if version.artifact is None:
+                missing_character = True
+                continue
+            expected_references.append(
+                {
+                    "kind": "character",
+                    "asset_id": version.asset_id,
+                    "asset_version_id": version.asset_version_id,
+                    "version_fingerprint": version.version_fingerprint,
+                    "artifact_path": version.artifact.path,
+                    "artifact_sha256": version.artifact.sha256,
+                    "artifact_size_bytes": version.artifact.size_bytes,
+                }
+            )
+        scene_missing = self.scene_version.artifact is None
+        if not scene_missing:
+            artifact = self.scene_version.artifact
+            assert artifact is not None
+            expected_references.append(
+                {
+                    "kind": "scene",
+                    "asset_id": self.scene_version.scene_id,
+                    "asset_version_id": self.scene_version.scene_version_id,
+                    "version_fingerprint": self.scene_version.version_fingerprint,
+                    "artifact_path": artifact.path,
+                    "artifact_sha256": artifact.sha256,
+                    "artifact_size_bytes": artifact.size_bytes,
+                }
+            )
+        prop_missing = False
+        for version in self.prop_clue_versions:
+            if version.artifact is None:
+                prop_missing = True
+                continue
+            expected_references.append(
+                {
+                    "kind": version.spec.kind,
+                    "asset_id": version.asset_id,
+                    "asset_version_id": version.asset_version_id,
+                    "version_fingerprint": version.version_fingerprint,
+                    "artifact_path": version.artifact.path,
+                    "artifact_sha256": version.artifact.sha256,
+                    "artifact_size_bytes": version.artifact.size_bytes,
+                }
+            )
+        actual_references = [
+            item.model_dump(exclude={"position"}) for item in self.image_references
+        ]
+        if actual_references != expected_references[: len(actual_references)]:
+            raise ValueError("shot image references are not an exact priority prefix")
+        expected_dropped = len(expected_references) - len(actual_references)
+        if expected_dropped != self.dropped_reference_count:
+            raise ValueError("shot image dropped reference count is invalid")
+        expected_warnings: list[str] = []
+        if scene_missing:
+            expected_warnings.append("scene_artifact_missing")
+        if prop_missing:
+            expected_warnings.append("prop_clue_artifact_missing")
+        if expected_dropped:
+            expected_warnings.append("reference_limit_exceeded")
+        if self.warning_codes != expected_warnings:
+            raise ValueError("shot image warning codes are invalid")
+        expected_blocked = ["character_artifact_missing"] if missing_character else []
+        if self.blocked_reasons != expected_blocked:
+            raise ValueError("shot image blocked reasons are invalid")
+        expected_status = "blocked" if expected_blocked else "assembled"
+        if self.status != expected_status:
+            raise ValueError("shot image request status is invalid")
+        payload = self.model_dump(exclude={"request_fingerprint"})
+        if _canonical_sha256(payload) != self.request_fingerprint:
+            raise ValueError("shot image request fingerprint is invalid")
+        return self
+
+
+class EpisodeShotImagePlan(BaseModel):
+    """Episode-level frozen C1 inputs, independent of provider task state."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["shot-image-plan-v1"] = "shot-image-plan-v1"
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    used_character_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    art_direction_version_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    scene_manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    prop_clue_manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    reference_policy: ShotImageReferencePolicy
+    character_binding_revision: int = Field(ge=0, le=2_147_483_647)
+    character_binding_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    character_bindings: List[ShotCharacterBinding] = Field(min_length=1, max_length=100)
+    shot_specs: List[ShotImageRequestSpec] = Field(min_length=1, max_length=100)
+    plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "season_no",
+        "character_binding_revision",
+        mode="before",
+    )
+    @classmethod
+    def _shot_image_plan_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _shot_image_episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _shot_image_plan_is_consistent(self) -> "EpisodeShotImagePlan":
+        binding_ids = [item.shot_id for item in self.character_bindings]
+        spec_ids = [item.shot_id for item in self.shot_specs]
+        if len(binding_ids) != len(set(binding_ids)) or binding_ids != spec_ids:
+            raise ValueError("shot image bindings and specs must share one stable order")
+        for binding, spec in zip(self.character_bindings, self.shot_specs):
+            if binding.source_fingerprint != spec.source_fingerprint:
+                raise ValueError("shot image binding source does not match request source")
+            if binding.character_ids != [item.asset_id for item in spec.character_refs]:
+                raise ValueError("shot image character refs do not match explicit binding")
+            if (
+                spec.reference_policy_fingerprint
+                != self.reference_policy.policy_fingerprint
+            ):
+                raise ValueError("shot image request uses another reference policy")
+            spec_art_fingerprint = (
+                spec.art_direction_version.version_fingerprint
+                if spec.art_direction_version is not None
+                else None
+            )
+            if spec_art_fingerprint != self.art_direction_version_fingerprint:
+                raise ValueError("shot image request uses another art direction")
+            raw_reference_count = sum(
+                item.artifact is not None for item in spec.character_versions
+            )
+            raw_reference_count += int(spec.scene_version.artifact is not None)
+            raw_reference_count += sum(
+                item.artifact is not None for item in spec.prop_clue_versions
+            )
+            if len(spec.image_references) != min(
+                raw_reference_count,
+                self.reference_policy.max_reference_images,
+            ):
+                raise ValueError("shot image request does not apply the reference limit")
+        binding_payload = [
+            {"shot_id": item.shot_id, "character_ids": item.character_ids}
+            for item in sorted(self.character_bindings, key=lambda item: item.shot_id)
+        ]
+        if _canonical_sha256(binding_payload) != self.character_binding_fingerprint:
+            raise ValueError("shot image character binding fingerprint is invalid")
+        used_versions: dict[str, tuple[AssetRef, AssetVersion]] = {}
+        for spec in self.shot_specs:
+            for ref, version in zip(spec.character_refs, spec.character_versions):
+                previous = used_versions.get(ref.asset_id)
+                current = (ref, version)
+                if previous is not None and previous != current:
+                    raise ValueError("used character dependency changed between shots")
+                used_versions.setdefault(ref.asset_id, current)
+        used_character_payload = [
+            {
+                "asset_ref": ref.model_dump(),
+                "asset_version": version.model_dump(),
+            }
+            for ref, version in used_versions.values()
+        ]
+        if _canonical_sha256(used_character_payload) != self.used_character_fingerprint:
+            raise ValueError("used character fingerprint is invalid")
+        payload = self.model_dump(exclude={"plan_fingerprint"})
+        if _canonical_sha256(payload) != self.plan_fingerprint:
+            raise ValueError("shot image plan fingerprint is invalid")
+        return self
+
+
 AudioPolicy = Literal[
     "silent",
     "narration_only",
