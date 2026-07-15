@@ -43,7 +43,10 @@ iter110 指出完整 visual override 在没有逐镜消费者时会虚构 stale�
 
 ## Acceptance Result
 
-待 `iter-finish` 回填；当前仅完成立项与只读方案审计，未执行实现测试、全量验收或真实 provider 调用。
+- **结论**：A111-01、A111-02、A111-03、A111-04、A111-05、A111-06 全部通过；实现提交为 `d38e67e0068d8f4426f24052b8c4f839baef1d3a`。三个独立只读复核视角最终均无遗留 P0/P1/P2。
+- **聚焦证据**：新增链 23 tests OK；iter105-110、RenderPlan、资产、四导出、season export 与 episode-1 video 兼容链 184 tests OK；相关 `py_compile`、agent harness 与 `git diff --check` 通过。
+- **Canonical 验收**：在 implementation commit 上只运行一次 `bash scripts/verify.sh`，exit 0，**2238 tests OK**，15 steps，145 秒，run `0d68b5d71d3442f0ae499bff0c9bef72`，tree `5209ce9277e03b2db5fa7a0cfcab506e0568dbea`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- **验收级别**：总级别 `mock-functional` / `canonical-mock-offline`；mandatory local-drama 组件为 `local-e2e`、`provider_validated=false`。未运行真文本、真图片、真视频、真 ComfyUI 或任何真 provider 调用。
 
 ## 文件变更汇总
 
@@ -57,6 +60,9 @@ iter110 指出完整 visual override 在没有逐镜消费者时会虚构 stale�
 | `tests/_drama_shot_image_base.py` | 新增 iter111 synthetic 本地资产/manifest 共享 fixture |
 | `tests/test_drama_shot_image.py` | 新增 schema、mapping、priority/truncation、metadata-only、fingerprint 聚焦测试 |
 | `tests/test_drama_shot_image_store.py` | 新增五态、freshness、CAS、artifact/path/lock/race/temp ownership 边界测试 |
+| `README.md` | 追加 iter111 里程碑，将短剧 SOP 阶段 C 更新为 C1 部分实现 |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前快照、能力图、验收证据、缺口、候选与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 追加 iter111 里程碑、实现索引与实际使用依赖/assembled 边界的长期教训 |
 
 ## 不在本轮范围
 
@@ -74,3 +80,4 @@ iter110 指出完整 visual override 在没有逐镜消费者时会虚构 stale�
 - 实施完成后必须使用 `iter-finish`；在 implementation commit 上完成审查与最终一次 canonical 验收，随后只允许 docs-only 收官提交。
 - 收官时仅在事实变化后更新 README 项目状态，并就地替换 SOP 最近更新时间；同步 handoff 当前快照/Latest Transition 与 PROJECT_HISTORY 阶段历史。
 - 提交信息草案：`docs(iter111): 迭代计划 111 立项（短剧逐镜图片规格与冻结引用装配）`。
+- 实现提交已完成：`d38e67e feat(drama): freeze shot image request inputs (iter111)`；收官后只 commit，不 push。

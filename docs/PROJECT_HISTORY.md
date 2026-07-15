@@ -36,6 +36,7 @@
 | 108 | 短剧美术方向版本与渲染冻结 | season ArtDirection 不可变候选、显式 selected CAS、RenderPlan ref 与单集 manifest stale 传播 |
 | 109 | 短剧场景资产版本与逐镜冻结 | season SceneAsset 不可变候选、selected 双 CAS、显式 shot→scene manifest、episode used-by 与精确 stale |
 | 110 | 短剧道具/线索资产版本与逐镜冻结 | season PropOrClueAsset 不可变候选、selected 双 CAS、显式 shot→0..16 refs、episode used-by 与精确 stale |
+| 111 | 短剧逐镜图片规格与冻结引用 | provider-neutral 逐镜图片规格、显式角色绑定、exact 资产引用、确定性裁剪与精确 stale/store |
 
 ## Iteration Implementation Index
 
@@ -127,6 +128,7 @@
 | 108 | 建立 ArtDirection 版本、selected CAS 与 RenderPlan/manifest stale 桥接 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_art_direction_store.py`、`src/drama_render_store.py`、`src/workspace_lock.py`、`tests/test_drama_art_direction*.py` |
 | 109 | 建立 SceneAsset 版本、selected CAS 与逐镜冻结引用 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_asset_versions.py`、`tests/test_drama_scene_asset*.py` |
 | 110 | 建立 PropOrClueAsset 版本与逐镜零到多冻结引用 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_asset_versions.py`、`tests/test_drama_prop_clue_asset*.py` |
+| 111 | 建立逐镜图片规格、引用装配与五态 store | `src/drama_schemas.py`、`src/drama_shot_image.py`、`src/drama_shot_image_store.py`、`tests/test_drama_shot_image*.py` |
 
 ## Durable Decisions
 
@@ -192,6 +194,7 @@
 24. **派生 ref 不能用落盘值自证来源**：RenderPlan 中已有的 ArtDirectionRef 只能是缓存结果，freshness 必须重新读取并验证当前 catalog selected；missing/invalid/orphan source 应阻断，未选候选不 stale，只有 selected 变化才沿真实依赖传播。target-token CAS 仍以所有项目写者遵守 workspace flock 为前提，不能对非合作本地进程宣称原子性。
 25. **逐镜资产绑定必须显式且与内容认证分开**：没有创作层 scene ID 时，调用方必须提交完整稳定 `shot_id -> scene_id` 映射，不能从 prompt、位置或自由文本猜测；episode manifest 可作为本地权威绑定记录并重验当前 RenderPlan/catalog/selected artifact，但普通 SHA-256 只证明内容一致性，不是签名，不能宣称抵抗离线整份改写并重算 hash。
 26. **“零到多个”也必须把零写出来**：逐镜道具/线索不能把缺少 mapping key、漏传 `asset_refs` 与明确 `[]` 混为一谈；完整 shot 映射和必填空列表既是 graceful degrade 证据，也是防止调用方遗漏被静默接受的 freshness 边界。先按当前 shot 数量有界校验 mapping，再读取条目，避免拒绝超限输入前遍历或复制不受信任容器。
+27. **逐镜 consumer 只绑定实际使用依赖，装配完成不等于可提交**：episode frozen cast 不能代替显式 shot mapping，未出镜 frozen asset 不应使已存 plan stale；references 必须是 exact version/artifact 的 deterministic prefix。`assembled` 仅证明本地规格与引用已冻结，MIME/尺寸、provider capability、付费尝试和候选质量证据必须留在后续执行层。
 
 ## Historical Evidence Notes
 
