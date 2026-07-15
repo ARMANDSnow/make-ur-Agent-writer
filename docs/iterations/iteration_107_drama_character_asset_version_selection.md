@@ -33,7 +33,14 @@
 
 ## Acceptance Result
 
-- 待 `iter-finish` 按 A107-01 至 A107-06 逐项回填。
+- **A107-01 — PASS**：strict schema 对内容寻址 ID/full fingerprint、唯一性、同资产 derived-from/无环、duplicate key、NaN/Infinity、bool-as-int 与 extra 字段全部 fail closed；foreign version 和重签 source fingerprint 均有反例测试。
+- **A107-02 — PASS**：legacy 角色 ID 与引用顺序无损迁移，首项 selected；无引用图只产 metadata-only version，不伪造 artifact/SHA。重复 create 字节与 mtime 稳定，CharacterSheet、`episode_NN.json`、RenderPlan v1 均未修改。
+- **A107-03 — PASS**：append-only、相同候选/相同选择幂等，新候选不自动 selected；selection revision 单调增加。跨角色版本、未知版本与派生链错误无写入失败。
+- **A107-04 — PASS**：revision + current selected 双 CAS 覆盖 A→B→A 真 ABA；source baseline、precommit CharacterSheet/artifact、target baseline 前/replace 前变化均经注入证明原 target bytes 不变。nofollow、FIFO/目录、路径、超限与深层 JSON 边界通过。
+- **A107-05 — PASS**：catalog/manifest 五态均覆盖；manifest 只绑定 fresh RenderPlan 与 active selected refs。未选候选、非活跃角色/source 变化不误 stale，active selection/artifact 或 RenderPlan 变化精确 stale，stale 必须显式替换。
+- **A107-06 — PASS（有流程偏差）**：109 项聚焦回归通过；correctness、security/boundary、schema/freshness 三路独立只读复核最终均为 P0/P1/P2 = 0。Accepted implementation commit `3147bf59143f9fd9169ce410acbcc2a6ae808694` 上 authoritative canonical evidence `run_id=f3c0d58e4e98430da14554885328e860`：2155 tests、15 steps、144 秒、exit 0、`tracked_scope_clean=true`、tree `b2b05c9bd227511df256c35b2c9458a17098ac39`，mock preflight 0 FATAL / 0 WARN，结论 `mock-functional`。mandatory loopback evidence 为 `local-e2e`、`provider_validated=false`，图片/上传/轮询/callback/视频与五站授权计数闭合。
+- 流程偏差：第一次 canonical 长输出调用返回时，后台 session id 被截断，主线程误判为中断并在同一 clean HEAD/tree 上启动第二个 process；最终 evidence 只接受后启动且完整结束的 run。实现和文档在两次调用之间没有变化，但“仅一次 invocation”未被严格满足，故在此显式记录，不把重复调用隐藏为单次。
+- 验收等级：**mock-functional**；fake-provider 组件另列 **local-e2e**；**provider-validated=false**。未运行真文本、真生图、真视频，未读取 `.env`、私有样本或两份体检报告。
 
 ## 文件变更汇总
 
@@ -47,6 +54,9 @@
 | `src/drama_store.py` | strict workspace leaf 读取增加 `O_NONBLOCK`，非普通文件 fail closed |
 | `tests/test_drama_assets.py` | 覆盖 schema、内容寻址、迁移、派生链与纯函数边界 |
 | `tests/test_drama_asset_versions.py` | 覆盖 store、并发 CAS、五态、精确 stale、安全边界与离线链路 |
+| `README.md` | 同步 iter107 短剧里程碑与实时 SOP |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前能力、验收基线、缺口与接力点 |
+| `docs/PROJECT_HISTORY.md` | 追加 iter107 阶段索引与长期资产冻结决策 |
 
 ## 不在本轮范围
 
@@ -60,3 +70,4 @@
 - 本轮显式使用 repository-local `iter-start`；实施完成后使用 `iter-finish`，仅在事实变化时就地同步 README、handoff 与 PROJECT_HISTORY。
 - 当前 README、handoff、短剧 SOP 的用户改动和两份未跟踪体检报告保持原样；体检报告不读取、不 stage、不 commit。
 - 立项提交信息草稿：`docs(iter107): 迭代计划 107 立项（短剧角色资产版本与冻结选择）`；起轮不自动 commit、不 push。
+- implementation commit：`3147bf59143f9fd9169ce410acbcc2a6ae808694`；收官只追加 docs-only commit，不 push。

@@ -133,12 +133,13 @@ docs/iterations/           逐轮审计记录
 | Crash/Restart 与状态矩阵 | 104 | ✅ 五站文本、图片六阶段、视频六阶段经生产入口与跨进程 `os._exit` 验证；付费状态已集中，未做 ledger 大重构 |
 | 短剧单集角色投影一致性 | 105 | ✅ reviewer、组装、单集/季包 Comfy 与 episode 1 视频统一冻结阵容；歧义旧数据 fail-closed |
 | 短剧渲染计划与创作陈旧性边界 | 106 | ✅ fresh assembled episode 可确定投影为 strict RenderPlan；五态 stale 检查、幂等落盘与歧义镜头 fail-closed |
+| 短剧角色资产版本与冻结选择 | 107 | ✅ 角色语义 ID、不可变版本、显式 selected/CAS 与单集 AssetRef manifest 形成纯本地闭环 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 106**（2026-07-15，收官）。短剧 `episode_NN.json` 保持创作事实真源，fresh/Approve 快照可确定投影为 strict `RenderPlan`；渲染层统一区分 `needs_render_plan/fresh/stale/invalid/blocked_source`，不可证明的重复镜头与旧阵容均 fail-closed。Canonical 继续必跑本地 fake-provider 短剧整链；组件证据仍为 `local-e2e`，总验收为 `mock-functional`，不等于真供应商校准。未运行真实文本、生图或视频。
+最近一次更新：**iter 107**（2026-07-15，收官）。短剧 `episode_NN.json` 与 RenderPlan v1 保持不变；季级 `CharacterAssetCatalog` 将角色语义 ID 映射到不可变版本和显式 selected/revision，单集 `EpisodeAssetManifest` 只冻结 fresh RenderPlan 的 active selected `AssetRef`。未选候选和非活跃角色不误伤旧集，active selection/artifact 或 RenderPlan 变化精确 stale。Canonical 结论为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`；未运行真实文本、生图或视频。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
@@ -154,7 +155,7 @@ docs/iterations/           逐轮审计记录
 | 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
 | 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | ⚠️ | 工程已通；10-20 章真模型 capstone 待授权 |
-| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集冻结阵容与 8 人边界、strict RenderPlan/五态 stale 边界、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt、submitted 纯轮询恢复、集中付费状态与 crash/restart 矩阵、fake-provider local-E2E | ⚠️ | local-E2E 与真跑前安全闭环；AssetRef/时间线及真多模态待后续阶段（088-106） |
+| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集冻结阵容与 8 人边界、strict RenderPlan/五态 stale 边界、角色不可变资产版本与 selected CAS、单集 AssetRef manifest、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt、submitted 纯轮询恢复、集中付费状态与 crash/restart 矩阵、fake-provider local-E2E | ⚠️ | local-E2E 与角色 AssetRef 工程闭环；视觉 override、场景/道具/线索资产、Timeline/声音及真多模态待后续阶段（088-107） |
 
 ## 文档导航
 
