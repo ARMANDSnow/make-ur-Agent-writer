@@ -130,3 +130,4 @@
 115. [Iteration 106 - 短剧渲染计划与创作陈旧性边界](./iteration_106_drama_render_plan_stale_boundary.md)
 116. [Iteration 107 - 短剧角色资产版本与冻结选择](./iteration_107_drama_character_asset_version_selection.md)
 117. [Iteration 108 - 短剧美术方向资产版本与 RenderPlan 冻结](./iteration_108_drama_art_direction_version_render_plan_freeze.md)
+118. [Iteration 109 - 短剧场景资产版本与逐镜冻结引用](./iteration_109_drama_scene_asset_version_shot_freeze.md)

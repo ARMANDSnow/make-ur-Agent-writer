@@ -703,6 +703,8 @@ _SHOT_ID_PATTERN = r"^shot_[0-9a-f]{24}$"
 _SEGMENT_ID_PATTERN = r"^segment_[0-9a-f]{24}$"
 _ASSET_VERSION_ID_PATTERN = r"^av_[0-9a-f]{24}$"
 _ART_DIRECTION_VERSION_ID_PATTERN = r"^ad_[0-9a-f]{24}$"
+_SCENE_ID_PATTERN = r"^s[0-9]{3}$"
+_SCENE_VERSION_ID_PATTERN = r"^sv_[0-9a-f]{24}$"
 
 
 def _canonical_sha256(data: Any) -> str:
@@ -1082,6 +1084,274 @@ class EpisodeAssetManifest(BaseModel):
         payload = self.model_dump(exclude={"manifest_fingerprint"})
         if _canonical_sha256(payload) != self.manifest_fingerprint:
             raise ValueError("episode asset manifest fingerprint does not match its payload")
+        return self
+
+
+class SceneSpec(BaseModel):
+    """Bounded reusable scene identity without prompts or provider state."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    display_name: str = Field(min_length=1, max_length=80)
+    location: str = Field(min_length=1, max_length=120)
+    time_of_day: str = Field(default="", max_length=40)
+    weather: str = Field(default="", max_length=40)
+    spatial_anchors: List[str] = Field(default_factory=list, max_length=16)
+    visual_tokens: List[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("display_name", "location", "time_of_day", "weather", mode="before")
+    @classmethod
+    def _scene_strings_are_canonical(cls, value: Any, info: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name} must be a string")
+        if value != value.strip() or (info.field_name in {"display_name", "location"} and not value):
+            raise ValueError(f"{info.field_name} must use canonical non-empty text")
+        if value and not value.strip():
+            raise ValueError(f"{info.field_name} must use canonical text")
+        return value
+
+    @field_validator("spatial_anchors", "visual_tokens", mode="before")
+    @classmethod
+    def _scene_lists_are_canonical(cls, value: Any, info: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        maximum = 120 if info.field_name == "spatial_anchors" else 80
+        if any(
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > maximum
+            for item in value
+        ):
+            raise ValueError(f"{info.field_name} must contain bounded canonical strings")
+        if len(value) != len(set(value)):
+            raise ValueError(f"{info.field_name} entries must be unique")
+        return value
+
+
+class SceneAssetArtifact(BaseModel):
+    """One verified local scene reference under its stable semantic id."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=1, le=5 * 1024 * 1024)
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _scene_artifact_path_is_strict(cls, value: Any) -> str:
+        if not isinstance(value, str) or "\\" in value:
+            raise ValueError("scene artifact path must be a POSIX relative path")
+        if (
+            value.startswith("/")
+            or value.startswith("./")
+            or "//" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or re.fullmatch(
+                r"data/scene_refs/s[0-9]{3}/"
+                r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}"
+                r"(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,119})*",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("scene artifact path must stay under data/scene_refs/sNNN")
+        return value
+
+    @field_validator("size_bytes", mode="before")
+    @classmethod
+    def _scene_artifact_size_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("scene artifact size must be a strict integer")
+        return value
+
+
+SceneAssetVersionSource = Literal[
+    "identity_snapshot",
+    "appended_candidate",
+    "imported",
+]
+
+
+class SceneAssetVersion(BaseModel):
+    """One immutable, content-addressed scene candidate."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    scene_id: str = Field(pattern=_SCENE_ID_PATTERN)
+    scene_version_id: str = Field(pattern=_SCENE_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    derived_from: Optional[str] = Field(default=None, pattern=_SCENE_VERSION_ID_PATTERN)
+    source_kind: SceneAssetVersionSource
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    spec: SceneSpec
+    artifact: Optional[SceneAssetArtifact] = None
+
+    @model_validator(mode="after")
+    def _scene_version_is_content_addressed(self) -> "SceneAssetVersion":
+        if self.derived_from == self.scene_version_id:
+            raise ValueError("scene version cannot derive from itself")
+        if self.artifact is not None and not self.artifact.path.startswith(
+            f"data/scene_refs/{self.scene_id}/"
+        ):
+            raise ValueError("scene artifact belongs to another scene")
+        source_payload = {
+            "scene_id": self.scene_id,
+            "source_kind": self.source_kind,
+            "spec": self.spec.model_dump(),
+            "artifact": self.artifact.model_dump() if self.artifact is not None else None,
+        }
+        if _canonical_sha256(source_payload) != self.source_fingerprint:
+            raise ValueError("scene version source fingerprint is invalid")
+        payload = self.model_dump(exclude={"scene_version_id", "version_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if fingerprint != self.version_fingerprint:
+            raise ValueError("scene version fingerprint is invalid")
+        if self.scene_version_id != f"sv_{fingerprint[:24]}":
+            raise ValueError("scene version id is invalid")
+        return self
+
+
+class SceneAsset(BaseModel):
+    """Append-only versions and explicit selected version for one scene."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    scene_id: str = Field(pattern=_SCENE_ID_PATTERN)
+    versions: List[SceneAssetVersion] = Field(min_length=1, max_length=256)
+    selected_version_id: str = Field(pattern=_SCENE_VERSION_ID_PATTERN)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+
+    @field_validator("selection_revision", mode="before")
+    @classmethod
+    def _scene_selection_revision_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("scene selection revision must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _scene_asset_history_is_consistent(self) -> "SceneAsset":
+        if any(version.scene_id != self.scene_id for version in self.versions):
+            raise ValueError("scene versions must belong to the same scene")
+        ids = [version.scene_version_id for version in self.versions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("scene version ids must be unique")
+        artifacts_by_path: Dict[str, SceneAssetArtifact] = {}
+        for version in self.versions:
+            if version.artifact is None:
+                continue
+            previous = artifacts_by_path.get(version.artifact.path)
+            if previous is not None and previous != version.artifact:
+                raise ValueError(
+                    "scene artifact paths cannot identify different immutable bytes"
+                )
+            artifacts_by_path[version.artifact.path] = version.artifact
+        if self.selected_version_id not in set(ids):
+            raise ValueError("selected scene version does not exist")
+        parents = {
+            version.scene_version_id: version.derived_from for version in self.versions
+        }
+        for version_id, parent in parents.items():
+            if parent is not None and parent not in parents:
+                raise ValueError("derived scene version does not exist")
+            seen: set[str] = set()
+            current: Optional[str] = version_id
+            while current is not None:
+                if current in seen:
+                    raise ValueError("scene version derivation contains a cycle")
+                seen.add(current)
+                current = parents[current]
+        return self
+
+
+class SceneAssetRef(BaseModel):
+    """Frozen reference to one exact selected scene version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["scene"] = "scene"
+    scene_id: str = Field(pattern=_SCENE_ID_PATTERN)
+    scene_version_id: str = Field(pattern=_SCENE_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    artifact_sha256: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+
+
+class SceneAssetCatalog(BaseModel):
+    """Season-level scene candidates without an external creative source."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    assets: List[SceneAsset] = Field(min_length=1, max_length=999)
+    catalog_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _scene_catalog_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict positive integer")
+        return value
+
+    @model_validator(mode="after")
+    def _scene_catalog_is_consistent(self) -> "SceneAssetCatalog":
+        ids = [asset.scene_id for asset in self.assets]
+        if len(ids) != len(set(ids)):
+            raise ValueError("scene asset ids must be unique")
+        payload = self.model_dump(exclude={"catalog_fingerprint"})
+        if _canonical_sha256(payload) != self.catalog_fingerprint:
+            raise ValueError("scene catalog fingerprint is invalid")
+        return self
+
+
+class ShotSceneRef(BaseModel):
+    """One explicit stable-shot to frozen-scene binding."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    scene_ref: SceneAssetRef
+
+
+class EpisodeSceneAssetManifest(BaseModel):
+    """Episode-scoped explicit scene bindings and selected versions."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    binding_revision: int = Field(ge=0, le=2_147_483_647)
+    usage_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shot_scene_refs: List[ShotSceneRef] = Field(min_length=1, max_length=100)
+    manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "binding_revision", mode="before")
+    @classmethod
+    def _scene_manifest_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _scene_manifest_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _scene_manifest_is_consistent(self) -> "EpisodeSceneAssetManifest":
+        shot_ids = [ref.shot_id for ref in self.shot_scene_refs]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("scene manifest shot ids must be unique")
+        usage_payload = [ref.model_dump() for ref in self.shot_scene_refs]
+        if _canonical_sha256(usage_payload) != self.usage_fingerprint:
+            raise ValueError("scene manifest usage fingerprint is invalid")
+        payload = self.model_dump(exclude={"manifest_fingerprint"})
+        if _canonical_sha256(payload) != self.manifest_fingerprint:
+            raise ValueError("scene manifest fingerprint is invalid")
         return self
 
 

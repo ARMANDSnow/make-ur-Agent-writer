@@ -9,15 +9,20 @@ import stat
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Literal
+from typing import Any, Callable, Dict, Literal, Mapping
 
 from . import paths
 from .drama_assets import (
+    add_scene_asset as add_scene_asset_pure,
     append_asset_version,
+    append_scene_asset_version as append_scene_asset_version_pure,
     build_character_asset_catalog,
     build_episode_asset_manifest,
+    build_episode_scene_asset_manifest,
+    build_scene_asset_catalog,
     character_render_identity_fingerprint,
     select_asset_version,
+    select_scene_asset_version as select_scene_asset_version_pure,
 )
 from .drama_render_store import inspect_render_plan, load_fresh_render_plan
 from .drama_schemas import (
@@ -26,6 +31,9 @@ from .drama_schemas import (
     CharacterAssetCatalog,
     CharacterSheet,
     EpisodeAssetManifest,
+    EpisodeSceneAssetManifest,
+    SceneAssetCatalog,
+    SceneAssetVersion,
     character_paths,
     episode_paths,
     normalize_episode_no,
@@ -37,12 +45,15 @@ from .drama_store import (
 )
 from .schemas import model_to_dict
 from .web.workspace_ctx import use_workspace
-from .workspace_lock import acquire_write_lock
+from .workspace_lock import WorkspaceLocked, acquire_write_lock
 
 
 MAX_ASSET_CATALOG_BYTES = 4_000_000
 MAX_ASSET_MANIFEST_BYTES = 1_000_000
 MAX_ASSET_ARTIFACT_BYTES = 5 * 1024 * 1024
+MAX_SCENE_CATALOG_BYTES = 4_000_000
+MAX_SCENE_MANIFEST_BYTES = 2_000_000
+MAX_SCENE_ARTIFACT_BYTES = 5 * 1024 * 1024
 
 AssetCatalogState = Literal[
     "needs_asset_catalog",
@@ -53,6 +64,18 @@ AssetCatalogState = Literal[
 ]
 AssetManifestState = Literal[
     "needs_asset_manifest",
+    "fresh",
+    "stale",
+    "invalid",
+    "blocked_source",
+]
+SceneCatalogState = Literal[
+    "needs_scene_catalog",
+    "fresh",
+    "invalid",
+]
+SceneManifestState = Literal[
+    "needs_scene_manifest",
     "fresh",
     "stale",
     "invalid",
@@ -90,6 +113,20 @@ class AssetManifestInspection:
     manifest: EpisodeAssetManifest | None = None
 
 
+@dataclass(frozen=True)
+class SceneCatalogInspection:
+    state: SceneCatalogState
+    reasons: tuple[str, ...]
+    catalog: SceneAssetCatalog | None = None
+
+
+@dataclass(frozen=True)
+class SceneManifestInspection:
+    state: SceneManifestState
+    reasons: tuple[str, ...]
+    manifest: EpisodeSceneAssetManifest | None = None
+
+
 def _strict_season_no(value: Any) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ValueError("season_no must be a strict positive integer")
@@ -112,6 +149,25 @@ def episode_asset_manifest_path(workspace: str, *, episode_no: int = 1) -> Path:
     if ep.root != root:
         raise ValueError("episode asset manifest path does not match the workspace")
     return ep.episodes_dir / f"episode_{number:02d}.asset_manifest.json"
+
+
+def scene_asset_catalog_path(workspace: str, *, season_no: int = 1) -> Path:
+    season = _strict_season_no(season_no)
+    root = paths.workspace_root(workspace)
+    return root / "data" / "assets" / f"season_{season:02d}.scene_assets.json"
+
+
+def episode_scene_asset_manifest_path(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> Path:
+    number = normalize_episode_no(episode_no)
+    root = paths.workspace_root(workspace)
+    ep = episode_paths(workspace, episode_no=number)
+    if ep.root != root:
+        raise ValueError("scene manifest path does not match the workspace")
+    return ep.episodes_dir / f"episode_{number:02d}.scene_asset_manifest.json"
 
 
 def _read_catalog(workspace: str, *, season_no: int) -> CharacterAssetCatalog:
@@ -171,6 +227,76 @@ def _read_manifest(workspace: str, *, episode_no: int) -> EpisodeAssetManifest:
         raise _ArtifactReadError("schema_invalid")
     try:
         manifest = EpisodeAssetManifest(**raw["manifest"])
+    except (TypeError, ValueError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if raw["manifest_fingerprint"] != manifest.manifest_fingerprint:
+        raise _ArtifactReadError("manifest_hash_mismatch")
+    if manifest.episode_no != episode_no:
+        raise _ArtifactReadError("schema_invalid")
+    return manifest
+
+
+def _read_scene_catalog(workspace: str, *, season_no: int) -> SceneAssetCatalog:
+    root = paths.workspace_root(workspace)
+    path = scene_asset_catalog_path(workspace, season_no=season_no)
+    try:
+        raw = _read_strict_workspace_json(root, path, maximum=MAX_SCENE_CATALOG_BYTES)
+    except FileNotFoundError:
+        raise
+    except (OSError, TypeError, ValueError, RecursionError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if not isinstance(raw, dict) or set(raw) != {
+        "schema_version",
+        "artifact_type",
+        "catalog_fingerprint",
+        "catalog",
+    }:
+        raise _ArtifactReadError("schema_invalid")
+    if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+        raise _ArtifactReadError("schema_unsupported")
+    if raw["artifact_type"] != "drama_scene_asset_catalog":
+        raise _ArtifactReadError("schema_invalid")
+    if not isinstance(raw["catalog"], dict):
+        raise _ArtifactReadError("schema_invalid")
+    try:
+        catalog = SceneAssetCatalog(**raw["catalog"])
+    except (TypeError, ValueError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if raw["catalog_fingerprint"] != catalog.catalog_fingerprint:
+        raise _ArtifactReadError("catalog_hash_mismatch")
+    if catalog.season_no != season_no:
+        raise _ArtifactReadError("schema_invalid")
+    return catalog
+
+
+def _read_scene_manifest(
+    workspace: str,
+    *,
+    episode_no: int,
+) -> EpisodeSceneAssetManifest:
+    root = paths.workspace_root(workspace)
+    path = episode_scene_asset_manifest_path(workspace, episode_no=episode_no)
+    try:
+        raw = _read_strict_workspace_json(root, path, maximum=MAX_SCENE_MANIFEST_BYTES)
+    except FileNotFoundError:
+        raise
+    except (OSError, TypeError, ValueError, RecursionError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if not isinstance(raw, dict) or set(raw) != {
+        "schema_version",
+        "artifact_type",
+        "manifest_fingerprint",
+        "manifest",
+    }:
+        raise _ArtifactReadError("schema_invalid")
+    if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+        raise _ArtifactReadError("schema_unsupported")
+    if raw["artifact_type"] != "drama_episode_scene_asset_manifest":
+        raise _ArtifactReadError("schema_invalid")
+    if not isinstance(raw["manifest"], dict):
+        raise _ArtifactReadError("schema_invalid")
+    try:
+        manifest = EpisodeSceneAssetManifest(**raw["manifest"])
     except (TypeError, ValueError) as exc:
         raise _ArtifactReadError("schema_invalid") from exc
     if raw["manifest_fingerprint"] != manifest.manifest_fingerprint:
@@ -460,6 +586,55 @@ def _write_manifest(
             "manifest": model_to_dict(manifest),
         },
         maximum=MAX_ASSET_MANIFEST_BYTES,
+        expected_target_token=expected_target_token,
+        precommit_check=precommit_check,
+    )
+
+
+def _write_scene_catalog(
+    workspace: str,
+    catalog: SceneAssetCatalog,
+    *,
+    expected_target_token: tuple[Any, ...],
+    precommit_check: Callable[[], None] | None = None,
+) -> None:
+    root = paths.workspace_root(workspace)
+    _write_envelope(
+        root=root,
+        path=scene_asset_catalog_path(workspace, season_no=catalog.season_no),
+        envelope={
+            "schema_version": 1,
+            "artifact_type": "drama_scene_asset_catalog",
+            "catalog_fingerprint": catalog.catalog_fingerprint,
+            "catalog": model_to_dict(catalog),
+        },
+        maximum=MAX_SCENE_CATALOG_BYTES,
+        expected_target_token=expected_target_token,
+        precommit_check=precommit_check,
+    )
+
+
+def _write_scene_manifest(
+    workspace: str,
+    manifest: EpisodeSceneAssetManifest,
+    *,
+    expected_target_token: tuple[Any, ...],
+    precommit_check: Callable[[], None] | None = None,
+) -> None:
+    root = paths.workspace_root(workspace)
+    _write_envelope(
+        root=root,
+        path=episode_scene_asset_manifest_path(
+            workspace,
+            episode_no=manifest.episode_no,
+        ),
+        envelope={
+            "schema_version": 1,
+            "artifact_type": "drama_episode_scene_asset_manifest",
+            "manifest_fingerprint": manifest.manifest_fingerprint,
+            "manifest": model_to_dict(manifest),
+        },
+        maximum=MAX_SCENE_MANIFEST_BYTES,
         expected_target_token=expected_target_token,
         precommit_check=precommit_check,
     )
@@ -859,3 +1034,639 @@ def load_fresh_episode_asset_manifest(
             f"episode asset manifest is not fresh: {inspection.state}"
         )
     return inspection.manifest
+
+
+def inspect_scene_asset_catalog(
+    workspace: str,
+    *,
+    season_no: int = 1,
+) -> SceneCatalogInspection:
+    season = _strict_season_no(season_no)
+    try:
+        catalog = _read_scene_catalog(workspace, season_no=season)
+    except FileNotFoundError:
+        return SceneCatalogInspection("needs_scene_catalog", ("missing",))
+    except _ArtifactReadError as exc:
+        return SceneCatalogInspection("invalid", (exc.reason,))
+    return SceneCatalogInspection("fresh", (), catalog)
+
+
+def load_fresh_scene_asset_catalog(
+    workspace: str,
+    *,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    inspection = inspect_scene_asset_catalog(workspace, season_no=season_no)
+    if inspection.state != "fresh" or inspection.catalog is None:
+        raise DramaAssetStoreError(
+            f"scene asset catalog is not fresh: {inspection.state}"
+        )
+    return inspection.catalog
+
+
+def _verify_scene_version_artifact(
+    workspace: str,
+    version: SceneAssetVersion,
+) -> None:
+    if version.artifact is None:
+        return
+    root = paths.workspace_root(workspace)
+    payload = _read_strict_workspace_bytes(
+        root,
+        root / version.artifact.path,
+        maximum=MAX_SCENE_ARTIFACT_BYTES,
+    )
+    if (
+        len(payload) != version.artifact.size_bytes
+        or hashlib.sha256(payload).hexdigest() != version.artifact.sha256
+    ):
+        raise DramaAssetStoreError("scene artifact does not match local bytes")
+
+
+def _find_scene_version(
+    catalog: SceneAssetCatalog,
+    *,
+    scene_id: str,
+    scene_version_id: str,
+) -> SceneAssetVersion:
+    asset = next(
+        (item for item in catalog.assets if item.scene_id == scene_id),
+        None,
+    )
+    if asset is None:
+        raise DramaAssetStoreError("scene asset does not exist")
+    version = next(
+        (
+            item
+            for item in asset.versions
+            if item.scene_version_id == scene_version_id
+        ),
+        None,
+    )
+    if version is None:
+        raise DramaAssetStoreError("scene version does not exist")
+    return version
+
+
+def _create_scene_asset_catalog_impl(
+    workspace: str,
+    *,
+    version: SceneAssetVersion | Dict[str, Any],
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    season = _strict_season_no(season_no)
+    candidate = (
+        version
+        if isinstance(version, SceneAssetVersion)
+        else SceneAssetVersion(**version)
+    )
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-scene-assets"):
+        path = scene_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_SCENE_CATALOG_BYTES)
+        inspection = inspect_scene_asset_catalog(workspace, season_no=season)
+        if inspection.state == "invalid":
+            raise DramaAssetStoreError("invalid scene catalog must be repaired explicitly")
+        if inspection.state == "fresh" and inspection.catalog is not None:
+            existing = next(
+                (
+                    asset
+                    for asset in inspection.catalog.assets
+                    if asset.scene_id == candidate.scene_id
+                ),
+                None,
+            )
+            if (
+                existing is inspection.catalog.assets[0]
+                and candidate.derived_from is None
+                and existing.versions[0] == candidate
+            ):
+                _verify_scene_version_artifact(workspace, candidate)
+                return inspection.catalog
+            raise DramaAssetStoreError("scene catalog already exists; add explicitly")
+        desired = build_scene_asset_catalog(candidate, season_no=season)
+        _verify_scene_version_artifact(workspace, candidate)
+
+        def precommit() -> None:
+            _verify_scene_version_artifact(workspace, candidate)
+
+        _write_scene_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        persisted = _read_scene_catalog(workspace, season_no=season)
+        if persisted.catalog_fingerprint != desired.catalog_fingerprint:
+            raise DramaAssetStoreError("persisted scene catalog failed verification")
+        return persisted
+
+
+def _add_scene_asset_impl(
+    workspace: str,
+    *,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    season = _strict_season_no(season_no)
+    candidate = (
+        version
+        if isinstance(version, SceneAssetVersion)
+        else SceneAssetVersion(**version)
+    )
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-scene-assets"):
+        path = scene_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_SCENE_CATALOG_BYTES)
+        current = load_fresh_scene_asset_catalog(workspace, season_no=season)
+        _verify_scene_version_artifact(workspace, candidate)
+        desired = add_scene_asset_pure(
+            current,
+            version=candidate,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+        if desired.catalog_fingerprint == current.catalog_fingerprint:
+            return current
+
+        def precommit() -> None:
+            final = _read_scene_catalog(workspace, season_no=season)
+            if final.catalog_fingerprint != current.catalog_fingerprint:
+                raise DramaAssetStoreError("scene catalog changed concurrently")
+            _verify_scene_version_artifact(workspace, candidate)
+
+        _write_scene_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        return _read_scene_catalog(workspace, season_no=season)
+
+
+def _append_scene_asset_version_impl(
+    workspace: str,
+    *,
+    scene_id: str,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    season = _strict_season_no(season_no)
+    candidate = (
+        version
+        if isinstance(version, SceneAssetVersion)
+        else SceneAssetVersion(**version)
+    )
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-scene-assets"):
+        path = scene_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_SCENE_CATALOG_BYTES)
+        current = load_fresh_scene_asset_catalog(workspace, season_no=season)
+        _verify_scene_version_artifact(workspace, candidate)
+        desired = append_scene_asset_version_pure(
+            current,
+            scene_id=scene_id,
+            version=candidate,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+        if desired.catalog_fingerprint == current.catalog_fingerprint:
+            return current
+
+        def precommit() -> None:
+            final = _read_scene_catalog(workspace, season_no=season)
+            if final.catalog_fingerprint != current.catalog_fingerprint:
+                raise DramaAssetStoreError("scene catalog changed concurrently")
+            _verify_scene_version_artifact(workspace, candidate)
+
+        _write_scene_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        return _read_scene_catalog(workspace, season_no=season)
+
+
+def _select_scene_asset_version_impl(
+    workspace: str,
+    *,
+    scene_id: str,
+    scene_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    season = _strict_season_no(season_no)
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-scene-assets"):
+        path = scene_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_SCENE_CATALOG_BYTES)
+        current = load_fresh_scene_asset_catalog(workspace, season_no=season)
+        target_version = _find_scene_version(
+            current,
+            scene_id=scene_id,
+            scene_version_id=scene_version_id,
+        )
+        _verify_scene_version_artifact(workspace, target_version)
+        desired = select_scene_asset_version_pure(
+            current,
+            scene_id=scene_id,
+            scene_version_id=scene_version_id,
+            expected_selection_revision=expected_selection_revision,
+            expected_selected_version_id=expected_selected_version_id,
+        )
+        if desired.catalog_fingerprint == current.catalog_fingerprint:
+            return current
+
+        def precommit() -> None:
+            final = _read_scene_catalog(workspace, season_no=season)
+            if final.catalog_fingerprint != current.catalog_fingerprint:
+                raise DramaAssetStoreError("scene catalog changed concurrently")
+            _verify_scene_version_artifact(workspace, target_version)
+
+        _write_scene_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        return _read_scene_catalog(workspace, season_no=season)
+
+
+def _scene_mapping_from_manifest(
+    manifest: EpisodeSceneAssetManifest,
+) -> Dict[str, str]:
+    return {
+        binding.shot_id: binding.scene_ref.scene_id
+        for binding in manifest.shot_scene_refs
+    }
+
+
+def _validate_used_scene_artifacts(
+    workspace: str,
+    *,
+    catalog: SceneAssetCatalog,
+    shot_scene_ids: Mapping[str, str],
+) -> None:
+    for scene_id in sorted(set(shot_scene_ids.values())):
+        asset = next(
+            (item for item in catalog.assets if item.scene_id == scene_id),
+            None,
+        )
+        if asset is None:
+            raise DramaAssetStoreError("scene binding references an unknown scene")
+        selected = _find_scene_version(
+            catalog,
+            scene_id=scene_id,
+            scene_version_id=asset.selected_version_id,
+        )
+        _verify_scene_version_artifact(workspace, selected)
+
+
+def inspect_episode_scene_asset_manifest(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> SceneManifestInspection:
+    number = normalize_episode_no(episode_no)
+    try:
+        manifest = _read_scene_manifest(workspace, episode_no=number)
+    except FileNotFoundError:
+        manifest = None
+    except _ArtifactReadError as exc:
+        return SceneManifestInspection("invalid", (exc.reason,))
+
+    render = inspect_render_plan(workspace, episode_no=number)
+    if render.state == "stale":
+        if manifest is not None:
+            return SceneManifestInspection("stale", ("render_plan_stale",), manifest)
+        return SceneManifestInspection("blocked_source", ("render_plan_stale",))
+    if render.state != "fresh" or render.plan is None:
+        return SceneManifestInspection(
+            "blocked_source",
+            (f"render_plan_{render.state}",),
+            manifest,
+        )
+    plan = render.plan
+    try:
+        catalog = _read_scene_catalog(workspace, season_no=plan.season_no)
+    except FileNotFoundError:
+        return SceneManifestInspection(
+            "blocked_source",
+            ("scene_catalog_missing",),
+            manifest,
+        )
+    except _ArtifactReadError:
+        return SceneManifestInspection(
+            "blocked_source",
+            ("scene_catalog_invalid",),
+            manifest,
+        )
+    if manifest is None:
+        return SceneManifestInspection("needs_scene_manifest", ("missing",))
+    mapping = _scene_mapping_from_manifest(manifest)
+    try:
+        _validate_used_scene_artifacts(
+            workspace,
+            catalog=catalog,
+            shot_scene_ids=mapping,
+        )
+        expected = build_episode_scene_asset_manifest(
+            plan,
+            catalog,
+            shot_scene_ids=mapping,
+            binding_revision=manifest.binding_revision,
+        )
+    except (FileNotFoundError, OSError, TypeError, ValueError, RecursionError):
+        return SceneManifestInspection("stale", ("scene_source_invalid",), manifest)
+
+    reasons: list[str] = []
+    if manifest.season_no != plan.season_no or manifest.episode_no != plan.episode_no:
+        reasons.append("episode_identity_mismatch")
+    if manifest.render_plan_fingerprint != expected.render_plan_fingerprint:
+        reasons.append("render_plan_fingerprint_mismatch")
+    if manifest.usage_fingerprint != expected.usage_fingerprint:
+        reasons.append("scene_selection_mismatch")
+    if manifest.manifest_fingerprint != expected.manifest_fingerprint:
+        reasons.append("manifest_source_mismatch")
+    if reasons:
+        return SceneManifestInspection("stale", tuple(dict.fromkeys(reasons)), manifest)
+    return SceneManifestInspection("fresh", (), manifest)
+
+
+def _create_episode_scene_asset_manifest_impl(
+    workspace: str,
+    *,
+    shot_scene_ids: Mapping[str, str] | None = None,
+    episode_no: int = 1,
+    replace_stale: bool = False,
+    expected_manifest_fingerprint: str | None = None,
+) -> EpisodeSceneAssetManifest:
+    if type(replace_stale) is not bool:
+        raise ValueError("replace_stale must be bool")
+    if expected_manifest_fingerprint is not None and not isinstance(
+        expected_manifest_fingerprint, str
+    ):
+        raise ValueError("expected manifest fingerprint must be a string")
+    if shot_scene_ids is not None and not isinstance(shot_scene_ids, Mapping):
+        raise ValueError("shot_scene_ids must be an explicit mapping")
+    number = normalize_episode_no(episode_no)
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-scene-manifest"):
+        path = episode_scene_asset_manifest_path(workspace, episode_no=number)
+        token = _target_token(root, path, maximum=MAX_SCENE_MANIFEST_BYTES)
+        inspection = inspect_episode_scene_asset_manifest(
+            workspace,
+            episode_no=number,
+        )
+        if inspection.state == "invalid":
+            raise DramaAssetStoreError("invalid scene manifest must be repaired explicitly")
+        if inspection.state == "blocked_source":
+            raise DramaAssetStoreError("fresh RenderPlan and scene catalog are required")
+        current = inspection.manifest
+        if current is None:
+            if expected_manifest_fingerprint is not None:
+                raise DramaAssetStoreError("scene manifest CAS expected an existing manifest")
+            if shot_scene_ids is None:
+                raise DramaAssetStoreError("explicit shot scene bindings are required")
+            mapping = dict(shot_scene_ids)
+            revision = 0
+        else:
+            if (
+                expected_manifest_fingerprint is not None
+                and expected_manifest_fingerprint != current.manifest_fingerprint
+            ):
+                raise DramaAssetStoreError("scene manifest changed; refresh before replacing")
+            existing_mapping = _scene_mapping_from_manifest(current)
+            mapping = (
+                existing_mapping
+                if shot_scene_ids is None
+                else dict(shot_scene_ids)
+            )
+            revision = current.binding_revision + (
+                1 if mapping != existing_mapping else 0
+            )
+
+        plan = load_fresh_render_plan(workspace, episode_no=number)
+        catalog = load_fresh_scene_asset_catalog(
+            workspace,
+            season_no=plan.season_no,
+        )
+        _validate_used_scene_artifacts(
+            workspace,
+            catalog=catalog,
+            shot_scene_ids=mapping,
+        )
+        desired = build_episode_scene_asset_manifest(
+            plan,
+            catalog,
+            shot_scene_ids=mapping,
+            binding_revision=revision,
+        )
+        if current is not None and desired.manifest_fingerprint == current.manifest_fingerprint:
+            return current
+        if current is not None:
+            if not replace_stale:
+                raise DramaAssetStoreError("scene manifest replacement must be explicit")
+            if expected_manifest_fingerprint != current.manifest_fingerprint:
+                raise DramaAssetStoreError("scene manifest CAS is required for replacement")
+
+        def precommit() -> None:
+            final_plan = load_fresh_render_plan(workspace, episode_no=number)
+            final_catalog = load_fresh_scene_asset_catalog(
+                workspace,
+                season_no=final_plan.season_no,
+            )
+            _validate_used_scene_artifacts(
+                workspace,
+                catalog=final_catalog,
+                shot_scene_ids=mapping,
+            )
+            final = build_episode_scene_asset_manifest(
+                final_plan,
+                final_catalog,
+                shot_scene_ids=mapping,
+                binding_revision=revision,
+            )
+            if final.manifest_fingerprint != desired.manifest_fingerprint:
+                raise DramaAssetStoreError("scene manifest sources changed concurrently")
+
+        _write_scene_manifest(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        persisted = _read_scene_manifest(workspace, episode_no=number)
+        if persisted.manifest_fingerprint != desired.manifest_fingerprint:
+            raise DramaAssetStoreError("persisted scene manifest failed verification")
+        return persisted
+
+
+def load_fresh_episode_scene_asset_manifest(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> EpisodeSceneAssetManifest:
+    inspection = inspect_episode_scene_asset_manifest(
+        workspace,
+        episode_no=episode_no,
+    )
+    if inspection.state != "fresh" or inspection.manifest is None:
+        raise DramaAssetStoreError(
+            f"episode scene manifest is not fresh: {inspection.state}"
+        )
+    return inspection.manifest
+
+
+def _scene_public_mutation_error_message(
+    exc: BaseException,
+    *,
+    operation: str,
+) -> str:
+    if isinstance(exc, DramaAssetStoreError):
+        return str(exc)
+    return f"scene asset {operation} was rejected"
+
+
+def create_scene_asset_catalog(
+    workspace: str,
+    *,
+    version: SceneAssetVersion | Dict[str, Any],
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    try:
+        return _create_scene_asset_catalog_impl(
+            workspace,
+            version=version,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _scene_public_mutation_error_message(
+            exc, operation="catalog creation"
+        )
+    raise DramaAssetStoreError(message)
+
+
+def add_scene_asset(
+    workspace: str,
+    *,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    try:
+        return _add_scene_asset_impl(
+            workspace,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _scene_public_mutation_error_message(exc, operation="scene addition")
+    raise DramaAssetStoreError(message)
+
+
+def append_scene_asset_version(
+    workspace: str,
+    *,
+    scene_id: str,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    try:
+        return _append_scene_asset_version_impl(
+            workspace,
+            scene_id=scene_id,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _scene_public_mutation_error_message(
+            exc, operation="candidate append"
+        )
+    raise DramaAssetStoreError(message)
+
+
+def select_scene_asset_version(
+    workspace: str,
+    *,
+    scene_id: str,
+    scene_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    try:
+        return _select_scene_asset_version_impl(
+            workspace,
+            scene_id=scene_id,
+            scene_version_id=scene_version_id,
+            expected_selection_revision=expected_selection_revision,
+            expected_selected_version_id=expected_selected_version_id,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _scene_public_mutation_error_message(exc, operation="selection")
+    raise DramaAssetStoreError(message)
+
+
+def create_episode_scene_asset_manifest(
+    workspace: str,
+    *,
+    shot_scene_ids: Mapping[str, str] | None = None,
+    episode_no: int = 1,
+    replace_stale: bool = False,
+    expected_manifest_fingerprint: str | None = None,
+) -> EpisodeSceneAssetManifest:
+    try:
+        return _create_episode_scene_asset_manifest_impl(
+            workspace,
+            shot_scene_ids=shot_scene_ids,
+            episode_no=episode_no,
+            replace_stale=replace_stale,
+            expected_manifest_fingerprint=expected_manifest_fingerprint,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _scene_public_mutation_error_message(
+            exc, operation="manifest update"
+        )
+    raise DramaAssetStoreError(message)

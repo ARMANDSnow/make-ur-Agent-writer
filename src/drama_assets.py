@@ -1,4 +1,4 @@
-"""Pure character asset versioning and episode selection projections."""
+"""Pure drama asset versioning and episode selection projections."""
 
 from __future__ import annotations
 
@@ -20,7 +20,15 @@ from .drama_schemas import (
     CharacterSheet,
     DramaCharacter,
     EpisodeAssetManifest,
+    EpisodeSceneAssetManifest,
     RenderPlan,
+    SceneAsset,
+    SceneAssetArtifact,
+    SceneAssetCatalog,
+    SceneAssetRef,
+    SceneAssetVersion,
+    SceneSpec,
+    ShotSceneRef,
 )
 from .schemas import model_to_dict
 
@@ -557,3 +565,473 @@ def build_episode_asset_manifest(
     }
     payload["manifest_fingerprint"] = _sha256(payload)
     return EpisodeAssetManifest(**payload)
+
+
+def _build_scene_asset_version_impl(
+    *,
+    scene_id: str,
+    spec: SceneSpec | Dict[str, Any],
+    source_kind: str,
+    artifact: SceneAssetArtifact | Dict[str, Any] | None = None,
+    derived_from: str | None = None,
+) -> SceneAssetVersion:
+    """Build one immutable local scene candidate without network access."""
+
+    validated_spec = spec if isinstance(spec, SceneSpec) else SceneSpec(**spec)
+    validated_artifact = None
+    if artifact is not None:
+        validated_artifact = (
+            artifact
+            if isinstance(artifact, SceneAssetArtifact)
+            else SceneAssetArtifact(**artifact)
+        )
+    source_payload = {
+        "scene_id": scene_id,
+        "source_kind": source_kind,
+        "spec": model_to_dict(validated_spec),
+        "artifact": (
+            model_to_dict(validated_artifact)
+            if validated_artifact is not None
+            else None
+        ),
+    }
+    payload: Dict[str, Any] = {
+        "scene_id": scene_id,
+        "derived_from": derived_from,
+        "source_kind": source_kind,
+        "source_fingerprint": _sha256(source_payload),
+        "spec": model_to_dict(validated_spec),
+        "artifact": (
+            model_to_dict(validated_artifact)
+            if validated_artifact is not None
+            else None
+        ),
+    }
+    fingerprint = _sha256(payload)
+    return SceneAssetVersion(
+        scene_version_id=f"sv_{fingerprint[:24]}",
+        version_fingerprint=fingerprint,
+        **payload,
+    )
+
+
+def _scene_catalog_from_payload(payload: Dict[str, Any]) -> SceneAssetCatalog:
+    data = dict(payload)
+    data["catalog_fingerprint"] = _sha256(data)
+    return SceneAssetCatalog(**data)
+
+
+def _build_scene_asset_catalog_impl(
+    version: SceneAssetVersion | Dict[str, Any],
+    *,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    """Create a catalog whose first scene candidate is explicitly selected."""
+
+    candidate = (
+        version
+        if isinstance(version, SceneAssetVersion)
+        else SceneAssetVersion(**version)
+    )
+    if candidate.derived_from is not None:
+        raise ValueError("initial scene version cannot derive from an absent version")
+    return _scene_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": season_no,
+            "assets": [
+                {
+                    "scene_id": candidate.scene_id,
+                    "versions": [model_to_dict(candidate)],
+                    "selected_version_id": candidate.scene_version_id,
+                    "selection_revision": 0,
+                }
+            ],
+        }
+    )
+
+
+def _add_scene_asset_impl(
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> SceneAssetCatalog:
+    """Add a new semantic scene under whole-catalog CAS."""
+
+    current = (
+        catalog if isinstance(catalog, SceneAssetCatalog) else SceneAssetCatalog(**catalog)
+    )
+    candidate = (
+        version
+        if isinstance(version, SceneAssetVersion)
+        else SceneAssetVersion(**version)
+    )
+    if expected_catalog_fingerprint != current.catalog_fingerprint:
+        raise ValueError("scene asset catalog changed; refresh before adding")
+    if candidate.derived_from is not None:
+        raise ValueError("initial scene version cannot derive from another scene")
+    existing = next(
+        (asset for asset in current.assets if asset.scene_id == candidate.scene_id),
+        None,
+    )
+    if existing is not None:
+        if (
+            len(existing.versions) == 1
+            and existing.versions[0] == candidate
+            and existing.selected_version_id == candidate.scene_version_id
+            and existing.selection_revision == 0
+        ):
+            return current
+        raise ValueError("scene asset already exists")
+    return _scene_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "assets": [
+                *[model_to_dict(asset) for asset in current.assets],
+                {
+                    "scene_id": candidate.scene_id,
+                    "versions": [model_to_dict(candidate)],
+                    "selected_version_id": candidate.scene_version_id,
+                    "selection_revision": 0,
+                },
+            ],
+        }
+    )
+
+
+def _append_scene_asset_version_impl(
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    scene_id: str,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> SceneAssetCatalog:
+    """Append one scene candidate without changing the selected version."""
+
+    current = (
+        catalog if isinstance(catalog, SceneAssetCatalog) else SceneAssetCatalog(**catalog)
+    )
+    candidate = (
+        version
+        if isinstance(version, SceneAssetVersion)
+        else SceneAssetVersion(**version)
+    )
+    if expected_catalog_fingerprint != current.catalog_fingerprint:
+        raise ValueError("scene asset catalog changed; refresh before append")
+    output: list[SceneAsset] = []
+    found = False
+    for asset in current.assets:
+        if asset.scene_id != scene_id:
+            output.append(asset)
+            continue
+        found = True
+        if candidate.scene_id != asset.scene_id:
+            raise ValueError("scene version belongs to another scene")
+        by_id = {item.scene_version_id: item for item in asset.versions}
+        existing = by_id.get(candidate.scene_version_id)
+        if existing is not None:
+            if existing != candidate:
+                raise ValueError("content-addressed scene version conflicts")
+            return current
+        if candidate.derived_from is not None and candidate.derived_from not in by_id:
+            raise ValueError("derived scene version does not exist")
+        output.append(
+            SceneAsset(
+                scene_id=asset.scene_id,
+                versions=[*asset.versions, candidate],
+                selected_version_id=asset.selected_version_id,
+                selection_revision=asset.selection_revision,
+            )
+        )
+    if not found:
+        raise ValueError("scene asset does not exist")
+    return _scene_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "assets": [model_to_dict(asset) for asset in output],
+        }
+    )
+
+
+def _select_scene_asset_version_impl(
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    scene_id: str,
+    scene_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+) -> SceneAssetCatalog:
+    """Select a scene candidate under revision/current-id double CAS."""
+
+    if not isinstance(expected_selection_revision, int) or isinstance(
+        expected_selection_revision, bool
+    ):
+        raise ValueError("expected scene selection revision must be a strict integer")
+    current = (
+        catalog if isinstance(catalog, SceneAssetCatalog) else SceneAssetCatalog(**catalog)
+    )
+    output: list[SceneAsset] = []
+    found = False
+    for asset in current.assets:
+        if asset.scene_id != scene_id:
+            output.append(asset)
+            continue
+        found = True
+        if (
+            asset.selection_revision != expected_selection_revision
+            or asset.selected_version_id != expected_selected_version_id
+        ):
+            raise ValueError("scene asset selection changed; refresh before selecting")
+        if scene_version_id not in {
+            version.scene_version_id for version in asset.versions
+        }:
+            raise ValueError("selected scene version does not exist")
+        if scene_version_id == asset.selected_version_id:
+            return current
+        output.append(
+            SceneAsset(
+                scene_id=asset.scene_id,
+                versions=asset.versions,
+                selected_version_id=scene_version_id,
+                selection_revision=asset.selection_revision + 1,
+            )
+        )
+    if not found:
+        raise ValueError("scene asset does not exist")
+    return _scene_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "assets": [model_to_dict(asset) for asset in output],
+        }
+    )
+
+
+def _selected_scene_asset_ref_impl(asset: SceneAsset | Dict[str, Any]) -> SceneAssetRef:
+    current = asset if isinstance(asset, SceneAsset) else SceneAsset(**asset)
+    selected = next(
+        item
+        for item in current.versions
+        if item.scene_version_id == current.selected_version_id
+    )
+    return SceneAssetRef(
+        scene_id=current.scene_id,
+        scene_version_id=selected.scene_version_id,
+        version_fingerprint=selected.version_fingerprint,
+        artifact_sha256=(
+            selected.artifact.sha256 if selected.artifact is not None else None
+        ),
+    )
+
+
+def _build_episode_scene_asset_manifest_impl(
+    render_plan: RenderPlan | Dict[str, Any],
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    shot_scene_ids: Mapping[str, str],
+    binding_revision: int = 0,
+) -> EpisodeSceneAssetManifest:
+    """Freeze explicit stable-shot scene bindings against current selections."""
+
+    if not isinstance(shot_scene_ids, Mapping):
+        raise ValueError("shot_scene_ids must be an explicit mapping")
+    if not isinstance(binding_revision, int) or isinstance(binding_revision, bool):
+        raise ValueError("binding revision must be a strict integer")
+    if any(
+        not isinstance(shot_id, str) or not isinstance(scene_id, str)
+        for shot_id, scene_id in shot_scene_ids.items()
+    ):
+        raise ValueError("shot_scene_ids must contain string ids")
+    plan = render_plan if isinstance(render_plan, RenderPlan) else RenderPlan(**render_plan)
+    current = (
+        catalog if isinstance(catalog, SceneAssetCatalog) else SceneAssetCatalog(**catalog)
+    )
+    if current.season_no != plan.season_no:
+        raise ValueError("scene asset catalog belongs to another season")
+    required_shots = [shot.shot_id for shot in plan.shots]
+    if set(shot_scene_ids) != set(required_shots) or len(shot_scene_ids) != len(
+        required_shots
+    ):
+        raise ValueError("every render shot must have exactly one explicit scene binding")
+    assets = {asset.scene_id: asset for asset in current.assets}
+    refs: list[ShotSceneRef] = []
+    for shot in plan.shots:
+        scene_id = shot_scene_ids[shot.shot_id]
+        asset = assets.get(scene_id)
+        if asset is None:
+            raise ValueError("scene binding references an unknown scene")
+        refs.append(
+            ShotSceneRef(
+                shot_id=shot.shot_id,
+                source_fingerprint=shot.source_fingerprint,
+                scene_ref=_selected_scene_asset_ref_impl(asset),
+            )
+        )
+    usage_fingerprint = _sha256([model_to_dict(ref) for ref in refs])
+    payload: Dict[str, Any] = {
+        "schema_version": 1,
+        "season_no": plan.season_no,
+        "episode_no": plan.episode_no,
+        "render_plan_fingerprint": plan.plan_fingerprint,
+        "binding_revision": binding_revision,
+        "usage_fingerprint": usage_fingerprint,
+        "shot_scene_refs": [model_to_dict(ref) for ref in refs],
+    }
+    payload["manifest_fingerprint"] = _sha256(payload)
+    return EpisodeSceneAssetManifest(**payload)
+
+
+def _scene_usage_index_impl(
+    manifest: EpisodeSceneAssetManifest | Dict[str, Any],
+) -> Dict[str, list[str]]:
+    """Derive bounded episode-level used-by without scanning other workspaces."""
+
+    current = (
+        manifest
+        if isinstance(manifest, EpisodeSceneAssetManifest)
+        else EpisodeSceneAssetManifest(**manifest)
+    )
+    output: Dict[str, list[str]] = {}
+    for binding in current.shot_scene_refs:
+        output.setdefault(binding.scene_ref.scene_id, []).append(binding.shot_id)
+    return output
+
+
+class SceneAssetError(ValueError):
+    """Bounded public error for local scene-asset pure operations."""
+
+
+def _raise_scene_asset_error(operation: str) -> None:
+    # Raise outside an active exception handler so private caller input is absent
+    # from both the public message and the exception chain.
+    raise SceneAssetError(f"scene asset {operation} was rejected")
+
+
+def build_scene_asset_version(
+    *,
+    scene_id: str,
+    spec: SceneSpec | Dict[str, Any],
+    source_kind: str,
+    artifact: SceneAssetArtifact | Dict[str, Any] | None = None,
+    derived_from: str | None = None,
+) -> SceneAssetVersion:
+    try:
+        return _build_scene_asset_version_impl(
+            scene_id=scene_id,
+            spec=spec,
+            source_kind=source_kind,
+            artifact=artifact,
+            derived_from=derived_from,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("version build")
+
+
+def build_scene_asset_catalog(
+    version: SceneAssetVersion | Dict[str, Any],
+    *,
+    season_no: int = 1,
+) -> SceneAssetCatalog:
+    try:
+        return _build_scene_asset_catalog_impl(version, season_no=season_no)
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("catalog build")
+
+
+def add_scene_asset(
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> SceneAssetCatalog:
+    try:
+        return _add_scene_asset_impl(
+            catalog,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("addition")
+
+
+def append_scene_asset_version(
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    scene_id: str,
+    version: SceneAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> SceneAssetCatalog:
+    try:
+        return _append_scene_asset_version_impl(
+            catalog,
+            scene_id=scene_id,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("candidate append")
+
+
+def select_scene_asset_version(
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    scene_id: str,
+    scene_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+) -> SceneAssetCatalog:
+    try:
+        return _select_scene_asset_version_impl(
+            catalog,
+            scene_id=scene_id,
+            scene_version_id=scene_version_id,
+            expected_selection_revision=expected_selection_revision,
+            expected_selected_version_id=expected_selected_version_id,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("selection")
+
+
+def selected_scene_asset_ref(asset: SceneAsset | Dict[str, Any]) -> SceneAssetRef:
+    try:
+        return _selected_scene_asset_ref_impl(asset)
+    except (RecursionError, StopIteration, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("reference build")
+
+
+def build_episode_scene_asset_manifest(
+    render_plan: RenderPlan | Dict[str, Any],
+    catalog: SceneAssetCatalog | Dict[str, Any],
+    *,
+    shot_scene_ids: Mapping[str, str],
+    binding_revision: int = 0,
+) -> EpisodeSceneAssetManifest:
+    try:
+        return _build_episode_scene_asset_manifest_impl(
+            render_plan,
+            catalog,
+            shot_scene_ids=shot_scene_ids,
+            binding_revision=binding_revision,
+        )
+    except (KeyError, RecursionError, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("manifest build")
+
+
+def scene_usage_index(
+    manifest: EpisodeSceneAssetManifest | Dict[str, Any],
+) -> Dict[str, list[str]]:
+    try:
+        return _scene_usage_index_impl(manifest)
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_scene_asset_error("usage projection")
