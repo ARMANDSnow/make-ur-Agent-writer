@@ -9,6 +9,7 @@
 - [iter 039 plan draft](./iteration_039_PLAN_DRAFT.md)、[iter 040 plan draft](./iteration_040_PLAN_DRAFT.md)、[iter 042 plan draft](./iteration_042_PLAN_DRAFT.md)、[iter 043B plan draft](./iteration_043B_PLAN_DRAFT.md)、[iter 044 plan draft](./iteration_044_PLAN_DRAFT.md)：外部计划快照，与最终执行档不同，保留供追溯。
 - [iter 043 UX audit](./iteration_043_UX_AUDIT.md)：UX 专项取证。
 - [drama 079-083 roadmap](./iteration_079_083_drama_module_roadmap.md)、[style 083-086 roadmap](./iteration_083_086_style_fingerprint_roadmap.md)：批次路线图；实际编号与结果以各轮文档为准。
+- [短剧完整生产链阶段计划](./stage_plan_drama_full_production_pipeline.md)：基于固定 GitHub commit 的文件级调研与 A-J 阶段嫁接路线图；是独立规划记录，不占 iteration 编号。
 
 ## Index
 
@@ -126,3 +127,4 @@
 112. [Iteration 103 - 本地 Fake Provider 整链](./iteration_103_local_fake_provider_e2e.md)
 113. [Iteration 104 - Crash/Restart 与状态矩阵](./iteration_104_crash_restart_state_matrix.md)
 114. [Iteration 105 - 短剧单集角色投影一致性](./iteration_105_drama_episode_character_projection.md)
+115. [Iteration 106 - 短剧渲染计划与创作陈旧性边界](./iteration_106_drama_render_plan_stale_boundary.md)
