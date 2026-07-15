@@ -36,13 +36,18 @@
 - 场景 manifest 是本轮显式 `shot_id -> scene_id` 绑定的权威本地记录；inspect 可证明其 schema/内部 hash、RenderPlan shot/source、当前 selected ref 与 artifact bytes 一致，但不宣称能对抗可离线重写整份 envelope 并重算全部 SHA-256 的本机攻击者。该边界与当前本地 catalog 的非签名 threat model 一致；若未来要求不可抵赖的绑定历史，应另立迭代引入独立事件账本或签名 provenance，而不是把 SHA-256 冒充签名。
 - 审查首轮发现并已修复：幂等 create/append/select 早退前未统一复验 artifact；公共纯函数/store 会回显 Pydantic 输入、artifact 路径或 workspace lock holder；非 Mapping pairs 可被 `dict()` 静默折叠；`create_scene_asset_catalog` 幂等范围过宽；同一路径可被不同 immutable artifact metadata 复用。修复后公共错误改为固定分类且无原始异常链，create 只认首个场景首个 root version，所有幂等入口都先复验 bytes。
 - 新增专项证据覆盖 ArtDirection selected 变化经 RenderPlan 精确传播至 scene manifest、missing/invalid/blocked_source、NaN/Infinity/deep JSON、artifact missing/FIFO/目录/超限、parent/target symlink、late target/source CAS、重复 pairs、锁/spec/path 脱敏、artifact path immutable reuse 与 socket 零网络。
-- 当前聚焦结果：`tests.test_drama_scene_assets + tests.test_drama_scene_asset_store` 22 tests 通过；iter105-109/角色资产/RenderPlan/ArtDirection/导出/season export/legacy video 共 143 tests 通过；相关 `py_compile`、agent harness（accepted iter108 / active iter109 / 118 index entries）与 `git diff --check` 通过。correctness、security/boundary、schema/freshness 三路最终只读复审均为 P0=0、未解决 P1=0；security 无剩余 P2，schema 的 threat-model 明示与 invalid manifest 保留建议均已落实。最终 canonical `verify.sh` 尚未运行，等待 implementation commit。
+- 聚焦结果：`tests.test_drama_scene_assets + tests.test_drama_scene_asset_store` 22 tests 通过；iter105-109/角色资产/RenderPlan/ArtDirection/导出/season export/legacy video 共 143 tests 通过；相关 `py_compile`、agent harness（accepted iter108 / active iter109 / 118 index entries）与 `git diff --check` 通过。correctness、security/boundary、schema/freshness 三路最终只读复审均为 P0=0、未解决 P1=0；security 无剩余 P2，schema 的 threat-model 明示与 invalid manifest 保留建议均已落实。implementation commit 后 canonical `verify.sh` 结果见 Acceptance Result。
 - 只读探索曾比较两条候选：逐镜 visual override 的局部 seam 更小，但缺少逐镜媒体消费者；SceneAsset 可复用 iter107 的版本/CAS/manifest 语义并推进路线图首要“可复用视觉资产”缺口，因此选后者。visual override 继续作为独立后续轮，不在本轮顺手实现。
 - 场景绑定首版由领域/store API 接收显式映射；没有 typed 创作 source 时宁可 blocked，也不做 LLM/关键词抽取或位置猜测。若未来要把 scene ID 写回创作层或建立 SceneSheet 编辑入口，必须另立迭代和 schema migration。
 
 ## Acceptance Result
 
-待实现、审查与 `iter-finish` 回填；当前无测试数、验收等级或 provider 证据。
+- **结论**：A109-01、A109-02、A109-03、A109-04、A109-05、A109-06 全部通过。canonical 总级别为 `mock-functional`；mandatory local-drama 组件为 `local-e2e`、`provider_validated=false`。未运行真文本、真生图、真视频或任何真实 provider。
+- **标准验收**：implementation commit `7035978cdeb0c74cfa4743f5694365ea306c9482` 上 `bash scripts/verify.sh` exit 0；schema v2 evidence run `1a4281d1170d4fe4ace3de6afac8ee8e`，tree `2bdf87b960bb2dc73b1b1170e5486d978ac6de66`，`tracked_scope_clean=true`，15 steps / 145 秒。全量 **2197 tests OK**，mock pipeline、report snapshots 与 preflight 通过，preflight 0 FATAL / 0 WARN。
+- **环境说明**：受限 sandbox 首跑的 2197 tests 中，14 errors 全部来自禁止 loopback bind，2 failures 来自 sandbox 注入临时 `xcrun_db`；iter109 scene tests 当次全绿。未改代码后用同一离线命令在非 sandbox 环境重验通过，故不记为实现回归。
+- **聚焦证据**：scene 两模块 22 tests 通过；iter105-109、角色资产、RenderPlan、ArtDirection、导出、season export、legacy episode-1 video 聚焦回归 143 tests 通过；相关 `py_compile`、agent harness 与 `git diff --check` 通过。
+- **审查**：correctness、security/boundary、schema/freshness 三个独立只读视角最终均 P0=0、未解决 P1=0。已修复 artifact 幂等早退、公共异常泄露/异常链、重复 pairs 折叠、create 幂等过宽、同一路径不同 immutable bytes；schema 建议的 threat boundary 与 invalid manifest preserve 测试已落实，security 最终无剩余 P2。
+- **边界**：scene manifest 是显式绑定的本地权威记录；inspect 证明内部一致性及当前 RenderPlan/catalog/selected artifact freshness。SHA-256 仅提供完整性/内容寻址，不提供签名认证，不承诺抵抗本机攻击者离线重写整份 envelope 并重算所有 hash。
 
 ## 文件变更汇总
 
