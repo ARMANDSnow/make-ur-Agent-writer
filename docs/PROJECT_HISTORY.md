@@ -35,6 +35,7 @@
 | 107 | 短剧角色资产版本与冻结选择 | 角色语义 ID、不可变版本、显式 selected CAS 与单集 active AssetRef manifest |
 | 108 | 短剧美术方向版本与渲染冻结 | season ArtDirection 不可变候选、显式 selected CAS、RenderPlan ref 与单集 manifest stale 传播 |
 | 109 | 短剧场景资产版本与逐镜冻结 | season SceneAsset 不可变候选、selected 双 CAS、显式 shot→scene manifest、episode used-by 与精确 stale |
+| 110 | 短剧道具/线索资产版本与逐镜冻结 | season PropOrClueAsset 不可变候选、selected 双 CAS、显式 shot→0..16 refs、episode used-by 与精确 stale |
 
 ## Iteration Implementation Index
 
@@ -125,6 +126,7 @@
 | 107 | 建立角色资产版本、selected CAS 与单集冻结引用 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_asset_versions.py`、`tests/test_drama_asset*.py` |
 | 108 | 建立 ArtDirection 版本、selected CAS 与 RenderPlan/manifest stale 桥接 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_art_direction_store.py`、`src/drama_render_store.py`、`src/workspace_lock.py`、`tests/test_drama_art_direction*.py` |
 | 109 | 建立 SceneAsset 版本、selected CAS 与逐镜冻结引用 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_asset_versions.py`、`tests/test_drama_scene_asset*.py` |
+| 110 | 建立 PropOrClueAsset 版本与逐镜零到多冻结引用 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_asset_versions.py`、`tests/test_drama_prop_clue_asset*.py` |
 
 ## Durable Decisions
 
@@ -189,6 +191,7 @@
 23. **不可变候选、可变选择与单集冻结必须分层**：季级资产目录可以继续追加版本，但不能把新候选自动视为当前选择；selected mutation 需要 revision/current-ID 双 CAS。单集 manifest 只冻结当集 active selected refs，不绑定整个 catalog，否则未选候选或下一集角色会无意义地使旧集 stale。
 24. **派生 ref 不能用落盘值自证来源**：RenderPlan 中已有的 ArtDirectionRef 只能是缓存结果，freshness 必须重新读取并验证当前 catalog selected；missing/invalid/orphan source 应阻断，未选候选不 stale，只有 selected 变化才沿真实依赖传播。target-token CAS 仍以所有项目写者遵守 workspace flock 为前提，不能对非合作本地进程宣称原子性。
 25. **逐镜资产绑定必须显式且与内容认证分开**：没有创作层 scene ID 时，调用方必须提交完整稳定 `shot_id -> scene_id` 映射，不能从 prompt、位置或自由文本猜测；episode manifest 可作为本地权威绑定记录并重验当前 RenderPlan/catalog/selected artifact，但普通 SHA-256 只证明内容一致性，不是签名，不能宣称抵抗离线整份改写并重算 hash。
+26. **“零到多个”也必须把零写出来**：逐镜道具/线索不能把缺少 mapping key、漏传 `asset_refs` 与明确 `[]` 混为一谈；完整 shot 映射和必填空列表既是 graceful degrade 证据，也是防止调用方遗漏被静默接受的 freshness 边界。先按当前 shot 数量有界校验 mapping，再读取条目，避免拒绝超限输入前遍历或复制不受信任容器。
 
 ## Historical Evidence Notes
 

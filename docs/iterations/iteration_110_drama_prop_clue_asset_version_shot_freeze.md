@@ -42,7 +42,14 @@
 
 ## Acceptance Result
 
-<`iter-finish` 回填 A110-01 至 A110-06 的逐项结论、聚焦测试、唯一最终全量验收、只读审查、验收等级与未修风险。>
+- **A110-01：通过。** 独立 strict schema 已约束 `pNNN|lNNN`/kind、`pcv_<24hex>`、content/catalog/manifest fingerprints、bounded spec、append-only 同资产版本链、无环、artifact ownership/size/SHA、extra、bool-as-int 与有限 JSON；`assets`/`asset_refs` 必填且允许显式 `[]`。既有创作、角色、场景和 RenderPlan v1 schema 未改变。
+- **A110-02：通过。** 空 catalog、新资产 root selected、候选 append 不自动切换、add/append/select 幂等及 selection revision + current selected ID 双 CAS/ABA 均有回归；跨资产 derivation、kind 漂移、孤儿/环和同 artifact path 异 metadata 均 fail closed。演进后的重复 root add 保留当前 catalog，不回退版本或选择。
+- **A110-03：通过。** manifest 只接受 fresh RenderPlan/catalog 与完整显式 `shot_id -> 0..16 ordered asset_ids`；所有当前 shot 都必须出现，`[]` 合法，tuple/遗漏/未知/重复/超限被拒，且在读取条目前先按当前 shot 数量做有界检查。实现不读取自由文本、prompt、位置或目录最新项推断绑定。
+- **A110-04：通过。** manifest 只冻结实际使用 selected refs并确定性派生 episode used-by；全空绑定合法。未选候选/未使用资产不 stale，已使用 selection/version/artifact、RenderPlan/ArtDirection 与显式 mapping 变化精确 stale；原 mapping 吸收 selection 变化不增加 `binding_revision`，显式 CAS replace 恢复 fresh，未反写任何上游创作或既有消费端。
+- **A110-05：通过。** catalog 三态、manifest 五态与 invalid 保留已覆盖；bounded duplicate-key/finite/depth JSON、nofollow/nonblock/regular-file、workspace lock、source/target CAS、parent-dirfd atomic replace 拒绝 symlink/FIFO/目录/超限及 precommit race。公共错误有界脱敏，socket 哨兵证明 iter110 路径零网络。
+- **A110-06：通过。** 新增 18 个 iter110 测试；受影响链 161 个聚焦测试通过，覆盖 iter105-109、RenderPlan、角色/ArtDirection/SceneAsset、导出、season export 与 episode-1 video。correctness、security/boundary、schema/freshness 三个只读视角的 1 个 P1、3 个 P2 已全部修复并回归，最终无未处理 P0/P1/P2。
+- **最终全量验收：通过。** implementation commit `4bd4c44cafabf8a13379368985e0fb412a3f355e` / tree `f23c67fd978d24e9766a93917d34eeaed8cfca22` 上 canonical `bash scripts/verify.sh`：**2215 tests OK**，15 steps，144 秒，run `c4b319b9e24c4516b6864e3f8cf957cd`，`tracked_scope_clean=true`，mock pipeline、local fake-provider E2E 与 preflight（0 FATAL / 0 WARN）通过。首次受限沙箱尝试仅因禁止 loopback bind 和注入 `xcrun_db` 临时项失败；未改代码后获授权在沙箱外执行同一命令通过，环境错误不计为代码 finding。
+- **验收等级：`mock-functional`。** local fake-provider 子步骤为 `local-e2e`，`provider_validated=false`；未运行真文本、真生图、真视频或真 ComfyUI。已知残余边界只有本轮明确排除的通用 visual override、Web/跨集 used-by、ArtDirection 多 scope 与后续 C-J 媒体链，以及普通 SHA-256 不提供离线改写认证、非合作本机写者不受 workspace flock 完全约束。
 
 ## 文件变更汇总
 
@@ -53,7 +60,7 @@
 | `src/drama_asset_versions.py` | 新增 prop/clue catalog/manifest 的严格持久化、inspect/load、CAS 与安全写入 |
 | `tests/test_drama_prop_clue_assets.py` | 新增 schema、fingerprint、版本、双 CAS、显式绑定与脱敏测试 |
 | `tests/test_drama_prop_clue_asset_store.py` | 新增 store 五态、精确 stale、竞态/路径/特殊文件/零网络测试 |
-| `README.md` / `docs/product/short_drama_module.md` / `docs/AGENT_HANDOFF.md` / `docs/PROJECT_HISTORY.md` | 仅在 `iter-finish` 且事实变化后就地同步实时 SOP、当前快照、Latest Transition 与阶段历史 |
+| `README.md` / `docs/product/short_drama_module.md` / `docs/AGENT_HANDOFF.md` / `docs/PROJECT_HISTORY.md` | 就地同步 iter110 实时 SOP、当前快照、Latest Transition、阶段历史与长期教训 |
 
 ## 不在本轮范围
 

@@ -136,12 +136,13 @@ docs/iterations/           逐轮审计记录
 | 短剧角色资产版本与冻结选择 | 107 | ✅ 角色语义 ID、不可变版本、显式 selected/CAS 与单集 AssetRef manifest 形成纯本地闭环 |
 | 短剧美术方向版本与渲染冻结 | 108 | ✅ season 级 ArtDirection 不可变候选、显式 selected/CAS 与 RenderPlan/manifest stale 传播形成纯本地闭环 |
 | 短剧场景资产版本与逐镜冻结 | 109 | ✅ season SceneAsset 不可变版本、selected 双 CAS、显式 shot→scene 冻结、used-by 与精确 stale 形成纯本地闭环 |
+| 短剧道具/线索资产版本与逐镜冻结 | 110 | ✅ season PropOrClueAsset 不可变版本、selected 双 CAS、显式 shot→0..16 refs、used-by 与精确 stale 形成纯本地闭环 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 109**（2026-07-15，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准；短剧的完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。本轮完成 SceneAsset 不可变候选、显式 selected 双 CAS、稳定 `shot_id -> scene_id` 冻结、episode used-by 与精确 stale；总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
+最近一次更新：**iter 110**（2026-07-15，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准；短剧的完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。本轮完成 PropOrClueAsset 不可变候选、显式 selected 双 CAS、稳定 `shot_id -> 0..16 ordered asset refs` 冻结、episode used-by 与精确 stale；总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -173,8 +174,8 @@ docs/iterations/           逐轮审计记录
 | 4. 角色与季角色库 | 站④生成角色卡、合并季角色库并登记本集 appearances（最多 8 人） | ✅ | 五站 job 的 `drama-characters`；角色不可变资产版本与 selected reference 由阶段 B 的独立目录承接 |
 | 5. 评审与组装 | 站⑤五维评审，revision 后仅从 Approve 血统组装 canonical episode，并将本集角色 IDs 冻结进 meta | ✅ | `episode_NN.json` 是创作事实真源；解析失败/血统不一致 fail-closed |
 | 6. 连续多集与创作交付 | 只从最新连续、完整、fresh 前集创建 N+1；导出 JSON/MD/CSV/Comfy、严格季包/快照与 Insights | ✅ | 当前仅 season 1、计划上限 100 集；多季模型未闭环；Comfy 仅为 workflow 导出 |
-| A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、五态检查 | 🟨 | **A1 已完成**；A2 已冻结角色、ArtDirection 与场景 selected refs，并让 ArtDirection/RenderPlan/场景选择精确传播到对应单集 manifest；通用 visual override 与后续媒体依赖矩阵待完成 |
-| B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | 角色、season ArtDirection 与 season SceneAsset 已有不可变版本和 selected CAS；场景支持 episode used-by；道具/线索、场景跨集 used-by/Web 管理与 ArtDirection 多 scope 待实现 |
+| A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、五态检查 | 🟨 | **A1 已完成**；A2 已冻结角色、ArtDirection、场景与道具/线索 selected refs，并让 ArtDirection/RenderPlan/资产选择精确传播到对应单集 manifest；通用 visual override 与后续媒体依赖矩阵待完成 |
+| B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本和 selected CAS；场景及道具/线索支持 episode used-by；跨集 used-by/Web 管理与 ArtDirection 多 scope 待实现 |
 | C. 逐镜图片 | 每镜图片候选、首帧/可选尾帧、引用冻结、比较选择与覆盖率 | ⏳ | 已有角色图入口和本地 fake-provider 证据；真图片当前仅严格 PNG，逐镜候选、首尾帧及可靠 JPEG/WebP decoder 未实现 |
 | D. 逐镜视频 | 每镜 I2V/R2V submit→poll→download、候选选择与跨镜连续性 | ⏳ | 现有仅 episode 1 高光视频兼容入口；episode 2+ 与整集逐镜 coverage 未实现 |
 | E. 声音与唯一时间线 | 角色 voice、逐句 TTS、旁白、字幕、BGM/SFX 与 `TimelineManifest` | ⏳ | RenderPlan 已有 spoken 投影；音频生成、实际时长校验和唯一时间线未实现 |
