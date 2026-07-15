@@ -1,14 +1,14 @@
 # 短剧 + 表格 模块 · 产品定义书
 
-> **文档性质**：PM 产品定义书，iter 036+ 的 Codex 施工单作者以此为输入。
+> **文档性质**：PM 产品定义书 + 短剧完整生产 SOP；前者保留 v1 决策背景，后者记录当前实现状态。
 >
-> **版本**：v1 产品基线 · 2026-06-03；实现进度已推进到 iter 092，当前状态见 [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md)
+> **版本**：v2 状态补充 · 2026-07-15；v1 产品基线形成于 2026-06-03，当前实现基线为 iter 106，事实以 [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) 为准。
 >
 > **作者**：Claude
 >
 > **配套文档**：`docs/product/short_drama_creation_standard.md` v1（创作规范预设，给 LLM agent 作 system prompt 之源）
 >
-> **原始范围说明**：本文记录 v1 产品决策。后续已实现的真实图片/视频安全入口与多模态编排以 iter 089-092 及 handoff 为准；TTS、多语言、跨剧 IP 复用仍不在当前范围。
+> **范围说明**：第 1-10 节保留 v1 产品决策与当时的施工拆分，不再充当实时进度表；第 11 节依据独立 [A-J 阶段计划](../iterations/stage_plan_drama_full_production_pipeline.md) 记录端到端 SOP、已实现边界与待完成项。本次只更新规划文档，不作为一轮 iteration。
 
 ---
 
@@ -24,6 +24,15 @@
 | 角色一致性 | 表格字段维护 | **LoRA-ready 文字 prompt + 内置预览图**（调外部 AI 绘画 API）（N3） |
 | 导出 | .fountain / .fdx / .pdf | **JSON / Markdown table / CSV / Comfy workflow .json** |
 | 季概念 | 平铺集 | **schema 预留 season 字段，UI v1 仅显单季**（N5 = γ） |
+
+### v1 → v2 状态补充
+
+| 变化 | v2 记录方式 |
+|---|---|
+| “4 站向导”与当前“五站 job”口径不同 | 前四站仍是用户创作向导；把 review + Approve assembly 明确记为站⑤ |
+| v1 到手工外部工具结束 | 追加 `RenderPlan → 资产 → 逐镜媒体 → TimelineManifest → 合成/QA → 工作台/归档 → provider 校准` 的完整生产 SOP |
+| 旧文把角色预览图与资产选择写在同一站 | 区分“站④角色卡/季角色库”与“阶段 B-C 不可变资产版本/逐镜图片候选”；后者尚未完成 |
+| 旧文缺少实时落地状态 | 每个阶段明确标注 ✅ 已实现、🟨 部分实现、⏳ 待实现或 🔒 待逐次授权验证 |
 
 ---
 
@@ -539,8 +548,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 ## 9. 文档版本与维护
 
 - **v0** 2026-06-03 上午 · Fountain 假设，被用户工作流截图证伪
-- **v1** 2026-06-03 下午 · 三件套 schema + 4 站向导 + N1-N5 拍板（**当前版本**）
-- **v2 计划** iter 039 收官后 · 根据 iter 037-039 实测经验回填 prompt 模板、确认字段、修正 IA
+- **v1** 2026-06-03 下午 · 三件套 schema + 4 站创作向导 + N1-N5 拍板
+- **v2** 2026-07-15 · 保留 v1 产品决策，追加“五站创作 + A-J 媒体生产”的完整实时 SOP（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -567,3 +576,88 @@ episode_NN.json / characters / reviews
 ```
 
 任何一份文档动了，另一份必须同步检查。
+
+---
+
+## 11. 完整生产 SOP（实时状态）
+
+本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 106，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
+
+状态图例：
+
+- ✅ **已实现**：当前 mock/canonical 工程链已有明确代码与测试证据。
+- 🟨 **部分实现**：阶段目标只完成了一个可验收子闭环，不能宣称整阶段完成。
+- ⏳ **待实现**：可能已有可复用底座，但该阶段定义的完整产物与验收门槛尚未闭环。
+- 🔒 **待逐次授权验证**：工程入口或 preflight 已存在，真实 provider 请求仍必须逐类、逐次获得用户授权。
+
+### 11.1 真源、派生关系与全程守门
+
+短剧链固定分成三层事实，不能互相顶替：
+
+| 事实层 | 真源 | 约束 |
+|---|---|---|
+| 创作事实 | Approve 后的 `episode_NN.json`、meta 与冻结角色投影 | 剧情、对白、人物和镜头创作语义只能回到五站创作链修改 |
+| 渲染事实 | `RenderPlan`、资产版本与选择、逐镜媒体、`TimelineManifest`、QA | 都是可失效、可重建的派生物；不得为了换图、配音或剪辑去改 episode SHA |
+| 执行/付费事实 | task state、provider/account/endpoint/model/input/auth fingerprint、receipt、ledger、artifact SHA | 通用任务状态不能替代付费证据；unknown submission 禁止自动重发 |
+
+```text
+drama workspace
+  → 五站创作与人工修订
+  → Approve canonical episode_NN.json
+  → RenderPlan
+  → 资产版本 / 逐镜图片 / 逐镜视频 / 音频 manifests
+  → 唯一 TimelineManifest
+  → 本地 MP4 + 字幕 + 可编辑导出 + QA
+  → 生产工作台 / 可移植归档
+  → 分媒体真实 provider 校准
+```
+
+全程共同守门：默认 `OPENAI_MODEL=mock` 严格离线；workspace、episode、路径、有限数、预算与授权在调用/落盘前校验；真文本、真图片、真语音、真视频的授权彼此独立，不从旧 job 或历史成功状态继承。
+
+### 11.2 创作、评审与创作层交付
+
+| 阶段 | 输入 | 主要动作 | 产物 | 进入下一步的门槛 | 当前状态 |
+|---|---|---|---|---|---|
+| 0. 建立 workspace | 类型 `drama`、项目名、计划集数、目标时长 | 创建隔离 workspace 与短剧向导骨架；加载本项目的创作规范 | drama workspace、wizard input、规范快照/版本信息 | workspace 类型、路径和数值合法；不得混用 novel 数据 | ✅ 已实现；当前 canonical/mock 证据以 60 秒为主，30/90/120 秒待专项验证 |
+| 1. 站①核心设定 | 赛道/题材/人物意图、规范 | 生成或继承本集主线、主角/反派核心设定；用户可编辑 | setup/core setup | 核心人物和本集主线完整；episode 身份一致 | ✅ `drama-plan` 已实现 |
+| 2. 站②钩子 | 已完成 setup、赛道母题 | 生成情绪/悬念/反差候选；用户选择、微调并锁定 | selected hook + 候选记录 | 必须有明确 hook 类型和内容；后续不得静默沿用旧集钩子 | ✅ `drama-hooks` 已实现 |
+| 3. 站③叙事与分镜 | setup、selected hook、时长、规范、季角色投影 | 生成起承转合与镜头 grid；支持编辑、排序、增删和单镜重生 | narrative + storyboard + AI draw/motion 字段 | 6-9 镜、字段范围、连续 shot_no 和最多一个高光由本地硬校验；时长/首末镜/对白等软规则显式告警；场景/人物数主要由 prompt 与创作规范约束 | ✅ `drama-storyboard` 已实现；已接受证据以 60 秒 fixture 为主 |
+| 4. 站④角色与季角色库 | setup、storyboard、已有季角色表 | 生成 LoRA-ready 角色卡；合并季角色库；保护 manual override；登记本集 appearances（最多 8 人） | season character sheet + episode-scoped candidate projection + 引用图记录 | 角色 ID、episode 身份与每集 8 人上限合法；手工锁定字段不能被 agent 覆盖 | ✅ `drama-characters` 已实现；不可变资产版本另属阶段 B |
+| 5. 站⑤评审、修订与组装 | 前四站产物、本集角色投影、规范 | 五维评审；Reject 回对应站，Abstain 提供 advisor 并由用户决定；revision 后重评；仅 Approve 执行 assembly 并冻结本集角色 IDs | review、meta（含 frozen cast）、canonical `episode_NN.json` | verdict=Approve、输入 fingerprint/episode SHA/角色投影一致；坏 JSON 或血统不明 fail-closed | ✅ `drama-review-assemble` 已实现 |
+| 6. 连续多集 | 最新连续、完整、fresh 的 N 集，`episode_count`，季角色库 | 初始化 N+1；继承系列级设定但要求新钩子；复用既有视觉签名，只生成/补充新角色 | 下一集五站输入与最终 canonical episode | 只允许最新连续 N→N+1；跳集、断档、stale、孤儿和超过计划上限均阻断 | ✅ season 1 内 mock 工程闭环，计划上限 100 集；多季模型未完成 |
+| 7. 创作层交付与洞察 | fresh/Approve episode 或完整季 | 单集导出 JSON/MD/CSV/Comfy；生成严格 master/snapshot 季包；汇总受控 Insights | 单集四导出、季包/快照、成本/时长/钩子洞察 | 导出只从 canonical episode 重建；master 要计划内全部集连续完整 fresh；snapshot 至少一集完整 fresh | ✅ 已实现；Comfy 只是 workflow 文件，真 ComfyUI 未验证 |
+
+创作规范的节奏、镜头、AI 友好约束、角色定型与 reviewer 分数阈值继续以 [`short_drama_creation_standard.md`](short_drama_creation_standard.md) 为准。这里记录流程和状态，不复制全部内容规则。
+
+### 11.3 媒体生产 A-J
+
+| 阶段 | 输入 | 主要动作与产物 | 验收门槛 | 当前状态与精确边界 |
+|---|---|---|---|---|
+| A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；零网络 | 🟨 **A1 已实现**；`AssetRef`、override CAS 与 BGM/首尾帧/逐镜媒体/时间线的跨产物 stale 传播待 A2 |
+| B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | ⏳ 只有季角色库和引用图基线；完整 `AssetRef`、版本、选择与 CAS 未实现 |
+| C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | ⏳ 已有全角色图片入口和 fake-provider 恢复证据；真图片当前仅严格 PNG，逐镜候选、first/tail binding、整集覆盖率及可靠 JPEG/WebP decoder 未实现 |
+| D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | ⏳ 当前仅 episode 1 高光视频兼容 job；episode 2+、逐镜候选和整集 coverage 未实现 |
+| E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ⏳ 只有 RenderPlan spoken 投影；TTS、voice、音频 manifest、字幕、BGM/SFX 与 `TimelineManifest` 未实现 |
+| F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | ⏳ **首个本地完整成片里程碑尚未完成**；现有 episode 1 高光视频不能冒充整集 MP4，更广 codec/container 也未实现 |
+| G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | ⏳ 已有图片/视频领域专用恢复和 paid ledger；通用 worker/DAG/capability/pricing 尚未实现，且未来不能替代 paid evidence |
+| H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ⏳ 小说侧实体/摘要是可复用基础；短剧 event graph、`source_event_ids` 和可失效 cache 未实现；不阻塞阶段 F |
+| I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
+| J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清 provider/model/account fingerprint、提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F。当前为 `mock-functional` + fake-provider `local-e2e`、`provider_validated=false` |
+
+### 11.4 依赖顺序与完成口径
+
+创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。
+
+媒体段按以下依赖推进：
+
+1. `A → B → C → D`；E 依赖 A，可与 C-D 的实现部分并行。
+2. F 同时依赖 C、D、E，是第一个可以称为“本地完整 MP4 生产链”的节点。
+3. G 只在 C-F 已出现稳定重复模式后抽象，避免过早用通用队列大改现有安全恢复边界。
+4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
+5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
+
+截至 iter 106，可以准确表述为：**创作五站、连续多集、创作层交付、安全恢复底座与 RenderPlan A1 已闭环**。不能表述为“短剧完整成片生产链已完成”；阶段 F 尚未完成，B-I 的目标仍待实施，完整 J 还依赖 B-F，现有三个真实入口也仍待分别授权校准。
+
+### 11.5 规划外边界
+
+当前 A-J 路线图以“本地完整 MP4、字幕、可编辑导出、生产工作台、归档和 provider 校准”为终点，不包含抖音、快手、视频号等平台的自动发布 adapter，也没有账号、审核、发布回执或失败恢复状态设计。现阶段成片只能人工发布；若要自动发布，应另立产品规划，不能把它写成 A-J 已排期能力。

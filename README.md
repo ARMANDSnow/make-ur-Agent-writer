@@ -139,9 +139,11 @@ docs/iterations/           逐轮审计记录
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 107**（2026-07-15，收官）。短剧 `episode_NN.json` 与 RenderPlan v1 保持不变；季级 `CharacterAssetCatalog` 将角色语义 ID 映射到不可变版本和显式 selected/revision，单集 `EpisodeAssetManifest` 只冻结 fresh RenderPlan 的 active selected `AssetRef`。未选候选和非活跃角色不误伤旧集，active selection/artifact 或 RenderPlan 变化精确 stale。Canonical 结论为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`；未运行真实文本、生图或视频。
+最近一次更新：**iter 107**（2026-07-15，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准；短剧的完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。本轮完成角色不可变资产版本、显式 selected CAS 与单集 active `AssetRef` 冻结；总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
 
-图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
+图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
+
+### 小说续写 SOP
 
 | 阶段 | 当前能力 | 状态 | 关键迭代 |
 |---|---|---|---|
@@ -154,8 +156,32 @@ docs/iterations/           逐轮审计记录
 | 6. 写作 | 多上下文 writer、lint/rewrite、partial draft | ✅ | 009-013, 022-023, 039 |
 | 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
-| 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | ⚠️ | 工程已通；10-20 章真模型 capstone 待授权 |
-| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集冻结阵容与 8 人边界、strict RenderPlan/五态 stale 边界、角色不可变资产版本与 selected CAS、单集 AssetRef manifest、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt、submitted 纯轮询恢复、集中付费状态与 crash/restart 矩阵、fake-provider local-E2E | ⚠️ | local-E2E 与角色 AssetRef 工程闭环；视觉 override、场景/道具/线索资产、Timeline/声音及真多模态待后续阶段（088-107） |
+| 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | 🟨 | 工程已通；10-20 章真模型 capstone 待授权 |
+
+### 短剧完整生产 SOP
+
+短剧分成两段：前半段把创作结果冻结为 `episode_NN.json`，后半段只从它派生渲染、资产、时间线和成片。媒体结果不得反写创作事实；任务 DAG 也不得替代独立的付费 ledger、receipt 与恢复证据。详细输入、产物和验收门槛见 [`docs/product/short_drama_module.md`](docs/product/short_drama_module.md#11-完整生产-sop实时状态)。
+
+| 阶段 | 动作与主要产物 | 状态 | 已实现边界 / 待完成项 |
+|---|---|---|---|
+| 0. 运行与 workspace | 建立隔离的 drama workspace；mock/offline、路径、预算与授权守门 | ✅ | 默认零真实请求；真文本、图片、语音、视频授权互不继承 |
+| 1. 核心设定 | 站①生成赛道、主线与人物核心设定，用户可编辑 | ✅ | 五站 job 的 `drama-plan` |
+| 2. 钩子选择 | 站②生成钩子候选，选择并锁定本集钩子 | ✅ | 五站 job 的 `drama-hooks` |
+| 3. 叙事与分镜 | 站③生成叙事和镜头 grid，支持编辑、排序和局部重生 | ✅ | 镜头结构/字段有本地硬校验，时长等软规则显式告警；当前 canonical/mock 证据以 60 秒为主，30/90/120 秒待专项验证 |
+| 4. 角色与季角色库 | 站④生成角色卡、合并季角色库并登记本集 appearances（最多 8 人） | ✅ | 五站 job 的 `drama-characters`；角色不可变资产版本与 selected reference 由阶段 B 的独立目录承接 |
+| 5. 评审与组装 | 站⑤五维评审，revision 后仅从 Approve 血统组装 canonical episode，并将本集角色 IDs 冻结进 meta | ✅ | `episode_NN.json` 是创作事实真源；解析失败/血统不一致 fail-closed |
+| 6. 连续多集与创作交付 | 只从最新连续、完整、fresh 前集创建 N+1；导出 JSON/MD/CSV/Comfy、严格季包/快照与 Insights | ✅ | 当前仅 season 1、计划上限 100 集；多季模型未闭环；Comfy 仅为 workflow 导出 |
+| A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、五态检查 | 🟨 | **A1 已完成**；A2 的角色 `AssetRef` 冻结已完成，通用 override CAS 与跨产物 stale 传播待完成 |
+| B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | 角色不可变版本、selected CAS 与单集 active AssetRef 已完成；场景/道具/线索/ArtDirection 待实现 |
+| C. 逐镜图片 | 每镜图片候选、首帧/可选尾帧、引用冻结、比较选择与覆盖率 | ⏳ | 已有角色图入口和本地 fake-provider 证据；真图片当前仅严格 PNG，逐镜候选、首尾帧及可靠 JPEG/WebP decoder 未实现 |
+| D. 逐镜视频 | 每镜 I2V/R2V submit→poll→download、候选选择与跨镜连续性 | ⏳ | 现有仅 episode 1 高光视频兼容入口；episode 2+ 与整集逐镜 coverage 未实现 |
+| E. 声音与唯一时间线 | 角色 voice、逐句 TTS、旁白、字幕、BGM/SFX 与 `TimelineManifest` | ⏳ | RenderPlan 已有 spoken 投影；音频生成、实际时长校验和唯一时间线未实现 |
+| F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | ⏳ | 这是首个“本地完整成片”里程碑；当前尚未打通，更广 codec/container 支持也未实现 |
+| G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | ⏳ | 已有领域专用恢复/付费 ledger；尚未做通用调度，且不得用通用状态替代付费证据 |
+| H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ⏳ | 小说实体/摘要可作基础；短剧事件图与 `source_event_ids` 未实现，不阻塞阶段 F |
+| I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ⏳ | 已有剧集页、Insights 和季包；尚无统一生产工作台及含媒体/证据的可移植归档 |
+| J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F，当前 `provider_validated=false` |
+| 现有规划之外：平台发布 | 将成片上传到抖音、快手、视频号等平台 | ⏳ | A-J 没有发布 adapter、账号审核或回执状态设计；现阶段只能人工发布，后续需另行规划 |
 
 ## 文档导航
 
@@ -166,7 +192,7 @@ docs/iterations/           逐轮审计记录
 | 每轮计划、验收、审查 | [`docs/iterations/README.md`](docs/iterations/README.md) |
 | 上手操作 | [`docs/product/GETTING_STARTED.md`](docs/product/GETTING_STARTED.md) |
 | Aeloon 集成 | [`docs/AELOON_INTEGRATION.md`](docs/AELOON_INTEGRATION.md) |
-| 短剧产品协议 | [`docs/product/short_drama_module.md`](docs/product/short_drama_module.md) |
+| 短剧完整 SOP 与产品协议 | [`docs/product/short_drama_module.md`](docs/product/short_drama_module.md#11-完整生产-sop实时状态) |
 
 ## 声明
 

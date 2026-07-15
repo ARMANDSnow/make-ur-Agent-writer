@@ -241,12 +241,13 @@ bash scripts/verify.sh
 | 需要回答的问题 | 读取位置 |
 |---|---|
 | 现在能做什么、缺什么 | 本文件 |
-| 9 阶段节点是否打通 | 根 [`README.md`](../README.md#流水线-sop实时状态) |
+| 小说 9 阶段与短剧生产节点是否打通 | 根 [`README.md`](../README.md#流水线-sop实时状态) |
 | 某轮具体改了什么、怎么验 | [`iterations/README.md`](iterations/README.md) -> 对应 iteration |
 | 为什么形成当前架构 | [`PROJECT_HISTORY.md`](PROJECT_HISTORY.md) |
 | Aeloon 集成细节 | [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) |
 | 用户操作 | [`product/GETTING_STARTED.md`](product/GETTING_STARTED.md) |
 | 产品边界 | [`product/PRODUCT_SPEC.md`](product/PRODUCT_SPEC.md) |
+| 短剧端到端 SOP 与实时完成度 | [`product/short_drama_module.md`](product/short_drama_module.md#11-完整生产-sop实时状态) |
 
 ## Maintenance Contract
 
