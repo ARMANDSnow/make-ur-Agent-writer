@@ -39,6 +39,7 @@
 - `src/drama_asset_versions.py` 新增 season catalog 与 episode manifest store，复用现有 duplicate-key/finite/depth JSON、nofollow/nonblock/regular-file、workspace lock、source/target CAS、parent-dirfd 临时文件和 atomic replace。manifest 持久化先构建有界 probe，再从其规范化结果执行 artifact 复验与 precommit，避免在拒绝超限输入前无界复制调用方 mapping。
 - 新增 18 个 iter110 测试，并纳入 iter105-109、ArtDirection、RenderPlan、SceneAsset、短剧导出、season export 与 episode-1 video 的 161 个聚焦回归。覆盖显式空值、内容寻址、版本链/环、artifact path ownership、双 CAS/ABA、完整 `0..16` 绑定、精确 stale、invalid 保留、特殊文件、超限/deep/non-finite JSON、source/target race、异常脱敏与 socket 零网络。
 - correctness 只读审查无 P0/P1，P2 为演进后重复 root add 的幂等语义；已修复并补回归。security/boundary 审查无 P0/P1，P2 为超限 mapping 在边界检查前可能被复制、特殊文件与竞态矩阵覆盖不足；已改为有界 probe 并补测试。schema/freshness 审查发现 1 个 P1（`assets`/`asset_refs` 默认空会掩盖漏字段）与 1 个 P2（环、同路径异 metadata、invalid/special-file/race 等代表性覆盖不足）；已将两字段改为必填并补齐相应测试。修复后无未处理 P0/P1/P2，范围未扩大。
+- `docs/product/short_drama_module.md` 属于 harness 的 implementation scope，不能作为 accepted commit 之后的 closure drift；因此先在 `7fd98f9` 同步产品 SOP，再把完整收官状态固化为 `8f8d659` 并以该 HEAD 作为最终验收实体。验收后只回填本条证据和 handoff，不再修改实现或产品协议。
 
 ## Acceptance Result
 
@@ -48,7 +49,7 @@
 - **A110-04：通过。** manifest 只冻结实际使用 selected refs并确定性派生 episode used-by；全空绑定合法。未选候选/未使用资产不 stale，已使用 selection/version/artifact、RenderPlan/ArtDirection 与显式 mapping 变化精确 stale；原 mapping 吸收 selection 变化不增加 `binding_revision`，显式 CAS replace 恢复 fresh，未反写任何上游创作或既有消费端。
 - **A110-05：通过。** catalog 三态、manifest 五态与 invalid 保留已覆盖；bounded duplicate-key/finite/depth JSON、nofollow/nonblock/regular-file、workspace lock、source/target CAS、parent-dirfd atomic replace 拒绝 symlink/FIFO/目录/超限及 precommit race。公共错误有界脱敏，socket 哨兵证明 iter110 路径零网络。
 - **A110-06：通过。** 新增 18 个 iter110 测试；受影响链 161 个聚焦测试通过，覆盖 iter105-109、RenderPlan、角色/ArtDirection/SceneAsset、导出、season export 与 episode-1 video。correctness、security/boundary、schema/freshness 三个只读视角的 1 个 P1、3 个 P2 已全部修复并回归，最终无未处理 P0/P1/P2。
-- **最终全量验收：通过。** implementation commit `4bd4c44cafabf8a13379368985e0fb412a3f355e` / tree `f23c67fd978d24e9766a93917d34eeaed8cfca22` 上 canonical `bash scripts/verify.sh`：**2215 tests OK**，15 steps，144 秒，run `c4b319b9e24c4516b6864e3f8cf957cd`，`tracked_scope_clean=true`，mock pipeline、local fake-provider E2E 与 preflight（0 FATAL / 0 WARN）通过。首次受限沙箱尝试仅因禁止 loopback bind 和注入 `xcrun_db` 临时项失败；未改代码后获授权在沙箱外执行同一命令通过，环境错误不计为代码 finding。
+- **最终全量验收：通过。** accepted HEAD `8f8d6592ecb2640092ebad658c84d8b3258bcdce` / tree `37d101ec39020d9906e164d3da39209bcb7e6907`（核心实现 commit `4bd4c44`）上 canonical `bash scripts/verify.sh`：**2215 tests OK**，15 steps，141 秒，run `f57770902c544b49a5a1c20876f042af`，`tracked_scope_clean=true`，mock pipeline、local fake-provider E2E 与 preflight（0 FATAL / 0 WARN）通过。首次受限沙箱尝试仅因禁止 loopback bind 和注入 `xcrun_db` 临时项失败；产品 SOP 纳入 implementation scope 后，最终完整 HEAD 在沙箱外重验通过，环境/收官分类错误不计为代码 finding。
 - **验收等级：`mock-functional`。** local fake-provider 子步骤为 `local-e2e`，`provider_validated=false`；未运行真文本、真生图、真视频或真 ComfyUI。已知残余边界只有本轮明确排除的通用 visual override、Web/跨集 used-by、ArtDirection 多 scope 与后续 C-J 媒体链，以及普通 SHA-256 不提供离线改写认证、非合作本机写者不受 workspace flock 完全约束。
 
 ## 文件变更汇总

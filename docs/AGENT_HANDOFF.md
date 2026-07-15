@@ -9,7 +9,7 @@
 | 更新时间 | iter 110，2026-07-15 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
 | Canonical 基线 | **2215 tests OK** |
-| Accepted implementation commit | `7fd98f94c09a86045fad8c6290c59ebf6aed2ecf` |
+| Accepted implementation commit | `8f8d6592ecb2640092ebad658c84d8b3258bcdce` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
 | 当前开发轮次 | 无；短剧 A2/B 的 PropOrClueAsset 逐镜冻结已闭环，不代表通用 visual override、Web/跨集 used-by 或阶段 B 整体完成 |
@@ -30,7 +30,7 @@
 - `episode_NN.json` 继续是创作事实真源，RenderPlan v1 shape 与 creative fingerprint 未变；iter110 新增独立 season PropOrClueAsset catalog 与 episode prop/clue manifest，不修改 DramaEpisode、Storyboard、角色/场景 manifest、既有导出/视频/Web/provider 消费路径。
 - PropOrClueAsset 使用 kind 绑定的稳定 `pNNN|lNNN`、内容寻址 `pcv_<24hex>`、append-only candidate 与 revision/current-ID 双 CAS；catalog `assets` 和逐镜 `asset_refs` 必须显式给出，空值以 `[]` 表达。新候选不自动 selected，artifact 只允许 `data/prop_clue_refs/<asset_id>/`，幂等 add/append/select 也会重验 regular-file/size/hash。
 - prop/clue manifest 只接受 fresh RenderPlan、fresh catalog 和完整显式 `shot_id -> 0..16 ordered asset_ids`；只冻结当集实际使用的 selected refs并派生 episode used-by。未选候选/未使用资产不 stale，已使用 selected/artifact、RenderPlan/ArtDirection 或显式映射变化精确 stale，CAS 重建恢复 fresh。SHA 仅作完整性/内容寻址，不承诺认证离线整份重写。
-- canonical **2215 tests OK**（项目 `.venv`）；authoritative `verify.sh` evidence 在 implementation commit `4bd4c44cafabf8a13379368985e0fb412a3f355e` 上 exit 0，15 steps / 144 秒，run `c4b319b9e24c4516b6864e3f8cf957cd`；schema v2 绑定 tree `f23c67fd978d24e9766a93917d34eeaed8cfca22`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。受限沙箱首跑仅因 loopback/xcrun 临时文件限制失败，同一离线命令未改代码在沙箱外通过。未运行真文本、真生图或真视频。
+- canonical **2215 tests OK**（项目 `.venv`）；authoritative `verify.sh` evidence 在 accepted HEAD `8f8d6592ecb2640092ebad658c84d8b3258bcdce`（核心实现 commit `4bd4c44`）上 exit 0，15 steps / 141 秒，run `f57770902c544b49a5a1c20876f042af`；schema v2 绑定 tree `37d101ec39020d9906e164d3da39209bcb7e6907`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。早先受限沙箱尝试仅因 loopback/xcrun 限制失败；产品 SOP 被 harness 归入 implementation scope 后，最终完整 HEAD 在沙箱外重验通过。未运行真文本、真生图或真视频。
 - mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`：2 次图片生成、2 asset upload/poll、1 video create、2 poll、1 download、2 跨进程 callback，成功后 resume 零网络；五站授权闭包 5/5。
 - 标准验收不再接受 named workspace；所有 pipeline 步骤只在带 marker 的系统临时 synthetic workspace 运行，并在 Python 启动前物理短路 dotenv。普通未跟踪 `docs/**` 报告不阻断，代码/测试/workflow 漂移 fail-closed。
 - 五站文本遍历全部 durable 状态和 input/model/endpoint/account 单项漂移；图片六阶段核对 provider total/delta 与 receipt/canonical/projection hash；视频六阶段核对 create/poll/download，create-response-loss fresh restart 保持总 create=1。状态字符串集中为共享 `frozenset`，无 schema migration 或 paid-ledger 大重构。
@@ -259,4 +259,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 110 在不修改创作真源、Storyboard、RenderPlan v1 shape、角色/场景资产或现有媒体消费端的前提下，建立“season PropOrClueAsset immutable catalog → selected 双 CAS → 显式稳定 shot→0..16 refs → episode manifest/used-by → 精确 stale/rebuild”的纯本地闭环。代码 implementation commit `4bd4c44` 上 2215 项 canonical、local fake-provider E2E 与 0 WARN/FATAL preflight 全绿；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。SHA-256 只作完整性/内容寻址，不作为离线改写认证。
+iter 110 在不修改创作真源、Storyboard、RenderPlan v1 shape、角色/场景资产或现有媒体消费端的前提下，建立“season PropOrClueAsset immutable catalog → selected 双 CAS → 显式稳定 shot→0..16 refs → episode manifest/used-by → 精确 stale/rebuild”的纯本地闭环。核心代码 commit `4bd4c44`、accepted HEAD `8f8d659` 上 2215 项 canonical、local fake-provider E2E 与 0 WARN/FATAL preflight 全绿；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。SHA-256 只作完整性/内容寻址，不作为离线改写认证。
