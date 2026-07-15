@@ -7,6 +7,7 @@ import unittest
 
 from src import character_designer, drama_reviewer, drama_store, storyboard_builder
 from src.drama_schemas import DramaEpisode, DramaEpisodeMeta, episode_paths, character_paths
+from src.utils import read_json, write_json
 from tests._drama_base import DramaTestBase
 
 
@@ -69,6 +70,61 @@ class DramaStoreTests(DramaTestBase):
         detail = drama_store.episode_detail("store")
         self.assertEqual(detail["episode"]["episode_no"], 1)
         self.assertFalse(detail["stale"])
+
+    def test_fresh_render_snapshot_binds_episode_hash_and_cast(self) -> None:
+        self._workspace("render_snapshot")
+        assembled = drama_store.assemble_episode("render_snapshot")
+        snapshot = drama_store.load_fresh_episode_for_render("render_snapshot")
+        self.assertEqual(snapshot.source_episode_sha256, assembled["meta"]["episode_sha256"])
+        self.assertEqual(
+            list(snapshot.frozen_character_ids),
+            assembled["meta"]["character_fingerprint_ids"],
+        )
+        self.assertEqual(
+            [row["id"] for row in snapshot.character_projection["characters"]],
+            assembled["meta"]["character_fingerprint_ids"],
+        )
+
+        ep = episode_paths("render_snapshot")
+        episode = json.loads(ep.episode_path.read_text(encoding="utf-8"))
+        episode["title"] = "tampered"
+        ep.episode_path.write_text(json.dumps(episode, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            drama_store.load_fresh_episode_for_render("render_snapshot")
+
+    def test_fresh_render_snapshot_accepts_only_provable_legacy_v1_cast(self) -> None:
+        name = "render_snapshot_v1"
+        self._workspace(name)
+        drama_store.assemble_episode(name)
+        ep = episode_paths(name)
+        sheet_path = character_paths(name).sheet_path
+        review = read_json(ep.review_path)
+        review["input_fingerprint"] = ""
+        write_json(ep.review_path, review)
+        meta = read_json(ep.meta_path)
+        meta["input_fingerprint_version"] = 1
+        meta["character_fingerprint_ids"] = []
+        meta["input_fingerprint"] = drama_store.input_fingerprint(
+            setup=read_json(ep.setup_path),
+            storyboard=read_json(ep.storyboard_path),
+            characters=read_json(sheet_path),
+            review=review,
+            episode_no=1,
+            version=1,
+        )
+        write_json(ep.meta_path, meta)
+        self.assertFalse(drama_store.is_episode_stale(name))
+
+        snapshot = drama_store.load_fresh_episode_for_render(name)
+        self.assertEqual(snapshot.creative_revision_version, 1)
+        self.assertEqual(
+            list(snapshot.frozen_character_ids),
+            [
+                row["id"]
+                for row in read_json(sheet_path)["characters"]
+                if 1 in row.get("appearances", []) or not row.get("appearances")
+            ],
+        )
 
 
 if __name__ == "__main__":

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from . import paths
 
@@ -695,3 +696,222 @@ class DramaEpisode(BaseModel):
     @classmethod
     def _episode_no_is_strict(cls, value: Any) -> int:
         return _strict_schema_episode_no(value)
+
+
+_SHA256_PATTERN = r"^[0-9a-f]{64}$"
+_SHOT_ID_PATTERN = r"^shot_[0-9a-f]{24}$"
+_SEGMENT_ID_PATTERN = r"^segment_[0-9a-f]{24}$"
+
+
+def _canonical_sha256(data: Any) -> str:
+    payload = json.dumps(
+        data,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class ArtDirectionRef(BaseModel):
+    """Optional immutable art-direction selection supplied by a later stage."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    art_direction_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    version_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,79}$")
+    fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+
+AudioPolicy = Literal[
+    "silent",
+    "narration_only",
+    "dialogue_only",
+    "mixed",
+]
+
+
+class NarrationSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["narration"] = "narration"
+    segment_id: str = Field(pattern=_SEGMENT_ID_PATTERN)
+    sequence: int = Field(ge=1, le=200)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    text: str = Field(min_length=1, max_length=220)
+
+
+class DialogueSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["dialogue"] = "dialogue"
+    segment_id: str = Field(pattern=_SEGMENT_ID_PATTERN)
+    sequence: int = Field(ge=1, le=200)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    text: str = Field(min_length=1, max_length=120)
+    speaker_character_id: Literal[None] = None
+
+
+SpokenSegment = Annotated[
+    Union[NarrationSegment, DialogueSegment],
+    Field(discriminator="kind"),
+]
+
+
+class RenderShot(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_shot_no: int = Field(ge=1, le=100)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    beat: str = Field(default="", max_length=80)
+    shot_size: ShotSize
+    camera_movement: CameraMovement
+    target_duration_seconds: int = Field(ge=1, le=30)
+    visual_action: str = Field(min_length=1, max_length=500)
+    image_prompt: str = Field(default="", max_length=800)
+    transition_hint: str = Field(default="", max_length=120)
+    spoken_segment_ids: List[str] = Field(default_factory=list, max_length=2)
+    audio_policy: AudioPolicy
+    is_highlight: bool = False
+    source_event_ids: List[str] = Field(default_factory=list, max_length=64)
+
+    @field_validator("spoken_segment_ids", mode="before")
+    @classmethod
+    def _spoken_ids_are_unique(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("spoken_segment_ids must be a list")
+        if any(
+            not isinstance(item, str)
+            or re.fullmatch(_SEGMENT_ID_PATTERN, item) is None
+            for item in value
+        ):
+            raise ValueError("spoken_segment_ids contain an invalid id")
+        if len(value) != len(set(value)):
+            raise ValueError("spoken_segment_ids must be unique")
+        return value
+
+    @field_validator("source_event_ids", mode="before")
+    @classmethod
+    def _shot_event_ids_are_unique(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("source_event_ids must be a list")
+        if any(not isinstance(item, str) or not item or len(item) > 80 for item in value):
+            raise ValueError("source_event_ids contain an invalid id")
+        if len(value) != len(set(value)):
+            raise ValueError("source_event_ids must be unique")
+        return value
+
+
+class RenderPlan(BaseModel):
+    """Canonical creative-to-render contract for one approved episode."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["render-plan-v1"] = "render-plan-v1"
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    title: str = Field(default="", max_length=120)
+    target_duration_seconds: int = Field(ge=1, le=300)
+    creative_revision: str = Field(pattern=_SHA256_PATTERN)
+    creative_revision_version: int = Field(ge=1, le=2)
+    creative_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_episode_sha256: str = Field(pattern=_SHA256_PATTERN)
+    frozen_character_ids: List[str] = Field(min_length=1, max_length=8)
+    character_projection_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    art_direction_ref: Optional[ArtDirectionRef] = None
+    shots: List[RenderShot] = Field(min_length=1, max_length=100)
+    spoken_segments: List[SpokenSegment] = Field(default_factory=list, max_length=200)
+    source_event_ids: List[str] = Field(default_factory=list, max_length=256)
+    plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _render_episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("creative_revision_version", mode="before")
+    @classmethod
+    def _render_revision_version_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool) or value not in (1, 2):
+            raise ValueError("creative_revision_version must be 1 or 2")
+        return value
+
+    @field_validator("frozen_character_ids", mode="before")
+    @classmethod
+    def _render_character_ids_are_strict(cls, value: Any) -> List[str]:
+        if not isinstance(value, list) or not value:
+            raise ValueError("frozen_character_ids must be a non-empty list")
+        if any(
+            not isinstance(item, str) or re.fullmatch(r"c\d{3}", item) is None
+            for item in value
+        ):
+            raise ValueError("frozen_character_ids contain an invalid id")
+        if len(value) != len(set(value)):
+            raise ValueError("frozen_character_ids must be unique")
+        return value
+
+    @field_validator("source_event_ids", mode="before")
+    @classmethod
+    def _plan_event_ids_are_unique(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("source_event_ids must be a list")
+        if any(not isinstance(item, str) or not item or len(item) > 80 for item in value):
+            raise ValueError("source_event_ids contain an invalid id")
+        if len(value) != len(set(value)):
+            raise ValueError("source_event_ids must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def _render_plan_is_internally_consistent(self) -> "RenderPlan":
+        shot_ids = [shot.shot_id for shot in self.shots]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("render shot ids must be unique")
+        source_numbers = [shot.source_shot_no for shot in self.shots]
+        if len(source_numbers) != len(set(source_numbers)):
+            raise ValueError("source shot numbers must be unique")
+
+        segment_ids = [segment.segment_id for segment in self.spoken_segments]
+        if len(segment_ids) != len(set(segment_ids)):
+            raise ValueError("spoken segment ids must be unique")
+        if [segment.sequence for segment in self.spoken_segments] != list(
+            range(1, len(self.spoken_segments) + 1)
+        ):
+            raise ValueError("spoken segment sequence must be contiguous from 1")
+
+        segment_by_id = {segment.segment_id: segment for segment in self.spoken_segments}
+        referenced: List[str] = []
+        for segment in self.spoken_segments:
+            if segment.shot_id not in set(shot_ids):
+                raise ValueError("spoken segment refers to an unknown shot")
+            if isinstance(segment, DialogueSegment) and segment.speaker_character_id is not None:
+                raise ValueError("render plan v1 dialogue speaker must remain unresolved")
+
+        for shot in self.shots:
+            kinds: List[str] = []
+            for segment_id in shot.spoken_segment_ids:
+                segment = segment_by_id.get(segment_id)
+                if segment is None or segment.shot_id != shot.shot_id:
+                    raise ValueError("render shot refers to an invalid spoken segment")
+                kinds.append(segment.kind)
+                referenced.append(segment_id)
+            if len(kinds) != len(set(kinds)):
+                raise ValueError("a render shot may contain at most one segment per kind")
+            kind_set = set(kinds)
+            valid_policy = {
+                frozenset(): {"silent"},
+                frozenset({"narration"}): {"narration_only"},
+                frozenset({"dialogue"}): {"dialogue_only"},
+                frozenset({"narration", "dialogue"}): {"mixed"},
+            }
+            if shot.audio_policy not in valid_policy[frozenset(kind_set)]:
+                raise ValueError("audio policy does not match spoken segments")
+        if referenced != segment_ids:
+            raise ValueError("spoken segments must be referenced once in plan order")
+
+        payload = self.model_dump(exclude={"plan_fingerprint"})
+        if _canonical_sha256(payload) != self.plan_fingerprint:
+            raise ValueError("render plan fingerprint does not match its payload")
+        return self

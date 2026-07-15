@@ -6,13 +6,16 @@ import csv
 import html
 import io
 import json
+import math
 import os
 import re
+import stat
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import paths as workspace_paths
 from .comfy_workflow_exporter import build_workflow
 from .drama_schemas import (
     CharacterSheet,
@@ -43,6 +46,7 @@ _STORYBOARD_FIELDS = (
 )
 
 INPUT_FINGERPRINT_VERSION = 2
+MAX_RENDER_SOURCE_BYTES = 16_000_000
 
 
 @dataclass(frozen=True)
@@ -53,6 +57,372 @@ class EpisodeExport:
     path: Path
     body: bytes
     stale: bool
+
+
+@dataclass(frozen=True)
+class FreshEpisodeSnapshot:
+    """Validated creative inputs that may safely cross into the render layer."""
+
+    workspace: str
+    episode: Dict[str, Any]
+    meta: Dict[str, Any]
+    characters: Dict[str, Any]
+    character_projection: Dict[str, Any]
+    creative_revision: str
+    creative_revision_version: int
+    source_episode_sha256: str
+    frozen_character_ids: tuple[str, ...]
+    character_projection_fingerprint: str
+    snapshot_fingerprint: str
+
+
+def _validate_render_workspace_root(root: Path) -> None:
+    try:
+        info = root.lstat()
+    except FileNotFoundError:
+        raise
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise ValueError("render workspace root must be a real directory")
+    try:
+        root.resolve(strict=True).relative_to(
+            workspace_paths.WORKSPACE_DIR.resolve(strict=True)
+        )
+    except (OSError, ValueError) as exc:
+        raise ValueError("render workspace root escapes the workspace directory") from exc
+
+
+def _read_strict_workspace_bytes(
+    root: Path,
+    path: Path,
+    *,
+    maximum: int,
+) -> bytes:
+    """Read one bounded regular file through no-follow directory descriptors."""
+
+    if not isinstance(maximum, int) or isinstance(maximum, bool) or maximum <= 0:
+        raise ValueError("strict workspace read maximum is invalid")
+    _validate_render_workspace_root(root)
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("render source path escapes the workspace") from exc
+    if not relative.parts or any(part in ("", ".", "..") for part in relative.parts):
+        raise ValueError("render source path is invalid")
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise ValueError("strict no-follow workspace reads are unavailable")
+
+    directory_fd: int | None = None
+    file_fd: int | None = None
+    try:
+        directory_fd = os.open(str(root), os.O_RDONLY | directory | nofollow)
+        for part in relative.parts[:-1]:
+            next_fd = os.open(
+                part,
+                os.O_RDONLY | directory | nofollow,
+                dir_fd=directory_fd,
+            )
+            os.close(directory_fd)
+            directory_fd = next_fd
+        file_fd = os.open(
+            relative.parts[-1],
+            os.O_RDONLY | nofollow,
+            dir_fd=directory_fd,
+        )
+        info = os.fstat(file_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size <= 0 or info.st_size > maximum:
+            raise ValueError("render source file shape or size is invalid")
+        chunks: list[bytes] = []
+        remaining = maximum + 1
+        while remaining > 0:
+            chunk = os.read(file_fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) != info.st_size or len(payload) > maximum:
+            raise ValueError("render source file changed or exceeded its size limit")
+        return payload
+    except FileNotFoundError:
+        raise
+    except ValueError:
+        raise
+    except OSError as exc:
+        raise ValueError("render source file cannot be read safely") from exc
+    finally:
+        if file_fd is not None:
+            try:
+                os.close(file_fd)
+            except OSError:
+                pass
+        if directory_fd is not None:
+            try:
+                os.close(directory_fd)
+            except OSError:
+                pass
+
+
+def _reject_render_json_duplicates(pairs: list[tuple[str, Any]]) -> Dict[str, Any]:
+    output: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in output:
+            raise ValueError("render source JSON contains duplicate members")
+        output[key] = value
+    return output
+
+
+def _reject_render_json_constant(_value: str) -> None:
+    raise ValueError("render source JSON contains a non-finite number")
+
+
+def _parse_render_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("render source JSON contains a non-finite number")
+    return number
+
+
+def _validate_render_json_finite(value: Any) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("render source JSON contains a non-finite number")
+    if isinstance(value, dict):
+        for nested in value.values():
+            _validate_render_json_finite(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            _validate_render_json_finite(nested)
+
+
+def _read_strict_workspace_json(root: Path, path: Path, *, maximum: int) -> Any:
+    try:
+        text = _read_strict_workspace_bytes(root, path, maximum=maximum).decode("utf-8")
+        data = json.loads(
+            text,
+            object_pairs_hook=_reject_render_json_duplicates,
+            parse_constant=_reject_render_json_constant,
+            parse_float=_parse_render_json_float,
+        )
+        _validate_render_json_finite(data)
+        return data
+    except FileNotFoundError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+        raise ValueError("render source JSON is invalid") from exc
+
+
+def _fresh_snapshot_fingerprint(
+    *,
+    episode: Dict[str, Any],
+    meta: Dict[str, Any],
+    character_projection: Dict[str, Any],
+    frozen_character_ids: tuple[str, ...],
+) -> str:
+    return sha256_data(
+        {
+            "snapshot_version": 1,
+            "episode": episode,
+            "approval_lineage": {
+                "creative_revision": meta["input_fingerprint"],
+                "creative_revision_version": meta["input_fingerprint_version"],
+                "source_episode_sha256": meta["episode_sha256"],
+                "verdict": meta["verdict"],
+                "frozen_character_ids": list(frozen_character_ids),
+            },
+            "character_projection": character_projection,
+        }
+    )
+
+
+def load_fresh_episode_for_render(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> FreshEpisodeSnapshot:
+    """Return one approved, hash-bound episode and its frozen cast.
+
+    This is intentionally stricter than the historical detail reader: render
+    facts must never be derived from a stale assembled episode or an unproven
+    season-wide character fallback.
+    """
+
+    number = normalize_episode_no(episode_no)
+    root = workspace_paths.workspace_root(workspace)
+    ep = episode_paths(workspace, episode_no=number)
+    if ep.root != root:
+        raise ValueError("drama episode path does not match the workspace")
+
+    raw_episode = _read_strict_workspace_json(
+        root,
+        ep.episode_path,
+        maximum=MAX_RENDER_SOURCE_BYTES,
+    )
+    raw_meta = _read_strict_workspace_json(
+        root,
+        ep.meta_path,
+        maximum=MAX_RENDER_SOURCE_BYTES,
+    )
+    raw_characters = _read_strict_workspace_json(
+        root,
+        character_paths(workspace).sheet_path,
+        maximum=MAX_RENDER_SOURCE_BYTES,
+    )
+    raw_setup = _read_strict_workspace_json(
+        root,
+        ep.setup_path,
+        maximum=MAX_RENDER_SOURCE_BYTES,
+    )
+    raw_storyboard = _read_strict_workspace_json(
+        root,
+        ep.storyboard_path,
+        maximum=MAX_RENDER_SOURCE_BYTES,
+    )
+    raw_review = _read_strict_workspace_json(
+        root,
+        ep.review_path,
+        maximum=MAX_RENDER_SOURCE_BYTES,
+    )
+    missing = []
+    if not isinstance(raw_episode, dict):
+        missing.append("episode")
+    if not isinstance(raw_meta, dict):
+        missing.append("episode meta")
+    if not isinstance(raw_characters, dict):
+        missing.append("character sheet")
+    if not isinstance(raw_setup, dict):
+        missing.append("episode setup")
+    if not isinstance(raw_storyboard, dict):
+        missing.append("episode storyboard")
+    if not isinstance(raw_review, dict):
+        missing.append("episode review")
+    if missing:
+        raise FileNotFoundError("fresh render source is missing: " + ", ".join(missing))
+
+    try:
+        episode = model_to_dict(DramaEpisode.model_validate(raw_episode, strict=True))
+        meta = model_to_dict(DramaEpisodeMeta.model_validate(raw_meta, strict=True))
+        characters = model_to_dict(CharacterSheet.model_validate(raw_characters, strict=True))
+        storyboard_model = DramaStoryboard.model_validate(raw_storyboard, strict=True)
+        review_model = DramaReview.model_validate(raw_review, strict=True)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("fresh render source schema is invalid") from exc
+
+    # Pre-v2 setup files did not always persist these two identity fields.
+    # Their approved meta fingerprint still binds the exact file, while the
+    # episode/storyboard/review carry the requested identity explicitly.
+    setup_episode_no = raw_setup.get("episode_no", number)
+    setup_season_no = raw_setup.get("season_no", 1)
+    setup_duration = raw_setup.get("target_duration_seconds")
+    setup_core = raw_setup.get("core_setup")
+    setup_hook = raw_setup.get("hook")
+    if (
+        type(setup_episode_no) is not int
+        or type(setup_season_no) is not int
+        or type(setup_duration) is not int
+        or not isinstance(raw_setup.get("track"), str)
+        or not isinstance(setup_core, dict)
+        or not setup_core.get("protagonist")
+        or not isinstance(setup_hook, dict)
+        or not setup_hook.get("type")
+    ):
+        raise ValueError("fresh render source schema is invalid")
+
+    if (
+        episode["episode_no"] != number
+        or meta["episode_no"] != number
+        or setup_episode_no != number
+        or storyboard_model.episode_no != number
+        or review_model.episode_no != number
+        or episode["season_no"] != meta["season_no"]
+        or setup_season_no != episode["season_no"]
+        or storyboard_model.season_no != episode["season_no"]
+        or review_model.season_no != episode["season_no"]
+        or characters["season_no"] != episode["season_no"]
+        or storyboard_model.track != raw_setup["track"]
+        or storyboard_model.target_duration_seconds != setup_duration
+    ):
+        raise ValueError("fresh render source identity does not match")
+    if meta["verdict"] != "Approve" or review_model.verdict != "Approve":
+        raise ValueError("fresh render source must have an Approve verdict")
+    if (
+        not meta["episode_sha256"]
+        or meta["episode_sha256"] != sha256_data(episode)
+    ):
+        raise ValueError("assembled episode content does not match its metadata")
+    frozen_ids = (
+        list(meta["character_fingerprint_ids"])
+        if meta["input_fingerprint_version"] == INPUT_FINGERPRINT_VERSION
+        else None
+    )
+    try:
+        projection = episode_character_projection(
+            characters,
+            episode_no=number,
+            character_ids=frozen_ids,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("assembled episode character projection is invalid") from exc
+    projection_ids = tuple(
+        str(row["id"])
+        for row in projection.get("characters", [])
+        if isinstance(row, dict)
+    )
+    if not 1 <= len(projection_ids) <= 8 or len(projection_ids) != len(set(projection_ids)):
+        raise ValueError("assembled episode character projection is invalid")
+    if frozen_ids is not None:
+        if len(frozen_ids) != len(projection_ids) or set(frozen_ids) != set(projection_ids):
+            raise ValueError("assembled episode character projection is invalid")
+        bound_ids = tuple(frozen_ids)
+    else:
+        bound_ids = projection_ids
+
+    expected_review_fingerprint = review_input_fingerprint(
+        setup=raw_setup,
+        storyboard=raw_storyboard,
+        characters=raw_characters,
+        episode_no=number,
+        character_ids=list(bound_ids),
+    )
+    if review_model.input_fingerprint and (
+        review_model.input_fingerprint != expected_review_fingerprint
+    ):
+        raise ValueError("assembled episode review lineage is stale")
+    if frozen_ids is not None and not review_model.input_fingerprint:
+        raise ValueError("assembled episode review lineage is stale")
+    expected_input_fingerprint = input_fingerprint(
+        setup=raw_setup,
+        storyboard=raw_storyboard,
+        characters=raw_characters,
+        review=raw_review,
+        episode_no=number,
+        version=int(meta["input_fingerprint_version"]),
+        character_ids=(list(bound_ids) if frozen_ids is not None else None),
+    )
+    if (
+        not meta["input_fingerprint"]
+        or meta["input_fingerprint"] != expected_input_fingerprint
+    ):
+        raise ValueError("assembled episode is stale; review and assemble it again")
+
+    return FreshEpisodeSnapshot(
+        workspace=workspace,
+        episode=episode,
+        meta=meta,
+        characters=characters,
+        character_projection=projection,
+        creative_revision=str(meta["input_fingerprint"]),
+        creative_revision_version=int(meta["input_fingerprint_version"]),
+        source_episode_sha256=str(meta["episode_sha256"]),
+        frozen_character_ids=bound_ids,
+        character_projection_fingerprint=sha256_data(projection),
+        snapshot_fingerprint=_fresh_snapshot_fingerprint(
+            episode=episode,
+            meta=meta,
+            character_projection=projection,
+            frozen_character_ids=bound_ids,
+        ),
+    )
 
 
 def assemble_episode(
