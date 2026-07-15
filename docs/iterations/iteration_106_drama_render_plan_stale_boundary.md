@@ -24,18 +24,36 @@
 
 ## Implementation Notes
 
-待实施时回填确定性 ID/fingerprint 的最终 canonical payload、兼容选择、聚焦测试结果、审查 findings 与范围变化。外部项目只按阶段路线图固定 commit 做 clean-room 架构参考，不复制代码、prompt、测试或独特结构。
+- `FreshEpisodeSnapshot` 从 assembled episode/meta/季角色表与 setup/storyboard/review 的严格、有界、nofollow JSON 读取中建立；重新校验 Approve、episode SHA、review/input fingerprint、episode/season 身份和 1–8 人单集投影。v2 逐字保留 meta 冻结 ID 顺序；v1 只在旧 review 血统和 cast 可证明时放行。
+- `shot_id` 是 `episode_no + (beat/visual/voiceover/dialogue) 语义核 + occurrence` 的 96-bit 截断 hash，不使用 `shot_no`。完全相同的重复镜头可确定投影；语义相同但执行字段不同时，由于没有创作层持久 UUID 无法证明重排对应关系，v1 显式 fail-closed。
+- `RenderPlan` 与 envelope 不写 wall-clock 时间，只记录固定 `render-plan-v1` generator；creative fingerprint 覆盖 render-relevant episode、批准血统与冻结角色投影 hash，不写 review 内文、绝对路径、provider 数据或签名 URL。snapshot 在 builder 内再校验 episode/projection/verdict/fingerprint，防止 frozen dataclass 内层 dict 被原地篡改。
+- render store 在 workspace 写锁中完成 inspect、source 快照、build、source/target CAS 与落盘；最终写入通过 `O_NOFOLLOW` 目录 fd 链、同目录临时文件和 atomic replace 完成。这不宣称断电级 fsync 安全。
+- 聚焦回归最终为 **63 tests OK**（新 RenderPlan/store、`drama_store`、iter105 角色投影和既有 video freshness）；语法、harness 和 `git diff --check` 通过。correctness、security/boundary、schema/freshness 三视角完成多轮只读审查，重复镜头、snapshot 血统、并发 CAS、symlink/finite JSON、v1 兼容与状态分类 findings 全部修复，最终无未处理 P0–P2。
+- 首次调用 canonical 入口在任何测试/pipeline 启动前，因用户已有 stage-plan README 链接与当轮索引尚处于 tracked dirty 而 fail-closed。随后将该 stage plan/README 原样纳入 `5e30ed8` 验收基线；正式全量 steps 只执行一次并通过。两份体检报告全程未读取、未 stage、未 commit。
 
 ## Acceptance Result
 
-待 `iter-finish` 按 A106-01 至 A106-06 逐项回填。
+- **A106-01 通过**：RenderPlan/RenderShot/ArtDirectionRef/有序 spoken union 均为 strict `extra=forbid` v1 schema，严格校验版本、ID、连续 sequence、唯一引用、数值、四态 AudioPolicy 与 plan fingerprint；Dialogue speaker 只能为 `null`。现有 DramaEpisode 没有新增字段。
+- **A106-02 通过**：fresh loader 对所有创作血统做 strict/bounded/nofollow 读取，要求 Approve、episode SHA、review/meta fingerprint、episode/season 身份与 1–8 人冻结投影一致。v1 episode 1 可证明 cast 兼容通过；v1 episode 2 歧义在写盘前 `blocked_source`。
+- **A106-03 通过**：episode 1/2 相同 fresh 输入重复 build 的 plan/envelope/文件字节一致，fresh 幂等返回不重写；输入快照与磁盘源不被修改。creative revision 直接采用 meta input fingerprint，产物不含时钟、review 内文、provider 数据或绝对路径。
+- **A106-04 通过**：distinct 镜头重排保持 ID，时长/运镜/绘图 prompt 只改 source/plan fingerprint，画面核心/旁白/对白变化产生新 ID；完全重复镜头确定且唯一，无持久 UUID 时的歧义重复显式阻断。spoken 严格按每镜“旁白→对白”全局排序，legacy 回投逐字一致且不猜 speaker。
+- **A106-05 通过**：missing/fresh/stale/invalid/blocked_source、显式 stale 替换、unknown schema、bad JSON/hash、finite/deep JSON、symlink/非普通文件、workspace/episode 路径和 source/target 并发变化均有回归。invalid/stale 不会被默认覆盖，只有严格 `replace_stale=True` 才能替换合法 stale plan。
+- **A106-06 通过**：socket 哨兵证明 create/inspect 零网络；聚焦 **63 tests OK**，三视角最终无未处理 P0–P2。正式 canonical `bash scripts/verify.sh` 在 accepted baseline `5e30ed82faa9e1e0d81d743aa87dd5238de9cca2` / tree `ad3f2d1462039e73e92b81af5473828d57b38e08` 上 exit 0：**2132 tests OK**、15 steps、140 秒、`tracked_scope_clean=true`、preflight **0 FATAL / 0 WARN**。
+- Canonical evidence 为 schema v2 `mock-functional` / `canonical-mock-offline`；独立短剧组件仍为 `local-e2e`、`provider_validated=false`。未运行真实文本、生图、视频、FFmpeg 或 ComfyUI，不代表真供应商校准。
+- 未修风险：本轮范围内无未处理 P0–P2；AssetRef/资产版本、override CAS、TimelineManifest、BGM/首尾帧 stale 传播和真媒体生成继续保留给 A2/B/E 及后续阶段。
 
 ## 文件变更汇总
 
 | 文件 | 改动 |
 |---|---|
 | `docs/iterations/iteration_106_drama_render_plan_stale_boundary.md` | 建立 iter106 计划、验收 ID 与审计骨架 |
-| `docs/iterations/README.md` | 追加 canonical iteration 索引 |
+| `docs/iterations/README.md`、`docs/iterations/stage_plan_drama_full_production_pipeline.md` | 追加 canonical iteration 索引并保留/纳入 A–J 阶段计划 |
+| `src/drama_schemas.py` | 新增 strict RenderPlan、RenderShot、spoken segment、AudioPolicy 与 ArtDirectionRef v1 契约 |
+| `src/drama_store.py` | 新增 strict fresh render snapshot、批准血统、episode SHA 与单集角色投影守门 |
+| `src/drama_render_plan.py` | 新增确定性 RenderPlan builder、镜头/segment ID 与 legacy spoken 回投 |
+| `src/drama_render_store.py` | 新增五态 inspection、幂等 create/load、stale 替换、写锁/CAS 与 nofollow 原子落盘 |
+| `tests/test_drama_render_plan.py`、`tests/test_drama_render_store.py`、`tests/test_drama_store.py` | 新增 schema、freshness、ID、状态机、legacy、路径/并发和零网络回归 |
+| `README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md` | 就地同步实时 SOP、当前接力点与阶段级工程记忆 |
 
 ## 不在本轮范围
 

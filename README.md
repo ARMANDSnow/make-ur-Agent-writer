@@ -132,12 +132,13 @@ docs/iterations/           逐轮审计记录
 | 本地 Fake Provider 整链 | 103 | ✅ 图片/视频/callback/五站授权 loopback `local-e2e` 已纳入 canonical；不代表真供应商验证 |
 | Crash/Restart 与状态矩阵 | 104 | ✅ 五站文本、图片六阶段、视频六阶段经生产入口与跨进程 `os._exit` 验证；付费状态已集中，未做 ledger 大重构 |
 | 短剧单集角色投影一致性 | 105 | ✅ reviewer、组装、单集/季包 Comfy 与 episode 1 视频统一冻结阵容；歧义旧数据 fail-closed |
+| 短剧渲染计划与创作陈旧性边界 | 106 | ✅ fresh assembled episode 可确定投影为 strict RenderPlan；五态 stale 检查、幂等落盘与歧义镜头 fail-closed |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 105**（2026-07-14，收官）。短剧 reviewer、review/input fingerprint、组装计数、单集/季包 Comfy 与 episode 1 视频统一使用最多 8 人的单集冻结阵容；季角色库继续保持全季语义，后续集歧义旧数据不再回退整季角色。Canonical 继续必跑本地 fake-provider 短剧整链；组件证据仍为 `local-e2e`，总验收仍为 `mock-functional`，不等于真供应商校准。未运行真实文本、生图或视频。
+最近一次更新：**iter 106**（2026-07-15，收官）。短剧 `episode_NN.json` 保持创作事实真源，fresh/Approve 快照可确定投影为 strict `RenderPlan`；渲染层统一区分 `needs_render_plan/fresh/stale/invalid/blocked_source`，不可证明的重复镜头与旧阵容均 fail-closed。Canonical 继续必跑本地 fake-provider 短剧整链；组件证据仍为 `local-e2e`，总验收为 `mock-functional`，不等于真供应商校准。未运行真实文本、生图或视频。
 
 图例：✅ 已打通　⚠️ 工程已通但真实校准未完成　❌ 未打通
 
@@ -153,7 +154,7 @@ docs/iterations/           逐轮审计记录
 | 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
 | 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | ⚠️ | 工程已通；10-20 章真模型 capstone 待授权 |
-| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集冻结阵容与 8 人边界、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt、submitted 纯轮询恢复、集中付费状态与 crash/restart 矩阵、fake-provider local-E2E | ⚠️ | local-E2E 与真跑前安全闭环；真多模态待分段授权与人工质量判断（088-105） |
+| Web/短剧 | 可编辑工作台；短剧五站、显式文本 revision、Approve 血统组装、连续多集、季角色库/单集冻结阵容与 8 人边界、strict RenderPlan/五态 stale 边界、单集/季级导出、旧 Web workspace 真生图接管、跨进程素材 callback、媒体 crash receipt、submitted 纯轮询恢复、集中付费状态与 crash/restart 矩阵、fake-provider local-E2E | ⚠️ | local-E2E 与真跑前安全闭环；AssetRef/时间线及真多模态待后续阶段（088-106） |
 
 ## 文档导航
 

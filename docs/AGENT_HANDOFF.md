@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 105，2026-07-14 收官 |
+| 更新时间 | iter 106，2026-07-15 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2108 tests OK** |
-| Accepted implementation commit | `c5a084e478d7117f6ebb96eae7092c291af5555b` |
+| Canonical 基线 | **2132 tests OK** |
+| Accepted implementation commit | `5e30ed82faa9e1e0d81d743aa87dd5238de9cca2` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`；必跑独立 `local-e2e` 短剧组件证据；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；D-03 单集角色投影已闭环 |
+| 当前开发轮次 | 无；短剧阶段 A1 RenderPlan/freshness 边界已闭环 |
 
 ## Capability Map
 
@@ -22,19 +22,19 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链，跨进程状态矩阵覆盖文本、图片、视频付费恢复 | 真文本/全角色真生图/单次真视频需分别授权实测；真实质量仍需人工判定；当前真图片入口仅支持严格 PNG，episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、fresh episode 到 strict RenderPlan 的确定投影与五态 stale 检查、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链，跨进程状态矩阵覆盖文本、图片、视频付费恢复 | AssetRef/资产版本、override CAS、TimelineManifest 与声音/首尾帧 stale 传播未做；真文本/全角色真生图/单次真视频需分别授权实测；当前真图片入口仅支持严格 PNG，episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- 季角色库可跨集增长；reviewer、review/input fingerprint、组装计数、单集/季包 Comfy 与 episode 1 视频共享最多 8 人的冻结单集投影。非法 frozen IDs 与无法证明阵容的后续集旧数据 fail-closed，合法 skip/reuse 只继承上一集 fresh v2 meta。
+- `episode_NN.json` 继续是创作事实真源；RenderPlan 只从 Approve/fresh、episode SHA 与冻结角色投影一致的 snapshot 确定生成。镜头 ID 不依赖 `shot_no`，spoken segment 按旁白后对白全局排序，speaker 保持 `null`；无持久创作 UUID 时的歧义重复镜头 fail-closed。
+- render store 固定五态 `needs_render_plan/fresh/stale/invalid/blocked_source`；fresh 幂等不重写，stale 仅经显式替换，invalid 不自动覆盖。source/target 使用 nofollow 有界读取、workspace 写锁、CAS 和目录-fd atomic replace；不外推为断电级 fsync 保证。
 - submitted 真视频在 Web 与 multimodal runner 中均使用 durable 原预算/超时/估价纯 poll，mode 漂移时禁止 mock 覆盖；旧本地视频不再遮蔽上游 submitted 状态。
-- 导出仅使用 schema 投影和真实打包的参考图 member，参考图绑定角色目录并做严格 PNG 结构校验；callback capability 不进入 access log。
-- canonical **2108 tests OK**（项目 `.venv`）；`verify.sh` 在 accepted implementation commit `c5a084e478d7117f6ebb96eae7092c291af5555b` 上 exit 0，15 steps / 141 秒；evidence schema v2 绑定 tree `266115a24b67d212fcd3ac093d944bc089254ab7`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。未运行真文本、真生图或真视频。
+- canonical **2132 tests OK**（项目 `.venv`）；`verify.sh` 在 accepted implementation baseline `5e30ed82faa9e1e0d81d743aa87dd5238de9cca2` 上 exit 0，15 steps / 140 秒；evidence schema v2 绑定 tree `ad3f2d1462039e73e92b81af5473828d57b38e08`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。未运行真文本、真生图或真视频。
 - mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`：2 次图片生成、2 asset upload/poll、1 video create、2 poll、1 download、2 跨进程 callback，成功后 resume 零网络；五站授权闭包 5/5。
 - 标准验收不再接受 named workspace；所有 pipeline 步骤只在带 marker 的系统临时 synthetic workspace 运行，并在 Python 启动前物理短路 dotenv。普通未跟踪 `docs/**` 报告不阻断，代码/测试/workflow 漂移 fail-closed。
 - 五站文本遍历全部 durable 状态和 input/model/endpoint/account 单项漂移；图片六阶段核对 provider total/delta 与 receipt/canonical/projection hash；视频六阶段核对 create/poll/download，create-response-loss fresh restart 保持总 create=1。状态字符串集中为共享 `frozenset`，无 schema migration 或 paid-ledger 大重构。
-- correctness/behavior、security/boundary、multi-episode/export 3 个只读 subagent 复核；去重后 2 个 P1、2 个 P2、1 个 P3 均已闭合，最终无未处理 P0-P3。保留既有项目锁外 JSON 父目录竞态等项目级 P2，见 Open Gaps。
+- correctness、security/boundary、schema/freshness 3 个只读 subagent 多轮复核；重复镜头 ID、snapshot 血统/verdict、并发 CAS、root/leaf symlink、finite JSON、五态分类与 legacy v1 兼容 findings 均已闭合，最终无未处理 P0-P2。
 
 ## Retained Working Memory
 
@@ -93,6 +93,7 @@
 ### 8. 短剧创作与媒体链
 
 - 短剧主流程已覆盖五站文本、站③分镜 grid、站④角色/角色库、review/assembly、连续多集、四格式单集导出、Insights，以及严格整季母包/阶段快照；episode 1 视频边界保持不变。
+- 创作层不因渲染需求改写 `DramaEpisode` 或 episode SHA；`episode_NN.json` 为创作真源，`episode_NN.render_plan.json` 是可丢弃/可重建的渲染派生物。若未来要求语义编辑后仍保持永久镜头 UUID，必须单独修改创作 schema 和保存链，不能在渲染层猜测对应。
 - 下一集只能从最新连续、完整且 fresh 的前集初始化；`episode_count` 是计划真源。季包只从 assembled JSON 和安全投影重建，不能把 setup、候选钩子、评审原文、prompt、日志或 provider state 混入交付物。
 - 真实媒体下载必须同时校验 scheme、redirect、DNS 与 peer IP、MIME/magic、size、hash、容器和原子落盘。仅检查扩展名或响应头不构成安全边界。
 - Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 补齐校准证据；Iter 097-101 继续收口旧旁路、provider 身份、文本 revision/review 血统、五站/媒体 crash window、跨进程 callback、旧 workspace 接管、多集角色和 submitted 纯轮询恢复。
@@ -210,7 +211,7 @@
 1. **短剧真实多模态校准**：分别验证五站真文本、全角色真生图、单次真视频的费用、耗时和质量。每段都需单独授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体**：真 ComfyUI workflow、episode 2+ 视频、可靠且资源有界的 JPEG/WebP decoder、更广视频 codec/容器支持及真实多模态质量仍未验证；当前真图片入口仅支持严格 PNG，MP4 有界解析仍需真实供应商样本校准。
+4. **短剧媒体**：AssetRef/资产版本、视觉 override CAS、TimelineManifest、BGM/首尾帧 stale 传播、真 ComfyUI workflow、episode 2+ 视频、可靠有界 JPEG/WebP decoder、更广 codec/容器及真实多模态质量仍未验证；当前真图片入口仅支持严格 PNG。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 7. **严格本地对手 TOCTOU**：项目锁可阻止本项目 Web/runner 并发，state/PNG 已使用 nofollow dirfd；若威胁模型包含本机其他进程在 lstat 后竞态交换 JSON 父目录，仍需将全部 canonical JSON 读写统一迁到 dirfd API。
@@ -218,7 +219,7 @@
 ## Next Candidates
 
 - 低风险工程轮：可靠有界 JPEG/WebP decoder、provider 幂等键/资产上传恢复调研、100 集只读扫描优化或已登记 P2 技债。
-- 低风险短剧维护轮：可继续收敛已登记 P2，或优化 100 集只读扫描；单集角色投影 D-03 已在 iter 105 闭环。
+- 低风险短剧阶段轮：沿阶段计划进入 A2 AssetRef/不可变资产版本与 selected reference，或先建 B 的场景/道具/线索库；不要在 RenderPlan v1 内提前混入 Timeline/BGM/provider 状态。
 - 需授权验证轮：五站真文本 smoke；全角色真生图 smoke；episode 1 单次真视频 smoke；小说 capstone。不要把这些授权合并推定。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -256,4 +257,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 105 以 `episode_character_projection` 统一 reviewer、review/input fingerprint、组装计数、standalone/season Comfy 与 episode 1 视频的单集冻结阵容；显式 ID 必须非空、唯一、存在且最多 8 人，future-only 与后续集歧义旧数据在 provider/导出前 fail-closed。季角色库、角色生成/编辑和整季角色文件仍保持全季语义，合法 skip/reuse 仅从上一集 fresh v2 meta 继承阵容。`c5a084e` 上 2108 项 canonical 与 0 WARN/FATAL preflight 全绿，local-E2E 仍 `provider_validated=false`，未运行真 provider。
+iter 106 建立 fresh `episode_NN.json` 到 strict `RenderPlan` 的第一个渲染层闭环：Approve/episode SHA/input fingerprint/冻结阵容统一进入 snapshot，镜头与 spoken segment 确定投影，store 以五态、幂等写入、显式 stale 替换、nofollow/CAS 与目录-fd atomic replace 守住陈旧性边界。无创作层持久 UUID 时的歧义重复镜头 fail-closed，未修改 DramaEpisode/Web/CLI/视频/provider。`5e30ed8` 上 2132 项 canonical 与 0 WARN/FATAL preflight 全绿，local-E2E 仍 `provider_validated=false`，未运行真 provider。
