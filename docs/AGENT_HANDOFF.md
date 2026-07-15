@@ -6,7 +6,7 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 108，2026-07-15 收官 |
+| 更新时间 | iter 107，2026-07-15；iter108 evidence 重绑定中 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
 | Canonical 基线 | **2175 tests OK** |
 | Accepted implementation commit | `7f0e5f4047cc99bf6cc2ededdd662922a0fb1d4e` |
