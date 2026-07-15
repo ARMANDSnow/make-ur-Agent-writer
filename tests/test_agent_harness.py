@@ -31,6 +31,9 @@ class AgentHarnessCheckerTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
         (self.root / "docs/iterations").mkdir(parents=True)
+        (self.root / "docs/reference.md").write_text(
+            "tracked implementation reference\n", encoding="utf-8"
+        )
         (self.root / ".agents/skills/iter-start").mkdir(parents=True)
         (self.root / ".agents/skills/iter-finish").mkdir(parents=True)
         (self.root / "AGENTS.md").write_text(
@@ -65,12 +68,14 @@ class AgentHarnessCheckerTests(unittest.TestCase):
         )
         (self.root / ".agents/skills/iter-start/SKILL.md").write_text(
             "---\nname: iter-start\ndescription: test\n---\n"
-            "8 段 docs/iterations/README.md 不要 commit 不要 push\n",
+            "8 段 docs/iterations/README.md 不要 commit 不要 push "
+            "Implementation Context Review Context Knowledge Promotion\n",
             encoding="utf-8",
         )
         (self.root / ".agents/skills/iter-finish/SKILL.md").write_text(
             "---\nname: iter-finish\ndescription: test\n---\n"
-            "聚焦 只读 bash scripts/verify.sh 就地更新 不得新增逐轮\n",
+            "聚焦 只读 bash scripts/verify.sh 就地更新 不得新增逐轮 "
+            "Review Context Knowledge Promotion\n",
             encoding="utf-8",
         )
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
@@ -105,10 +110,535 @@ class AgentHarnessCheckerTests(unittest.TestCase):
             check=False,
         )
 
+    def configure_legacy_111(self) -> None:
+        readme = self.root / "README.md"
+        readme.write_text(
+            readme.read_text(encoding="utf-8").replace("iter 101", "iter 111"),
+            encoding="utf-8",
+        )
+        handoff = self.root / "docs/AGENT_HANDOFF.md"
+        handoff.write_text(
+            handoff.read_text(encoding="utf-8").replace("iter 101", "iter 111"),
+            encoding="utf-8",
+        )
+        (self.root / "docs/iterations/README.md").write_text(
+            "# Iteration Log\n\n## Index\n\n"
+            "1. [Iteration 111 - Legacy](./iteration_111_legacy.md)\n",
+            encoding="utf-8",
+        )
+        legacy = "# Iteration 111 - Legacy\n\n" + "\n\n".join(
+            f"## {name}\n"
+            + (
+                "- **A111-01**: promise"
+                if name == "Acceptance"
+                else "- **A111-01**: passed"
+                if name == "Acceptance Result"
+                else "complete"
+            )
+            for name in SECTIONS
+        )
+        (self.root / "docs/iterations/iteration_111_legacy.md").write_text(
+            legacy + "\n", encoding="utf-8"
+        )
+
+    def configure_structured_112(
+        self,
+        *,
+        active: bool = True,
+        implementation_context: str | None = None,
+        review_context: str | None = None,
+        knowledge_promotion: str | None = None,
+    ) -> Path:
+        self.configure_legacy_111()
+        accepted = "111" if active else "112"
+        readme = self.root / "README.md"
+        readme.write_text(
+            readme.read_text(encoding="utf-8").replace("iter 111", f"iter {accepted}"),
+            encoding="utf-8",
+        )
+        handoff = self.root / "docs/AGENT_HANDOFF.md"
+        handoff.write_text(
+            handoff.read_text(encoding="utf-8").replace(
+                "iter 111", f"iter {accepted}"
+            ),
+            encoding="utf-8",
+        )
+        index = self.root / "docs/iterations/README.md"
+        index.write_text(
+            index.read_text(encoding="utf-8")
+            + "2. [Iteration 112 - Structured](./iteration_112_structured.md)\n",
+            encoding="utf-8",
+        )
+        implementation_context = implementation_context or (
+            "### Implementation Context\n"
+            "- `must_read`: `docs/reference.md`\n"
+            "- `expected_changes`: `scripts/future_checker.py`\n"
+            "- `do_not_touch`: `.env`; private inputs"
+        )
+        review_context = review_context or (
+            "### Review Context\n"
+            "- `correctness_behavior`: check legacy and structured behavior\n"
+            "- `security_boundary`: check paths fail closed\n"
+            "- `extra_risk_view`: `none`"
+        )
+        if knowledge_promotion is None:
+            if active:
+                knowledge_promotion = (
+                    "### Knowledge Promotion\n"
+                    "- `decision`: `<pending>`\n"
+                    "- `destination`: `<pending>`\n"
+                    "- `reason`: `<pending>`"
+                )
+            else:
+                knowledge_promotion = (
+                    "### Knowledge Promotion\n"
+                    "- `decision`: `none`\n"
+                    "- `destination`: `none`\n"
+                    "- `reason`: existing workflow authority already covers the lesson"
+                )
+        bodies = {
+            "Context": "structured fixture",
+            "Plan": implementation_context,
+            "Acceptance": review_context + "\n\n- **A112-01**: structured promise",
+            "Implementation Notes": "complete",
+            "Acceptance Result": (
+                ("pending" if active else "- **A112-01**: passed")
+                + "\n\n"
+                + knowledge_promotion
+            ),
+            "文件变更汇总": "complete",
+            "不在本轮范围": "complete",
+            "Notes": "complete",
+        }
+        text = "# Iteration 112 - Structured\n\n" + "\n\n".join(
+            f"## {name}\n{bodies[name]}" for name in SECTIONS
+        )
+        path = self.root / "docs/iterations/iteration_112_structured.md"
+        path.write_text(text + "\n", encoding="utf-8")
+        return path
+
+    def append_active_113(self) -> Path:
+        index = self.root / "docs/iterations/README.md"
+        index.write_text(
+            index.read_text(encoding="utf-8")
+            + "3. [Iteration 113 - Active](./iteration_113_active.md)\n",
+            encoding="utf-8",
+        )
+        bodies = {
+            "Context": "next active fixture",
+            "Plan": (
+                "### Implementation Context\n"
+                "- `must_read`: `docs/reference.md`\n"
+                "- `expected_changes`: `scripts/future_113.py`\n"
+                "- `do_not_touch`: private inputs"
+            ),
+            "Acceptance": (
+                "### Review Context\n"
+                "- `correctness_behavior`: check accepted predecessor closure\n"
+                "- `security_boundary`: check paths fail closed\n"
+                "- `extra_risk_view`: `none`\n\n"
+                "- **A113-01**: active promise"
+            ),
+            "Implementation Notes": "pending",
+            "Acceptance Result": (
+                "pending\n\n### Knowledge Promotion\n"
+                "- `decision`: `<pending>`\n"
+                "- `destination`: `<pending>`\n"
+                "- `reason`: `<pending>`"
+            ),
+            "文件变更汇总": "pending",
+            "不在本轮范围": "complete",
+            "Notes": "complete",
+        }
+        text = "# Iteration 113 - Active\n\n" + "\n\n".join(
+            f"## {name}\n{bodies[name]}" for name in SECTIONS
+        )
+        path = self.root / "docs/iterations/iteration_113_active.md"
+        path.write_text(text + "\n", encoding="utf-8")
+        return path
+
     def test_valid_fixture_passes_without_rewriting_legacy_iteration(self) -> None:
         result = self.run_checker()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("accepted iter 101", result.stdout)
+
+    def test_iter111_legacy_shape_remains_valid(self) -> None:
+        self.configure_legacy_111()
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("accepted iter 111, active iter none", result.stdout)
+
+    def test_active_iter112_structured_context_passes(self) -> None:
+        self.configure_structured_112()
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("accepted iter 111, active iter 112", result.stdout)
+
+    def test_iter112_requires_unique_blocks_in_the_correct_sections(self) -> None:
+        path = self.configure_structured_112()
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace(
+                "## Plan\n### Implementation Context",
+                "## Plan\n### Wrong Context",
+            )
+            + "\n### Implementation Context\n- `must_read`: `docs/reference.md`\n"
+            "- `expected_changes`: `future.py`\n- `do_not_touch`: private\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Implementation Context must appear exactly once under ## Plan", result.stderr)
+
+    def test_iter112_rejects_missing_duplicate_and_pending_required_fields(self) -> None:
+        cases = {
+            "missing": "### Implementation Context\n"
+            "- `expected_changes`: `future.py`\n- `do_not_touch`: private",
+            "empty": "### Implementation Context\n"
+            "- `must_read`: \n"
+            "- `expected_changes`: `future.py`\n- `do_not_touch`: private",
+            "duplicate": "### Implementation Context\n"
+            "- `must_read`: `docs/reference.md`\n- `must_read`: `README.md`\n"
+            "- `expected_changes`: `future.py`\n- `do_not_touch`: private",
+            "pending": "### Implementation Context\n"
+            "- `must_read`: `<pending>`\n"
+            "- `expected_changes`: `future.py`\n- `do_not_touch`: private",
+        }
+        for name, block in cases.items():
+            with self.subTest(name=name):
+                self.configure_structured_112(implementation_context=block)
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Implementation Context field 'must_read'", result.stderr)
+
+    def test_iter112_ignores_fields_spoofed_inside_code_fences(self) -> None:
+        block = (
+            "### Implementation Context\n"
+            "```markdown\n- `must_read`: `docs/reference.md`\n```\n"
+            "- `expected_changes`: `future.py`\n- `do_not_touch`: private"
+        )
+        self.configure_structured_112(implementation_context=block)
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Implementation Context field 'must_read'", result.stderr)
+
+    def test_iter112_rejects_duplicate_structured_block(self) -> None:
+        path = self.configure_structured_112()
+        text = path.read_text(encoding="utf-8")
+        duplicate = (
+            "\n\n### Implementation Context\n"
+            "- `must_read`: `docs/reference.md`\n"
+            "- `expected_changes`: `future.py`\n"
+            "- `do_not_touch`: private"
+        )
+        path.write_text(
+            text.replace("## Acceptance\n", duplicate + "\n\n## Acceptance\n"),
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("found 2 total", result.stderr)
+
+    def test_fenced_h2_example_does_not_replace_real_parent_section(self) -> None:
+        path = self.configure_structured_112()
+        text = path.read_text(encoding="utf-8")
+        fenced = (
+            "```markdown\n## Plan\n### Implementation Context\n"
+            "- `must_read`: `/tmp/private`\n```\n\n"
+        )
+        path.write_text(text.replace("## Plan\n", fenced + "## Plan\n"), encoding="utf-8")
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_fenced_h2_cannot_hide_a_duplicate_h3(self) -> None:
+        path = self.configure_structured_112()
+        text = path.read_text(encoding="utf-8")
+        hidden = (
+            "\n```markdown\n## Fake\n```\n"
+            "### Implementation Context\n"
+            "- `must_read`: `docs/reference.md`\n"
+            "- `expected_changes`: `future.py`\n"
+            "- `do_not_touch`: private\n"
+        )
+        path.write_text(text.replace("## Acceptance\n", hidden + "\n## Acceptance\n"), encoding="utf-8")
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("found 2 total", result.stderr)
+
+    def test_non_closing_fence_text_does_not_expose_fake_headings(self) -> None:
+        path = self.configure_structured_112()
+        text = path.read_text(encoding="utf-8")
+        fenced = "```markdown\n## Plan\n```not-a-close\n"
+        path.write_text(text.replace("## Plan\n", fenced + "## Plan\n"), encoding="utf-8")
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exactly the 8 canonical sections", result.stderr)
+
+    def test_backtick_in_fence_info_cannot_create_a_checker_renderer_split(self) -> None:
+        malicious = (
+            "```bad`\n"
+            "### Implementation Context\n"
+            "- `must_read`: `/tmp/private.md`\n"
+            "- `expected_changes`: `future.py`\n"
+            "- `do_not_touch`: private\n"
+            "```\n"
+            "### Implementation Context\n"
+            "- `must_read`: `docs/reference.md`\n"
+            "- `expected_changes`: `future.py`\n"
+            "- `do_not_touch`: private\n"
+            "```"
+        )
+        self.configure_structured_112(implementation_context=malicious)
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must_read path", result.stderr)
+
+    def test_indented_or_closing_marker_h3_cannot_hide_a_duplicate(self) -> None:
+        for heading in (
+            " ### Implementation Context",
+            "### Implementation Context ###",
+        ):
+            with self.subTest(heading=heading):
+                path = self.configure_structured_112()
+                duplicate = (
+                    f"\n{heading}\n"
+                    "- `must_read`: `/tmp/private.md`\n"
+                    "- `expected_changes`: `future.py`\n"
+                    "- `do_not_touch`: private\n"
+                )
+                text = path.read_text(encoding="utf-8")
+                path.write_text(
+                    text.replace("## Acceptance\n", duplicate + "\n## Acceptance\n"),
+                    encoding="utf-8",
+                )
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("found 2 total", result.stderr)
+
+    def test_indented_markdown_field_cannot_hide_a_duplicate(self) -> None:
+        block = (
+            "### Implementation Context\n"
+            " - `must_read`: `.env`\n"
+            "- `must_read`: `docs/reference.md`\n"
+            "- `expected_changes`: `future.py`\n"
+            "- `do_not_touch`: private"
+        )
+        self.configure_structured_112(implementation_context=block)
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("field 'must_read' must appear exactly once", result.stderr)
+
+    def test_iter112_rejects_unsafe_or_missing_must_read_paths(self) -> None:
+        cases = {
+            "absolute": "`/tmp/private.md`",
+            "traversal": "`../private.md`",
+            "dotenv": "`.env`",
+            "private_root": "`data/private.md`",
+            "missing": "`docs/missing.md`",
+        }
+        for name, value in cases.items():
+            with self.subTest(name=name):
+                block = (
+                    "### Implementation Context\n"
+                    f"- `must_read`: {value}\n"
+                    "- `expected_changes`: `scripts/future_checker.py`\n"
+                    "- `do_not_touch`: `.env`; private inputs"
+                )
+                self.configure_structured_112(implementation_context=block)
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Implementation Context must_read path", result.stderr)
+
+    def test_iter112_allows_nonexistent_expected_change_path(self) -> None:
+        self.configure_structured_112()
+        self.assertFalse((self.root / "scripts/future_checker.py").exists())
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_iter112_rejects_unsafe_expected_change_paths(self) -> None:
+        for value in (
+            "`/tmp/future.py`",
+            "`../future.py`",
+            "`outputs/future.py`",
+            "`Data/future.py`",
+            "`C:relative.py`",
+            "`.git/config`",
+        ):
+            with self.subTest(value=value):
+                block = (
+                    "### Implementation Context\n"
+                    "- `must_read`: `docs/reference.md`\n"
+                    f"- `expected_changes`: {value}\n"
+                    "- `do_not_touch`: protected paths"
+                )
+                self.configure_structured_112(implementation_context=block)
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Implementation Context expected_changes path", result.stderr)
+
+    def test_iter112_requires_canonical_path_list_separators(self) -> None:
+        for value in (
+            "`docs/reference.md` `README.md`",
+            "`docs/reference.md`,,,,`README.md`",
+            ",`docs/reference.md`",
+            "`docs/reference.md`,",
+        ):
+            with self.subTest(value=value):
+                block = (
+                    "### Implementation Context\n"
+                    f"- `must_read`: {value}\n"
+                    "- `expected_changes`: `future.py`\n"
+                    "- `do_not_touch`: protected paths"
+                )
+                self.configure_structured_112(implementation_context=block)
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("comma-separated list", result.stderr)
+
+    def test_must_read_requires_a_tracked_regular_file(self) -> None:
+        untracked = self.root / "docs/untracked-context.md"
+        untracked.write_text("user-owned\n", encoding="utf-8")
+        block = (
+            "### Implementation Context\n"
+            "- `must_read`: `docs/untracked-context.md`\n"
+            "- `expected_changes`: `future.py`\n"
+            "- `do_not_touch`: user-owned docs"
+        )
+        self.configure_structured_112(implementation_context=block)
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Git-tracked regular file", result.stderr)
+
+    def test_context_paths_reject_symlinks_and_embedded_nul(self) -> None:
+        (self.root / "data").mkdir()
+        (self.root / "data/private.md").write_text("synthetic private\n", encoding="utf-8")
+        alias = self.root / "docs/private-alias.md"
+        alias.symlink_to("../data/private.md")
+        (self.root / "docs/existing-dir").mkdir()
+        for value in (
+            "`docs/private-alias.md`",
+            "`loop.md`",
+            "`bad\x00path.md`",
+            "`docs/existing-dir`",
+        ):
+            with self.subTest(value=value):
+                if value == "`loop.md`":
+                    loop = self.root / "loop.md"
+                    if not loop.exists() and not loop.is_symlink():
+                        loop.symlink_to("loop.md")
+                block = (
+                    "### Implementation Context\n"
+                    "- `must_read`: `docs/reference.md`\n"
+                    f"- `expected_changes`: {value}\n"
+                    "- `do_not_touch`: protected paths"
+                )
+                self.configure_structured_112(implementation_context=block)
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Implementation Context expected_changes path", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_iter112_requires_both_base_review_views(self) -> None:
+        review = (
+            "### Review Context\n"
+            "- `correctness_behavior`: check behavior\n"
+            "- `extra_risk_view`: `none`"
+        )
+        self.configure_structured_112(review_context=review)
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Review Context field 'security_boundary'", result.stderr)
+
+    def test_accepted_iter112_requires_complete_knowledge_promotion(self) -> None:
+        self.configure_structured_112(
+            active=False,
+            knowledge_promotion=(
+                "### Knowledge Promotion\n"
+                "- `decision`: `<pending>`\n"
+                "- `destination`: `<pending>`\n"
+                "- `reason`: `<pending>`"
+            ),
+        )
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Knowledge Promotion must be either entirely pending", result.stderr)
+
+    def test_accepted_iter112_accepts_none_and_allowed_promotion(self) -> None:
+        self.configure_structured_112(active=False)
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        self.configure_structured_112(
+            active=False,
+            knowledge_promotion=(
+                "### Knowledge Promotion\n"
+                "- `decision`: `promoted`\n"
+                "- `destination`: `AGENTS.md`, `.agents/skills/iter-finish/SKILL.md`\n"
+                "- `reason`: stable workflow rule"
+            ),
+        )
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_accepted_iter112_rejects_invalid_promotion_target(self) -> None:
+        self.configure_structured_112(
+            active=False,
+            knowledge_promotion=(
+                "### Knowledge Promotion\n"
+                "- `decision`: `promoted`\n"
+                "- `destination`: `README.md`\n"
+                "- `reason`: invalid authority"
+            ),
+        )
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not an allowed authority document", result.stderr)
+
+    def test_accepted_iter112_rejects_untracked_product_promotion_target(self) -> None:
+        product = self.root / "docs/product"
+        product.mkdir()
+        (product / "journal.md").write_text("untracked journal\n", encoding="utf-8")
+        self.configure_structured_112(
+            active=False,
+            knowledge_promotion=(
+                "### Knowledge Promotion\n"
+                "- `decision`: `promoted`\n"
+                "- `destination`: `docs/product/journal.md`\n"
+                "- `reason`: must not create a second knowledge store"
+            ),
+        )
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Git-tracked regular file", result.stderr)
+
+    def test_active_next_iteration_does_not_hide_pending_accepted_promotion(self) -> None:
+        self.configure_structured_112(
+            active=False,
+            knowledge_promotion=(
+                "### Knowledge Promotion\n"
+                "- `decision`: `<pending>`\n"
+                "- `destination`: `<pending>`\n"
+                "- `reason`: `<pending>`"
+            ),
+        )
+        self.append_active_113()
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Knowledge Promotion must be either entirely pending", result.stderr)
+
+    def test_active_next_iteration_does_not_hide_accepted_id_drift(self) -> None:
+        path = self.configure_structured_112(active=False)
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "- **A112-01**: passed\n\n### Knowledge Promotion",
+                "closed without ID\n\n### Knowledge Promotion",
+            ),
+            encoding="utf-8",
+        )
+        self.append_active_113()
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("accepted indexed iteration Acceptance and Result ID sets must match", result.stderr)
 
     def test_latest_iteration_missing_section_fails(self) -> None:
         path = self.root / "docs/iterations/iteration_101_current.md"
@@ -334,6 +864,13 @@ class IsolatedCliTests(unittest.TestCase):
 
 
 class VerifyHarnessTests(unittest.TestCase):
+    def assert_only_known_platform_tmp_entries(self, tmpdir: Path) -> None:
+        leftovers = [
+            path for path in tmpdir.iterdir()
+            if path.name != "xcrun_db"
+        ]
+        self.assertEqual(leftovers, [])
+
     def make_fixture(self, root: Path) -> None:
         (root / "scripts").mkdir()
         (root / ".venv/bin").mkdir(parents=True)
@@ -442,7 +979,7 @@ class VerifyHarnessTests(unittest.TestCase):
                     for line in invocations.splitlines()
                 )
             )
-            self.assertEqual(list(tmpdir.iterdir()), [])
+            self.assert_only_known_platform_tmp_entries(tmpdir)
             evidence_path = root / "outputs/harness/acceptance.json"
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
             self.assertEqual(evidence["schema_version"], 2)
@@ -688,7 +1225,7 @@ class VerifyHarnessTests(unittest.TestCase):
             self.assertEqual(evidence["status"], "failed")
             self.assertEqual(evidence["test_count"], 0)
             self.assertEqual(evidence["failed_step"], "unittest")
-            self.assertEqual(list(tmpdir.iterdir()), [])
+            self.assert_only_known_platform_tmp_entries(tmpdir)
 
     def test_missing_project_venv_replaces_stale_pass_with_failed_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

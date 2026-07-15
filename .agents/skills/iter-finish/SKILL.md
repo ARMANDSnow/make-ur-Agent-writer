@@ -33,11 +33,22 @@ git diff --check
 
 ### 2. 多视角只读审查
 
+- 派发前重读当轮 `### Implementation Context` 与 `### Review Context`，按实际 diff 复核 `expected_changes`、`correctness_behavior`、`security_boundary` 和 `extra_risk_view`。上下文是路由提示，不是 Git 硬白名单；合理范围变化写入 `Implementation Notes`，不要重写已批准的 Plan 承诺。
 - 至少安排 correctness/behavior 与 security/boundary 两个独立只读 subagent。
 - Web、runner、多 workspace、真实模型、计费或媒体入口按风险增加视角。
+- correctness/behavior subagent 必须收到 `correctness_behavior`，security/boundary subagent 必须收到 `security_boundary`；`extra_risk_view` 非 `none` 时另行派发对应只读视角。所有视角同时收到实际 diff、必要的 `must_read` 与 `do_not_touch`，不得把整份无界历史上下文塞给 subagent。
 - subagent 明确禁止改文件、跑真模型、读取 `.env` 或触碰 `data/`、`outputs/`、`logs/`、`小说txt/`。
 - 主线程逐条复核 finding，只修复确认成立的问题，并运行覆盖修复面的聚焦回归。
 - 未处理完有效 finding 前不得进入最终全量验收。
+
+findings 稳定且聚焦回归通过后、形成 implementation commit 前，必须完成人工 `### Knowledge Promotion` 判断并写入 active iteration：
+
+- `decision` 只能是 `` `none` `` 或 `` `promoted` ``。
+- `none` 必须配 `` `destination`: `none` `` 和非空 `reason`。
+- `promoted` 的 `destination` 使用逗号分隔的反引号路径，只能指向 Git tracked、非 symlink、已存在的 `AGENTS.md`、两项仓库 workflow skill、`docs/PROJECT_HISTORY.md` 或相关 `docs/product/*.md`，并写非空 `reason`。
+- 若晋升目标不是 docs-only 收官文件，必须在 implementation commit 前实际落地，使唯一 `verify.sh` 覆盖该规则；`PROJECT_HISTORY.md` 可按既有契约在 docs-only 收官提交更新。
+- README 与 handoff 的常规状态同步不属于经验晋升；不得新增 journal、sidecar、task 状态文件或自动写入长期文档。
+- 最终验收后若才发现需修改非 docs-only 权威文件的新经验，顺延到下一轮，不得制造 acceptance 后实现/workflow 漂移。
 
 ### 3. 最终只运行一次标准验收
 
@@ -54,6 +65,8 @@ bash scripts/verify.sh
 失败时按失败范围修复后重验；无法解决则停止，不同步完成态文档。成功后从控制台和 acceptance JSON 提取 canonical 测试数、步骤与结果，回填当轮 `Acceptance Result`。
 
 同时逐项引用 Acceptance ID，并把 evidence 的 `git_head` 记录为 handoff 的 `Accepted implementation commit`。随后只做 README、handoff、history、iteration/index 的 docs-only 收官提交。
+
+最终验收后回填完整 `Acceptance Result` 时，保留 implementation commit 前已经完成的 `Knowledge Promotion` 判断；不得在此时新改非 docs-only 权威文件。
 
 ### 4. 就地更新 README
 
