@@ -20,7 +20,14 @@ from .drama_schemas import (
     CharacterSheet,
     DramaCharacter,
     EpisodeAssetManifest,
+    EpisodePropOrClueAssetManifest,
     EpisodeSceneAssetManifest,
+    PropOrClueArtifact,
+    PropOrClueAsset,
+    PropOrClueAssetCatalog,
+    PropOrClueAssetRef,
+    PropOrClueAssetVersion,
+    PropOrClueSpec,
     RenderPlan,
     SceneAsset,
     SceneAssetArtifact,
@@ -28,6 +35,7 @@ from .drama_schemas import (
     SceneAssetRef,
     SceneAssetVersion,
     SceneSpec,
+    ShotPropOrClueRefs,
     ShotSceneRef,
 )
 from .schemas import model_to_dict
@@ -1035,3 +1043,481 @@ def scene_usage_index(
     except (RecursionError, TypeError, ValueError):
         pass
     _raise_scene_asset_error("usage projection")
+
+
+def _prop_clue_catalog_from_payload(
+    payload: Dict[str, Any],
+) -> PropOrClueAssetCatalog:
+    data = dict(payload)
+    data["catalog_fingerprint"] = _sha256(data)
+    return PropOrClueAssetCatalog(**data)
+
+
+def _build_empty_prop_or_clue_asset_catalog_impl(
+    *,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    return _prop_clue_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": season_no,
+            "assets": [],
+        }
+    )
+
+
+def _build_prop_or_clue_asset_version_impl(
+    *,
+    asset_id: str,
+    spec: PropOrClueSpec | Dict[str, Any],
+    source_kind: str,
+    artifact: PropOrClueArtifact | Dict[str, Any] | None = None,
+    derived_from: str | None = None,
+) -> PropOrClueAssetVersion:
+    """Build one immutable local prop/clue candidate without network access."""
+
+    validated_spec = (
+        spec if isinstance(spec, PropOrClueSpec) else PropOrClueSpec(**spec)
+    )
+    validated_artifact = None
+    if artifact is not None:
+        validated_artifact = (
+            artifact
+            if isinstance(artifact, PropOrClueArtifact)
+            else PropOrClueArtifact(**artifact)
+        )
+    source_payload = {
+        "asset_id": asset_id,
+        "source_kind": source_kind,
+        "spec": model_to_dict(validated_spec),
+        "artifact": (
+            model_to_dict(validated_artifact)
+            if validated_artifact is not None
+            else None
+        ),
+    }
+    payload: Dict[str, Any] = {
+        "asset_id": asset_id,
+        "derived_from": derived_from,
+        "source_kind": source_kind,
+        "source_fingerprint": _sha256(source_payload),
+        "spec": model_to_dict(validated_spec),
+        "artifact": (
+            model_to_dict(validated_artifact)
+            if validated_artifact is not None
+            else None
+        ),
+    }
+    fingerprint = _sha256(payload)
+    return PropOrClueAssetVersion(
+        asset_version_id=f"pcv_{fingerprint[:24]}",
+        version_fingerprint=fingerprint,
+        **payload,
+    )
+
+
+def _add_prop_or_clue_asset_impl(
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> PropOrClueAssetCatalog:
+    """Add a semantic prop/clue whose root candidate starts selected."""
+
+    current = (
+        catalog
+        if isinstance(catalog, PropOrClueAssetCatalog)
+        else PropOrClueAssetCatalog(**catalog)
+    )
+    candidate = (
+        version
+        if isinstance(version, PropOrClueAssetVersion)
+        else PropOrClueAssetVersion(**version)
+    )
+    if expected_catalog_fingerprint != current.catalog_fingerprint:
+        raise ValueError("prop/clue catalog changed; refresh before adding")
+    if candidate.derived_from is not None:
+        raise ValueError("initial prop/clue version cannot derive from another asset")
+    existing = next(
+        (asset for asset in current.assets if asset.asset_id == candidate.asset_id),
+        None,
+    )
+    if existing is not None:
+        if (
+            candidate.derived_from is None
+            and existing.versions[0] == candidate
+        ):
+            return current
+        raise ValueError("prop/clue asset already exists")
+    return _prop_clue_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "assets": [
+                *[model_to_dict(asset) for asset in current.assets],
+                {
+                    "asset_id": candidate.asset_id,
+                    "kind": candidate.spec.kind,
+                    "versions": [model_to_dict(candidate)],
+                    "selected_version_id": candidate.asset_version_id,
+                    "selection_revision": 0,
+                },
+            ],
+        }
+    )
+
+
+def _append_prop_or_clue_asset_version_impl(
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    asset_id: str,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> PropOrClueAssetCatalog:
+    """Append a prop/clue candidate without changing the selected version."""
+
+    current = (
+        catalog
+        if isinstance(catalog, PropOrClueAssetCatalog)
+        else PropOrClueAssetCatalog(**catalog)
+    )
+    candidate = (
+        version
+        if isinstance(version, PropOrClueAssetVersion)
+        else PropOrClueAssetVersion(**version)
+    )
+    if expected_catalog_fingerprint != current.catalog_fingerprint:
+        raise ValueError("prop/clue catalog changed; refresh before append")
+    output: list[PropOrClueAsset] = []
+    found = False
+    for asset in current.assets:
+        if asset.asset_id != asset_id:
+            output.append(asset)
+            continue
+        found = True
+        if candidate.asset_id != asset.asset_id or candidate.spec.kind != asset.kind:
+            raise ValueError("prop/clue version belongs to another asset or kind")
+        by_id = {item.asset_version_id: item for item in asset.versions}
+        existing = by_id.get(candidate.asset_version_id)
+        if existing is not None:
+            if existing != candidate:
+                raise ValueError("content-addressed prop/clue version conflicts")
+            return current
+        if candidate.derived_from is not None and candidate.derived_from not in by_id:
+            raise ValueError("derived prop/clue version does not exist")
+        output.append(
+            PropOrClueAsset(
+                asset_id=asset.asset_id,
+                kind=asset.kind,
+                versions=[*asset.versions, candidate],
+                selected_version_id=asset.selected_version_id,
+                selection_revision=asset.selection_revision,
+            )
+        )
+    if not found:
+        raise ValueError("prop/clue asset does not exist")
+    return _prop_clue_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "assets": [model_to_dict(asset) for asset in output],
+        }
+    )
+
+
+def _select_prop_or_clue_asset_version_impl(
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    asset_id: str,
+    asset_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+) -> PropOrClueAssetCatalog:
+    """Select a prop/clue candidate under revision/current-id double CAS."""
+
+    if not isinstance(expected_selection_revision, int) or isinstance(
+        expected_selection_revision,
+        bool,
+    ):
+        raise ValueError("expected prop/clue selection revision must be strict")
+    current = (
+        catalog
+        if isinstance(catalog, PropOrClueAssetCatalog)
+        else PropOrClueAssetCatalog(**catalog)
+    )
+    output: list[PropOrClueAsset] = []
+    found = False
+    for asset in current.assets:
+        if asset.asset_id != asset_id:
+            output.append(asset)
+            continue
+        found = True
+        if (
+            asset.selection_revision != expected_selection_revision
+            or asset.selected_version_id != expected_selected_version_id
+        ):
+            raise ValueError("prop/clue selection changed; refresh before selecting")
+        if asset_version_id not in {
+            version.asset_version_id for version in asset.versions
+        }:
+            raise ValueError("selected prop/clue version does not exist")
+        if asset_version_id == asset.selected_version_id:
+            return current
+        output.append(
+            PropOrClueAsset(
+                asset_id=asset.asset_id,
+                kind=asset.kind,
+                versions=asset.versions,
+                selected_version_id=asset_version_id,
+                selection_revision=asset.selection_revision + 1,
+            )
+        )
+    if not found:
+        raise ValueError("prop/clue asset does not exist")
+    return _prop_clue_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "assets": [model_to_dict(asset) for asset in output],
+        }
+    )
+
+
+def _selected_prop_or_clue_asset_ref_impl(
+    asset: PropOrClueAsset | Dict[str, Any],
+) -> PropOrClueAssetRef:
+    current = (
+        asset if isinstance(asset, PropOrClueAsset) else PropOrClueAsset(**asset)
+    )
+    selected = next(
+        item
+        for item in current.versions
+        if item.asset_version_id == current.selected_version_id
+    )
+    return PropOrClueAssetRef(
+        kind=current.kind,
+        asset_id=current.asset_id,
+        asset_version_id=selected.asset_version_id,
+        version_fingerprint=selected.version_fingerprint,
+        artifact_sha256=(
+            selected.artifact.sha256 if selected.artifact is not None else None
+        ),
+    )
+
+
+def _build_episode_prop_or_clue_asset_manifest_impl(
+    render_plan: RenderPlan | Dict[str, Any],
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    shot_asset_ids: Mapping[str, list[str]],
+    binding_revision: int = 0,
+) -> EpisodePropOrClueAssetManifest:
+    """Freeze explicit stable-shot prop/clue bindings against selections."""
+
+    if not isinstance(shot_asset_ids, Mapping):
+        raise ValueError("shot_asset_ids must be an explicit mapping")
+    if not isinstance(binding_revision, int) or isinstance(binding_revision, bool):
+        raise ValueError("binding revision must be a strict integer")
+    plan = render_plan if isinstance(render_plan, RenderPlan) else RenderPlan(**render_plan)
+    required_shots = [shot.shot_id for shot in plan.shots]
+    if len(shot_asset_ids) != len(required_shots):
+        raise ValueError("every render shot must have an explicit prop/clue binding")
+    normalized: Dict[str, list[str]] = {}
+    for shot_id, asset_ids in shot_asset_ids.items():
+        if len(normalized) >= len(required_shots):
+            raise ValueError("shot_asset_ids contains too many entries")
+        if not isinstance(shot_id, str) or not isinstance(asset_ids, list):
+            raise ValueError("shot_asset_ids must map string ids to lists")
+        if len(asset_ids) > 16 or any(not isinstance(item, str) for item in asset_ids):
+            raise ValueError("shot prop/clue refs must be bounded string lists")
+        if len(asset_ids) != len(set(asset_ids)):
+            raise ValueError("shot prop/clue refs must be unique")
+        normalized[shot_id] = list(asset_ids)
+    current = (
+        catalog
+        if isinstance(catalog, PropOrClueAssetCatalog)
+        else PropOrClueAssetCatalog(**catalog)
+    )
+    if current.season_no != plan.season_no:
+        raise ValueError("prop/clue catalog belongs to another season")
+    if set(normalized) != set(required_shots) or len(normalized) != len(required_shots):
+        raise ValueError("every render shot must have an explicit prop/clue binding")
+    assets = {asset.asset_id: asset for asset in current.assets}
+    bindings: list[ShotPropOrClueRefs] = []
+    for shot in plan.shots:
+        refs: list[PropOrClueAssetRef] = []
+        for asset_id in normalized[shot.shot_id]:
+            asset = assets.get(asset_id)
+            if asset is None:
+                raise ValueError("prop/clue binding references an unknown asset")
+            refs.append(_selected_prop_or_clue_asset_ref_impl(asset))
+        bindings.append(
+            ShotPropOrClueRefs(
+                shot_id=shot.shot_id,
+                source_fingerprint=shot.source_fingerprint,
+                asset_refs=refs,
+            )
+        )
+    usage_fingerprint = _sha256([model_to_dict(item) for item in bindings])
+    payload: Dict[str, Any] = {
+        "schema_version": 1,
+        "season_no": plan.season_no,
+        "episode_no": plan.episode_no,
+        "render_plan_fingerprint": plan.plan_fingerprint,
+        "binding_revision": binding_revision,
+        "usage_fingerprint": usage_fingerprint,
+        "shot_asset_refs": [model_to_dict(item) for item in bindings],
+    }
+    payload["manifest_fingerprint"] = _sha256(payload)
+    return EpisodePropOrClueAssetManifest(**payload)
+
+
+def _prop_or_clue_usage_index_impl(
+    manifest: EpisodePropOrClueAssetManifest | Dict[str, Any],
+) -> Dict[str, list[str]]:
+    current = (
+        manifest
+        if isinstance(manifest, EpisodePropOrClueAssetManifest)
+        else EpisodePropOrClueAssetManifest(**manifest)
+    )
+    output: Dict[str, list[str]] = {}
+    for binding in current.shot_asset_refs:
+        for ref in binding.asset_refs:
+            output.setdefault(ref.asset_id, []).append(binding.shot_id)
+    return output
+
+
+class PropOrClueAssetError(ValueError):
+    """Bounded public error for local prop/clue pure operations."""
+
+
+def _raise_prop_or_clue_asset_error(operation: str) -> None:
+    raise PropOrClueAssetError(f"prop/clue asset {operation} was rejected")
+
+
+def build_empty_prop_or_clue_asset_catalog(
+    *,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _build_empty_prop_or_clue_asset_catalog_impl(season_no=season_no)
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("catalog build")
+
+
+def build_prop_or_clue_asset_version(
+    *,
+    asset_id: str,
+    spec: PropOrClueSpec | Dict[str, Any],
+    source_kind: str,
+    artifact: PropOrClueArtifact | Dict[str, Any] | None = None,
+    derived_from: str | None = None,
+) -> PropOrClueAssetVersion:
+    try:
+        return _build_prop_or_clue_asset_version_impl(
+            asset_id=asset_id,
+            spec=spec,
+            source_kind=source_kind,
+            artifact=artifact,
+            derived_from=derived_from,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("version build")
+
+
+def add_prop_or_clue_asset(
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _add_prop_or_clue_asset_impl(
+            catalog,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("addition")
+
+
+def append_prop_or_clue_asset_version(
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    asset_id: str,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _append_prop_or_clue_asset_version_impl(
+            catalog,
+            asset_id=asset_id,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("candidate append")
+
+
+def select_prop_or_clue_asset_version(
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    asset_id: str,
+    asset_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _select_prop_or_clue_asset_version_impl(
+            catalog,
+            asset_id=asset_id,
+            asset_version_id=asset_version_id,
+            expected_selection_revision=expected_selection_revision,
+            expected_selected_version_id=expected_selected_version_id,
+        )
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("selection")
+
+
+def selected_prop_or_clue_asset_ref(
+    asset: PropOrClueAsset | Dict[str, Any],
+) -> PropOrClueAssetRef:
+    try:
+        return _selected_prop_or_clue_asset_ref_impl(asset)
+    except (RecursionError, StopIteration, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("reference build")
+
+
+def build_episode_prop_or_clue_asset_manifest(
+    render_plan: RenderPlan | Dict[str, Any],
+    catalog: PropOrClueAssetCatalog | Dict[str, Any],
+    *,
+    shot_asset_ids: Mapping[str, list[str]],
+    binding_revision: int = 0,
+) -> EpisodePropOrClueAssetManifest:
+    try:
+        return _build_episode_prop_or_clue_asset_manifest_impl(
+            render_plan,
+            catalog,
+            shot_asset_ids=shot_asset_ids,
+            binding_revision=binding_revision,
+        )
+    except (KeyError, RecursionError, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("manifest build")
+
+
+def prop_or_clue_usage_index(
+    manifest: EpisodePropOrClueAssetManifest | Dict[str, Any],
+) -> Dict[str, list[str]]:
+    try:
+        return _prop_or_clue_usage_index_impl(manifest)
+    except (RecursionError, TypeError, ValueError):
+        pass
+    _raise_prop_or_clue_asset_error("usage projection")

@@ -131,3 +131,4 @@
 116. [Iteration 107 - 短剧角色资产版本与冻结选择](./iteration_107_drama_character_asset_version_selection.md)
 117. [Iteration 108 - 短剧美术方向资产版本与 RenderPlan 冻结](./iteration_108_drama_art_direction_version_render_plan_freeze.md)
 118. [Iteration 109 - 短剧场景资产版本与逐镜冻结引用](./iteration_109_drama_scene_asset_version_shot_freeze.md)
+119. [Iteration 110 - 短剧道具/线索资产版本与逐镜冻结引用](./iteration_110_drama_prop_clue_asset_version_shot_freeze.md)

@@ -13,15 +13,20 @@ from typing import Any, Callable, Dict, Literal, Mapping
 
 from . import paths
 from .drama_assets import (
+    add_prop_or_clue_asset as add_prop_or_clue_asset_pure,
     add_scene_asset as add_scene_asset_pure,
     append_asset_version,
+    append_prop_or_clue_asset_version as append_prop_or_clue_asset_version_pure,
     append_scene_asset_version as append_scene_asset_version_pure,
     build_character_asset_catalog,
     build_episode_asset_manifest,
+    build_episode_prop_or_clue_asset_manifest,
     build_episode_scene_asset_manifest,
+    build_empty_prop_or_clue_asset_catalog,
     build_scene_asset_catalog,
     character_render_identity_fingerprint,
     select_asset_version,
+    select_prop_or_clue_asset_version as select_prop_or_clue_asset_version_pure,
     select_scene_asset_version as select_scene_asset_version_pure,
 )
 from .drama_render_store import inspect_render_plan, load_fresh_render_plan
@@ -31,7 +36,10 @@ from .drama_schemas import (
     CharacterAssetCatalog,
     CharacterSheet,
     EpisodeAssetManifest,
+    EpisodePropOrClueAssetManifest,
     EpisodeSceneAssetManifest,
+    PropOrClueAssetCatalog,
+    PropOrClueAssetVersion,
     SceneAssetCatalog,
     SceneAssetVersion,
     character_paths,
@@ -54,6 +62,9 @@ MAX_ASSET_ARTIFACT_BYTES = 5 * 1024 * 1024
 MAX_SCENE_CATALOG_BYTES = 4_000_000
 MAX_SCENE_MANIFEST_BYTES = 2_000_000
 MAX_SCENE_ARTIFACT_BYTES = 5 * 1024 * 1024
+MAX_PROP_CLUE_CATALOG_BYTES = 4_000_000
+MAX_PROP_CLUE_MANIFEST_BYTES = 2_000_000
+MAX_PROP_CLUE_ARTIFACT_BYTES = 5 * 1024 * 1024
 
 AssetCatalogState = Literal[
     "needs_asset_catalog",
@@ -76,6 +87,18 @@ SceneCatalogState = Literal[
 ]
 SceneManifestState = Literal[
     "needs_scene_manifest",
+    "fresh",
+    "stale",
+    "invalid",
+    "blocked_source",
+]
+PropClueCatalogState = Literal[
+    "needs_prop_clue_catalog",
+    "fresh",
+    "invalid",
+]
+PropClueManifestState = Literal[
+    "needs_prop_clue_manifest",
     "fresh",
     "stale",
     "invalid",
@@ -127,6 +150,20 @@ class SceneManifestInspection:
     manifest: EpisodeSceneAssetManifest | None = None
 
 
+@dataclass(frozen=True)
+class PropClueCatalogInspection:
+    state: PropClueCatalogState
+    reasons: tuple[str, ...]
+    catalog: PropOrClueAssetCatalog | None = None
+
+
+@dataclass(frozen=True)
+class PropClueManifestInspection:
+    state: PropClueManifestState
+    reasons: tuple[str, ...]
+    manifest: EpisodePropOrClueAssetManifest | None = None
+
+
 def _strict_season_no(value: Any) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ValueError("season_no must be a strict positive integer")
@@ -168,6 +205,29 @@ def episode_scene_asset_manifest_path(
     if ep.root != root:
         raise ValueError("scene manifest path does not match the workspace")
     return ep.episodes_dir / f"episode_{number:02d}.scene_asset_manifest.json"
+
+
+def prop_or_clue_asset_catalog_path(
+    workspace: str,
+    *,
+    season_no: int = 1,
+) -> Path:
+    season = _strict_season_no(season_no)
+    root = paths.workspace_root(workspace)
+    return root / "data" / "assets" / f"season_{season:02d}.prop_clue_assets.json"
+
+
+def episode_prop_or_clue_asset_manifest_path(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> Path:
+    number = normalize_episode_no(episode_no)
+    root = paths.workspace_root(workspace)
+    ep = episode_paths(workspace, episode_no=number)
+    if ep.root != root:
+        raise ValueError("prop/clue manifest path does not match the workspace")
+    return ep.episodes_dir / f"episode_{number:02d}.prop_clue_asset_manifest.json"
 
 
 def _read_catalog(workspace: str, *, season_no: int) -> CharacterAssetCatalog:
@@ -297,6 +357,91 @@ def _read_scene_manifest(
         raise _ArtifactReadError("schema_invalid")
     try:
         manifest = EpisodeSceneAssetManifest(**raw["manifest"])
+    except (TypeError, ValueError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if raw["manifest_fingerprint"] != manifest.manifest_fingerprint:
+        raise _ArtifactReadError("manifest_hash_mismatch")
+    if manifest.episode_no != episode_no:
+        raise _ArtifactReadError("schema_invalid")
+    return manifest
+
+
+def _read_prop_clue_catalog(
+    workspace: str,
+    *,
+    season_no: int,
+) -> PropOrClueAssetCatalog:
+    root = paths.workspace_root(workspace)
+    path = prop_or_clue_asset_catalog_path(workspace, season_no=season_no)
+    try:
+        raw = _read_strict_workspace_json(
+            root,
+            path,
+            maximum=MAX_PROP_CLUE_CATALOG_BYTES,
+        )
+    except FileNotFoundError:
+        raise
+    except (OSError, TypeError, ValueError, RecursionError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if not isinstance(raw, dict) or set(raw) != {
+        "schema_version",
+        "artifact_type",
+        "catalog_fingerprint",
+        "catalog",
+    }:
+        raise _ArtifactReadError("schema_invalid")
+    if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+        raise _ArtifactReadError("schema_unsupported")
+    if raw["artifact_type"] != "drama_prop_clue_asset_catalog":
+        raise _ArtifactReadError("schema_invalid")
+    if not isinstance(raw["catalog"], dict):
+        raise _ArtifactReadError("schema_invalid")
+    try:
+        catalog = PropOrClueAssetCatalog(**raw["catalog"])
+    except (TypeError, ValueError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if raw["catalog_fingerprint"] != catalog.catalog_fingerprint:
+        raise _ArtifactReadError("catalog_hash_mismatch")
+    if catalog.season_no != season_no:
+        raise _ArtifactReadError("schema_invalid")
+    return catalog
+
+
+def _read_prop_clue_manifest(
+    workspace: str,
+    *,
+    episode_no: int,
+) -> EpisodePropOrClueAssetManifest:
+    root = paths.workspace_root(workspace)
+    path = episode_prop_or_clue_asset_manifest_path(
+        workspace,
+        episode_no=episode_no,
+    )
+    try:
+        raw = _read_strict_workspace_json(
+            root,
+            path,
+            maximum=MAX_PROP_CLUE_MANIFEST_BYTES,
+        )
+    except FileNotFoundError:
+        raise
+    except (OSError, TypeError, ValueError, RecursionError) as exc:
+        raise _ArtifactReadError("schema_invalid") from exc
+    if not isinstance(raw, dict) or set(raw) != {
+        "schema_version",
+        "artifact_type",
+        "manifest_fingerprint",
+        "manifest",
+    }:
+        raise _ArtifactReadError("schema_invalid")
+    if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+        raise _ArtifactReadError("schema_unsupported")
+    if raw["artifact_type"] != "drama_episode_prop_clue_asset_manifest":
+        raise _ArtifactReadError("schema_invalid")
+    if not isinstance(raw["manifest"], dict):
+        raise _ArtifactReadError("schema_invalid")
+    try:
+        manifest = EpisodePropOrClueAssetManifest(**raw["manifest"])
     except (TypeError, ValueError) as exc:
         raise _ArtifactReadError("schema_invalid") from exc
     if raw["manifest_fingerprint"] != manifest.manifest_fingerprint:
@@ -635,6 +780,58 @@ def _write_scene_manifest(
             "manifest": model_to_dict(manifest),
         },
         maximum=MAX_SCENE_MANIFEST_BYTES,
+        expected_target_token=expected_target_token,
+        precommit_check=precommit_check,
+    )
+
+
+def _write_prop_clue_catalog(
+    workspace: str,
+    catalog: PropOrClueAssetCatalog,
+    *,
+    expected_target_token: tuple[Any, ...],
+    precommit_check: Callable[[], None] | None = None,
+) -> None:
+    root = paths.workspace_root(workspace)
+    _write_envelope(
+        root=root,
+        path=prop_or_clue_asset_catalog_path(
+            workspace,
+            season_no=catalog.season_no,
+        ),
+        envelope={
+            "schema_version": 1,
+            "artifact_type": "drama_prop_clue_asset_catalog",
+            "catalog_fingerprint": catalog.catalog_fingerprint,
+            "catalog": model_to_dict(catalog),
+        },
+        maximum=MAX_PROP_CLUE_CATALOG_BYTES,
+        expected_target_token=expected_target_token,
+        precommit_check=precommit_check,
+    )
+
+
+def _write_prop_clue_manifest(
+    workspace: str,
+    manifest: EpisodePropOrClueAssetManifest,
+    *,
+    expected_target_token: tuple[Any, ...],
+    precommit_check: Callable[[], None] | None = None,
+) -> None:
+    root = paths.workspace_root(workspace)
+    _write_envelope(
+        root=root,
+        path=episode_prop_or_clue_asset_manifest_path(
+            workspace,
+            episode_no=manifest.episode_no,
+        ),
+        envelope={
+            "schema_version": 1,
+            "artifact_type": "drama_episode_prop_clue_asset_manifest",
+            "manifest_fingerprint": manifest.manifest_fingerprint,
+            "manifest": model_to_dict(manifest),
+        },
+        maximum=MAX_PROP_CLUE_MANIFEST_BYTES,
         expected_target_token=expected_target_token,
         precommit_check=precommit_check,
     )
@@ -1668,5 +1865,694 @@ def create_episode_scene_asset_manifest(
     ) as exc:
         message = _scene_public_mutation_error_message(
             exc, operation="manifest update"
+        )
+    raise DramaAssetStoreError(message)
+
+
+def inspect_prop_or_clue_asset_catalog(
+    workspace: str,
+    *,
+    season_no: int = 1,
+) -> PropClueCatalogInspection:
+    season = _strict_season_no(season_no)
+    try:
+        catalog = _read_prop_clue_catalog(workspace, season_no=season)
+    except FileNotFoundError:
+        return PropClueCatalogInspection("needs_prop_clue_catalog", ("missing",))
+    except _ArtifactReadError as exc:
+        return PropClueCatalogInspection("invalid", (exc.reason,))
+    return PropClueCatalogInspection("fresh", (), catalog)
+
+
+def load_fresh_prop_or_clue_asset_catalog(
+    workspace: str,
+    *,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    inspection = inspect_prop_or_clue_asset_catalog(
+        workspace,
+        season_no=season_no,
+    )
+    if inspection.state != "fresh" or inspection.catalog is None:
+        raise DramaAssetStoreError(
+            f"prop/clue catalog is not fresh: {inspection.state}"
+        )
+    return inspection.catalog
+
+
+def _verify_prop_clue_version_artifact(
+    workspace: str,
+    version: PropOrClueAssetVersion,
+) -> None:
+    if version.artifact is None:
+        return
+    root = paths.workspace_root(workspace)
+    payload = _read_strict_workspace_bytes(
+        root,
+        root / version.artifact.path,
+        maximum=MAX_PROP_CLUE_ARTIFACT_BYTES,
+    )
+    if (
+        len(payload) != version.artifact.size_bytes
+        or hashlib.sha256(payload).hexdigest() != version.artifact.sha256
+    ):
+        raise DramaAssetStoreError("prop/clue artifact does not match local bytes")
+
+
+def _find_prop_clue_version(
+    catalog: PropOrClueAssetCatalog,
+    *,
+    asset_id: str,
+    asset_version_id: str,
+) -> PropOrClueAssetVersion:
+    asset = next(
+        (item for item in catalog.assets if item.asset_id == asset_id),
+        None,
+    )
+    if asset is None:
+        raise DramaAssetStoreError("prop/clue asset does not exist")
+    version = next(
+        (
+            item
+            for item in asset.versions
+            if item.asset_version_id == asset_version_id
+        ),
+        None,
+    )
+    if version is None:
+        raise DramaAssetStoreError("prop/clue version does not exist")
+    return version
+
+
+def _create_prop_or_clue_asset_catalog_impl(
+    workspace: str,
+    *,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    season = _strict_season_no(season_no)
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-prop-clue-assets"):
+        path = prop_or_clue_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_PROP_CLUE_CATALOG_BYTES)
+        inspection = inspect_prop_or_clue_asset_catalog(
+            workspace,
+            season_no=season,
+        )
+        if inspection.state == "invalid":
+            raise DramaAssetStoreError(
+                "invalid prop/clue catalog must be repaired explicitly"
+            )
+        if inspection.state == "fresh" and inspection.catalog is not None:
+            if not inspection.catalog.assets:
+                return inspection.catalog
+            raise DramaAssetStoreError("prop/clue catalog already exists; add explicitly")
+        desired = build_empty_prop_or_clue_asset_catalog(season_no=season)
+        _write_prop_clue_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+        )
+        persisted = _read_prop_clue_catalog(workspace, season_no=season)
+        if persisted.catalog_fingerprint != desired.catalog_fingerprint:
+            raise DramaAssetStoreError("persisted prop/clue catalog failed verification")
+        return persisted
+
+
+def _add_prop_or_clue_asset_impl(
+    workspace: str,
+    *,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    season = _strict_season_no(season_no)
+    candidate = (
+        version
+        if isinstance(version, PropOrClueAssetVersion)
+        else PropOrClueAssetVersion(**version)
+    )
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-prop-clue-assets"):
+        path = prop_or_clue_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_PROP_CLUE_CATALOG_BYTES)
+        current = load_fresh_prop_or_clue_asset_catalog(
+            workspace,
+            season_no=season,
+        )
+        _verify_prop_clue_version_artifact(workspace, candidate)
+        desired = add_prop_or_clue_asset_pure(
+            current,
+            version=candidate,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+        if desired.catalog_fingerprint == current.catalog_fingerprint:
+            return current
+
+        def precommit() -> None:
+            final = _read_prop_clue_catalog(workspace, season_no=season)
+            if final.catalog_fingerprint != current.catalog_fingerprint:
+                raise DramaAssetStoreError("prop/clue catalog changed concurrently")
+            _verify_prop_clue_version_artifact(workspace, candidate)
+
+        _write_prop_clue_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        return _read_prop_clue_catalog(workspace, season_no=season)
+
+
+def _append_prop_or_clue_asset_version_impl(
+    workspace: str,
+    *,
+    asset_id: str,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    season = _strict_season_no(season_no)
+    candidate = (
+        version
+        if isinstance(version, PropOrClueAssetVersion)
+        else PropOrClueAssetVersion(**version)
+    )
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-prop-clue-assets"):
+        path = prop_or_clue_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_PROP_CLUE_CATALOG_BYTES)
+        current = load_fresh_prop_or_clue_asset_catalog(
+            workspace,
+            season_no=season,
+        )
+        _verify_prop_clue_version_artifact(workspace, candidate)
+        desired = append_prop_or_clue_asset_version_pure(
+            current,
+            asset_id=asset_id,
+            version=candidate,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+        )
+        if desired.catalog_fingerprint == current.catalog_fingerprint:
+            return current
+
+        def precommit() -> None:
+            final = _read_prop_clue_catalog(workspace, season_no=season)
+            if final.catalog_fingerprint != current.catalog_fingerprint:
+                raise DramaAssetStoreError("prop/clue catalog changed concurrently")
+            _verify_prop_clue_version_artifact(workspace, candidate)
+
+        _write_prop_clue_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        return _read_prop_clue_catalog(workspace, season_no=season)
+
+
+def _select_prop_or_clue_asset_version_impl(
+    workspace: str,
+    *,
+    asset_id: str,
+    asset_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    season = _strict_season_no(season_no)
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-prop-clue-assets"):
+        path = prop_or_clue_asset_catalog_path(workspace, season_no=season)
+        token = _target_token(root, path, maximum=MAX_PROP_CLUE_CATALOG_BYTES)
+        current = load_fresh_prop_or_clue_asset_catalog(
+            workspace,
+            season_no=season,
+        )
+        target_version = _find_prop_clue_version(
+            current,
+            asset_id=asset_id,
+            asset_version_id=asset_version_id,
+        )
+        _verify_prop_clue_version_artifact(workspace, target_version)
+        desired = select_prop_or_clue_asset_version_pure(
+            current,
+            asset_id=asset_id,
+            asset_version_id=asset_version_id,
+            expected_selection_revision=expected_selection_revision,
+            expected_selected_version_id=expected_selected_version_id,
+        )
+        if desired.catalog_fingerprint == current.catalog_fingerprint:
+            return current
+
+        def precommit() -> None:
+            final = _read_prop_clue_catalog(workspace, season_no=season)
+            if final.catalog_fingerprint != current.catalog_fingerprint:
+                raise DramaAssetStoreError("prop/clue catalog changed concurrently")
+            _verify_prop_clue_version_artifact(workspace, target_version)
+
+        _write_prop_clue_catalog(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        return _read_prop_clue_catalog(workspace, season_no=season)
+
+
+def _prop_clue_mapping_from_manifest(
+    manifest: EpisodePropOrClueAssetManifest,
+) -> Dict[str, list[str]]:
+    return {
+        binding.shot_id: [ref.asset_id for ref in binding.asset_refs]
+        for binding in manifest.shot_asset_refs
+    }
+
+
+def _validate_used_prop_clue_artifacts(
+    workspace: str,
+    *,
+    catalog: PropOrClueAssetCatalog,
+    shot_asset_ids: Mapping[str, list[str]],
+) -> None:
+    used_ids = {
+        asset_id
+        for values in shot_asset_ids.values()
+        for asset_id in values
+    }
+    for asset_id in sorted(used_ids):
+        asset = next(
+            (item for item in catalog.assets if item.asset_id == asset_id),
+            None,
+        )
+        if asset is None:
+            raise DramaAssetStoreError("prop/clue binding references an unknown asset")
+        selected = _find_prop_clue_version(
+            catalog,
+            asset_id=asset_id,
+            asset_version_id=asset.selected_version_id,
+        )
+        _verify_prop_clue_version_artifact(workspace, selected)
+
+
+def inspect_episode_prop_or_clue_asset_manifest(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> PropClueManifestInspection:
+    number = normalize_episode_no(episode_no)
+    try:
+        manifest = _read_prop_clue_manifest(workspace, episode_no=number)
+    except FileNotFoundError:
+        manifest = None
+    except _ArtifactReadError as exc:
+        return PropClueManifestInspection("invalid", (exc.reason,))
+
+    render = inspect_render_plan(workspace, episode_no=number)
+    if render.state == "stale":
+        if manifest is not None:
+            return PropClueManifestInspection(
+                "stale",
+                ("render_plan_stale",),
+                manifest,
+            )
+        return PropClueManifestInspection("blocked_source", ("render_plan_stale",))
+    if render.state != "fresh" or render.plan is None:
+        return PropClueManifestInspection(
+            "blocked_source",
+            (f"render_plan_{render.state}",),
+            manifest,
+        )
+    plan = render.plan
+    try:
+        catalog = _read_prop_clue_catalog(workspace, season_no=plan.season_no)
+    except FileNotFoundError:
+        return PropClueManifestInspection(
+            "blocked_source",
+            ("prop_clue_catalog_missing",),
+            manifest,
+        )
+    except _ArtifactReadError:
+        return PropClueManifestInspection(
+            "blocked_source",
+            ("prop_clue_catalog_invalid",),
+            manifest,
+        )
+    if manifest is None:
+        return PropClueManifestInspection("needs_prop_clue_manifest", ("missing",))
+    mapping = _prop_clue_mapping_from_manifest(manifest)
+    try:
+        _validate_used_prop_clue_artifacts(
+            workspace,
+            catalog=catalog,
+            shot_asset_ids=mapping,
+        )
+        expected = build_episode_prop_or_clue_asset_manifest(
+            plan,
+            catalog,
+            shot_asset_ids=mapping,
+            binding_revision=manifest.binding_revision,
+        )
+    except (FileNotFoundError, OSError, TypeError, ValueError, RecursionError):
+        return PropClueManifestInspection(
+            "stale",
+            ("prop_clue_source_invalid",),
+            manifest,
+        )
+
+    reasons: list[str] = []
+    if manifest.season_no != plan.season_no or manifest.episode_no != plan.episode_no:
+        reasons.append("episode_identity_mismatch")
+    if manifest.render_plan_fingerprint != expected.render_plan_fingerprint:
+        reasons.append("render_plan_fingerprint_mismatch")
+    if manifest.usage_fingerprint != expected.usage_fingerprint:
+        reasons.append("prop_clue_selection_mismatch")
+    if manifest.manifest_fingerprint != expected.manifest_fingerprint:
+        reasons.append("manifest_source_mismatch")
+    if reasons:
+        return PropClueManifestInspection(
+            "stale",
+            tuple(dict.fromkeys(reasons)),
+            manifest,
+        )
+    return PropClueManifestInspection("fresh", (), manifest)
+
+
+def _create_episode_prop_or_clue_asset_manifest_impl(
+    workspace: str,
+    *,
+    shot_asset_ids: Mapping[str, list[str]] | None = None,
+    episode_no: int = 1,
+    replace_stale: bool = False,
+    expected_manifest_fingerprint: str | None = None,
+) -> EpisodePropOrClueAssetManifest:
+    if type(replace_stale) is not bool:
+        raise ValueError("replace_stale must be bool")
+    if expected_manifest_fingerprint is not None and not isinstance(
+        expected_manifest_fingerprint,
+        str,
+    ):
+        raise ValueError("expected manifest fingerprint must be a string")
+    if shot_asset_ids is not None and not isinstance(shot_asset_ids, Mapping):
+        raise ValueError("shot_asset_ids must be an explicit mapping")
+    number = normalize_episode_no(episode_no)
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    with use_workspace(workspace), acquire_write_lock(source="drama-prop-clue-manifest"):
+        path = episode_prop_or_clue_asset_manifest_path(
+            workspace,
+            episode_no=number,
+        )
+        token = _target_token(root, path, maximum=MAX_PROP_CLUE_MANIFEST_BYTES)
+        inspection = inspect_episode_prop_or_clue_asset_manifest(
+            workspace,
+            episode_no=number,
+        )
+        if inspection.state == "invalid":
+            raise DramaAssetStoreError(
+                "invalid prop/clue manifest must be repaired explicitly"
+            )
+        if inspection.state == "blocked_source":
+            raise DramaAssetStoreError(
+                "fresh RenderPlan and prop/clue catalog are required"
+            )
+        current = inspection.manifest
+        if current is None:
+            if expected_manifest_fingerprint is not None:
+                raise DramaAssetStoreError(
+                    "prop/clue manifest CAS expected an existing manifest"
+                )
+            if shot_asset_ids is None:
+                raise DramaAssetStoreError(
+                    "explicit shot prop/clue bindings are required"
+                )
+            mapping_input = shot_asset_ids
+            existing_mapping = None
+            base_revision = 0
+        else:
+            if (
+                expected_manifest_fingerprint is not None
+                and expected_manifest_fingerprint != current.manifest_fingerprint
+            ):
+                raise DramaAssetStoreError(
+                    "prop/clue manifest changed; refresh before replacing"
+                )
+            existing_mapping = _prop_clue_mapping_from_manifest(current)
+            mapping_input = (
+                existing_mapping
+                if shot_asset_ids is None
+                else shot_asset_ids
+            )
+            base_revision = current.binding_revision
+
+        plan = load_fresh_render_plan(workspace, episode_no=number)
+        catalog = load_fresh_prop_or_clue_asset_catalog(
+            workspace,
+            season_no=plan.season_no,
+        )
+        probe = build_episode_prop_or_clue_asset_manifest(
+            plan,
+            catalog,
+            shot_asset_ids=mapping_input,
+            binding_revision=base_revision,
+        )
+        mapping = _prop_clue_mapping_from_manifest(probe)
+        revision = base_revision + (
+            1
+            if existing_mapping is not None and mapping != existing_mapping
+            else 0
+        )
+        desired = (
+            probe
+            if revision == base_revision
+            else build_episode_prop_or_clue_asset_manifest(
+                plan,
+                catalog,
+                shot_asset_ids=mapping,
+                binding_revision=revision,
+            )
+        )
+        _validate_used_prop_clue_artifacts(
+            workspace,
+            catalog=catalog,
+            shot_asset_ids=mapping,
+        )
+        if current is not None and desired.manifest_fingerprint == current.manifest_fingerprint:
+            return current
+        if current is not None:
+            if not replace_stale:
+                raise DramaAssetStoreError(
+                    "prop/clue manifest replacement must be explicit"
+                )
+            if expected_manifest_fingerprint != current.manifest_fingerprint:
+                raise DramaAssetStoreError(
+                    "prop/clue manifest CAS is required for replacement"
+                )
+
+        def precommit() -> None:
+            final_plan = load_fresh_render_plan(workspace, episode_no=number)
+            final_catalog = load_fresh_prop_or_clue_asset_catalog(
+                workspace,
+                season_no=final_plan.season_no,
+            )
+            _validate_used_prop_clue_artifacts(
+                workspace,
+                catalog=final_catalog,
+                shot_asset_ids=mapping,
+            )
+            final = build_episode_prop_or_clue_asset_manifest(
+                final_plan,
+                final_catalog,
+                shot_asset_ids=mapping,
+                binding_revision=revision,
+            )
+            if final.manifest_fingerprint != desired.manifest_fingerprint:
+                raise DramaAssetStoreError(
+                    "prop/clue manifest sources changed concurrently"
+                )
+
+        _write_prop_clue_manifest(
+            workspace,
+            desired,
+            expected_target_token=token,
+            precommit_check=precommit,
+        )
+        persisted = _read_prop_clue_manifest(workspace, episode_no=number)
+        if persisted.manifest_fingerprint != desired.manifest_fingerprint:
+            raise DramaAssetStoreError(
+                "persisted prop/clue manifest failed verification"
+            )
+        return persisted
+
+
+def load_fresh_episode_prop_or_clue_asset_manifest(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> EpisodePropOrClueAssetManifest:
+    inspection = inspect_episode_prop_or_clue_asset_manifest(
+        workspace,
+        episode_no=episode_no,
+    )
+    if inspection.state != "fresh" or inspection.manifest is None:
+        raise DramaAssetStoreError(
+            f"episode prop/clue manifest is not fresh: {inspection.state}"
+        )
+    return inspection.manifest
+
+
+def _prop_clue_public_mutation_error_message(
+    exc: BaseException,
+    *,
+    operation: str,
+) -> str:
+    if isinstance(exc, DramaAssetStoreError):
+        return str(exc)
+    return f"prop/clue asset {operation} was rejected"
+
+
+def create_prop_or_clue_asset_catalog(
+    workspace: str,
+    *,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _create_prop_or_clue_asset_catalog_impl(
+            workspace,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _prop_clue_public_mutation_error_message(
+            exc,
+            operation="catalog creation",
+        )
+    raise DramaAssetStoreError(message)
+
+
+def add_prop_or_clue_asset(
+    workspace: str,
+    *,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _add_prop_or_clue_asset_impl(
+            workspace,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _prop_clue_public_mutation_error_message(
+            exc,
+            operation="addition",
+        )
+    raise DramaAssetStoreError(message)
+
+
+def append_prop_or_clue_asset_version(
+    workspace: str,
+    *,
+    asset_id: str,
+    version: PropOrClueAssetVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _append_prop_or_clue_asset_version_impl(
+            workspace,
+            asset_id=asset_id,
+            version=version,
+            expected_catalog_fingerprint=expected_catalog_fingerprint,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _prop_clue_public_mutation_error_message(
+            exc,
+            operation="candidate append",
+        )
+    raise DramaAssetStoreError(message)
+
+
+def select_prop_or_clue_asset_version(
+    workspace: str,
+    *,
+    asset_id: str,
+    asset_version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+    season_no: int = 1,
+) -> PropOrClueAssetCatalog:
+    try:
+        return _select_prop_or_clue_asset_version_impl(
+            workspace,
+            asset_id=asset_id,
+            asset_version_id=asset_version_id,
+            expected_selection_revision=expected_selection_revision,
+            expected_selected_version_id=expected_selected_version_id,
+            season_no=season_no,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _prop_clue_public_mutation_error_message(
+            exc,
+            operation="selection",
+        )
+    raise DramaAssetStoreError(message)
+
+
+def create_episode_prop_or_clue_asset_manifest(
+    workspace: str,
+    *,
+    shot_asset_ids: Mapping[str, list[str]] | None = None,
+    episode_no: int = 1,
+    replace_stale: bool = False,
+    expected_manifest_fingerprint: str | None = None,
+) -> EpisodePropOrClueAssetManifest:
+    try:
+        return _create_episode_prop_or_clue_asset_manifest_impl(
+            workspace,
+            shot_asset_ids=shot_asset_ids,
+            episode_no=episode_no,
+            replace_stale=replace_stale,
+            expected_manifest_fingerprint=expected_manifest_fingerprint,
+        )
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        WorkspaceLocked,
+    ) as exc:
+        message = _prop_clue_public_mutation_error_message(
+            exc,
+            operation="manifest update",
         )
     raise DramaAssetStoreError(message)

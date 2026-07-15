@@ -705,6 +705,8 @@ _ASSET_VERSION_ID_PATTERN = r"^av_[0-9a-f]{24}$"
 _ART_DIRECTION_VERSION_ID_PATTERN = r"^ad_[0-9a-f]{24}$"
 _SCENE_ID_PATTERN = r"^s[0-9]{3}$"
 _SCENE_VERSION_ID_PATTERN = r"^sv_[0-9a-f]{24}$"
+_PROP_OR_CLUE_ID_PATTERN = r"^(?:p|l)[0-9]{3}$"
+_PROP_OR_CLUE_VERSION_ID_PATTERN = r"^pcv_[0-9a-f]{24}$"
 
 
 def _canonical_sha256(data: Any) -> str:
@@ -1352,6 +1354,326 @@ class EpisodeSceneAssetManifest(BaseModel):
         payload = self.model_dump(exclude={"manifest_fingerprint"})
         if _canonical_sha256(payload) != self.manifest_fingerprint:
             raise ValueError("scene manifest fingerprint is invalid")
+        return self
+
+
+PropOrClueKind = Literal["prop", "clue"]
+
+
+class PropOrClueSpec(BaseModel):
+    """Bounded reusable prop/clue identity without inferred provenance."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: PropOrClueKind
+    display_name: str = Field(min_length=1, max_length=80)
+    owner_character_id: Optional[str] = Field(default=None, pattern=r"^c\d{3}$")
+    state_label: str = Field(default="", max_length=80)
+    first_seen_episode_no: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=MAX_DRAMA_EPISODE_NO,
+    )
+    visual_tokens: List[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("display_name", "state_label", mode="before")
+    @classmethod
+    def _prop_clue_strings_are_canonical(cls, value: Any, info: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name} must be a string")
+        if value != value.strip() or (
+            info.field_name == "display_name" and not value
+        ):
+            raise ValueError(f"{info.field_name} must use canonical text")
+        if value and not value.strip():
+            raise ValueError(f"{info.field_name} must use canonical text")
+        return value
+
+    @field_validator("first_seen_episode_no", mode="before")
+    @classmethod
+    def _first_seen_is_strict(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        return _strict_schema_episode_no(value)
+
+    @field_validator("visual_tokens", mode="before")
+    @classmethod
+    def _prop_clue_tokens_are_canonical(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("visual_tokens must be a list")
+        if any(
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > 80
+            for item in value
+        ):
+            raise ValueError("visual_tokens must contain bounded canonical strings")
+        if len(value) != len(set(value)):
+            raise ValueError("visual_tokens entries must be unique")
+        return value
+
+
+class PropOrClueArtifact(BaseModel):
+    """One verified local prop/clue reference under its semantic id."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=1, le=5 * 1024 * 1024)
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _prop_clue_artifact_path_is_strict(cls, value: Any) -> str:
+        if not isinstance(value, str) or "\\" in value:
+            raise ValueError("prop/clue artifact path must be a POSIX relative path")
+        if (
+            value.startswith("/")
+            or value.startswith("./")
+            or "//" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or re.fullmatch(
+                r"data/prop_clue_refs/(?:p|l)[0-9]{3}/"
+                r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}"
+                r"(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,119})*",
+                value,
+            )
+            is None
+        ):
+            raise ValueError(
+                "prop/clue artifact path must stay under data/prop_clue_refs/<asset_id>"
+            )
+        return value
+
+    @field_validator("size_bytes", mode="before")
+    @classmethod
+    def _prop_clue_artifact_size_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("prop/clue artifact size must be a strict integer")
+        return value
+
+
+PropOrClueAssetVersionSource = Literal[
+    "identity_snapshot",
+    "appended_candidate",
+    "imported",
+]
+
+
+class PropOrClueAssetVersion(BaseModel):
+    """One immutable, content-addressed prop/clue candidate."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    asset_id: str = Field(pattern=_PROP_OR_CLUE_ID_PATTERN)
+    asset_version_id: str = Field(pattern=_PROP_OR_CLUE_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    derived_from: Optional[str] = Field(
+        default=None,
+        pattern=_PROP_OR_CLUE_VERSION_ID_PATTERN,
+    )
+    source_kind: PropOrClueAssetVersionSource
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    spec: PropOrClueSpec
+    artifact: Optional[PropOrClueArtifact] = None
+
+    @model_validator(mode="after")
+    def _prop_clue_version_is_content_addressed(self) -> "PropOrClueAssetVersion":
+        expected_prefix = "p" if self.spec.kind == "prop" else "l"
+        if not self.asset_id.startswith(expected_prefix):
+            raise ValueError("prop/clue kind does not match its semantic id")
+        if self.derived_from == self.asset_version_id:
+            raise ValueError("prop/clue version cannot derive from itself")
+        if self.artifact is not None and not self.artifact.path.startswith(
+            f"data/prop_clue_refs/{self.asset_id}/"
+        ):
+            raise ValueError("prop/clue artifact belongs to another asset")
+        source_payload = {
+            "asset_id": self.asset_id,
+            "source_kind": self.source_kind,
+            "spec": self.spec.model_dump(),
+            "artifact": self.artifact.model_dump() if self.artifact is not None else None,
+        }
+        if _canonical_sha256(source_payload) != self.source_fingerprint:
+            raise ValueError("prop/clue version source fingerprint is invalid")
+        payload = self.model_dump(
+            exclude={"asset_version_id", "version_fingerprint"}
+        )
+        fingerprint = _canonical_sha256(payload)
+        if fingerprint != self.version_fingerprint:
+            raise ValueError("prop/clue version fingerprint is invalid")
+        if self.asset_version_id != f"pcv_{fingerprint[:24]}":
+            raise ValueError("prop/clue version id is invalid")
+        return self
+
+
+class PropOrClueAsset(BaseModel):
+    """Append-only versions and explicit selection for one prop/clue."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    asset_id: str = Field(pattern=_PROP_OR_CLUE_ID_PATTERN)
+    kind: PropOrClueKind
+    versions: List[PropOrClueAssetVersion] = Field(min_length=1, max_length=256)
+    selected_version_id: str = Field(pattern=_PROP_OR_CLUE_VERSION_ID_PATTERN)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+
+    @field_validator("selection_revision", mode="before")
+    @classmethod
+    def _prop_clue_selection_revision_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("prop/clue selection revision must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _prop_clue_asset_history_is_consistent(self) -> "PropOrClueAsset":
+        expected_prefix = "p" if self.kind == "prop" else "l"
+        if not self.asset_id.startswith(expected_prefix):
+            raise ValueError("prop/clue kind does not match its semantic id")
+        if any(
+            version.asset_id != self.asset_id or version.spec.kind != self.kind
+            for version in self.versions
+        ):
+            raise ValueError("prop/clue versions must belong to the same asset and kind")
+        ids = [version.asset_version_id for version in self.versions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("prop/clue version ids must be unique")
+        artifacts_by_path: Dict[str, PropOrClueArtifact] = {}
+        for version in self.versions:
+            if version.artifact is None:
+                continue
+            previous = artifacts_by_path.get(version.artifact.path)
+            if previous is not None and previous != version.artifact:
+                raise ValueError(
+                    "prop/clue artifact paths cannot identify different immutable bytes"
+                )
+            artifacts_by_path[version.artifact.path] = version.artifact
+        if self.selected_version_id not in set(ids):
+            raise ValueError("selected prop/clue version does not exist")
+        parents = {
+            version.asset_version_id: version.derived_from for version in self.versions
+        }
+        for version_id, parent in parents.items():
+            if parent is not None and parent not in parents:
+                raise ValueError("derived prop/clue version does not exist")
+            seen: set[str] = set()
+            current: Optional[str] = version_id
+            while current is not None:
+                if current in seen:
+                    raise ValueError("prop/clue version derivation contains a cycle")
+                seen.add(current)
+                current = parents[current]
+        return self
+
+
+class PropOrClueAssetRef(BaseModel):
+    """Frozen reference to one exact selected prop/clue version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: PropOrClueKind
+    asset_id: str = Field(pattern=_PROP_OR_CLUE_ID_PATTERN)
+    asset_version_id: str = Field(pattern=_PROP_OR_CLUE_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    artifact_sha256: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _prop_clue_ref_matches_kind(self) -> "PropOrClueAssetRef":
+        expected_prefix = "p" if self.kind == "prop" else "l"
+        if not self.asset_id.startswith(expected_prefix):
+            raise ValueError("prop/clue ref kind does not match its semantic id")
+        return self
+
+
+class PropOrClueAssetCatalog(BaseModel):
+    """Season-level prop/clue candidates; an explicit empty catalog is valid."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    assets: List[PropOrClueAsset] = Field(max_length=999)
+    catalog_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _prop_clue_catalog_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict positive integer")
+        return value
+
+    @model_validator(mode="after")
+    def _prop_clue_catalog_is_consistent(self) -> "PropOrClueAssetCatalog":
+        ids = [asset.asset_id for asset in self.assets]
+        if len(ids) != len(set(ids)):
+            raise ValueError("prop/clue asset ids must be unique")
+        payload = self.model_dump(exclude={"catalog_fingerprint"})
+        if _canonical_sha256(payload) != self.catalog_fingerprint:
+            raise ValueError("prop/clue catalog fingerprint is invalid")
+        return self
+
+
+class ShotPropOrClueRefs(BaseModel):
+    """One explicit stable-shot to ordered prop/clue reference list."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    asset_refs: List[PropOrClueAssetRef] = Field(max_length=16)
+
+    @model_validator(mode="after")
+    def _shot_prop_clue_refs_are_unique(self) -> "ShotPropOrClueRefs":
+        ids = [ref.asset_id for ref in self.asset_refs]
+        if len(ids) != len(set(ids)):
+            raise ValueError("shot prop/clue refs must be unique")
+        return self
+
+
+class EpisodePropOrClueAssetManifest(BaseModel):
+    """Episode-scoped explicit prop/clue bindings and selected versions."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    binding_revision: int = Field(ge=0, le=2_147_483_647)
+    usage_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shot_asset_refs: List[ShotPropOrClueRefs] = Field(min_length=1, max_length=100)
+    manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "binding_revision", mode="before")
+    @classmethod
+    def _prop_clue_manifest_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _prop_clue_manifest_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _prop_clue_manifest_is_consistent(
+        self,
+    ) -> "EpisodePropOrClueAssetManifest":
+        shot_ids = [binding.shot_id for binding in self.shot_asset_refs]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("prop/clue manifest shot ids must be unique")
+        usage_payload = [binding.model_dump() for binding in self.shot_asset_refs]
+        if _canonical_sha256(usage_payload) != self.usage_fingerprint:
+            raise ValueError("prop/clue manifest usage fingerprint is invalid")
+        payload = self.model_dump(exclude={"manifest_fingerprint"})
+        if _canonical_sha256(payload) != self.manifest_fingerprint:
+            raise ValueError("prop/clue manifest fingerprint is invalid")
         return self
 
 
