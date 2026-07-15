@@ -28,6 +28,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import secrets
+import stat
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -65,11 +67,43 @@ def _holder_path(lock: Path) -> Path:
 
 
 def _read_holder(lock: Path) -> Optional[Dict[str, Any]]:
+    directory_fd: int | None = None
+    file_fd: int | None = None
     try:
-        data = json.loads(_holder_path(lock).read_text(encoding="utf-8"))
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        directory = getattr(os, "O_DIRECTORY", None)
+        if nofollow is None or directory is None:
+            return None
+        directory_fd = os.open(
+            str(lock.parent),
+            os.O_RDONLY | directory | nofollow,
+        )
+        file_fd = os.open(
+            _holder_path(lock).name,
+            os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_fd,
+        )
+        info = os.fstat(file_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size <= 0 or info.st_size > 4096:
+            return None
+        payload = os.read(file_fd, info.st_size + 1)
+        if len(payload) != info.st_size:
+            return None
+        data = json.loads(payload.decode("utf-8"))
         return data if isinstance(data, dict) else None
-    except (OSError, ValueError):
+    except (OSError, UnicodeDecodeError, ValueError):
         return None
+    finally:
+        if file_fd is not None:
+            try:
+                os.close(file_fd)
+            except OSError:
+                pass
+        if directory_fd is not None:
+            try:
+                os.close(directory_fd)
+            except OSError:
+                pass
 
 
 def _write_holder(lock: Path, source: str) -> None:
@@ -83,15 +117,56 @@ def _write_holder(lock: Path, source: str) -> None:
         "workspace": paths.workspace_name() or "legacy",
     }
     target = _holder_path(lock)
-    tmp = target.with_name(target.name + f".tmp.{os.getpid()}")
+    directory_fd: int | None = None
+    temp_fd: int | None = None
+    temp_name = f".{target.name}.tmp.{os.getpid()}.{secrets.token_hex(8)}"
     try:
-        tmp.write_text(json.dumps(holder, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp, target)
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        directory = getattr(os, "O_DIRECTORY", None)
+        if nofollow is None or directory is None:
+            return
+        directory_fd = os.open(
+            str(lock.parent),
+            os.O_RDONLY | directory | nofollow,
+        )
+        temp_fd = os.open(
+            temp_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        payload = json.dumps(holder, ensure_ascii=False, indent=2).encode("utf-8")
+        view = memoryview(payload)
+        while view:
+            written = os.write(temp_fd, view)
+            if written <= 0:
+                raise OSError("short workspace holder write")
+            view = view[written:]
+        os.close(temp_fd)
+        temp_fd = None
+        os.replace(
+            temp_name,
+            target.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
     except OSError:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
+        pass
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if directory_fd is not None:
+            try:
+                os.unlink(temp_name, dir_fd=directory_fd)
+            except OSError:
+                pass
+            try:
+                os.close(directory_fd)
+            except OSError:
+                pass
 
 
 def _locked_message(lock: Path) -> str:
@@ -119,7 +194,27 @@ def acquire_write_lock(*, source: str) -> Iterator[None]:
     """
     lock = lock_path()
     lock.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(lock), os.O_RDWR | os.O_CREAT, 0o644)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise OSError("strict no-follow workspace locking is unavailable")
+    directory_fd = os.open(
+        str(lock.parent),
+        os.O_RDONLY | directory | nofollow,
+    )
+    try:
+        fd = os.open(
+            lock.name,
+            os.O_RDWR | os.O_CREAT | nofollow | getattr(os, "O_NONBLOCK", 0),
+            0o644,
+            dir_fd=directory_fd,
+        )
+    finally:
+        os.close(directory_fd)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode):
+        os.close(fd)
+        raise OSError("workspace lock must be a regular file")
     acquired = False
     try:
         try:

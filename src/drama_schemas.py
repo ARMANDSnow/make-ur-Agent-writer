@@ -702,6 +702,7 @@ _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 _SHOT_ID_PATTERN = r"^shot_[0-9a-f]{24}$"
 _SEGMENT_ID_PATTERN = r"^segment_[0-9a-f]{24}$"
 _ASSET_VERSION_ID_PATTERN = r"^av_[0-9a-f]{24}$"
+_ART_DIRECTION_VERSION_ID_PATTERN = r"^ad_[0-9a-f]{24}$"
 
 
 def _canonical_sha256(data: Any) -> str:
@@ -723,6 +724,161 @@ class ArtDirectionRef(BaseModel):
     art_direction_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     version_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,79}$")
     fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+
+class ArtDirectionSpec(BaseModel):
+    """Bounded season-level visual direction without provider/prompt evidence."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    preset: str = Field(default="", max_length=80)
+    positive_tokens: List[str] = Field(default_factory=list, max_length=32)
+    negative_tokens: List[str] = Field(default_factory=list, max_length=32)
+    palette: List[str] = Field(default_factory=list, max_length=8)
+    aspect_ratio: str = Field(pattern=r"^[1-9][0-9]?:[1-9][0-9]?$", max_length=5)
+
+    @field_validator("preset", mode="before")
+    @classmethod
+    def _preset_is_canonical(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("art direction preset must be a string")
+        if value and (not value.strip() or value != value.strip()):
+            raise ValueError("art direction preset must use canonical whitespace")
+        return value
+
+    @field_validator("positive_tokens", "negative_tokens", mode="before")
+    @classmethod
+    def _tokens_are_bounded_unique_strings(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("art direction tokens must be a list")
+        if any(
+            not isinstance(item, str)
+            or not item
+            or not item.strip()
+            or item != item.strip()
+            or len(item) > 80
+            for item in value
+        ):
+            raise ValueError("art direction tokens must be non-empty bounded strings")
+        if len(value) != len(set(value)):
+            raise ValueError("art direction tokens must be unique")
+        return value
+
+    @field_validator("palette", mode="before")
+    @classmethod
+    def _palette_is_canonical_hex(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("art direction palette must be a list")
+        if any(
+            not isinstance(item, str)
+            or re.fullmatch(r"#[0-9a-f]{6}", item) is None
+            for item in value
+        ):
+            raise ValueError("art direction palette must use lowercase #rrggbb colors")
+        if len(value) != len(set(value)):
+            raise ValueError("art direction palette entries must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def _spec_has_visual_content(self) -> "ArtDirectionSpec":
+        if not (
+            self.preset
+            or self.positive_tokens
+            or self.negative_tokens
+            or self.palette
+        ):
+            raise ValueError("art direction spec must contain visual guidance")
+        return self
+
+
+ArtDirectionVersionSource = Literal[
+    "preset",
+    "manual",
+    "ai_suggestion",
+    "imported",
+]
+
+
+class ArtDirectionVersion(BaseModel):
+    """One immutable, content-addressed art-direction candidate."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    art_direction_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    version_id: str = Field(pattern=_ART_DIRECTION_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    derived_from: Optional[str] = Field(
+        default=None,
+        pattern=_ART_DIRECTION_VERSION_ID_PATTERN,
+    )
+    source_kind: ArtDirectionVersionSource
+    spec: ArtDirectionSpec
+
+    @model_validator(mode="after")
+    def _version_is_content_addressed(self) -> "ArtDirectionVersion":
+        if self.derived_from == self.version_id:
+            raise ValueError("art direction version cannot derive from itself")
+        payload = self.model_dump(exclude={"version_id", "version_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if fingerprint != self.version_fingerprint:
+            raise ValueError("art direction version fingerprint is invalid")
+        if self.version_id != f"ad_{fingerprint[:24]}":
+            raise ValueError("art direction version id is invalid")
+        return self
+
+
+class ArtDirectionCatalog(BaseModel):
+    """Season-level candidates plus one explicit selected version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    art_direction_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    versions: List[ArtDirectionVersion] = Field(min_length=1, max_length=256)
+    selected_version_id: str = Field(pattern=_ART_DIRECTION_VERSION_ID_PATTERN)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+    catalog_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "selection_revision", mode="before")
+    @classmethod
+    def _catalog_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        if info.field_name == "season_no" and value < 1:
+            raise ValueError("season_no must be positive")
+        return value
+
+    @model_validator(mode="after")
+    def _catalog_is_consistent(self) -> "ArtDirectionCatalog":
+        if any(
+            version.art_direction_id != self.art_direction_id
+            for version in self.versions
+        ):
+            raise ValueError("art direction versions must belong to the catalog")
+        ids = [version.version_id for version in self.versions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("art direction version ids must be unique")
+        if self.selected_version_id not in set(ids):
+            raise ValueError("selected art direction version does not exist")
+        parents = {
+            version.version_id: version.derived_from for version in self.versions
+        }
+        for parent in parents.values():
+            if parent is not None and parent not in parents:
+                raise ValueError("derived art direction version does not exist")
+        for version_id in parents:
+            seen: set[str] = set()
+            current: Optional[str] = version_id
+            while current is not None:
+                if current in seen:
+                    raise ValueError("art direction derivation contains a cycle")
+                seen.add(current)
+                current = parents[current]
+        payload = self.model_dump(exclude={"catalog_fingerprint"})
+        if _canonical_sha256(payload) != self.catalog_fingerprint:
+            raise ValueError("art direction catalog fingerprint is invalid")
+        return self
 
 
 class AssetArtifact(BaseModel):

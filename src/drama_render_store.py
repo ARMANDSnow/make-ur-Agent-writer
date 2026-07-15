@@ -11,9 +11,13 @@ import stat
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Any, Callable, Dict, Literal
 
 from . import paths
+from .drama_art_direction_store import (
+    DramaArtDirectionStoreError,
+    resolve_selected_art_direction_ref,
+)
 from .drama_render_plan import build_render_plan
 from .drama_schemas import ArtDirectionRef, RenderPlan, episode_paths, normalize_episode_no
 from .drama_store import (
@@ -162,9 +166,27 @@ def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanIns
         return RenderPlanInspection("blocked_source", ("source_stale",), plan)
 
     try:
+        selected_art_ref = resolve_selected_art_direction_ref(
+            workspace,
+            season_no=snapshot.episode["season_no"],
+        )
+    except (OSError, TypeError, ValueError, DramaArtDirectionStoreError):
+        return RenderPlanInspection(
+            "blocked_source",
+            ("art_direction_catalog_invalid",),
+            plan,
+        )
+    if plan is not None and selected_art_ref is None and plan.art_direction_ref is not None:
+        return RenderPlanInspection(
+            "blocked_source",
+            ("art_direction_catalog_missing",),
+            plan,
+        )
+
+    try:
         expected = build_render_plan(
             snapshot,
-            art_direction_ref=(plan.art_direction_ref if plan is not None else None),
+            art_direction_ref=selected_art_ref,
         )
     except (TypeError, ValueError):
         return RenderPlanInspection("blocked_source", ("source_unrenderable",), plan)
@@ -182,6 +204,8 @@ def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanIns
         reasons.append("creative_fingerprint_mismatch")
     if plan.frozen_character_ids != expected.frozen_character_ids:
         reasons.append("creative_fingerprint_mismatch")
+    if plan.art_direction_ref != expected.art_direction_ref:
+        reasons.append("art_direction_ref_mismatch")
     if plan.plan_fingerprint != expected.plan_fingerprint:
         reasons.append("plan_source_mismatch")
     if reasons:
@@ -210,6 +234,7 @@ def _write_render_plan(
     plan: RenderPlan,
     *,
     expected_target_token: tuple[Any, ...],
+    precommit_check: Callable[[], None] | None = None,
 ) -> None:
     envelope = {
         "schema_version": 1,
@@ -270,6 +295,12 @@ def _write_render_plan(
             view = view[written:]
         os.close(temp_fd)
         temp_fd = None
+        if precommit_check is not None:
+            precommit_check()
+        if _target_token_at(directory_fd, relative.name) != expected_target_token:
+            raise RenderPlanStoreError(
+                "render plan changed concurrently; retry from inspection"
+            )
         os.replace(
             temp_name,
             relative.name,
@@ -299,9 +330,14 @@ def _write_render_plan(
 
 def _target_token_at(directory_fd: int, name: str) -> tuple[Any, ...]:
     nofollow = getattr(os, "O_NOFOLLOW", 0)
+    nonblock = getattr(os, "O_NONBLOCK", 0)
     file_fd: int | None = None
     try:
-        file_fd = os.open(name, os.O_RDONLY | nofollow, dir_fd=directory_fd)
+        file_fd = os.open(
+            name,
+            os.O_RDONLY | nofollow | nonblock,
+            dir_fd=directory_fd,
+        )
     except FileNotFoundError:
         return ("missing",)
     except OSError:
@@ -372,9 +408,23 @@ def _create_render_plan_locked(
         raise RenderPlanStoreError("fresh render source is required")
 
     snapshot = _source_snapshot(workspace, episode_no=episode_no)
-    selected_art_ref = art_direction_ref
-    if selected_art_ref is None and inspection.plan is not None:
-        selected_art_ref = inspection.plan.art_direction_ref
+    try:
+        selected_art_ref = resolve_selected_art_direction_ref(
+            workspace,
+            season_no=snapshot.episode["season_no"],
+        )
+    except (OSError, TypeError, ValueError, DramaArtDirectionStoreError) as exc:
+        raise RenderPlanStoreError("valid art direction catalog is required") from exc
+    if art_direction_ref is not None:
+        expected_ref = (
+            art_direction_ref
+            if isinstance(art_direction_ref, ArtDirectionRef)
+            else ArtDirectionRef(**art_direction_ref)
+        )
+        if selected_art_ref is None or expected_ref != selected_art_ref:
+            raise RenderPlanStoreError(
+                "art direction ref does not match the selected catalog version"
+            )
     desired = build_render_plan(snapshot, art_direction_ref=selected_art_ref)
 
     if inspection.state == "fresh" and inspection.plan is not None:
@@ -385,13 +435,29 @@ def _create_render_plan_locked(
     elif inspection.state == "stale" and not replace_stale:
         raise RenderPlanStoreError("stale render plan requires explicit replacement")
 
-    final_snapshot = _source_snapshot(workspace, episode_no=episode_no)
-    if final_snapshot.snapshot_fingerprint != snapshot.snapshot_fingerprint:
-        raise RenderPlanStoreError("render source changed concurrently; retry from inspection")
+    def precommit() -> None:
+        final_snapshot = _source_snapshot(workspace, episode_no=episode_no)
+        if final_snapshot.snapshot_fingerprint != snapshot.snapshot_fingerprint:
+            raise RenderPlanStoreError(
+                "render source changed concurrently; retry from inspection"
+            )
+        try:
+            final_art_ref = resolve_selected_art_direction_ref(
+                workspace,
+                season_no=final_snapshot.episode["season_no"],
+            )
+        except (OSError, TypeError, ValueError, DramaArtDirectionStoreError) as exc:
+            raise RenderPlanStoreError(
+                "art direction source changed concurrently"
+            ) from exc
+        if final_art_ref != selected_art_ref:
+            raise RenderPlanStoreError("art direction source changed concurrently")
+
     _write_render_plan(
         workspace,
         desired,
         expected_target_token=target_token,
+        precommit_check=precommit,
     )
     persisted = _read_render_plan(workspace, episode_no=episode_no)
     if persisted.plan_fingerprint != desired.plan_fingerprint:

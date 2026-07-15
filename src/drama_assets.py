@@ -8,6 +8,10 @@ import re
 from typing import Any, Dict, Mapping
 
 from .drama_schemas import (
+    ArtDirectionCatalog,
+    ArtDirectionRef,
+    ArtDirectionSpec,
+    ArtDirectionVersion,
     AssetArtifact,
     AssetRef,
     AssetVersion,
@@ -33,6 +37,156 @@ def _sha256(data: Any) -> str:
         allow_nan=False,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def build_art_direction_version(
+    *,
+    art_direction_id: str,
+    spec: ArtDirectionSpec | Dict[str, Any],
+    source_kind: str,
+    derived_from: str | None = None,
+) -> ArtDirectionVersion:
+    """Build one immutable local candidate without calling a provider."""
+
+    validated_spec = spec if isinstance(spec, ArtDirectionSpec) else ArtDirectionSpec(**spec)
+    payload: Dict[str, Any] = {
+        "art_direction_id": art_direction_id,
+        "derived_from": derived_from,
+        "source_kind": source_kind,
+        "spec": model_to_dict(validated_spec),
+    }
+    fingerprint = _sha256(payload)
+    return ArtDirectionVersion(
+        version_id=f"ad_{fingerprint[:24]}",
+        version_fingerprint=fingerprint,
+        **payload,
+    )
+
+
+def _art_direction_catalog_from_payload(
+    payload: Dict[str, Any],
+) -> ArtDirectionCatalog:
+    data = dict(payload)
+    data["catalog_fingerprint"] = _sha256(data)
+    return ArtDirectionCatalog(**data)
+
+
+def build_art_direction_catalog(
+    version: ArtDirectionVersion | Dict[str, Any],
+    *,
+    season_no: int = 1,
+) -> ArtDirectionCatalog:
+    """Create a catalog whose initial candidate is explicitly selected."""
+
+    candidate = (
+        version if isinstance(version, ArtDirectionVersion) else ArtDirectionVersion(**version)
+    )
+    return _art_direction_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": season_no,
+            "art_direction_id": candidate.art_direction_id,
+            "versions": [model_to_dict(candidate)],
+            "selected_version_id": candidate.version_id,
+            "selection_revision": 0,
+        }
+    )
+
+
+def append_art_direction_version(
+    catalog: ArtDirectionCatalog | Dict[str, Any],
+    *,
+    version: ArtDirectionVersion | Dict[str, Any],
+    expected_catalog_fingerprint: str,
+) -> ArtDirectionCatalog:
+    """Append one candidate under whole-catalog CAS without selecting it."""
+
+    current = (
+        catalog if isinstance(catalog, ArtDirectionCatalog) else ArtDirectionCatalog(**catalog)
+    )
+    candidate = (
+        version if isinstance(version, ArtDirectionVersion) else ArtDirectionVersion(**version)
+    )
+    if expected_catalog_fingerprint != current.catalog_fingerprint:
+        raise ValueError("art direction catalog changed; refresh before append")
+    if candidate.art_direction_id != current.art_direction_id:
+        raise ValueError("art direction version belongs to another catalog")
+    by_id = {item.version_id: item for item in current.versions}
+    existing = by_id.get(candidate.version_id)
+    if existing is not None:
+        if existing != candidate:
+            raise ValueError("content-addressed art direction version conflicts")
+        return current
+    if candidate.derived_from is not None and candidate.derived_from not in by_id:
+        raise ValueError("derived art direction version does not exist")
+    return _art_direction_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "art_direction_id": current.art_direction_id,
+            "versions": [
+                *[model_to_dict(item) for item in current.versions],
+                model_to_dict(candidate),
+            ],
+            "selected_version_id": current.selected_version_id,
+            "selection_revision": current.selection_revision,
+        }
+    )
+
+
+def select_art_direction_version(
+    catalog: ArtDirectionCatalog | Dict[str, Any],
+    *,
+    version_id: str,
+    expected_selection_revision: int,
+    expected_selected_version_id: str,
+) -> ArtDirectionCatalog:
+    """Select an existing candidate under revision/current-id double CAS."""
+
+    if not isinstance(expected_selection_revision, int) or isinstance(
+        expected_selection_revision, bool
+    ):
+        raise ValueError("expected art direction selection revision must be strict")
+    current = (
+        catalog if isinstance(catalog, ArtDirectionCatalog) else ArtDirectionCatalog(**catalog)
+    )
+    if (
+        current.selection_revision != expected_selection_revision
+        or current.selected_version_id != expected_selected_version_id
+    ):
+        raise ValueError("art direction selection changed; refresh before selecting")
+    if version_id not in {item.version_id for item in current.versions}:
+        raise ValueError("art direction version does not exist")
+    if version_id == current.selected_version_id:
+        return current
+    return _art_direction_catalog_from_payload(
+        {
+            "schema_version": 1,
+            "season_no": current.season_no,
+            "art_direction_id": current.art_direction_id,
+            "versions": [model_to_dict(item) for item in current.versions],
+            "selected_version_id": version_id,
+            "selection_revision": current.selection_revision + 1,
+        }
+    )
+
+
+def selected_art_direction_ref(
+    catalog: ArtDirectionCatalog | Dict[str, Any],
+) -> ArtDirectionRef:
+    """Freeze the selected version into the existing RenderPlan v1 ref shape."""
+
+    current = (
+        catalog if isinstance(catalog, ArtDirectionCatalog) else ArtDirectionCatalog(**catalog)
+    )
+    selected = next(
+        item for item in current.versions if item.version_id == current.selected_version_id
+    )
+    return ArtDirectionRef(
+        art_direction_id=current.art_direction_id,
+        version_id=selected.version_id,
+        fingerprint=selected.version_fingerprint,
+    )
 
 
 def character_render_identity(

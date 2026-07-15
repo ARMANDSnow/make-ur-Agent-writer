@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from src import (
     character_designer,
+    drama_art_direction_store,
     drama_asset_versions,
     drama_assets,
     drama_render_store,
@@ -67,6 +68,16 @@ class DramaAssetVersionStoreTests(DramaTestBase):
             )
             drama_store.assemble_episode(name)
             drama_render_store.create_render_plan(name)
+
+    @staticmethod
+    def _art_spec(preset: str = "cinematic") -> dict:
+        return {
+            "preset": preset,
+            "positive_tokens": ["ink wash"],
+            "negative_tokens": ["watermark"],
+            "palette": ["#112233"],
+            "aspect_ratio": "9:16",
+        }
 
     @staticmethod
     def _catalog_bytes(catalog) -> bytes:
@@ -862,3 +873,82 @@ raise SystemExit(0 if state == 'invalid' and token == ('invalid',) else 3)
         stale = drama_asset_versions.inspect_episode_asset_manifest("render-stale")
         self.assertEqual(stale.state, "stale")
         self.assertIn("render_plan_stale", stale.reasons)
+
+    @patch.object(socket, "socket", side_effect=AssertionError("network"))
+    def test_art_direction_selection_propagates_to_episode_manifest(
+        self,
+        _socket,
+    ) -> None:
+        name = "art-manifest"
+        self._seed(name, assembled=True)
+        art_catalog = drama_art_direction_store.create_art_direction_catalog(
+            name,
+            art_direction_id="season_default",
+            spec=self._art_spec(),
+            source_kind="preset",
+        )
+        self.assertEqual(drama_render_store.inspect_render_plan(name).state, "stale")
+        drama_render_store.create_render_plan(name, replace_stale=True)
+        drama_asset_versions.create_character_asset_catalog(name)
+        manifest = drama_asset_versions.create_episode_asset_manifest(name)
+        self.assertEqual(
+            drama_asset_versions.inspect_episode_asset_manifest(name).state,
+            "fresh",
+        )
+        manifest_path = drama_asset_versions.episode_asset_manifest_path(name)
+        manifest_bytes = manifest_path.read_bytes()
+        art_path = drama_art_direction_store.art_direction_catalog_path(name)
+        art_bytes = art_path.read_bytes()
+        art_path.unlink()
+        blocked = drama_asset_versions.inspect_episode_asset_manifest(name)
+        self.assertEqual(blocked.state, "blocked_source")
+        self.assertEqual(manifest_path.read_bytes(), manifest_bytes)
+        art_path.write_text('{"x":NaN}', encoding="utf-8")
+        blocked = drama_asset_versions.inspect_episode_asset_manifest(name)
+        self.assertEqual(blocked.state, "blocked_source")
+        self.assertEqual(manifest_path.read_bytes(), manifest_bytes)
+        art_path.write_bytes(art_bytes)
+        self.assertEqual(
+            drama_asset_versions.inspect_episode_asset_manifest(name).state,
+            "fresh",
+        )
+
+        appended = drama_art_direction_store.append_art_direction_candidate(
+            name,
+            spec=self._art_spec("candidate"),
+            source_kind="manual",
+            derived_from=art_catalog.selected_version_id,
+            expected_catalog_fingerprint=art_catalog.catalog_fingerprint,
+        )
+        self.assertEqual(drama_render_store.inspect_render_plan(name).state, "fresh")
+        self.assertEqual(
+            drama_asset_versions.inspect_episode_asset_manifest(name).state,
+            "fresh",
+        )
+        candidate = appended.versions[-1]
+        drama_art_direction_store.select_art_direction_version(
+            name,
+            version_id=candidate.version_id,
+            expected_selection_revision=0,
+            expected_selected_version_id=art_catalog.selected_version_id,
+        )
+        self.assertEqual(drama_render_store.inspect_render_plan(name).state, "stale")
+        stale = drama_asset_versions.inspect_episode_asset_manifest(name)
+        self.assertEqual(stale.state, "stale")
+        self.assertIn("render_plan_stale", stale.reasons)
+
+        rebuilt = drama_render_store.create_render_plan(name, replace_stale=True)
+        self.assertNotEqual(rebuilt.plan_fingerprint, manifest.render_plan_fingerprint)
+        self.assertEqual(
+            drama_asset_versions.inspect_episode_asset_manifest(name).state,
+            "stale",
+        )
+        replaced = drama_asset_versions.create_episode_asset_manifest(
+            name,
+            replace_stale=True,
+        )
+        self.assertEqual(replaced.render_plan_fingerprint, rebuilt.plan_fingerprint)
+        self.assertEqual(
+            drama_asset_versions.inspect_episode_asset_manifest(name).state,
+            "fresh",
+        )

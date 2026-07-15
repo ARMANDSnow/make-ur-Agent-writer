@@ -11,12 +11,14 @@ from unittest.mock import patch
 
 from src import (
     character_designer,
+    drama_art_direction_store,
     drama_render_store,
     drama_reviewer,
     drama_store,
     paths,
     storyboard_builder,
 )
+from src.drama_assets import selected_art_direction_ref
 from src.drama_schemas import character_paths, episode_paths
 from src.utils import read_json, write_json
 from tests._drama_base import DramaTestBase
@@ -81,6 +83,24 @@ class DramaRenderStoreTests(DramaTestBase):
             drama_reviewer.run(name, mock=True),
         )
         drama_store.assemble_episode(name)
+
+    @staticmethod
+    def _art_spec(preset: str = "cinematic") -> dict:
+        return {
+            "preset": preset,
+            "positive_tokens": ["ink wash"],
+            "negative_tokens": ["watermark"],
+            "palette": ["#112233"],
+            "aspect_ratio": "9:16",
+        }
+
+    def _art_catalog(self, name: str):
+        return drama_art_direction_store.create_art_direction_catalog(
+            name,
+            art_direction_id="season_default",
+            spec=self._art_spec(),
+            source_kind="preset",
+        )
 
     def test_missing_create_load_and_idempotent_bytes(self) -> None:
         self._assembled()
@@ -350,6 +370,21 @@ class DramaRenderStoreTests(DramaTestBase):
             drama_render_store.render_plan_path("target-race").exists()
         )
 
+        self._assembled("target-late-race")
+        with patch.object(
+            drama_render_store,
+            "_target_token_at",
+            side_effect=[("missing",), ("file", 1, "changed-before-replace")],
+        ):
+            with self.assertRaisesRegex(
+                drama_render_store.RenderPlanStoreError,
+                "changed concurrently",
+            ):
+                drama_render_store.create_render_plan("target-late-race")
+        self.assertFalse(
+            drama_render_store.render_plan_path("target-late-race").exists()
+        )
+
         self._assembled("source-race")
         snapshot = drama_store.load_fresh_episode_for_render("source-race")
         changed = replace(snapshot, snapshot_fingerprint="0" * 64)
@@ -436,6 +471,127 @@ class DramaRenderStoreTests(DramaTestBase):
             inspection = drama_render_store.inspect_render_plan("offline")
         self.assertEqual(inspection.state, "fresh")
         self.assertEqual(inspection.plan, plan)
+
+    def test_selected_art_direction_is_frozen_but_unselected_candidate_is_not_stale(self) -> None:
+        name = "art-freeze"
+        self._assembled(name)
+        catalog = self._art_catalog(name)
+        plan = drama_render_store.create_render_plan(name)
+        self.assertEqual(plan.art_direction_ref, selected_art_direction_ref(catalog))
+
+        appended = drama_art_direction_store.append_art_direction_candidate(
+            name,
+            spec=self._art_spec("graphic-novel"),
+            source_kind="manual",
+            derived_from=catalog.selected_version_id,
+            expected_catalog_fingerprint=catalog.catalog_fingerprint,
+        )
+        self.assertEqual(appended.selected_version_id, catalog.selected_version_id)
+        inspection = drama_render_store.inspect_render_plan(name)
+        self.assertEqual(inspection.state, "fresh")
+        self.assertEqual(inspection.plan, plan)
+        self.assertEqual(
+            drama_render_store.create_render_plan(
+                name,
+                art_direction_ref=plan.art_direction_ref,
+            ),
+            plan,
+        )
+
+    def test_selection_change_stales_and_explicit_rebuild_uses_current_ref(self) -> None:
+        name = "art-selection"
+        self._assembled(name)
+        catalog = self._art_catalog(name)
+        old_plan = drama_render_store.create_render_plan(name)
+        appended = drama_art_direction_store.append_art_direction_candidate(
+            name,
+            spec=self._art_spec("candidate"),
+            source_kind="manual",
+            derived_from=catalog.selected_version_id,
+            expected_catalog_fingerprint=catalog.catalog_fingerprint,
+        )
+        candidate = appended.versions[-1]
+        selected = drama_art_direction_store.select_art_direction_version(
+            name,
+            version_id=candidate.version_id,
+            expected_selection_revision=0,
+            expected_selected_version_id=catalog.selected_version_id,
+        )
+        inspection = drama_render_store.inspect_render_plan(name)
+        self.assertEqual(inspection.state, "stale")
+        self.assertIn("art_direction_ref_mismatch", inspection.reasons)
+        with self.assertRaisesRegex(
+            drama_render_store.RenderPlanStoreError,
+            "stale render plan",
+        ):
+            drama_render_store.create_render_plan(name)
+        rebuilt = drama_render_store.create_render_plan(name, replace_stale=True)
+        self.assertNotEqual(rebuilt.plan_fingerprint, old_plan.plan_fingerprint)
+        self.assertEqual(rebuilt.creative_fingerprint, old_plan.creative_fingerprint)
+        self.assertEqual(rebuilt.frozen_character_ids, old_plan.frozen_character_ids)
+        self.assertEqual(rebuilt.art_direction_ref, selected_art_direction_ref(selected))
+        self.assertEqual(drama_render_store.inspect_render_plan(name).state, "fresh")
+
+    def test_unproved_or_invalid_art_direction_never_becomes_fresh(self) -> None:
+        name = "art-proof"
+        self._assembled(name)
+        forged = {
+            "art_direction_id": "season_default",
+            "version_id": "ad_" + "1" * 24,
+            "fingerprint": "1" * 64,
+        }
+        with self.assertRaisesRegex(
+            drama_render_store.RenderPlanStoreError,
+            "does not match",
+        ):
+            drama_render_store.create_render_plan(name, art_direction_ref=forged)
+
+        self._art_catalog(name)
+        plan = drama_render_store.create_render_plan(name)
+        render_path = drama_render_store.render_plan_path(name)
+        before = render_path.read_bytes()
+        catalog_path = drama_art_direction_store.art_direction_catalog_path(name)
+        catalog_path.unlink()
+        inspection = drama_render_store.inspect_render_plan(name)
+        self.assertEqual(inspection.state, "blocked_source")
+        self.assertIn("art_direction_catalog_missing", inspection.reasons)
+        catalog_path.write_text('{"x":NaN}', encoding="utf-8")
+        inspection = drama_render_store.inspect_render_plan(name)
+        self.assertEqual(inspection.state, "blocked_source")
+        self.assertIn("art_direction_catalog_invalid", inspection.reasons)
+        self.assertEqual(render_path.read_bytes(), before)
+        self.assertIsNotNone(plan.art_direction_ref)
+
+    def test_art_direction_precommit_change_aborts_without_render_write(self) -> None:
+        name = "art-race"
+        self._assembled(name)
+        catalog = self._art_catalog(name)
+        appended = drama_art_direction_store.append_art_direction_candidate(
+            name,
+            spec=self._art_spec("candidate"),
+            source_kind="manual",
+            derived_from=catalog.selected_version_id,
+            expected_catalog_fingerprint=catalog.catalog_fingerprint,
+        )
+        current_ref = selected_art_direction_ref(appended)
+        changed = drama_art_direction_store.select_art_direction_version(
+            name,
+            version_id=appended.versions[-1].version_id,
+            expected_selection_revision=0,
+            expected_selected_version_id=appended.selected_version_id,
+        )
+        changed_ref = selected_art_direction_ref(changed)
+        with patch.object(
+            drama_render_store,
+            "resolve_selected_art_direction_ref",
+            side_effect=[current_ref, current_ref, changed_ref],
+        ):
+            with self.assertRaisesRegex(
+                drama_render_store.RenderPlanStoreError,
+                "art direction source changed concurrently",
+            ):
+                drama_render_store.create_render_plan(name)
+        self.assertFalse(drama_render_store.render_plan_path(name).exists())
 
 
 if __name__ == "__main__":

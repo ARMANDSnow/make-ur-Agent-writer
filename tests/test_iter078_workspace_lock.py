@@ -66,6 +66,48 @@ class LockContentionTests(_WorkspaceMixin, unittest.TestCase):
             self.assertIn("probe", holder.read_text(encoding="utf-8"))
         self.assertFalse(holder.exists())
 
+    def test_lock_and_holder_symlinks_never_write_external_targets(self) -> None:
+        lock = workspace_lock.lock_path()
+        external_lock = lock.with_name("external-lock-target")
+        external_lock.write_text("LOCK-SENTINEL", encoding="utf-8")
+        lock.symlink_to(external_lock)
+        with self.assertRaises(OSError):
+            with acquire_write_lock(source="probe"):
+                pass
+        self.assertEqual(external_lock.read_text(encoding="utf-8"), "LOCK-SENTINEL")
+        lock.unlink()
+
+        holder = lock.with_name(lock.name + ".holder.json")
+        external_holder = lock.with_name("external-holder-target")
+        external_holder.write_text("HOLDER-SENTINEL", encoding="utf-8")
+        holder.symlink_to(external_holder)
+        with acquire_write_lock(source="probe"):
+            self.assertTrue(holder.is_file())
+            self.assertFalse(holder.is_symlink())
+        self.assertEqual(
+            external_holder.read_text(encoding="utf-8"),
+            "HOLDER-SENTINEL",
+        )
+
+        external_temp = lock.with_name("external-holder-temp-target")
+        external_temp.write_text("TEMP-SENTINEL", encoding="utf-8")
+        fixed_token = "fixedtoken"
+        holder_temp = lock.with_name(
+            f".{holder.name}.tmp.{os.getpid()}.{fixed_token}"
+        )
+        holder_temp.symlink_to(external_temp)
+        with patch(
+            "src.workspace_lock.secrets.token_hex",
+            return_value=fixed_token,
+        ):
+            with acquire_write_lock(source="probe"):
+                self.assertFalse(holder.exists())
+        self.assertEqual(
+            external_temp.read_text(encoding="utf-8"),
+            "TEMP-SENTINEL",
+        )
+        self.assertFalse(holder_temp.exists())
+
 
 class CrossProcessLockTests(_WorkspaceMixin, unittest.TestCase):
     def setUp(self) -> None:
