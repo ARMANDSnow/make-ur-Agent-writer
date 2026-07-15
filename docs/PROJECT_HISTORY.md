@@ -33,6 +33,7 @@
 | 105 | 短剧单集角色投影一致性 | reviewer、组装、Comfy 与 episode 1 视频共享冻结阵容；歧义旧数据 fail-closed |
 | 106 | 短剧渲染计划与创作陈旧性边界 | fresh assembled episode 确定投影 strict RenderPlan；五态 stale 分类、幂等落盘与歧义镜头 fail-closed |
 | 107 | 短剧角色资产版本与冻结选择 | 角色语义 ID、不可变版本、显式 selected CAS 与单集 active AssetRef manifest |
+| 108 | 短剧美术方向版本与渲染冻结 | season ArtDirection 不可变候选、显式 selected CAS、RenderPlan ref 与单集 manifest stale 传播 |
 
 ## Iteration Implementation Index
 
@@ -121,6 +122,7 @@
 | 105 | 统一短剧单集冻结角色投影与消费端血统 | `src/drama_store.py`、`src/drama_reviewer.py`、`src/drama_season_export.py`、`src/drama_video.py`、`tests/test_drama_iter105_character_projection.py` |
 | 106 | 建立 strict RenderPlan 与创作源 stale 边界 | `src/drama_schemas.py`、`src/drama_store.py`、`src/drama_render_plan.py`、`src/drama_render_store.py`、`tests/test_drama_render_*.py` |
 | 107 | 建立角色资产版本、selected CAS 与单集冻结引用 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_asset_versions.py`、`tests/test_drama_asset*.py` |
+| 108 | 建立 ArtDirection 版本、selected CAS 与 RenderPlan/manifest stale 桥接 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_art_direction_store.py`、`src/drama_render_store.py`、`src/workspace_lock.py`、`tests/test_drama_art_direction*.py` |
 
 ## Durable Decisions
 
@@ -183,6 +185,7 @@
 21. **全季库存与单集消费必须经同一投影分层**：角色库可以跨集增长，但 reviewer、fingerprint、组装、导出和视频若各自筛选，会让实际输入与血统漂移。应由共享纯函数冻结单集阵容；不能证明阵容的旧数据宁可要求重新评审，也不能回退整季库存。
 22. **创作真源与渲染派生物必须分层**：`episode_NN.json` 不应为媒体实现细节扩 schema 或改 SHA；RenderPlan 应从可证明 fresh/Approve 快照确定重建，并以独立 fingerprint/状态管理陈旧性。缺少创作层持久 UUID 时，无法证明重排对应的重复镜头必须 fail-closed，不能用当前位置假装稳定身份。
 23. **不可变候选、可变选择与单集冻结必须分层**：季级资产目录可以继续追加版本，但不能把新候选自动视为当前选择；selected mutation 需要 revision/current-ID 双 CAS。单集 manifest 只冻结当集 active selected refs，不绑定整个 catalog，否则未选候选或下一集角色会无意义地使旧集 stale。
+24. **派生 ref 不能用落盘值自证来源**：RenderPlan 中已有的 ArtDirectionRef 只能是缓存结果，freshness 必须重新读取并验证当前 catalog selected；missing/invalid/orphan source 应阻断，未选候选不 stale，只有 selected 变化才沿真实依赖传播。target-token CAS 仍以所有项目写者遵守 workspace flock 为前提，不能对非合作本地进程宣称原子性。
 
 ## Historical Evidence Notes
 

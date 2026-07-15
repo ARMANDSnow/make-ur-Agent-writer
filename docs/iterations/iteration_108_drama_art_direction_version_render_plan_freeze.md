@@ -39,14 +39,33 @@
 
 ## Acceptance Result
 
-- 待用户确认后实施，并在 `iter-finish` 中逐项引用 A108-01 至 A108-06 回填。
+- **A108-01 — PASS**：新增 strict spec/version/catalog schema；ID、完整 fingerprint、`ad_<24hex>`、canonical whitespace、token/palette/aspect、版本唯一性、同 catalog parent 存在/无环、extra、duplicate key、NaN/Infinity 与 bool-as-int 均有 fail-closed 反例。既有 DramaEpisode、Storyboard、CharacterSheet、角色资产 schema 与 RenderPlan v1 shape 未改。
+- **A108-02 — PASS**：版本 append-only，相同候选和相同选择保持 bytes/mtime；候选不自动 selected。whole-catalog append CAS 与 revision/current-ID selection 双 CAS 覆盖并发及 A→B→A；未知、跨 catalog、直接/间接孤儿均无写入失败。
+- **A108-03 — PASS**：catalog 的 missing/fresh/invalid、bounded strict JSON、nofollow/nonblock、regular-file、workspace lock、target token、dirfd temp+replace、FIFO/目录/symlink/路径/超限/深层 JSON 和 baseline/precommit/replace 前竞态均有证据；公共 mutation 异常不公开 token、绝对路径或 holder argv。共享 workspace lock 同步补齐 lock、holder 与可预测 holder-temp symlink 外写回归。
+- **A108-04 — PASS**：RenderPlan 创建和 inspect 均从 fresh catalog 当前 selected 独立解析 ref，调用者 ref 只作 expectation。legacy 无 catalog + `None` 保持 fresh；invalid catalog、missing catalog + 孤儿 ref、伪造 ref 全部阻断。重复构建字节稳定，creative fingerprint 与 frozen character IDs 不变。
+- **A108-05 — PASS**：未选候选不误 stale；selected 改变使 RenderPlan 精确 stale，并沿既有依赖使 EpisodeAssetManifest stale；显式重建两者后恢复 fresh。角色 selection、非活跃角色及账务/评审字段语义未退化，socket 哨兵覆盖 create/append/select 与 ArtDirection→RenderPlan→manifest 全链。
+- **A108-06 — PASS（环境重验）**：181 项完整聚焦回归及审查修复后的 56 项相关回归通过；correctness、security/boundary、schema/freshness 三路最终无未处理 P0/P1，schema/freshness 无 P2。security 保留已处置 P2：所有认可写者须遵守 workspace flock，target-token check 不对非合作本地进程提供原子 CAS。Accepted implementation commit `7f0e5f4047cc99bf6cc2ededdd662922a0fb1d4e` 上，受限沙箱首个 canonical run 因禁止 loopback socket 且注入 `xcrun_db` 临时目录而产生 14 errors/2 failures；未改代码，按环境失败规则在沙箱外重跑同一离线命令。authoritative evidence `run_id=33477285a4d6417fb7db76c37e001a86`：2175 tests、15 steps、139 秒、exit 0、`tracked_scope_clean=true`、tree `d97799cb2c5a7e269fa7066262bd8de7f6b831a8`，mock preflight 0 FATAL / 0 WARN，canonical 为 `mock-functional`；`local_drama_e2e` 仅为通过的 `local-e2e` 子步骤，`provider_validated=false`。未运行真文本、真图片或真视频。
 
 ## 文件变更汇总
 
 | 文件 | 改动 |
 |---|---|
-| `docs/iterations/iteration_108_drama_art_direction_version_render_plan_freeze.md` | 建立 iter108 的 Context、代码落点、实施顺序与 Acceptance 骨架 |
+| `src/drama_schemas.py` | 新增 strict ArtDirection spec、内容寻址 version 与 selected catalog |
+| `src/drama_assets.py` | 新增 ArtDirection build/append/select/ref 纯函数与双 CAS |
+| `src/drama_art_direction_store.py` | 新增 season 级 catalog strict inspect/create/append/select/load 安全持久化 |
+| `src/drama_render_store.py` | 从 fresh catalog 证明 selected ref，加入精确 stale 与 source/target precommit 复核 |
+| `src/workspace_lock.py` | 共享 lock/holder 改为 nofollow dirfd、regular-file 与随机 O_EXCL 临时文件 |
+| `tests/test_drama_art_directions.py` | 覆盖 schema、内容寻址、派生图、append/select 幂等与 ABA |
+| `tests/test_drama_art_direction_store.py` | 覆盖 store 五态、安全写、竞态、脱敏与 socket 零网络 |
+| `tests/test_drama_render_store.py` | 覆盖 selected ArtDirection freeze、legacy/伪造/invalid 与精确重建 |
+| `tests/test_drama_asset_versions.py` | 覆盖 ArtDirection→RenderPlan→EpisodeAssetManifest stale 全链 |
+| `tests/test_iter078_workspace_lock.py` | 覆盖 lock、holder 与 holder-temp symlink 外写防护 |
+| `docs/iterations/iteration_108_drama_art_direction_version_render_plan_freeze.md` | 记录 iter108 计划、实现、审查与逐项验收证据 |
 | `docs/iterations/README.md` | 追加 canonical iteration 索引 |
+| `README.md` | 同步 iter108 里程碑与短剧实时 SOP |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前能力、验收基线、缺口与接力点 |
+| `docs/PROJECT_HISTORY.md` | 追加 iter108 阶段索引与可信 selected-ref 长期决策 |
+| `docs/product/short_drama_module.md` | 将 A-J 产品 SOP 的实现基线从 iter106 更新到 iter108 |
 
 ## 不在本轮范围
 
@@ -60,4 +79,5 @@
 
 - 本轮显式使用 repository-local `iter-start`；实施完成后必须使用 `iter-finish`，先聚焦检查与多视角只读审查，修复 findings 后再做最终一次标准全量验收。
 - 两份未跟踪体检报告属于用户文件，保持不读、不改、不 stage、不 commit。
+- implementation commit：`7f0e5f4047cc99bf6cc2ededdd662922a0fb1d4e`；收官仅追加 docs-only commit，不 push。
 - 立项提交信息草稿：`docs(iter108): 迭代计划 108 立项（短剧美术方向资产版本与 RenderPlan 冻结）`；起轮不自动 commit、不 push。

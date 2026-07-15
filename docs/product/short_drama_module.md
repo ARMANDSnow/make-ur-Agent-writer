@@ -2,7 +2,7 @@
 
 > **文档性质**：PM 产品定义书 + 短剧完整生产 SOP；前者保留 v1 决策背景，后者记录当前实现状态。
 >
-> **版本**：v2 状态补充 · 2026-07-15；v1 产品基线形成于 2026-06-03，当前实现基线为 iter 106，事实以 [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) 为准。
+> **版本**：v2 状态补充 · 2026-07-15；v1 产品基线形成于 2026-06-03，当前实现基线为 iter 108，事实以 [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) 为准。
 >
 > **作者**：Claude
 >
@@ -31,7 +31,7 @@
 |---|---|
 | “4 站向导”与当前“五站 job”口径不同 | 前四站仍是用户创作向导；把 review + Approve assembly 明确记为站⑤ |
 | v1 到手工外部工具结束 | 追加 `RenderPlan → 资产 → 逐镜媒体 → TimelineManifest → 合成/QA → 工作台/归档 → provider 校准` 的完整生产 SOP |
-| 旧文把角色预览图与资产选择写在同一站 | 区分“站④角色卡/季角色库”与“阶段 B-C 不可变资产版本/逐镜图片候选”；后者尚未完成 |
+| 旧文把角色预览图与资产选择写在同一站 | 区分“站④角色卡/季角色库”与“阶段 B-C 不可变资产版本/逐镜图片候选”；角色与 ArtDirection 版本已部分完成，逐镜图片仍未完成 |
 | 旧文缺少实时落地状态 | 每个阶段明确标注 ✅ 已实现、🟨 部分实现、⏳ 待实现或 🔒 待逐次授权验证 |
 
 ---
@@ -581,7 +581,7 @@ episode_NN.json / characters / reviews
 
 ## 11. 完整生产 SOP（实时状态）
 
-本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 106，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
+本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 108，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
 
 状态图例：
 
@@ -633,8 +633,8 @@ drama workspace
 
 | 阶段 | 输入 | 主要动作与产物 | 验收门槛 | 当前状态与精确边界 |
 |---|---|---|---|---|
-| A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；零网络 | 🟨 **A1 已实现**；`AssetRef`、override CAS 与 BGM/首尾帧/逐镜媒体/时间线的跨产物 stale 传播待 A2 |
-| B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | ⏳ 只有季角色库和引用图基线；完整 `AssetRef`、版本、选择与 CAS 未实现 |
+| A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；零网络 | 🟨 **A1 已实现**；A2 已冻结角色 `AssetRef` 和当前 selected `ArtDirectionRef`，并把 ArtDirection 选择变化传播到单集 manifest；通用 visual override 与 BGM/首尾帧/逐镜媒体/时间线矩阵待完成 |
+| B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 角色与 season 级 ArtDirection 已有不可变版本、显式 selected 和 CAS；场景/道具/线索、ArtDirection 多 scope/used-by 与删除策略未完成 |
 | C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | ⏳ 已有全角色图片入口和 fake-provider 恢复证据；真图片当前仅严格 PNG，逐镜候选、first/tail binding、整集覆盖率及可靠 JPEG/WebP decoder 未实现 |
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | ⏳ 当前仅 episode 1 高光视频兼容 job；episode 2+、逐镜候选和整集 coverage 未实现 |
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ⏳ 只有 RenderPlan spoken 投影；TTS、voice、音频 manifest、字幕、BGM/SFX 与 `TimelineManifest` 未实现 |
@@ -656,7 +656,7 @@ drama workspace
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 106，可以准确表述为：**创作五站、连续多集、创作层交付、安全恢复底座与 RenderPlan A1 已闭环**。不能表述为“短剧完整成片生产链已完成”；阶段 F 尚未完成，B-I 的目标仍待实施，完整 J 还依赖 B-F，现有三个真实入口也仍待分别授权校准。
+截至 iter 108，可以准确表述为：**创作五站、连续多集、创作层交付、安全恢复底座、RenderPlan A1，以及角色/ArtDirection 的部分 A2-B 资产冻结已闭环**。不能表述为“短剧完整成片生产链已完成”；阶段 F 尚未完成，B-I 仍有大量目标待实施，完整 J 还依赖 B-F，现有三个真实入口也仍待分别授权校准。
 
 ### 11.5 规划外边界
 
