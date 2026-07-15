@@ -49,7 +49,10 @@
 
 ## Acceptance Result
 
-<iter-finish 回填 A112-01 至 A112-05、implementation commit、canonical 证据、审查结论与未修风险。>
+- **结论**：A112-01、A112-02、A112-03、A112-04、A112-05 全部通过；实现提交为 `e381dd82ce1ab2f26da523635518136b10fe0737`。correctness/behavior、security/boundary、workflow/backward-compatibility 三个独立只读复核视角最终均无遗留 P0/P1/P2。
+- **聚焦证据**：`tests.test_agent_harness` 51 tests OK，checker 专项 37 tests OK；`py_compile`、agent harness 与 `git diff --check` 通过。
+- **Canonical 验收**：首次 `bash scripts/verify.sh` 尝试因受限 sandbox 禁止 loopback bind，在 2263 项测试中的 14 个 `test_novel_client` 用例触发 `PermissionError: Operation not permitted`，未形成有效业务验收。获批后在同一 implementation commit 上原样重跑同一命令，exit 0，**2263 tests OK**，15 steps，151 秒，run `c8c8f16c7ad747bc877bb5f22a655f15`，tree `e153db70e7e5a16c035329d94826068dfbde52fc`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- **验收级别**：权威成功运行的总级别为 `mock-functional` / `canonical-mock-offline`；mandatory local-drama 组件为 `local-e2e`、`provider_validated=false`。未运行真文本、真图片、真视频、真 ComfyUI 或任何真 provider 调用。
 
 ### Knowledge Promotion
 
@@ -67,6 +70,9 @@
 | `.agents/skills/iter-finish/SKILL.md` | 审查前复核并按视角派发上下文，收官人工完成经验晋升判断 |
 | `scripts/check_agent_harness.py` | iter112+ 结构化上下文、路径安全与 accepted 经验晋升门禁 |
 | `tests/test_agent_harness.py` | 新旧格式、fail-closed 路径/结构/晋升测试及 macOS 临时目录夹具硬化 |
+| `README.md` | 更新实时 SOP 节点，明确 iter112 不改变产品能力 |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前验收基线、工作流约束与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 晋升 iter112 的长期工作流决策与工程教训 |
 
 ## 不在本轮范围
 
@@ -82,3 +88,4 @@
 - `expected_changes` 是路由与审查提示，不是 Git 硬白名单；必要范围变化必须写入 Implementation Notes。
 - README 与 handoff 的常规状态同步不计入 `Knowledge Promotion`；长期经验只允许人工晋升到现有权威文档。
 - 立项提交信息草案：`docs(iter112): 迭代计划 112 立项（上下文清单与经验晋升门禁）`。
+- implementation commit：`e381dd82ce1ab2f26da523635518136b10fe0737`；收官后只允许 docs-only 提交，不再运行 canonical 全量验收。

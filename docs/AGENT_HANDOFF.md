@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 111，2026-07-15 收官 |
+| 更新时间 | iter 112，2026-07-15 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2238 tests OK** |
-| Accepted implementation commit | `d38e67e0068d8f4426f24052b8c4f839baef1d3a` |
+| Canonical 基线 | **2263 tests OK** |
+| Accepted implementation commit | `e381dd82ce1ab2f26da523635518136b10fe0737` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；短剧 C1 逐镜图片规格/冻结引用已闭环，不代表候选生成/选择、first/tail binding 或 provider 执行已完成 |
+| 当前开发轮次 | 无；iter112 结构化上下文与经验晋升门禁已闭环，产品能力仍停留在 iter111 的短剧 C1，不代表候选生成/选择、first/tail binding 或 provider 执行已完成 |
 
 ## Capability Map
 
@@ -27,14 +27,14 @@
 
 ## Latest Accepted Evidence
 
-- `episode_NN.json` 继续是创作事实真源；RenderPlan v1 shape、creative fingerprint、既有导出与 episode 1 video 消费路径未变。iter111 只新增独立、可丢弃重建的 `EpisodeShotImagePlan`。
-- 每个 RenderShot 必须有完整显式 `shot_id -> 0..8 ordered character_ids`；episode frozen cast 不得冒充逐镜出场角色，也不得从 prompt、画面文本、位置、文件名或目录猜测。
-- 每镜 request 冻结 exact ArtDirection/character/scene/prop-clue versions 与 artifact SHA/size/path；reference 以 `character -> scene -> prop/clue` 稳定优先级裁剪并记录 warning/count/policy fingerprint。`assembled | blocked` 只是本地 C1 装配状态，不是 provider-ready。
-- freshness 只绑定实际消费依赖：未出镜 frozen character、未选候选或未使用资产不误 stale；已使用 exact source、显式 mapping 或 policy 变化会进入 `blocked_source -> stale`、给出 affected shot IDs，并要求显式 CAS replace。
-- plan store 具备 `needs_shot_image_plan | fresh | stale | invalid | blocked_source`、bounded strict JSON/nofollow/nonblock/regular-file、workspace lock、source/target token CAS、artifact reread 和 dirfd atomic replace；temp ownership 用高熵名、打开 inode 身份和仅删除本调用 entry 闭合。
-- canonical **2238 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `d38e67e0068d8f4426f24052b8c4f839baef1d3a` 上 exit 0，15 steps / 145 秒，run `0d68b5d71d3442f0ae499bff0c9bef72`，tree `5209ce9277e03b2db5fa7a0cfcab506e0568dbea`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。未运行真文本、真生图或真视频。
-- mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`；标准验收仍是 `mock-functional` / `canonical-mock-offline`，只使用 isolated synthetic workspace，不因 fake-provider 证据升格为真 provider 验证。
-- correctness/freshness、security/boundary、consumer-truth/compatibility 三个独立只读视角的 schema closure、source fingerprint、actual-used freshness、status truth、binding revision、temp ownership 与异常脱敏 findings 均已修复；最终无遗留 P0/P1/P2。
+- iter112 只修改两个 workflow skill、agent harness、聚焦测试与迭代文档；未安装或引入 Trellis，也未新增 `.trellis/`、task JSON、journal、hook、第二套任务状态或产品运行逻辑/API。
+- iter112+ 在原固定 8 段内使用 `Implementation Context`、`Review Context`、`Knowledge Promotion` 三个固定 H3；iter001-111 无需迁移。
+- `must_read` 必须指向 Git tracked 的仓库相对普通文件；`expected_changes` 可含尚未创建的安全路径；绝对路径、穿越、私有根、symlink、特殊文件与解析异常 fail closed。
+- accepted iteration 在出现下一轮 active iteration 后仍按完成态持续复核；active latest 另按进行态校验，避免前轮闭包被后轮遮蔽。
+- 经验晋升在人工作出决定、审查 findings 稳定后且 implementation commit 前落地；非 docs-only 晋升必须进入唯一 canonical 验收，README/handoff 常规状态同步不算晋升。
+- canonical **2263 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `e381dd82ce1ab2f26da523635518136b10fe0737` 上 exit 0，15 steps / 151 秒，run `c8c8f16c7ad747bc877bb5f22a655f15`，tree `e153db70e7e5a16c035329d94826068dfbde52fc`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`；标准验收仍是 `mock-functional` / `canonical-mock-offline`，未运行真文本、真图片、真视频、真 ComfyUI 或任何真 provider。
+- correctness/behavior、security/boundary、workflow/backward-compatibility 三个独立只读视角的 Markdown 解析、路径边界、accepted 持续闭包与晋升时机 findings 均已修复；最终无遗留 P0/P1/P2。
 
 ## Retained Working Memory
 
@@ -115,6 +115,8 @@
 ### 10. 迭代收官与记忆维护
 
 - 每轮先 `iter-start` 建 8 段 iteration；实现中记录范围变化和真实阻塞；`iter-finish` 负责审查、最终验收、README、handoff、history 与 commit message 草案。
+- iter112 起在原 8 段内显式维护 Implementation/Review Context：实施前列本轮必读与预计变更面，审查前按最终 diff 复核，并把 correctness、security/boundary 与风险专项上下文分别派给对应只读视角；它是 iteration 的路由清单，不是第二套状态真源或 Git 硬白名单。
+- Knowledge Promotion 在 findings 稳定后、implementation commit 前人工判断；非 docs-only 的长期规则修改必须进入 canonical 验收，README/handoff 的常规状态同步不算晋升。下一轮 active 出现后，前一轮 accepted 闭包仍须持续通过 checker。
 - 耗时全量验证只在多视角审查和 findings 修复之后执行一次。审查前只跑覆盖改动面的聚焦测试、语法/静态检查和 diff 检查；若最终全量失败，再按失败范围修复并重验。
 - 收官至少有 correctness 与 security/boundary 两个独立只读视角；Web、runner、多 workspace、真实模型/计费或媒体入口按风险增加。subagent 不改文件、不跑真模型、不碰私有目录。
 - handoff 不恢复逐轮 `Phase Status` 累计模式，但也不能再次压成几十行。保留本节这类阶段级工作记忆；只有事实变化时就地更新，过时细节迁入 `PROJECT_HISTORY.md` 或具体 iteration。
@@ -260,4 +262,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 111 在不修改创作真源、Storyboard、RenderPlan v1 shape 或现有媒体消费端的前提下，建立 `fresh RenderPlan/exact asset sources + explicit per-shot characters + provider-neutral policy -> byte-stable EpisodeShotImagePlan -> five-state inspect/CAS` 的 C1 纯本地闭环。implementation commit `d38e67e` 上 2238 项 canonical、local fake-provider E2E 与 0 WARN/FATAL preflight 全绿，run `0d68b5d71d3442f0ae499bff0c9bef72`、145 秒；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。`assembled` 只代表本地装配，不是 provider-ready。
+iter 112 在不改变产品运行逻辑/API、不安装或引入 Trellis 的前提下，把实现必读/预计变更面、基础与风险审查上下文、人工经验晋升决定固定进原有 8 段 iteration，并由 harness 从 iter112 起校验安全 tracked 路径、Markdown 结构和 accepted 持续闭包。implementation commit `e381dd82` 上 canonical 2263 tests OK，15 steps / 151 秒，run `c8c8f16c7ad747bc877bb5f22a655f15`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。产品能力仍停留在 iter111 的短剧 C1。

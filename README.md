@@ -143,7 +143,7 @@ docs/iterations/           逐轮审计记录
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 111**（2026-07-15，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准；短剧的完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。本轮建立 `fresh RenderPlan + 可证明的 exact 资产 + 显式 shot→0..8 角色 + provider-neutral policy -> EpisodeShotImagePlan` 的 C1 纯本地闭环；每镜 `assembled | blocked`，其中 `assembled` 不等于 provider-ready。总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
+最近一次更新：**iter 112**（2026-07-15，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准；本轮只调整 agent 迭代 workflow，不改变产品运行逻辑、公开 API 或短剧能力。短剧最新产品闭环仍为 iter111 的 `fresh RenderPlan + 可证明的 exact 资产 + 显式 shot→0..8 角色 + provider-neutral policy -> EpisodeShotImagePlan` C1 纯本地闭环；每镜 `assembled | blocked`，其中 `assembled` 不等于 provider-ready。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
