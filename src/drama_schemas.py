@@ -3717,6 +3717,326 @@ class ShotVideoContinuityReport(BaseModel):
         return self
 
 
+VoiceProfileScope = Literal["narrator", "character"]
+AudioManifestStatus = Literal["ready", "blocked"]
+AudioBlockedReason = Literal[
+    "assignment_missing",
+    "profile_missing",
+    "scope_mismatch",
+    "speaker_not_frozen",
+]
+
+
+class VoiceProfile(BaseModel):
+    """Immutable provider-neutral voice identity; secrets never belong here."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    profile_id: str = Field(pattern=r"^vp_[0-9a-f]{24}$")
+    scope: VoiceProfileScope
+    character_id: Optional[str] = Field(default=None, pattern=r"^c[0-9]{3}$")
+    display_name: str = Field(min_length=1, max_length=80)
+    language_tag: str = Field(pattern=r"^[a-z]{2,3}(?:-[A-Z]{2})?$")
+    provider_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    model_id: str = Field(min_length=1, max_length=120)
+    voice_name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+    instructions: str = Field(default="", max_length=400)
+    profile_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("model_id", mode="before")
+    @classmethod
+    def _voice_model_id_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,119}", value) is None
+            or ".." in value
+            or "//" in value
+        ):
+            raise ValueError("voice model id is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def _voice_profile_is_content_addressed(self) -> "VoiceProfile":
+        if (self.scope == "narrator") != (self.character_id is None):
+            raise ValueError("voice profile scope and character id disagree")
+        payload = self.model_dump(exclude={"profile_id", "profile_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.profile_fingerprint != fingerprint:
+            raise ValueError("voice profile fingerprint is invalid")
+        if self.profile_id != f"vp_{fingerprint[:24]}":
+            raise ValueError("voice profile id is invalid")
+        return self
+
+
+class VoiceAssignment(BaseModel):
+    """Explicit segment-to-voice mapping; dialogue speakers are never guessed."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    segment_id: str = Field(pattern=_SEGMENT_ID_PATTERN)
+    voice_profile_id: str = Field(pattern=r"^vp_[0-9a-f]{24}$")
+    voice_profile_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    speaker_character_id: Optional[str] = Field(default=None, pattern=r"^c[0-9]{3}$")
+    assignment_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _voice_assignment_is_content_addressed(self) -> "VoiceAssignment":
+        payload = self.model_dump(exclude={"assignment_fingerprint"})
+        if _canonical_sha256(payload) != self.assignment_fingerprint:
+            raise ValueError("voice assignment fingerprint is invalid")
+        return self
+
+
+class UtteranceSpec(BaseModel):
+    """One exact E1 synthesis input derived from one spoken segment."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    utterance_id: str = Field(pattern=r"^utt_[0-9a-f]{24}$")
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    sequence: int = Field(ge=1, le=200)
+    segment_id: str = Field(pattern=_SEGMENT_ID_PATTERN)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    kind: Literal["narration", "dialogue"]
+    text: str = Field(min_length=1, max_length=220)
+    speaker_character_id: Optional[str] = Field(default=None, pattern=r"^c[0-9]{3}$")
+    voice_profile_id: str = Field(pattern=r"^vp_[0-9a-f]{24}$")
+    voice_profile_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    model_id: str = Field(min_length=1, max_length=120)
+    voice_name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+    instructions_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_segment_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    spec_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _utterance_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("sequence", mode="before")
+    @classmethod
+    def _utterance_sequence_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("utterance sequence must be a strict integer")
+        return value
+
+    @field_validator("model_id", mode="before")
+    @classmethod
+    def _utterance_model_id_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,119}", value) is None
+            or ".." in value
+            or "//" in value
+        ):
+            raise ValueError("utterance model id is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def _utterance_is_content_addressed(self) -> "UtteranceSpec":
+        if (self.kind == "narration") != (self.speaker_character_id is None):
+            raise ValueError("utterance kind and speaker disagree")
+        payload = self.model_dump(exclude={"utterance_id", "spec_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.spec_fingerprint != fingerprint:
+            raise ValueError("utterance fingerprint is invalid")
+        if self.utterance_id != f"utt_{fingerprint[:24]}":
+            raise ValueError("utterance id is invalid")
+        return self
+
+
+class AudioBlockedSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    segment_id: str = Field(pattern=_SEGMENT_ID_PATTERN)
+    reason: AudioBlockedReason
+
+
+class MockWavFixture(BaseModel):
+    """Bounded local-only WAV descriptor used by E1 tests and offline demos."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    utterance_id: str = Field(pattern=r"^utt_[0-9a-f]{24}$")
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=45, le=3_000_000)
+    duration_milliseconds: int = Field(ge=1, le=30_000)
+    sample_rate: int = Field(ge=8000, le=48_000)
+    channels: Literal[1] = 1
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _mock_wav_path_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(
+                r"data/drama/audio_fixtures/episode_[0-9]{3}/utt_[0-9a-f]{24}\.wav",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("mock WAV path must use the local fixture namespace")
+        return value
+
+    @field_validator(
+        "episode_no", "size_bytes", "duration_milliseconds", "sample_rate", mode="before"
+    )
+    @classmethod
+    def _mock_wav_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _mock_wav_path_matches_utterance(self) -> "MockWavFixture":
+        expected = (
+            f"data/drama/audio_fixtures/episode_{self.episode_no:03d}/"
+            f"{self.utterance_id}.wav"
+        )
+        if self.path != expected:
+            raise ValueError("mock WAV path belongs to another episode or utterance")
+        return self
+
+
+class AudioManifest(BaseModel):
+    """Episode-scoped E1 voice resolution and ordered utterance truth."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["audio-manifest-v1"] = "audio-manifest-v1"
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    source_render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    frozen_character_ids: List[str] = Field(min_length=1, max_length=8)
+    source_segment_ids: List[str] = Field(max_length=200)
+    status: AudioManifestStatus
+    profiles: List[VoiceProfile] = Field(max_length=32)
+    assignments: List[VoiceAssignment] = Field(max_length=200)
+    utterances: List[UtteranceSpec] = Field(max_length=200)
+    blocked_segments: List[AudioBlockedSegment] = Field(max_length=200)
+    manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _audio_manifest_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _audio_manifest_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator(
+        "source_segment_ids",
+        "frozen_character_ids",
+        "profiles",
+        "assignments",
+        "utterances",
+        "blocked_segments",
+        mode="before",
+    )
+    @classmethod
+    def _audio_manifest_lists_are_strict(cls, value: Any, info: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _audio_manifest_is_consistent(self) -> "AudioManifest":
+        source_ids = self.source_segment_ids
+        if len(self.frozen_character_ids) != len(set(self.frozen_character_ids)):
+            raise ValueError("audio manifest frozen character ids must be unique")
+        if any(
+            not isinstance(item, str) or re.fullmatch(r"c[0-9]{3}", item) is None
+            for item in self.frozen_character_ids
+        ):
+            raise ValueError("audio manifest frozen character ids are invalid")
+        profile_ids = [item.profile_id for item in self.profiles]
+        assignment_ids = [item.segment_id for item in self.assignments]
+        utterance_segment_ids = [item.segment_id for item in self.utterances]
+        blocked_ids = [item.segment_id for item in self.blocked_segments]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("audio manifest source segments must be unique")
+        if len(profile_ids) != len(set(profile_ids)):
+            raise ValueError("audio manifest voice profiles must be unique")
+        if len(assignment_ids) != len(set(assignment_ids)):
+            raise ValueError("audio manifest assignments must be unique")
+        if len(utterance_segment_ids) != len(set(utterance_segment_ids)):
+            raise ValueError("audio manifest utterances must be unique")
+        if len(blocked_ids) != len(set(blocked_ids)):
+            raise ValueError("audio manifest blocked segments must be unique")
+        if set(utterance_segment_ids) & set(blocked_ids):
+            raise ValueError("resolved and blocked audio segments must be disjoint")
+        if assignment_ids != utterance_segment_ids:
+            raise ValueError("audio assignments and utterances must share stable order")
+        outcome_by_id = {segment_id: "resolved" for segment_id in utterance_segment_ids}
+        outcome_by_id.update({segment_id: "blocked" for segment_id in blocked_ids})
+        if set(outcome_by_id) != set(source_ids):
+            raise ValueError("audio manifest must cover every source segment exactly once")
+        if [segment_id for segment_id in source_ids if outcome_by_id[segment_id] == "resolved"] != utterance_segment_ids:
+            raise ValueError("resolved utterances must preserve source order")
+        if [segment_id for segment_id in source_ids if outcome_by_id[segment_id] == "blocked"] != blocked_ids:
+            raise ValueError("blocked segments must preserve source order")
+        profile_by_id = {item.profile_id: item for item in self.profiles}
+        assignment_by_id = {item.segment_id: item for item in self.assignments}
+        used_profile_ids: list[str] = []
+        for utterance in self.utterances:
+            assignment = assignment_by_id[utterance.segment_id]
+            profile = profile_by_id.get(assignment.voice_profile_id)
+            if profile is None or assignment.voice_profile_fingerprint != profile.profile_fingerprint:
+                raise ValueError("audio assignment references an absent voice profile")
+            if (
+                utterance.voice_profile_id != profile.profile_id
+                or utterance.voice_profile_fingerprint != profile.profile_fingerprint
+                or utterance.speaker_character_id != assignment.speaker_character_id
+                or utterance.provider_id != profile.provider_id
+                or utterance.model_id != profile.model_id
+                or utterance.voice_name != profile.voice_name
+                or utterance.instructions_fingerprint
+                != _canonical_sha256(profile.instructions)
+            ):
+                raise ValueError("utterance does not match its voice assignment")
+            if utterance.episode_no != self.episode_no:
+                raise ValueError("utterance belongs to another episode")
+            if utterance.kind == "narration":
+                if profile.scope != "narrator" or profile.character_id is not None:
+                    raise ValueError("narration must use a narrator profile")
+            elif (
+                profile.scope != "character"
+                or profile.character_id != assignment.speaker_character_id
+                or assignment.speaker_character_id not in self.frozen_character_ids
+            ):
+                raise ValueError("dialogue must use its assigned character profile")
+            if profile.profile_id not in used_profile_ids:
+                used_profile_ids.append(profile.profile_id)
+        if used_profile_ids != profile_ids:
+            raise ValueError("audio manifest profiles must be used in stable order")
+        expected_sequence_by_id = {
+            segment_id: index
+            for index, segment_id in enumerate(source_ids, start=1)
+        }
+        if any(
+            item.sequence != expected_sequence_by_id[item.segment_id]
+            for item in self.utterances
+        ):
+            raise ValueError("audio utterance sequence must match its source position")
+        if self.status != ("blocked" if blocked_ids else "ready"):
+            raise ValueError("audio manifest status is inconsistent")
+        payload = self.model_dump(exclude={"manifest_fingerprint"})
+        if _canonical_sha256(payload) != self.manifest_fingerprint:
+            raise ValueError("audio manifest fingerprint is invalid")
+        return self
+
+
 ShotVideoGenerationMode = Literal["image_to_video", "reference_to_video"]
 ShotVideoAttemptStatus = Literal[
     "started",
