@@ -48,7 +48,16 @@ iter115 已完成阶段 D1：从 fresh RenderPlan、C1 与 coverage-ready C2 冻
 
 ## Acceptance Result
 
-待 `iter-finish` 回填 A117-01 至 A117-06 的聚焦测试数、三视角审查结论、canonical acceptance、验收等级与未修风险。
+- **A117-01 PASS**：capability、exact submission gate、attempt spec、submission/terminal/artifact/closure receipts、record/episode ledger/inspection 均为 strict、fingerprinted、extra-forbid schema；细状态穷尽映射到 `not_sent | unknown | submitted | terminal`。D3/paid 聚焦 32 tests 通过，D1/D2 与既有 schema 未改 shape。
+- **A117-02 PASS**：attempt 只接受 fresh D1/D2 exact identity；authorization 绑定 episode/shot/request 与 provider/model/account/endpoint/auth，adapter operational identity 在 marker 前 exact match。mode、tail、references、duration、resolution、budget 与 `max_submit_calls=1` 不满足时 submit counter=0。
+- **A117-03 PASS**：workspace lock 内 started marker 先于 submit；同一 authorization 的任一非 not-sent 事实 durable consumed，provider failure/replay 不再 submit。not-sent 只有显式 `start_new_attempt=True` 才能新建 attempt；unknown 可 durable explicit-close，resume 永不 submit。九个真实子进程 crash 窗口与进程外 counter 证明 restart submit delta=0。
+- **A117-04 PASS**：submission receipt 绑定 attempt/backend/account/authorization/input，terminal receipt 绑定 submission receipt；wrong adapter/model/backend 在 poll/download 前零调用，backend/account scope 下 task/result collision 与 receipt/identity drift fail closed。submitted 只 poll，provider-success 后 download 可重试且不 resubmit。
+- **A117-05 PASS**：artifact 使用既有 D2 bounded strict MP4 identity，private staging 与 artifact receipt 互证，只经 `append_local_shot_video_candidate()` 入池；candidate 不自选，candidate/manifest/succeeded lost-response 可零 submit 补账。episode 2 store 链验证 receipts→D2 candidate→显式 selection→整集 coverage ready。
+- **A117-06 PASS**：修复审查 findings 后，D3/paid **32 tests OK**，D1-D3/C1-C3/RenderPlan/导出/season export/legacy episode-1 video 聚焦 **235 tests OK**，`py_compile`、harness 与 `git diff --check` 通过。correctness/behavior、security/boundary、media/paid-recovery 三个独立只读视角最终无遗留 P0/P1/P2。
+
+canonical `bash scripts/verify.sh` 在 implementation commit `daa06529399714fd0de57d705954cedc72747fda` 上仅运行一次并通过：**2386 tests OK**，15 completed steps，236 秒，run `34f7fcbf83fb4be18a1638f3db80bc87`，tree `fdc749b540d10e5c4ffea8a4edf5a4b9e4a41157`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN。标准总等级为 **`mock-functional`**；mandatory local-drama 与本轮代码内 fake adapter 证据为组件级 **`local-e2e`**，**`provider_validated=false`**。未读取 `.env`，未运行真文本、真图片、真视频、真 ComfyUI 或任何真实 provider 请求。
+
+剩余风险均在本轮明确边界之外：真实 provider 的任务语义/账单/费用/超时/质量未验证；process-crash 证据不证明 power-loss 或真实 provider exactly-once；尚无 D4 主观质量/跨镜连续性、Web/CLI、staging GC、完整 episode 2+ 成片。旧 episode 1 高光视频链保持未修改。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -70,8 +79,11 @@ iter115 已完成阶段 D1：从 fresh RenderPlan、C1 与 coverage-ready C2 冻
 | `tests/test_drama_shot_video_attempt_store.py` | 新增 submit-once、授权消费、adapter/task/result/closure、D2 bridge、coverage 与文件边界测试 |
 | `tests/support/drama_shot_video_attempt_driver.py` | 新增真实子进程 crash-window 与持久 counter driver |
 | `tests/test_drama_paid_recovery_states.py` | 增加 D3 四类状态穷尽性断言 |
+| `README.md` | 同步 iter117 里程碑与短剧 D1-D3 实时 SOP |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前基线、能力/缺口、验收证据与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 追加 iter117 阶段级里程碑与关键实现路径 |
 
-收官 docs-only 提交再补 README、产品 SOP、handoff 与 history；不得用 `expected_changes` 冒充实际改动。
+表内仅列实际变更；用户未跟踪体检报告、旧 episode 1 视频链与其它计划外文件均未修改。
 
 ## 不在本轮范围
 

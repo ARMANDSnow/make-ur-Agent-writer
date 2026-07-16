@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 116，2026-07-16 收官 |
+| 更新时间 | iter 117，2026-07-16 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2360 tests OK** |
-| Accepted implementation commit | `df58cc37e7381b1e870594a448c34db147c029d1` |
+| Canonical 基线 | **2386 tests OK** |
+| Accepted implementation commit | `daa06529399714fd0de57d705954cedc72747fda` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter116 已完成短剧 D2 content-addressed strict MP4 候选、guarded selection、retired audit、精确 stale/repair 与整集 coverage，不代表视频 provider capability/attempt、submit/poll/download、质量连续性或真实逐镜视频已完成 |
+| 当前开发轮次 | 无；iter117 已完成短剧 D3 provider-neutral capability、request-bound once authorization、adapter identity、durable receipts、纯 poll/download、D2 exact candidate 补账与 process-crash 恢复；不代表真实 provider/network、视频质量连续性、Web/CLI 或完整成片已完成 |
 
 ## Capability Map
 
@@ -22,17 +22,17 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、C1 provider-neutral `EpisodeShotImagePlan`/exact refs、C2 content-addressed strict PNG 候选与 guarded first/tail/previous-tail selection、C3 provider-neutral capability/once-only attempt/durable receipt/C2 exact candidate 补账与进程 crash 零重复调用、D1 provider-neutral `EpisodeShotVideoPlan`/冻结 first/optional tail/previous-tail lineage/五态 local store、D2 content-addressed strict MP4 candidate/guarded selection/retired audit/精确 stale-repair/整集 coverage、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、真实逐镜图片 provider/network adapter与多参考上传协议、质量比较 UI、JPEG/WebP、显式 staging GC、power-loss 证明、逐镜视频 provider capability/attempt/网络执行/质量连续性、TimelineManifest 与声音未做；真文本/全角色真生图/单次真视频需分别授权实测；episode 2+ 成片、真 ComfyUI 与更广 codec 支持未做 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、C1 provider-neutral `EpisodeShotImagePlan`/exact refs、C2 content-addressed strict PNG 候选与 guarded first/tail/previous-tail selection、C3 provider-neutral capability/once-only attempt/durable receipt/C2 exact candidate 补账与进程 crash 零重复调用、D1 provider-neutral `EpisodeShotVideoPlan`/冻结 first/optional tail/previous-tail lineage/五态 local store、D2 content-addressed strict MP4 candidate/guarded selection/retired audit/精确 stale-repair/整集 coverage、D3 provider-neutral capability/request-bound once authorization/adapter identity/durable submission-terminal-artifact-closure receipts/纯 poll-download/D2 exact candidate 补账/process-crash 零重复 submit、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、真实逐镜图片 provider/network adapter与多参考上传协议、质量比较 UI、JPEG/WebP、显式 staging GC、power-loss 证明、逐镜视频真实 provider/network 执行与质量连续性、TimelineManifest 与声音未做；真文本/全角色真生图/单次真视频需分别授权实测；episode 2+ 成片、真 ComfyUI 与更广 codec 支持未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- iter116 建立纯本地 D2：从 fresh D1 初始化 episode manifest，content-addressed strict MP4 candidate 绑定 season/episode/shot、D1 plan/spec 与实际 artifact identity；append 不自选，selection 用 manifest fingerprint、revision/current binding 与 exact lost-response receipt 双重守门。
-- D1 漂移按 stable shot 精确 stale/reconcile；删除镜头进入 `retired_shots` 审计池，未受影响历史/selection 保持。coverage 穷尽投影 selected fresh、missing、stale、invalid/missing artifact、placeholder 与 blocked source，只有全 required shots exact selected fresh 非 placeholder 才 ready。
-- MP4 probe 以全文件 box/sample 总预算检查 supported sample entry、track duration 及 `stsd/stsz/stts/stsc/stco|co64 → mdat` 可达性；manifest 有 candidate/declared bytes/selected scan 总预算，普通 inspect 只重验 active selected artifact，写路径有 source/target/selection CAS、nofollow dirfd、fsync、create-only/atomic replace、exact repair 与受限 crash-residue recovery。
-- canonical **2360 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `df58cc37e7381b1e870594a448c34db147c029d1` 上 exit 0，15 steps / 196 秒，run `3dec3ffb95ed4f1eb1bc4b22022d1a47`，tree `8211cc49eb0c12416dd3dce706d4b94b65b7a135`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。首次沙箱执行仅因禁止绑定 loopback 导致 14 个环境错误；同一 commit 在获准的非沙箱环境重验通过，未改代码或触发外网/provider。
+- iter117 建立纯本地 D3：从 fresh D1 spec 与 fresh D2 manifest 冻结 capability、exact input、request-bound once authorization 及 backend/provider/model/account/endpoint/auth identity；started marker 先于唯一一次 submit durable，submitted 后只允许 poll/download。
+- submission receipt 绑定 attempt/backend/account/authorization/input，terminal receipt 绑定 submission receipt，artifact receipt 绑定 strict MP4/staging；terminal-success 只经既有 D2 append 入池且不自选。ledger 拒绝 consumed authorization 与 backend/account scope 下的 task/result 冲突；unknown 可用 bounded closure receipt 显式关闭但不能伪装 not-sent。
+- 真实子进程 crash driver 覆盖 started、submit response-loss、submitted、terminal、download、staging、artifact、candidate 与 succeeded 窗口；进程外 counter 证明 restart submit delta=0。episode 2 store 链覆盖 receipts→D2 candidate→显式 selection→coverage ready，旧 episode 1 高光模块未修改。
+- canonical **2386 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `daa06529399714fd0de57d705954cedc72747fda` 上 exit 0，15 steps / 236 秒，run `34f7fcbf83fb4be18a1638f3db80bc87`，tree `fdc749b540d10e5c4ffea8a4edf5a4b9e4a41157`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
 - mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`；标准验收仍是 `mock-functional` / `canonical-mock-offline`，未运行真文本、真图片、真视频、真 ComfyUI 或任何真 provider。
-- correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角发现的 MP4 sample 可达性、store blocker coverage、删镜历史、资源扫描与 crash residue 缺口均已修复；最终无遗留 P0/P1/P2。
+- correctness/behavior、security/boundary、media/paid-recovery 三个独立只读视角发现的授权复用、adapter/model identity、task/result collision、unknown explicit-close 与 episode 2 证据缺口均已修复；D3/paid 32 tests、D1-D3/C1-C3/RenderPlan/导出/legacy video 聚焦 235 tests 通过，最终无遗留 P0/P1/P2。
 
 ## Retained Working Memory
 
@@ -97,6 +97,7 @@
 - C3 的 `ShotImageProviderCapability` 与注入 adapter 是本地执行契约，不是动态 provider registry。C1 仍是唯一 reference 裁剪层；C3 不二次裁剪。`RequestNotSentError`、provider fingerprint 与 adapter 行为依赖未来实现方可信接线，本轮 fake 证据不能外推真实 provider。
 - D1 的 `EpisodeShotVideoPlan` 是 provider-neutral 输入契约：从 fresh RenderPlan/C1/C2 冻结逐镜时长、exact selected first/optional tail、ordered refs 与 previous-tail lineage。它不代表已建立视频 provider capability、attempt/candidate/selection 或 submit/poll/download；旧 episode 1 高光 job 也不是 D1 真源。
 - D2 的 `EpisodeShotVideoCandidateManifest` 是逐镜本地视频事实：candidate 不可变、selection 可变且需 guarded CAS，删除镜头保留 retired audit；production coverage 只接受 current D1 下 exact selected、artifact 完整且非 placeholder 的 required shots。它不等于 provider 执行或视频质量验证。
+- D3 的 `EpisodeShotVideoAttemptLedger` 是逐镜付费执行事实：authorization 必须绑定 exact episode/shot/request 与 provider/model/account/endpoint/auth，adapter operational identity 在 submit/poll/download 前重验；同一授权有任何非 not-sent 事实后即 consumed。unknown 只能对账后显式关闭，不能猜 task 或自动重提；fake/process-crash 证据不能外推真实 provider exactly-once。
 - 下一集只能从最新连续、完整且 fresh 的前集初始化；`episode_count` 是计划真源。季包只从 assembled JSON 和安全投影重建，不能把 setup、候选钩子、评审原文、prompt、日志或 provider state 混入交付物。
 - 真实媒体下载必须同时校验 scheme、redirect、DNS 与 peer IP、MIME/magic、size、hash、容器和原子落盘。仅检查扩展名或响应头不构成安全边界。
 - Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 补齐校准证据；Iter 097-101 继续收口旧旁路、provider 身份、文本 revision/review 血统、五站/媒体 crash window、跨进程 callback、旧 workspace 接管、多集角色和 submitted 纯轮询恢复。
@@ -216,7 +217,7 @@
 1. **短剧真实多模态校准**：分别验证五站真文本、全角色真生图、单次真视频的费用、耗时和质量。每段都需单独授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体**：角色/ArtDirection/SceneAsset/PropOrClueAsset 不可变版本、C1-C3 本地逐镜图片闭环与 D1-D2 逐镜视频计划/候选选择/整集 coverage 已完成；通用 visual override、资产 Web/跨集 used-by、ArtDirection 多 scope、真实图片 provider/network adapter与多参考上传、质量比较 UI、JPEG/WebP decoder、staging GC、power-loss 证明，以及视频 provider capability/attempt/网络执行/质量连续性、TimelineManifest、BGM/声音、真 ComfyUI、episode 2+ 成片与真实多模态质量仍未验证。
+4. **短剧媒体**：角色/ArtDirection/SceneAsset/PropOrClueAsset 不可变版本、C1-C3 本地逐镜图片闭环与 D1-D3 逐镜视频计划/候选/once-only attempt/整集 coverage 已完成；通用 visual override、资产 Web/跨集 used-by、ArtDirection 多 scope、真实图片 provider/network adapter与多参考上传、质量比较 UI、JPEG/WebP decoder、staging GC、power-loss 证明，以及逐镜视频真实 provider/network 执行与质量连续性、TimelineManifest、BGM/声音、真 ComfyUI、episode 2+ 成片与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 7. **严格本地对手 TOCTOU**：项目锁可阻止本项目 Web/runner 并发，workspace lock/holder、state/PNG 和新增 ArtDirection store 已使用 nofollow dirfd；若威胁模型包含不遵守 flock 的本机其他进程在最终检查后竞态替换目标或父目录，仍需更强的统一 dirfd/事务协议。
@@ -224,7 +225,7 @@
 ## Next Candidates
 
 - 低风险工程轮：可靠有界 JPEG/WebP decoder、provider 幂等键/资产上传恢复调研、100 集只读扫描优化或已登记 P2 技债。
-- 低风险短剧阶段轮：可继续 D3 provider-neutral 视频 capability/once-only attempt 与本地 fake adapter/receipt 设计，或转 A2 visual override/dependency stale 矩阵、B1 资产 Web/跨集 used-by、C3 staging GC；任何真实 provider 接线与真媒体请求仍是独立高风险边界，不因 D1-D2 完成而自动获授权。
+- 低风险短剧阶段轮：可继续 D4 视频质量/跨镜连续性纯本地契约，或转 A2 visual override/dependency stale 矩阵、B1 资产 Web/跨集 used-by、C3/D3 staging GC；任何真实 provider 接线与真媒体请求仍是独立高风险边界，不因 D1-D3 完成而自动获授权。
 - 需授权验证轮：五站真文本 smoke；全角色真生图 smoke；episode 1 单次真视频 smoke；小说 capstone。不要把这些授权合并推定。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -263,4 +264,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 116 在不接网络、不修改旧 episode 1 视频链的前提下，从 fresh D1 建立 content-addressed strict MP4 candidate、append/selection 分层、guarded receipt、retired audit、精确 stale/reconcile/repair 与整集 production coverage。implementation commit `df58cc3` 上 canonical 2360 tests OK，15 steps / 196 秒，run `3dec3ffb95ed4f1eb1bc4b22022d1a47`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。首次沙箱执行只因 loopback bind 权限失败，获准的同 commit 非沙箱重验通过。三视角复审 findings 全部修复，无遗留 P0/P1/P2。下一步若继续阶段 D，应做 D3 provider-neutral capability/once-only attempt/receipt 与本地 fake adapter，真实视频调用仍需单独授权。
+iter 117 在不接网络、不修改旧 episode 1 视频链的前提下，为 fresh D1/D2 增加 provider-neutral capability、request-bound once authorization、adapter/provider/model identity、marker-before-submit、durable submission/terminal/artifact/closure receipts、纯 poll/download、D2 exact candidate 补账与 process-crash 恢复。implementation commit `daa0652` 上 canonical 2386 tests OK，15 steps / 236 秒，run `34f7fcbf83fb4be18a1638f3db80bc87`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。三视角 findings 全部修复，无遗留 P0/P1/P2。下一步若继续阶段 D，应做 D4 质量/跨镜连续性纯本地契约；真实视频接线与请求仍需单独授权。
