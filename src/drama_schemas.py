@@ -3255,3 +3255,370 @@ class EpisodeShotVideoPlan(BaseModel):
         if _canonical_sha256(payload) != self.plan_fingerprint:
             raise ValueError("shot video plan fingerprint is invalid")
         return self
+
+
+ShotVideoCandidateSource = Literal["local_mp4"]
+
+
+class ShotVideoArtifact(BaseModel):
+    """One bounded local MP4 artifact owned by the D2 candidate store."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    media_type: Literal["video/mp4"] = "video/mp4"
+    path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=1, le=100 * 1024 * 1024)
+    duration_milliseconds: int = Field(ge=1, le=300_000)
+    width: int = Field(ge=1, le=8192)
+    height: int = Field(ge=1, le=8192)
+    has_audio_track: bool
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _shot_video_artifact_path_is_strict(cls, value: Any) -> str:
+        if not isinstance(value, str) or "\\" in value:
+            raise ValueError("shot video candidate path must be a POSIX relative path")
+        if (
+            value.startswith("/")
+            or value.startswith("./")
+            or "//" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or re.fullmatch(
+                r"outputs/episodes/episode_[0-9]{2,3}\.shot_videos/"
+                r"shot_[0-9a-f]{24}/svc_[0-9a-f]{24}\.mp4",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("shot video candidate path must stay in its artifact root")
+        return value
+
+    @field_validator(
+        "size_bytes",
+        "duration_milliseconds",
+        "width",
+        "height",
+        mode="before",
+    )
+    @classmethod
+    def _shot_video_artifact_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("has_audio_track", mode="before")
+    @classmethod
+    def _shot_video_audio_flag_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("has_audio_track must be bool")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_video_artifact_is_bounded(self) -> "ShotVideoArtifact":
+        if self.width * self.height > 40_000_000:
+            raise ValueError("shot video candidate pixel count exceeds its limit")
+        return self
+
+
+class ShotVideoCandidate(BaseModel):
+    """One immutable D2 video candidate bound to its exact D1 request."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    candidate_id: str = Field(pattern=r"^svc_[0-9a-f]{24}$")
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_kind: ShotVideoCandidateSource = "local_mp4"
+    is_placeholder: bool
+    artifact: ShotVideoArtifact
+    candidate_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _shot_video_candidate_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _shot_video_candidate_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("is_placeholder", mode="before")
+    @classmethod
+    def _shot_video_placeholder_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("is_placeholder must be bool")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_video_candidate_is_content_addressed(self) -> "ShotVideoCandidate":
+        payload = self.model_dump(exclude={"candidate_id", "candidate_fingerprint"})
+        payload["artifact"] = dict(payload["artifact"])
+        payload["artifact"].pop("path", None)
+        fingerprint = _canonical_sha256(payload)
+        if self.candidate_fingerprint != fingerprint:
+            raise ValueError("shot video candidate fingerprint is invalid")
+        if self.candidate_id != f"svc_{fingerprint[:24]}":
+            raise ValueError("shot video candidate id is invalid")
+        expected_path = (
+            f"outputs/episodes/episode_{self.episode_no:02d}.shot_videos/"
+            f"{self.shot_id}/{self.candidate_id}.mp4"
+        )
+        if self.artifact.path != expected_path:
+            raise ValueError("shot video candidate artifact path is not canonical")
+        return self
+
+
+class ShotVideoSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    candidate_id: str = Field(pattern=r"^svc_[0-9a-f]{24}$")
+    candidate_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+
+class ShotVideoCandidatePool(BaseModel):
+    """Append-only video candidates plus one explicit selected candidate."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    current_request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    candidates: List[ShotVideoCandidate] = Field(max_length=32)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+    last_selection_request_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    selected: Optional[ShotVideoSelection] = None
+    pool_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("candidates", mode="before")
+    @classmethod
+    def _shot_video_candidates_are_a_list(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot video candidates must be a list")
+        return value
+
+    @field_validator("selection_revision", mode="before")
+    @classmethod
+    def _shot_video_selection_revision_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("selection_revision must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_video_pool_is_consistent(self) -> "ShotVideoCandidatePool":
+        candidate_ids = [item.candidate_id for item in self.candidates]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("shot video candidate ids must be unique")
+        for candidate in self.candidates:
+            if candidate.shot_id != self.shot_id:
+                raise ValueError("shot video candidate belongs to another shot")
+        if self.selected is not None:
+            selected = next(
+                (
+                    item
+                    for item in self.candidates
+                    if item.candidate_id == self.selected.candidate_id
+                ),
+                None,
+            )
+            if (
+                selected is None
+                or selected.candidate_fingerprint
+                != self.selected.candidate_fingerprint
+            ):
+                raise ValueError("shot video selection is not an exact candidate")
+        payload = self.model_dump(exclude={"pool_fingerprint"})
+        if _canonical_sha256(payload) != self.pool_fingerprint:
+            raise ValueError("shot video candidate pool fingerprint is invalid")
+        return self
+
+
+class EpisodeShotVideoCandidateManifest(BaseModel):
+    """Episode-scoped D2 candidate and selection truth."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["shot-video-candidates-v1"] = (
+        "shot-video-candidates-v1"
+    )
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shots: List[ShotVideoCandidatePool] = Field(min_length=1, max_length=100)
+    retired_shots: List[ShotVideoCandidatePool] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+    manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _shot_video_manifest_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _shot_video_manifest_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("shots", "retired_shots", mode="before")
+    @classmethod
+    def _shot_video_manifest_shots_are_a_list(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot video candidate shots must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_video_manifest_is_consistent(
+        self,
+    ) -> "EpisodeShotVideoCandidateManifest":
+        all_pools = [*self.shots, *self.retired_shots]
+        shot_ids = [item.shot_id for item in all_pools]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("shot video candidate shot ids must be unique")
+        candidates = [candidate for pool in all_pools for candidate in pool.candidates]
+        if len(candidates) > 256:
+            raise ValueError("shot video candidate manifest exceeds its candidate budget")
+        if sum(item.artifact.size_bytes for item in candidates) > 4 * 1024**3:
+            raise ValueError("shot video candidate manifest exceeds its byte budget")
+        selected_bytes = 0
+        for pool in self.shots:
+            if pool.selected is not None:
+                selected_bytes += next(
+                    item.artifact.size_bytes
+                    for item in pool.candidates
+                    if item.candidate_id == pool.selected.candidate_id
+                )
+        if selected_bytes > 512 * 1024**2:
+            raise ValueError("selected shot videos exceed their inspection byte budget")
+        for pool in all_pools:
+            for candidate in pool.candidates:
+                if (
+                    candidate.season_no != self.season_no
+                    or candidate.episode_no != self.episode_no
+                ):
+                    raise ValueError("shot video candidate belongs to another episode")
+        payload = self.model_dump(exclude={"manifest_fingerprint"})
+        if _canonical_sha256(payload) != self.manifest_fingerprint:
+            raise ValueError("shot video candidate manifest fingerprint is invalid")
+        return self
+
+
+ShotVideoCoverageStatus = Literal[
+    "ready",
+    "incomplete",
+    "stale",
+    "invalid",
+    "blocked_source",
+]
+
+
+class ShotVideoCoverageReport(BaseModel):
+    """Deterministic D2 production-compose coverage projection."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_plan_matches: bool
+    status: ShotVideoCoverageStatus
+    required_shot_ids: List[str] = Field(min_length=1, max_length=100)
+    selected_fresh_shot_ids: List[str] = Field(max_length=100)
+    missing_selection_shot_ids: List[str] = Field(max_length=100)
+    stale_candidate_shot_ids: List[str] = Field(max_length=100)
+    invalid_artifact_shot_ids: List[str] = Field(max_length=100)
+    non_production_shot_ids: List[str] = Field(max_length=100)
+    blocked_source_shot_ids: List[str] = Field(max_length=100)
+    coverage_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _shot_video_coverage_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("source_plan_matches", mode="before")
+    @classmethod
+    def _shot_video_coverage_source_match_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("source_plan_matches must be bool")
+        return value
+
+    @field_validator(
+        "required_shot_ids",
+        "selected_fresh_shot_ids",
+        "missing_selection_shot_ids",
+        "stale_candidate_shot_ids",
+        "invalid_artifact_shot_ids",
+        "non_production_shot_ids",
+        "blocked_source_shot_ids",
+        mode="before",
+    )
+    @classmethod
+    def _shot_video_coverage_ids_are_unique(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        if len(value) != len(set(value)) or any(
+            not isinstance(item, str)
+            or re.fullmatch(_SHOT_ID_PATTERN, item) is None
+            for item in value
+        ):
+            raise ValueError(f"{info.field_name} must contain unique shot ids")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_video_coverage_is_consistent(self) -> "ShotVideoCoverageReport":
+        required = set(self.required_shot_ids)
+        categories = (
+            self.selected_fresh_shot_ids,
+            self.missing_selection_shot_ids,
+            self.stale_candidate_shot_ids,
+            self.invalid_artifact_shot_ids,
+            self.non_production_shot_ids,
+            self.blocked_source_shot_ids,
+        )
+        if any(not set(items).issubset(required) for items in categories):
+            raise ValueError("shot video coverage contains an unknown shot")
+        category_sets = [set(items) for items in categories]
+        if any(
+            category_sets[left] & category_sets[right]
+            for left in range(len(category_sets))
+            for right in range(left + 1, len(category_sets))
+        ) or set().union(*category_sets) != required:
+            raise ValueError("shot video coverage categories must partition required shots")
+        if self.blocked_source_shot_ids:
+            expected_status = "blocked_source"
+        elif not self.source_plan_matches or self.stale_candidate_shot_ids:
+            expected_status = "stale"
+        elif self.invalid_artifact_shot_ids or self.non_production_shot_ids:
+            expected_status = "invalid"
+        elif self.missing_selection_shot_ids:
+            expected_status = "incomplete"
+        else:
+            expected_status = "ready"
+        if self.status != expected_status:
+            raise ValueError("shot video coverage status is inconsistent")
+        payload = self.model_dump(exclude={"coverage_fingerprint"})
+        if _canonical_sha256(payload) != self.coverage_fingerprint:
+            raise ValueError("shot video coverage fingerprint is invalid")
+        return self
