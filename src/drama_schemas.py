@@ -2993,3 +2993,265 @@ class ShotImageAttemptInspection(BaseModel):
         ):
             raise ValueError("outstanding attempt ids are invalid")
         return value
+
+
+ShotVideoFrameRole = Literal["first", "tail"]
+ShotVideoFrameBindingKind = Literal["direct", "previous_tail"]
+
+
+class ShotVideoFrameRef(BaseModel):
+    """Exact selected C2 image artifact frozen as one D1 video frame input."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    frame_role: ShotVideoFrameRole
+    binding_kind: ShotVideoFrameBindingKind
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    source_shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    candidate_source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    candidate_request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    candidate_id: str = Field(pattern=r"^sic_[0-9a-f]{24}$")
+    candidate_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    artifact: ShotImageArtifact
+    selection_revision: int = Field(ge=1, le=2_147_483_647)
+    source_tail_revision: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=2_147_483_647,
+    )
+    target_request_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    frame_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "selection_revision", "source_tail_revision", mode="before")
+    @classmethod
+    def _shot_video_frame_revisions_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> Optional[int]:
+        if value is None and info.field_name == "source_tail_revision":
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _shot_video_frame_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _shot_video_frame_is_consistent(self) -> "ShotVideoFrameRef":
+        lineage_values = (
+            self.source_tail_revision,
+            self.target_request_fingerprint,
+        )
+        if self.binding_kind == "previous_tail":
+            if self.frame_role != "first" or any(item is None for item in lineage_values):
+                raise ValueError("previous-tail video frame lineage is incomplete")
+        elif self.frame_role == "tail":
+            if self.source_tail_revision is None or self.target_request_fingerprint is not None:
+                raise ValueError("direct tail frame revision is incomplete")
+        elif any(item is not None for item in lineage_values):
+            raise ValueError("direct first frame cannot claim tail lineage")
+        expected_path = (
+            f"outputs/episodes/episode_{self.episode_no:02d}.shot_images/"
+            f"{self.source_shot_id}/{self.candidate_id}.png"
+        )
+        if self.artifact.path != expected_path:
+            raise ValueError("shot video frame artifact path is not canonical")
+        candidate_payload = {
+            "schema_version": 1,
+            "season_no": self.season_no,
+            "episode_no": self.episode_no,
+            "shot_id": self.source_shot_id,
+            "source_plan_fingerprint": self.candidate_source_plan_fingerprint,
+            "request_fingerprint": self.candidate_request_fingerprint,
+            "source_kind": "local_png",
+            "artifact": self.artifact.model_dump(),
+        }
+        candidate_payload["artifact"].pop("path", None)
+        candidate_fingerprint = _canonical_sha256(candidate_payload)
+        if (
+            self.candidate_fingerprint != candidate_fingerprint
+            or self.candidate_id != f"sic_{candidate_fingerprint[:24]}"
+        ):
+            raise ValueError("shot video frame candidate identity is invalid")
+        payload = self.model_dump(exclude={"frame_fingerprint"})
+        if _canonical_sha256(payload) != self.frame_fingerprint:
+            raise ValueError("shot video frame fingerprint is invalid")
+        return self
+
+
+class ShotVideoRequestSpec(BaseModel):
+    """Provider-neutral D1 video input for one stable RenderShot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    render_shot_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shot_image_request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    selection_revision: int = Field(ge=1, le=2_147_483_647)
+    target_duration_seconds: int = Field(ge=1, le=30)
+    shot_size: ShotSize
+    camera_movement: CameraMovement
+    visual_action: str = Field(min_length=1, max_length=500)
+    image_prompt: str = Field(default="", max_length=800)
+    transition_hint: str = Field(default="", max_length=120)
+    first_frame: ShotVideoFrameRef
+    tail_frame: Optional[ShotVideoFrameRef] = None
+    ordered_references: List[ShotImageReference] = Field(max_length=25)
+    spec_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("selection_revision", "target_duration_seconds", mode="before")
+    @classmethod
+    def _shot_video_spec_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("ordered_references", mode="before")
+    @classmethod
+    def _shot_video_references_are_a_list(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot video references must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_video_spec_is_consistent(self) -> "ShotVideoRequestSpec":
+        if self.first_frame.frame_role != "first":
+            raise ValueError("shot video first frame has the wrong role")
+        if self.tail_frame is not None and self.tail_frame.frame_role != "tail":
+            raise ValueError("shot video tail frame has the wrong role")
+        if (
+            self.first_frame.selection_revision != self.selection_revision
+            or (
+                self.tail_frame is not None
+                and self.tail_frame.selection_revision != self.selection_revision
+            )
+        ):
+            raise ValueError("shot video frame selection revision is inconsistent")
+        if [item.position for item in self.ordered_references] != list(
+            range(1, len(self.ordered_references) + 1)
+        ):
+            raise ValueError("shot video reference positions must be contiguous")
+        reference_keys = [(item.kind, item.asset_id) for item in self.ordered_references]
+        if len(reference_keys) != len(set(reference_keys)):
+            raise ValueError("shot video references must be unique")
+        payload = self.model_dump(exclude={"spec_fingerprint"})
+        if _canonical_sha256(payload) != self.spec_fingerprint:
+            raise ValueError("shot video request fingerprint is invalid")
+        return self
+
+
+class EpisodeShotVideoPlan(BaseModel):
+    """Episode-scoped D1 plan; provider execution facts belong to later stages."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["shot-video-plan-v1"] = "shot-video-plan-v1"
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shot_image_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    selected_bindings_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    image_coverage_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shot_specs: List[ShotVideoRequestSpec] = Field(min_length=1, max_length=100)
+    plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _shot_video_plan_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _shot_video_plan_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("shot_specs", mode="before")
+    @classmethod
+    def _shot_video_specs_are_a_list(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot video specs must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _shot_video_plan_is_consistent(self) -> "EpisodeShotVideoPlan":
+        shot_ids = [item.shot_id for item in self.shot_specs]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("shot video plan shot ids must be unique")
+        for index, spec in enumerate(self.shot_specs):
+            frames = [spec.first_frame]
+            if spec.tail_frame is not None:
+                frames.append(spec.tail_frame)
+            if any(
+                frame.season_no != self.season_no
+                or frame.episode_no != self.episode_no
+                for frame in frames
+            ):
+                raise ValueError("shot video frame belongs to another image plan")
+            if spec.first_frame.binding_kind == "direct":
+                if (
+                    spec.first_frame.source_shot_id != spec.shot_id
+                    or spec.first_frame.candidate_request_fingerprint
+                    != spec.shot_image_request_fingerprint
+                ):
+                    raise ValueError("direct first frame belongs to another shot")
+            else:
+                previous_tail = self.shot_specs[index - 1].tail_frame
+                if (
+                    index == 0
+                    or spec.first_frame.source_shot_id
+                    != self.shot_specs[index - 1].shot_id
+                    or spec.first_frame.target_request_fingerprint
+                    != spec.shot_image_request_fingerprint
+                    or previous_tail is None
+                    or previous_tail.candidate_id != spec.first_frame.candidate_id
+                    or previous_tail.candidate_fingerprint
+                    != spec.first_frame.candidate_fingerprint
+                    or previous_tail.candidate_request_fingerprint
+                    != spec.first_frame.candidate_request_fingerprint
+                    or previous_tail.candidate_request_fingerprint
+                    != self.shot_specs[index - 1].shot_image_request_fingerprint
+                    or previous_tail.artifact != spec.first_frame.artifact
+                    or previous_tail.source_tail_revision
+                    != spec.first_frame.source_tail_revision
+                ):
+                    raise ValueError("previous-tail first frame lineage is invalid")
+            if spec.tail_frame is not None and (
+                spec.tail_frame.source_shot_id != spec.shot_id
+                or spec.tail_frame.candidate_request_fingerprint
+                != spec.shot_image_request_fingerprint
+            ):
+                raise ValueError("tail frame belongs to another shot")
+        selected_payload = [
+            {
+                "shot_id": item.shot_id,
+                "selection_revision": item.selection_revision,
+                "first_frame_fingerprint": item.first_frame.frame_fingerprint,
+                "tail_frame_fingerprint": (
+                    item.tail_frame.frame_fingerprint
+                    if item.tail_frame is not None
+                    else None
+                ),
+            }
+            for item in self.shot_specs
+        ]
+        if _canonical_sha256(selected_payload) != self.selected_bindings_fingerprint:
+            raise ValueError("shot video selected bindings fingerprint is invalid")
+        payload = self.model_dump(exclude={"plan_fingerprint"})
+        if _canonical_sha256(payload) != self.plan_fingerprint:
+            raise ValueError("shot video plan fingerprint is invalid")
+        return self

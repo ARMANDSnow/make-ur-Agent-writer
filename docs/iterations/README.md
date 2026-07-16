@@ -136,3 +136,4 @@
 121. [Iteration 112 - 迭代上下文清单与经验晋升门禁](./iteration_112_workflow_context_knowledge_promotion.md)
 122. [Iteration 113 - 短剧逐镜图片候选选择与首尾帧绑定](./iteration_113_drama_shot_image_candidates_first_tail_binding.md)
 123. [Iteration 114 - 短剧逐镜图片 Provider 能力与可恢复生成尝试](./iteration_114_drama_shot_image_provider_capability_attempt_recovery.md)
+124. [Iteration 115 - 短剧逐镜视频计划与冻结首尾帧契约](./iteration_115_drama_shot_video_plan_frozen_frames.md)
