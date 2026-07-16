@@ -4037,6 +4037,250 @@ class AudioManifest(BaseModel):
         return self
 
 
+TtsAttemptStatus = Literal[
+    "started",
+    "not_sent",
+    "submission_unknown",
+    "submitted",
+    "artifact_received",
+    "succeeded",
+    "provider_failed",
+]
+
+
+class TtsProviderCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    backend_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    capability_version: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+    provider_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    model_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$")
+    task_kind: Literal["text_to_speech"] = "text_to_speech"
+    output_media_type: Literal["audio/wav"] = "audio/wav"
+    sample_rate: int = Field(ge=8000, le=48000)
+    max_text_characters: int = Field(ge=1, le=1000)
+    capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("sample_rate", "max_text_characters", mode="before")
+    @classmethod
+    def _tts_capability_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("model_id", mode="before")
+    @classmethod
+    def _tts_model_id_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or ".." in value
+            or "//" in value
+            or value.startswith("/")
+        ):
+            raise ValueError("TTS model id is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def _tts_capability_is_content_addressed(self) -> "TtsProviderCapability":
+        lowered = self.model_id.lower().rsplit("/", 1)[-1]
+        if "gpt-image" in lowered or lowered == "gpt-5.5-medium":
+            raise ValueError("non-audio model cannot declare TTS capability")
+        payload = self.model_dump(exclude={"capability_fingerprint"})
+        if _canonical_sha256(payload) != self.capability_fingerprint:
+            raise ValueError("TTS capability fingerprint is invalid")
+        return self
+
+
+class TtsAuthorization(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    authorization_id: str = Field(pattern=r"^ttsauth_[0-9a-f]{24}$")
+    utterance_id: str = Field(pattern=r"^utt_[0-9a-f]{24}$")
+    utterance_spec_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    model_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    account_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    endpoint_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    auth_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    authorization_scope: Literal["utterance_tts_once"] = "utterance_tts_once"
+    confirmed: Literal[True] = True
+    max_synthesis_posts: Literal[1] = 1
+    authorization_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _tts_authorization_is_content_addressed(self) -> "TtsAuthorization":
+        payload = self.model_dump(
+            exclude={"authorization_id", "authorization_fingerprint"}
+        )
+        fingerprint = _canonical_sha256(payload)
+        if self.authorization_fingerprint != fingerprint:
+            raise ValueError("TTS authorization fingerprint is invalid")
+        if self.authorization_id != f"ttsauth_{fingerprint[:24]}":
+            raise ValueError("TTS authorization id is invalid")
+        return self
+
+
+class TtsAttemptSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    utterance_id: str = Field(pattern=r"^utt_[0-9a-f]{24}$")
+    utterance_spec_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    model_id: str = Field(min_length=1, max_length=120)
+    text_sha256: str = Field(pattern=_SHA256_PATTERN)
+    output_path: str = Field(min_length=1, max_length=240)
+    capability: TtsProviderCapability
+    authorization: TtsAuthorization
+    input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _tts_spec_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("output_path", mode="before")
+    @classmethod
+    def _tts_output_path_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(
+                r"outputs/drama/audio/episode_[0-9]{3}/utt_[0-9a-f]{24}\.wav",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("TTS output path is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def _tts_spec_is_consistent(self) -> "TtsAttemptSpec":
+        expected_path = (
+            f"outputs/drama/audio/episode_{self.episode_no:03d}/"
+            f"{self.utterance_id}.wav"
+        )
+        if self.output_path != expected_path:
+            raise ValueError("TTS output path belongs to another utterance")
+        if (
+            self.authorization.utterance_id != self.utterance_id
+            or self.authorization.utterance_spec_fingerprint
+            != self.utterance_spec_fingerprint
+            or self.authorization.capability_fingerprint
+            != self.capability.capability_fingerprint
+        ):
+            raise ValueError("TTS authorization does not match its input")
+        if (
+            self.provider_id != self.capability.provider_id
+            or self.model_id != self.capability.model_id
+        ):
+            raise ValueError("TTS capability does not match the utterance voice")
+        payload = self.model_dump(exclude={"input_fingerprint"})
+        if _canonical_sha256(payload) != self.input_fingerprint:
+            raise ValueError("TTS attempt input fingerprint is invalid")
+        return self
+
+
+class TtsSubmissionReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    provider_request_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    receipt_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _tts_submission_receipt_is_addressed(self) -> "TtsSubmissionReceipt":
+        payload = self.model_dump(exclude={"receipt_fingerprint"})
+        if _canonical_sha256(payload) != self.receipt_fingerprint:
+            raise ValueError("TTS submission receipt fingerprint is invalid")
+        return self
+
+
+class TtsAudioArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=45, le=3_000_000)
+    duration_milliseconds: int = Field(ge=1, le=30_000)
+    sample_rate: int = Field(ge=8000, le=48000)
+    channels: Literal[1] = 1
+    artifact_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _tts_artifact_path_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(
+                r"outputs/drama/audio/episode_[0-9]{3}/utt_[0-9a-f]{24}\.wav",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("TTS artifact path is invalid")
+        return value
+
+    @field_validator("size_bytes", "duration_milliseconds", "sample_rate", mode="before")
+    @classmethod
+    def _tts_artifact_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _tts_artifact_is_addressed(self) -> "TtsAudioArtifact":
+        payload = self.model_dump(exclude={"artifact_fingerprint"})
+        if _canonical_sha256(payload) != self.artifact_fingerprint:
+            raise ValueError("TTS artifact fingerprint is invalid")
+        return self
+
+
+class TtsAttemptRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    attempt_id: str = Field(pattern=r"^ttsattempt_[0-9a-f]{24}$")
+    spec: TtsAttemptSpec
+    status: TtsAttemptStatus
+    submission: Optional[TtsSubmissionReceipt] = None
+    artifact: Optional[TtsAudioArtifact] = None
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _tts_attempt_record_is_consistent(self) -> "TtsAttemptRecord":
+        if self.status in {"started", "not_sent", "submission_unknown"} and (
+            self.submission is not None or self.artifact is not None
+        ):
+            raise ValueError("pre-submission TTS state cannot have receipts")
+        if self.status in {"submitted", "provider_failed"} and (
+            self.submission is None or self.artifact is not None
+        ):
+            raise ValueError("submitted TTS state has invalid receipts")
+        if self.status in {"artifact_received", "succeeded"} and (
+            self.submission is None or self.artifact is None
+        ):
+            raise ValueError("completed TTS state requires both receipts")
+        if self.artifact is not None and self.artifact.path != self.spec.output_path:
+            raise ValueError("TTS attempt artifact belongs to another input")
+        if (
+            self.artifact is not None
+            and self.artifact.sample_rate != self.spec.capability.sample_rate
+        ):
+            raise ValueError("TTS artifact sample rate does not match capability")
+        payload = self.model_dump(exclude={"attempt_id", "record_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.record_fingerprint != fingerprint:
+            raise ValueError("TTS attempt record fingerprint is invalid")
+        if self.attempt_id != f"ttsattempt_{self.spec.input_fingerprint[:24]}":
+            raise ValueError("TTS attempt id is invalid")
+        return self
+
+
 ShotVideoGenerationMode = Literal["image_to_video", "reference_to_video"]
 ShotVideoAttemptStatus = Literal[
     "started",

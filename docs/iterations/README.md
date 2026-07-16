@@ -142,3 +142,4 @@
 127. [Iteration 118 - 短剧完整 SOP 真人用户验证与修复](./iteration_118_drama_full_sop_real_user_validation.md)
 128. [Iteration 119 - 短剧逐镜视频连续性与合成门禁](./iteration_119_drama_shot_video_continuity_compose_gate.md)
 129. [Iteration 120 - 短剧 Voice Profile 与逐句音频计划](./iteration_120_drama_voice_profile_utterance_plan.md)
+130. [Iteration 121 - 短剧可恢复 TTS Attempt](./iteration_121_drama_recoverable_tts_attempt.md)
