@@ -2099,6 +2099,365 @@ class EpisodeShotImagePlan(BaseModel):
         return self
 
 
+ShotImageCandidateSource = Literal["local_png"]
+ShotImageSourceStatus = Literal["assembled", "blocked"]
+
+
+class ShotImageArtifact(BaseModel):
+    """One bounded local PNG artifact owned by the C2 candidate store."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    media_type: Literal["image/png"] = "image/png"
+    path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=1, le=5 * 1024 * 1024)
+    width: int = Field(ge=1, le=8192)
+    height: int = Field(ge=1, le=8192)
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _candidate_artifact_path_is_strict(cls, value: Any) -> str:
+        if not isinstance(value, str) or "\\" in value:
+            raise ValueError("shot image candidate path must be a POSIX relative path")
+        if (
+            value.startswith("/")
+            or value.startswith("./")
+            or "//" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or re.fullmatch(
+                r"outputs/episodes/episode_[0-9]{2,3}\.shot_images/"
+                r"shot_[0-9a-f]{24}/sic_[0-9a-f]{24}\.png",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("shot image candidate path must stay in its artifact root")
+        return value
+
+    @field_validator("size_bytes", "width", "height", mode="before")
+    @classmethod
+    def _candidate_artifact_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _candidate_artifact_is_bounded(self) -> "ShotImageArtifact":
+        if self.width * self.height > 40_000_000:
+            raise ValueError("shot image candidate pixel count exceeds its limit")
+        return self
+
+
+class ShotImageCandidate(BaseModel):
+    """One immutable C2 image candidate bound to its exact C1 request."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    candidate_id: str = Field(pattern=r"^sic_[0-9a-f]{24}$")
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_kind: ShotImageCandidateSource = "local_png"
+    artifact: ShotImageArtifact
+    candidate_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _candidate_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _candidate_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _candidate_is_content_addressed(self) -> "ShotImageCandidate":
+        payload = self.model_dump(exclude={"candidate_id", "candidate_fingerprint"})
+        payload["artifact"] = dict(payload["artifact"])
+        payload["artifact"].pop("path", None)
+        fingerprint = _canonical_sha256(payload)
+        if self.candidate_fingerprint != fingerprint:
+            raise ValueError("shot image candidate fingerprint is invalid")
+        if self.candidate_id != f"sic_{fingerprint[:24]}":
+            raise ValueError("shot image candidate id is invalid")
+        expected_path = (
+            f"outputs/episodes/episode_{self.episode_no:02d}.shot_images/"
+            f"{self.shot_id}/{self.candidate_id}.png"
+        )
+        if self.artifact.path != expected_path:
+            raise ValueError("shot image candidate artifact path is not canonical")
+        return self
+
+
+class DirectShotImageBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["direct"] = "direct"
+    candidate_id: str = Field(pattern=r"^sic_[0-9a-f]{24}$")
+    candidate_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+
+class PreviousTailShotImageBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["previous_tail"] = "previous_tail"
+    source_shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    candidate_id: str = Field(pattern=r"^sic_[0-9a-f]{24}$")
+    candidate_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_tail_revision: int = Field(ge=1, le=2_147_483_647)
+    target_request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("source_tail_revision", mode="before")
+    @classmethod
+    def _source_tail_revision_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("source_tail_revision must be a strict integer")
+        return value
+
+
+class NoTailShotImageBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["none"] = "none"
+
+
+FirstShotImageBinding = Annotated[
+    Union[DirectShotImageBinding, PreviousTailShotImageBinding],
+    Field(discriminator="kind"),
+]
+TailShotImageBinding = Annotated[
+    Union[DirectShotImageBinding, NoTailShotImageBinding],
+    Field(discriminator="kind"),
+]
+
+
+class ShotImageCandidatePool(BaseModel):
+    """Append-only candidates plus explicit frame selections for one shot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_status: ShotImageSourceStatus
+    current_request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    candidates: List[ShotImageCandidate] = Field(max_length=32)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+    tail_binding_revision: int = Field(ge=0, le=2_147_483_647)
+    last_selection_request_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    first_binding: Optional[FirstShotImageBinding] = None
+    tail_binding: TailShotImageBinding
+    pool_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("candidates", mode="before")
+    @classmethod
+    def _candidate_pool_list_is_strict(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot image candidates must be a list")
+        return value
+
+    @field_validator("selection_revision", "tail_binding_revision", mode="before")
+    @classmethod
+    def _candidate_pool_revisions_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _candidate_pool_is_consistent(self) -> "ShotImageCandidatePool":
+        candidate_ids = [item.candidate_id for item in self.candidates]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("shot image candidate ids must be unique")
+        by_id = {item.candidate_id: item for item in self.candidates}
+        for candidate in self.candidates:
+            if candidate.shot_id != self.shot_id:
+                raise ValueError("shot image candidate belongs to another shot")
+        for binding in (self.first_binding, self.tail_binding):
+            if isinstance(binding, DirectShotImageBinding):
+                candidate = by_id.get(binding.candidate_id)
+                if (
+                    candidate is None
+                    or candidate.candidate_fingerprint
+                    != binding.candidate_fingerprint
+                ):
+                    raise ValueError("direct shot image binding is not an exact candidate")
+        payload = self.model_dump(exclude={"pool_fingerprint"})
+        if _canonical_sha256(payload) != self.pool_fingerprint:
+            raise ValueError("shot image candidate pool fingerprint is invalid")
+        return self
+
+
+class EpisodeShotImageCandidateManifest(BaseModel):
+    """Episode-scoped C2 candidate, selection, and first/tail binding truth."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["shot-image-candidates-v1"] = (
+        "shot-image-candidates-v1"
+    )
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shots: List[ShotImageCandidatePool] = Field(min_length=1, max_length=100)
+    manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _candidate_manifest_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _candidate_manifest_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _candidate_manifest_is_consistent(
+        self,
+    ) -> "EpisodeShotImageCandidateManifest":
+        shot_ids = [item.shot_id for item in self.shots]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("shot image candidate manifest shot ids must be unique")
+        for index, pool in enumerate(self.shots):
+            for candidate in pool.candidates:
+                if (
+                    candidate.season_no != self.season_no
+                    or candidate.episode_no != self.episode_no
+                ):
+                    raise ValueError("shot image candidate belongs to another episode")
+            lineage = pool.first_binding
+            if isinstance(lineage, PreviousTailShotImageBinding):
+                source_pool = next(
+                    (
+                        item
+                        for item in self.shots
+                        if item.shot_id == lineage.source_shot_id
+                    ),
+                    None,
+                )
+                if source_pool is not None:
+                    previous = {
+                        item.candidate_id: item for item in source_pool.candidates
+                    }.get(lineage.candidate_id)
+                    if (
+                        previous is None
+                        or previous.candidate_fingerprint
+                        != lineage.candidate_fingerprint
+                    ):
+                        raise ValueError("shot image lineage is not an exact source candidate")
+        payload = self.model_dump(exclude={"manifest_fingerprint"})
+        if _canonical_sha256(payload) != self.manifest_fingerprint:
+            raise ValueError("shot image candidate manifest fingerprint is invalid")
+        return self
+
+
+ShotImageCoverageStatus = Literal["ready", "incomplete", "stale", "blocked_source"]
+
+
+class ShotImageCoverageReport(BaseModel):
+    """Deterministic C2 first-frame coverage and continuity projection."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_plan_matches: bool
+    status: ShotImageCoverageStatus
+    required_shot_ids: List[str] = Field(min_length=1, max_length=100)
+    covered_shot_ids: List[str] = Field(max_length=100)
+    missing_first_shot_ids: List[str] = Field(max_length=100)
+    blocked_source_shot_ids: List[str] = Field(max_length=100)
+    stale_candidate_shot_ids: List[str] = Field(max_length=100)
+    broken_lineage_shot_ids: List[str] = Field(max_length=100)
+    coverage_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _coverage_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("source_plan_matches", mode="before")
+    @classmethod
+    def _coverage_source_match_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("source_plan_matches must be bool")
+        return value
+
+    @field_validator(
+        "required_shot_ids",
+        "covered_shot_ids",
+        "missing_first_shot_ids",
+        "blocked_source_shot_ids",
+        "stale_candidate_shot_ids",
+        "broken_lineage_shot_ids",
+        mode="before",
+    )
+    @classmethod
+    def _coverage_shot_ids_are_unique(cls, value: Any, info: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        if len(value) != len(set(value)) or any(
+            not isinstance(item, str) or re.fullmatch(_SHOT_ID_PATTERN, item) is None
+            for item in value
+        ):
+            raise ValueError(f"{info.field_name} must contain unique shot ids")
+        return value
+
+    @model_validator(mode="after")
+    def _coverage_is_content_addressed(self) -> "ShotImageCoverageReport":
+        required = set(self.required_shot_ids)
+        categories = (
+            self.covered_shot_ids,
+            self.missing_first_shot_ids,
+            self.blocked_source_shot_ids,
+            self.stale_candidate_shot_ids,
+            self.broken_lineage_shot_ids,
+        )
+        if any(not set(items).issubset(required) for items in categories):
+            raise ValueError("shot image coverage contains an unknown shot")
+        category_sets = [set(items) for items in categories]
+        if any(
+            category_sets[left] & category_sets[right]
+            for left in range(len(category_sets))
+            for right in range(left + 1, len(category_sets))
+        ) or set().union(*category_sets) != required:
+            raise ValueError("shot image coverage categories must partition required shots")
+        if self.blocked_source_shot_ids:
+            expected_status = "blocked_source"
+        elif (
+            not self.source_plan_matches
+            or self.stale_candidate_shot_ids
+            or self.broken_lineage_shot_ids
+        ):
+            expected_status = "stale"
+        elif self.missing_first_shot_ids:
+            expected_status = "incomplete"
+        else:
+            expected_status = "ready"
+        if self.status != expected_status:
+            raise ValueError("shot image coverage status is inconsistent")
+        payload = self.model_dump(exclude={"coverage_fingerprint"})
+        if _canonical_sha256(payload) != self.coverage_fingerprint:
+            raise ValueError("shot image coverage fingerprint is invalid")
+        return self
+
+
 AudioPolicy = Literal[
     "silent",
     "narration_only",

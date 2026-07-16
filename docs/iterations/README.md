@@ -134,3 +134,4 @@
 119. [Iteration 110 - 短剧道具/线索资产版本与逐镜冻结引用](./iteration_110_drama_prop_clue_asset_version_shot_freeze.md)
 120. [Iteration 111 - 短剧逐镜图片规格与冻结引用装配](./iteration_111_drama_shot_image_spec_reference_assembly.md)
 121. [Iteration 112 - 迭代上下文清单与经验晋升门禁](./iteration_112_workflow_context_knowledge_promotion.md)
+122. [Iteration 113 - 短剧逐镜图片候选选择与首尾帧绑定](./iteration_113_drama_shot_image_candidates_first_tail_binding.md)
