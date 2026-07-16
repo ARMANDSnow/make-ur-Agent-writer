@@ -4635,6 +4635,176 @@ class SrtArtifact(BaseModel):
         return self
 
 
+class DramaComposePlan(BaseModel):
+    """Deterministic argv-only F1 plan derived from one TimelineManifest."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["drama-compose-plan-v1"] = "drama-compose-plan-v1"
+    profile: Literal["vertical-1080x1920-25-v1"] = "vertical-1080x1920-25-v1"
+    timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    width: Literal[1080] = 1080
+    height: Literal[1920] = 1920
+    fps_numerator: Literal[25] = 25
+    fps_denominator: Literal[1] = 1
+    video_time_base_numerator: Literal[1] = 1
+    video_time_base_denominator: Literal[25000] = 25000
+    audio_sample_rate: Literal[48000] = 48000
+    audio_layout: Literal["stereo"] = "stereo"
+    total_duration_ms: int = Field(ge=1, le=3_600_000)
+    required_shot_ids: List[str] = Field(min_length=1, max_length=100)
+    input_paths: List[str] = Field(min_length=1, max_length=300)
+    srt_path: str = Field(min_length=1, max_length=240)
+    output_path: str = Field(min_length=1, max_length=240)
+    qa_path: str = Field(min_length=1, max_length=240)
+    filter_graph: str = Field(min_length=1, max_length=100_000)
+    ffmpeg_argv: List[str] = Field(min_length=10, max_length=1000)
+    plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "episode_no", "total_duration_ms", mode="before"
+    )
+    @classmethod
+    def _compose_plan_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("required_shot_ids", "input_paths", "ffmpeg_argv", mode="before")
+    @classmethod
+    def _compose_plan_lists_are_strict(cls, value: Any, info: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _compose_plan_is_safe_and_content_addressed(self) -> "DramaComposePlan":
+        if len(self.required_shot_ids) != len(set(self.required_shot_ids)) or any(
+            re.fullmatch(_SHOT_ID_PATTERN, item) is None
+            for item in self.required_shot_ids
+        ):
+            raise ValueError("compose required shots are invalid")
+        path_pattern = r"outputs/drama/compose/episode_[0-9]{3}/[A-Za-z0-9._-]{1,160}"
+        for value in [*self.input_paths, self.srt_path, self.output_path, self.qa_path]:
+            if (
+                not isinstance(value, str)
+                or value.startswith("/")
+                or "\\" in value
+                or any(part in {"", ".", ".."} for part in value.split("/"))
+                or any(ord(char) < 32 for char in value)
+            ):
+                raise ValueError("compose path is unsafe")
+        if re.fullmatch(path_pattern + r"\.srt", self.srt_path) is None:
+            raise ValueError("compose SRT path is invalid")
+        if re.fullmatch(path_pattern + r"\.mp4", self.output_path) is None:
+            raise ValueError("compose MP4 path is invalid")
+        if re.fullmatch(path_pattern + r"\.qa\.json", self.qa_path) is None:
+            raise ValueError("compose QA path is invalid")
+        if self.ffmpeg_argv[0] != "ffmpeg" or self.ffmpeg_argv[-1] != "{output_temp}":
+            raise ValueError("compose argv executable or output token is invalid")
+        if self.ffmpeg_argv.count("-filter_complex") != 1 or self.filter_graph not in self.ffmpeg_argv:
+            raise ValueError("compose filter graph is not bound to argv")
+        forbidden = {"-filter_script", "-filter_complex_script", "-report", "-progress"}
+        if any(
+            not isinstance(arg, str)
+            or not arg
+            or any(ord(char) < 32 for char in arg)
+            or (arg.startswith("/") and arg != "/dev/null")
+            or arg in forbidden
+            for arg in self.ffmpeg_argv
+        ):
+            raise ValueError("compose argv is unsafe")
+        payload = self.model_dump(exclude={"plan_fingerprint"})
+        if _canonical_sha256(payload) != self.plan_fingerprint:
+            raise ValueError("compose plan fingerprint is invalid")
+        return self
+
+
+class DramaComposeQaReport(BaseModel):
+    """Post-probe evidence for one completed F1 MP4/SRT pair."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["drama-compose-qa-v1"] = "drama-compose-qa-v1"
+    status: Literal["passed"] = "passed"
+    acceptance_level: Literal["local-e2e"] = "local-e2e"
+    provider_validated: Literal[False] = False
+    profile: Literal["vertical-1080x1920-25-v1"]
+    plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    output_path: str = Field(min_length=1, max_length=240)
+    output_sha256: str = Field(pattern=_SHA256_PATTERN)
+    output_size_bytes: int = Field(ge=1, le=500_000_000)
+    srt_path: str = Field(min_length=1, max_length=240)
+    srt_sha256: str = Field(pattern=_SHA256_PATTERN)
+    required_shot_ids: List[str] = Field(min_length=1, max_length=100)
+    covered_shot_ids: List[str] = Field(min_length=1, max_length=100)
+    container: Literal["mp4"] = "mp4"
+    video_codec: Literal["h264"] = "h264"
+    audio_codec: Literal["aac"] = "aac"
+    width: Literal[1080] = 1080
+    height: Literal[1920] = 1920
+    fps_numerator: Literal[25] = 25
+    fps_denominator: Literal[1] = 1
+    sample_aspect_ratio: Literal["1:1"] = "1:1"
+    video_time_base: Literal["1/25000"] = "1/25000"
+    pixel_format: Literal["yuv420p"] = "yuv420p"
+    audio_sample_rate: Literal[48000] = 48000
+    audio_channels: Literal[2] = 2
+    audio_layout: Literal["stereo"] = "stereo"
+    audio_time_base: Literal["1/48000"] = "1/48000"
+    expected_duration_ms: int = Field(ge=1, le=3_600_000)
+    duration_ms: int = Field(ge=1, le=3_600_000)
+    metadata_timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    qa_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "episode_no", "output_size_bytes", "expected_duration_ms", "duration_ms",
+        mode="before",
+    )
+    @classmethod
+    def _compose_qa_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("required_shot_ids", "covered_shot_ids", mode="before")
+    @classmethod
+    def _compose_qa_lists_are_strict(cls, value: Any, info: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _compose_qa_is_complete(self) -> "DramaComposeQaReport":
+        expected_base = f"outputs/drama/compose/episode_{self.episode_no:03d}"
+        expected_stem = f"timeline_{self.timeline_fingerprint[:24]}"
+        if (
+            self.output_path != f"{expected_base}/{expected_stem}.mp4"
+            or self.srt_path != f"{expected_base}/{expected_stem}.srt"
+        ):
+            raise ValueError("compose QA artifact paths are invalid")
+        if (
+            len(self.required_shot_ids) != len(set(self.required_shot_ids))
+            or any(re.fullmatch(_SHOT_ID_PATTERN, item) is None for item in self.required_shot_ids)
+        ):
+            raise ValueError("compose QA shot ids are invalid")
+        if self.required_shot_ids != self.covered_shot_ids:
+            raise ValueError("compose QA required-shot coverage is incomplete")
+        if abs(self.duration_ms - self.expected_duration_ms) > 160:
+            raise ValueError("compose QA duration is out of tolerance")
+        if self.metadata_timeline_fingerprint != self.timeline_fingerprint:
+            raise ValueError("compose MP4 metadata does not match timeline")
+        payload = self.model_dump(exclude={"qa_fingerprint"})
+        if _canonical_sha256(payload) != self.qa_fingerprint:
+            raise ValueError("compose QA fingerprint is invalid")
+        return self
+
+
 ShotVideoGenerationMode = Literal["image_to_video", "reference_to_video"]
 ShotVideoAttemptStatus = Literal[
     "started",
