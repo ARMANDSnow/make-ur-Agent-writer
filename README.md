@@ -12,7 +12,7 @@
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
 - **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
-- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照，以及角色生图与 episode 1 视频安全入口。
+- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、逐镜图片 C1-C3 与逐镜视频 D1-D2 纯本地契约，以及角色生图和 episode 1 视频安全入口。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -142,12 +142,13 @@ docs/iterations/           逐轮审计记录
 | 短剧逐镜图片候选与首尾帧绑定 | 113 | ✅ content-addressed 本地 PNG 候选、显式选择、first/tail/previous-tail lineage、覆盖率与 strict repair 形成 C2 闭环 |
 | 短剧逐镜图片能力与可恢复尝试 | 114 | ✅ provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与进程 crash 零重复调用形成 C3 mock-only 闭环 |
 | 短剧逐镜视频计划与冻结首尾帧 | 115 | ✅ provider-neutral 逐镜视频计划冻结时长、受控视觉输入、exact first/optional tail 与 previous-tail lineage；五态本地 store 形成 D1 闭环 |
+| 短剧逐镜视频候选选择与整集覆盖 | 116 | ✅ content-addressed strict MP4 候选、guarded selection、retired audit、精确 stale/repair 与 production coverage 形成 D2 纯本地闭环 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 115**（2026-07-16，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧逐镜图片已完成 C1 冻结规格、C2 strict PNG 候选/选择/首尾帧 lineage/覆盖率，以及 C3 provider-neutral capability、once-only attempt、durable receipt 与进程 crash 零重复调用的 mock-only 闭环；D1 进一步从 fresh RenderPlan/C1/C2 确定性冻结逐镜视频目标时长、受控视觉输入、exact selected first/optional tail、ordered references 与 previous-tail lineage，并通过五态本地 store 管理 freshness。D1 仍只是 provider-neutral 输入计划，不包含真实/假网络视频 adapter、attempt/candidate/selection、submit/poll/download、整集 coverage 或 Web/CLI。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
+最近一次更新：**iter 116**（2026-07-16，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧逐镜图片已完成 C1-C3 纯本地闭环；D1 从 fresh RenderPlan/C1/C2 冻结 provider-neutral 逐镜视频输入，D2 进一步提供 content-addressed strict MP4 候选、append 不自选、guarded selection、删除镜头 retired audit、精确 stale/reconcile/repair 与整集 production coverage。D1-D2 都不包含视频 provider capability/attempt、fake/真实网络 adapter、submit/poll/download 或 Web/CLI；旧 episode 1 高光视频链仍保持兼容。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单，也不占 iteration 编号。总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`、`provider_validated=false`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -182,7 +183,7 @@ docs/iterations/           逐轮审计记录
 | A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、五态检查 | 🟨 | **A1 已完成**；A2 已冻结角色、ArtDirection、场景与道具/线索 selected refs，并让 ArtDirection/RenderPlan/资产选择精确传播到对应单集 manifest；通用 visual override 与后续媒体依赖矩阵待完成 |
 | B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本和 selected CAS；场景及道具/线索支持 episode used-by；跨集 used-by/Web 管理与 ArtDirection 多 scope 待实现 |
 | C. 逐镜图片 | 每镜图片候选、首帧/可选尾帧、引用冻结、比较选择与覆盖率 | 🟨 | **C1+C2+C3 纯本地闭环已实现**：provider-neutral request/exact refs，content-addressed strict PNG 候选与 guarded first/tail/previous-tail lineage，provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与进程 crash 零重复调用；真实 provider/network adapter、多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 与 power-loss 证明未实现 |
-| D. 逐镜视频 | 每镜 I2V/R2V 输入计划、submit→poll→download、候选选择与跨镜连续性 | 🟨 | **D1 已完成**：provider-neutral `EpisodeShotVideoPlan` 冻结逐镜时长、视觉输入、exact first/optional tail、ordered refs 与 previous-tail lineage，并有五态 strict local store；provider capability/attempt、视频 candidate/selection、网络执行、整集 coverage 与 episode 2+ 成片未实现，旧 episode 1 高光入口保持兼容 |
+| D. 逐镜视频 | 每镜 I2V/R2V 输入计划、submit→poll→download、候选选择与跨镜连续性 | 🟨 | **D1+D2 纯本地闭环已完成**：D1 冻结 provider-neutral 逐镜时长、视觉输入、exact first/optional tail、ordered refs 与 previous-tail lineage；D2 提供 strict MP4 candidate/selection、retired audit、精确 stale/repair 与整集 coverage。provider capability/attempt、网络执行与 episode 2+ 成片未实现，旧 episode 1 高光入口保持兼容 |
 | E. 声音与唯一时间线 | 角色 voice、逐句 TTS、旁白、字幕、BGM/SFX 与 `TimelineManifest` | ⏳ | RenderPlan 已有 spoken 投影；音频生成、实际时长校验和唯一时间线未实现 |
 | F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | ⏳ | 这是首个“本地完整成片”里程碑；当前尚未打通，更广 codec/container 支持也未实现 |
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | ⏳ | 已有领域专用恢复/付费 ledger；尚未做通用调度，且不得用通用状态替代付费证据 |

@@ -41,6 +41,7 @@
 | 113 | 短剧逐镜图片候选与首尾帧绑定 | content-addressed strict PNG 候选、guarded first/tail lineage、精确 coverage/stale 与 create-only repair |
 | 114 | 短剧逐镜图片能力与可恢复尝试 | provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与 process-crash 零重复调用 |
 | 115 | 短剧逐镜视频计划与冻结首尾帧 | provider-neutral 逐镜时长/视觉输入/exact first/optional tail/previous-tail lineage 与五态 local store |
+| 116 | 短剧逐镜视频候选选择与整集覆盖 | content-addressed strict MP4、guarded selection、retired audit、精确 stale/repair 与 production coverage |
 
 ## Iteration Implementation Index
 
@@ -137,6 +138,7 @@
 | 113 | 建立逐镜图片候选、首尾帧 lineage 与显式恢复 | `src/drama_schemas.py`、`src/drama_shot_image_candidates.py`、`src/drama_shot_image_candidate_store.py`、`tests/test_drama_shot_image_candidate*.py` |
 | 114 | 建立逐镜图片 capability、once-only attempt、receipt 与 crash recovery | `src/drama_schemas.py`、`src/drama_shot_image_attempts.py`、`src/drama_shot_image_attempt_store.py`、`tests/test_drama_shot_image_attempt*.py` |
 | 115 | 建立逐镜视频计划、冻结首尾帧 lineage 与五态 store | `src/drama_schemas.py`、`src/drama_shot_video.py`、`src/drama_shot_video_store.py`、`tests/test_drama_shot_video*.py` |
+| 116 | 建立逐镜视频候选、显式选择与整集覆盖门禁 | `src/drama_schemas.py`、`src/drama_shot_video_candidates.py`、`src/drama_shot_video_candidate_store.py`、`tests/test_drama_shot_video_candidate*.py` |
 
 ## Durable Decisions
 

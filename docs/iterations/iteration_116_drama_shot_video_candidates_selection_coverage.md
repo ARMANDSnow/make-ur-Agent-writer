@@ -42,11 +42,20 @@ iter115 已完成阶段 D1：从 fresh RenderPlan、C1 与 coverage ready 的 C2
 - manifest freshness 与 production coverage 分层：缺 selection 或显式 placeholder 不破坏 manifest freshness，但 coverage 分别为 `incomplete` / `invalid`；只有每个 required shot 的 exact selected candidate 与当前 D1 spec 一致且 artifact 完整、非 placeholder 时才 `ready`。
 - reconcile 保留历史 candidate 与 selection，只有 request 漂移的 shot 排除在 fresh coverage 外；删除的 shot pool 移入 `retired_shots` 审计池，重新出现时可恢复，未受影响镜头保持字节级候选/选择事实。旧 artifact 缺失或损坏不靠重建 manifest 掩盖，只允许 exact referenced bytes 的 create-only repair。
 - store 复用项目 workspace lock、strict JSON reader 与 workspace root 守门，并补 source/target/selection CAS、nofollow/nonblock/regular-file、dirfd create-only artifact、atomic manifest replace、fsync、precommit source/artifact reread 与 temp/final inode ownership。普通 inspection 只重验 active selected artifact，按 manifest 的 256 candidate / 4 GiB declared history / 512 MiB selected inspection 总预算约束资源，并以 artifact declared size 作 strict read 上限；写操作在锁内做最多 2048 项的 canonical temp/orphan crash-residue 清扫。
-- correctness/behavior、security/boundary、media/storage/recovery 三个只读视角均无 P0；共同指出的 header-only/坏 offset MP4、真实 store blocker coverage 缺失、删镜历史丢失，以及资源扫描/进程退出残留问题，分别用 sample reachability probe、逐镜 invalid/blocked projection、retired audit pool、manifest/scan budget 与受限 recovery 修复。补充 episode 2 完整 create → append → select → ready、selected/unselected artifact、坏 `stco` 与 recovery 证据后，D2 新链 **22 tests OK**；资产、C1-C3、D1、paid vocabulary、导出、season export 与 legacy episode-1 video 聚焦回归 **262 tests OK**。尚未运行 canonical `verify.sh`。
+- correctness/behavior、security/boundary、media/storage/recovery 三个只读视角均无 P0；共同指出的 header-only/坏 offset MP4、真实 store blocker coverage 缺失、删镜历史丢失，以及资源扫描/进程退出残留问题，分别用 sample reachability probe、逐镜 invalid/blocked projection、retired audit pool、manifest/scan budget 与受限 recovery 修复。补充 episode 2 完整 create → append → select → ready、selected/unselected artifact、坏 `stco` 与 recovery 证据后，D2 新链 **22 tests OK**；资产、C1-C3、D1、paid vocabulary、导出、season export 与 legacy episode-1 video 聚焦回归 **262 tests OK**；最终 canonical 结果见 Acceptance Result。
 
 ## Acceptance Result
 
-由 `iter-finish` 回填 A116-01 至 A116-06 的聚焦检查、测试数、三视角审查、implementation commit、最终一次 canonical acceptance、验收等级与未修风险；本轮不得因本地 fixture 或既有 fake-provider 证据宣称 `provider-validated`。
+- **A116-01 — 通过**：新增 strict `ShotVideoArtifact / Candidate / Selection / CandidatePool / EpisodeManifest / CoverageReport`，candidate identity 绑定 season/episode/shot、D1 plan/spec 与 MP4 identity；canonical path、bool/extra/重复/跨集/重哈希篡改均有测试。未修改 `DramaEpisode`、RenderPlan、C1-C3 或 D1 shape。
+- **A116-02 — 通过**：append 与 select 分层，新 candidate 不自选；selection 使用 expected manifest fingerprint、revision/current binding 与 exact transition receipt，lost-response 仅允许原 transition 重放。store 在写锁内重读 source/target/selected artifact。
+- **A116-03 — 通过**：MP4 probe 有 100 MiB 单文件、单层/全文件 box、sample 数限制，并校验唯一 `ftyp/moov`、supported sample entry、track duration、dimensions 与 `stsd/stsz/stts/stsc/stco|co64 → mdat` 样本可达性；坏 offset、box bomb、伪扩展、missing/placeholder 均不能 production ready。
+- **A116-04 — 通过**：D1 plan/spec 漂移按 stable shot 精确传播，删除镜头移入 `retired_shots` 审计池；coverage 稳定穷尽 selected fresh、missing、stale、invalid/missing artifact、placeholder、blocked source，episode 2 完整 create → append → select → ready 已验证。
+- **A116-05 — 通过**：五态 store、strict JSON/MP4、workspace lock、source/target/selection CAS、nofollow/nonblock/regular-file、dirfd create-only/atomic replace、fsync、precommit reread、exact repair、短写/temp ownership 与最多 2048 项的 canonical crash-residue recovery 通过。manifest 额外限制 256 candidates、4 GiB declared history 与 512 MiB selected scan；普通 inspect 只读取 active selected 且以 declared size 为上限。socket sentinel 证明 D2 全链零网络。
+- **A116-06 — 通过**：D2 新链 **22 tests OK**；资产、C1-C3、D1、paid vocabulary、导出、season export 与 legacy episode-1 video 聚焦回归 **262 tests OK**。correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角均无 P0；发现的 MP4 可达性、真实 store blocker coverage、删镜审计历史、资源扫描与 crash residue P1/P2 均已修复，最终无遗留 P0/P1/P2。
+- implementation commit：`df58cc37e7381b1e870594a448c34db147c029d1`（`feat(drama): add shot video candidates and coverage (iter116)`）。
+- canonical acceptance：最终获准的非沙箱 `bash scripts/verify.sh` exit 0，**2360 tests OK**，15 steps / 196 秒，run `3dec3ffb95ed4f1eb1bc4b22022d1a47`，tree `8211cc49eb0c12416dd3dce706d4b94b65b7a135`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN。首次沙箱执行的 14 个错误全部来自环境禁止 loopback bind；未改代码，同一 implementation commit 按执行环境规则重验通过。
+- 验收等级：总级别 `mock-functional`；canonical 中既有 fake-provider 子步骤为 `local-e2e`；`mock_offline=true`、`provider_validated=false`。未运行真文本、真图片、真视频、真 ComfyUI 或任何真实 provider。
+- 未修风险：D2 只证明受控本地 writer/process-level persistence 与结构化 MP4 样本可达性，不证明完整 codec decode/主观质量、power-loss、敌对本机进程、视频 provider exactly-once 或真实逐镜视频；这些继续属于 D3/J 与既定范围外边界。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -65,6 +74,9 @@ iter115 已完成阶段 D1：从 fresh RenderPlan、C1 与 coverage ready 的 C2
 | `tests/_drama_shot_video_candidate_base.py` | 新增基于 D1/C2 的 synthetic MP4 candidate fixture |
 | `tests/test_drama_shot_video_candidates.py` | 新增 content address、selection receipt、stale/reconcile/coverage 与 schema 测试 |
 | `tests/test_drama_shot_video_candidate_store.py` | 新增 MP4、路径/特殊文件、锁/CAS/race/repair/短写/零网络 store 测试 |
+| `README.md` | 同步 iter116 里程碑、实时 SOP 与 D1-D2 精确边界 |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前快照、能力/缺口、验收证据与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 追加 iter116 阶段里程碑与实现索引 |
 
 实施与收官时按实际 diff 补充业务代码、测试、README、产品 SOP、handoff 与 history；不得用预计变更冒充已完成事实。
 
