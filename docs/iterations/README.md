@@ -140,3 +140,4 @@
 125. [Iteration 116 - 短剧逐镜视频候选选择与整集覆盖门禁](./iteration_116_drama_shot_video_candidates_selection_coverage.md)
 126. [Iteration 117 - 短剧逐镜视频 Provider 能力与 Once-only Attempt 恢复](./iteration_117_drama_shot_video_provider_capability_attempt_recovery.md)
 127. [Iteration 118 - 短剧完整 SOP 真人用户验证与修复](./iteration_118_drama_full_sop_real_user_validation.md)
+128. [Iteration 119 - 短剧逐镜视频连续性与合成门禁](./iteration_119_drama_shot_video_continuity_compose_gate.md)

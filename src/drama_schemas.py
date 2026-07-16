@@ -3624,6 +3624,99 @@ class ShotVideoCoverageReport(BaseModel):
         return self
 
 
+ShotVideoContinuityStatus = Literal["ready", "degraded_preview", "blocked"]
+
+
+class ShotVideoContinuityReport(BaseModel):
+    """Deterministic D4 continuity and production-compose gate."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["shot-video-continuity-v1"] = (
+        "shot-video-continuity-v1"
+    )
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    selected_bindings_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    coverage_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_plan_matches: bool
+    status: ShotVideoContinuityStatus
+    ready_for_compose: bool
+    blocked_shot_ids: List[str] = Field(max_length=100)
+    degraded_preview_shot_ids: List[str] = Field(max_length=100)
+    broken_lineage_shot_ids: List[str] = Field(max_length=100)
+    character_version_change_shot_ids: List[str] = Field(max_length=100)
+    scene_version_change_shot_ids: List[str] = Field(max_length=100)
+    camera_reversal_shot_ids: List[str] = Field(max_length=100)
+    report_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _continuity_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _continuity_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("ready_for_compose", "source_plan_matches", mode="before")
+    @classmethod
+    def _continuity_ready_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("ready_for_compose must be bool")
+        return value
+
+    @field_validator(
+        "blocked_shot_ids",
+        "degraded_preview_shot_ids",
+        "broken_lineage_shot_ids",
+        "character_version_change_shot_ids",
+        "scene_version_change_shot_ids",
+        "camera_reversal_shot_ids",
+        mode="before",
+    )
+    @classmethod
+    def _continuity_ids_are_unique(cls, value: Any, info: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        if len(value) != len(set(value)) or any(
+            not isinstance(item, str)
+            or re.fullmatch(_SHOT_ID_PATTERN, item) is None
+            for item in value
+        ):
+            raise ValueError(f"{info.field_name} must contain unique shot ids")
+        return value
+
+    @model_validator(mode="after")
+    def _continuity_report_is_consistent(self) -> "ShotVideoContinuityReport":
+        if set(self.blocked_shot_ids) & set(self.degraded_preview_shot_ids):
+            raise ValueError("blocked and degraded preview shots must be disjoint")
+        expected_status = (
+            "blocked"
+            if (
+                not self.source_plan_matches
+                or self.blocked_shot_ids
+                or self.broken_lineage_shot_ids
+            )
+            else "degraded_preview"
+            if self.degraded_preview_shot_ids
+            else "ready"
+        )
+        if self.status != expected_status:
+            raise ValueError("shot video continuity status is inconsistent")
+        if self.ready_for_compose != (self.status == "ready"):
+            raise ValueError("shot video compose readiness is inconsistent")
+        payload = self.model_dump(exclude={"report_fingerprint"})
+        if _canonical_sha256(payload) != self.report_fingerprint:
+            raise ValueError("shot video continuity fingerprint is invalid")
+        return self
+
+
 ShotVideoGenerationMode = Literal["image_to_video", "reference_to_video"]
 ShotVideoAttemptStatus = Literal[
     "started",
