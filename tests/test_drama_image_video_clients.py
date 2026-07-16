@@ -293,26 +293,35 @@ class DramaImageClientTests(DramaTestBase):
         self.assertEqual(status, 200, body.decode())
         self.assertIs(redraw.call_args.kwargs["mock"], True)
 
-    def test_web_redraw_rejects_real_configuration_and_requires_multimodal(self) -> None:
+    def test_web_local_preview_stays_available_with_real_configuration(self) -> None:
         sheet = character_designer.run("image", mock=True)
         path = character_paths("image").sheet_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
+        fake = {
+            "path": "data/character_refs/c001/portrait_neutral.png",
+            "generated_by": "placeholder_png",
+            "prompt": "<mock>",
+        }
         with patch.dict(os.environ, {"AI_DRAW_MODEL": "gpt-image-2"}, clear=False), \
-                patch("src.ai_draw_client.redraw_character_reference") as redraw:
+                patch("src.ai_draw_client.redraw_character_reference", return_value=fake) as redraw:
             status, _ct, body = routes.dispatch(
                 "POST",
                 "/api/workspace/image/drama/characters/c001/redraw",
                 b"{}",
                 {"content-type": "application/json"},
             )
-        self.assertEqual(status, 409, body.decode())
-        self.assertIn("multimodal", json.loads(body)["error"])
-        redraw.assert_not_called()
+        self.assertEqual(status, 200, body.decode())
+        self.assertIs(redraw.call_args.kwargs["mock"], True)
         source = Path("src/web/static.py").read_text(encoding="utf-8")
-        self.assertIn("真实生图请使用受预算保护的多模态校准命令", source)
         self.assertIn("重画本地预览", source)
         self.assertIn("查看 SD Prompt", source)
+        review_pos = source.index('const reviewBtn = root.querySelector("[data-review-assemble]")')
+        review_save = source.index('const saved = await putJson(wsUrl("/drama/characters")', review_pos)
+        review_post = source.index('wsUrl("/drama/review")', review_save)
+        self.assertLess(review_save, review_post)
+        self.assertIn("real_image_would_be_overwritten", source)
+        self.assertIn("返回创作台重新评审并组装", source)
 
     def test_web_redraw_rejects_text_plain_csrf_shape_before_drawing(self) -> None:
         with patch("src.ai_draw_client.redraw_character_reference") as redraw:

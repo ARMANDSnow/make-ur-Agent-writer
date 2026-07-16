@@ -2122,11 +2122,7 @@ def api_drama_storyboard_rewrite_shot(name: str, body: bytes) -> Tuple[int, str,
 _CHARACTER_ID_RE = re.compile(r"^c\d{3}$")
 _REF_FILENAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,120}$")
 _CHARACTER_REF_CONTENT_TYPES = {
-    ".svg": "image/svg+xml; charset=utf-8",
     ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
 }
 
 
@@ -2284,10 +2280,6 @@ def api_drama_character_redraw(
     if parse_error:
         return parse_error
     assert payload is not None
-    # Manual Web redraw is mock-only. Real image generation must use the
-    # multimodal runner so budget/attempt/retry state is durable.
-    if (os.getenv("AI_DRAW_ENDPOINT") or os.getenv("AI_DRAW_MODEL") or "").strip():
-        return _json(409, {"error": "real_image_requires_multimodal_runner"})
     try:
         episode_no = _parse_episode_no(payload.get("episode_no", 1))
     except (TypeError, ValueError):
@@ -2315,6 +2307,26 @@ def api_drama_character_redraw(
             target = next((character for character in characters if character.get("id") == cid), None)
             if target is None:
                 return _json(404, {"error": "character not found"})
+            from .. import drama_multimodal_smoke
+            try:
+                paid_state = drama_multimodal_smoke.load_state(name)
+            except ValueError:
+                return _json(409, {"error": "paid_image_state_requires_repair"})
+            paid_phase = (paid_state or {}).get("phases", {}).get("all_character_images", {})
+            paid_attempts = (paid_state or {}).get("image_attempts", {}).get(cid, [])
+            if paid_phase.get("real") is True and any(
+                row.get("status") in {"artifact_received", "succeeded"}
+                for row in paid_attempts
+                if isinstance(row, dict)
+            ):
+                return _json(409, {"error": "real_image_would_be_overwritten"})
+            local_generators = {"placeholder_png", "mock-multimodal-smoke"}
+            for ref in target.get("reference_images", []):
+                if (
+                    str(ref.get("path") or "").rsplit("/", 1)[-1] == "portrait_neutral.png"
+                    and str(ref.get("generated_by") or "") not in local_generators
+                ):
+                    return _json(409, {"error": "real_image_would_be_overwritten"})
             try:
                 image = ai_draw_client.redraw_character_reference(name, target, mock=True)
             except Exception as exc:
@@ -2372,6 +2384,13 @@ def api_character_ref(name: str, cid: str, filename: str) -> Tuple[int, str, byt
         return _json(404, {"error": "character reference not found"})
     if len(data) > MAX_RESPONSE_BYTES:
         return _json(413, {"error": "character reference exceeds size limit"})
+    from ..ai_draw_client import _detect_image_type
+    try:
+        detected_type, _detected_suffix = _detect_image_type(data)
+    except ValueError:
+        return _json(400, {"error": "character reference bytes are not a supported image"})
+    if detected_type != content_type:
+        return _json(400, {"error": "character reference type does not match its bytes"})
     return 200, content_type, data
 
 

@@ -209,10 +209,87 @@ class DramaCharactersApiTests(DramaTestBase):
         self.assertEqual(status, 400)
         self.assertIn("unsupported", json.loads(body)["error"])
 
+        (ref_dir / "active.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+            encoding="utf-8",
+        )
+        status, _ct, body = routes.dispatch(
+            "GET", "/api/workspace/drama/character-ref/c001/active.svg"
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("unsupported", json.loads(body)["error"])
+
+        (ref_dir / "fake.png").write_bytes(b"not a png")
+        status, _ct, body = routes.dispatch(
+            "GET", "/api/workspace/drama/character-ref/c001/fake.png"
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("image", json.loads(body)["error"])
+
+        for filename, payload in (
+            ("legacy.jpg", b"\xff\xd8\xffnot-decoded"),
+            ("legacy.webp", b"RIFF\x00\x00\x00\x00WEBPnot-decoded"),
+        ):
+            (ref_dir / filename).write_bytes(payload)
+            status, _ct, body = routes.dispatch(
+                "GET", f"/api/workspace/drama/character-ref/c001/{filename}"
+            )
+            self.assertEqual(status, 400)
+            self.assertIn("unsupported", json.loads(body)["error"])
+
         (ref_dir / "huge.png").write_bytes(b"0" * (ai_draw_client.MAX_RESPONSE_BYTES + 1))
         status, _ct, body = routes.dispatch("GET", "/api/workspace/drama/character-ref/c001/huge.png")
         self.assertEqual(status, 413)
         self.assertIn("size", json.loads(body)["error"])
+
+    def test_mock_redraw_never_overwrites_paid_reference(self) -> None:
+        self._workspace()
+        sheet = self._post_characters()["sheet"]
+        sheet["characters"][0]["reference_images"] = [{
+            "path": "data/character_refs/c001/portrait_neutral.png",
+            "generated_by": "gpt-image-2-codex",
+            "prompt": "<redacted>",
+        }]
+        character_paths("drama").sheet_path.write_text(
+            json.dumps(sheet, ensure_ascii=False), encoding="utf-8"
+        )
+        with patch("src.ai_draw_client.redraw_character_reference") as redraw:
+            status, _ct, body = routes.dispatch(
+                "POST",
+                "/api/workspace/drama/drama/characters/c001/redraw",
+                b"{}",
+                {"content-type": "application/json"},
+            )
+        self.assertEqual(status, 409, body.decode())
+        self.assertEqual(json.loads(body)["error"], "real_image_would_be_overwritten")
+        redraw.assert_not_called()
+
+    def test_paid_attempt_receipt_blocks_redraw_even_after_metadata_downgrade(self) -> None:
+        self._workspace()
+        sheet = self._post_characters()["sheet"]
+        sheet["characters"][0]["reference_images"] = [{
+            "path": "data/character_refs/c001/portrait_neutral.png",
+            "generated_by": "placeholder_png",
+            "prompt": "<forged-local>",
+        }]
+        character_paths("drama").sheet_path.write_text(
+            json.dumps(sheet, ensure_ascii=False), encoding="utf-8"
+        )
+        paid_state = {
+            "phases": {"all_character_images": {"real": True}},
+            "image_attempts": {"c001": [{"status": "succeeded"}]},
+        }
+        with patch("src.drama_multimodal_smoke.load_state", return_value=paid_state), \
+                patch("src.ai_draw_client.redraw_character_reference") as redraw:
+            status, _ct, body = routes.dispatch(
+                "POST",
+                "/api/workspace/drama/drama/characters/c001/redraw",
+                b"{}",
+                {"content-type": "application/json"},
+            )
+        self.assertEqual(status, 409, body.decode())
+        self.assertEqual(json.loads(body)["error"], "real_image_would_be_overwritten")
+        redraw.assert_not_called()
 
     def test_characters_page_route(self) -> None:
         self._workspace()

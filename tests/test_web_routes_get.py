@@ -1187,6 +1187,7 @@ class DramaUserFacingCopyTests(unittest.TestCase):
         self.assertIn('class="table drama-episode-table"', source)
         self.assertIn(".sidebar-library-list", source)
         self.assertNotIn('<span class="badge ready">fresh</span>', source)
+        self.assertIn('return /[.]png$/i.test', source)
 
     def test_example_config_pins_video_provider_without_enabling_paid_video(self) -> None:
         source = Path(".env.example").read_text(encoding="utf-8")

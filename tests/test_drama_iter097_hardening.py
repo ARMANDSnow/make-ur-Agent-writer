@@ -51,6 +51,30 @@ class DramaIter097BoundaryTests(DramaTestBase):
             multi.run("dotenv-order", real_image=True, options=opts)
         load.assert_called_once_with()
 
+        with patch.dict(os.environ, {
+            "AI_DRAW_BASE_URL": "https://example.com/v1",
+            "AI_DRAW_API_KEY": "injected-key",
+        }, clear=False), patch(
+            "src.drama_multimodal_smoke.load_dotenv_if_available"
+        ) as load, patch(
+            "src.drama_multimodal_smoke._run_claimed", return_value={"status": "blocked"}
+        ):
+            multi.run("dotenv-mixed-image", real_image=True, options=opts)
+        load.assert_called_once_with()
+
+        video_opts = {
+            "confirm_real_video": True,
+            "video_budget_cny": 5,
+            "video_timeout_seconds": 120,
+        }
+        with patch.dict(os.environ, {"SD_API_KEY": "injected-key"}, clear=False), patch(
+            "src.drama_multimodal_smoke.load_dotenv_if_available"
+        ) as load, patch(
+            "src.drama_multimodal_smoke._run_claimed", return_value={"status": "blocked"}
+        ):
+            multi.run("dotenv-mixed-video", real_video=True, options=video_opts)
+        load.assert_called_once_with()
+
         with patch("src.drama_multimodal_smoke.load_dotenv_if_available") as load, \
                 patch("src.drama_multimodal_smoke._run_claimed") as claimed:
             with self.assertRaises(multi.MultimodalAuthorizationError):

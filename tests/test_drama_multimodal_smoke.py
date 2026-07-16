@@ -685,6 +685,18 @@ class DramaMultimodalSmokeTests(DramaTestBase):
                     multi.run("claimed")
             network.assert_not_called()
 
+    def test_orchestrator_lock_rejects_symlink(self) -> None:
+        root = multi.paths.workspace_root("unsafe-lock")
+        root.parent.mkdir(parents=True, exist_ok=True)
+        target = root.parent / "lock-target"
+        target.write_text("do not follow", encoding="utf-8")
+        lock = root.parent / ".unsafe-lock.drama_multimodal_smoke.lock"
+        lock.symlink_to(target.name)
+        with self.assertRaisesRegex(ValueError, "safe regular file"):
+            with multi._orchestrator_lock("unsafe-lock"):
+                self.fail("unsafe lock was acquired")
+        self.assertEqual(target.read_text(encoding="utf-8"), "do not follow")
+
 
 class DramaMultimodalShellTests(DramaTestBase):
     def test_shell_has_three_independent_confirmation_gates(self) -> None:

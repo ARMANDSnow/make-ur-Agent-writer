@@ -713,8 +713,16 @@ def _orchestrator_lock(workspace: str):
     root = paths.workspace_root(workspace)
     lock = root.parent / f".{root.name}.drama_multimodal_smoke.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(lock), os.O_RDWR | os.O_CREAT, 0o644)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
+        fd = os.open(str(lock), flags, 0o600)
+    except OSError as exc:
+        raise ValueError("multimodal smoke lock must be a safe regular file") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid():
+            raise ValueError("multimodal smoke lock must be a safe regular file")
+        os.fchmod(fd, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
@@ -1396,17 +1404,12 @@ def run(
         ):
             raise RuntimeError("real_text_tasks_still_mock")
         drama_smoke.validate_real_text_tasks_ready()
-    # Media-only resume normally runs in a fresh process after text completed.
-    # Load the user's runtime configuration only after this invocation has
-    # independently passed its strict authorization gate, and before image or
-    # video readiness reads any media variable.  Mock/report-only paths never
-    # come through this branch.
-    image_credentials_ready = bool(
-        (os.getenv("AI_DRAW_BASE_URL") and os.getenv("AI_DRAW_API_KEY"))
-        or (os.getenv("OPENAI_BASE_URL") and os.getenv("OPENAI_API_KEY"))
-    )
-    video_credentials_ready = bool(os.getenv("SD_API_KEY"))
-    if (real_image and not image_credentials_ready) or (real_video and not video_credentials_ready):
+    # Authorization is validated above, so it is now safe to merge .env. Do
+    # this even with an ambient key/base: policy-critical non-secret values
+    # (result-host allowlists, callback base, model and cost estimate) may live
+    # only in .env. python-dotenv preserves explicit ambient values, while
+    # canonical/tests can still forbid all dotenv reads with the skip flag.
+    if real_image or real_video:
         load_dotenv_if_available()
     with _orchestrator_lock(workspace):
         return _run_claimed(

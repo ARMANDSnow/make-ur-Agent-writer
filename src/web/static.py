@@ -1807,7 +1807,8 @@ JS_DASHBOARD = """\
     if (err && err.card && err.card.title) return err.card.title;
     const raw = err && err.payload && err.payload.error;
     const friendly = {
-      real_image_requires_multimodal_runner: "真实生图请使用受预算保护的多模态校准命令",
+      real_image_would_be_overwritten: "已有付费生成的参考图，本地预览不会覆盖它",
+      paid_image_state_requires_repair: "付费生图记录需要修复，已停止覆盖参考图",
     };
     if (raw && friendly[raw]) return friendly[raw];
     return (err && err.message) || "出错了";
@@ -5794,9 +5795,10 @@ JS_DASHBOARD = """\
     const imageHtml = img
       ? '<img class="character-ref-img" src="' + escapeHtml(characterRefUrl(character.id, img.path)) + '" alt="' + escapeHtml(character.name || character.id) + '">'
       : '<div class="character-ref-placeholder">未生成参考图</div>';
+    const canRedrawLocal = !img || isLocalPreviewImage(img);
     return '<section class="character-card" data-character-card="' + idx + '">' +
       '<div class="character-ref-box">' + imageHtml +
-      '<button type="button" class="btn btn-secondary btn-sm" data-redraw-character="' + escapeHtml(character.id || "") + '">重画本地预览</button></div>' +
+      (canRedrawLocal ? '<button type="button" class="btn btn-secondary btn-sm" data-redraw-character="' + escapeHtml(character.id || "") + '">重画本地预览</button>' : '<span class="badge ready">真实参考图</span>') + '</div>' +
       '<div class="stack">' +
       '<div class="cluster" style="justify-content:space-between">' +
       '<strong><code>' + escapeHtml(character.id || "") + '</code> · ' + escapeHtml(character.name || "") + '</strong>' +
@@ -5837,7 +5839,13 @@ JS_DASHBOARD = """\
 
   function firstCharacterImage(character) {
     const refs = character.reference_images || [];
-    return refs.length ? refs[0] : null;
+    return refs.find(function (ref) {
+      return /[.]png$/i.test(String(ref && ref.path || ""));
+    }) || null;
+  }
+
+  function isLocalPreviewImage(image) {
+    return ["placeholder_png", "mock-multimodal-smoke"].includes(String(image && image.generated_by || ""));
   }
 
   function characterRefUrl(cid, relPath) {
@@ -5957,6 +5965,8 @@ JS_DASHBOARD = """\
       reviewBtn.addEventListener("click", async function () {
         reviewBtn.disabled = true;
         try {
+          const saved = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
+          root.__characterSheet = saved.sheet;
           const data = await postJson(
             wsUrl("/drama/review"),
             await dramaGenerationPayload("drama-review-assemble", { confirm_new_text_revision: true }, targetEpisode)
@@ -6009,7 +6019,7 @@ JS_DASHBOARD = """\
       }).join("");
       const episodeList = episodes.length
         ? tableScroll('<table class="table drama-episode-table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>')
-        : emptyState("尚无已组装剧集", "从第 1 集写作向导开始；完成评审并组装后，成片会出现在这里。", "");
+        : emptyState("尚无已组装剧集", "从第 1 集创作台开始；完成评审并组装后，可导出的剧集数据会出现在这里。", "");
       const nextNo = Number(data.next_episode_no || 0);
       let nextAction = "";
       if (Number.isSafeInteger(nextNo) && nextNo === 1 && !data.next_episode_blocked_reason) {
@@ -6159,18 +6169,20 @@ JS_DASHBOARD = """\
       ];
       const buttons = formats.map(function (item) {
         const href = wsUrl("/drama/episode/" + encodeURIComponent(String(episodeNo)) + "/export?format=" + encodeURIComponent(item[0]));
-        return '<a class="btn btn-secondary" download href="' + href + '">' + escapeHtml(item[1]) + '</a>';
+        return stale
+          ? '<button type="button" class="btn btn-secondary" disabled>' + escapeHtml(item[1]) + '</button>'
+          : '<a class="btn btn-secondary" download href="' + href + '">' + escapeHtml(item[1]) + '</a>';
       }).join("");
       exportBox.innerHTML = !assembled
         ? '<div class="alert warn">评审通过并组装后才能导出。</div>'
-        : staleHtml + '<div class="card"><div class="card-header"><h3 class="ornament">导出</h3></div><div class="card-body stack"><p class="muted">所有格式均来自已组装的 episode JSON 真源。Comfy 为模板级 workflow，导入后仍需接入本地 checkpoint、LoRA 与节点。</p><div class="cluster">' + buttons + '</div></div></div>';
+        : staleHtml + '<div class="card"><div class="card-header"><h3 class="ornament">导出</h3></div><div class="card-body stack"><p class="muted">所有格式均来自已组装的 episode JSON 真源。Comfy 为模板级 workflow，导入后仍需接入本地 checkpoint、LoRA 与节点。</p>' + (stale ? '<a class="btn btn-primary" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(episodeNo)) + '#characters">返回创作台重新评审并组装</a>' : '') + '<div class="cluster">' + buttons + '</div></div></div>';
     }
     loadDramaVideoPanel();
   }
 
   function dramaVideoStateLabel(state) {
     const labels = {
-      not_ready: "待准备", ready: "待准备", pending: "待准备",
+      not_ready: "待准备", ready: "可生成", pending: "待准备",
       "upload-assets": "上传素材", queued: "排队", generating: "生成中",
       download: "下载成片", succeeded: "成功", failed: "失败",
       submitted: "已提交·可续查", submission_unknown: "提交结果待对账",
@@ -6217,7 +6229,7 @@ JS_DASHBOARD = """\
         state !== "submitted" && state !== "submission_unknown") {
       body += renderErrorCard({ message: "视频任务未完成：" + (job.error || dramaVideoStateLabel(job.status)) });
     } else if (state === "not_ready") {
-      body += '<p class="muted">请确保第 1 集已 fresh 组装，且本集角色都有当前参考图。</p>';
+      body += '<p class="muted">请确保第 1 集已重新评审并组装，且本集角色都有当前参考图。</p>';
     } else {
       if (state === "submitted") {
         body += '<div class="alert info">上游任务已持久化提交；使用原授权参数再次点击只会续查，不会重复上传或新建任务。</div>';
