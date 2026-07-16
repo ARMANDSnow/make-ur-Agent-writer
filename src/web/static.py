@@ -1957,6 +1957,13 @@ JS_DASHBOARD = """\
       });
     }
     document.querySelectorAll(".tab-list").forEach(prepare);
+    function replaceActiveTabLocation(tabName) {
+      if (!tabName) return;
+      const url = new URL(location.href);
+      if (url.searchParams.has("step")) url.searchParams.set("step", tabName);
+      url.hash = tabName;
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
     document.addEventListener("click", function (ev) {
       const tab = ev.target.closest(".tab");
       if (!tab) return;
@@ -1964,7 +1971,7 @@ JS_DASHBOARD = """\
       if (tab.disabled || tab.getAttribute("aria-disabled") === "true") return;
       activate(tab);
       if (tab.dataset.tab) {
-        history.replaceState(null, "", "#" + tab.dataset.tab);
+        replaceActiveTabLocation(tab.dataset.tab);
       }
       loadTabPanel(tab.dataset.tab);
     });
@@ -1990,16 +1997,17 @@ JS_DASHBOARD = """\
       ev.preventDefault();
       activate(next);
       next.focus();
-      if (next.dataset.tab) history.replaceState(null, "", "#" + next.dataset.tab);
+      if (next.dataset.tab) replaceActiveTabLocation(next.dataset.tab);
       loadTabPanel(next.dataset.tab);
     });
     const params = new URLSearchParams(location.search || "");
     const initialFromQuery = params.get("step") || "";
-    const initial = initialFromQuery || (location.hash || "").replace(/^#/, "");
+    const initialFromHash = (location.hash || "").replace(/^#/, "");
+    const initial = (_ALLOWED_TAB_KEYS.indexOf(initialFromHash) >= 0 ? initialFromHash : initialFromQuery);
     if (initial && _ALLOWED_TAB_KEYS.indexOf(initial) >= 0) {
       const t = document.querySelector('.tab[data-tab="' + initial + '"]');
       if (t) activate(t);
-      if (initialFromQuery) history.replaceState(null, "", "#" + initial);
+      replaceActiveTabLocation(initial);
     }
   }
 
@@ -2246,7 +2254,7 @@ JS_DASHBOARD = """\
       if (headline) {
         headline.textContent = todo
           ? "下一步：完成「" + todo.label + "」"
-          : "4 站已完成。可以进入角色库继续整理视觉资产";
+          : "创作与评审已完成。可以进入角色库继续整理视觉资产";
       }
     } catch (err) {
       box.innerHTML = renderErrorCard(err);
@@ -5225,7 +5233,6 @@ JS_DASHBOARD = """\
         try {
           await putJson(wsUrl("/drama/setup"), dramaPayload(payload));
           showToast("已保存，进入站 ②", "info");
-          history.replaceState(null, "", "#hook");
           const tab = document.querySelector('.tab[data-tab="hook"]');
           if (tab) tab.click();
           await loadStationHooks();
@@ -5339,7 +5346,6 @@ JS_DASHBOARD = """\
       try {
         await putJson(wsUrl("/drama/setup"), dramaPayload({ hook: pane.__hooks[idx] }));
         showToast("钩子已锁定", "info");
-        history.replaceState(null, "", "#storyboard");
         const tab = document.querySelector('.tab[data-tab="storyboard"]');
         if (tab) tab.click();
         await loadStationHooks();
@@ -5409,16 +5415,17 @@ JS_DASHBOARD = """\
       warningHtml +
       '<div class="cluster" style="justify-content:space-between">' +
       '<strong class="storyboard-duration" data-storyboard-duration></strong>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-storyboard-clear-highlight>清空高光</button>' +
+      '<div class="cluster"><button type="button" class="btn btn-secondary btn-sm" data-storyboard-add>＋ 添加镜头</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-storyboard-clear-highlight>清空高光</button></div>' +
       '</div>' +
       tableScroll(head + rows + '</tbody></table>') +
       '<div class="form-actions">' +
       '<button type="button" class="btn btn-secondary" id="regenerate-storyboard">重新生成</button>' +
-      '<button type="submit" class="btn btn-primary">保存分镜表</button>' +
+      '<button type="submit" class="btn btn-primary">保存并进入站 ④ →</button>' +
       '</div></form></div></div>';
   }
 
-  function renderStoryboardRow(shot, idx) {
+  function renderStoryboardRow(shot, idx, allShots) {
     const num = idx + 1;
     return '<tr data-shot-row="' + idx + '">' +
       '<td><strong>' + num + '</strong><input type="hidden" data-field="beat" value="' + escapeHtml(shot.beat || "") + '"></td>' +
@@ -5434,6 +5441,7 @@ JS_DASHBOARD = """\
       '<button type="button" class="btn btn-icon" title="上移" data-shot-move="up">↑</button>' +
       '<button type="button" class="btn btn-icon" title="下移" data-shot-move="down">↓</button>' +
       '<button type="button" class="btn btn-secondary btn-sm" data-shot-rewrite="' + num + '">重生</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-shot-delete="' + idx + '"' + (allShots.length <= 6 ? ' disabled title="至少保留 6 个镜头"' : '') + '>删除</button>' +
       '</div></td></tr>';
   }
 
@@ -5522,8 +5530,10 @@ JS_DASHBOARD = """\
         bindStationStoryboardActions();
         updateStoryboardDuration(pane);
         await loadDramaProgress();
-        showToast("分镜表已保存", "info");
         await loadStationCharacters();
+        showToast("分镜表已保存，进入站 ④", "info");
+        const charactersTab = document.querySelector('.tab[data-tab="characters"]');
+        if (charactersTab) charactersTab.click();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
       }
@@ -5561,6 +5571,50 @@ JS_DASHBOARD = """\
         const tmp = board.shots[idx];
         board.shots[idx] = board.shots[next];
         board.shots[next] = tmp;
+        pane.__storyboard = board;
+        pane.innerHTML = renderStationStoryboard(board, []);
+        bindStationStoryboardActions();
+        updateStoryboardDuration(pane);
+      });
+    });
+    const addBtn = pane.querySelector("[data-storyboard-add]");
+    if (addBtn) {
+      addBtn.disabled = (pane.__storyboard && pane.__storyboard.shots || []).length >= 9;
+      addBtn.addEventListener("click", function () {
+        const board = collectStoryboardFromPane(pane);
+        if (board.shots.length >= 9) {
+          showToast("每集最多 9 个镜头", "error");
+          return;
+        }
+        board.shots.push({
+          shot_no: board.shots.length + 1,
+          beat: "补充镜头",
+          shot_size: "中景",
+          camera_movement: "固定",
+          duration_seconds: 3,
+          visual: "",
+          narration: "",
+          dialogue: "",
+          ai_draw_prompt: "",
+          is_highlight: false,
+        });
+        pane.__storyboard = board;
+        pane.innerHTML = renderStationStoryboard(board, []);
+        bindStationStoryboardActions();
+        updateStoryboardDuration(pane);
+      });
+    }
+    pane.querySelectorAll("[data-shot-delete]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const board = collectStoryboardFromPane(pane);
+        if (board.shots.length <= 6) {
+          showToast("每集至少保留 6 个镜头", "error");
+          return;
+        }
+        const idx = Number(btn.getAttribute("data-shot-delete"));
+        if (!Number.isInteger(idx) || idx < 0 || idx >= board.shots.length) return;
+        board.shots.splice(idx, 1);
+        board.shots.forEach(function (shot, shotIdx) { shot.shot_no = shotIdx + 1; });
         pane.__storyboard = board;
         pane.innerHTML = renderStationStoryboard(board, []);
         bindStationStoryboardActions();

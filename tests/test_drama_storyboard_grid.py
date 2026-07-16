@@ -11,6 +11,7 @@ from src import storyboard_builder
 from src.cli_workspace import init_workspace
 from src.drama_schemas import episode_paths
 from src.web import jobs, routes
+from src.web import static
 from tests._drama_base import DramaTestBase
 
 
@@ -41,6 +42,13 @@ class DramaStoryboardGridTests(DramaTestBase):
         data = json.loads(body)
         self.assertFalse(data["exists"])
         self.assertIsNone(data["storyboard"])
+
+    def test_web_grid_exposes_claimed_add_delete_and_forward_navigation(self) -> None:
+        self.assertIn("data-storyboard-add", static.JS_DASHBOARD)
+        self.assertIn("data-shot-delete", static.JS_DASHBOARD)
+        self.assertIn("保存并进入站 ④", static.JS_DASHBOARD)
+        self.assertIn("replaceActiveTabLocation", static.JS_DASHBOARD)
+        self.assertIn('url.searchParams.set("step", tabName)', static.JS_DASHBOARD)
 
     def test_post_generates_and_persists_storyboard(self) -> None:
         self._workspace()

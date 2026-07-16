@@ -1401,7 +1401,12 @@ def run(
     # independently passed its strict authorization gate, and before image or
     # video readiness reads any media variable.  Mock/report-only paths never
     # come through this branch.
-    if real_image or real_video:
+    image_credentials_ready = bool(
+        (os.getenv("AI_DRAW_BASE_URL") and os.getenv("AI_DRAW_API_KEY"))
+        or (os.getenv("OPENAI_BASE_URL") and os.getenv("OPENAI_API_KEY"))
+    )
+    video_credentials_ready = bool(os.getenv("SD_API_KEY"))
+    if (real_image and not image_credentials_ready) or (real_video and not video_credentials_ready):
         load_dotenv_if_available()
     with _orchestrator_lock(workspace):
         return _run_claimed(

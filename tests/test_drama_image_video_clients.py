@@ -76,7 +76,10 @@ class DramaImageClientTests(DramaTestBase):
         ):
             with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
                 result = ai_draw_client.redraw_character_reference("image", self.character, mock=None)
-        self.assertEqual(result["generated_by"], "placeholder_svg")
+        self.assertEqual(result["generated_by"], "placeholder_png")
+        placeholder = (character_paths("image").root / result["path"]).read_bytes()
+        self.assertEqual(ai_draw_client._detect_image_type(placeholder), ("image/png", ".png"))
+        self.assertEqual(ai_draw_client._image_dimensions(placeholder, "image/png"), (512, 512))
 
     def test_openai_compatible_base64_response_is_persisted(self) -> None:
         response = json.dumps(

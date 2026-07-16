@@ -7,7 +7,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src import ai_draw_client, character_designer, storyboard_builder
+from src import ai_draw_client, character_designer, drama_reviewer, drama_store, drama_video, storyboard_builder
 from src.cli_workspace import init_workspace
 from src.drama_schemas import character_paths, episode_paths
 from src.secure_http import BoundedResponse
@@ -126,7 +126,7 @@ class DramaCharactersApiTests(DramaTestBase):
         self.assertEqual(status, 409, body.decode())
         self.assertEqual(character_paths("drama").sheet_path.read_text(encoding="utf-8"), before)
 
-    def test_redraw_writes_placeholder_svg_without_network(self) -> None:
+    def test_redraw_writes_video_compatible_placeholder_png_without_network(self) -> None:
         self._workspace()
         self._post_characters()
         with patch("src.ai_draw_client.request_bytes", side_effect=AssertionError("network attempted")):
@@ -139,14 +139,33 @@ class DramaCharactersApiTests(DramaTestBase):
         self.assertEqual(status, 200, body.decode())
         data = json.loads(body)
         image = data["image"]
-        self.assertEqual(image["generated_by"], "placeholder_svg")
+        self.assertEqual(image["generated_by"], "placeholder_png")
         self.assertTrue((character_paths("drama").root / image["path"]).is_file())
 
         filename = image["path"].split("/")[-1]
         status, ct, body = routes.dispatch("GET", f"/api/workspace/drama/character-ref/c001/{filename}")
         self.assertEqual(status, 200)
-        self.assertIn("image/svg+xml", ct)
-        self.assertIn(b"<svg", body)
+        self.assertIn("image/png", ct)
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_mock_web_redraws_can_reach_video_ready_state(self) -> None:
+        self._workspace()
+        sheet = self._post_characters()["sheet"]
+        for character in sheet["characters"]:
+            status, _ct, body = routes.dispatch(
+                "POST",
+                f"/api/workspace/drama/drama/characters/{character['id']}/redraw",
+                b'{}',
+                {"content-type": "application/json"},
+            )
+            self.assertEqual(status, 200, body.decode())
+        review = drama_reviewer.run("drama", mock=True)
+        episode_paths("drama").review_path.write_text(
+            json.dumps(review, ensure_ascii=False), encoding="utf-8"
+        )
+        drama_store.assemble_episode("drama")
+        status = drama_video.video_status("drama")
+        self.assertEqual(status["state"], "ready", status)
 
     def test_real_draw_rejects_private_endpoint_before_network(self) -> None:
         self._workspace()

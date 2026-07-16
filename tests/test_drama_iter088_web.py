@@ -158,7 +158,7 @@ class DramaIter088WebTests(DramaTestBase):
         self.assertEqual(status, 200)
         page = html.decode("utf-8")
         self.assertIn('window.CHAPTER_NO = 2', page)
-        self.assertIn("第 2 集 · 4 站审查向导", page)
+        self.assertIn("第 2 集 · 短剧创作台", page)
 
     def test_next_episode_requires_fresh_previous_and_honors_plan_limit(self) -> None:
         self._assembled_episode_one()

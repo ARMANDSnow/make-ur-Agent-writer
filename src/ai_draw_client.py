@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import html
 import http.client
 import ipaddress
 import json
@@ -17,6 +16,7 @@ import math
 import os
 import secrets
 import socket
+import struct
 import time
 import zlib
 from pathlib import Path
@@ -75,13 +75,13 @@ def redraw_character_reference(
     char = character if isinstance(character, DramaCharacter) else DramaCharacter(**character)
     endpoint = os.getenv("AI_DRAW_ENDPOINT", "").strip()
     if mock is True:
-        return _write_placeholder_svg(workspace, char, season_no=season_no)
+        return _write_placeholder_png(workspace, char, season_no=season_no)
     if endpoint:
         return _call_draw_endpoint(workspace, char, endpoint, season_no=season_no)
 
     configured_model = os.getenv("AI_DRAW_MODEL")
     if mock is None and not str(configured_model or "").strip():
-        return _write_placeholder_svg(workspace, char, season_no=season_no)
+        return _write_placeholder_png(workspace, char, season_no=season_no)
     base_url, api_key = _resolve_openai_draw_credentials()
     if not base_url or not api_key:
         if mock is False:
@@ -105,19 +105,19 @@ def redraw_character_reference(
     )
 
 
-def _write_placeholder_svg(workspace: str, character: DramaCharacter, *, season_no: int) -> Dict[str, Any]:
+def _write_placeholder_png(workspace: str, character: DramaCharacter, *, season_no: int) -> Dict[str, Any]:
     cp = character_paths(workspace, season_no=season_no)
     out_dir = cp.refs_dir / character.id
-    out_path = out_dir / "portrait_neutral.svg"
+    out_path = out_dir / "portrait_neutral.png"
     prompt = character.prompt_template_sd or character.visual_signature or character.name
     rel = _workspace_relative(cp.root, out_path)
     image = ReferenceImage(
         path=rel,
-        generated_by="placeholder_svg",
+        generated_by="placeholder_png",
         prompt=prompt[:1000],
         seed=0,
     )
-    _atomic_write_bytes(out_path, _placeholder_svg(character, prompt).encode("utf-8"))
+    _atomic_write_bytes(out_path, _placeholder_png(character))
     return image.model_dump()
 
 
@@ -734,19 +734,54 @@ def _workspace_relative(root: Path, path: Path) -> str:
     return str(path.resolve().relative_to(root.resolve())).replace("\\", "/")
 
 
-def _placeholder_svg(character: DramaCharacter, prompt: str) -> str:
-    title = html.escape(character.name)
-    role = html.escape(character.role or character.id)
-    sig = html.escape(character.visual_signature or character.lora_token)
-    prompt_line = html.escape(prompt[:120])
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="36" fill="#f7f2e8"/>
-  <rect x="40" y="40" width="432" height="432" rx="28" fill="#fffaf0" stroke="#9b6b43" stroke-width="3"/>
-  <circle cx="256" cy="185" r="70" fill="#d6b28a"/>
-  <path d="M142 382c24-76 68-114 114-114s90 38 114 114" fill="#8aa39b"/>
-  <text x="256" y="94" text-anchor="middle" font-size="28" font-family="Arial, sans-serif" fill="#3d3328">{title}</text>
-  <text x="256" y="420" text-anchor="middle" font-size="20" font-family="Arial, sans-serif" fill="#5f5243">{role}</text>
-  <text x="256" y="448" text-anchor="middle" font-size="16" font-family="Arial, sans-serif" fill="#7a6b5a">{sig}</text>
-  <text x="256" y="474" text-anchor="middle" font-size="13" font-family="Arial, sans-serif" fill="#8b7d6f">{prompt_line}</text>
-</svg>
-"""
+def _placeholder_png(character: DramaCharacter) -> bytes:
+    """Return a deterministic, validator-compatible local portrait placeholder.
+
+    The old SVG placeholder rendered in the browser but could never enter the
+    existing strict-PNG video path, so the advertised mock Web flow stopped at
+    video readiness.  This tiny stdlib renderer deliberately avoids optional
+    imaging dependencies while still producing a recognizable portrait card.
+    """
+
+    width = height = 512
+    identity = f"{character.id}\0{character.name}\0{character.visual_signature}"
+    color_seed = binascii.crc32(identity.encode("utf-8")) & 0xFFFFFFFF
+    accent = (
+        88 + (color_seed & 0x3F),
+        104 + ((color_seed >> 6) & 0x3F),
+        112 + ((color_seed >> 12) & 0x3F),
+    )
+    background = (247, 242, 232)
+    card = (255, 250, 240)
+    skin = (214, 178, 138)
+    border = (155, 107, 67)
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)  # PNG filter: None
+        for x in range(width):
+            color = background
+            if 40 <= x < 472 and 40 <= y < 472:
+                color = card
+            if x in {40, 41, 470, 471} and 40 <= y < 472:
+                color = border
+            if y in {40, 41, 470, 471} and 40 <= x < 472:
+                color = border
+            if (x - 256) ** 2 + (y - 188) ** 2 <= 72 ** 2:
+                color = skin
+            body_x = (x - 256) / 128
+            body_y = (y - 360) / 112
+            if body_x * body_x + body_y * body_y <= 1:
+                color = accent
+            rows.extend(color)
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        checksum = binascii.crc32(kind + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", checksum)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(bytes(rows), level=9))
+        + chunk(b"IEND", b"")
+    )

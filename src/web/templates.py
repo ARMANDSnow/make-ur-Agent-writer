@@ -144,7 +144,7 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
 
 _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
-    ("write", "续写", "write"),
+    ("write", "创作台", "write"),
     ("characters", "角色库", "characters"),
     ("episodes", "剧集", "episodes"),
     ("insights", "数据", "insights"),
@@ -397,7 +397,7 @@ def _drama_overview_main(name: str, meta: dict) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">作品 · 短剧</p>'
         f'<h1>{escape(name)}</h1>'
-        '<p class="muted">drama 工作区。点击下方“进入续写”开始 4 站审查向导。</p>'
+        '<p class="muted">短剧工作区。完成 4 站创作后，进入评审与组装。</p>'
         '</div>'
         '<div class="cluster">'
         '<span class="badge no-dot badge-drama">短剧</span>'
@@ -405,7 +405,7 @@ def _drama_overview_main(name: str, meta: dict) -> str:
         '</div>'
         '</header>'
         '<section class="section">'
-        '<div class="section-title"><h2 class="ornament">4 站进度</h2>'
+        '<div class="section-title"><h2 class="ornament">5 步进度</h2>'
         '<span class="hint">core_setup / hook 已完成进入下一站</span></div>'
         '<div id="drama-overview-progress" class="grid cols-2"></div>'
         '</section>'
@@ -413,7 +413,7 @@ def _drama_overview_main(name: str, meta: dict) -> str:
         '<div class="next-action" id="drama-overview-next-action">'
         '<p class="eyebrow ornament">下一步</p>'
         '<h2 id="drama-next-headline">载入中…</h2>'
-        f'<a class="btn btn-primary" href="/w/{escape(name)}/write?step=setup">▸ 进入续写</a>'
+        f'<a class="btn btn-primary" href="/w/{escape(name)}/write?step=setup">▸ 进入短剧创作</a>'
         '</div>'
         '</section>'
         '<section class="section">'
@@ -438,9 +438,9 @@ def render_workspace_write(name: str, workspaces: Iterable[str], episode_no: int
     main = (
         '<header class="page-header">'
         '<div class="titles">'
-        '<p class="eyebrow ornament">续写</p>'
-        f'<h1>第 {episode_no} 集 · 4 站审查向导</h1>'
-        '<p class="muted">核心设定 → 钩子 → 分镜 → 角色，每站 AI 生成 → 你改 → 下一站。</p>'
+        '<p class="eyebrow ornament">短剧创作</p>'
+        f'<h1>第 {episode_no} 集 · 短剧创作台</h1>'
+        '<p class="muted">核心设定 → 钩子 → 分镜 → 角色 → 评审组装；每步均可检查和修改。</p>'
         '</div>'
         '<div id="drama-write-progress" class="cluster"></div>'
         '</header>'
@@ -462,7 +462,7 @@ def render_workspace_write(name: str, workspaces: Iterable[str], episode_no: int
         '</section>'
     )
     return _render_shell(
-        title=f"{name} · 续写",
+        title=f"{name} · 短剧创作",
         page_kind="drama_write",
         main_html=main,
         breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), (f"第 {episode_no} 集", None)]),
@@ -1268,7 +1268,7 @@ def render_wizard() -> str:
         '</label>'
         '<label class="field-check">'
         '<input type="radio" name="ws_type" value="drama"> '
-        '<strong>短剧剧本</strong>　·　创建短剧作品，进入 4 站审查向导'
+        '<strong>短剧剧本</strong>　·　创建短剧作品，完成 4 站创作与评审组装'
         '</label>'
         '<label class="field-check">'
         '<input type="radio" name="ws_type" value="premise"> '
@@ -1378,7 +1378,7 @@ def render_wizard() -> str:
         '<div class="kv-list compact">'
         '<div class="k">1</div><div class="v">创建独立 drama workspace</div>'
         '<div class="k">2</div><div class="v">保存题材、赛道与创作规范快照</div>'
-        '<div class="k">3</div><div class="v">进入短剧 4 站向导，后续任务可在进度页取消</div>'
+        '<div class="k">3</div><div class="v">进入 4 站创作与评审组装流程，任务可在进度页取消</div>'
         '</div>'
         '</div>'
         '<form id="drama-form" class="stack">'
@@ -1438,7 +1438,7 @@ def render_wizard() -> str:
         '</details>'
         '<div class="form-actions">'
         '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
-        '<button type="submit" class="btn btn-primary">创建并进入续写</button>'
+        '<button type="submit" class="btn btn-primary">创建并进入短剧创作</button>'
         '</div>'
         '</form>'
         '<div id="drama-error"></div>'
@@ -1530,7 +1530,7 @@ def render_landing() -> str:
         '<p class="eyebrow ornament">本地多 Agent 创作引擎</p>'
         '<h1 class="lp-title">让 AI 接着你的故事，或从零开新书</h1>'
         '<p class="lp-lead muted">导入你的小说接着写，或一句话立意从零开新书'
-        '——多 Agent 协同创作、自审、重写，全程在 127.0.0.1 本地运行，数据不出你的电脑。</p>'
+        '——多 Agent 协同创作、自审、重写。项目文件保留在本机；启用真实模型时，必要输入会发送到你配置的 API 服务。</p>'
         '<div class="cluster lp-hero-cta">'
         '<a class="btn btn-primary" href="/wizard">开始创作</a>'
         '<a class="btn btn-secondary" href="/library">打开已有作品</a>'
@@ -1553,12 +1553,12 @@ def render_landing() -> str:
         '<article class="card lp-card fade-up fade-up-2">'
         '<div class="card-body">'
         '<div class="lp-card-head"><h2>短剧剧本</h2>'
-        '<span class="badge badge-drama no-dot">Beta · 部分开放</span></div>'
-        '<p class="muted">输入题材与赛道，生成短剧分集剧本（4 站审查流水线）。</p>'
+        '<span class="badge badge-drama no-dot">Beta · 创作链已开放</span></div>'
+        '<p class="muted">输入题材与赛道，完成 4 站创作、评审组装与分集导出。</p>'
         '<ul class="lp-feats">'
         '<li>题材 / 赛道 / 集数一键立项</li>'
         '<li>创作规范快照 + 分集 setup 生成</li>'
-        '<li class="lp-feat-beta">Beta：4 站审查向导已开放，真模型 smoke 待授权</li>'
+        '<li class="lp-feat-beta">真实文本与图片需独立授权；完整成片链仍在建设</li>'
         '</ul></div>'
         '<div class="card-footer lp-card-footer">'
         '<a class="btn btn-secondary" href="/wizard?type=drama">体验短剧 Beta</a></div>'
@@ -1580,15 +1580,15 @@ def render_landing() -> str:
         '<section class="lp-trust fade-up fade-up-4">'
         '<div class="lp-metrics">'
         '<div class="tile"><span class="v">100%</span>'
-        '<span class="k">本地运行</span><span class="sub">数据不出 127.0.0.1</span></div>'
+        '<span class="k">本机项目</span><span class="sub">文件留在 127.0.0.1，真实请求按配置出站</span></div>'
         '<div class="tile"><span class="v">4+</span>'
         '<span class="k">协同 Agent</span><span class="sub">评审 · 重写 · 审查闭环</span></div>'
         '<div class="tile"><span class="v">3</span>'
         '<span class="k">创作模式</span><span class="sub">导入续写 + 一句话开新书 + 短剧剧本</span></div>'
         '</div>'
         '<div class="cluster lp-chips">'
-        '<span class="badge badge-muted no-dot">全本地运行</span>'
-        '<span class="badge badge-muted no-dot">数据不出 127.0.0.1</span>'
+        '<span class="badge badge-muted no-dot">默认 mock 严格离线</span>'
+        '<span class="badge badge-muted no-dot">真实调用逐次授权</span>'
         '<span class="badge badge-muted no-dot">多 Agent 自审重写</span>'
         '<span class="badge badge-muted no-dot">开源可自托管</span>'
         '</div>'
