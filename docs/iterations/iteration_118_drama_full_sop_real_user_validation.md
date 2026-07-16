@@ -40,25 +40,29 @@ iter117 已完成逐镜视频 D3 纯本地恢复契约，canonical 基线为 238
 - 真图为 2 名角色各1次，耗时 98.344/94.568 秒，无重试，两张均通过 strict image/hash/reference 检查并符合角色视觉签名。运行状态停在 `awaiting_video_authorization`，真视频 submit=0。
 - 导出、第2集继承、季快照、Insights、mock 视频与真产物桌面/移动页面均已实际操作或解析验证。
 - correctness、security/boundary、Web/media 三视角无 P0；发现并修复的 P1/P2 包括：注入 key 后漏载 `.env` 非密钥媒体配置、角色编辑后未保存即评审、本地预览可覆盖付费真图、stale 剧集仍显示可下载、同源主动 SVG、lock symlink/special-file 边界、JPEG/WebP 宣称与 strict decoder 不一致、video ready/空态文案误导。修复后三路复核均为无遗留 P0/P1/P2。
-- 修复后 272 项短剧广聚焦回归与 174 项安全/配置/角色专项回归分别通过，`py_compile`、harness 与 `git diff --check` 通过；canonical 结果待 implementation commit 后回填。
+- 修复后 272 项短剧广聚焦回归与 174 项安全/配置/角色专项回归分别通过，`py_compile`、harness 与 `git diff --check` 通过。implementation commit `a7c84655ce9289ec313556f4d0c3a25059291538` 上仅运行一次 canonical `bash scripts/verify.sh`：2393 tests、15 steps、229 秒、exit 0，mock preflight 0 FATAL / 0 WARN。
 
 ## Acceptance Result
 
-- **A118-01**：待 canonical 收官。
-- **A118-02**：待 canonical 收官。
-- **A118-03**：待 canonical 收官。
-- **A118-04**：待 canonical 收官。
-- **A118-05**：待 canonical 收官。
-- **A118-06**：待 canonical 收官。
+- **A118-01 PASS**：全新 synthetic workspace 的建档、五站、分镜增删、角色、评审/组装、mock 高光视频均以浏览器真实点击打通；刷新保持当前站，episode 2 可初始化。
+- **A118-02 PASS**：JSON/Markdown/CSV/Comfy 四导出下载并解析通过；连续多集、阶段快照、整季 readiness 与 Insights 均实际验证。
+- **A118-03 PASS**：mock 角色参考图为 strict PNG 且被视频 readiness 消费；真图 2/20、无重试，分别耗时 98.344/94.568 秒并通过结构、hash、引用和人工视觉复核；真视频保持 0 submit。
+- **A118-04 PASS**：桌面与 390×844 移动端完成视觉/交互检查；侧栏、剧集表、角色图、状态词与 stale 下载边界均修复。
+- **A118-05 PASS**：真文本共 5/60 calls，项目估算 ¥0.2562、耗时 131.49 秒，五站 schema/review/assembly 通过；真图 2/20，预请求项目估算合计 ¥2。报告与日志未写入凭据、完整 prompt、签名 URL 或 provider raw response。
+- **A118-06 PASS**：三视角复核无遗留 P0/P1/P2；canonical run `065427ff61d7426f9e95b73f08c7a250` 在 tree `a1b5115746934f61a52c795ac00cab66cdd71f1a` 上 2393 tests / 15 steps / 229 秒通过，`tracked_scope_clean=true`，总级别 `mock-functional`。本轮真文本/真图仅记为指定 provider/model 与 synthetic 样本的局部 `provider-validated`，不覆盖真视频、完整媒体链或 SLA。
 
 ### Knowledge Promotion
-- `decision`: <pending>
-- `destination`: <pending>
-- `reason`: <pending>
+- `decision`: `none`
+- `destination`: `none`
+- `reason`: 本轮经验均为既有项目凭据、付费恢复、mock 隔离和文档实时性规则的具体落实，没有形成需要晋升到通用 skill/checker 的新跨项目规则。
 
 ## 文件变更汇总
 
-- 待收官时按实际提交回填。
+- 配置：`.env.example`、`.gitignore`。
+- 后端与媒体边界：`src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`src/web/routes.py`。
+- Web 交互与呈现：`src/web/static.py`、`src/web/templates.py`。
+- 回归测试：`tests/test_drama_characters_api.py`、`tests/test_drama_image_video_clients.py`、`tests/test_drama_iter088_web.py`、`tests/test_drama_iter097_hardening.py`、`tests/test_drama_multimodal_smoke.py`、`tests/test_drama_storyboard_grid.py`、`tests/test_web_routes_get.py`。
+- 收官文档：`README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md`、`docs/iterations/README.md` 与本文。`docs/product/short_drama_module.md` 属于 canonical 后门禁禁止修改的产品协议，本轮不在验收后改写，其当前事实由 README/handoff/本文覆盖。
 
 ## 不在本轮范围
 
@@ -72,3 +76,4 @@ iter117 已完成逐镜视频 D3 纯本地恢复契约，canonical 基线为 238
 - 用户明确豁免 iter-start；本文是实施后补建的审计与收官记录，不伪造立项提交。
 - 真文本/图校准仅证明本次指定 provider/model 与 synthetic 样本，不泛化到真视频、所有题材或稳定 SLA。
 - 只 commit，不 push；用户未跟踪体检报告保持原样。
+- 本轮分三次 implementation commit：`3e90778`、`56e504a`、`a7c8465`；canonical 后仅允许 docs-only 收官提交。
