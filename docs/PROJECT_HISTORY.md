@@ -39,6 +39,7 @@
 | 111 | 短剧逐镜图片规格与冻结引用 | provider-neutral 逐镜图片规格、显式角色绑定、exact 资产引用、确定性裁剪与精确 stale/store |
 | 112 | 迭代上下文与经验晋升门禁 | 实现/审查上下文、tracked 安全路径、accepted 持续闭包与人工知识晋升 |
 | 113 | 短剧逐镜图片候选与首尾帧绑定 | content-addressed strict PNG 候选、guarded first/tail lineage、精确 coverage/stale 与 create-only repair |
+| 114 | 短剧逐镜图片能力与可恢复尝试 | provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与 process-crash 零重复调用 |
 
 ## Iteration Implementation Index
 
@@ -133,6 +134,7 @@
 | 111 | 建立逐镜图片规格、引用装配与五态 store | `src/drama_schemas.py`、`src/drama_shot_image.py`、`src/drama_shot_image_store.py`、`tests/test_drama_shot_image*.py` |
 | 112 | 建立结构化迭代上下文与经验晋升门禁 | `.agents/skills/iter-*`、`scripts/check_agent_harness.py`、`tests/test_agent_harness.py` |
 | 113 | 建立逐镜图片候选、首尾帧 lineage 与显式恢复 | `src/drama_schemas.py`、`src/drama_shot_image_candidates.py`、`src/drama_shot_image_candidate_store.py`、`tests/test_drama_shot_image_candidate*.py` |
+| 114 | 建立逐镜图片 capability、once-only attempt、receipt 与 crash recovery | `src/drama_schemas.py`、`src/drama_shot_image_attempts.py`、`src/drama_shot_image_attempt_store.py`、`tests/test_drama_shot_image_attempt*.py` |
 
 ## Durable Decisions
 
@@ -203,6 +205,7 @@
 27. **逐镜 consumer 只绑定实际使用依赖，装配完成不等于可提交**：episode frozen cast 不能代替显式 shot mapping，未出镜 frozen asset 不应使已存 plan stale；references 必须是 exact version/artifact 的 deterministic prefix。`assembled` 仅证明本地规格与引用已冻结，MIME/尺寸、provider capability、付费尝试和候选质量证据必须留在后续执行层。
 28. **工作流 Markdown 也是需要 fail-closed 的接口**：checker 的标题、字段和 fenced code 解析必须与实际渲染语义一致，不能让示例或缩进差异冒充真实上下文；路由路径应拒绝绝对地址、穿越、私有根、symlink 与未跟踪必读文件，且 accepted 闭包要在后续 active iteration 出现后继续受检。
 29. **媒体候选、选择与恢复要分层**：content-addressed candidate 是不可变事实，新 candidate 不能自动替换 first/tail selection；跨镜 lineage 必须绑定 source tail revision 与 target request，lost-response 只能凭 exact transition receipt 重放。缺失 artifact 可按 manifest identity create-only 恢复，但损坏/占位目标不能自动覆盖或靠重建 manifest 掩盖。
+30. **付费 attempt 的一次调用承诺必须先于 provider 接线落地**：capability、provider/request identity 与 ordered exact references 要在调用前冻结，`started` 必须先 durable；只有 transport 能证明 not-sent 才可释放机会。receipt、staging、C2 candidate 与 succeeded ledger 是分阶段事实，恢复应优先用已提交的 exact candidate 补账，并在最终锁内重读 source/target。该证据只证明受控本地 writer 下的 process-crash 恢复；不能外推 power-loss、非合作本机进程或真实 provider exactly-once。
 
 ## Historical Evidence Notes
 

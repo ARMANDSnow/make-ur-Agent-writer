@@ -8,7 +8,7 @@ iter111 已把 fresh `RenderPlan`、exact 角色/场景/道具线索版本与确
 
 ### Implementation Context
 - `must_read`: `README.md`, `docs/iterations/stage_plan_drama_full_production_pipeline.md`, `docs/product/short_drama_module.md`, `docs/iterations/iteration_111_drama_shot_image_spec_reference_assembly.md`, `docs/iterations/iteration_113_drama_shot_image_candidates_first_tail_binding.md`, `src/drama_schemas.py`, `src/drama_shot_image.py`, `src/drama_shot_image_store.py`, `src/drama_shot_image_candidates.py`, `src/drama_shot_image_candidate_store.py`, `src/paid_recovery_states.py`, `src/ai_draw_client.py`, `src/drama_multimodal_smoke.py`, `tests/_drama_shot_image_candidate_base.py`, `tests/test_drama_shot_image_candidate_store.py`, `tests/test_drama_paid_recovery_states.py`, `tests/test_drama_crash_restart_matrix.py`
-- `expected_changes`: `docs/iterations/iteration_114_drama_shot_image_provider_capability_attempt_recovery.md`, `docs/iterations/README.md`, `src/drama_schemas.py`, `src/drama_shot_image_attempts.py`, `src/drama_shot_image_attempt_store.py`, `src/paid_recovery_states.py`, `tests/_drama_shot_image_attempt_base.py`, `tests/test_drama_shot_image_attempts.py`, `tests/test_drama_shot_image_attempt_store.py`, `tests/support/drama_shot_image_attempt_driver.py`, `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`
+- `expected_changes`: `docs/iterations/iteration_114_drama_shot_image_provider_capability_attempt_recovery.md`, `docs/iterations/README.md`, `src/drama_schemas.py`, `src/drama_shot_image_attempts.py`, `src/drama_shot_image_attempt_store.py`, `src/paid_recovery_states.py`, `tests/_drama_shot_image_attempt_base.py`, `tests/test_drama_shot_image_attempts.py`, `tests/test_drama_shot_image_attempt_store.py`, `tests/support/drama_shot_image_attempt_driver.py`, `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`, `docs/product/short_drama_module.md`
 - `do_not_touch`: `.env`、私有 `data/outputs/logs/workspaces` 内容、`小说txt/`、用户未跟踪体检报告；不改 `src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`tests/support/local_drama_provider.py` 或任何真实网络/provider 协议；不改 Web/jobs、CLI、preflight/config、现有导出、episode-1 video、`DramaEpisode`、`RenderPlan`、C1/C2 既有 identity；canonical verify 自管 acceptance 产物除外
 
 1. 在 `drama_schemas.py` 增加 strict `ShotImageProviderCapability`、attempt spec、artifact receipt、attempt record 与 episode ledger/inspection projection。attempt 冻结 episode/shot、C1 plan/request fingerprint、C2 pre-manifest fingerprint、provider/capability fingerprint、prompt SHA、exact effective reference fingerprint、artifact receipt 与 candidate identity；持久状态禁止保存 key、完整 prompt、endpoint、签名 URL 或 provider raw response，也不修改 C1/C2 既有 schema shape。
@@ -49,7 +49,15 @@ iter111 已把 fresh `RenderPlan`、exact 角色/场景/道具线索版本与确
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- **A114-01：通过。** capability/spec/receipt/record/ledger/inspection strict schemas 与 byte-stable fingerprints 已落地；extra、bool/数值、状态组合、路径与 fingerprint 篡改均由纯函数/schema 测试拒绝，C1/C2/`DramaEpisode`/`RenderPlan` 既有 shape 未改。
+- **A114-02：通过。** attempt 只从 fresh C1+C2 构建并冻结 provider/capability、plan/request、pre-manifest、prompt SHA 与 ordered exact references；capability 不兼容在 marker/adapter 前失败。socket sentinel 证明本轮生产路径零网络，attempt 层无二次裁剪。
+- **A114-03：通过。** adapter 前 durable `started` 与持久 counter 证明每 attempt 最多调用一次；只有 `RequestNotSentError` 可释放机会，started/timeout/network/provider/local error 与 provider/capability/source drift 均不会自动重调。adapter raw exception 在退出活动 `except` 后才映射为 bounded public error，exception context 与 ledger 均不泄露测试 secret。
+- **A114-04：通过。** strict PNG receipt 在 staging 前完成 identity/尺寸校验，只经既有 C2 append 入池；receipt/candidate identity 交叉校验。artifact_received、candidate 已 append 后 staging 丢失/损坏、succeeded lost response 均可零 adapter 补账，不重复 candidate、不改 first/tail selection。
+- **A114-05：通过（限定 process crash）。** 真实子进程覆盖 after-started、outcome-unknown call、adapter-return、staging、receipt、candidate、succeeded 窗口；除明确 not-sent 外 restart generate delta 均为 0。直接故障注入覆盖 duplicate/deep/oversize JSON、ledger/staging symlink/FIFO/目录、partial ledger/staging write、owned temp cleanup、temp inode replacement、target precommit mutation、`O_NOFOLLOW` 缺失、receipt/candidate tamper、尺寸越界、final-lock C2 race、source ABA 与错误脱敏。
+- **A114-06：通过。** iter105-114/C1-C2/资产/RenderPlan/paid recovery/导出/season/video 聚焦回归 **255 tests OK**；correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角二次复审均无遗留 P0/P1/P2。
+- authoritative canonical `bash scripts/verify.sh` 在 implementation commit `562bf7f3f45b26135157793eb90fe3d6531c1400` 上 exit 0：**2319 tests OK**，15 steps / 164 秒，run `9233ee3898044ca58b019e91754db46c`，tree `bf99ecfb59a8b7c57b882fdfd64e7b0e45a6d59d`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN。最终 evidence 为 `mock-functional` / `canonical-mock-offline`；`local_drama_e2e` 子步骤为 fake-provider `local-e2e`，`provider_validated=false`。
+- 验收次数偏差：首次 canonical run 在 `b218049` 上通过，但 docs-only 收官 checker 随后发现用户追加要求的 `docs/product/short_drama_module.md` 不属于 post-accept closure 白名单。该 SOP 变更被补入 amended implementation commit 后，首次 evidence 因 commit identity 改变而作废；因此按收官门禁失败后的修复流程重新运行一次，并只以上述 `562bf7f` evidence 为最终权威证据。
+- 未运行真文本、真图片、真视频、真 ComfyUI 或任何真实 provider 请求。残余边界：首次创建的多级父目录未逐级证明断电持久性；成功 staging 为避免 inode cleanup TOCTOU 暂保留；不遵守 workspace lock 的本机进程仍可在最终检查微窗口竞态。本轮不宣称 power-loss、hostile-filesystem 或 production-provider exactly-once。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -71,6 +79,10 @@ iter111 已把 fresh `RenderPlan`、exact 角色/场景/道具线索版本与确
 | `tests/test_drama_shot_image_attempt_store.py` | 新增 once-only、恢复、边界、race、脱敏与 C2 bridge 测试 |
 | `tests/support/drama_shot_image_attempt_driver.py` | 新增真实子进程 crash-window driver |
 | `tests/test_drama_paid_recovery_states.py` | 锁定 shot-image paid vocabulary 与既有 image canonical identity |
+| `README.md` | 同步 iter114 状态与短剧阶段 C 的 C1-C3 当前边界 |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前基线、能力/缺口、验收证据与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 追加 iter114 里程碑、实现索引与 paid attempt 长期决策 |
+| `docs/product/short_drama_module.md` | 按用户要求更新完整生产 SOP 的阶段 C 实时记录 |
 
 ## 不在本轮范围
 
@@ -86,5 +98,5 @@ iter111 已把 fresh `RenderPlan`、exact 角色/场景/道具线索版本与确
 
 - 本轮立项只建立 iteration 文档与索引；用户确认前不实现、不跑业务测试或 `verify.sh`。
 - 现有 `ai_draw_client` 的 prompt-only 角色生图协议不能冒充已消费 C1 exact references；后续真实 network adapter 必须另起 iteration，并逐次确认真实 provider、协议、授权、预算和恢复边界。
-- `docs/product/short_drama_module.md` 的阶段 C 细表仍写“逐镜候选未实现”，已与 iter113 后的 README/handoff 当前真源不一致；本轮不把 docs-only SOP 对账混入实现范围，收官按事实更新 README/handoff/history，详细产品 SOP 是否另行对账由用户单独决定。
+- `docs/product/short_drama_module.md` 的阶段 C 细表在立项时仍写“逐镜候选未实现”；用户确认实现时明确要求收官同步 SOP 阶段记录，因此 docs-only 收官已按 C1-C3 当前事实就地修正，仍保留真实 provider/JPEG-WebP/质量 UI/GC/power-loss 未完成边界。
 - implementation commit 信息草案：`feat(drama): add recoverable shot image attempts (iter114)`。
