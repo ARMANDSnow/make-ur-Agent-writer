@@ -48,7 +48,14 @@ iter111 已把 fresh `RenderPlan`、完整显式逐镜角色 mapping、exact 角
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- **A113-01 PASS**：strict schema 和 byte-stable fingerprint 覆盖 artifact/candidate/pool/manifest/coverage；现有 `DramaEpisode`、`RenderPlan`、`EpisodeShotImagePlan` shape 未改。extra、bool/越界整数、重复/未知 ID、跨镜引用、非 canonical path 与指纹篡改均 fail closed。
+- **A113-02 PASS**：candidate 只追加不自选；first/tail 选择同时守住 manifest token、bounded selection revision、expected current binding 和 exact candidate/request。append 与 selection 的 lost-response 仅 exact request/transition receipt 可幂等重放，伪造相同 desired 的陈旧 writer 已有回归拒绝。
+- **A113-03 PASS**：first 支持 direct 或紧邻上镜 exact current tail，tail 显式为 none/direct。source tail revision + target request fingerprint 阻断 tail ABA 与目标镜漂移自动复活；coverage 互斥穷尽地分类 covered/missing/blocked/stale/broken。
+- **A113-04 PASS**：reconcile 保留 candidate 历史和选择审计事实，只将漂移部分排除在 fresh coverage 外；镜头序列变化按 immediate predecessor 计算 affected IDs，插入不会误报全部后续镜头。
+- **A113-05 PASS**：store 五态、workspace lock、source/target/selection CAS、bounded strict JSON/PNG、nofollow/nonblock/regular-file、dirfd create-only/atomic replace、artifact precommit reread、temp/final inode ownership、错误脱敏和 socket 哨兵均通过。普通 stale/full/race 拒绝不留 final orphan；缺失 artifact 可按 exact manifest candidate identity 逐个修复，损坏/占位目标不覆盖。
+- **A113-06 PASS**：新链 **29 tests OK**，跨 iter105–111/资产/RenderPlan/四导出/season export/episode-1 video 聚焦回归 **213 tests OK**。correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角的 findings 经修复与二次复核后，无遗留 P0/P1/P2。
+- implementation commit `911a8303eb3b7a7cf33342dd0930dcf7845a81c5` 上只运行一次 canonical `bash scripts/verify.sh`：**2292 tests OK**，15 steps，157 秒，run `53fd8bbe14ae40af9f7c912255d97d64`，tree `88825ee36e4b37fb1011941fc9fc6ad444db6286`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。acceptance 文件为 `mock-functional` / `canonical-mock-offline`、`status=passed`、`mock_offline=true`；`local_drama_e2e` 组件通过但 `provider_validated=false`。
+- 未运行真文本、真图片、真视频、真 ComfyUI 或任何 provider 请求；不声称 provider-ready 或作品质量已验证。三份用户未跟踪体检报告未读取、未修改、未纳入提交。
 
 ### Knowledge Promotion
 
@@ -68,7 +75,7 @@ iter111 已把 fresh `RenderPlan`、完整显式逐镜角色 mapping、exact 角
 | `tests/_drama_shot_image_candidate_base.py` | 新增基于 iter111 的 synthetic C2 fixture |
 | `tests/test_drama_shot_image_candidates.py` | 新增纯函数、identity、selection receipt、lineage、affected IDs 与 coverage 测试 |
 | `tests/test_drama_shot_image_candidate_store.py` | 新增五态、artifact、路径、CAS、race、并发、repair、恢复与零网络测试 |
-| `README.md`、`docs/product/short_drama_module.md` | iter-finish 时按实际 accepted 能力同步实时 SOP |
+| `README.md` | iter-finish 按实际 accepted 能力同步快速 SOP 与 C2 边界 |
 | `docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md` | iter-finish 时就地同步当前快照与筛选后的阶段历史 |
 
 ## 不在本轮范围
@@ -84,4 +91,5 @@ iter111 已把 fresh `RenderPlan`、完整显式逐镜角色 mapping、exact 角
 
 - 用户已明确确认开始实现；实现与修复期间只运行 mock/local 聚焦检查。
 - 收官仍须先形成 implementation commit，再只运行一次 canonical `bash scripts/verify.sh`；验收后只允许 docs-only 收官提交，只 commit、不 push。
+- `docs/product/short_drama_module.md` 立项时列为可能变更面，但本轮 Knowledge Promotion 为 `none`，且长期 SOP 不允许在 implementation commit 验收后补写，因此未改该文件；当前快速状态已同步到 README/handoff，详细 C2 恢复契约保留在本 iteration 审计记录。
 - implementation commit 信息草案：`feat(drama): add shot image candidate bindings (iter113)`。

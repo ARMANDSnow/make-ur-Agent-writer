@@ -38,6 +38,7 @@
 | 110 | 短剧道具/线索资产版本与逐镜冻结 | season PropOrClueAsset 不可变候选、selected 双 CAS、显式 shot→0..16 refs、episode used-by 与精确 stale |
 | 111 | 短剧逐镜图片规格与冻结引用 | provider-neutral 逐镜图片规格、显式角色绑定、exact 资产引用、确定性裁剪与精确 stale/store |
 | 112 | 迭代上下文与经验晋升门禁 | 实现/审查上下文、tracked 安全路径、accepted 持续闭包与人工知识晋升 |
+| 113 | 短剧逐镜图片候选与首尾帧绑定 | content-addressed strict PNG 候选、guarded first/tail lineage、精确 coverage/stale 与 create-only repair |
 
 ## Iteration Implementation Index
 
@@ -131,6 +132,7 @@
 | 110 | 建立 PropOrClueAsset 版本与逐镜零到多冻结引用 | `src/drama_schemas.py`、`src/drama_assets.py`、`src/drama_asset_versions.py`、`tests/test_drama_prop_clue_asset*.py` |
 | 111 | 建立逐镜图片规格、引用装配与五态 store | `src/drama_schemas.py`、`src/drama_shot_image.py`、`src/drama_shot_image_store.py`、`tests/test_drama_shot_image*.py` |
 | 112 | 建立结构化迭代上下文与经验晋升门禁 | `.agents/skills/iter-*`、`scripts/check_agent_harness.py`、`tests/test_agent_harness.py` |
+| 113 | 建立逐镜图片候选、首尾帧 lineage 与显式恢复 | `src/drama_schemas.py`、`src/drama_shot_image_candidates.py`、`src/drama_shot_image_candidate_store.py`、`tests/test_drama_shot_image_candidate*.py` |
 
 ## Durable Decisions
 
@@ -200,6 +202,7 @@
 26. **“零到多个”也必须把零写出来**：逐镜道具/线索不能把缺少 mapping key、漏传 `asset_refs` 与明确 `[]` 混为一谈；完整 shot 映射和必填空列表既是 graceful degrade 证据，也是防止调用方遗漏被静默接受的 freshness 边界。先按当前 shot 数量有界校验 mapping，再读取条目，避免拒绝超限输入前遍历或复制不受信任容器。
 27. **逐镜 consumer 只绑定实际使用依赖，装配完成不等于可提交**：episode frozen cast 不能代替显式 shot mapping，未出镜 frozen asset 不应使已存 plan stale；references 必须是 exact version/artifact 的 deterministic prefix。`assembled` 仅证明本地规格与引用已冻结，MIME/尺寸、provider capability、付费尝试和候选质量证据必须留在后续执行层。
 28. **工作流 Markdown 也是需要 fail-closed 的接口**：checker 的标题、字段和 fenced code 解析必须与实际渲染语义一致，不能让示例或缩进差异冒充真实上下文；路由路径应拒绝绝对地址、穿越、私有根、symlink 与未跟踪必读文件，且 accepted 闭包要在后续 active iteration 出现后继续受检。
+29. **媒体候选、选择与恢复要分层**：content-addressed candidate 是不可变事实，新 candidate 不能自动替换 first/tail selection；跨镜 lineage 必须绑定 source tail revision 与 target request，lost-response 只能凭 exact transition receipt 重放。缺失 artifact 可按 manifest identity create-only 恢复，但损坏/占位目标不能自动覆盖或靠重建 manifest 掩盖。
 
 ## Historical Evidence Notes
 

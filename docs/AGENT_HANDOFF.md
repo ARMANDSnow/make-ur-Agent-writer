@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 112，2026-07-15 收官 |
+| 更新时间 | iter 113，2026-07-16 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2263 tests OK** |
-| Accepted implementation commit | `e381dd82ce1ab2f26da523635518136b10fe0737` |
+| Canonical 基线 | **2292 tests OK** |
+| Accepted implementation commit | `911a8303eb3b7a7cf33342dd0930dcf7845a81c5` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter112 结构化上下文与经验晋升门禁已闭环，产品能力仍停留在 iter111 的短剧 C1，不代表候选生成/选择、first/tail binding 或 provider 执行已完成 |
+| 当前开发轮次 | 无；iter113 已完成短剧 C2 纯本地候选/选择/first-tail lineage/coverage/repair 闭环，不代表 provider 生图、paid attempt、JPEG/WebP 或质量比较 UI 已完成 |
 
 ## Capability Map
 
@@ -22,19 +22,17 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、provider-neutral `EpisodeShotImagePlan`、完整显式逐镜角色 mapping、exact refs、确定性 reference policy 与五态 plan store、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、逐镜图片候选/选择、first/tail binding、provider capability/MIME/尺寸、TimelineManifest 与声音未做；真文本/全角色真生图/单次真视频需分别授权实测；当前真图片入口仅支持严格 PNG，episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、provider-neutral `EpisodeShotImagePlan`、完整显式逐镜角色 mapping、exact refs、确定性 reference policy 与五态 plan store、content-addressed strict PNG 候选池、guarded first/tail/previous-tail selection、精确 stale/coverage 与 create-only repair、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、逐镜图片 provider adapter/capability、paid attempt、质量比较 UI、JPEG/WebP、TimelineManifest 与声音未做；真文本/全角色真生图/单次真视频需分别授权实测；episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- iter112 只修改两个 workflow skill、agent harness、聚焦测试与迭代文档；未安装或引入 Trellis，也未新增 `.trellis/`、task JSON、journal、hook、第二套任务状态或产品运行逻辑/API。
-- iter112+ 在原固定 8 段内使用 `Implementation Context`、`Review Context`、`Knowledge Promotion` 三个固定 H3；iter001-111 无需迁移。
-- `must_read` 必须指向 Git tracked 的仓库相对普通文件；`expected_changes` 可含尚未创建的安全路径；绝对路径、穿越、私有根、symlink、特殊文件与解析异常 fail closed。
-- accepted iteration 在出现下一轮 active iteration 后仍按完成态持续复核；active latest 另按进行态校验，避免前轮闭包被后轮遮蔽。
-- 经验晋升在人工作出决定、审查 findings 稳定后且 implementation commit 前落地；非 docs-only 晋升必须进入唯一 canonical 验收，README/handoff 常规状态同步不算晋升。
-- canonical **2263 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `e381dd82ce1ab2f26da523635518136b10fe0737` 上 exit 0，15 steps / 151 秒，run `c8c8f16c7ad747bc877bb5f22a655f15`，tree `e153db70e7e5a16c035329d94826068dfbde52fc`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- iter113 从 fresh C1 plan 建立纯本地 C2：content-addressed strict PNG candidate、append-only 候选池、显式 first/tail/previous-tail selection、coverage 与精确 stale；新 candidate 不自动改 selection。
+- previous-tail 同时绑定 source tail revision 与 target request fingerprint，tail ABA、目标 request 漂移、镜头插入/重排都不会自动复活或改写 lineage；selection lost-response 仅 exact receipt 可重放。
+- store 以 source/target/selection CAS、workspace lock、bounded strict JSON/PNG、dirfd/nofollow、create-only artifact 与 inode ownership fail closed；缺失 artifact 只能按 manifest 内 candidate identity 显式精确修复，损坏/占位目标不自动覆盖。
+- canonical **2292 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `911a8303eb3b7a7cf33342dd0930dcf7845a81c5` 上 exit 0，15 steps / 157 秒，run `53fd8bbe14ae40af9f7c912255d97d64`，tree `88825ee36e4b37fb1011941fc9fc6ad444db6286`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
 - mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`；标准验收仍是 `mock-functional` / `canonical-mock-offline`，未运行真文本、真图片、真视频、真 ComfyUI 或任何真 provider。
-- correctness/behavior、security/boundary、workflow/backward-compatibility 三个独立只读视角的 Markdown 解析、路径边界、accepted 持续闭包与晋升时机 findings 均已修复；最终无遗留 P0/P1/P2。
+- correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角的 tail ABA、lineage/stale、lost-response receipt、coverage 闭包、artifact 发布顺序、race/脱敏与恢复 findings 均已修复；最终无遗留 P0/P1/P2。
 
 ## Retained Working Memory
 
@@ -215,7 +213,7 @@
 1. **短剧真实多模态校准**：分别验证五站真文本、全角色真生图、单次真视频的费用、耗时和质量。每段都需单独授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体**：角色/ArtDirection/SceneAsset/PropOrClueAsset 不可变版本与 C1 `EpisodeShotImagePlan` 已闭环；通用 visual override、资产 Web/跨集 used-by、ArtDirection 多 scope、逐镜图片 candidates/selection、first/tail binding、provider capability/MIME/尺寸、JPEG/WebP decoder、TimelineManifest、BGM/声音、真 ComfyUI、episode 2+ 视频与真实多模态质量仍未验证；当前真图片入口仅支持严格 PNG。
+4. **短剧媒体**：角色/ArtDirection/SceneAsset/PropOrClueAsset 不可变版本、C1 `EpisodeShotImagePlan` 与 C2 本地 candidate/selection/first-tail lineage/coverage/repair 已闭环；通用 visual override、资产 Web/跨集 used-by、ArtDirection 多 scope、逐镜图片 provider adapter/capability、paid attempt、质量比较 UI、JPEG/WebP decoder、TimelineManifest、BGM/声音、真 ComfyUI、episode 2+ 视频与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 7. **严格本地对手 TOCTOU**：项目锁可阻止本项目 Web/runner 并发，workspace lock/holder、state/PNG 和新增 ArtDirection store 已使用 nofollow dirfd；若威胁模型包含不遵守 flock 的本机其他进程在最终检查后竞态替换目标或父目录，仍需更强的统一 dirfd/事务协议。
@@ -223,7 +221,7 @@
 ## Next Candidates
 
 - 低风险工程轮：可靠有界 JPEG/WebP decoder、provider 幂等键/资产上传恢复调研、100 集只读扫描优化或已登记 P2 技债。
-- 低风险短剧阶段轮：优先继续 C2 `ShotImageCandidate + selection + first/tail binding` 的纯本地闭环，或继续 A2 visual override/dependency stale 矩阵与 B1 资产 Web/跨集 used-by；provider adapter/paid attempt 仍是独立高风险边界，不因 C1 完成而自动进入真调用。
+- 低风险短剧阶段轮：可继续 A2 visual override/dependency stale 矩阵、B1 资产 Web/跨集 used-by，或先做 C3 provider-neutral capability/adapter 与 durable attempt 契约的 mock-only 闭环；真生图仍是独立高风险边界，不因 C2 完成而自动获授权。
 - 需授权验证轮：五站真文本 smoke；全角色真生图 smoke；episode 1 单次真视频 smoke；小说 capstone。不要把这些授权合并推定。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -262,4 +260,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 112 在不改变产品运行逻辑/API、不安装或引入 Trellis 的前提下，把实现必读/预计变更面、基础与风险审查上下文、人工经验晋升决定固定进原有 8 段 iteration，并由 harness 从 iter112 起校验安全 tracked 路径、Markdown 结构和 accepted 持续闭包。implementation commit `e381dd82` 上 canonical 2263 tests OK，15 steps / 151 秒，run `c8c8f16c7ad747bc877bb5f22a655f15`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。产品能力仍停留在 iter111 的短剧 C1。
+iter 113 在不接 provider、不运行真生图的前提下，从 fresh C1 plan 建立 content-addressed strict PNG 候选池、guarded first/tail/previous-tail 选择、exact lost-response receipt、精确 stale/coverage 和 create-only 显式修复的 C2 纯本地闭环。implementation commit `911a830` 上 canonical 2292 tests OK，15 steps / 157 秒，run `53fd8bbe14ae40af9f7c912255d97d64`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。三视角二次复审无遗留 P0/P1/P2。
