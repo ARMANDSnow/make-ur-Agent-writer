@@ -12,7 +12,7 @@
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
 - **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
-- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、逐镜图片 C1-C3、逐镜视频 D1-D4 与声音 E1-E2 纯本地契约，以及角色生图和 episode 1 视频安全入口。
+- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、逐镜图片 C1-C3、逐镜视频 D1-D4、声音 E1-E2 与唯一时间线 E3 纯本地契约，以及角色生图和 episode 1 视频安全入口。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -145,13 +145,13 @@ docs/iterations/           逐轮审计记录
 | 短剧逐镜视频候选选择与整集覆盖 | 116 | ✅ content-addressed strict MP4 候选、guarded selection、retired audit、精确 stale/repair 与 production coverage 形成 D2 纯本地闭环 |
 | 短剧逐镜视频能力与可恢复尝试 | 117 | ✅ provider-neutral capability、exact once authorization、adapter identity、durable receipts、D2 candidate 补账与 process-crash 零重复 submit 形成 D3 mock-only 闭环 |
 | 短剧完整 SOP 真人用户验证 | 118 | ✅ 当前 Web 创作/交付主链完成桌面与移动端 E2E；真文本 5 calls、真图 2 张局部校准通过，真视频未执行；付费产物与本地预览边界收口 |
-| 短剧媒体连续性与声音恢复 | 119-121 | 🟨 D4 compose gate、E1 AudioManifest 与 E2 once-only TTS recovery 已完成；时间线和本地成片待 122-123 |
+| 短剧媒体连续性、声音与时间线 | 119-122 | 🟨 D4 compose gate、E1/E2 voice/TTS recovery 与 E3 唯一时间线/SRT 已完成；FFmpeg 本地成片待 123 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 121**（2026-07-17，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。现有短剧 Web 主链已经过桌面与 390px 移动端真人用户路径验证；逐镜图片 C1-C3、逐镜视频 D1-D4 与声音 E1-E2 形成纯本地契约。E2 对每个 utterance 独立授权并在 POST 前 durable started；response loss/identity drift 永不二次合成，provider ID 后只重下，artifact receipt-before-write 支持崩溃恢复。当前只有注入式 fake adapter 与 bounded WAV，不连接真实 TTS。指定 provider/model 的真文本 5 calls 与真图 2 张仍是 iter118 的局部校准；真视频/真语音未执行，E3-I 尚未闭环。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`；真实证据不代表完整模块或视频 `provider-validated`。
+最近一次更新：**iter 122**（2026-07-17，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。现有短剧 Web 主链已经过桌面与 390px 移动端真人用户路径验证；逐镜图片 C1-C3、逐镜视频 D1-D4、声音 E1-E2 与唯一时间线 E3 形成纯本地契约。E3 只在同一锁内消费 fresh production MP4 与 verified WAV，生成 strict `TimelineManifest`、同源字幕 revision/SRT 和 optional BGM/SFX policy；当前仍只有 fake/bounded 音频，不连接真实 TTS。指定 provider/model 的真文本 5 calls 与真图 2 张仍是 iter118 的局部校准；真视频/真语音与 FFmpeg 完整成片未执行，F-I 尚未闭环。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，fake-provider 组件为 `local-e2e`；真实证据不代表完整模块或视频 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -187,7 +187,7 @@ docs/iterations/           逐轮审计记录
 | B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本和 selected CAS；场景及道具/线索支持 episode used-by；跨集 used-by/Web 管理与 ArtDirection 多 scope 待实现 |
 | C. 逐镜图片 | 每镜图片候选、首帧/可选尾帧、引用冻结、比较选择与覆盖率 | 🟨 | **C1+C2+C3 纯本地闭环已实现**：provider-neutral request/exact refs，content-addressed strict PNG 候选与 guarded first/tail/previous-tail lineage，provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与进程 crash 零重复调用；真实 provider/network adapter、多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 与 power-loss 证明未实现 |
 | D. 逐镜视频 | 每镜 I2V/R2V 输入计划、submit→poll→download、候选选择与跨镜连续性 | 🟨 | **D1-D4 纯本地闭环已完成**：D1-D3 冻结输入、候选/coverage 与 once-only 恢复；D4 以有序 selected snapshot、artifact 实体重验、global stale、首尾帧 lineage 和连续性 warning 建立 production compose gate。真实 provider/network、主观视觉相似度、Web/CLI 与 episode 2+ 成片未实现；旧 episode 1 高光入口保持兼容 |
-| E. 声音与唯一时间线 | 角色 voice、逐句 TTS、旁白、字幕、BGM/SFX 与 `TimelineManifest` | 🟨 | **E1+E2 已完成**：VoiceProfile/AudioManifest、逐 utterance once-only authorization、durable receipt、POST/GET 分离与跨进程 crash recovery；仅 fake adapter/bounded WAV，真实 TTS 未接；E3 唯一时间线/字幕未实现 |
+| E. 声音与唯一时间线 | 角色 voice、逐句 TTS、旁白、字幕、BGM/SFX 与 `TimelineManifest` | ✅ | **E1-E3 纯本地闭环已完成**：VoiceProfile/AudioManifest、逐 utterance once-only recovery，以及只消费 fresh D4/E2 artifact 的 strict TimelineManifest；视频/对白/旁白/silence/optional BGM/SFX 和字幕共享 fingerprint，SRT 由同一 manifest 确定导出。仅 fake adapter/bounded WAV，真实 TTS、真实 BGM/SFX 与主观音频质量未验证 |
 | F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | ⏳ | 这是首个“本地完整成片”里程碑；当前尚未打通，更广 codec/container 支持也未实现 |
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | ⏳ | 已有领域专用恢复/付费 ledger；尚未做通用调度，且不得用通用状态替代付费证据 |
 | H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ⏳ | 小说实体/摘要可作基础；短剧事件图与 `source_event_ids` 未实现，不阻塞阶段 F |

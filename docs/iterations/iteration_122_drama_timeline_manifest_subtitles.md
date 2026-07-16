@@ -40,7 +40,11 @@ iter121 已完成逐 utterance once-only TTS attempt 与 verified WAV artifact�
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- **A122-01 PASS**：TimelineManifest 及各 clip/cue/SRT schema 均 strict/versioned/content-addressed；D4 report/selected bindings、E1 manifest 与 E2 artifact 身份被精确绑定，required video 连续覆盖整集。
+- **A122-02 PASS**：dialogue/narration 按 AudioManifest source order 在所属镜头内布局，尾部显式 silence；missing/stale/非 succeeded artifact 与音频超镜头全部 fail closed，不截断。
+- **A122-03 PASS**：strict integer ms、bounds、chronological order、逐镜 partition、跨镜/跨集 artifact path、optional BGM order/non-overlap/policy/source duration 与 subtitle text 均有正反向回归；缺 BGM 仅产生 `optional_bgm_missing` warning。
+- **A122-04 PASS**：字幕 revision 只更新 cue/timeline fingerprint 并保留 source text hash；SRT 由 manifest 确定导出，只有 exact regeneration 可授权，typed model 原地篡改被重新校验拒绝。
+- **A122-05 PASS**：timeline 模块 31 tests、相关 D4/E1/E2/E3 组合 90 tests、py_compile、harness 与 diff check 通过；correctness、security/boundary、timeline/numeric-validation 三路最终无遗留 P0/P1/P2。implementation commit `f5e94516f037317cd885ed7c9da37f75f53a58e9` 上唯一 canonical run `5a7e62f0c8d744539df8e46e2b7ac6cb` 为 2483 tests / 15 steps / 277 秒、exit 0、tree `2c81e6dca8d326486e6614d55d367e2f48e46a6a`、`tracked_scope_clean=true`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，local-drama 组件 `local-e2e`，`provider_validated=false`。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -56,6 +60,7 @@ iter121 已完成逐 utterance once-only TTS attempt 与 verified WAV artifact�
 | `tests/test_drama_timeline.py` | 新增 E3 正反向、数值、freshness、optional audio 与 forgery 回归。 |
 | `docs/iterations/README.md` | 追加 iter122 索引。 |
 | `docs/iterations/iteration_122_drama_timeline_manifest_subtitles.md` | 记录计划、验收、实现与审查证据。 |
+| `README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md` | 收官同步 A-J SOP、当前快照与阶段历史。 |
 
 ## 不在本轮范围
 

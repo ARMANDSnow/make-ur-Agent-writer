@@ -47,6 +47,7 @@
 | 119 | 短剧逐镜视频连续性与合成门禁 | selected snapshot、artifact-aware workspace gate、global stale 与 degraded preview 边界 |
 | 120 | 短剧 Voice Profile 与逐句音频计划 | 显式 voice assignment、完整 AudioManifest、局部 stale 与 canonical mock WAV |
 | 121 | 短剧可恢复 TTS Attempt | 逐句一次授权、POST/GET 分离、durable receipt 与 os._exit 恢复矩阵 |
+| 122 | 短剧唯一时间线与字幕 | fresh MP4/WAV 同锁投影、严格 TimelineManifest 与同源 SRT |
 
 ## Iteration Implementation Index
 
@@ -149,6 +150,7 @@
 | 119 | 建立逐镜视频连续性与 production compose gate | `src/drama_schemas.py`、`src/drama_shot_video_continuity.py`、`tests/test_drama_shot_video_continuity.py` |
 | 120 | 建立 Voice Profile、显式 assignment 与逐句音频计划 | `src/drama_schemas.py`、`src/drama_audio.py`、`tests/test_drama_audio.py` |
 | 121 | 建立 provider-neutral once-only TTS attempt 与恢复 store | `src/drama_schemas.py`、`src/drama_tts_attempts.py`、`src/drama_tts_attempt_store.py`、`tests/test_drama_tts_attempt*.py` |
+| 122 | 建立唯一 TimelineManifest、字幕 revision 与同源 SRT | `src/drama_schemas.py`、`src/drama_timeline.py`、`tests/test_drama_timeline.py` |
 
 ## Durable Decisions
 
