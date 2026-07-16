@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 122，2026-07-17 收官 |
+| 更新时间 | iter 123，2026-07-17 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2483 tests OK** |
-| Accepted implementation commit | `f5e94516f037317cd885ed7c9da37f75f53a58e9` |
+| Canonical 基线 | **2493 tests OK** |
+| Accepted implementation commit | `645c74c013336ef33f740f4e5ed76274498e9f85` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
-| 当前高风险缺口 | 真视频、完整逐镜/单集媒体质量与费用仍未实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter122 已完成 E3 唯一 TimelineManifest 与 SRT；F1 FFmpeg 完整成片待 iter123，真语音/真视频均为 0 submit |
+| 当前高风险缺口 | 真语音、真视频、episode 2+ 成片及完整逐镜/单集媒体质量与费用仍未实测；小说 10-20 章 capstone 尚未实跑 |
+| 当前开发轮次 | 无；iter123 已完成 F1 本地 FFmpeg 完整成片，synthetic MP4/SRT/QA 为 `local-e2e`；真语音/真视频仍为 0 submit |
 
 ## Capability Map
 
@@ -22,7 +22,7 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、C1-C3 逐镜图片纯本地契约、D1-D4 逐镜视频纯本地契约（含 artifact-aware compose gate）、E1 VoiceProfile/逐句 AudioManifest、E2 provider-neutral once-only TTS attempt/receipt/跨进程恢复与 bounded WAV、E3 strict TimelineManifest/字幕 revision/同源 SRT/optional BGM-SFX policy、单集四导出、严格整季母包/阶段快照、Insights、episode 1 高光视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、真实逐镜图片 provider/network adapter与多参考上传协议、质量比较 UI、JPEG/WebP、显式 staging GC、power-loss 证明、逐镜视频真实 provider/network 与主观质量、真实 TTS adapter、FFmpeg 完整成片未做；真语音、真视频、episode 2+ 成片与更广 codec 未验证 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、C1-C3 逐镜图片、D1-D4 逐镜视频 compose gate、E1 VoiceProfile/逐句 AudioManifest、E2 once-only TTS recovery、E3 strict TimelineManifest/SRT、F1 FFmpeg 1080×1920/25fps MP4 与媒体 QA、单集四导出、严格整季母包/阶段快照、Insights、episode 1 高光视频 job、多模态可恢复编排 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、真实逐镜图片/视频 provider 与主观质量、真实 TTS adapter、ASS/编辑器工程/Web compose job、多 profile、更广 codec、episode 2+ 成片及真语音/真视频未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
@@ -30,8 +30,9 @@
 - iter118 以真实浏览器走通全新短剧 workspace：建档、五站、分镜 6→7→6 增删、角色图、评审组装、四导出、第 2 集、季快照、Insights 与 mock 高光视频；刷新保留站点，桌面和 390×844 移动端均完成视觉检查。
 - 修复 query/hash 漂移、分镜增删/推进缺失、mock SVG 与 strict PNG 冲突、角色编辑未保存即评审、stale 下载误导、付费真图可被本地预览覆盖、媒体 lock/symlink、同源主动 SVG 和 JPEG/WebP 宣称超出 decoder 等真人用户/安全边界问题。
 - 指定 provider/model 的 synthetic 真文本五站共 5 calls、项目估算 ¥0.2562、131.49 秒；真角色图 2 张、无重试、98.344/94.568 秒，结构与人工视觉复核通过。真视频停在 `awaiting_video_authorization`，submit=0；该证据只覆盖本次样本，不外推完整 provider、视频或 SLA。
-- iter122 E3 在单一 workspace lock 内重验 D4 selected MP4 与 E2 WAV，生成 strict/content-addressed TimelineManifest；逐镜视频、对白/旁白、silence、optional BGM/SFX 与 subtitle cues 共享唯一时间线，SRT 只能 exact regeneration 授权。
-- canonical **2483 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `f5e94516f037317cd885ed7c9da37f75f53a58e9` 上 exit 0，15 steps / 277 秒，run `5a7e62f0c8d744539df8e46e2b7ac6cb`，tree `2c81e6dca8d326486e6614d55d367e2f48e46a6a`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- iter123 F1 从唯一 TimelineManifest 生成 argv-only FFmpeg plan，在 probe/hash 后以私有 staging 固化已验证字节，完成视频 normalize/concat、音频 delay/trim/fade/mix、SRT 与严格 post-probe QA；synthetic 产物为 1080×1920/25fps H.264/AAC MP4，required shots 全覆盖。
+- canonical **2493 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `645c74c013336ef33f740f4e5ed76274498e9f85` 上 exit 0，15 steps / 279 秒，run `849fc506af3e46e3a2e882b00c0fd4dd`，tree `23f2d5438e27abb1794b0999412b918e79236230`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- iter123 授权校准仅提交 synthetic 文本 1 次与图片 1 次，真视频 0 次；结论为 `provider-validated-local-calibration` 且 `provider_validated_pipeline=false`，不覆盖 TTS、视频或 F1。
 - 标准验收仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`；真实文本/图片仅作为分列的局部 provider 校准证据。correctness、security/boundary、Web/media 三个独立只读视角最终无遗留 P0/P1/P2。
 
 ## Retained Working Memory
@@ -217,7 +218,7 @@
 1. **短剧真实多模态后续校准**：本轮已验证指定样本的五站真文本与 2 张角色图；全角色/多题材图像、单次真视频、逐镜/单集媒体费用与质量仍需分别授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体**：C1-C3 本地逐镜图片、D1-D4 逐镜视频与 E1-E3 voice/TTS/timeline 已完成；通用 visual override、资产 Web/跨集 used-by、真实图片/视频/语音 provider adapter、质量比较、JPEG/WebP、staging GC、power-loss、真实 BGM/SFX、FFmpeg 完整成片、episode 2+ 与真实多模态质量仍未验证。
+4. **短剧媒体**：C1-C3 本地逐镜图片、D1-D4 逐镜视频、E1-E3 voice/TTS/timeline 与 F1 本地完整成片已完成；通用 visual override、资产 Web/跨集 used-by、真实图片/视频/语音 provider adapter、质量比较、JPEG/WebP、staging GC/power-loss、真实 BGM/SFX、ASS/编辑器工程、episode 2+ 与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 7. **严格本地对手 TOCTOU**：项目锁可阻止本项目 Web/runner 并发，workspace lock/holder、state/PNG 和新增 ArtDirection store 已使用 nofollow dirfd；若威胁模型包含不遵守 flock 的本机其他进程在最终检查后竞态替换目标或父目录，仍需更强的统一 dirfd/事务协议。
@@ -225,7 +226,7 @@
 ## Next Candidates
 
 - 低风险工程轮：可靠有界 JPEG/WebP decoder、provider 幂等键/资产上传恢复调研、100 集只读扫描优化或已登记 P2 技债。
-- 低风险短剧阶段轮：按已批准路线推进 F1 本地 FFmpeg compositor/QA；A2/B1、staging GC 仍可后续规划。
+- 低风险短剧阶段轮：推进 F2 ASS/编辑器导出或 A2/B1、staging GC；不得把这些与已完成的固定 profile F1 混为一体。
 - 需授权验证轮：全角色/多题材真生图、episode 1 单次真视频、逐镜/单集媒体或小说 capstone。不要把这些授权合并推定；五站文本与 2 张角色图的 iter118 证据不自动授权复跑。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -264,4 +265,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter122 完成 E3 唯一 TimelineManifest 与字幕：同一锁内重验 D4 production MP4、E1 manifest 与 E2 verified WAV，严格排布 video/dialogue/narration/silence/optional BGM-SFX/subtitle cues；超镜头、跨集路径、非有限/布尔数值、SRT 结构与 typed-instance mutation 均 fail-closed。implementation commit `f5e9451` 上 canonical 2483 tests OK，15 steps / 277 秒，run `5a7e62f0c8d744539df8e46e2b7ac6cb`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，local-drama 组件 `local-e2e`。三视角最终无遗留 P0/P1/P2；下一步为 F1 本地 FFmpeg 完整成片。
+iter123 完成 F1 本地 FFmpeg 完整成片：strict TimelineManifest 投影为 argv-only compose plan，输入经 hash/probe 后复制到私有 staging，完成视频 normalize/concat、音频 delay/trim/fade/mix、SRT 与绑定 timeline/output SHA 的 post-probe QA；synthetic MP4 为 1080×1920/25fps H.264/AAC，required shots 全覆盖。implementation commit `645c74c` 上 canonical 2493 tests OK，15 steps / 279 秒，run `849fc506af3e46e3a2e882b00c0fd4dd`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，F1 为 `local-e2e`。授权的文本 1 call/图片 1 submit 仅为局部 provider 校准，真语音/真视频仍为 0 submit。三视角最终无遗留 P0/P1/P2；下一步可独立规划 F2、媒体 provider 校准或小说 capstone。

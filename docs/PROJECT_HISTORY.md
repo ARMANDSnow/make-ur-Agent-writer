@@ -48,6 +48,7 @@
 | 120 | 短剧 Voice Profile 与逐句音频计划 | 显式 voice assignment、完整 AudioManifest、局部 stale 与 canonical mock WAV |
 | 121 | 短剧可恢复 TTS Attempt | 逐句一次授权、POST/GET 分离、durable receipt 与 os._exit 恢复矩阵 |
 | 122 | 短剧唯一时间线与字幕 | fresh MP4/WAV 同锁投影、严格 TimelineManifest 与同源 SRT |
+| 123 | 短剧本地 FFmpeg 完整成片 | argv-only 合成计划、verified-byte staging、1080×1920/25fps MP4/SRT 与 post-probe QA |
 
 ## Iteration Implementation Index
 
@@ -222,6 +223,7 @@
 28. **工作流 Markdown 也是需要 fail-closed 的接口**：checker 的标题、字段和 fenced code 解析必须与实际渲染语义一致，不能让示例或缩进差异冒充真实上下文；路由路径应拒绝绝对地址、穿越、私有根、symlink 与未跟踪必读文件，且 accepted 闭包要在后续 active iteration 出现后继续受检。
 29. **媒体候选、选择与恢复要分层**：content-addressed candidate 是不可变事实，新 candidate 不能自动替换 first/tail selection；跨镜 lineage 必须绑定 source tail revision 与 target request，lost-response 只能凭 exact transition receipt 重放。缺失 artifact 可按 manifest identity create-only 恢复，但损坏/占位目标不能自动覆盖或靠重建 manifest 掩盖。
 30. **付费 attempt 的一次调用承诺必须先于 provider 接线落地**：capability、provider/request identity 与 ordered exact references 要在调用前冻结，`started` 必须先 durable；只有 transport 能证明 not-sent 才可释放机会。receipt、staging、C2 candidate 与 succeeded ledger 是分阶段事实，恢复应优先用已提交的 exact candidate 补账，并在最终锁内重读 source/target。该证据只证明受控本地 writer 下的 process-crash 恢复；不能外推 power-loss、非合作本机进程或真实 provider exactly-once。
+31. **媒体合成的完成态必须由同源时间线和 post-probe 共同证明**：plan 只接受显式 argv 与严格相对路径；hash/probe 后应把已验证字节固化到私有 staging，避免 FFmpeg 消费漂移源。容器总时长不能替代视频流时长，SRT 与 QA 也不能靠各自落盘值自证；应从 TimelineManifest 重建并把 output SHA、轨道规格和 required-shot coverage 一起复核。
 
 ## Historical Evidence Notes
 

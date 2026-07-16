@@ -43,7 +43,12 @@ iter122 已以唯一 TimelineManifest 统一 fresh D4 production MP4、E2 verifi
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- **A123-01 — PASS**：`DramaComposePlan` strict/versioned/content-addressed，固定 `vertical-1080x1920-25-v1`；公开 plan 无绝对路径，执行只使用 argv list，计划重建可阻断 action/argv 注入。
+- **A123-02 — PASS**：required video/audio 在执行前 re-read/hash/probe 并复制到私有 staging；normalize/concat/mix/mux 任一步失败均 fail closed，短视频不能被较长音轨掩盖。
+- **A123-03 — PASS**：post-probe QA 绑定 timeline fingerprint、output/SRT SHA 与 required-shot coverage，并严格验证 MP4、H.264/AAC、1080×1920、25/1、SAR 1:1、yuv420p、48kHz stereo 及 duration。
+- **A123-04 — PASS**：synthetic runner 真实生成可被 ffprobe 解析的完整 MP4、SRT、QA 与 timeline JSON；三类交付共享 timeline fingerprint `10cccd4c35ad5df22b025b177c0e54f1c43f0b6777800a097dcbc5317f48c493`，组件结论为 `local-e2e`。
+- **A123-05 — PASS**：correctness、security/boundary、FFmpeg/media-runtime 最终复审均无遗留 P0/P1/P2。implementation commit `645c74c013336ef33f740f4e5ed76274498e9f85` 上唯一 canonical `bash scripts/verify.sh` 通过：2493 tests，15 steps，279 秒，run `849fc506af3e46e3a2e882b00c0fd4dd`，tree `23f2d5438e27abb1794b0999412b918e79236230`，`tracked_scope_clean=true`，mock preflight 0 FATAL/0 WARN。
+- **结论**：canonical 为 `mock-functional`；F1 synthetic 本地成片为 `local-e2e`。另行授权的文本 1 call/图片 1 submit 仅为 `provider-validated-local-calibration`，`provider_validated_pipeline=false`；真 TTS、真视频、episode 2+ 成片与完整 J capstone 均未验证。
 
 ### Knowledge Promotion
 - `decision`: `none`
