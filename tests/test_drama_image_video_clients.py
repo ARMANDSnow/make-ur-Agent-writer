@@ -309,6 +309,10 @@ class DramaImageClientTests(DramaTestBase):
         self.assertEqual(status, 409, body.decode())
         self.assertIn("multimodal", json.loads(body)["error"])
         redraw.assert_not_called()
+        source = Path("src/web/static.py").read_text(encoding="utf-8")
+        self.assertIn("真实生图请使用受预算保护的多模态校准命令", source)
+        self.assertIn("重画本地预览", source)
+        self.assertIn("查看 SD Prompt", source)
 
     def test_web_redraw_rejects_text_plain_csrf_shape_before_drawing(self) -> None:
         with patch("src.ai_draw_client.redraw_character_reference") as redraw:

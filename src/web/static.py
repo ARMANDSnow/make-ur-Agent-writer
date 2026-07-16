@@ -214,6 +214,18 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 }
 .sidebar .brand:hover { border-bottom: 0; color: var(--jade); }
 .sidebar-section { display: flex; flex-direction: column; gap: var(--space-1); }
+.sidebar-library { min-height: 0; }
+.sidebar-library h4 { display: flex; justify-content: space-between; gap: var(--space-2); }
+.sidebar-library h4 span { font-variant-numeric: tabular-nums; }
+.sidebar-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: min(32vh, 280px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
 .sidebar-section h4 {
   font-family: var(--font-sans);
   font-size: var(--fs-xs);
@@ -234,6 +246,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   border: 0;
   font-size: var(--fs-sm);
 }
+.sidebar-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-item:hover { background: var(--bg-sunken); color: var(--ink-1); border: 0; }
 .sidebar-item.active {
   background: var(--jade-soft);
@@ -587,6 +600,8 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   -webkit-overflow-scrolling: touch;
 }
 .table-wide { min-width: 760px; }
+.drama-episode-table { min-width: 620px; }
+.drama-episode-table th, .drama-episode-table td { white-space: nowrap; }
 .storyboard-table { min-width: 1120px; }
 .storyboard-table textarea {
   width: 100%;
@@ -1568,7 +1583,8 @@ JS_DASHBOARD = """\
     if (!verdict) return '<span class="badge no-dot">—</span>';
     const v = String(verdict).toLowerCase();
     const cls = v === "approve" ? "approve" : v === "reject" ? "reject" : "abstain";
-    return '<span class="badge ' + cls + '">' + escapeHtml(verdict) + "</span>";
+    const labels = { approve: "通过", reject: "驳回", abstain: "待定" };
+    return '<span class="badge ' + cls + '">' + escapeHtml(labels[v] || verdict) + "</span>";
   }
   function finiteStyleNumber(value) {
     if (value == null || typeof value === "boolean") return null;
@@ -1789,6 +1805,11 @@ JS_DASHBOARD = """\
   function errTitle(err) {
     if (err && err.payload && err.payload.card && err.payload.card.title) return err.payload.card.title;
     if (err && err.card && err.card.title) return err.card.title;
+    const raw = err && err.payload && err.payload.error;
+    const friendly = {
+      real_image_requires_multimodal_runner: "真实生图请使用受预算保护的多模态校准命令",
+    };
+    if (raw && friendly[raw]) return friendly[raw];
     return (err && err.message) || "出错了";
   }
   // Translate a raw readiness blocker code into human text for the diagnostic
@@ -5099,8 +5120,9 @@ JS_DASHBOARD = """\
       box.innerHTML = (data.stations || []).map(function (s) {
         const cls = s.status === "done" ? "ready" :
           s.status === "locked" ? "blocked" : "warn";
+        const statusLabel = { done: "已完成", locked: "待前置步骤", todo: "待处理" }[s.status] || s.status;
         return '<span class="badge ' + cls + '">' + escapeHtml(s.label) +
-          " · " + escapeHtml(s.status) + "</span>";
+          " · " + escapeHtml(statusLabel) + "</span>";
       }).join("");
     } catch (err) {
       box.innerHTML = renderErrorCard(err);
@@ -5126,7 +5148,7 @@ JS_DASHBOARD = """\
     const data = station ? station.data : null;
     const core = (data && data.core_setup) || data || {};
     let html = '<div class="card"><div class="card-header"><h3 class="ornament">站 ① 核心设定</h3>' +
-      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + escapeHtml(status) + '</span></div>' +
+      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + (status === "done" ? "已完成" : "待处理") + '</span></div>' +
       '<div class="card-body stack">';
     if (wizardInput) {
       html += '<div class="kv-list compact">' +
@@ -5142,13 +5164,13 @@ JS_DASHBOARD = """\
           '<label class="check-row"><input type="checkbox" name="introduces_new_characters" ' + (data.introduces_new_characters ? "checked" : "") + '> 本集引入新角色（未勾选则沿用季角色并跳过站④生成）</label>'
         : "";
       html += '<form id="station-setup-form" class="stack">' +
-        '<div class="field"><label>logline</label>' +
+        '<div class="field"><label>一句话故事</label>' +
         '<textarea name="logline" rows="2">' + escapeHtml(data.logline || "") + "</textarea></div>" +
-        '<div class="field"><label>protagonist</label>' +
+        '<div class="field"><label>主角设定</label>' +
         '<textarea name="protagonist" rows="2">' + escapeHtml(core.protagonist || "") + "</textarea></div>" +
-        '<div class="field"><label>antagonist</label>' +
+        '<div class="field"><label>反派 / 对手设定</label>' +
         '<textarea name="antagonist" rows="2">' + escapeHtml(core.antagonist || "") + "</textarea></div>" +
-        '<div class="field"><label>emotional_hook</label>' +
+        '<div class="field"><label>情绪钩子</label>' +
         '<textarea name="emotional_hook" rows="2">' + escapeHtml(core.emotional_hook || "") + "</textarea></div>" +
         continuationFields +
         '<div class="form-actions">' +
@@ -5275,7 +5297,7 @@ JS_DASHBOARD = """\
     const status = station ? station.status : "todo";
     const data = station ? station.data : null;
     let html = '<div class="card"><div class="card-header"><h3 class="ornament">站 ② 钩子</h3>' +
-      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + escapeHtml(status) + '</span></div>' +
+      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + (status === "done" ? "已完成" : "待处理") + '</span></div>' +
       '<div class="card-body stack">';
     if (!data) {
       html += '<div class="empty-state">' +
@@ -5286,8 +5308,8 @@ JS_DASHBOARD = """\
         "</div>";
     } else {
       html += '<div class="kv-list compact">' +
-        '<div class="k">type</div><div class="v"><code>' + escapeHtml(data.type || "") + "</code></div>" +
-        '<div class="k">content</div><div class="v">' + escapeHtml(data.content || "") + "</div>" +
+        '<div class="k">钩子类型</div><div class="v"><code>' + escapeHtml(data.type || "") + "</code></div>" +
+        '<div class="k">钩子内容</div><div class="v">' + escapeHtml(data.content || "") + "</div>" +
         '</div>' +
         '<div class="alert info">站 ② 已锁定，可以进入站 ③ 分镜。</div>';
     }
@@ -5387,7 +5409,7 @@ JS_DASHBOARD = """\
 
   function renderStationStoryboardEmpty() {
     return '<div class="card"><div class="card-header"><h3 class="ornament">站 ③ 分镜</h3>' +
-      '<span class="badge warn">todo</span></div><div class="card-body">' +
+      '<span class="badge warn">待处理</span></div><div class="card-body">' +
       '<div class="empty-state"><span class="ornament">✦</span>' +
       '<h3>等待生成分镜表</h3>' +
       '<p class="muted">站 ③ 会把钩子拆成 6 到 9 个可编辑镜头。</p>' +
@@ -5405,7 +5427,7 @@ JS_DASHBOARD = """\
       '</tr></thead><tbody>';
     const rows = shots.map(renderStoryboardRow).join("");
     return '<div class="card"><div class="card-header"><h3 class="ornament">站 ③ 分镜</h3>' +
-      '<span class="badge ready">done</span></div><div class="card-body stack">' +
+      '<span class="badge ready">已完成</span></div><div class="card-body stack">' +
       '<form id="station-storyboard-form" class="stack">' +
       '<div class="form-grid-2">' +
       '<div class="field"><label>标题</label><input name="title" value="' + escapeHtml(board.title || "") + '"></div>' +
@@ -5739,7 +5761,7 @@ JS_DASHBOARD = """\
 
   function renderCharactersEmpty(title, hint) {
     return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
-      '<span class="badge warn">todo</span></div><div class="card-body">' +
+      '<span class="badge warn">待处理</span></div><div class="card-body">' +
       '<div class="empty-state"><span class="ornament">✦</span>' +
       '<h3>等待生成角色表</h3>' +
       '<p class="muted">' + escapeHtml(hint) + '</p>' +
@@ -5751,12 +5773,12 @@ JS_DASHBOARD = """\
     const chars = sheet.characters || [];
     const cards = chars.map(renderCharacterCard).join("");
     return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
-      '<span class="badge ' + (skipped ? "warn" : "ready") + '">' + (skipped ? "skipped" : "done") + '</span></div><div class="card-body stack">' +
+      '<span class="badge ' + (skipped ? "warn" : "ready") + '">' + (skipped ? "沿用季角色" : "已完成") + '</span></div><div class="card-body stack">' +
       (skipped ? '<div class="alert info">本集未引入新角色，沿用本季角色设定；可直接评审并组装。</div>' : '') +
       '<form data-character-sheet-form class="stack">' +
       '<div class="kv-list compact">' +
-      '<div class="k">season</div><div class="v">' + escapeHtml(String(sheet.season_no || 1)) + '</div>' +
-      '<div class="k">source</div><div class="v">' + escapeHtml(sheet.source_storyboard_title || "") + '</div>' +
+      '<div class="k">季数</div><div class="v">第 ' + escapeHtml(String(sheet.season_no || 1)) + ' 季</div>' +
+      '<div class="k">来源分镜</div><div class="v">' + escapeHtml(sheet.source_storyboard_title || "") + '</div>' +
       '</div>' +
       '<div class="character-grid">' + cards + '</div>' +
       '<div class="form-actions">' +
@@ -5774,7 +5796,7 @@ JS_DASHBOARD = """\
       : '<div class="character-ref-placeholder">未生成参考图</div>';
     return '<section class="character-card" data-character-card="' + idx + '">' +
       '<div class="character-ref-box">' + imageHtml +
-      '<button type="button" class="btn btn-secondary btn-sm" data-redraw-character="' + escapeHtml(character.id || "") + '">重画参考图</button></div>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-redraw-character="' + escapeHtml(character.id || "") + '">重画本地预览</button></div>' +
       '<div class="stack">' +
       '<div class="cluster" style="justify-content:space-between">' +
       '<strong><code>' + escapeHtml(character.id || "") + '</code> · ' + escapeHtml(character.name || "") + '</strong>' +
@@ -5981,12 +6003,12 @@ JS_DASHBOARD = """\
           '<td>' + escapeHtml(ep.title || "") + '</td>' +
           '<td>' + verdictBadge(ep.verdict || "") + '</td>' +
           '<td>' + escapeHtml(String(ep.estimated_duration_seconds || 0)) + ' 秒</td>' +
-          '<td>' + (ep.stale ? '<span class="badge warn">需重新组装</span>' : '<span class="badge ready">fresh</span>') + '</td>' +
+          '<td>' + (ep.stale ? '<span class="badge warn">需重新组装</span>' : '<span class="badge ready">已就绪</span>') + '</td>' +
           '<td><a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(ep.episode_no || 1)) + '">查看</a></td>' +
           '</tr>';
       }).join("");
       const episodeList = episodes.length
-        ? tableScroll('<table class="table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>')
+        ? tableScroll('<table class="table drama-episode-table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>')
         : emptyState("尚无已组装剧集", "从第 1 集写作向导开始；完成评审并组装后，成片会出现在这里。", "");
       const nextNo = Number(data.next_episode_no || 0);
       let nextAction = "";
@@ -6010,17 +6032,17 @@ JS_DASHBOARD = """\
       const seasonBase = wsUrl("/drama/season/1/export?mode=");
       const masterButton = season.master_ready
         ? '<a class="btn btn-primary" href="' + seasonBase + 'master" download>导出整季母包</a>'
-        : '<button type="button" class="btn btn-primary" disabled title="整季母包要求计划内全部剧集 fresh 且完整">导出整季母包</button>';
+        : '<button type="button" class="btn btn-primary" disabled title="整季母包要求计划内全部剧集均已就绪且完整">导出整季母包</button>';
       const snapshotButton = season.snapshot_ready
         ? '<a class="btn btn-secondary" href="' + seasonBase + 'snapshot" download>导出阶段快照</a>'
-        : '<button type="button" class="btn btn-secondary" disabled title="至少需要一集 fresh 完整剧集">导出阶段快照</button>';
+        : '<button type="button" class="btn btn-secondary" disabled title="至少需要一集已就绪的完整剧集">导出阶段快照</button>';
       const excluded = Array.isArray(season.excluded) ? season.excluded : [];
       const missingRefs = Array.isArray(season.missing_reference_images) ? season.missing_reference_images.length : 0;
       const assetErrors = Array.isArray(season.asset_errors) ? season.asset_errors.length : 0;
       let seasonHint = "计划内剧集与角色引用均已就绪。";
       if (!season.master_ready) {
         const reasons = [];
-        if (excluded.length) reasons.push(String(excluded.length) + " 集 incomplete/stale");
+        if (excluded.length) reasons.push(String(excluded.length) + " 集未完成或已过期");
         if (missingRefs) reasons.push(String(missingRefs) + " 个引用图缺失");
         if (assetErrors) reasons.push(String(assetErrors) + " 个引用资产不安全或无效");
         seasonHint = "母包未就绪：" + (reasons.length ? reasons.join("，") : "等待完整剧集或角色引用") + "。";
@@ -6071,14 +6093,14 @@ JS_DASHBOARD = """\
     const scriptBox = document.getElementById("tab-script");
     if (scriptBox) {
       scriptBox.innerHTML = !assembled
-        ? '<div class="alert warn">本集评审尚未 Approve，未发布组装产物；请在“评审”页查看并应用建议。</div>'
+        ? '<div class="alert warn">本集评审尚未通过，因此没有可发布的组装产物；请在“评审”页查看并应用建议。</div>'
         : staleHtml +
         '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(episode.title || "未命名") + '</h3>' +
         verdictBadge((stale && review.verdict) || meta.verdict || "") + '</div><div class="card-body stack">' +
         '<div class="kv-list compact">' +
-        '<div class="k">logline</div><div class="v">' + escapeHtml(episode.logline || "") + '</div>' +
-        '<div class="k">track</div><div class="v"><code>' + escapeHtml(episode.track || "") + '</code></div>' +
-        '<div class="k">duration</div><div class="v">' + escapeHtml(String(episode.estimated_duration_seconds || 0)) + ' / ' + escapeHtml(String(episode.target_duration_seconds || 0)) + ' 秒</div>' +
+        '<div class="k">一句话故事</div><div class="v">' + escapeHtml(episode.logline || "") + '</div>' +
+        '<div class="k">赛道</div><div class="v"><code>' + escapeHtml(episode.track || "") + '</code></div>' +
+        '<div class="k">预估 / 目标时长</div><div class="v">' + escapeHtml(String(episode.estimated_duration_seconds || 0)) + ' / ' + escapeHtml(String(episode.target_duration_seconds || 0)) + ' 秒</div>' +
         '</div>' +
         '<div class="reading-body"><p>' + escapeHtml(episode.narrative || "") + '</p></div>' +
         '</div></div>';
@@ -6100,11 +6122,15 @@ JS_DASHBOARD = """\
     if (charBox) {
       charBox.innerHTML = characters.length
         ? '<div class="character-grid">' + characters.map(function (c) {
-            return '<section class="character-card"><div class="stack">' +
+            const img = firstCharacterImage(c);
+            const imageHtml = img
+              ? '<div class="character-ref-box"><img class="character-ref-img" src="' + escapeHtml(characterRefUrl(c.id, img.path)) + '" alt="' + escapeHtml(c.name || c.id) + '"></div>'
+              : '<div class="character-ref-placeholder">暂无参考图</div>';
+            return '<section class="character-card">' + imageHtml + '<div class="stack">' +
               '<strong><code>' + escapeHtml(c.id || "") + '</code> · ' + escapeHtml(c.name || "") + '</strong>' +
               '<p class="muted">' + escapeHtml(c.role || "") + '</p>' +
               '<p>' + escapeHtml(c.visual_signature || "") + '</p>' +
-              '<pre>' + escapeHtml(c.prompt_template_sd || "") + '</pre>' +
+              '<details class="details-fold"><summary>查看 SD Prompt</summary><pre>' + escapeHtml(c.prompt_template_sd || "") + '</pre></details>' +
               '</div></section>';
           }).join("") + '</div>'
         : '<p class="muted">暂无角色表。</p>';
@@ -6115,7 +6141,7 @@ JS_DASHBOARD = """\
       const suggestions = review.suggestions || [];
       const suggestionHtml = suggestions.length
         ? '<div class="stack">' + suggestions.map(renderDramaSuggestion).join("") + '</div>'
-        : '<p class="muted">暂无 advisor 建议。</p>';
+        : '<p class="muted">暂无优化建议。</p>';
       reviewBox.innerHTML = '<div class="stack">' +
         (agents.length ? agents.map(renderDramaReviewCard).join("") : '<p class="muted">暂无评审记录。</p>') +
         suggestionHtml +
@@ -6277,13 +6303,14 @@ JS_DASHBOARD = """\
   function renderDramaReviewCard(review) {
     const sub = review.sub_scores || {};
     const keys = ["hook", "pace", "ai_friendly", "character_consistency", "cliffhanger"];
+    const labels = { hook: "开场钩子", pace: "节奏", ai_friendly: "AI 制作友好度", character_consistency: "角色一致性", cliffhanger: "结尾钩子" };
     const bars = keys.map(function (k) {
       const v = sub[k];
       const pct = (v == null ? 0 : Math.max(0, Math.min(10, Number(v))) * 10);
-      return '<div class="subscore-bar"><span class="label">' + escapeHtml(k) + '</span><div class="track"><i style="width:' + pct + '%"></i></div><span class="val">' + (v == null ? "—" : escapeHtml(String(v))) + '</span></div>';
+      return '<div class="subscore-bar"><span class="label">' + escapeHtml(labels[k] || k) + '</span><div class="track"><i style="width:' + pct + '%"></i></div><span class="val">' + (v == null ? "—" : escapeHtml(String(v))) + '</span></div>';
     }).join("");
     const issues = (review.issues || []).map(function (it) { return '<li>' + escapeHtml(String(it)) + '</li>'; }).join("");
-    return '<div class="review-card"><div><div class="name">' + escapeHtml(review.agent_name || "drama_reviewer") + '</div><div class="verdict">' + verdictBadge(review.verdict || "") + '<span class="muted" style="margin-left:6px">score=' + escapeHtml(String(review.score == null ? "—" : review.score)) + '</span></div></div><div class="stack">' + bars + (issues ? '<ul>' + issues + '</ul>' : '') + '</div></div>';
+    return '<div class="review-card"><div><div class="name">短剧评审</div><div class="verdict">' + verdictBadge(review.verdict || "") + '<span class="muted" style="margin-left:6px">总分 ' + escapeHtml(String(review.score == null ? "—" : review.score)) + '</span></div></div><div class="stack">' + bars + (issues ? '<ul>' + issues + '</ul>' : '') + '</div></div>';
   }
 
   function renderDramaSuggestion(suggestion, idx) {

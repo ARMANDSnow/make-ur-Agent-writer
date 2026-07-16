@@ -1179,5 +1179,26 @@ class Iter073JobApiDetailTests(unittest.TestCase):
         self.assertNotIn("_secret", data)  # future internal field not leaked
 
 
+class DramaUserFacingCopyTests(unittest.TestCase):
+    def test_drama_ui_uses_human_labels_and_keeps_large_shelf_navigable(self) -> None:
+        source = Path("src/web/static.py").read_text(encoding="utf-8")
+        self.assertIn('const statusLabel = { done: "已完成"', source)
+        self.assertIn('const labels = { approve: "通过"', source)
+        self.assertIn('class="table drama-episode-table"', source)
+        self.assertIn(".sidebar-library-list", source)
+        self.assertNotIn('<span class="badge ready">fresh</span>', source)
+
+    def test_example_config_pins_video_provider_without_enabling_paid_video(self) -> None:
+        source = Path(".env.example").read_text(encoding="utf-8")
+        self.assertIn("SD_VIDEO_MODE=mock", source)
+        self.assertIn("SD_API_BASE_URL=https://model.service-inference.ai", source)
+        self.assertIn("SD_VIDEO_MODEL=dreamina-seedance-2-0-hc", source)
+        self.assertIn("SD_API_KEY=\n", source)
+        self.assertIn(
+            "workspaces/.*.drama_multimodal_smoke.lock",
+            Path(".gitignore").read_text(encoding="utf-8"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

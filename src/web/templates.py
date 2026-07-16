@@ -199,9 +199,9 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
     return (
         '<aside class="sidebar">'
         '<a class="brand" href="/library" data-leave-guard><span>✦</span> 续写工作台</a>'
-        '<div class="sidebar-section">'
-        '<h4>书架</h4>'
-        f'{work_html}'
+        '<div class="sidebar-section sidebar-library">'
+        f'<h4>书架 <span>{len(items)}</span></h4>'
+        f'<div class="sidebar-library-list">{work_html}</div>'
         '</div>'
         f'{sections_html}'
         '<div class="sidebar-footer">'
