@@ -47,7 +47,16 @@ iter111、iter113 与 iter114 已依次完成阶段 C 的 provider-neutral 逐�
 
 ## Acceptance Result
 
-待 `iter-finish` 回填 A115-01 至 A115-06 的测试数、canonical acceptance、三视角审查结论、实现 commit 与未修风险；立项阶段不宣称任何新增产品能力已通过。
+- **结论**：六项 acceptance 全部通过。本轮最高验收等级为 `mock-functional`；canonical 内的本地 fake-provider 组件为 `local-e2e`，`provider_validated=false`。未运行真文本、真图片、真视频、真 ComfyUI 或任何真实 provider/network 请求。
+- **A115-01**：通过。三个 D1 strict schema 可 byte-stable round-trip，并拒绝 extra、bool/非有限数、跨 episode/shot、重复 refs、非 canonical artifact path、candidate/frame/request/plan fingerprint 篡改；C1-C3、`DramaEpisode` 与 `RenderPlan` 既有 shape 未改。
+- **A115-02**：通过。计划只消费 fresh RenderPlan、fresh C1 与 coverage=`ready` 的 fresh C2；逐镜保持 source order，冻结 target duration、受控视觉输入、exact first、显式 optional tail 和 C1 ordered exact refs，未绑定 provider/model/capability。
+- **A115-03**：通过。direct first/tail 与 previous-tail 均重验 exact candidate/artifact；previous-tail 绑定上一镜 candidate/request/artifact/tail revision。缺 first、坏/缺 artifact、断裂 lineage 与 fully-rehashed revision forgery 均在视频行为前 fail closed。
+- **A115-04**：通过。selected first/tail、request 与 previous-tail 依赖精确传播；单镜 C1 变化后，C2 reconcile 保留的未变历史 candidate 可继续复用；未选 candidate append 不会使 D1 stale，旧 workspace 明示 `needs_shot_video_plan`。
+- **A115-05**：通过。五态 store、workspace lock、source/target CAS、explicit stale replacement、bounded strict JSON、nofollow/nonblock/regular-file、dirfd atomic replace、precommit reread与temp inode ownership均有直接测试；invalid、symlink/FIFO/目录、深层/超限 JSON、partial write、target/temp/source race 与缺 artifact 均安全停止且不覆盖旧计划。
+- **A115-06**：通过。D1 新链 **19 tests OK**；iter105-114、资产/RenderPlan/C1-C3、四导出、season export 与 legacy episode-1 video 聚焦回归 **265 tests OK**。correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角在 findings 修复后均无遗留 P0/P1/P2。
+- **Canonical acceptance**：只运行一次 `bash scripts/verify.sh`，在 implementation commit `0526bd797e5d8713062aa180930f7b17f0b889ff` 上 exit 0；**2338 tests OK**，15 steps / 188 秒，run `067c3dca6e5a411889235f4e0ffb7dc2`，tree `af76834e9cdf36837d48cb5ce0f5f59958c5c777`，`tracked_scope_clean=true`，`canonical-mock-offline`，mock preflight **0 FATAL / 0 WARN**。
+- **审查与未修风险**：历史 candidate provenance 错绑当前 C1 root、candidate/path 自证、previous-tail lineage、reference uniqueness、幂等 target race 与覆盖缺口均已修复。无未处理 P0/P1/P2；保留范围风险是尚无视频 provider capability/attempt/candidate/selection、网络执行、整集 coverage、power-loss 证明与真实质量证据。
+- **实现提交**：`0526bd797e5d8713062aa180930f7b17f0b889ff`（`feat(drama): add provider-neutral shot video plans (iter115)`）。
 
 ### Knowledge Promotion
 - `decision`: `none`

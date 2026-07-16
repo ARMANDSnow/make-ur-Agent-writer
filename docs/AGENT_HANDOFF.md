@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 114，2026-07-16 收官 |
+| 更新时间 | iter 115，2026-07-16 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2319 tests OK** |
-| Accepted implementation commit | `562bf7f3f45b26135157793eb90fe3d6531c1400` |
+| Canonical 基线 | **2338 tests OK** |
+| Accepted implementation commit | `0526bd797e5d8713062aa180930f7b17f0b889ff` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真多模态费用/时延/质量尚未分段实测；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter114 已完成短剧 C3 provider-neutral capability/once-only attempt/durable receipt/crash recovery 的 mock-only 闭环，不代表真实 provider、多参考上传协议、JPEG/WebP、质量比较 UI 或 power-loss exactly-once 已完成 |
+| 当前开发轮次 | 无；iter115 已完成短剧 D1 provider-neutral 逐镜视频计划、冻结首尾帧/previous-tail lineage 与五态本地 store，不代表视频 provider/attempt/candidate/selection、submit/poll/download、整集 coverage 或真实逐镜视频已完成 |
 
 ## Capability Map
 
@@ -22,17 +22,17 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、C1 provider-neutral `EpisodeShotImagePlan`/exact refs、C2 content-addressed strict PNG 候选与 guarded first/tail/previous-tail selection、C3 provider-neutral capability/once-only attempt/durable receipt/C2 exact candidate 补账与进程 crash 零重复调用、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、真实逐镜图片 provider/network adapter与多参考上传协议、质量比较 UI、JPEG/WebP、显式 staging GC、power-loss 证明、TimelineManifest 与声音未做；真文本/全角色真生图/单次真视频需分别授权实测；episode 2+ 视频、真 ComfyUI 与更广 codec 支持未做 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、strict RenderPlan 与五态 stale、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、C1 provider-neutral `EpisodeShotImagePlan`/exact refs、C2 content-addressed strict PNG 候选与 guarded first/tail/previous-tail selection、C3 provider-neutral capability/once-only attempt/durable receipt/C2 exact candidate 补账与进程 crash 零重复调用、D1 provider-neutral `EpisodeShotVideoPlan`/冻结 first/optional tail/previous-tail lineage/五态 local store、单集四导出、严格整季母包/阶段快照、Insights、episode 1 视频 job、多模态可恢复编排；本地 fake-provider 覆盖图片/视频/callback/五站授权整链 | 通用视觉 override CAS、资产 Web/跨集 used-by、ArtDirection 多 scope、真实逐镜图片 provider/network adapter与多参考上传协议、质量比较 UI、JPEG/WebP、显式 staging GC、power-loss 证明、逐镜视频 provider capability/attempt/candidate/selection/网络执行/整集 coverage、TimelineManifest 与声音未做；真文本/全角色真生图/单次真视频需分别授权实测；episode 2+ 成片、真 ComfyUI 与更广 codec 支持未做 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
 
-- iter114 在 C1/C2 上建立纯本地 C3：capability 与 provider/request identity 冻结、adapter 前 durable `started`、strict PNG receipt、C2 exact candidate 补账和 `succeeded` 锁内复核；只有明确 not-sent 才释放机会。
-- deterministic fake adapter 与真实子进程 crash seams 证明每 attempt 最多调用一次；started/timeout/error/结果丢失不自动重调，artifact/candidate 已落盘时可零 adapter 收尾。C2 selection race 绑定锁内最新 manifest，source/provider/capability 漂移保留证据并停止。
-- ledger/staging 使用 bounded strict JSON/PNG、workspace lock、target CAS、dirfd/nofollow、atomic replace 与 temp inode ownership；partial write、special files、target/temp race、receipt/candidate tamper 和 exception-context 脱敏均有直接测试。成功 staging 暂保留，避免不安全自动清理。
-- canonical **2319 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `562bf7f3f45b26135157793eb90fe3d6531c1400` 上 exit 0，15 steps / 164 秒，run `9233ee3898044ca58b019e91754db46c`，tree `bf99ecfb59a8b7c57b882fdfd64e7b0e45a6d59d`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
+- iter115 建立纯本地 D1：只从同集 fresh RenderPlan、fresh C1 与 coverage ready 的 fresh C2 构建 `EpisodeShotVideoPlan`，逐镜冻结目标时长、受控视觉输入、exact first、显式 optional tail、ordered C1 refs 与 selection/source lineage，不绑定 provider/model/capability。
+- direct first/tail 重验 exact current candidate；`previous_tail` 同时绑定上一镜 exact tail candidate、request、artifact 与 tail revision。C2 reconcile 合法保留的历史 candidate provenance 不被误判为失效，单镜 C1 变化不迫使全片重生图；追加未选 candidate 不 stale D1。
+- D1 store 提供 `needs_shot_video_plan | fresh | stale | invalid | blocked_source`，使用 bounded strict JSON、workspace lock、source/target CAS、nofollow/nonblock/regular-file、dirfd atomic replace、precommit source reread与temp inode ownership；坏/缺 artifact、broken lineage、partial write 和 target/source race 均 fail closed。
+- canonical **2338 tests OK**（项目 `.venv`）；authoritative `verify.sh` 在 implementation commit `0526bd797e5d8713062aa180930f7b17f0b889ff` 上 exit 0，15 steps / 188 秒，run `067c3dca6e5a411889235f4e0ffb7dc2`，tree `af76834e9cdf36837d48cb5ce0f5f59958c5c777`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。
 - mandatory local-drama component evidence 为 `local-e2e`、`provider_validated=false`；标准验收仍是 `mock-functional` / `canonical-mock-offline`，未运行真文本、真图片、真视频、真 ComfyUI 或任何真 provider。
-- correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角的 candidate identity、source ABA、final-lock race、partial write/temp ownership、exception context 脱敏与恢复 findings 均已修复；最终无遗留 P0/P1/P2。
+- correctness/behavior、security/boundary、media/storage/recovery 三个独立只读视角发现的历史 provenance、candidate/path 自证、previous-tail lineage、reference uniqueness、幂等 target race 与覆盖缺口均已修复；最终无遗留 P0/P1/P2。
 
 ## Retained Working Memory
 
@@ -95,6 +95,7 @@
 - SceneAsset 场景绑定只接受调用方显式完整的稳定 shot ID 映射；没有 typed 创作 source 时宁可 blocked，不从分镜文本、prompt、位置或目录最新文件猜场景。manifest 是本地绑定记录，不是签名 provenance。
 - episode frozen cast 不是逐镜角色真源；图片输入必须为每个 stable shot 提交完整显式角色 mapping。`assembled` 只代表离线规格/引用装配，metadata-only 资产不得伪造 image ref，也不得藉此宣称 provider-ready。
 - C3 的 `ShotImageProviderCapability` 与注入 adapter 是本地执行契约，不是动态 provider registry。C1 仍是唯一 reference 裁剪层；C3 不二次裁剪。`RequestNotSentError`、provider fingerprint 与 adapter 行为依赖未来实现方可信接线，本轮 fake 证据不能外推真实 provider。
+- D1 的 `EpisodeShotVideoPlan` 是 provider-neutral 输入契约：从 fresh RenderPlan/C1/C2 冻结逐镜时长、exact selected first/optional tail、ordered refs 与 previous-tail lineage。它不代表已建立视频 provider capability、attempt/candidate/selection 或 submit/poll/download；旧 episode 1 高光 job 也不是 D1 真源。
 - 下一集只能从最新连续、完整且 fresh 的前集初始化；`episode_count` 是计划真源。季包只从 assembled JSON 和安全投影重建，不能把 setup、候选钩子、评审原文、prompt、日志或 provider state 混入交付物。
 - 真实媒体下载必须同时校验 scheme、redirect、DNS 与 peer IP、MIME/magic、size、hash、容器和原子落盘。仅检查扩展名或响应头不构成安全边界。
 - Iter 092 的多模态 state machine 支持 fresh/resume、独立授权、预算/deadline 与生图重试；Iter 094 补齐校准证据；Iter 097-101 继续收口旧旁路、provider 身份、文本 revision/review 血统、五站/媒体 crash window、跨进程 callback、旧 workspace 接管、多集角色和 submitted 纯轮询恢复。
@@ -214,7 +215,7 @@
 1. **短剧真实多模态校准**：分别验证五站真文本、全角色真生图、单次真视频的费用、耗时和质量。每段都需单独授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体**：角色/ArtDirection/SceneAsset/PropOrClueAsset 不可变版本与 C1-C3 本地逐镜图片规格、候选/选择、capability/attempt/receipt/crash recovery 已闭环；通用 visual override、资产 Web/跨集 used-by、ArtDirection 多 scope、真实 provider/network adapter与多参考上传、质量比较 UI、JPEG/WebP decoder、staging GC、power-loss 证明、TimelineManifest、BGM/声音、真 ComfyUI、episode 2+ 视频与真实多模态质量仍未验证。
+4. **短剧媒体**：角色/ArtDirection/SceneAsset/PropOrClueAsset 不可变版本、C1-C3 本地逐镜图片闭环与 D1 provider-neutral 逐镜视频输入计划已完成；通用 visual override、资产 Web/跨集 used-by、ArtDirection 多 scope、真实图片 provider/network adapter与多参考上传、质量比较 UI、JPEG/WebP decoder、staging GC、power-loss 证明，以及视频 provider capability/attempt/candidate/selection/网络执行/整集 coverage、TimelineManifest、BGM/声音、真 ComfyUI、episode 2+ 成片与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 7. **严格本地对手 TOCTOU**：项目锁可阻止本项目 Web/runner 并发，workspace lock/holder、state/PNG 和新增 ArtDirection store 已使用 nofollow dirfd；若威胁模型包含不遵守 flock 的本机其他进程在最终检查后竞态替换目标或父目录，仍需更强的统一 dirfd/事务协议。
@@ -222,7 +223,7 @@
 ## Next Candidates
 
 - 低风险工程轮：可靠有界 JPEG/WebP decoder、provider 幂等键/资产上传恢复调研、100 集只读扫描优化或已登记 P2 技债。
-- 低风险短剧阶段轮：可继续 A2 visual override/dependency stale 矩阵、B1 资产 Web/跨集 used-by，或为 C3 补显式 staging GC/受审查的真实 adapter 设计；真实 provider 接线与真生图仍是独立高风险边界，不因 mock-only C3 完成而自动获授权。
+- 低风险短剧阶段轮：可继续 D2 provider-neutral 视频 capability/once-only attempt/candidate/selection 设计，或转 A2 visual override/dependency stale 矩阵、B1 资产 Web/跨集 used-by、C3 staging GC；任何真实 provider 接线与真媒体请求仍是独立高风险边界，不因 D1 完成而自动获授权。
 - 需授权验证轮：五站真文本 smoke；全角色真生图 smoke；episode 1 单次真视频 smoke；小说 capstone。不要把这些授权合并推定。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -261,4 +262,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter 114 在不接网络、不运行真生图的前提下，为 C1 exact request 与 C2 candidate 增加 provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 零调用补账和真实子进程 crash/restart 接缝。implementation commit `562bf7f` 上 canonical 2319 tests OK，15 steps / 164 秒，run `9233ee3898044ca58b019e91754db46c`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。三视角二次复审无遗留 P0/P1/P2。当前证据只覆盖 process crash；多级父目录未逐级证明 power-loss durability，成功 staging 保留也需要后续显式 GC。
+iter 115 在不接网络、不修改旧 episode 1 视频链的前提下，从 fresh RenderPlan/C1/C2 确定性生成 provider-neutral `EpisodeShotVideoPlan`，冻结逐镜目标时长、受控视觉输入、exact first/optional tail、ordered references 与 previous-tail lineage，并用五态 strict store 管理 freshness。implementation commit `0526bd7` 上 canonical 2338 tests OK，15 steps / 188 秒，run `067c3dca6e5a411889235f4e0ffb7dc2`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，组件 `local-e2e`、`provider_validated=false`，未运行真 provider。三视角复审无遗留 P0/P1/P2。下一步若继续阶段 D，应先做 D2 provider-neutral capability/attempt/candidate/selection，真实视频调用仍需单独授权。
