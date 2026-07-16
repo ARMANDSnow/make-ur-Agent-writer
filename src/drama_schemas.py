@@ -4281,6 +4281,360 @@ class TtsAttemptRecord(BaseModel):
         return self
 
 
+TimelineTrackKind = Literal["dialogue", "narration"]
+
+
+class TimelineVideoClip(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    candidate_id: str = Field(pattern=r"^svc_[0-9a-f]{24}$")
+    artifact_path: str = Field(min_length=1, max_length=240)
+    artifact_sha256: str = Field(pattern=_SHA256_PATTERN)
+    artifact_duration_ms: int = Field(ge=1, le=300_000)
+    start_ms: int = Field(ge=0, le=3_600_000)
+    end_ms: int = Field(ge=1, le=3_600_000)
+
+    @field_validator("artifact_duration_ms", "start_ms", "end_ms", mode="before")
+    @classmethod
+    def _timeline_video_times_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _timeline_video_bounds_are_valid(self) -> "TimelineVideoClip":
+        if self.end_ms <= self.start_ms or self.end_ms - self.start_ms != self.artifact_duration_ms:
+            raise ValueError("timeline video clip must have positive duration")
+        if re.fullmatch(
+            r"outputs/episodes/episode_[0-9]{2}\.shot_videos/shot_[0-9a-f]{24}/svc_[0-9a-f]{24}\.mp4",
+            self.artifact_path,
+        ) is None:
+            raise ValueError("timeline video path is invalid")
+        return self
+
+
+class TimelineAudioClip(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    utterance_id: str = Field(pattern=r"^utt_[0-9a-f]{24}$")
+    segment_id: str = Field(pattern=_SEGMENT_ID_PATTERN)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    kind: TimelineTrackKind
+    artifact_path: str = Field(min_length=1, max_length=240)
+    artifact_sha256: str = Field(pattern=_SHA256_PATTERN)
+    artifact_duration_ms: int = Field(ge=1, le=30_000)
+    start_ms: int = Field(ge=0, le=3_600_000)
+    end_ms: int = Field(ge=1, le=3_600_000)
+
+    @field_validator("artifact_duration_ms", "start_ms", "end_ms", mode="before")
+    @classmethod
+    def _timeline_audio_times_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _timeline_audio_bounds_are_valid(self) -> "TimelineAudioClip":
+        if self.end_ms <= self.start_ms or self.end_ms - self.start_ms != self.artifact_duration_ms:
+            raise ValueError("timeline audio clip must have positive duration")
+        if re.fullmatch(
+            r"outputs/drama/audio/episode_[0-9]{3}/utt_[0-9a-f]{24}\.wav",
+            self.artifact_path,
+        ) is None:
+            raise ValueError("timeline audio path is invalid")
+        return self
+
+
+class TimelineOptionalAudioClip(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    clip_id: str = Field(pattern=r"^opt_[0-9a-f]{24}$")
+    kind: Literal["bgm", "sfx"]
+    artifact_path: str = Field(min_length=1, max_length=240)
+    artifact_sha256: str = Field(pattern=_SHA256_PATTERN)
+    artifact_size_bytes: int = Field(ge=45, le=10_000_000)
+    artifact_duration_ms: int = Field(ge=1, le=300_000)
+    sample_rate: int = Field(ge=8000, le=192000)
+    start_ms: int = Field(ge=0, le=3_600_000)
+    end_ms: int = Field(ge=1, le=3_600_000)
+    loop: bool = False
+    clip_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "artifact_size_bytes", "artifact_duration_ms", "sample_rate",
+        "start_ms", "end_ms", mode="before",
+    )
+    @classmethod
+    def _optional_audio_times_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("loop", mode="before")
+    @classmethod
+    def _optional_audio_loop_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("optional audio loop must be bool")
+        return value
+
+    @model_validator(mode="after")
+    def _optional_audio_is_content_addressed(self) -> "TimelineOptionalAudioClip":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("optional audio clip must have positive duration")
+        if not self.loop and self.end_ms - self.start_ms > self.artifact_duration_ms:
+            raise ValueError("non-looping optional audio exceeds source duration")
+        if re.fullmatch(
+            r"outputs/drama/optional_audio/[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.wav",
+            self.artifact_path,
+        ) is None:
+            raise ValueError("optional audio path is invalid")
+        payload = self.model_dump(exclude={"clip_id", "clip_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.clip_fingerprint != fingerprint or self.clip_id != f"opt_{fingerprint[:24]}":
+            raise ValueError("optional audio fingerprint is invalid")
+        return self
+
+
+class TimelineSilenceClip(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    start_ms: int = Field(ge=0, le=3_600_000)
+    end_ms: int = Field(ge=1, le=3_600_000)
+
+    @field_validator("start_ms", "end_ms", mode="before")
+    @classmethod
+    def _timeline_silence_times_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _timeline_silence_bounds_are_valid(self) -> "TimelineSilenceClip":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("timeline silence must have positive duration")
+        return self
+
+
+class SubtitleCue(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    cue_id: str = Field(pattern=r"^cue_[0-9a-f]{24}$")
+    utterance_id: str = Field(pattern=r"^utt_[0-9a-f]{24}$")
+    source_text_sha256: str = Field(pattern=_SHA256_PATTERN)
+    text: str = Field(min_length=1, max_length=120)
+    revision: int = Field(ge=0, le=2_147_483_647)
+    start_ms: int = Field(ge=0, le=3_600_000)
+    end_ms: int = Field(ge=1, le=3_600_000)
+    cue_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _subtitle_text_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or value != value.strip()
+            or not value
+            or any(ord(char) < 32 and char not in {"\n"} for char in value)
+            or "\r" in value
+            or "\n" in value
+            or "-->" in value
+        ):
+            raise ValueError("subtitle text is invalid")
+        return value
+
+    @field_validator("revision", "start_ms", "end_ms", mode="before")
+    @classmethod
+    def _subtitle_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _subtitle_cue_is_content_addressed(self) -> "SubtitleCue":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("subtitle cue must have positive duration")
+        payload = self.model_dump(exclude={"cue_id", "cue_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.cue_fingerprint != fingerprint:
+            raise ValueError("subtitle cue fingerprint is invalid")
+        if self.cue_id != f"cue_{fingerprint[:24]}":
+            raise ValueError("subtitle cue id is invalid")
+        return self
+
+
+class TimelineManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["timeline-manifest-v1"] = "timeline-manifest-v1"
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    d4_report_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    selected_bindings_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    audio_manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    total_duration_ms: int = Field(ge=1, le=3_600_000)
+    video_clips: List[TimelineVideoClip] = Field(min_length=1, max_length=100)
+    audio_clips: List[TimelineAudioClip] = Field(max_length=200)
+    silence_clips: List[TimelineSilenceClip] = Field(max_length=100)
+    optional_audio_clips: List[TimelineOptionalAudioClip] = Field(max_length=100)
+    subtitle_cues: List[SubtitleCue] = Field(max_length=200)
+    bgm_policy: Literal["disabled", "optional"] = "optional"
+    warnings: List[Literal["optional_bgm_missing"]] = Field(max_length=1)
+    timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "total_duration_ms", mode="before")
+    @classmethod
+    def _timeline_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _timeline_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator(
+        "video_clips", "audio_clips", "silence_clips", "optional_audio_clips",
+        "subtitle_cues", "warnings",
+        mode="before",
+    )
+    @classmethod
+    def _timeline_lists_are_strict(cls, value: Any, info: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _timeline_is_consistent(self) -> "TimelineManifest":
+        shot_ids = [item.shot_id for item in self.video_clips]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("timeline video shots must be unique")
+        cursor = 0
+        video_by_shot: Dict[str, TimelineVideoClip] = {}
+        for clip in self.video_clips:
+            if clip.start_ms != cursor:
+                raise ValueError("timeline video clips must be contiguous")
+            cursor = clip.end_ms
+            video_by_shot[clip.shot_id] = clip
+            expected_path = (
+                f"outputs/episodes/episode_{self.episode_no:02d}.shot_videos/"
+                f"{clip.shot_id}/{clip.candidate_id}.mp4"
+            )
+            if clip.artifact_path != expected_path:
+                raise ValueError("timeline video artifact identity is invalid")
+        if cursor != self.total_duration_ms:
+            raise ValueError("timeline duration does not match video coverage")
+        utterance_ids = [item.utterance_id for item in self.audio_clips]
+        if len(utterance_ids) != len(set(utterance_ids)):
+            raise ValueError("timeline utterances must be unique")
+        if [(item.start_ms, item.end_ms) for item in self.audio_clips] != sorted(
+            (item.start_ms, item.end_ms) for item in self.audio_clips
+        ):
+            raise ValueError("timeline audio clips must be chronological")
+        cue_ids = [item.cue_id for item in self.subtitle_cues]
+        if len(cue_ids) != len(set(cue_ids)):
+            raise ValueError("subtitle cue ids must be unique")
+        if [item.utterance_id for item in self.subtitle_cues] != utterance_ids:
+            raise ValueError("subtitle cues must match audio clip order")
+        for audio, cue in zip(self.audio_clips, self.subtitle_cues):
+            expected_audio_path = (
+                f"outputs/drama/audio/episode_{self.episode_no:03d}/"
+                f"{audio.utterance_id}.wav"
+            )
+            if audio.artifact_path != expected_audio_path:
+                raise ValueError("timeline audio artifact identity is invalid")
+            video = video_by_shot.get(audio.shot_id)
+            if (
+                video is None
+                or audio.start_ms < video.start_ms
+                or audio.end_ms > video.end_ms
+            ):
+                raise ValueError("timeline audio crosses its shot bounds")
+            if (
+                cue.start_ms != audio.start_ms
+                or cue.end_ms != audio.end_ms
+                or cue.utterance_id != audio.utterance_id
+            ):
+                raise ValueError("subtitle cue does not match its utterance timing")
+        partitions: Dict[str, List[tuple[int, int]]] = {shot_id: [] for shot_id in shot_ids}
+        for clip in self.audio_clips:
+            partitions.setdefault(clip.shot_id, []).append((clip.start_ms, clip.end_ms))
+        silence_ids = [item.shot_id for item in self.silence_clips]
+        if len(silence_ids) != len(set(silence_ids)):
+            raise ValueError("timeline allows at most one silence tail per shot")
+        for clip in self.silence_clips:
+            if clip.shot_id not in video_by_shot:
+                raise ValueError("timeline silence belongs to an unknown shot")
+            partitions[clip.shot_id].append((clip.start_ms, clip.end_ms))
+        for shot_id, video in video_by_shot.items():
+            ranges = sorted(partitions[shot_id])
+            expected = video.start_ms
+            for start, end in ranges:
+                if start != expected or end <= start or end > video.end_ms:
+                    raise ValueError("timeline audio and silence must partition each shot")
+                expected = end
+            if expected != video.end_ms:
+                raise ValueError("timeline shot audio coverage is incomplete")
+        optional_ids = [item.clip_id for item in self.optional_audio_clips]
+        if len(optional_ids) != len(set(optional_ids)) or any(
+            item.end_ms > self.total_duration_ms for item in self.optional_audio_clips
+        ):
+            raise ValueError("optional audio clips are invalid or out of bounds")
+        optional_order = [
+            (item.start_ms, item.end_ms, item.clip_id)
+            for item in self.optional_audio_clips
+        ]
+        if optional_order != sorted(optional_order):
+            raise ValueError("optional audio clips must be in canonical order")
+        bgm_end = 0
+        for item in (row for row in self.optional_audio_clips if row.kind == "bgm"):
+            if item.start_ms < bgm_end:
+                raise ValueError("BGM clips must not overlap")
+            bgm_end = item.end_ms
+        has_bgm = any(item.kind == "bgm" for item in self.optional_audio_clips)
+        if self.bgm_policy == "disabled" and has_bgm:
+            raise ValueError("BGM is disabled for this timeline")
+        expected_warnings = (
+            ["optional_bgm_missing"]
+            if self.bgm_policy == "optional" and not has_bgm
+            else []
+        )
+        if self.warnings != expected_warnings:
+            raise ValueError("timeline BGM warning is inconsistent")
+        payload = self.model_dump(exclude={"timeline_fingerprint"})
+        if _canonical_sha256(payload) != self.timeline_fingerprint:
+            raise ValueError("timeline fingerprint is invalid")
+        return self
+
+
+class SrtArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    content_sha256: str = Field(pattern=_SHA256_PATTERN)
+    cue_count: int = Field(ge=0, le=200)
+    content: str = Field(max_length=100_000)
+
+    @field_validator("cue_count", mode="before")
+    @classmethod
+    def _srt_count_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("SRT cue count must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _srt_artifact_is_hash_bound(self) -> "SrtArtifact":
+        if hashlib.sha256(self.content.encode("utf-8")).hexdigest() != self.content_sha256:
+            raise ValueError("SRT content hash is invalid")
+        if self.content.count(" --> ") != self.cue_count:
+            raise ValueError("SRT cue count is invalid")
+        return self
+
+
 ShotVideoGenerationMode = Literal["image_to_video", "reference_to_video"]
 ShotVideoAttemptStatus = Literal[
     "started",
