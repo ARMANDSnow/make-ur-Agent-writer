@@ -34,6 +34,12 @@ IMAGE_ATTEMPT_STATUSES = frozenset({
 })
 IMAGE_RECEIPT_STATUSES = frozenset({"artifact_received", "succeeded"})
 
+# Stage-C3 shot-image attempts intentionally reuse the established image
+# vocabulary.  They keep a separate ledger schema, not a second set of status
+# strings whose recovery classification could drift.
+SHOT_IMAGE_ATTEMPT_STATUSES = IMAGE_ATTEMPT_STATUSES
+SHOT_IMAGE_RECEIPT_STATUSES = IMAGE_RECEIPT_STATUSES
+
 VIDEO_LEDGER_STATUSES = frozenset({"submitting", "submitted", "failed", "succeeded"})
 VIDEO_TASK_ID_STATUSES = frozenset({"submitted", "failed", "succeeded"})
 VIDEO_PAID_SUBMISSION_STATUSES = VIDEO_TASK_ID_STATUSES

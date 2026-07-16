@@ -11,6 +11,8 @@ from src import drama_video
 from src.paid_recovery_states import (
     IMAGE_ATTEMPT_STATUSES,
     IMAGE_RECEIPT_STATUSES,
+    SHOT_IMAGE_ATTEMPT_STATUSES,
+    SHOT_IMAGE_RECEIPT_STATUSES,
     TEXT_ATTEMPT_STATUSES,
     TEXT_CANONICAL_RECOVERY_STATUSES,
     TEXT_RECONCILIATION_REQUIRED_STATUSES,
@@ -62,6 +64,8 @@ class PaidRecoveryStateVocabularyTests(unittest.TestCase):
             frozenset({"artifact_received", "succeeded"}),
         )
         self.assertLessEqual(IMAGE_RECEIPT_STATUSES, IMAGE_ATTEMPT_STATUSES)
+        self.assertIs(SHOT_IMAGE_ATTEMPT_STATUSES, IMAGE_ATTEMPT_STATUSES)
+        self.assertIs(SHOT_IMAGE_RECEIPT_STATUSES, IMAGE_RECEIPT_STATUSES)
 
     def test_video_statuses_are_exhaustive_and_classified(self) -> None:
         self.assertEqual(

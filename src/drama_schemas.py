@@ -2649,3 +2649,347 @@ class RenderPlan(BaseModel):
         if _canonical_sha256(payload) != self.plan_fingerprint:
             raise ValueError("render plan fingerprint does not match its payload")
         return self
+
+
+ShotImageAttemptStatus = Literal[
+    "started",
+    "artifact_received",
+    "succeeded",
+    "timeout",
+    "network_error",
+    "provider_error",
+    "local_error",
+]
+ShotImageAttemptInspectionState = Literal[
+    "needs_attempts",
+    "fresh",
+    "reconciliation_required",
+    "stale",
+    "invalid",
+]
+
+
+class ShotImageProviderCapability(BaseModel):
+    """Static, content-addressed capability used to lower one C1 request."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    backend_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    capability_version: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,31}$")
+    supports_reference_images: bool
+    max_reference_images: int = Field(ge=0, le=25)
+    supported_media_types: List[Literal["image/png"]] = Field(
+        min_length=1,
+        max_length=1,
+    )
+    response_mode: Literal["sync_png"] = "sync_png"
+    capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("supports_reference_images", mode="before")
+    @classmethod
+    def _provider_reference_support_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("supports_reference_images must be bool")
+        return value
+
+    @field_validator("max_reference_images", mode="before")
+    @classmethod
+    def _provider_reference_limit_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("max_reference_images must be a strict integer")
+        return value
+
+    @field_validator("supported_media_types", mode="before")
+    @classmethod
+    def _provider_media_types_are_strict(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("supported_media_types must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _provider_capability_is_consistent(self) -> "ShotImageProviderCapability":
+        if self.supports_reference_images != (self.max_reference_images > 0):
+            raise ValueError("provider reference support does not match its limit")
+        if self.supported_media_types != ["image/png"]:
+            raise ValueError("provider media types must be the canonical PNG list")
+        payload = self.model_dump(exclude={"capability_fingerprint"})
+        if _canonical_sha256(payload) != self.capability_fingerprint:
+            raise ValueError("provider capability fingerprint is invalid")
+        return self
+
+
+class ShotImageAttemptSpec(BaseModel):
+    """One provider-neutral, attempt-frozen lowering of a fresh C1 request."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    pre_manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    backend_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    provider_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    capability: ShotImageProviderCapability
+    prompt_sha256: str = Field(pattern=_SHA256_PATTERN)
+    references: List[ShotImageReference] = Field(max_length=25)
+    references_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    output_media_type: Literal["image/png"] = "image/png"
+    input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _attempt_spec_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("season_no must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _attempt_spec_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("references", mode="before")
+    @classmethod
+    def _attempt_references_are_strict(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("attempt references must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _attempt_spec_is_consistent(self) -> "ShotImageAttemptSpec":
+        if self.backend_id != self.capability.backend_id:
+            raise ValueError("attempt backend does not match its capability")
+        if len(self.references) > self.capability.max_reference_images:
+            raise ValueError("attempt references exceed provider capability")
+        if self.references and not self.capability.supports_reference_images:
+            raise ValueError("provider does not support attempt references")
+        if [item.position for item in self.references] != list(
+            range(1, len(self.references) + 1)
+        ):
+            raise ValueError("attempt references must keep C1 order")
+        reference_payload = [item.model_dump() for item in self.references]
+        if _canonical_sha256(reference_payload) != self.references_fingerprint:
+            raise ValueError("attempt references fingerprint is invalid")
+        payload = self.model_dump(exclude={"input_fingerprint"})
+        if _canonical_sha256(payload) != self.input_fingerprint:
+            raise ValueError("shot image attempt input fingerprint is invalid")
+        return self
+
+
+class ShotImageAttemptArtifactReceipt(BaseModel):
+    """Bounded private PNG receipt recorded before candidate publication."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    media_type: Literal["image/png"] = "image/png"
+    staging_path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=1, le=5 * 1024 * 1024)
+    width: int = Field(ge=1, le=8192)
+    height: int = Field(ge=1, le=8192)
+    receipt_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("staging_path", mode="before")
+    @classmethod
+    def _attempt_staging_path_is_strict(cls, value: Any) -> str:
+        if not isinstance(value, str) or "\\" in value:
+            raise ValueError("attempt staging path must be a POSIX relative path")
+        if (
+            value.startswith("/")
+            or value.startswith("./")
+            or "//" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or re.fullmatch(
+                r"logs/drama_shot_images/episode_[0-9]{2,3}/"
+                r"shot_[0-9a-f]{24}/sia_[0-9a-f]{24}\.png",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("attempt staging path must stay in its private root")
+        return value
+
+    @field_validator("size_bytes", "width", "height", mode="before")
+    @classmethod
+    def _attempt_receipt_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _attempt_receipt_is_consistent(self) -> "ShotImageAttemptArtifactReceipt":
+        if self.width * self.height > 40_000_000:
+            raise ValueError("attempt artifact pixel count exceeds its limit")
+        payload = self.model_dump(exclude={"receipt_fingerprint"})
+        if _canonical_sha256(payload) != self.receipt_fingerprint:
+            raise ValueError("attempt artifact receipt fingerprint is invalid")
+        return self
+
+
+class ShotImageAttemptRecord(BaseModel):
+    """Current durable state for one once-only shot image attempt."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    attempt_id: str = Field(pattern=r"^sia_[0-9a-f]{24}$")
+    attempt_no: int = Field(ge=1, le=32)
+    spec: ShotImageAttemptSpec
+    status: ShotImageAttemptStatus
+    staging_path: str = Field(min_length=1, max_length=240)
+    artifact_receipt: Optional[ShotImageAttemptArtifactReceipt] = None
+    candidate_id: Optional[str] = Field(default=None, pattern=r"^sic_[0-9a-f]{24}$")
+    candidate_fingerprint: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+    post_manifest_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("attempt_no", mode="before")
+    @classmethod
+    def _attempt_number_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("attempt_no must be a strict integer")
+        return value
+
+    @field_validator("staging_path", mode="before")
+    @classmethod
+    def _attempt_record_staging_path_is_strict(cls, value: Any) -> str:
+        return ShotImageAttemptArtifactReceipt._attempt_staging_path_is_strict(value)
+
+    @model_validator(mode="after")
+    def _attempt_record_is_consistent(self) -> "ShotImageAttemptRecord":
+        basis = {
+            "input_fingerprint": self.spec.input_fingerprint,
+            "attempt_no": self.attempt_no,
+        }
+        expected_attempt_id = f"sia_{_canonical_sha256(basis)[:24]}"
+        if self.attempt_id != expected_attempt_id:
+            raise ValueError("shot image attempt id is invalid")
+        expected_path = (
+            f"logs/drama_shot_images/episode_{self.spec.episode_no:02d}/"
+            f"{self.spec.shot_id}/{self.attempt_id}.png"
+        )
+        if self.staging_path != expected_path:
+            raise ValueError("shot image attempt staging path is not canonical")
+        receipt_required = self.status in {"artifact_received", "succeeded"}
+        if receipt_required != (self.artifact_receipt is not None):
+            raise ValueError("shot image attempt receipt does not match its status")
+        if self.artifact_receipt is not None and (
+            self.artifact_receipt.staging_path != self.staging_path
+        ):
+            raise ValueError("shot image attempt receipt uses another staging path")
+        candidate_values = (
+            self.candidate_id,
+            self.candidate_fingerprint,
+            self.post_manifest_fingerprint,
+        )
+        if (self.status == "succeeded") != all(item is not None for item in candidate_values):
+            raise ValueError("shot image candidate identity does not match attempt status")
+        if self.status != "succeeded" and any(item is not None for item in candidate_values):
+            raise ValueError("unfinished shot image attempt cannot bind a candidate")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("shot image attempt record fingerprint is invalid")
+        return self
+
+
+class EpisodeShotImageAttemptLedger(BaseModel):
+    """Episode-scoped execution facts; separate from C1 and C2 render truth."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["shot-image-attempts-v1"] = "shot-image-attempts-v1"
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    revision: int = Field(ge=0, le=2_147_483_647)
+    attempts: List[ShotImageAttemptRecord] = Field(max_length=3200)
+    ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "revision", mode="before")
+    @classmethod
+    def _attempt_ledger_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _attempt_ledger_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("attempts", mode="before")
+    @classmethod
+    def _attempt_ledger_list_is_strict(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot image attempts must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _attempt_ledger_is_consistent(self) -> "EpisodeShotImageAttemptLedger":
+        attempt_ids = [item.attempt_id for item in self.attempts]
+        if len(attempt_ids) != len(set(attempt_ids)):
+            raise ValueError("shot image attempt ids must be unique")
+        per_shot: Dict[str, List[int]] = {}
+        for attempt in self.attempts:
+            if (
+                attempt.spec.season_no != self.season_no
+                or attempt.spec.episode_no != self.episode_no
+            ):
+                raise ValueError("shot image attempt belongs to another episode")
+            per_shot.setdefault(attempt.spec.shot_id, []).append(attempt.attempt_no)
+        if any(numbers != list(range(1, len(numbers) + 1)) for numbers in per_shot.values()):
+            raise ValueError("shot image attempt numbers must be contiguous per shot")
+        payload = self.model_dump(exclude={"ledger_fingerprint"})
+        if _canonical_sha256(payload) != self.ledger_fingerprint:
+            raise ValueError("shot image attempt ledger fingerprint is invalid")
+        return self
+
+
+class ShotImageAttemptInspection(BaseModel):
+    """Safe bounded projection of the attempt ledger state."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    state: ShotImageAttemptInspectionState
+    reasons: List[str] = Field(max_length=16)
+    ledger_fingerprint: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+    outstanding_attempt_ids: List[str] = Field(max_length=100)
+
+    @field_validator("reasons", "outstanding_attempt_ids", mode="before")
+    @classmethod
+    def _attempt_inspection_lists_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> List[str]:
+        if not isinstance(value, list) or len(value) != len(set(value)):
+            raise ValueError(f"{info.field_name} must be a unique list")
+        if info.field_name == "reasons":
+            if any(
+                not isinstance(item, str)
+                or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", item) is None
+                for item in value
+            ):
+                raise ValueError("inspection reasons must be bounded codes")
+        elif any(
+            not isinstance(item, str)
+            or re.fullmatch(r"sia_[0-9a-f]{24}", item) is None
+            for item in value
+        ):
+            raise ValueError("outstanding attempt ids are invalid")
+        return value

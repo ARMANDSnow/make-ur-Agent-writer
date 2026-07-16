@@ -31,7 +31,7 @@
 |---|---|
 | “4 站向导”与当前“五站 job”口径不同 | 前四站仍是用户创作向导；把 review + Approve assembly 明确记为站⑤ |
 | v1 到手工外部工具结束 | 追加 `RenderPlan → 资产 → 逐镜媒体 → TimelineManifest → 合成/QA → 工作台/归档 → provider 校准` 的完整生产 SOP |
-| 旧文把角色预览图与资产选择写在同一站 | 区分“站④角色卡/季角色库”与“阶段 B-C 不可变资产版本/逐镜图片候选”；角色与 ArtDirection 版本已部分完成，逐镜图片仍未完成 |
+| 旧文把角色预览图与资产选择写在同一站 | 区分“站④角色卡/季角色库”与“阶段 B-C 不可变资产版本/逐镜图片”；角色/ArtDirection/Scene/Prop-Clue 版本及 C1-C3 逐镜图片本地契约已部分完成，真实 provider 与质量工作流仍未完成 |
 | 旧文缺少实时落地状态 | 每个阶段明确标注 ✅ 已实现、🟨 部分实现、⏳ 待实现或 🔒 待逐次授权验证 |
 
 ---
@@ -635,7 +635,7 @@ drama workspace
 |---|---|---|---|---|
 | A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；零网络 | 🟨 **A1 已实现**；A2 已冻结角色、当前 selected ArtDirection、场景与道具/线索 refs，并把 ArtDirection/RenderPlan/资产选择变化传播到对应单集 manifest；通用 visual override 与 BGM/首尾帧/逐镜媒体/时间线矩阵待完成 |
 | B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本、显式 selected 和 CAS；场景及道具/线索已有 episode used-by；跨集 used-by、Web 管理、ArtDirection 多 scope 与删除策略未完成 |
-| C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | ⏳ 已有全角色图片入口和 fake-provider 恢复证据；真图片当前仅严格 PNG，逐镜候选、first/tail binding、整集覆盖率及可靠 JPEG/WebP decoder 未实现 |
+| C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | 🟨 **C1-C3 纯本地契约已实现**：C1 冻结 request/exact refs，C2 提供 content-addressed strict PNG 候选、guarded first/tail/previous-tail 与 coverage/repair，C3 提供 provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与 process-crash 零重复调用。C3 仅使用代码内注入 fake adapter；真实 provider/network 与多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 和 power-loss 证明未实现 |
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | ⏳ 当前仅 episode 1 高光视频兼容 job；episode 2+、逐镜候选和整集 coverage 未实现 |
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ⏳ 只有 RenderPlan spoken 投影；TTS、voice、音频 manifest、字幕、BGM/SFX 与 `TimelineManifest` 未实现 |
 | F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | ⏳ **首个本地完整成片里程碑尚未完成**；现有 episode 1 高光视频不能冒充整集 MP4，更广 codec/container 也未实现 |
