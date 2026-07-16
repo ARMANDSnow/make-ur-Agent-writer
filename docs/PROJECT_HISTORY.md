@@ -44,6 +44,7 @@
 | 116 | 短剧逐镜视频候选选择与整集覆盖 | content-addressed strict MP4、guarded selection、retired audit、精确 stale/repair 与 production coverage |
 | 117 | 短剧逐镜视频能力与可恢复尝试 | provider-neutral capability、exact once authorization、adapter identity、durable receipts、D2 补账与 process-crash 零重复 submit |
 | 118 | 短剧完整 SOP 真人用户验证 | Web 桌面/移动端主链 E2E、真文本/角色图局部校准、付费产物保护与 strict PNG 边界 |
+| 119 | 短剧逐镜视频连续性与合成门禁 | selected snapshot、artifact-aware workspace gate、global stale 与 degraded preview 边界 |
 
 ## Iteration Implementation Index
 
@@ -143,6 +144,7 @@
 | 116 | 建立逐镜视频候选、显式选择与整集覆盖门禁 | `src/drama_schemas.py`、`src/drama_shot_video_candidates.py`、`src/drama_shot_video_candidate_store.py`、`tests/test_drama_shot_video_candidate*.py` |
 | 117 | 建立逐镜视频 capability、once-only attempt、receipt 与 crash recovery | `src/drama_schemas.py`、`src/drama_shot_video_attempts.py`、`src/drama_shot_video_attempt_store.py`、`tests/test_drama_shot_video_attempt*.py` |
 | 118 | 验证并修复短剧现有完整真人用户 SOP | `src/web/`、`src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`tests/test_drama_*.py` |
+| 119 | 建立逐镜视频连续性与 production compose gate | `src/drama_schemas.py`、`src/drama_shot_video_continuity.py`、`tests/test_drama_shot_video_continuity.py` |
 
 ## Durable Decisions
 

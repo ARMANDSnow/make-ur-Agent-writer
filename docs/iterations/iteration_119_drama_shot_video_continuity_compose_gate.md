@@ -37,7 +37,11 @@ iter118 收官基线为 2393 tests OK；D1-D3 已完成逐镜视频计划、候�
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- **A119-01 PASS**：相同 D1/D2 facts 生成 byte-stable report；workspace-aware gate 在 flock 内重验 selected MP4 后返回 production ready。
+- **A119-02 PASS**：missing、global/per-shot stale、invalid artifact 与 blocked source 均阻断；placeholder 仅为 `degraded_preview`。
+- **A119-03 PASS**：previous-tail exact lineage 由 D1 schema 与 D4 重验双层约束；角色/场景 exact version 和推拉反转只产生确定性 warning。
+- **A119-04 PASS**：report 只绑定有序 selected snapshot，selection CAS 变化会 stale，未选候选追加不误伤；episode 2 report identity 无 episode 1 字面量。
+- **A119-05 PASS**：31 项聚焦回归、py_compile、harness 与 diff check 通过；correctness、security/boundary、media-continuity 三路最终无遗留 P0/P1/P2。implementation commit `dd0c89aea68e7283c2347d451d287ec676837b01` 上唯一 canonical run `ee4b1b4a1fa2495a879ecd151760155c` 为 2404 tests / 15 steps / 235 秒、exit 0、tree `561c5544a53d584e06e609b4910a4c251a97c665`、`tracked_scope_clean=true`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，local-drama 组件 `local-e2e`，`provider_validated=false`。
 
 ### Knowledge Promotion
 - `decision`: `none`
