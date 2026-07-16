@@ -46,6 +46,7 @@
 | 118 | 短剧完整 SOP 真人用户验证 | Web 桌面/移动端主链 E2E、真文本/角色图局部校准、付费产物保护与 strict PNG 边界 |
 | 119 | 短剧逐镜视频连续性与合成门禁 | selected snapshot、artifact-aware workspace gate、global stale 与 degraded preview 边界 |
 | 120 | 短剧 Voice Profile 与逐句音频计划 | 显式 voice assignment、完整 AudioManifest、局部 stale 与 canonical mock WAV |
+| 121 | 短剧可恢复 TTS Attempt | 逐句一次授权、POST/GET 分离、durable receipt 与 os._exit 恢复矩阵 |
 
 ## Iteration Implementation Index
 
@@ -147,6 +148,7 @@
 | 118 | 验证并修复短剧现有完整真人用户 SOP | `src/web/`、`src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`tests/test_drama_*.py` |
 | 119 | 建立逐镜视频连续性与 production compose gate | `src/drama_schemas.py`、`src/drama_shot_video_continuity.py`、`tests/test_drama_shot_video_continuity.py` |
 | 120 | 建立 Voice Profile、显式 assignment 与逐句音频计划 | `src/drama_schemas.py`、`src/drama_audio.py`、`tests/test_drama_audio.py` |
+| 121 | 建立 provider-neutral once-only TTS attempt 与恢复 store | `src/drama_schemas.py`、`src/drama_tts_attempts.py`、`src/drama_tts_attempt_store.py`、`tests/test_drama_tts_attempt*.py` |
 
 ## Durable Decisions
 

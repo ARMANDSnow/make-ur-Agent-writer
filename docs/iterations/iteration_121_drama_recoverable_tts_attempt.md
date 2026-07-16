@@ -40,7 +40,11 @@ iter120 已完成显式 Voice Profile/Assignment、逐句 UtteranceSpec 与完�
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- **A121-01 PASS**：TTS capability、authorization、spec、submission/artifact receipt 与 attempt record 均 strict/versioned/content-addressed；授权精确绑定一个 E1 utterance、provider/model/capability 与最多一次 POST。
+- **A121-02 PASS**：started/not_sent/submission_unknown/submitted/artifact_received/succeeded/provider_failed 均有可达、受守卫的持久迁移；identity drift 与 response loss 永久阻断再次合成，只有可信 not-sent 释放。
+- **A121-03 PASS**：durable provider ID 后仅 GET；下载失败只重下，receipt-before-write 允许 exact artifact 零 GET 收尾；两句回归证明单 voice 重配不重跑无关 utterance。
+- **A121-04 PASS**：fake adapter 与 5 个新解释器 `os._exit` 窗口通过，POST/GET 计数符合恢复语义；全程 mock/offline，文本与图片模型均被 capability gate 拒绝。
+- **A121-05 PASS**：41 项聚焦回归、py_compile、harness 与 diff check 通过；correctness、security/boundary、paid-recovery/audio 三路最终无遗留 P0/P1/P2。implementation commit `aca76870248f91817f761ab1123206d21b4d746f` 上唯一 canonical run `841f8685ed5b43889fcd4b8d3e6e14ee` 为 2452 tests / 15 steps / 238 秒、exit 0、tree `9ecd6f072acce2654b83e86643e7f3cddf205a55`、`tracked_scope_clean=true`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，local-drama 组件 `local-e2e`，`provider_validated=false`。
 
 ### Knowledge Promotion
 - `decision`: `none`
