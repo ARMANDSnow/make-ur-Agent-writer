@@ -40,7 +40,11 @@ iter119 已完成 D4 artifact-aware production compose gate，canonical 基线�
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- **A120-01 PASS**：VoiceProfile、VoiceAssignment、UtteranceSpec 与 AudioManifest 均为 strict/versioned/content-addressed；重复投影 byte-stable。
+- **A120-02 PASS**：manifest 完整保存 source segment 顺序与 frozen cast；dialogue 只由显式 assignment 解析，narration 只接受独立 narrator profile。
+- **A120-03 PASS**：缺 assignment/profile 明确 blocked；未知/重复 segment fail closed，持久 validator 重验 episode、sequence、scope、speaker 与 profile 交叉绑定，不猜 speaker、不借声。
+- **A120-04 PASS**：profile/单句变更只改变实际依赖它的 utterance；canonical PCM16 mono WAV fixture 具备路径/SHA/数值与资源边界，全程零网络。
+- **A120-05 PASS**：14 项聚焦回归、py_compile、harness 与 diff check 通过；correctness、security/boundary、audio-schema/privacy 三路最终无遗留 P0/P1/P2。implementation commit `d52d161b8a2dbe5504dfab4aab53b52d51450d06` 上唯一 canonical run `d9d6118ae586499b9e3fb7c181858faa` 为 2411 tests / 15 steps / 239 秒、exit 0、tree `8040fe26b4f4d0eb605251eae74bc5770433618a`、`tracked_scope_clean=true`，mock preflight 0 WARN/FATAL；总级别 `mock-functional`，local-drama 组件 `local-e2e`，`provider_validated=false`。
 
 ### Knowledge Promotion
 - `decision`: `none`

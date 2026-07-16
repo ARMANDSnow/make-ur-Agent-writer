@@ -45,6 +45,7 @@
 | 117 | 短剧逐镜视频能力与可恢复尝试 | provider-neutral capability、exact once authorization、adapter identity、durable receipts、D2 补账与 process-crash 零重复 submit |
 | 118 | 短剧完整 SOP 真人用户验证 | Web 桌面/移动端主链 E2E、真文本/角色图局部校准、付费产物保护与 strict PNG 边界 |
 | 119 | 短剧逐镜视频连续性与合成门禁 | selected snapshot、artifact-aware workspace gate、global stale 与 degraded preview 边界 |
+| 120 | 短剧 Voice Profile 与逐句音频计划 | 显式 voice assignment、完整 AudioManifest、局部 stale 与 canonical mock WAV |
 
 ## Iteration Implementation Index
 
@@ -145,6 +146,7 @@
 | 117 | 建立逐镜视频 capability、once-only attempt、receipt 与 crash recovery | `src/drama_schemas.py`、`src/drama_shot_video_attempts.py`、`src/drama_shot_video_attempt_store.py`、`tests/test_drama_shot_video_attempt*.py` |
 | 118 | 验证并修复短剧现有完整真人用户 SOP | `src/web/`、`src/ai_draw_client.py`、`src/drama_multimodal_smoke.py`、`tests/test_drama_*.py` |
 | 119 | 建立逐镜视频连续性与 production compose gate | `src/drama_schemas.py`、`src/drama_shot_video_continuity.py`、`tests/test_drama_shot_video_continuity.py` |
+| 120 | 建立 Voice Profile、显式 assignment 与逐句音频计划 | `src/drama_schemas.py`、`src/drama_audio.py`、`tests/test_drama_audio.py` |
 
 ## Durable Decisions
 
