@@ -138,3 +138,4 @@
 123. [Iteration 114 - 短剧逐镜图片 Provider 能力与可恢复生成尝试](./iteration_114_drama_shot_image_provider_capability_attempt_recovery.md)
 124. [Iteration 115 - 短剧逐镜视频计划与冻结首尾帧契约](./iteration_115_drama_shot_video_plan_frozen_frames.md)
 125. [Iteration 116 - 短剧逐镜视频候选选择与整集覆盖门禁](./iteration_116_drama_shot_video_candidates_selection_coverage.md)
+126. [Iteration 117 - 短剧逐镜视频 Provider 能力与 Once-only Attempt 恢复](./iteration_117_drama_shot_video_provider_capability_attempt_recovery.md)

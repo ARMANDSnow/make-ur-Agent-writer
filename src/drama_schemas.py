@@ -3622,3 +3622,645 @@ class ShotVideoCoverageReport(BaseModel):
         if _canonical_sha256(payload) != self.coverage_fingerprint:
             raise ValueError("shot video coverage fingerprint is invalid")
         return self
+
+
+ShotVideoGenerationMode = Literal["image_to_video", "reference_to_video"]
+ShotVideoAttemptStatus = Literal[
+    "started",
+    "not_sent",
+    "submission_unknown",
+    "submitted",
+    "provider_succeeded",
+    "provider_failed",
+    "artifact_received",
+    "succeeded",
+    "closed_unknown",
+]
+ShotVideoAttemptOutcome = Literal["not_sent", "unknown", "submitted", "terminal"]
+ShotVideoAttemptInspectionState = Literal[
+    "needs_attempts",
+    "fresh",
+    "reconciliation_required",
+    "stale",
+    "invalid",
+]
+
+
+class ShotVideoResolution(BaseModel):
+    """One exact output profile accepted by a D3 backend capability."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    width: int = Field(ge=1, le=8192)
+    height: int = Field(ge=1, le=8192)
+
+    @field_validator("width", "height", mode="before")
+    @classmethod
+    def _resolution_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _resolution_is_bounded(self) -> "ShotVideoResolution":
+        if self.width * self.height > 40_000_000:
+            raise ValueError("shot video resolution exceeds its pixel limit")
+        return self
+
+
+class ShotVideoProviderCapability(BaseModel):
+    """Static provider-neutral capabilities frozen into every D3 attempt."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    backend_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    capability_version: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,31}$")
+    supported_modes: List[ShotVideoGenerationMode] = Field(min_length=1, max_length=2)
+    supports_async_submission: Literal[True] = True
+    supports_poll_resume: Literal[True] = True
+    supports_tail_frame: bool
+    max_reference_images: int = Field(ge=0, le=25)
+    supported_durations_seconds: List[int] = Field(min_length=1, max_length=30)
+    supported_resolutions: List[ShotVideoResolution] = Field(min_length=1, max_length=16)
+    output_media_type: Literal["video/mp4"] = "video/mp4"
+    capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("supports_tail_frame", mode="before")
+    @classmethod
+    def _tail_support_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("supports_tail_frame must be bool")
+        return value
+
+    @field_validator("max_reference_images", mode="before")
+    @classmethod
+    def _reference_limit_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("max_reference_images must be a strict integer")
+        return value
+
+    @field_validator(
+        "supported_modes",
+        "supported_durations_seconds",
+        "supported_resolutions",
+        mode="before",
+    )
+    @classmethod
+    def _capability_lists_are_strict(cls, value: Any, info: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _capability_is_canonical(self) -> "ShotVideoProviderCapability":
+        mode_order = ["image_to_video", "reference_to_video"]
+        if self.supported_modes != [
+            item for item in mode_order if item in self.supported_modes
+        ] or len(self.supported_modes) != len(set(self.supported_modes)):
+            raise ValueError("shot video modes must use canonical unique order")
+        if any(
+            not isinstance(item, int) or isinstance(item, bool) or not 1 <= item <= 30
+            for item in self.supported_durations_seconds
+        ) or self.supported_durations_seconds != sorted(set(self.supported_durations_seconds)):
+            raise ValueError("shot video durations must be sorted unique strict integers")
+        profiles = [(item.width, item.height) for item in self.supported_resolutions]
+        if profiles != sorted(set(profiles)):
+            raise ValueError("shot video resolutions must be sorted and unique")
+        payload = self.model_dump(exclude={"capability_fingerprint"})
+        if _canonical_sha256(payload) != self.capability_fingerprint:
+            raise ValueError("shot video capability fingerprint is invalid")
+        return self
+
+
+class ShotVideoSubmissionGate(BaseModel):
+    """Last-hop authorization snapshot; values are bounded and secret-free."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    backend_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    authorization_id: str = Field(pattern=r"^svauth_[0-9a-f]{24}$")
+    authorized_episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    authorized_shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    authorized_request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    model_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    account_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    endpoint_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    auth_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    authorization_scope: Literal["shot_video_once"] = "shot_video_once"
+    confirmed: Literal[True] = True
+    currency: Literal["CNY"] = "CNY"
+    estimated_cost_microunits: int = Field(ge=0, le=1_000_000_000_000)
+    authorized_budget_microunits: int = Field(ge=0, le=1_000_000_000_000)
+    max_submit_calls: Literal[1] = 1
+    authorization_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "authorized_episode_no",
+        "estimated_cost_microunits",
+        "authorized_budget_microunits",
+        "max_submit_calls",
+        mode="before",
+    )
+    @classmethod
+    def _gate_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _gate_is_authorized(self) -> "ShotVideoSubmissionGate":
+        if self.estimated_cost_microunits > self.authorized_budget_microunits:
+            raise ValueError("shot video estimate exceeds its authorized budget")
+        payload = self.model_dump(exclude={"authorization_fingerprint"})
+        if _canonical_sha256(payload) != self.authorization_fingerprint:
+            raise ValueError("shot video authorization fingerprint is invalid")
+        return self
+
+
+class ShotVideoAttemptSpec(BaseModel):
+    """One exact D1 request lowered under a D2 and provider authorization snapshot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    request_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    pre_manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    mode: ShotVideoGenerationMode
+    target_duration_seconds: int = Field(ge=1, le=30)
+    output_width: int = Field(ge=1, le=8192)
+    output_height: int = Field(ge=1, le=8192)
+    prompt_sha256: str = Field(pattern=_SHA256_PATTERN)
+    first_frame: ShotVideoFrameRef
+    tail_frame: Optional[ShotVideoFrameRef] = None
+    ordered_references: List[ShotImageReference] = Field(max_length=25)
+    references_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    capability: ShotVideoProviderCapability
+    submission_gate: ShotVideoSubmissionGate
+    output_media_type: Literal["video/mp4"] = "video/mp4"
+    input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "season_no",
+        "target_duration_seconds",
+        "output_width",
+        "output_height",
+        mode="before",
+    )
+    @classmethod
+    def _attempt_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _attempt_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("ordered_references", mode="before")
+    @classmethod
+    def _attempt_references_are_strict(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot video attempt references must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _attempt_is_compatible(self) -> "ShotVideoAttemptSpec":
+        if self.capability.backend_id != self.submission_gate.backend_id:
+            raise ValueError("shot video gate and capability backend differ")
+        if (
+            self.episode_no != self.submission_gate.authorized_episode_no
+            or self.shot_id != self.submission_gate.authorized_shot_id
+            or self.request_fingerprint
+            != self.submission_gate.authorized_request_fingerprint
+        ):
+            raise ValueError("shot video gate does not authorize this exact request")
+        if self.mode not in self.capability.supported_modes:
+            raise ValueError("shot video mode is unsupported")
+        if self.target_duration_seconds not in self.capability.supported_durations_seconds:
+            raise ValueError("shot video duration is unsupported")
+        if (self.output_width, self.output_height) not in {
+            (item.width, item.height) for item in self.capability.supported_resolutions
+        }:
+            raise ValueError("shot video resolution is unsupported")
+        if self.tail_frame is not None and not self.capability.supports_tail_frame:
+            raise ValueError("shot video tail frame is unsupported")
+        if len(self.ordered_references) > self.capability.max_reference_images:
+            raise ValueError("shot video references exceed capability")
+        if self.mode == "reference_to_video" and not self.ordered_references:
+            raise ValueError("reference-to-video requires exact references")
+        if self.first_frame.frame_role != "first" or (
+            self.tail_frame is not None and self.tail_frame.frame_role != "tail"
+        ):
+            raise ValueError("shot video attempt frame roles are invalid")
+        reference_payload = [item.model_dump() for item in self.ordered_references]
+        if _canonical_sha256(reference_payload) != self.references_fingerprint:
+            raise ValueError("shot video attempt references fingerprint is invalid")
+        if self.output_width * self.output_height > 40_000_000:
+            raise ValueError("shot video attempt resolution exceeds its pixel limit")
+        payload = self.model_dump(exclude={"input_fingerprint"})
+        if _canonical_sha256(payload) != self.input_fingerprint:
+            raise ValueError("shot video attempt fingerprint is invalid")
+        return self
+
+
+class ShotVideoSubmissionReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    attempt_id: str = Field(pattern=r"^sva_[0-9a-f]{24}$")
+    backend_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    account_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    authorization_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_task_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+    receipt_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("provider_task_id", mode="before")
+    @classmethod
+    def _task_id_is_opaque(cls, value: Any) -> str:
+        if not isinstance(value, str) or "://" in value:
+            raise ValueError("provider task id must be a bounded opaque id")
+        return value
+
+    @model_validator(mode="after")
+    def _submission_receipt_is_valid(self) -> "ShotVideoSubmissionReceipt":
+        payload = self.model_dump(exclude={"receipt_fingerprint"})
+        if _canonical_sha256(payload) != self.receipt_fingerprint:
+            raise ValueError("shot video submission receipt fingerprint is invalid")
+        return self
+
+
+class ShotVideoTerminalReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    submission_receipt_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    provider_task_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+    terminal_status: Literal["succeeded", "failed"]
+    result_token: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+    )
+    cost_reported: bool
+    actual_cost_microunits: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=1_000_000_000_000,
+    )
+    receipt_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("provider_task_id", "result_token", mode="before")
+    @classmethod
+    def _terminal_ids_are_opaque(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if not isinstance(value, str) or "://" in value:
+            raise ValueError("provider result identity must be a bounded opaque id")
+        return value
+
+    @field_validator("cost_reported", mode="before")
+    @classmethod
+    def _cost_reported_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("cost_reported must be bool")
+        return value
+
+    @field_validator("actual_cost_microunits", mode="before")
+    @classmethod
+    def _actual_cost_is_strict(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("actual_cost_microunits must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _terminal_receipt_is_valid(self) -> "ShotVideoTerminalReceipt":
+        if (self.terminal_status == "succeeded") != (self.result_token is not None):
+            raise ValueError("shot video terminal result token is inconsistent")
+        if self.cost_reported != (self.actual_cost_microunits is not None):
+            raise ValueError("shot video terminal cost state is inconsistent")
+        payload = self.model_dump(exclude={"receipt_fingerprint"})
+        if _canonical_sha256(payload) != self.receipt_fingerprint:
+            raise ValueError("shot video terminal receipt fingerprint is invalid")
+        return self
+
+
+class ShotVideoAttemptClosureReceipt(BaseModel):
+    """Bounded operator reconciliation fact; it never asserts not-sent."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    resolution: Literal["operator_abandoned", "provider_case_closed"]
+    evidence_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    receipt_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _closure_receipt_is_valid(self) -> "ShotVideoAttemptClosureReceipt":
+        payload = self.model_dump(exclude={"receipt_fingerprint"})
+        if _canonical_sha256(payload) != self.receipt_fingerprint:
+            raise ValueError("shot video closure receipt fingerprint is invalid")
+        return self
+
+
+class ShotVideoAttemptArtifactReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    media_type: Literal["video/mp4"] = "video/mp4"
+    staging_path: str = Field(min_length=1, max_length=240)
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+    size_bytes: int = Field(ge=1, le=100 * 1024 * 1024)
+    duration_milliseconds: int = Field(ge=1, le=300_000)
+    width: int = Field(ge=1, le=8192)
+    height: int = Field(ge=1, le=8192)
+    has_audio_track: bool
+    receipt_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("staging_path", mode="before")
+    @classmethod
+    def _staging_path_is_strict(cls, value: Any) -> str:
+        if not isinstance(value, str) or "\\" in value:
+            raise ValueError("shot video staging path must be POSIX relative")
+        if (
+            value.startswith("/")
+            or value.startswith("./")
+            or "//" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or re.fullmatch(
+                r"logs/drama_shot_videos/episode_[0-9]{2,3}/"
+                r"shot_[0-9a-f]{24}/sva_[0-9a-f]{24}\.mp4",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("shot video staging path must stay in its private root")
+        return value
+
+    @field_validator(
+        "size_bytes",
+        "duration_milliseconds",
+        "width",
+        "height",
+        mode="before",
+    )
+    @classmethod
+    def _artifact_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("has_audio_track", mode="before")
+    @classmethod
+    def _artifact_audio_flag_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("has_audio_track must be bool")
+        return value
+
+    @model_validator(mode="after")
+    def _artifact_receipt_is_valid(self) -> "ShotVideoAttemptArtifactReceipt":
+        if self.width * self.height > 40_000_000:
+            raise ValueError("shot video artifact pixel count exceeds its limit")
+        payload = self.model_dump(exclude={"receipt_fingerprint"})
+        if _canonical_sha256(payload) != self.receipt_fingerprint:
+            raise ValueError("shot video artifact receipt fingerprint is invalid")
+        return self
+
+
+class ShotVideoAttemptRecord(BaseModel):
+    """Durable once-only execution fact for one stable D1 shot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    attempt_id: str = Field(pattern=r"^sva_[0-9a-f]{24}$")
+    attempt_no: int = Field(ge=1, le=32)
+    spec: ShotVideoAttemptSpec
+    status: ShotVideoAttemptStatus
+    staging_path: str = Field(min_length=1, max_length=240)
+    submission_receipt: Optional[ShotVideoSubmissionReceipt] = None
+    terminal_receipt: Optional[ShotVideoTerminalReceipt] = None
+    artifact_receipt: Optional[ShotVideoAttemptArtifactReceipt] = None
+    closure_receipt: Optional[ShotVideoAttemptClosureReceipt] = None
+    candidate_id: Optional[str] = Field(default=None, pattern=r"^svc_[0-9a-f]{24}$")
+    candidate_fingerprint: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+    post_manifest_fingerprint: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("attempt_no", mode="before")
+    @classmethod
+    def _attempt_number_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("attempt_no must be a strict integer")
+        return value
+
+    @field_validator("staging_path", mode="before")
+    @classmethod
+    def _record_staging_path_is_strict(cls, value: Any) -> str:
+        return ShotVideoAttemptArtifactReceipt._staging_path_is_strict(value)
+
+    @model_validator(mode="after")
+    def _record_is_consistent(self) -> "ShotVideoAttemptRecord":
+        attempt_basis = {
+            "input_fingerprint": self.spec.input_fingerprint,
+            "attempt_no": self.attempt_no,
+        }
+        if self.attempt_id != f"sva_{_canonical_sha256(attempt_basis)[:24]}":
+            raise ValueError("shot video attempt id is invalid")
+        expected_path = (
+            f"logs/drama_shot_videos/episode_{self.spec.episode_no:02d}/"
+            f"{self.spec.shot_id}/{self.attempt_id}.mp4"
+        )
+        if self.staging_path != expected_path:
+            raise ValueError("shot video attempt staging path is not canonical")
+        needs_submission = self.status in {
+            "submitted", "provider_succeeded", "provider_failed", "artifact_received", "succeeded"
+        }
+        needs_terminal = self.status in {
+            "provider_succeeded", "provider_failed", "artifact_received", "succeeded"
+        }
+        needs_artifact = self.status in {"artifact_received", "succeeded"}
+        if needs_submission != (self.submission_receipt is not None):
+            raise ValueError("shot video submission receipt does not match status")
+        if needs_terminal != (self.terminal_receipt is not None):
+            raise ValueError("shot video terminal receipt does not match status")
+        if needs_artifact != (self.artifact_receipt is not None):
+            raise ValueError("shot video artifact receipt does not match status")
+        if (self.status == "closed_unknown") != (self.closure_receipt is not None):
+            raise ValueError("shot video closure receipt does not match status")
+        if self.submission_receipt is not None and self.terminal_receipt is not None:
+            if self.submission_receipt.provider_task_id != self.terminal_receipt.provider_task_id:
+                raise ValueError("shot video task identity changed")
+            if (
+                self.submission_receipt.receipt_fingerprint
+                != self.terminal_receipt.submission_receipt_fingerprint
+            ):
+                raise ValueError("shot video submission receipt identity changed")
+            if (self.status == "provider_failed") != (
+                self.terminal_receipt.terminal_status == "failed"
+            ):
+                raise ValueError("shot video provider terminal status is inconsistent")
+        if self.artifact_receipt is not None and self.artifact_receipt.staging_path != self.staging_path:
+            raise ValueError("shot video artifact receipt uses another staging path")
+        if self.submission_receipt is not None and (
+            self.submission_receipt.attempt_id != self.attempt_id
+            or self.submission_receipt.backend_id != self.spec.submission_gate.backend_id
+            or self.submission_receipt.account_fingerprint
+            != self.spec.submission_gate.account_fingerprint
+            or self.submission_receipt.authorization_fingerprint
+            != self.spec.submission_gate.authorization_fingerprint
+            or self.submission_receipt.input_fingerprint != self.spec.input_fingerprint
+        ):
+            raise ValueError("shot video submission receipt binding changed")
+        candidate_values = (
+            self.candidate_id,
+            self.candidate_fingerprint,
+            self.post_manifest_fingerprint,
+        )
+        if (self.status == "succeeded") != all(item is not None for item in candidate_values):
+            raise ValueError("shot video candidate identity does not match status")
+        if self.status != "succeeded" and any(item is not None for item in candidate_values):
+            raise ValueError("unfinished shot video attempt cannot bind a candidate")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("shot video attempt record fingerprint is invalid")
+        return self
+
+
+class EpisodeShotVideoAttemptLedger(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    generator_version: Literal["shot-video-attempts-v1"] = "shot-video-attempts-v1"
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    revision: int = Field(ge=0, le=2_147_483_647)
+    attempts: List[ShotVideoAttemptRecord] = Field(max_length=3200)
+    ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "revision", mode="before")
+    @classmethod
+    def _ledger_integers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _ledger_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("attempts", mode="before")
+    @classmethod
+    def _ledger_attempts_are_strict(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("shot video attempts must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _ledger_is_consistent(self) -> "EpisodeShotVideoAttemptLedger":
+        ids = [item.attempt_id for item in self.attempts]
+        if len(ids) != len(set(ids)):
+            raise ValueError("shot video attempt ids must be unique")
+        per_shot: Dict[str, List[int]] = {}
+        paid_authorizations: set[str] = set()
+        provider_tasks: set[tuple[str, str, str]] = set()
+        provider_results: set[tuple[str, str, str]] = set()
+        for attempt in self.attempts:
+            if attempt.spec.season_no != self.season_no or attempt.spec.episode_no != self.episode_no:
+                raise ValueError("shot video attempt belongs to another episode")
+            per_shot.setdefault(attempt.spec.shot_id, []).append(attempt.attempt_no)
+            authorization = attempt.spec.submission_gate.authorization_fingerprint
+            if attempt.status != "not_sent":
+                if authorization in paid_authorizations:
+                    raise ValueError("shot video paid authorization was reused")
+                paid_authorizations.add(authorization)
+            if attempt.submission_receipt is not None:
+                task_key = (
+                    attempt.spec.submission_gate.backend_id,
+                    attempt.spec.submission_gate.account_fingerprint,
+                    attempt.submission_receipt.provider_task_id,
+                )
+                if task_key in provider_tasks:
+                    raise ValueError("shot video provider task identity was reused")
+                provider_tasks.add(task_key)
+            if (
+                attempt.terminal_receipt is not None
+                and attempt.terminal_receipt.result_token is not None
+            ):
+                result_key = (
+                    attempt.spec.submission_gate.backend_id,
+                    attempt.spec.submission_gate.account_fingerprint,
+                    attempt.terminal_receipt.result_token,
+                )
+                if result_key in provider_results:
+                    raise ValueError("shot video provider result identity was reused")
+                provider_results.add(result_key)
+        if any(values != list(range(1, len(values) + 1)) for values in per_shot.values()):
+            raise ValueError("shot video attempt numbers must be contiguous per shot")
+        payload = self.model_dump(exclude={"ledger_fingerprint"})
+        if _canonical_sha256(payload) != self.ledger_fingerprint:
+            raise ValueError("shot video attempt ledger fingerprint is invalid")
+        return self
+
+
+class ShotVideoAttemptInspection(BaseModel):
+    """Safe four-way recovery projection over the latest attempt per shot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    state: ShotVideoAttemptInspectionState
+    reasons: List[str] = Field(max_length=16)
+    ledger_fingerprint: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
+    not_sent_attempt_ids: List[str] = Field(max_length=100)
+    unknown_attempt_ids: List[str] = Field(max_length=100)
+    submitted_attempt_ids: List[str] = Field(max_length=100)
+    terminal_attempt_ids: List[str] = Field(max_length=100)
+
+    @field_validator(
+        "reasons",
+        "not_sent_attempt_ids",
+        "unknown_attempt_ids",
+        "submitted_attempt_ids",
+        "terminal_attempt_ids",
+        mode="before",
+    )
+    @classmethod
+    def _inspection_lists_are_bounded(cls, value: Any, info: Any) -> List[str]:
+        if not isinstance(value, list) or len(value) != len(set(value)):
+            raise ValueError(f"{info.field_name} must be a unique list")
+        if info.field_name == "reasons":
+            if any(
+                not isinstance(item, str)
+                or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", item) is None
+                for item in value
+            ):
+                raise ValueError("shot video inspection reasons are invalid")
+        elif any(
+            not isinstance(item, str)
+            or re.fullmatch(r"sva_[0-9a-f]{24}", item) is None
+            for item in value
+        ):
+            raise ValueError("shot video inspection attempt ids are invalid")
+        return value
+
+    @model_validator(mode="after")
+    def _inspection_partitions_attempts(self) -> "ShotVideoAttemptInspection":
+        groups = (
+            set(self.not_sent_attempt_ids),
+            set(self.unknown_attempt_ids),
+            set(self.submitted_attempt_ids),
+            set(self.terminal_attempt_ids),
+        )
+        if any(
+            groups[left] & groups[right]
+            for left in range(len(groups))
+            for right in range(left + 1, len(groups))
+        ):
+            raise ValueError("shot video attempt outcomes overlap")
+        return self

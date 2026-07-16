@@ -13,6 +13,11 @@ from src.paid_recovery_states import (
     IMAGE_RECEIPT_STATUSES,
     SHOT_IMAGE_ATTEMPT_STATUSES,
     SHOT_IMAGE_RECEIPT_STATUSES,
+    SHOT_VIDEO_ATTEMPT_STATUSES,
+    SHOT_VIDEO_NOT_SENT_STATUSES,
+    SHOT_VIDEO_SUBMITTED_STATUSES,
+    SHOT_VIDEO_TERMINAL_STATUSES,
+    SHOT_VIDEO_UNKNOWN_STATUSES,
     TEXT_ATTEMPT_STATUSES,
     TEXT_CANONICAL_RECOVERY_STATUSES,
     TEXT_RECONCILIATION_REQUIRED_STATUSES,
@@ -85,6 +90,23 @@ class PaidRecoveryStateVocabularyTests(unittest.TestCase):
         self.assertEqual(
             VIDEO_NON_RESUMABLE_STATUSES & VIDEO_TASK_ID_STATUSES,
             frozenset({"failed"}),
+        )
+
+    def test_shot_video_attempt_statuses_have_one_four_way_classification(self) -> None:
+        groups = (
+            SHOT_VIDEO_NOT_SENT_STATUSES,
+            SHOT_VIDEO_UNKNOWN_STATUSES,
+            SHOT_VIDEO_SUBMITTED_STATUSES,
+            SHOT_VIDEO_TERMINAL_STATUSES,
+        )
+        self.assertEqual(frozenset().union(*groups), SHOT_VIDEO_ATTEMPT_STATUSES)
+        for left in range(len(groups)):
+            for right in range(left + 1, len(groups)):
+                self.assertFalse(groups[left] & groups[right])
+        self.assertEqual(SHOT_VIDEO_NOT_SENT_STATUSES, frozenset({"not_sent"}))
+        self.assertEqual(
+            SHOT_VIDEO_UNKNOWN_STATUSES,
+            frozenset({"started", "submission_unknown"}),
         )
 
 
