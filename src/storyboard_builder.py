@@ -60,6 +60,12 @@ def run(
 
     if use_mock:
         payload = _load_fixture(track, "storyboard")
+        if episode_no > 1:
+            payload = _derive_mock_storyboard_for_episode(
+                payload,
+                setup=setup,
+                episode_no=episode_no,
+            )
         payload = _without_alt_shots(payload)
         payload["track"] = track
         payload["episode_no"] = episode_no
@@ -251,6 +257,56 @@ def _season_character_signature_view(workspace: str) -> List[Dict[str, str]]:
 def _without_alt_shots(payload: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(payload)
     data.pop("alt_shots", None)
+    return data
+
+
+def _derive_mock_storyboard_for_episode(
+    payload: Dict[str, Any],
+    *,
+    setup: Dict[str, Any],
+    episode_no: int,
+) -> Dict[str, Any]:
+    """Derive a visibly episode-local mock board for continuation UX tests.
+
+    The canonical fixtures describe episode 1.  Reusing them byte-for-byte for
+    later episodes made the Web flow claim that a fresh storyboard had been
+    generated while showing the previous episode again.  Keep fixture timing
+    and schema coverage, but bind the mock result to the current episode's
+    operator-authored mainline and selected hook.
+    """
+
+    data = dict(payload)
+    tag = f"第 {episode_no} 集"
+    base_title = str(payload.get("title") or "续篇")
+    data["title"] = f"{base_title} · 续篇 {episode_no}"[:80]
+    mainline = str(setup.get("episode_mainline") or "").strip()
+    logline = str(setup.get("logline") or "").strip()
+    data["narrative"] = (mainline or logline or f"{tag}继续推进上一集冲突。")[:2000]
+
+    source_shots = payload.get("shots")
+    if not isinstance(source_shots, list):
+        return data
+    shots = [dict(item) for item in source_shots if isinstance(item, dict)]
+    alternatives = payload.get("alt_shots")
+    if isinstance(alternatives, list) and alternatives:
+        replacement = alternatives[0]
+        if isinstance(replacement, dict):
+            raw_no = replacement.get("shot_no")
+            if isinstance(raw_no, int) and not isinstance(raw_no, bool) and 1 <= raw_no <= len(shots):
+                shots[raw_no - 1] = dict(replacement)
+
+    hook = setup.get("hook") if isinstance(setup.get("hook"), dict) else {}
+    hook_content = str(hook.get("content") or "").strip()
+    for index, shot in enumerate(shots):
+        shot["beat"] = f"{shot.get('beat') or '推进'} · {tag}"[:80]
+        if index == 0 and hook_content:
+            shot["visual"] = f"{tag}开场：{hook_content}"[:500]
+        else:
+            visual = str(shot.get("visual") or "")
+            shot["visual"] = f"{visual}（{tag}推进）"[:500]
+        prompt = str(shot.get("ai_draw_prompt") or "")
+        shot["ai_draw_prompt"] = f"{prompt}，{tag}连续剧情"[:800]
+    data["shots"] = shots
     return data
 
 

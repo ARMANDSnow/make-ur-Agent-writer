@@ -127,8 +127,16 @@ class StoryboardBuilderTests(DramaTestBase):
 
     def test_episode_two_is_pinned_and_prompt_contains_season_visual_signatures(self) -> None:
         sheet = self._episode_two_workspace("episode_two_board")
+        first = storyboard_builder.run("episode_two_board", mock=True, episode_no=1)
         result = storyboard_builder.run("episode_two_board", mock=True, episode_no=2)
         self.assertEqual(result["episode_no"], 2)
+        self.assertNotEqual(result["title"], first["title"])
+        self.assertNotEqual(result["narrative"], first["narrative"])
+        self.assertNotEqual(
+            [shot["visual"] for shot in result["shots"]],
+            [shot["visual"] for shot in first["shots"]],
+        )
+        self.assertIn("第 2 集", result["shots"][0]["visual"])
         prompt = storyboard_builder.build_system_prompt("episode_two_board", episode_no=2)
         self.assertIn(sheet["characters"][0]["visual_signature"], prompt)
         self.assertIn("本季角色视觉签名", prompt)
