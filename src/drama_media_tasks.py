@@ -1,0 +1,916 @@
+"""G1 strict, provider-neutral media task DAG and persistent state store.
+
+This module coordinates dependencies and generic execution state only.  It
+does not submit provider requests and never replaces image/video/TTS paid
+attempt ledgers or their receipts.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+from pathlib import Path
+from typing import Any, Sequence
+
+from . import drama_edit_export, paths
+from .drama_schemas import (
+    DramaMediaKind,
+    DramaMediaTaskOutcomeCode,
+    DramaMediaStage,
+    DramaMediaTask,
+    DramaMediaTaskLedger,
+    DramaMediaTaskState,
+    _canonical_sha256,
+    normalize_episode_no,
+)
+from .drama_store import (
+    _read_strict_workspace_bytes,
+    _read_strict_workspace_json,
+    _validate_render_workspace_root,
+)
+from .schemas import model_to_dict
+from .web.workspace_ctx import use_workspace
+from .workspace_lock import WorkspaceLocked, acquire_write_lock
+
+
+MAX_MEDIA_TASK_LEDGER_BYTES = 4 * 1024 * 1024
+MAX_WORKSPACE_METADATA_BYTES = 4 * 1024
+TERMINAL_MEDIA_TASK_STATES = frozenset({"succeeded", "failed", "cancelled"})
+ACTIVE_MEDIA_TASK_STATES = frozenset(
+    {
+        "planned",
+        "ready",
+        "claimed",
+        "submitting",
+        "submitted",
+        "polling",
+        "submission_unknown",
+        "downloading",
+        "validating",
+        "cancelling",
+    }
+)
+_TRANSITIONS: dict[str, frozenset[str]] = {
+    "planned": frozenset({"ready", "cancelling"}),
+    "ready": frozenset({"claimed", "cancelling"}),
+    "claimed": frozenset(
+        {"submitting", "downloading", "validating", "failed", "cancelling"}
+    ),
+    "submitting": frozenset(
+        {"submitted", "submission_unknown", "failed", "cancelling"}
+    ),
+    "submitted": frozenset(
+        {"polling", "downloading", "failed", "cancelling"}
+    ),
+    "polling": frozenset({"downloading", "failed", "cancelling"}),
+    "submission_unknown": frozenset(),
+    "downloading": frozenset({"validating", "failed", "cancelling"}),
+    "validating": frozenset({"succeeded", "failed", "cancelling"}),
+    "succeeded": frozenset(),
+    "failed": frozenset(),
+    "cancelling": frozenset({"cancelled"}),
+    "cancelled": frozenset(),
+}
+
+
+class DramaMediaTaskError(ValueError):
+    """Fail-closed public error without paths, prompts, or provider payloads."""
+
+
+def media_task_ledger_path(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> Path:
+    number = normalize_episode_no(episode_no)
+    root = paths.workspace_root(workspace)
+    result = (
+        root
+        / "outputs"
+        / "drama"
+        / "media_tasks"
+        / f"episode_{number:03d}.tasks.json"
+    )
+    if result.parent.parent.parent.parent != root:
+        raise DramaMediaTaskError("media task ledger path is invalid")
+    return result
+
+
+def _task_dedupe_payload(
+    *,
+    episode_no: int,
+    media_kind: DramaMediaKind,
+    stage: DramaMediaStage,
+    subject_id: str,
+    input_fingerprint: str,
+    backend_id: str,
+    provider_fingerprint: str,
+    model_fingerprint: str,
+    account_fingerprint: str,
+    endpoint_fingerprint: str,
+    dependency_task_ids: Sequence[str],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "episode_no": episode_no,
+        "media_kind": media_kind,
+        "stage": stage,
+        "subject_id": subject_id,
+        "input_fingerprint": input_fingerprint,
+        "backend_id": backend_id,
+        "provider_fingerprint": provider_fingerprint,
+        "model_fingerprint": model_fingerprint,
+        "account_fingerprint": account_fingerprint,
+        "endpoint_fingerprint": endpoint_fingerprint,
+        "dependency_task_ids": list(dependency_task_ids),
+    }
+
+
+def _build_task(
+    *,
+    episode_no: int,
+    media_kind: DramaMediaKind,
+    stage: DramaMediaStage,
+    subject_id: str,
+    input_fingerprint: str,
+    backend_id: str,
+    provider_fingerprint: str,
+    model_fingerprint: str,
+    account_fingerprint: str,
+    endpoint_fingerprint: str,
+    dependency_task_ids: Sequence[str],
+    attempt_no: int,
+    state: DramaMediaTaskState,
+    revision: int,
+    created_at_ms: int,
+    updated_at_ms: int,
+    result_fingerprint: str | None = None,
+    outcome_code: str | None = None,
+) -> DramaMediaTask:
+    canonical_dependencies = sorted(dependency_task_ids)
+    dedupe_payload = _task_dedupe_payload(
+        episode_no=episode_no,
+        media_kind=media_kind,
+        stage=stage,
+        subject_id=subject_id,
+        input_fingerprint=input_fingerprint,
+        backend_id=backend_id,
+        provider_fingerprint=provider_fingerprint,
+        model_fingerprint=model_fingerprint,
+        account_fingerprint=account_fingerprint,
+        endpoint_fingerprint=endpoint_fingerprint,
+        dependency_task_ids=canonical_dependencies,
+    )
+    dedupe_key = _canonical_sha256(dedupe_payload)
+    task_payload = {
+        **dedupe_payload,
+        "attempt_no": attempt_no,
+    }
+    task_id = f"dmt_{_canonical_sha256(task_payload)[:24]}"
+    payload = {
+        **dedupe_payload,
+        "task_id": task_id,
+        "dedupe_key": dedupe_key,
+        "attempt_no": attempt_no,
+        "state": state,
+        "revision": revision,
+        "created_at_ms": created_at_ms,
+        "updated_at_ms": updated_at_ms,
+        "result_fingerprint": result_fingerprint,
+        "outcome_code": outcome_code,
+    }
+    payload["record_fingerprint"] = _canonical_sha256(payload)
+    try:
+        return DramaMediaTask(**payload)
+    except (RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task input is invalid") from None
+
+
+def _replace_task(
+    task: DramaMediaTask,
+    *,
+    state: DramaMediaTaskState,
+    now_ms: int,
+    result_fingerprint: str | None = None,
+    outcome_code: str | None = None,
+) -> DramaMediaTask:
+    return _build_task(
+        episode_no=task.episode_no,
+        media_kind=task.media_kind,
+        stage=task.stage,
+        subject_id=task.subject_id,
+        input_fingerprint=task.input_fingerprint,
+        backend_id=task.backend_id,
+        provider_fingerprint=task.provider_fingerprint,
+        model_fingerprint=task.model_fingerprint,
+        account_fingerprint=task.account_fingerprint,
+        endpoint_fingerprint=task.endpoint_fingerprint,
+        dependency_task_ids=task.dependency_task_ids,
+        attempt_no=task.attempt_no,
+        state=state,
+        revision=task.revision + 1,
+        created_at_ms=task.created_at_ms,
+        updated_at_ms=now_ms,
+        result_fingerprint=result_fingerprint,
+        outcome_code=outcome_code,
+    )
+
+
+def _build_ledger(
+    episode_no: int,
+    tasks: Sequence[DramaMediaTask],
+    *,
+    revision: int,
+) -> DramaMediaTaskLedger:
+    payload = {
+        "schema_version": 1,
+        "episode_no": episode_no,
+        "revision": revision,
+        "tasks": [
+            model_to_dict(item)
+            for item in sorted(tasks, key=lambda item: item.task_id)
+        ],
+    }
+    payload["ledger_fingerprint"] = _canonical_sha256(payload)
+    try:
+        return DramaMediaTaskLedger(**payload)
+    except (RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task DAG is invalid") from None
+
+
+def _empty_ledger(episode_no: int) -> DramaMediaTaskLedger:
+    return _build_ledger(episode_no, (), revision=0)
+
+
+def _ledger_bytes(ledger: DramaMediaTaskLedger) -> bytes:
+    return (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "artifact_type": "drama_media_task_ledger",
+                "ledger_fingerprint": ledger.ledger_fingerprint,
+                "ledger": model_to_dict(ledger),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _read_ledger(
+    workspace: str,
+    *,
+    episode_no: int,
+) -> DramaMediaTaskLedger:
+    number = normalize_episode_no(episode_no)
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    try:
+        metadata = _read_strict_workspace_json(
+            root,
+            root / "data" / "workspace.json",
+            maximum=MAX_WORKSPACE_METADATA_BYTES,
+        )
+    except (FileNotFoundError, OSError, RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task workspace metadata is invalid") from None
+    if (
+        not isinstance(metadata, dict)
+        or set(metadata) != {"type", "created_at", "schema_version"}
+        or metadata.get("type") != "drama"
+        or type(metadata.get("schema_version")) is not int
+        or metadata.get("schema_version") != 1
+        or (
+            metadata.get("created_at") is not None
+            and not isinstance(metadata.get("created_at"), str)
+        )
+    ):
+        raise DramaMediaTaskError("media task workspace is not a drama workspace")
+    path = media_task_ledger_path(workspace, episode_no=number)
+    try:
+        raw = _read_strict_workspace_bytes(
+            root, path, maximum=MAX_MEDIA_TASK_LEDGER_BYTES
+        )
+        payload = _read_strict_workspace_json(
+            root, path, maximum=MAX_MEDIA_TASK_LEDGER_BYTES
+        )
+        if (
+            not isinstance(payload, dict)
+            or set(payload)
+            != {
+                "schema_version",
+                "artifact_type",
+                "ledger_fingerprint",
+                "ledger",
+            }
+            or payload.get("schema_version") != 1
+            or payload.get("artifact_type") != "drama_media_task_ledger"
+            or not isinstance(payload.get("ledger"), dict)
+        ):
+            raise ValueError("invalid media task envelope")
+        ledger = DramaMediaTaskLedger(**payload["ledger"])
+        if (
+            ledger.episode_no != number
+            or payload["ledger_fingerprint"] != ledger.ledger_fingerprint
+            or raw != _ledger_bytes(ledger)
+        ):
+            raise ValueError("media task ledger identity mismatch")
+        return ledger
+    except FileNotFoundError:
+        raise
+    except (OSError, RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task ledger is invalid") from None
+
+
+def _target_token(root: Path, path: Path) -> tuple[Any, ...]:
+    try:
+        data = _read_strict_workspace_bytes(
+            root, path, maximum=MAX_MEDIA_TASK_LEDGER_BYTES
+        )
+    except FileNotFoundError:
+        return ("missing",)
+    except (OSError, ValueError):
+        return ("invalid",)
+    return ("file", len(data), hashlib.sha256(data).hexdigest())
+
+
+def _write_ledger(
+    workspace: str,
+    ledger: DramaMediaTaskLedger,
+    *,
+    expected_target_token: tuple[Any, ...],
+) -> None:
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    target = media_task_ledger_path(workspace, episode_no=ledger.episode_no)
+    relative = target.relative_to(root)
+    directory = str(relative.parent)
+    directory_fd: int | None = None
+    try:
+        directory_fd = drama_edit_export._open_output_directory(
+            root, directory, create=True
+        )
+        identity = drama_edit_export._directory_identity(directory_fd)
+        if (
+            drama_edit_export._target_token_at(
+                directory_fd,
+                relative.name,
+                maximum=MAX_MEDIA_TASK_LEDGER_BYTES,
+            )
+            != expected_target_token
+        ):
+            raise DramaMediaTaskError("media task ledger changed concurrently")
+        drama_edit_export._atomic_write_at(
+            directory_fd,
+            relative.name,
+            _ledger_bytes(ledger),
+            maximum=MAX_MEDIA_TASK_LEDGER_BYTES,
+        )
+        drama_edit_export._require_current_output_directory(
+            root, directory, expected=identity
+        )
+    except DramaMediaTaskError:
+        raise
+    except (OSError, drama_edit_export.DramaEditExportError):
+        raise DramaMediaTaskError(
+            "media task ledger could not be committed safely"
+        ) from None
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
+
+
+def _persist_ledger(
+    workspace: str,
+    ledger: DramaMediaTaskLedger,
+    *,
+    expected_target_token: tuple[Any, ...],
+) -> DramaMediaTaskLedger:
+    _write_ledger(
+        workspace, ledger, expected_target_token=expected_target_token
+    )
+    persisted = _read_ledger(workspace, episode_no=ledger.episode_no)
+    if persisted != ledger:
+        raise DramaMediaTaskError("media task ledger persistence failed")
+    return persisted
+
+
+def load_media_task_ledger(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> DramaMediaTaskLedger:
+    try:
+        return _read_ledger(
+            workspace, episode_no=normalize_episode_no(episode_no)
+        )
+    except FileNotFoundError:
+        raise
+    except DramaMediaTaskError:
+        raise
+    except (OSError, RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task ledger could not be loaded") from None
+
+
+def _validate_expected_ledger(
+    ledger: DramaMediaTaskLedger,
+    expected_ledger_fingerprint: str | None,
+    *,
+    missing: bool,
+) -> None:
+    expected = None if missing else ledger.ledger_fingerprint
+    if expected_ledger_fingerprint != expected:
+        raise DramaMediaTaskError("media task ledger changed; refresh")
+
+
+def _validate_mutation_cas(
+    *,
+    task_id: str,
+    expected_task_revision: int,
+    expected_ledger_fingerprint: str,
+    now_ms: int,
+) -> None:
+    if (
+        not isinstance(task_id, str)
+        or re.fullmatch(r"dmt_[0-9a-f]{24}", task_id) is None
+    ):
+        raise DramaMediaTaskError("media task identity is invalid")
+    if (
+        not isinstance(expected_task_revision, int)
+        or isinstance(expected_task_revision, bool)
+        or expected_task_revision < 0
+        or expected_task_revision > 10_000
+    ):
+        raise DramaMediaTaskError("media task revision is invalid")
+    if (
+        not isinstance(expected_ledger_fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_ledger_fingerprint) is None
+    ):
+        raise DramaMediaTaskError("media task ledger identity is invalid")
+    if (
+        not isinstance(now_ms, int)
+        or isinstance(now_ms, bool)
+        or now_ms < 0
+        or now_ms > 9_999_999_999_999
+    ):
+        raise DramaMediaTaskError("media task update time is invalid")
+
+
+def create_media_task(
+    workspace: str,
+    *,
+    episode_no: int,
+    media_kind: DramaMediaKind,
+    stage: DramaMediaStage,
+    subject_id: str,
+    input_fingerprint: str,
+    backend_id: str,
+    provider_fingerprint: str,
+    model_fingerprint: str,
+    account_fingerprint: str,
+    endpoint_fingerprint: str,
+    dependency_task_ids: Sequence[str] = (),
+    attempt_no: int = 1,
+    now_ms: int,
+    expected_ledger_fingerprint: str | None,
+) -> DramaMediaTask:
+    """Create or exact-replay one task; active dedupe never mutates old input."""
+
+    try:
+        number = normalize_episode_no(episode_no)
+        with use_workspace(workspace), acquire_write_lock(
+            source="drama-media-task-create"
+        ):
+            root = paths.workspace_root(workspace)
+            path = media_task_ledger_path(workspace, episode_no=number)
+            token = _target_token(root, path)
+            try:
+                ledger = _read_ledger(workspace, episode_no=number)
+                missing = False
+            except FileNotFoundError:
+                ledger = _empty_ledger(number)
+                missing = True
+            by_id = {item.task_id: item for item in ledger.tasks}
+            dependencies = sorted(dependency_task_ids)
+            if len(dependencies) != len(set(dependencies)):
+                raise DramaMediaTaskError("media task dependency list is invalid")
+            if any(item not in by_id for item in dependencies):
+                raise DramaMediaTaskError("media task dependency is missing")
+            if any(now_ms < by_id[item].created_at_ms for item in dependencies):
+                raise DramaMediaTaskError(
+                    "media task creation time is invalid"
+                )
+            ready = all(by_id[item].state == "succeeded" for item in dependencies)
+            proposed = _build_task(
+                episode_no=number,
+                media_kind=media_kind,
+                stage=stage,
+                subject_id=subject_id,
+                input_fingerprint=input_fingerprint,
+                backend_id=backend_id,
+                provider_fingerprint=provider_fingerprint,
+                model_fingerprint=model_fingerprint,
+                account_fingerprint=account_fingerprint,
+                endpoint_fingerprint=endpoint_fingerprint,
+                dependency_task_ids=dependencies,
+                attempt_no=attempt_no,
+                state="ready" if ready else "planned",
+                revision=0,
+                created_at_ms=now_ms,
+                updated_at_ms=now_ms,
+            )
+            existing = by_id.get(proposed.task_id)
+            if existing is not None:
+                if existing.dedupe_key != proposed.dedupe_key:
+                    raise DramaMediaTaskError("media task identity collision")
+                return existing
+            if any(
+                by_id[item].state
+                in {"failed", "cancelled", "cancelling", "submission_unknown"}
+                for item in dependencies
+            ):
+                raise DramaMediaTaskError(
+                    "media task dependency cannot reach success"
+                )
+            _validate_expected_ledger(
+                ledger,
+                expected_ledger_fingerprint,
+                missing=missing,
+            )
+            active = next(
+                (
+                    item
+                    for item in ledger.tasks
+                    if item.dedupe_key == proposed.dedupe_key
+                    and item.state in ACTIVE_MEDIA_TASK_STATES
+                ),
+                None,
+            )
+            if active is not None:
+                return active
+            updated = _build_ledger(
+                number,
+                [*ledger.tasks, proposed],
+                revision=ledger.revision + 1,
+            )
+            _persist_ledger(
+                workspace, updated, expected_target_token=token
+            )
+            return proposed
+    except WorkspaceLocked:
+        raise DramaMediaTaskError("media task workspace is busy") from None
+    except DramaMediaTaskError:
+        raise
+    except (OSError, RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task creation was rejected") from None
+
+
+def _transition_outcome(
+    target_state: DramaMediaTaskState,
+    *,
+    result_fingerprint: str | None,
+    outcome_code: DramaMediaTaskOutcomeCode | None,
+) -> tuple[str | None, DramaMediaTaskOutcomeCode | None]:
+    if target_state == "succeeded":
+        if result_fingerprint is None or outcome_code is not None:
+            raise DramaMediaTaskError("media task success result is invalid")
+        return result_fingerprint, None
+    if target_state == "submission_unknown":
+        if result_fingerprint is not None or outcome_code != "transport_unknown":
+            raise DramaMediaTaskError("media task unknown outcome is invalid")
+        return None, outcome_code
+    if target_state == "cancelled":
+        if result_fingerprint is not None or outcome_code != "cancel_confirmed":
+            raise DramaMediaTaskError("media task cancellation outcome is invalid")
+        return None, outcome_code
+    if target_state == "failed":
+        if (
+            result_fingerprint is not None
+            or outcome_code is None
+            or outcome_code in {"transport_unknown", "cancel_confirmed"}
+        ):
+            raise DramaMediaTaskError("media task outcome is invalid")
+        return None, outcome_code
+    if result_fingerprint is not None or outcome_code is not None:
+        raise DramaMediaTaskError("active media task outcome is invalid")
+    return None, None
+
+
+def _refresh_ready_tasks(
+    tasks: Sequence[DramaMediaTask],
+    *,
+    now_ms: int,
+) -> list[DramaMediaTask]:
+    by_id = {item.task_id: item for item in tasks}
+    refreshed: list[DramaMediaTask] = []
+    for task in tasks:
+        if task.state == "planned" and all(
+            by_id[item].state == "succeeded"
+            for item in task.dependency_task_ids
+        ):
+            refreshed.append(
+                _replace_task(
+                    task,
+                    state="ready",
+                    now_ms=max(now_ms, task.updated_at_ms),
+                )
+            )
+        else:
+            refreshed.append(task)
+    return refreshed
+
+
+def _fail_blocked_dependents(
+    tasks: Sequence[DramaMediaTask],
+    *,
+    now_ms: int,
+) -> list[DramaMediaTask]:
+    """Fail planned descendants whose immutable dependency task has failed."""
+
+    current = list(tasks)
+    while True:
+        by_id = {item.task_id: item for item in current}
+        changed = False
+        updated: list[DramaMediaTask] = []
+        for task in current:
+            if task.state == "planned" and any(
+                by_id[item].state == "failed"
+                for item in task.dependency_task_ids
+            ):
+                updated.append(
+                    _replace_task(
+                        task,
+                        state="failed",
+                        now_ms=max(now_ms, task.updated_at_ms),
+                        outcome_code="dependency_failed",
+                    )
+                )
+                changed = True
+            else:
+                updated.append(task)
+        current = updated
+        if not changed:
+            return current
+
+
+def _dependent_closure(
+    tasks: Sequence[DramaMediaTask],
+    task_id: str,
+) -> set[str]:
+    affected = {task_id}
+    changed = True
+    while changed:
+        before = len(affected)
+        affected.update(
+            item.task_id
+            for item in tasks
+            if any(dep in affected for dep in item.dependency_task_ids)
+        )
+        changed = len(affected) != before
+    return affected
+
+
+def transition_media_task(
+    workspace: str,
+    *,
+    episode_no: int,
+    task_id: str,
+    target_state: DramaMediaTaskState,
+    expected_task_revision: int,
+    expected_ledger_fingerprint: str,
+    now_ms: int,
+    result_fingerprint: str | None = None,
+    outcome_code: DramaMediaTaskOutcomeCode | None = None,
+) -> DramaMediaTask:
+    """CAS-transition one task and promote newly unblocked dependents."""
+
+    try:
+        number = normalize_episode_no(episode_no)
+        _validate_mutation_cas(
+            task_id=task_id,
+            expected_task_revision=expected_task_revision,
+            expected_ledger_fingerprint=expected_ledger_fingerprint,
+            now_ms=now_ms,
+        )
+        result, outcome = _transition_outcome(
+            target_state,
+            result_fingerprint=result_fingerprint,
+            outcome_code=outcome_code,
+        )
+        with use_workspace(workspace), acquire_write_lock(
+            source="drama-media-task-transition"
+        ):
+            root = paths.workspace_root(workspace)
+            path = media_task_ledger_path(workspace, episode_no=number)
+            token = _target_token(root, path)
+            ledger = _read_ledger(workspace, episode_no=number)
+            by_id = {item.task_id: item for item in ledger.tasks}
+            current = by_id.get(task_id)
+            if current is None:
+                raise DramaMediaTaskError("media task is missing")
+            if current.revision != expected_task_revision:
+                if (
+                    current.state == target_state
+                    and current.result_fingerprint == result
+                    and current.outcome_code == outcome
+                ):
+                    return current
+                raise DramaMediaTaskError("media task changed; refresh")
+            if ledger.ledger_fingerprint != expected_ledger_fingerprint:
+                raise DramaMediaTaskError("media task ledger changed; refresh")
+            if current.state == target_state:
+                if (
+                    current.result_fingerprint == result
+                    and current.outcome_code == outcome
+                ):
+                    return current
+                raise DramaMediaTaskError("media task replay does not match")
+            if target_state not in _TRANSITIONS[current.state]:
+                raise DramaMediaTaskError("media task transition is invalid")
+            if now_ms < current.updated_at_ms:
+                raise DramaMediaTaskError("media task update time is invalid")
+            if target_state == "ready" and any(
+                by_id[item].state != "succeeded"
+                for item in current.dependency_task_ids
+            ):
+                raise DramaMediaTaskError("media task dependencies are incomplete")
+            replacement = _replace_task(
+                current,
+                state=target_state,
+                now_ms=now_ms,
+                result_fingerprint=result,
+                outcome_code=outcome,
+            )
+            tasks = [
+                replacement if item.task_id == task_id else item
+                for item in ledger.tasks
+            ]
+            if target_state == "succeeded":
+                tasks = _refresh_ready_tasks(tasks, now_ms=now_ms)
+            elif target_state == "failed":
+                tasks = _fail_blocked_dependents(tasks, now_ms=now_ms)
+            updated = _build_ledger(
+                number, tasks, revision=ledger.revision + 1
+            )
+            _persist_ledger(
+                workspace, updated, expected_target_token=token
+            )
+            return next(item for item in updated.tasks if item.task_id == task_id)
+    except FileNotFoundError:
+        raise DramaMediaTaskError("media task ledger is missing") from None
+    except WorkspaceLocked:
+        raise DramaMediaTaskError("media task workspace is busy") from None
+    except DramaMediaTaskError:
+        raise
+    except (OSError, RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task transition was rejected") from None
+
+
+def cancel_media_task_cascade(
+    workspace: str,
+    *,
+    episode_no: int,
+    task_id: str,
+    expected_task_revision: int,
+    expected_ledger_fingerprint: str,
+    now_ms: int,
+) -> list[DramaMediaTask]:
+    """Move a task and its active transitive dependents to ``cancelling``."""
+
+    try:
+        number = normalize_episode_no(episode_no)
+        _validate_mutation_cas(
+            task_id=task_id,
+            expected_task_revision=expected_task_revision,
+            expected_ledger_fingerprint=expected_ledger_fingerprint,
+            now_ms=now_ms,
+        )
+        with use_workspace(workspace), acquire_write_lock(
+            source="drama-media-task-cancel"
+        ):
+            root = paths.workspace_root(workspace)
+            path = media_task_ledger_path(workspace, episode_no=number)
+            token = _target_token(root, path)
+            ledger = _read_ledger(workspace, episode_no=number)
+            by_id = {item.task_id: item for item in ledger.tasks}
+            current = by_id.get(task_id)
+            if current is None:
+                raise DramaMediaTaskError("media task is missing")
+            if current.revision != expected_task_revision:
+                affected = _dependent_closure(ledger.tasks, task_id)
+                replayable_states = (
+                    TERMINAL_MEDIA_TASK_STATES
+                    | {"cancelling", "submission_unknown"}
+                )
+                if (
+                    current.revision > expected_task_revision
+                    and current.state in {"cancelling", "cancelled"}
+                    and all(
+                        by_id[item_id].state in replayable_states
+                        for item_id in affected
+                    )
+                ):
+                    return [by_id[item] for item in sorted(affected)]
+                raise DramaMediaTaskError("media task changed; refresh")
+            if ledger.ledger_fingerprint != expected_ledger_fingerprint:
+                raise DramaMediaTaskError("media task ledger changed; refresh")
+            if current.state in {"succeeded", "failed"}:
+                raise DramaMediaTaskError("terminal media task cannot be cancelled")
+            if current.state == "cancelled":
+                return [current]
+            affected = _dependent_closure(ledger.tasks, task_id)
+            replacements: dict[str, DramaMediaTask] = {}
+            for item_id in sorted(affected):
+                item = by_id[item_id]
+                if item.state in TERMINAL_MEDIA_TASK_STATES:
+                    continue
+                if item.state == "submission_unknown":
+                    continue
+                if item.state == "cancelling":
+                    replacements[item_id] = item
+                    continue
+                if now_ms < item.updated_at_ms:
+                    raise DramaMediaTaskError("media task update time is invalid")
+                replacements[item_id] = _replace_task(
+                    item, state="cancelling", now_ms=now_ms
+                )
+            if not any(
+                replacements[item_id] != by_id[item_id]
+                for item_id in replacements
+            ):
+                return [by_id[item] for item in sorted(affected)]
+            tasks = [
+                replacements.get(item.task_id, item) for item in ledger.tasks
+            ]
+            updated = _build_ledger(
+                number, tasks, revision=ledger.revision + 1
+            )
+            _persist_ledger(
+                workspace, updated, expected_target_token=token
+            )
+            updated_by_id = {item.task_id: item for item in updated.tasks}
+            return [updated_by_id[item] for item in sorted(affected)]
+    except FileNotFoundError:
+        raise DramaMediaTaskError("media task ledger is missing") from None
+    except WorkspaceLocked:
+        raise DramaMediaTaskError("media task workspace is busy") from None
+    except DramaMediaTaskError:
+        raise
+    except (OSError, RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media task cancellation was rejected") from None
+
+
+def build_media_task_projection(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> dict[str, Any]:
+    """Return a bounded allowlist projection; missing storage is an empty DAG."""
+
+    number = normalize_episode_no(episode_no)
+    try:
+        ledger = _read_ledger(workspace, episode_no=number)
+    except FileNotFoundError:
+        ledger = _empty_ledger(number)
+    by_id = {item.task_id: item for item in ledger.tasks}
+    tasks = []
+    for item in ledger.tasks:
+        blocked = [
+            dependency_id
+            for dependency_id in item.dependency_task_ids
+            if by_id[dependency_id].state != "succeeded"
+        ]
+        tasks.append(
+            {
+                "task_id": item.task_id,
+                "episode_no": item.episode_no,
+                "media_kind": item.media_kind,
+                "stage": item.stage,
+                "subject_id": item.subject_id,
+                "dependency_task_ids": list(item.dependency_task_ids),
+                "blocked_dependency_ids": blocked,
+                "state": item.state,
+                "revision": item.revision,
+                "created_at_ms": item.created_at_ms,
+                "updated_at_ms": item.updated_at_ms,
+                "result_fingerprint": item.result_fingerprint,
+                "outcome_code": item.outcome_code,
+            }
+        )
+    counts = {
+        state: sum(1 for item in ledger.tasks if item.state == state)
+        for state in _TRANSITIONS
+    }
+    return {
+        "schema_version": 1,
+        "episode_no": number,
+        "ledger_revision": ledger.revision,
+        "ledger_fingerprint": ledger.ledger_fingerprint,
+        "task_count": len(tasks),
+        "state_counts": counts,
+        "tasks": tasks,
+    }

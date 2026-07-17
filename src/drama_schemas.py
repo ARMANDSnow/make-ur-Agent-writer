@@ -7072,3 +7072,281 @@ class ShotVideoAttemptInspection(BaseModel):
         ):
             raise ValueError("shot video attempt outcomes overlap")
         return self
+
+
+DramaMediaKind = Literal["image", "video", "audio", "compose", "export"]
+DramaMediaStage = Literal[
+    "image-generate",
+    "video-generate",
+    "tts-synthesize",
+    "compose",
+    "edit-export",
+]
+DramaMediaTaskState = Literal[
+    "planned",
+    "ready",
+    "claimed",
+    "submitting",
+    "submitted",
+    "polling",
+    "submission_unknown",
+    "downloading",
+    "validating",
+    "succeeded",
+    "failed",
+    "cancelling",
+    "cancelled",
+]
+DramaMediaTaskOutcomeCode = Literal[
+    "local_failure",
+    "provider_rejected",
+    "provider_failed",
+    "transport_unknown",
+    "poll_failed",
+    "download_failed",
+    "validation_failed",
+    "cancel_confirmed",
+    "cancel_failed",
+    "deadline_exceeded",
+    "capacity_exhausted",
+    "dependency_failed",
+]
+
+_DRAMA_MEDIA_STAGE_KIND = {
+    "image-generate": "image",
+    "video-generate": "video",
+    "tts-synthesize": "audio",
+    "compose": "compose",
+    "edit-export": "export",
+}
+_DRAMA_MEDIA_TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
+
+
+class DramaMediaTask(BaseModel):
+    """One generic orchestration record; paid receipts remain separate artifacts."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    media_kind: DramaMediaKind
+    stage: DramaMediaStage
+    subject_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+    input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    backend_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{0,63}$")
+    provider_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    model_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    account_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    endpoint_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    dependency_task_ids: List[str] = Field(max_length=32)
+    dedupe_key: str = Field(pattern=_SHA256_PATTERN)
+    attempt_no: int = Field(ge=1, le=1000)
+    state: DramaMediaTaskState
+    revision: int = Field(ge=0, le=10_000)
+    created_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    updated_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    result_fingerprint: Optional[str] = Field(
+        default=None, pattern=_SHA256_PATTERN
+    )
+    outcome_code: Optional[DramaMediaTaskOutcomeCode] = None
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "episode_no",
+        "attempt_no",
+        "revision",
+        "created_at_ms",
+        "updated_at_ms",
+        mode="before",
+    )
+    @classmethod
+    def _media_task_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("dependency_task_ids", mode="before")
+    @classmethod
+    def _media_task_dependencies_are_canonical(cls, value: Any) -> List[str]:
+        if (
+            not isinstance(value, list)
+            or value != sorted(value)
+            or len(value) != len(set(value))
+            or any(
+                not isinstance(item, str)
+                or re.fullmatch(r"dmt_[0-9a-f]{24}", item) is None
+                for item in value
+            )
+        ):
+            raise ValueError("media task dependencies must be a canonical list")
+        return value
+
+    def dedupe_payload(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "episode_no": self.episode_no,
+            "media_kind": self.media_kind,
+            "stage": self.stage,
+            "subject_id": self.subject_id,
+            "input_fingerprint": self.input_fingerprint,
+            "backend_id": self.backend_id,
+            "provider_fingerprint": self.provider_fingerprint,
+            "model_fingerprint": self.model_fingerprint,
+            "account_fingerprint": self.account_fingerprint,
+            "endpoint_fingerprint": self.endpoint_fingerprint,
+            "dependency_task_ids": self.dependency_task_ids,
+        }
+
+    @model_validator(mode="after")
+    def _media_task_is_content_addressed(self) -> "DramaMediaTask":
+        if _DRAMA_MEDIA_STAGE_KIND[self.stage] != self.media_kind:
+            raise ValueError("media task stage does not match its media kind")
+        if self.task_id in self.dependency_task_ids:
+            raise ValueError("media task cannot depend on itself")
+        if self.updated_at_ms < self.created_at_ms:
+            raise ValueError("media task update time precedes creation")
+        dedupe_key = _canonical_sha256(self.dedupe_payload())
+        if self.dedupe_key != dedupe_key:
+            raise ValueError("media task dedupe key is invalid")
+        task_payload = {
+            **self.dedupe_payload(),
+            "attempt_no": self.attempt_no,
+        }
+        task_id = f"dmt_{_canonical_sha256(task_payload)[:24]}"
+        if self.task_id != task_id:
+            raise ValueError("media task id is invalid")
+        if self.state == "succeeded":
+            if self.result_fingerprint is None or self.outcome_code is not None:
+                raise ValueError("succeeded media task result is invalid")
+        elif self.state == "submission_unknown":
+            if (
+                self.result_fingerprint is not None
+                or self.outcome_code != "transport_unknown"
+            ):
+                raise ValueError("unknown media submission outcome is invalid")
+        elif self.state == "cancelled":
+            if (
+                self.result_fingerprint is not None
+                or self.outcome_code != "cancel_confirmed"
+            ):
+                raise ValueError("cancelled media task outcome is invalid")
+        elif self.state == "failed":
+            if (
+                self.result_fingerprint is not None
+                or self.outcome_code is None
+                or self.outcome_code in {"transport_unknown", "cancel_confirmed"}
+            ):
+                raise ValueError("media task outcome is incomplete")
+        elif self.result_fingerprint is not None or self.outcome_code is not None:
+            raise ValueError("active media task cannot carry a terminal outcome")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("media task record fingerprint is invalid")
+        return self
+
+
+class DramaMediaTaskLedger(BaseModel):
+    """Episode-scoped task DAG with strict active-dedupe and cycle checks."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    revision: int = Field(ge=0, le=1_000_000)
+    tasks: List[DramaMediaTask] = Field(max_length=1000)
+    ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", "revision", mode="before")
+    @classmethod
+    def _media_ledger_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("tasks", mode="before")
+    @classmethod
+    def _media_ledger_tasks_are_a_list(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("media task ledger tasks must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _media_ledger_is_a_canonical_dag(self) -> "DramaMediaTaskLedger":
+        task_ids = [item.task_id for item in self.tasks]
+        if task_ids != sorted(task_ids) or len(task_ids) != len(set(task_ids)):
+            raise ValueError("media task ledger order or identity is invalid")
+        by_id = {item.task_id: item for item in self.tasks}
+        active_dedupe: set[str] = set()
+        attempts_by_dedupe: Dict[str, List[int]] = {}
+        for task in self.tasks:
+            if task.episode_no != self.episode_no:
+                raise ValueError("media task episode identity is invalid")
+            if any(item not in by_id for item in task.dependency_task_ids):
+                raise ValueError("media task dependency is missing")
+            if any(
+                task.created_at_ms < by_id[item].created_at_ms
+                for item in task.dependency_task_ids
+            ):
+                raise ValueError("media task predates its dependency")
+            dependencies_succeeded = all(
+                by_id[item].state == "succeeded"
+                for item in task.dependency_task_ids
+            )
+            if task.state == "planned":
+                if (
+                    not task.dependency_task_ids
+                    or dependencies_succeeded
+                    or any(
+                        by_id[item].state in {"failed", "cancelled", "cancelling"}
+                        for item in task.dependency_task_ids
+                    )
+                ):
+                    raise ValueError("planned media task is not dependency-blocked")
+            elif (
+                task.state == "failed"
+                and task.outcome_code == "dependency_failed"
+            ):
+                if not any(
+                    by_id[item].state == "failed"
+                    for item in task.dependency_task_ids
+                ):
+                    raise ValueError("dependency failure has no failed dependency")
+            elif (
+                task.state not in {"cancelling", "cancelled"}
+                and not dependencies_succeeded
+            ):
+                raise ValueError("active media task has incomplete dependencies")
+            if task.state not in _DRAMA_MEDIA_TERMINAL_STATES:
+                if task.dedupe_key in active_dedupe:
+                    raise ValueError("active media task dedupe key is duplicated")
+                active_dedupe.add(task.dedupe_key)
+            attempts_by_dedupe.setdefault(task.dedupe_key, []).append(
+                task.attempt_no
+            )
+        if any(
+            sorted(attempts) != list(range(1, len(attempts) + 1))
+            for attempts in attempts_by_dedupe.values()
+        ):
+            raise ValueError("media task attempts must be contiguous")
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(task_id: str) -> None:
+            if task_id in visiting:
+                raise ValueError("media task dependency cycle is invalid")
+            if task_id in visited:
+                return
+            visiting.add(task_id)
+            for dependency_id in by_id[task_id].dependency_task_ids:
+                visit(dependency_id)
+            visiting.remove(task_id)
+            visited.add(task_id)
+
+        for task_id in task_ids:
+            visit(task_id)
+        payload = self.model_dump(exclude={"ledger_fingerprint"})
+        if _canonical_sha256(payload) != self.ledger_fingerprint:
+            raise ValueError("media task ledger fingerprint is invalid")
+        return self
