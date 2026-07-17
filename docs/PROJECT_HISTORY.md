@@ -57,6 +57,7 @@
 | 129 | 短剧资产管理 Web 总览与治理 | strict allowlist 六分区资产页、scope-aware/cross-season impact 与受控 CAS mutation |
 | 130 | 短剧逐镜图片候选 Web 比较与选择 | strict/bounded C4 投影、metadata-safe exact PNG preview 与 guarded first/tail selection |
 | 131 | 短剧逐镜视频候选 Web 与连续性门禁 | derived-only MP4 preview、attempt/coverage/continuity 投影与 guarded selection |
+| 132 | 短剧 Web 合成、QA 与交付 | 持久 E3/current gate、本地 F1/F2 job、durable QA、四类 exact delivery 与 revision retention |
 
 ## Iteration Implementation Index
 
@@ -169,6 +170,7 @@
 | 129 | 建立资产治理 Web 投影与受控 mutation | `src/drama_asset_web.py`、`src/web/`、`tests/test_drama_asset_web.py`、`tests/test_web_server.py` |
 | 130 | 建立逐镜图片候选比较、选择与安全预览 Web | `src/drama_shot_image_web.py`、`src/web/`、`tests/test_drama_shot_image_web.py`、`tests/test_web_server.py` |
 | 131 | 建立逐镜视频候选、连续性与安全派生预览 Web | `src/drama_shot_video_web.py`、`src/drama_shot_video_candidate_store.py`、`src/web/`、`tests/test_drama_shot_video_web.py` |
+| 132 | 建立短剧 Web 本地合成、durable QA 与 exact delivery | `src/drama_compose_web.py`、`src/drama_compositor.py`、`src/web/`、`tests/test_drama_compose_web.py` |
 
 ## Durable Decisions
 
@@ -246,6 +248,7 @@
 34. **资产零引用必须来自完整扫描证明，不能来自文件缺席**：跨集 used-by 要先枚举 canonical episode/source 闭包，再把缺失、坏 envelope、identity 错位、目录 symlink 与扫描竞态显式变成 blocker。`disabled` 只关闭未来选择/物化入口，不能删除或破坏历史冻结引用；即使当前 `references=[]`，没有独立 GC 协议也不能推出物理可删除。
 35. **多层 fallback 必须冻结解析历史，而不能只保存最终 ref**：Episode > Series > Global 若逐层读取却不复查先前 missing token，会在高层覆盖并发出现时短暂把低层计划判 fresh。resolution 应显式保存 selection/scope revision 并自校验 lineage；scope clear 与 lifecycle disabled 必须使用不同状态语义，Global mutation 还要检查所有已知 season ledger，不能信任调用方指定的单季证明。
 36. **内容哈希有效不等于媒体可安全公开**：浏览器不应直接消费 provider MP4；应从 manifest read 前实施并发/字节门禁，对单视频轨、尺寸、sample 与线程做解码前限制，再以去 metadata 的 decode/re-encode 派生物公开。超过 Web 重验上限的已选素材应保留可清除的 exact CAS 状态，但必须显式 `web_unverified` 并阻断 compose readiness，不能读取后才拒绝或误标成领域 artifact invalid。
+37. **Web 完成态必须绑定持久源、阶段锁与可交付上限**：job success 不是 durable truth；F1/F2 开始后仍要在各自锁内重读 current E3，下载应在同一 workspace snapshot 中绑定 episode/fingerprint 并重建 QA/completion。生成、验证和 Web 交付若使用不同字节上限，会产生“成功但不可下载”；content-addressed revision 还必须在幂等 replay 路径补偿清理不可达交付，否则 crash 会把有限单次输出变成无界累计磁盘。
 
 ## Historical Evidence Notes
 

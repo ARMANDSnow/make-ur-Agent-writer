@@ -46,7 +46,13 @@ iter119-123 已完成 D4 compose gate、E3 唯一 TimelineManifest 与 F1 本地
 
 ## Acceptance Result
 
-<iter-finish 回填 A132-01..05、测试数、canonical、真文本校准、审查结论与未修风险。>
+- **A132-01 — passed**：Web overview 只从 current D4、持久 E3、F1 QA 与 F2 completion/source identity 重建 `needs_timeline/ready/partial/stale/invalid/complete`；job 只作 exact episode 的运行态投影，公开字段保持 allowlist。
+- **A132-02 — passed**：drama-only compose job 仅执行本地 F1/F2；FFmpeg/F2 均在各自 workspace lock 内重读 stored E3 并要求 exact identity，最终 `committed=true` 前再次复核。全局 compose 单槽、64 MiB 单一输出上限、128 MiB 总源集、单线程、timeout/cancel checkpoint、subtitle CAS exact replay 与中断后 retention 补偿均有回归。
+- **A132-03 — passed**：MP4/SRT/ASS/edit 下载绑定 workspace、episode 与完整 timeline fingerprint，并在同一 workspace lock 快照内重验 F1 probe/QA、F2 completion/source identity、regular-file/size/hash；HEAD/Range、固定文件名和 allowlist headers 通过。真实本地 episode 2 fixture 走完 D1-D4/E3/F1/F2、公开 ready→complete overview、四类 route 与 wrong-episode 404。
+- **A132-04 — passed**：页面支持显式启动、刷新/重启后的 durable truth、取消、QA 摘要与四件套下载；32 KiB JSON/intent/transport guard、409/503 恢复、窄屏按钮和错误脱敏已覆盖。真实图片/视频/TTS 调用均为 0。
+- **A132-05 — passed（真文本语义校准未通过）**：implementation commit `5543588ad77b8fac482a7a9767ad29dc443e0c61` 上唯一 canonical `bash scripts/verify.sh` exit 0：**2628 tests OK**、15 steps、369 秒，run `edab55b42f19464cbfe7abe7a5a978eb`，tree `4cabd5068f1ac88374daba9d549bca1cbacb24b7`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN，结论 `mock-functional`；mandatory local-drama step 为 `local-e2e`，不升级 provider 结论。最终聚焦 F3 module 为 17 tests OK；correctness、security/boundary、Web/runner/media 三视角终审均 no findings。
+- 真文本按授权共发生 2 次 HTTP attempt：第一次网关 HTTP 403、无 model response；获预授权追加重试后，`gpt-5.5-medium` HTTP 200，21.135 秒，provider usage 1375 tokens。四项检查中 durable truth、锁内 current E3、零 provider 执行为 true，exact episode+fingerprint download 为 false，因此记录为“传输/模型响应成功，语义校准未通过”，不再重试。iter125-132 累计保守计 10/60 请求、8 次 HTTP/model response、6 次协议检查通过，预留约 ¥0.80；图片 0/20、视频/TTS 0。未读取 `.env`，key、完整 prompt 与 response 正文均未输出或落盘。
+- **未修风险**：当前是本地个人研究工具；64 MiB 下载在 HTTP 单槽内有界 materialize，不是公网流式多租户方案。真实逐镜媒体、真实 TTS、特定 NLE、多 profile/codec 与主观质量仍未验证；本轮模型语义校准的 1 项 false 不覆盖 canonical、代码审查与 deterministic 回归结论。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
@@ -71,6 +77,9 @@ iter119-123 已完成 D4 compose gate、E3 唯一 TimelineManifest 与 F1 本地
 | `tests/test_drama_compose_web.py` | E3/F3、竞态、取消、资源、状态与下载回归 |
 | `tests/test_drama_compositor.py`、`tests/test_web_server.py` | FFmpeg 上限与 transport cap 回归 |
 | `docs/product/short_drama_module.md` | 晋升 F3 长期 SOP 与精确完成边界 |
+| `README.md` | 就地同步项目状态与 A-J SOP |
+| `docs/AGENT_HANDOFF.md` | 当前快照、证据、缺口、候选与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | iter132 阶段里程碑与长期交付边界 |
 
 ## 不在本轮范围
 
