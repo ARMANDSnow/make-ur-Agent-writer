@@ -54,6 +54,7 @@
 | 126 | 短剧 Visual Override 与 Stale 矩阵 | 四字段不可变 override、双 CAS/receipt ledger 与 A-F 精确传播 |
 | 127 | 短剧跨集资产 Used-By 与停用保护 | 四类 exact-version 反向索引、坏源 blocker、非破坏停用与新物化保护 |
 | 128 | 短剧 ArtDirection 多 Scope 解析与冻结 | Episode > Series > Global、revision lineage、显式 clear 与跨 season retirement guard |
+| 129 | 短剧资产管理 Web 总览与治理 | strict allowlist 六分区资产页、scope-aware/cross-season impact 与受控 CAS mutation |
 
 ## Iteration Implementation Index
 
@@ -163,6 +164,7 @@
 | 126 | 建立 visual override、可恢复选择与 stale 矩阵 | `src/drama_schemas.py`、`src/drama_visual_overrides.py`、`tests/test_drama_visual_overrides.py` |
 | 127 | 建立跨集资产使用索引与非破坏停用治理 | `src/drama_schemas.py`、`src/drama_asset_usage.py`、`src/drama_asset_versions.py`、`tests/test_drama_asset_usage.py` |
 | 128 | 建立 ArtDirection 多 Scope 解析与 RenderPlan 冻结 | `src/drama_art_direction_scope.py`、`src/drama_render_store.py`、`src/drama_asset_usage.py`、`tests/test_drama_art_direction_scope.py` |
+| 129 | 建立资产治理 Web 投影与受控 mutation | `src/drama_asset_web.py`、`src/web/`、`tests/test_drama_asset_web.py`、`tests/test_web_server.py` |
 
 ## Durable Decisions
 

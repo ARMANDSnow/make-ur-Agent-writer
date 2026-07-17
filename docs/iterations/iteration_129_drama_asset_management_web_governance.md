@@ -44,7 +44,14 @@ iter127-128 已完成阶段 B 的 exact-version Used-By/停用治理与 ArtDirec
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、canonical、真模型校准、审查结论与未修风险。>
+- **A129-01 — passed**：`src/drama_asset_web.py` 对 character、ArtDirection（Series/Global/Episode）、scene、prop/clue 使用 strict allowlist 和确定性排序；公开字段限于 semantic/version identity、selected/lifecycle/scope、exact-version Used-By、scope-specific impact、revision 与有界 blocker，不透传 catalog 自由文本、prompt、provider metadata、artifact path 或签名 URL。
+- **A129-02 — passed**：新增 drama-only `/w/<name>/assets` 与 `GET /api/workspace/<name>/drama/assets`；缺失可选 catalog 为空状态，坏源、跨 season/episode identity、特殊文件和读取竞态 fail closed。现有 workspace 导航、可访问状态和响应式表格契约均由聚焦测试覆盖。
+- **A129-03 — passed**：select、active/disabled、ArtDirection clear/re-enable 均由服务端重建权威 overview 后使用既有 revision/current identity/target-token CAS；客户端不能提交 impact。exact current no-op 返回 `changed=false` 且空 affected refs，旧 revision 返回 409 并由 Web 刷新；Global 影响与可选择性覆盖全部已知 canonical season。
+- **A129-04 — passed**：mutation 同时要求 JSON、`X-Drama-Asset-Intent: mutate-v1`、Origin/Host 与 Fetch Metadata；route/HTTP transport 均设 32 KiB cap，后者在 `rfile.read` 前拒绝超限 body。workspace reservation、nofollow、lock、precommit CAS 与有界错误投影保持生效。
+- **A129-05 — passed**：最终聚焦回归 205 tests，`py_compile`、Dashboard JS `node --check`、agent harness 与 `git diff --check` 通过。correctness、security/boundary、Web-governance 三个独立只读复审最终均无 findings，主线程复核无未处理 P0/P1/P2。
+- Implementation commit `443f56427fda789864c662ff4342d571d595d353` 上唯一 canonical `bash scripts/verify.sh` 通过：2574 tests、15/15 steps、310 秒，run `816d5c73c07141fdbb540efda7fe4020`，tree `55894cecca947b67db77a0367e105d6fdfe366ee`，`tracked_scope_clean=true`，mock preflight 0 WARN/FATAL；验收级别 `mock-functional` / `canonical-mock-offline`，mandatory `local_drama_e2e` 通过，`provider_validated=false`。
+- 本轮真文本协议校准 1/1 成功：`gpt-5.5-medium`，HTTP 200，151 tokens，2.758 秒，strict JSON exact keys 与四项约束全部匹配。累计 iter125-129 为 6/60 次文本请求、5 次模型成功，保守预留约 ¥0.50；图片 0/20，视频/TTS 0。本证据只记为局部文本协议校准，不把总验收升级为 provider-validated。
+- 未修风险：物理 GC、真实逐镜图片/视频 provider、主观媒体质量、JPEG/WebP、通用 production workbench/归档、真实 TTS 与 episode 2+ 成片仍在后续范围；本轮无已知未处理 P0/P1/P2。
 
 ### Knowledge Promotion
 - `decision`: `none`
