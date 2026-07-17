@@ -1576,8 +1576,19 @@ JS_DASHBOARD = """\
     ensureLeaveGuardDelegate();
   }
   function statusBadge(status) {
-    const cls = (status || "blocked").toLowerCase();
-    return '<span class="badge ' + escapeHtml(cls) + '">' + escapeHtml(status || "?") + "</span>";
+    const raw = String(status || "blocked");
+    const cls = raw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) || "blocked";
+    return '<span class="badge ' + escapeHtml(cls) + '">' + escapeHtml(statusLabel(raw)) + "</span>";
+  }
+  const STATUS_LABELS = {
+    succeeded: "已完成", completed: "已完成", ok: "成功", ready: "已就绪",
+    pending: "等待中", queued: "排队中", running: "进行中", generating: "生成中",
+    failed: "失败", error: "失败", retry_error: "本次失败", blocked: "已阻断",
+    cancelled: "已取消", canceled: "已取消", unknown: "未知",
+  };
+  function statusLabel(status) {
+    const raw = String(status || "unknown");
+    return STATUS_LABELS[raw.toLowerCase()] || raw;
   }
   function verdictBadge(verdict) {
     if (!verdict) return '<span class="badge no-dot">—</span>';
@@ -1629,7 +1640,7 @@ JS_DASHBOARD = """\
   }
   function recentJobLabel(job) {
     if (!job) return "无";
-    return (job.step || "?") + " · " + (job.status || "?");
+    return stepLabel(job.step) + " · " + statusLabel(job.status);
   }
   function recentJobMetric(job) {
     const cls = historicalJobStatus(job && job.status) ? ' class="metric history"' : ' class="metric"';
@@ -2414,6 +2425,9 @@ JS_DASHBOARD = """\
     "drama-plan": "短剧站①核心设定", "drama-hooks": "短剧站②钩子",
     "drama-storyboard": "短剧站③分镜", "drama-characters": "短剧站④角色",
     "drama-review-assemble": "短剧站⑤评审组装",
+    "drama_plan": "短剧站①核心设定", "drama_hooks": "短剧站②钩子",
+    "drama_storyboard": "短剧站③分镜", "drama_character": "短剧站④角色",
+    "drama_review": "短剧站⑤评审组装",
     "drama-video": "短剧视频生成",
   };
   function stepLabel(step) {
@@ -3926,10 +3940,10 @@ JS_DASHBOARD = """\
     const reason = detail && detail.reason ? detail.reason : "";
     const line = jobFailureLine(job);
     const icon = icons[status] || "•";
-    if (status === "succeeded") return icon + " succeeded" + (job.result_summary && job.result_summary.snapshot_path ? " · snapshot ready" : "");
-    if (reason) return icon + " " + status + " · " + reason;
-    if (line) return icon + " " + status + " · " + line;
-    return icon + " " + status;
+    if (status === "succeeded") return icon + " 已完成" + (job.result_summary && job.result_summary.snapshot_path ? " · 快照已就绪" : "");
+    if (reason) return icon + " " + statusLabel(status) + " · " + reason;
+    if (line) return icon + " " + statusLabel(status) + " · " + line;
+    return icon + " " + statusLabel(status);
   }
   function jobActionKind(job) {
     const detail = jobBlockedDetail(job);
@@ -6381,7 +6395,7 @@ JS_DASHBOARD = """\
       const response = Number(call.response_tokens) || 0;
       const duration = Number(call.duration_ms);
       return '<tr>' +
-        '<td>' + escapeHtml(call.task || call.operation || "—") + '</td>' +
+        '<td>' + escapeHtml(stepLabel(call.task || call.operation || "")) + '</td>' +
         '<td>' + statusBadge(call.status || "unknown") + '</td>' +
         '<td><code>' + escapeHtml(call.model || "—") + '</code></td>' +
         '<td>' + (isFinite(duration) ? escapeHtml((duration / 1000).toFixed(1) + " 秒") : "—") + '</td>' +
@@ -6402,7 +6416,7 @@ JS_DASHBOARD = """\
       const data = await fetchJson(wsUrl("/jobs/recent?n=20"));
       const items = data.jobs || [];
       if (!items.length) {
-        recentBox.innerHTML = emptyState("尚无任务历史", "点击「续写」启动第一个任务后会出现在这里。", "");
+        recentBox.innerHTML = emptyState("尚无任务历史", "发起第一个生成任务后会出现在这里。", "");
       } else {
         const byId = new Map();
         const rows = items.map((job) => {
@@ -6413,7 +6427,7 @@ JS_DASHBOARD = """\
           return (
             '<tr class="job-row">' +
             '<td><button type="button" class="btn btn-icon btn-sm job-toggle" aria-expanded="false" aria-controls="' + rowId + '" data-job-toggle="' + escapeHtml(job.job_id || "") + '">▸</button></td>' +
-            "<td>" + escapeHtml(job.step || "?") + "</td>" +
+            "<td>" + escapeHtml(stepLabel(job.step)) + "</td>" +
             "<td>" + statusBadge(job.status || "?") + "</td>" +
             '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code> " + copyButton(job.job_id || "") + "</td>" +
             '<td><span class="trace">' + escapeHtml(trace || "—") + "</span>" + (trace ? " " + copyButton(trace) : "") + "</td>" +
@@ -6425,7 +6439,7 @@ JS_DASHBOARD = """\
         }).join("");
         recentBox.innerHTML =
           tableScroll('<table class="table table-wide jobs-table"><thead><tr>' +
-          "<th></th><th>step</th><th>status</th><th>job_id</th><th>trace_id</th><th>started</th><th>note</th>" +
+          "<th></th><th>任务</th><th>状态</th><th>任务编号</th><th>追踪编号</th><th>开始时间</th><th>结果</th>" +
           "</tr></thead><tbody>" + rows + "</tbody></table>");
         recentBox.onclick = function (ev) {
           const toggle = ev.target.closest("[data-job-toggle]");

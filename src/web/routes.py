@@ -3293,26 +3293,47 @@ def api_workspace_logs_tail(name: str, n: int = 50) -> Tuple[int, str, bytes]:
     return _json(200, {"lines": lines})
 
 
-_PUBLIC_LLM_CALL_FIELDS = (
-    "task",
-    "operation",
-    "model",
-    "status",
-    "duration_ms",
-    "prompt_tokens",
-    "response_tokens",
-    "cache_read_tokens",
-    "cache_write_tokens",
-    "attempt",
-)
-
-
 def _public_llm_call_view(row: Dict[str, Any]) -> Dict[str, Any]:
     """Return the small, non-sensitive LLM summary used by the desktop UI."""
 
     if not isinstance(row, dict):
         return {}
-    return {field: row[field] for field in _PUBLIC_LLM_CALL_FIELDS if field in row}
+    out: Dict[str, Any] = {}
+    for field in ("task", "operation", "status"):
+        value = row.get(field)
+        limit = 80 if field != "status" else 40
+        if (
+            isinstance(value, str)
+            and 0 < len(value) <= limit
+            and re.fullmatch(r"[A-Za-z0-9._-]+", value)
+        ):
+            out[field] = value
+    model = row.get("model")
+    # Normal model ids are provider/name tokens.  Reject URL/userinfo/query
+    # shapes and free text rather than trying to redact every possible secret
+    # syntax after a settings mistake or a damaged legacy log line.
+    if (
+        isinstance(model, str)
+        and 0 < len(model) <= 160
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", model)
+        and not re.search(
+            r"(?:^|/)sk-[A-Za-z0-9_-]{16,}(?:$|/)", model, flags=re.IGNORECASE
+        )
+    ):
+        out["model"] = model
+    for field in (
+        "duration_ms", "prompt_tokens", "response_tokens",
+        "cache_read_tokens", "cache_write_tokens", "attempt",
+    ):
+        value = row.get(field)
+        if (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            and 0 <= float(value) <= 1_000_000_000
+        ):
+            out[field] = value
+    return out
 
 
 def api_workspace_recent_jobs(name: str, limit: int = 5) -> Tuple[int, str, bytes]:

@@ -34,7 +34,10 @@ class StoryboardBuilderTests(DramaTestBase):
         cp = character_paths(name)
         cp.sheet_path.parent.mkdir(parents=True, exist_ok=True)
         cp.sheet_path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
-        self._write_setup(name, hook=True, episode_no=2)
+        setup_path = self._write_setup(name, hook=True, episode_no=2)
+        setup = json.loads(setup_path.read_text(encoding="utf-8"))
+        setup["episode_mainline"] = "第 2 集专属主线：主角追查新的证据。"
+        setup_path.write_text(json.dumps(setup, ensure_ascii=False), encoding="utf-8")
         return sheet
 
     def test_mock_returns_valid_storyboard_per_track(self) -> None:
@@ -129,17 +132,42 @@ class StoryboardBuilderTests(DramaTestBase):
         sheet = self._episode_two_workspace("episode_two_board")
         first = storyboard_builder.run("episode_two_board", mock=True, episode_no=1)
         result = storyboard_builder.run("episode_two_board", mock=True, episode_no=2)
+        setup = json.loads(
+            episode_paths("episode_two_board", episode_no=2).setup_path.read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(result["episode_no"], 2)
         self.assertNotEqual(result["title"], first["title"])
         self.assertNotEqual(result["narrative"], first["narrative"])
+        self.assertEqual(result["narrative"], setup["episode_mainline"])
         self.assertNotEqual(
             [shot["visual"] for shot in result["shots"]],
             [shot["visual"] for shot in first["shots"]],
         )
         self.assertIn("第 2 集", result["shots"][0]["visual"])
+        self.assertIn(setup["hook"]["content"], result["shots"][0]["visual"])
         prompt = storyboard_builder.build_system_prompt("episode_two_board", episode_no=2)
         self.assertIn(sheet["characters"][0]["visual_signature"], prompt)
         self.assertIn("本季角色视觉签名", prompt)
+
+    def test_episode_two_mock_rewrite_keeps_episode_local_context(self) -> None:
+        self._episode_two_workspace("episode_two_rewrite")
+        original = storyboard_builder.run("episode_two_rewrite", mock=True, episode_no=2)
+        p = episode_paths("episode_two_rewrite", episode_no=2).storyboard_path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(original, ensure_ascii=False), encoding="utf-8")
+
+        updated = storyboard_builder.rewrite_shot(
+            "episode_two_rewrite", 3, mock=True, episode_no=2
+        )
+
+        self.assertNotEqual(updated["shots"][2], original["shots"][2])
+        self.assertIn("第 2 集", updated["shots"][2]["visual"])
+        self.assertIn("第 2 集", updated["shots"][2]["ai_draw_prompt"])
+        before = [shot for index, shot in enumerate(original["shots"]) if index != 2]
+        after = [shot for index, shot in enumerate(updated["shots"]) if index != 2]
+        self.assertEqual(after, before)
 
     def test_real_result_episode_number_is_server_pinned(self) -> None:
         self._episode_two_workspace("real_episode_two")

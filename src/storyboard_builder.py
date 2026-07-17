@@ -136,6 +136,13 @@ def rewrite_shot(
 
     if use_mock:
         replacement = _mock_replacement_shot(track, number, board.shots[number - 1])
+        if episode_no > 1:
+            replacement = _localize_mock_shot(
+                replacement,
+                setup=setup,
+                episode_no=episode_no,
+                opening=number == 1,
+            )
     else:
         if client is None:
             client = LLMClient("drama_storyboard")
@@ -348,4 +355,27 @@ def _mock_replacement_shot(track: str, shot_no: int, current: StoryboardShot) ->
     data["visual"] = f"{current.visual}（重生版）"
     if current.ai_draw_prompt:
         data["ai_draw_prompt"] = f"{current.ai_draw_prompt}，替代构图"
+    return StoryboardShot(**data)
+
+
+def _localize_mock_shot(
+    shot: StoryboardShot,
+    *,
+    setup: Dict[str, Any],
+    episode_no: int,
+    opening: bool,
+) -> StoryboardShot:
+    """Keep a mock single-shot rewrite inside the requested later episode."""
+
+    data = model_to_dict(shot)
+    tag = f"第 {episode_no} 集"
+    data["beat"] = f"{shot.beat} · {tag}"[:80]
+    hook = setup.get("hook") if isinstance(setup.get("hook"), dict) else {}
+    hook_content = str(hook.get("content") or "").strip()
+    if opening and hook_content:
+        data["visual"] = f"{tag}开场：{hook_content}"[:500]
+    else:
+        data["visual"] = f"{shot.visual}（{tag}重生镜头）"[:500]
+    prompt = str(shot.ai_draw_prompt or "")
+    data["ai_draw_prompt"] = f"{prompt}，{tag}连续剧情"[:800]
     return StoryboardShot(**data)

@@ -666,10 +666,39 @@ class RoutesGetTests(unittest.TestCase):
             }],
         )
 
+    def test_api_logs_tail_rejects_secret_shaped_model_and_bad_field_types(self) -> None:
+        log_path = Path(self._tmp.name) / "alpha" / "logs" / "llm_calls.jsonl"
+        log_path.write_text(
+            json.dumps({
+                "task": "drama_plan",
+                "status": {"bad": "shape"},
+                "model": "https://user:pass@example.test/model?token=secret",
+                "duration_ms": 1250,
+                "prompt_tokens": -1,
+            }) + "\n" + json.dumps({
+                "task": "drama_hooks",
+                "status": "ok",
+                "model": "openai/sk-" + "A" * 32,
+                "duration_ms": 2500,
+            }) + "\n",
+            encoding="utf-8",
+        )
+        status, data = self._get_json("/api/workspace/alpha/logs/tail?n=10")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["lines"], [
+            {"task": "drama_plan", "duration_ms": 1250},
+            {"task": "drama_hooks", "status": "ok", "duration_ms": 2500},
+        ])
+
     def test_jobs_ui_formats_times_and_renders_llm_summary_table(self) -> None:
         js = routes.static.JS_DASHBOARD
         self.assertIn("function formatJobTimestamp", js)
         self.assertIn("function renderLlmCallSummary", js)
+        self.assertIn("escapeHtml(stepLabel(job.step))", js)
+        self.assertIn('"drama_plan": "短剧站①核心设定"', js)
+        self.assertIn('return icon + " 已完成"', js)
+        self.assertIn("<th>任务</th><th>状态</th><th>任务编号</th>", js)
+        self.assertIn("发起第一个生成任务后会出现在这里", js)
         self.assertNotIn("lines.map((l) => escapeHtml(JSON.stringify(l)))", js)
 
     def test_api_cost_runs(self) -> None:
