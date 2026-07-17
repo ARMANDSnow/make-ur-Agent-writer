@@ -1677,6 +1677,337 @@ class EpisodePropOrClueAssetManifest(BaseModel):
         return self
 
 
+AssetUsageKind = Literal["character", "art_direction", "scene", "prop", "clue"]
+AssetRetirementStatus = Literal["active", "disabled"]
+AssetUsageSourceKind = Literal[
+    "episode_scan",
+    "character_catalog",
+    "art_direction_catalog",
+    "scene_catalog",
+    "prop_clue_catalog",
+    "render_plan",
+    "character_manifest",
+    "scene_manifest",
+    "prop_clue_manifest",
+]
+
+
+def _validate_asset_usage_identity(
+    *,
+    kind: AssetUsageKind,
+    asset_id: str,
+    version_id: str,
+) -> None:
+    identity_patterns = {
+        "character": (r"^c\d{3}$", _ASSET_VERSION_ID_PATTERN),
+        "art_direction": (
+            r"^[a-z][a-z0-9_-]{0,63}$",
+            _ART_DIRECTION_VERSION_ID_PATTERN,
+        ),
+        "scene": (_SCENE_ID_PATTERN, _SCENE_VERSION_ID_PATTERN),
+        "prop": (r"^p\d{3}$", _PROP_OR_CLUE_VERSION_ID_PATTERN),
+        "clue": (r"^l\d{3}$", _PROP_OR_CLUE_VERSION_ID_PATTERN),
+    }
+    if kind not in identity_patterns:
+        raise ValueError("asset usage kind is invalid")
+    if not isinstance(asset_id, str) or not isinstance(version_id, str):
+        raise ValueError("asset usage identity must use strings")
+    asset_pattern, version_pattern = identity_patterns[kind]
+    if re.fullmatch(asset_pattern, asset_id) is None:
+        raise ValueError("asset usage id does not match its kind")
+    if re.fullmatch(version_pattern, version_id) is None:
+        raise ValueError("asset usage version id does not match its kind")
+
+
+class AssetUsageReference(BaseModel):
+    """One frozen episode/shot use of an exact immutable asset version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    shot_ids: List[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _usage_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("shot_ids", mode="before")
+    @classmethod
+    def _usage_shot_ids_are_canonical(cls, value: Any) -> List[str]:
+        if not isinstance(value, list):
+            raise ValueError("asset usage shot_ids must be a list")
+        if any(
+            not isinstance(item, str)
+            or re.fullmatch(_SHOT_ID_PATTERN, item) is None
+            for item in value
+        ):
+            raise ValueError("asset usage contains an invalid shot id")
+        if value != sorted(value) or len(value) != len(set(value)):
+            raise ValueError("asset usage shot ids must be unique and sorted")
+        return value
+
+
+class AssetVersionUsage(BaseModel):
+    """Reverse references for one catalog version, including explicit zero use."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: AssetUsageKind
+    asset_id: str = Field(min_length=1, max_length=64)
+    version_id: str = Field(min_length=1, max_length=80)
+    references: List[AssetUsageReference] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    @model_validator(mode="after")
+    def _asset_version_usage_is_canonical(self) -> "AssetVersionUsage":
+        _validate_asset_usage_identity(
+            kind=self.kind,
+            asset_id=self.asset_id,
+            version_id=self.version_id,
+        )
+        keys = [
+            (item.episode_no, tuple(item.shot_ids)) for item in self.references
+        ]
+        if keys != sorted(keys) or len({item.episode_no for item in self.references}) != len(
+            self.references
+        ):
+            raise ValueError("asset usage references must be unique and sorted")
+        return self
+
+
+class AssetUsageSourceSnapshot(BaseModel):
+    """Bounded source byte identity used to build a reverse index."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: AssetUsageSourceKind
+    episode_no: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=MAX_DRAMA_EPISODE_NO,
+    )
+    sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _usage_source_episode_is_strict(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _usage_source_scope_is_valid(self) -> "AssetUsageSourceSnapshot":
+        episode_sources = {
+            "render_plan",
+            "character_manifest",
+            "scene_manifest",
+            "prop_clue_manifest",
+        }
+        if (self.source in episode_sources) != (self.episode_no is not None):
+            raise ValueError("asset usage source scope is inconsistent")
+        return self
+
+
+class AssetUsageBlocker(BaseModel):
+    """Sanitized reason why a cross-episode scan is not complete."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: AssetUsageSourceKind
+    episode_no: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=MAX_DRAMA_EPISODE_NO,
+    )
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _usage_blocker_episode_is_strict(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _usage_blocker_scope_is_valid(self) -> "AssetUsageBlocker":
+        episode_sources = {
+            "render_plan",
+            "character_manifest",
+            "scene_manifest",
+            "prop_clue_manifest",
+        }
+        if self.source == "episode_scan":
+            if self.episode_no is not None:
+                raise ValueError("episode scan blocker cannot name one episode")
+        elif (self.source in episode_sources) != (self.episode_no is not None):
+            raise ValueError("asset usage blocker scope is inconsistent")
+        return self
+
+
+class SeasonAssetUsageIndex(BaseModel):
+    """Content-addressed cross-episode reverse index for all B-stage assets."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    scanned_episode_nos: List[int] = Field(default_factory=list, max_length=100)
+    entries: List[AssetVersionUsage] = Field(default_factory=list, max_length=4096)
+    source_snapshots: List[AssetUsageSourceSnapshot] = Field(
+        default_factory=list,
+        max_length=512,
+    )
+    blockers: List[AssetUsageBlocker] = Field(default_factory=list, max_length=512)
+    index_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", mode="before")
+    @classmethod
+    def _usage_index_season_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("asset usage season_no must be a strict integer")
+        return value
+
+    @field_validator("scanned_episode_nos", mode="before")
+    @classmethod
+    def _scanned_episodes_are_canonical(cls, value: Any) -> List[int]:
+        if not isinstance(value, list):
+            raise ValueError("scanned_episode_nos must be a list")
+        normalized = [_strict_schema_episode_no(item) for item in value]
+        if normalized != sorted(normalized) or len(normalized) != len(set(normalized)):
+            raise ValueError("scanned episode numbers must be unique and sorted")
+        return normalized
+
+    @model_validator(mode="after")
+    def _usage_index_is_content_addressed(self) -> "SeasonAssetUsageIndex":
+        entry_keys = [
+            (item.kind, item.asset_id, item.version_id) for item in self.entries
+        ]
+        if entry_keys != sorted(entry_keys) or len(entry_keys) != len(set(entry_keys)):
+            raise ValueError("asset usage entries must be unique and sorted")
+        source_keys = [
+            (item.source, item.episode_no or 0, item.sha256)
+            for item in self.source_snapshots
+        ]
+        if source_keys != sorted(source_keys) or len(source_keys) != len(set(source_keys)):
+            raise ValueError("asset usage sources must be unique and sorted")
+        blocker_keys = [
+            (item.source, item.episode_no or 0, item.code)
+            for item in self.blockers
+        ]
+        if blocker_keys != sorted(blocker_keys) or len(blocker_keys) != len(
+            set(blocker_keys)
+        ):
+            raise ValueError("asset usage blockers must be unique and sorted")
+        payload = self.model_dump(exclude={"index_fingerprint"})
+        if _canonical_sha256(payload) != self.index_fingerprint:
+            raise ValueError("asset usage index fingerprint is invalid")
+        return self
+
+
+class AssetRetirementEntry(BaseModel):
+    """Non-destructive lifecycle state for one exact catalog version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: AssetUsageKind
+    asset_id: str = Field(min_length=1, max_length=64)
+    version_id: str = Field(min_length=1, max_length=80)
+    status: AssetRetirementStatus
+    status_revision: int = Field(ge=1, le=2_147_483_647)
+    usage_index_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+
+    @field_validator("status_revision", mode="before")
+    @classmethod
+    def _retirement_entry_revision_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("asset retirement entry revision must be strict")
+        return value
+
+    @model_validator(mode="after")
+    def _retirement_entry_is_consistent(self) -> "AssetRetirementEntry":
+        _validate_asset_usage_identity(
+            kind=self.kind,
+            asset_id=self.asset_id,
+            version_id=self.version_id,
+        )
+        if self.status == "disabled" and self.usage_index_fingerprint is None:
+            raise ValueError("disabled asset version must bind a usage index")
+        return self
+
+
+class AssetRetirementState(BaseModel):
+    """Season-scoped active/disabled ledger; no physical-delete state exists."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    revision: int = Field(ge=0, le=2_147_483_647)
+    entries: List[AssetRetirementEntry] = Field(default_factory=list, max_length=4096)
+    state_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "revision", mode="before")
+    @classmethod
+    def _retirement_state_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _retirement_state_is_content_addressed(self) -> "AssetRetirementState":
+        keys = [(item.kind, item.asset_id, item.version_id) for item in self.entries]
+        if keys != sorted(keys) or len(keys) != len(set(keys)):
+            raise ValueError("asset retirement entries must be unique and sorted")
+        if any(item.status_revision > self.revision for item in self.entries):
+            raise ValueError("asset retirement entry revision exceeds state revision")
+        payload = self.model_dump(exclude={"state_fingerprint"})
+        if _canonical_sha256(payload) != self.state_fingerprint:
+            raise ValueError("asset retirement state fingerprint is invalid")
+        return self
+
+
+class AssetRetirementDecision(BaseModel):
+    """Read-only retirement projection; physical deletion is always forbidden."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: AssetUsageKind
+    asset_id: str = Field(min_length=1, max_length=64)
+    version_id: str = Field(min_length=1, max_length=80)
+    current_status: AssetRetirementStatus
+    references: List[AssetUsageReference] = Field(default_factory=list, max_length=100)
+    blockers: List[AssetUsageBlocker] = Field(default_factory=list, max_length=512)
+    can_disable: bool
+    can_physically_delete: Literal[False] = False
+    decision_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _retirement_decision_is_content_addressed(
+        self,
+    ) -> "AssetRetirementDecision":
+        _validate_asset_usage_identity(
+            kind=self.kind,
+            asset_id=self.asset_id,
+            version_id=self.version_id,
+        )
+        if self.can_disable != (not self.blockers):
+            raise ValueError("asset retirement disable decision is inconsistent")
+        payload = self.model_dump(exclude={"decision_fingerprint"})
+        if _canonical_sha256(payload) != self.decision_fingerprint:
+            raise ValueError("asset retirement decision fingerprint is invalid")
+        return self
+
+
 ShotImageReferenceKind = Literal["character", "scene", "prop", "clue"]
 ShotImageRequestStatus = Literal["assembled", "blocked"]
 ShotImageWarningCode = Literal[

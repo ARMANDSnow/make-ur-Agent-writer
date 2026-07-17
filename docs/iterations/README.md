@@ -148,3 +148,4 @@
 133. [Iteration 124 - 短剧桌面端 SOP 与真模型验证](./iteration_124_drama_desktop_sop_real_provider_validation.md)
 134. [Iteration 125 - 短剧 ASS 与可编辑工程导出](./iteration_125_drama_ass_editable_export.md)
 135. [Iteration 126 - 短剧 Visual Override 与 Stale 依赖矩阵](./iteration_126_drama_visual_override_stale_matrix.md)
+136. [Iteration 127 - 短剧资产跨集 Used-By 与停用保护](./iteration_127_drama_asset_cross_episode_usage_retirement.md)

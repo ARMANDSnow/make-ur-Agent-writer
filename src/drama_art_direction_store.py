@@ -481,6 +481,15 @@ def _select_art_direction_version_impl(
         )
         if desired == current:
             return current
+        from .drama_asset_usage import assert_asset_version_selectable
+
+        assert_asset_version_selectable(
+            workspace,
+            kind="art_direction",
+            asset_id=current.art_direction_id,
+            version_id=version_id,
+            season_no=season,
+        )
 
         def precommit() -> None:
             final = _read_catalog(workspace, season_no=season)
@@ -488,6 +497,13 @@ def _select_art_direction_version_impl(
                 raise DramaArtDirectionStoreError(
                     "art direction catalog changed concurrently"
                 )
+            assert_asset_version_selectable(
+                workspace,
+                kind="art_direction",
+                asset_id=current.art_direction_id,
+                version_id=version_id,
+                season_no=season,
+            )
 
         _write_catalog(
             workspace,

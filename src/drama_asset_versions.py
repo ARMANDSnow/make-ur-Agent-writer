@@ -1005,6 +1005,26 @@ def _validate_active_selected_assets(
             raise _ActiveAssetSourceError("selected_artifact_mismatch") from exc
 
 
+def _assert_active_character_versions_selectable(
+    workspace: str,
+    *,
+    plan: Any,
+    catalog: CharacterAssetCatalog,
+) -> None:
+    from .drama_asset_usage import assert_asset_version_selectable
+
+    catalog_by_id = {item.asset_id: item for item in catalog.assets}
+    for character_id in plan.frozen_character_ids:
+        asset = catalog_by_id[character_id]
+        assert_asset_version_selectable(
+            workspace,
+            kind="character",
+            asset_id=character_id,
+            version_id=asset.selected_version_id,
+            season_no=plan.season_no,
+        )
+
+
 def append_character_asset_version(
     workspace: str,
     *,
@@ -1084,6 +1104,15 @@ def select_character_asset_version(
         )
         if desired.catalog_fingerprint == current.catalog_fingerprint:
             return current
+        from .drama_asset_usage import assert_asset_version_selectable
+
+        assert_asset_version_selectable(
+            workspace,
+            kind="character",
+            asset_id=character_id,
+            version_id=asset_version_id,
+            season_no=season,
+        )
 
         def precommit() -> None:
             final_source = _expected_catalog(
@@ -1094,6 +1123,13 @@ def select_character_asset_version(
             if final_source.source_fingerprint != current.source_fingerprint:
                 raise DramaAssetStoreError("character asset source changed concurrently")
             _verify_version_artifact(workspace, target_version)
+            assert_asset_version_selectable(
+                workspace,
+                kind="character",
+                asset_id=character_id,
+                version_id=asset_version_id,
+                season_no=season,
+            )
 
         _write_catalog(
             workspace,
@@ -1192,6 +1228,11 @@ def create_episode_asset_manifest(
             plan=plan,
             catalog=catalog,
         )
+        _assert_active_character_versions_selectable(
+            workspace,
+            plan=plan,
+            catalog=catalog,
+        )
         desired = build_episode_asset_manifest(plan, catalog)
         def precommit() -> None:
             final_plan = load_fresh_render_plan(workspace, episode_no=number)
@@ -1200,6 +1241,11 @@ def create_episode_asset_manifest(
                 season_no=final_plan.season_no,
             )
             _validate_active_selected_assets(
+                workspace,
+                plan=final_plan,
+                catalog=final_catalog,
+            )
+            _assert_active_character_versions_selectable(
                 workspace,
                 plan=final_plan,
                 catalog=final_catalog,
@@ -1479,12 +1525,28 @@ def _select_scene_asset_version_impl(
         )
         if desired.catalog_fingerprint == current.catalog_fingerprint:
             return current
+        from .drama_asset_usage import assert_asset_version_selectable
+
+        assert_asset_version_selectable(
+            workspace,
+            kind="scene",
+            asset_id=scene_id,
+            version_id=scene_version_id,
+            season_no=season,
+        )
 
         def precommit() -> None:
             final = _read_scene_catalog(workspace, season_no=season)
             if final.catalog_fingerprint != current.catalog_fingerprint:
                 raise DramaAssetStoreError("scene catalog changed concurrently")
             _verify_scene_version_artifact(workspace, target_version)
+            assert_asset_version_selectable(
+                workspace,
+                kind="scene",
+                asset_id=scene_id,
+                version_id=scene_version_id,
+                season_no=season,
+            )
 
         _write_scene_catalog(
             workspace,
@@ -1523,6 +1585,27 @@ def _validate_used_scene_artifacts(
             scene_version_id=asset.selected_version_id,
         )
         _verify_scene_version_artifact(workspace, selected)
+
+
+def _assert_used_scene_versions_selectable(
+    workspace: str,
+    *,
+    catalog: SceneAssetCatalog,
+    shot_scene_ids: Mapping[str, str],
+    season_no: int,
+) -> None:
+    from .drama_asset_usage import assert_asset_version_selectable
+
+    catalog_by_id = {item.scene_id: item for item in catalog.assets}
+    for scene_id in sorted(set(shot_scene_ids.values())):
+        asset = catalog_by_id[scene_id]
+        assert_asset_version_selectable(
+            workspace,
+            kind="scene",
+            asset_id=scene_id,
+            version_id=asset.selected_version_id,
+            season_no=season_no,
+        )
 
 
 def inspect_episode_scene_asset_manifest(
@@ -1673,6 +1756,12 @@ def _create_episode_scene_asset_manifest_impl(
                 raise DramaAssetStoreError("scene manifest replacement must be explicit")
             if expected_manifest_fingerprint != current.manifest_fingerprint:
                 raise DramaAssetStoreError("scene manifest CAS is required for replacement")
+        _assert_used_scene_versions_selectable(
+            workspace,
+            catalog=catalog,
+            shot_scene_ids=mapping,
+            season_no=plan.season_no,
+        )
 
         def precommit() -> None:
             final_plan = load_fresh_render_plan(workspace, episode_no=number)
@@ -1684,6 +1773,12 @@ def _create_episode_scene_asset_manifest_impl(
                 workspace,
                 catalog=final_catalog,
                 shot_scene_ids=mapping,
+            )
+            _assert_used_scene_versions_selectable(
+                workspace,
+                catalog=final_catalog,
+                shot_scene_ids=mapping,
+                season_no=final_plan.season_no,
             )
             final = build_episode_scene_asset_manifest(
                 final_plan,
@@ -2107,12 +2202,28 @@ def _select_prop_or_clue_asset_version_impl(
         )
         if desired.catalog_fingerprint == current.catalog_fingerprint:
             return current
+        from .drama_asset_usage import assert_asset_version_selectable
+
+        assert_asset_version_selectable(
+            workspace,
+            kind=target_version.spec.kind,
+            asset_id=asset_id,
+            version_id=asset_version_id,
+            season_no=season,
+        )
 
         def precommit() -> None:
             final = _read_prop_clue_catalog(workspace, season_no=season)
             if final.catalog_fingerprint != current.catalog_fingerprint:
                 raise DramaAssetStoreError("prop/clue catalog changed concurrently")
             _verify_prop_clue_version_artifact(workspace, target_version)
+            assert_asset_version_selectable(
+                workspace,
+                kind=target_version.spec.kind,
+                asset_id=asset_id,
+                version_id=asset_version_id,
+                season_no=season,
+            )
 
         _write_prop_clue_catalog(
             workspace,
@@ -2156,6 +2267,32 @@ def _validate_used_prop_clue_artifacts(
             asset_version_id=asset.selected_version_id,
         )
         _verify_prop_clue_version_artifact(workspace, selected)
+
+
+def _assert_used_prop_clue_versions_selectable(
+    workspace: str,
+    *,
+    catalog: PropOrClueAssetCatalog,
+    shot_asset_ids: Mapping[str, list[str]],
+    season_no: int,
+) -> None:
+    from .drama_asset_usage import assert_asset_version_selectable
+
+    catalog_by_id = {item.asset_id: item for item in catalog.assets}
+    used_ids = {
+        asset_id
+        for values in shot_asset_ids.values()
+        for asset_id in values
+    }
+    for asset_id in sorted(used_ids):
+        asset = catalog_by_id[asset_id]
+        assert_asset_version_selectable(
+            workspace,
+            kind=asset.kind,
+            asset_id=asset_id,
+            version_id=asset.selected_version_id,
+            season_no=season_no,
+        )
 
 
 def inspect_episode_prop_or_clue_asset_manifest(
@@ -2351,6 +2488,12 @@ def _create_episode_prop_or_clue_asset_manifest_impl(
                 raise DramaAssetStoreError(
                     "prop/clue manifest CAS is required for replacement"
                 )
+        _assert_used_prop_clue_versions_selectable(
+            workspace,
+            catalog=catalog,
+            shot_asset_ids=mapping,
+            season_no=plan.season_no,
+        )
 
         def precommit() -> None:
             final_plan = load_fresh_render_plan(workspace, episode_no=number)
@@ -2362,6 +2505,12 @@ def _create_episode_prop_or_clue_asset_manifest_impl(
                 workspace,
                 catalog=final_catalog,
                 shot_asset_ids=mapping,
+            )
+            _assert_used_prop_clue_versions_selectable(
+                workspace,
+                catalog=final_catalog,
+                shot_asset_ids=mapping,
+                season_no=final_plan.season_no,
             )
             final = build_episode_prop_or_clue_asset_manifest(
                 final_plan,

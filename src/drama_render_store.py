@@ -435,6 +435,21 @@ def _create_render_plan_locked(
     elif inspection.state == "stale" and not replace_stale:
         raise RenderPlanStoreError("stale render plan requires explicit replacement")
 
+    def assert_art_direction_selectable() -> None:
+        if selected_art_ref is None:
+            return
+        from .drama_asset_usage import assert_asset_version_selectable
+
+        assert_asset_version_selectable(
+            workspace,
+            kind="art_direction",
+            asset_id=selected_art_ref.art_direction_id,
+            version_id=selected_art_ref.version_id,
+            season_no=snapshot.episode["season_no"],
+        )
+
+    assert_art_direction_selectable()
+
     def precommit() -> None:
         final_snapshot = _source_snapshot(workspace, episode_no=episode_no)
         if final_snapshot.snapshot_fingerprint != snapshot.snapshot_fingerprint:
@@ -452,6 +467,7 @@ def _create_render_plan_locked(
             ) from exc
         if final_art_ref != selected_art_ref:
             raise RenderPlanStoreError("art direction source changed concurrently")
+        assert_art_direction_selectable()
 
     _write_render_plan(
         workspace,

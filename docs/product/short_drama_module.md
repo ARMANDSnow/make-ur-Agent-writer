@@ -636,7 +636,7 @@ drama workspace
 | 阶段 | 输入 | 主要动作与产物 | 验收门槛 | 当前状态与精确边界 |
 |---|---|---|---|---|
 | A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect；visual-only override 与依赖传播 | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；override 不能改剧情/对白/角色；零网络 | ✅ **A1+A2 纯本地闭环已完成**：RenderPlan 外新增 camera movement、lighting、negative prompt、剪辑 transition 四类 shot-scoped override，不可变候选、derived-from、revision/current-ID 双 CAS、effective manifest 和 atomic catalog+manifest state；未选候选不改变下游 fingerprint，selected old/new spec 的字段增加、修改与清空按 v1 矩阵取依赖并集。角色/ArtDirection/场景/道具引用仍由 B 的独立 manifest 冻结 |
-| B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本、显式 selected 和 CAS；场景及道具/线索已有 episode used-by；跨集 used-by、Web 管理、ArtDirection 多 scope 与删除策略未完成 |
+| B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 **B1 本地治理闭环已完成**：角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本、显式 selected/CAS、跨集 exact-version used-by 与 active/disabled ledger；停用不删除历史，阻止新的选择和物化。Web 管理、ArtDirection 多 scope 与物理 GC 未实现 |
 | C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | 🟨 **C1-C3 纯本地契约已实现**：C1 冻结 request/exact refs，C2 提供 content-addressed strict PNG 候选、guarded first/tail/previous-tail 与 coverage/repair，C3 提供 provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与 process-crash 零重复调用。C3 仅使用代码内注入 fake adapter；真实 provider/network 与多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 和 power-loss 证明未实现 |
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | 🟨 **D1-D4 纯本地闭环已完成**：冻结输入、候选/coverage、once-only attempt、artifact 重验、首尾帧 lineage 与 production compose gate；真实 provider/network、Web/CLI 和 episode 2+ 成片仍未闭环 |
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
@@ -661,6 +661,12 @@ drama workspace
 这里的 `transition` 是 timeline/F 层剪辑转场，不写入图片或视频 provider request；若未来新增 provider 生成侧的 motion transition，应另立字段和矩阵版本，不能静默扩大 v1 含义。A2 state 以一次严格读取所得的 bytes token 做目标 CAS，RenderPlan token 在 replace 前后重验；该原子性仍以所有项目写者遵守 workspace flock 为前提，不宣称抵抗不合作本机进程在最后一条指令间的抢占。
 
 每次真实 selection mutation 与一条 content-addressed transition receipt 原子提交；receipt 保存 before/after effective manifest，schema 强制只有目标 shot 从 old version 变到 new version、其它 shot 不变，且两个快照的每个版本都精确存在于 append-only catalog。未确认 receipt 最多保留 512 条，满额时 fail closed，调用方可显式 acknowledge；旧请求重试只读恢复、不再次写盘。结果状态 `target_current` 仅表示该 receipt 的目标版本当前仍被选择，`superseded` 表示当前目标不同，`no_op` 表示本次没有 mutation；它不把 ABA 历史误称为“从未被覆盖”。
+
+#### B1 跨集 Used-By 与停用治理
+
+跨集反向索引以 season 为作用域，从角色、ArtDirection、场景、道具/线索四类 catalog 和各集 frozen RenderPlan/manifest 重新投影。索引保存 exact semantic ID、immutable version ID、episode/shot 引用和受控 source SHA；未被任何集使用的候选版本仍显式存在，`references=[]`。文件名、内嵌 episode identity、catalog fingerprint 与 version fingerprint 必须一致；任一 source 缺失、损坏、超限、特殊文件、目录 symlink 或扫描竞态都会形成有界 blocker，不能降格为零引用。
+
+生命周期 ledger 只有 `active` 与 `disabled`，mutation 使用 state revision + current status 双 CAS，并把停用决定绑定到当次 usage index fingerprint。`disabled` 不删除版本、artifact 或历史 manifest，也不把已有 selected/no-op 读取改写为失败；但它会阻止该 exact version 被重新选择，以及被新的或替换后的 RenderPlan/character/scene/prop-clue manifest 再次冻结。显式恢复 `active` 产生新 revision 后才可重新选择或物化。当前不提供物理删除/GC；未来即使增加 GC，也必须另立可证明的引用闭包和迁移协议，不能把 `references=[]` 直接解释为可删除。
 
 ### 11.4 依赖顺序与完成口径
 
