@@ -146,3 +146,4 @@
 131. [Iteration 122 - 短剧唯一 TimelineManifest 与字幕](./iteration_122_drama_timeline_manifest_subtitles.md)
 132. [Iteration 123 - FFmpeg 本地完整成片竖切](./iteration_123_drama_ffmpeg_local_full_compose.md)
 133. [Iteration 124 - 短剧桌面端 SOP 与真模型验证](./iteration_124_drama_desktop_sop_real_provider_validation.md)
+134. [Iteration 125 - 短剧 ASS 与可编辑工程导出](./iteration_125_drama_ass_editable_export.md)

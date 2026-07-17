@@ -4635,6 +4635,392 @@ class SrtArtifact(BaseModel):
         return self
 
 
+class AssArtifact(BaseModel):
+    """Deterministic UTF-8 ASS sidecar derived from one TimelineManifest."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    style_profile: Literal["vertical-1080x1920-zh-v1"] = (
+        "vertical-1080x1920-zh-v1"
+    )
+    timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    content_sha256: str = Field(pattern=_SHA256_PATTERN)
+    cue_count: int = Field(ge=0, le=200)
+    content: str = Field(max_length=100_000)
+
+    @field_validator("cue_count", mode="before")
+    @classmethod
+    def _ass_count_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("ASS cue count must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _ass_artifact_is_hash_bound(self) -> "AssArtifact":
+        if hashlib.sha256(self.content.encode("utf-8")).hexdigest() != self.content_sha256:
+            raise ValueError("ASS content hash is invalid")
+        dialogue_count = sum(
+            1 for line in self.content.splitlines() if line.startswith("Dialogue: ")
+        )
+        if dialogue_count != self.cue_count:
+            raise ValueError("ASS cue count is invalid")
+        if (
+            "[Script Info]" not in self.content
+            or "[V4+ Styles]" not in self.content
+            or "[Events]" not in self.content
+        ):
+            raise ValueError("ASS sections are incomplete")
+        return self
+
+
+EditMaterialKind = Literal["video", "dialogue", "narration", "bgm", "sfx"]
+
+
+class EditableTimelineMaterial(BaseModel):
+    """One exact immutable media input in the generic editable export."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    material_id: str = Field(pattern=r"^mat_[0-9a-f]{24}$")
+    kind: EditMaterialKind
+    source_id: str = Field(min_length=1, max_length=96)
+    artifact_path: str = Field(min_length=1, max_length=240)
+    artifact_sha256: str = Field(pattern=_SHA256_PATTERN)
+    source_duration_ms: int = Field(ge=1, le=3_600_000)
+    material_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("source_duration_ms", mode="before")
+    @classmethod
+    def _edit_material_duration_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("editable material duration must be a strict integer")
+        return value
+
+    @field_validator("artifact_path")
+    @classmethod
+    def _edit_material_path_is_safe(cls, value: str) -> str:
+        if (
+            value.startswith("/")
+            or "\\" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or any(ord(char) < 32 for char in value)
+            or not value.startswith("outputs/")
+        ):
+            raise ValueError("editable material path is unsafe")
+        return value
+
+    @model_validator(mode="after")
+    def _edit_material_is_content_addressed(self) -> "EditableTimelineMaterial":
+        payload = self.model_dump(exclude={"material_id", "material_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if (
+            self.material_fingerprint != fingerprint
+            or self.material_id != f"mat_{fingerprint[:24]}"
+        ):
+            raise ValueError("editable material fingerprint is invalid")
+        return self
+
+
+EditableTrackKind = Literal[
+    "video",
+    "dialogue",
+    "narration",
+    "bgm",
+    "sfx",
+    "silence",
+]
+
+
+class EditableTimelineSegment(BaseModel):
+    """One timeline segment; silence is the only material-free kind."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    segment_id: str = Field(pattern=r"^editseg_[0-9a-f]{24}$")
+    kind: EditableTrackKind
+    source_id: str = Field(min_length=1, max_length=96)
+    material_id: Optional[str] = Field(default=None, pattern=r"^mat_[0-9a-f]{24}$")
+    timeline_start_ms: int = Field(ge=0, le=3_600_000)
+    timeline_end_ms: int = Field(ge=1, le=3_600_000)
+    source_in_ms: int = Field(ge=0, le=3_600_000)
+    source_out_ms: int = Field(ge=0, le=3_600_000)
+    loop: bool = False
+    gain_permille: int = Field(ge=0, le=2_000)
+    fade_in_ms: int = Field(ge=0, le=60_000)
+    fade_out_ms: int = Field(ge=0, le=60_000)
+    segment_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "timeline_start_ms",
+        "timeline_end_ms",
+        "source_in_ms",
+        "source_out_ms",
+        "gain_permille",
+        "fade_in_ms",
+        "fade_out_ms",
+        mode="before",
+    )
+    @classmethod
+    def _edit_segment_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _edit_segment_is_consistent(self) -> "EditableTimelineSegment":
+        duration = self.timeline_end_ms - self.timeline_start_ms
+        if duration <= 0:
+            raise ValueError("editable segment must have positive duration")
+        if self.kind == "silence":
+            if (
+                self.material_id is not None
+                or self.source_in_ms != 0
+                or self.source_out_ms != 0
+                or self.loop
+                or self.gain_permille != 0
+                or self.fade_in_ms != 0
+                or self.fade_out_ms != 0
+            ):
+                raise ValueError("editable silence segment is invalid")
+        else:
+            if self.material_id is None or self.source_out_ms <= self.source_in_ms:
+                raise ValueError("editable media segment is invalid")
+            if not self.loop and self.source_out_ms - self.source_in_ms != duration:
+                raise ValueError("editable media segment duration is inconsistent")
+            if self.kind == "video" and (
+                self.fade_in_ms != 0 or self.fade_out_ms != 0
+            ):
+                raise ValueError("editable video fades are not defined by profile v1")
+            if self.fade_in_ms + self.fade_out_ms > duration:
+                raise ValueError("editable audio fades exceed segment duration")
+        payload = self.model_dump(exclude={"segment_id", "segment_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if (
+            self.segment_fingerprint != fingerprint
+            or self.segment_id != f"editseg_{fingerprint[:24]}"
+        ):
+            raise ValueError("editable segment fingerprint is invalid")
+        return self
+
+
+class EditableTimelineTrack(BaseModel):
+    """Ordered non-overlapping segments for one explicit track kind."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    track_id: str = Field(pattern=r"^(?:video|dialogue|narration|bgm|sfx|silence)-v1$")
+    kind: EditableTrackKind
+    segments: List[EditableTimelineSegment] = Field(max_length=200)
+    track_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("segments", mode="before")
+    @classmethod
+    def _edit_track_segments_are_a_list(cls, value: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError("editable track segments must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _edit_track_is_consistent(self) -> "EditableTimelineTrack":
+        if self.track_id != f"{self.kind}-v1":
+            raise ValueError("editable track id does not match its kind")
+        if any(item.kind != self.kind for item in self.segments):
+            raise ValueError("editable track contains another segment kind")
+        ids = [item.segment_id for item in self.segments]
+        if len(ids) != len(set(ids)):
+            raise ValueError("editable track segment ids must be unique")
+        ordering = [
+            (
+                item.timeline_start_ms,
+                item.timeline_end_ms,
+                item.source_id,
+                item.segment_id,
+            )
+            for item in self.segments
+        ]
+        if ordering != sorted(ordering):
+            raise ValueError("editable track segments must use canonical order")
+        if self.kind != "sfx":
+            previous_end = 0
+            for item in self.segments:
+                if item.timeline_start_ms < previous_end:
+                    raise ValueError("editable track segments must not overlap")
+                previous_end = item.timeline_end_ms
+        payload = self.model_dump(exclude={"track_fingerprint"})
+        if _canonical_sha256(payload) != self.track_fingerprint:
+            raise ValueError("editable track fingerprint is invalid")
+        return self
+
+
+class EditableTimelineSubtitle(BaseModel):
+    """One editable subtitle event retaining its canonical cue identity."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    cue_id: str = Field(pattern=r"^cue_[0-9a-f]{24}$")
+    utterance_id: str = Field(pattern=r"^utt_[0-9a-f]{24}$")
+    source_text_sha256: str = Field(pattern=_SHA256_PATTERN)
+    cue_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    text: str = Field(min_length=1, max_length=120)
+    revision: int = Field(ge=0, le=2_147_483_647)
+    start_ms: int = Field(ge=0, le=3_600_000)
+    end_ms: int = Field(ge=1, le=3_600_000)
+    style_token: Literal["zh-primary-v1"] = "zh-primary-v1"
+
+    @field_validator("revision", "start_ms", "end_ms", mode="before")
+    @classmethod
+    def _edit_subtitle_times_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _edit_subtitle_bounds_are_valid(self) -> "EditableTimelineSubtitle":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("editable subtitle must have positive duration")
+        payload = {
+            "utterance_id": self.utterance_id,
+            "source_text_sha256": self.source_text_sha256,
+            "text": self.text,
+            "revision": self.revision,
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+        }
+        fingerprint = _canonical_sha256(payload)
+        if (
+            self.cue_fingerprint != fingerprint
+            or self.cue_id != f"cue_{fingerprint[:24]}"
+        ):
+            raise ValueError("editable subtitle fingerprint is invalid")
+        return self
+
+
+class EditableTimelineProject(BaseModel):
+    """Version-locked generic edit project; not a vendor-specific NLE format."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    exporter_version: Literal["drama-edit-export-v1"] = "drama-edit-export-v1"
+    profile: Literal["vertical-1080x1920-25-v1"] = "vertical-1080x1920-25-v1"
+    timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    width: Literal[1080] = 1080
+    height: Literal[1920] = 1920
+    fps_numerator: Literal[25] = 25
+    fps_denominator: Literal[1] = 1
+    audio_sample_rate: Literal[48000] = 48000
+    audio_layout: Literal["stereo"] = "stereo"
+    audio_codec_profile: Literal["aac-128k-v1"] = "aac-128k-v1"
+    total_duration_ms: int = Field(ge=1, le=3_600_000)
+    materials: List[EditableTimelineMaterial] = Field(max_length=400)
+    tracks: List[EditableTimelineTrack] = Field(min_length=6, max_length=6)
+    subtitles: List[EditableTimelineSubtitle] = Field(max_length=200)
+    project_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "total_duration_ms", mode="before")
+    @classmethod
+    def _edit_project_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _edit_project_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("materials", "tracks", "subtitles", mode="before")
+    @classmethod
+    def _edit_project_lists_are_strict(cls, value: Any, info: Any) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _edit_project_is_consistent(self) -> "EditableTimelineProject":
+        material_ids = [item.material_id for item in self.materials]
+        if len(material_ids) != len(set(material_ids)):
+            raise ValueError("editable project material ids must be unique")
+        materials = {item.material_id: item for item in self.materials}
+        expected_kinds = ["video", "dialogue", "narration", "bgm", "sfx", "silence"]
+        if [item.kind for item in self.tracks] != expected_kinds:
+            raise ValueError("editable project track order is invalid")
+        segment_ids: set[str] = set()
+        for track in self.tracks:
+            for segment in track.segments:
+                if segment.segment_id in segment_ids:
+                    raise ValueError("editable project segment ids must be unique")
+                segment_ids.add(segment.segment_id)
+                if segment.timeline_end_ms > self.total_duration_ms:
+                    raise ValueError("editable segment exceeds project duration")
+                if segment.material_id is None:
+                    if segment.kind != "silence":
+                        raise ValueError("editable media segment lacks material")
+                    continue
+                material = materials.get(segment.material_id)
+                if material is None or material.kind != segment.kind:
+                    raise ValueError("editable segment material kind is invalid")
+                if segment.source_out_ms > material.source_duration_ms:
+                    raise ValueError("editable segment exceeds source material")
+        video = self.tracks[0].segments
+        cursor = 0
+        for segment in video:
+            if segment.timeline_start_ms != cursor:
+                raise ValueError("editable video track must be contiguous")
+            cursor = segment.timeline_end_ms
+        if cursor != self.total_duration_ms:
+            raise ValueError("editable video track does not cover the project")
+        subtitle_ids = [item.cue_id for item in self.subtitles]
+        if len(subtitle_ids) != len(set(subtitle_ids)):
+            raise ValueError("editable subtitle ids must be unique")
+        if any(item.end_ms > self.total_duration_ms for item in self.subtitles):
+            raise ValueError("editable subtitle exceeds project duration")
+        payload = self.model_dump(exclude={"project_fingerprint"})
+        if _canonical_sha256(payload) != self.project_fingerprint:
+            raise ValueError("editable project fingerprint is invalid")
+        return self
+
+
+class DramaEditExportResult(BaseModel):
+    """Hashes and paths for one atomically persisted F2 export pair."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    timeline_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    ass_path: str = Field(pattern=r"^outputs/drama/edit/episode_[0-9]{3}/timeline_[0-9a-f]{24}\.ass$")
+    ass_sha256: str = Field(pattern=_SHA256_PATTERN)
+    project_path: str = Field(pattern=r"^outputs/drama/edit/episode_[0-9]{3}/timeline_[0-9a-f]{24}\.edit\.json$")
+    project_sha256: str = Field(pattern=_SHA256_PATTERN)
+    completion_path: str = Field(pattern=r"^outputs/drama/edit/episode_[0-9]{3}/timeline_[0-9a-f]{24}\.complete\.json$")
+    export_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _edit_result_episode_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _edit_result_is_content_addressed(self) -> "DramaEditExportResult":
+        expected_stem = f"timeline_{self.timeline_fingerprint[:24]}"
+        expected_base = f"outputs/drama/edit/episode_{self.episode_no:03d}"
+        if (
+            self.ass_path != f"{expected_base}/{expected_stem}.ass"
+            or self.project_path != f"{expected_base}/{expected_stem}.edit.json"
+            or self.completion_path
+            != f"{expected_base}/{expected_stem}.complete.json"
+        ):
+            raise ValueError("editable export paths do not match the timeline")
+        payload = self.model_dump(exclude={"export_fingerprint"})
+        if _canonical_sha256(payload) != self.export_fingerprint:
+            raise ValueError("editable export fingerprint is invalid")
+        return self
+
+
 class DramaComposePlan(BaseModel):
     """Deterministic argv-only F1 plan derived from one TimelineManifest."""
 

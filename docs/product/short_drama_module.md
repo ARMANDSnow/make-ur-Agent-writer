@@ -549,7 +549,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 
 - **v0** 2026-06-03 上午 · Fountain 假设，被用户工作流截图证伪
 - **v1** 2026-06-03 下午 · 三件套 schema + 4 站创作向导 + N1-N5 拍板
-- **v2** 2026-07-15 · 保留 v1 产品决策，追加“五站创作 + A-J 媒体生产”的完整实时 SOP（**当前版本**）
+- **v2** 2026-07-15 · 保留 v1 产品决策，追加“五站创作 + A-J 媒体生产”的完整实时 SOP
+- **v3** 2026-07-18 · 同步 A-F1 已实现基线，并登记 F2 ASS/通用可编辑工程与安全 completion marker（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -581,7 +582,7 @@ episode_NN.json / characters / reviews
 
 ## 11. 完整生产 SOP（实时状态）
 
-本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 110，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
+本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 125，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
 
 状态图例：
 
@@ -636,9 +637,9 @@ drama workspace
 | A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；零网络 | 🟨 **A1 已实现**；A2 已冻结角色、当前 selected ArtDirection、场景与道具/线索 refs，并把 ArtDirection/RenderPlan/资产选择变化传播到对应单集 manifest；通用 visual override 与 BGM/首尾帧/逐镜媒体/时间线矩阵待完成 |
 | B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本、显式 selected 和 CAS；场景及道具/线索已有 episode used-by；跨集 used-by、Web 管理、ArtDirection 多 scope 与删除策略未完成 |
 | C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | 🟨 **C1-C3 纯本地契约已实现**：C1 冻结 request/exact refs，C2 提供 content-addressed strict PNG 候选、guarded first/tail/previous-tail 与 coverage/repair，C3 提供 provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与 process-crash 零重复调用。C3 仅使用代码内注入 fake adapter；真实 provider/network 与多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 和 power-loss 证明未实现 |
-| D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | ⏳ 当前仅 episode 1 高光视频兼容 job；episode 2+、逐镜候选和整集 coverage 未实现 |
-| E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ⏳ 只有 RenderPlan spoken 投影；TTS、voice、音频 manifest、字幕、BGM/SFX 与 `TimelineManifest` 未实现 |
-| F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | ⏳ **首个本地完整成片里程碑尚未完成**；现有 episode 1 高光视频不能冒充整集 MP4，更广 codec/container 也未实现 |
+| D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | 🟨 **D1-D4 纯本地闭环已完成**：冻结输入、候选/coverage、once-only attempt、artifact 重验、首尾帧 lineage 与 production compose gate；真实 provider/network、Web/CLI 和 episode 2+ 成片仍未闭环 |
+| E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
+| F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1+F2 本地闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程，冻结素材 SHA、video/dialogue/narration/BGM/SFX/silence 轨道、fade/gain、48kHz stereo/AAC profile 与字幕 revision，并以 pinned dirfd、前后流式 hash 和 completion marker 安全提交。特定 NLE 私有格式、Web compose job、多 profile 与更广 codec/container 未实现 |
 | G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | ⏳ 已有图片/视频领域专用恢复和 paid ledger；通用 worker/DAG/capability/pricing 尚未实现，且未来不能替代 paid evidence |
 | H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ⏳ 小说侧实体/摘要是可复用基础；短剧 event graph、`source_event_ids` 和可失效 cache 未实现；不阻塞阶段 F |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
@@ -656,7 +657,7 @@ drama workspace
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 110，可以准确表述为：**创作五站、连续多集、创作层交付、安全恢复底座、RenderPlan A1，以及角色/ArtDirection/场景/道具线索的部分 A2-B 资产冻结已闭环**。不能表述为“短剧完整成片生产链已完成”；阶段 F 尚未完成，B-I 仍有大量目标待实施，完整 J 还依赖 B-F，现有三个真实入口也仍待分别授权校准。
+截至 iter 125，可以准确表述为：**创作五站、连续多集、A-F 的固定 profile 纯本地完整成片、SRT/ASS 与通用可编辑工程已经形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B/C/D/F 仍有 Web、多 scope、多格式/多 profile 与真实媒体缺口，G-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
 
 ### 11.5 规划外边界
 
