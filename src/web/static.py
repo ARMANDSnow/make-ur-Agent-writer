@@ -6361,6 +6361,38 @@ JS_DASHBOARD = """\
   }
 
   // ===== page: jobs =======================================================
+  function formatJobTimestamp(value) {
+    const seconds = Number(value);
+    if (!isFinite(seconds) || seconds <= 0) return "—";
+    try {
+      return new Date(seconds * 1000).toLocaleString("zh-CN", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: false,
+      });
+    } catch (_err) {
+      return "—";
+    }
+  }
+  function renderLlmCallSummary(rows) {
+    if (!rows.length) return '<p class="muted">llm_calls.jsonl 尚无内容。</p>';
+    const body = rows.map(function (call) {
+      const prompt = Number(call.prompt_tokens) || 0;
+      const response = Number(call.response_tokens) || 0;
+      const duration = Number(call.duration_ms);
+      return '<tr>' +
+        '<td>' + escapeHtml(call.task || call.operation || "—") + '</td>' +
+        '<td>' + statusBadge(call.status || "unknown") + '</td>' +
+        '<td><code>' + escapeHtml(call.model || "—") + '</code></td>' +
+        '<td>' + (isFinite(duration) ? escapeHtml((duration / 1000).toFixed(1) + " 秒") : "—") + '</td>' +
+        '<td>' + escapeHtml(String(prompt)) + ' / ' + escapeHtml(String(response)) + '</td>' +
+        '<td>' + escapeHtml(String(call.attempt || 1)) + '</td>' +
+        '</tr>';
+    }).join("");
+    return tableScroll('<table class="table table-wide"><thead><tr>' +
+      '<th>任务</th><th>状态</th><th>模型</th><th>耗时</th><th>输入 / 输出 tokens</th><th>尝试</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table>');
+  }
   async function initJobs() {
     const recentBox = document.getElementById("jobs-recent");
     const logsBox = document.getElementById("jobs-logs");
@@ -6385,7 +6417,7 @@ JS_DASHBOARD = """\
             "<td>" + statusBadge(job.status || "?") + "</td>" +
             '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code> " + copyButton(job.job_id || "") + "</td>" +
             '<td><span class="trace">' + escapeHtml(trace || "—") + "</span>" + (trace ? " " + copyButton(trace) : "") + "</td>" +
-            "<td>" + escapeHtml(job.started_at ? String(job.started_at) : "—") + "</td>" +
+            "<td>" + escapeHtml(formatJobTimestamp(job.started_at)) + "</td>" +
             "<td>" + escapeHtml(note ? note.slice(0, 120) : "") + "</td>" +
             "</tr>" +
             '<tr class="job-drawer-row" id="' + rowId + '"><td colspan="7">' + renderJobDrawer(job) + "</td></tr>"
@@ -6425,9 +6457,7 @@ JS_DASHBOARD = """\
     try {
       const data = await fetchJson(wsUrl("/logs/tail?n=30"));
       const lines = data.lines || [];
-      logsBox.innerHTML = lines.length
-        ? '<pre class="logs-tail">' + lines.map((l) => escapeHtml(JSON.stringify(l))).join("\\n") + "</pre>"
-        : '<p class="muted">llm_calls.jsonl 尚无内容。</p>';
+      logsBox.innerHTML = renderLlmCallSummary(lines);
     } catch (err) {
       logsBox.innerHTML = renderErrorCard(err);
     }

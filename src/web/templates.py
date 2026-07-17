@@ -1214,7 +1214,7 @@ def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">任务</p>'
         '<h1>任务历史</h1>'
-        '<p class="muted">最近 20 个 web 任务、trace_id（可复制）、以及 llm_calls 日志尾部。</p>'
+        '<p class="muted">查看最近 20 个任务、可复制的追踪编号与脱敏模型调用摘要。</p>'
         '</div>'
         '</header>'
         '<section class="section">'
@@ -1222,7 +1222,7 @@ def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
         '</section>'
         '<section class="section">'
         '<div class="section-title"><h2 class="ornament">最近 LLM 调用</h2>'
-        '<span class="hint">logs/llm_calls.jsonl 尾部 30 行</span></div>'
+        '<span class="hint">最近 30 条 · 已隐藏请求与供应商错误详情</span></div>'
         '<div id="jobs-logs"></div>'
         '</section>'
     )

@@ -3284,8 +3284,35 @@ def api_workspace_logs_tail(name: str, n: int = 50) -> Tuple[int, str, bytes]:
     n = max(1, min(n, 1000))
     with use_workspace(name):
         log_path = paths.llm_calls_log_path()
-        lines = _tail_jsonl(log_path, n)
+        # This endpoint feeds the ordinary desktop task page.  Keep raw
+        # provider errors and request fingerprints in the local audit log,
+        # but never project them into the browser: provider messages may
+        # contain upstream URLs or other operational details that are neither
+        # useful nor appropriate in the normal user interface.
+        lines = [_public_llm_call_view(row) for row in _tail_jsonl(log_path, n)]
     return _json(200, {"lines": lines})
+
+
+_PUBLIC_LLM_CALL_FIELDS = (
+    "task",
+    "operation",
+    "model",
+    "status",
+    "duration_ms",
+    "prompt_tokens",
+    "response_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "attempt",
+)
+
+
+def _public_llm_call_view(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the small, non-sensitive LLM summary used by the desktop UI."""
+
+    if not isinstance(row, dict):
+        return {}
+    return {field: row[field] for field in _PUBLIC_LLM_CALL_FIELDS if field in row}
 
 
 def api_workspace_recent_jobs(name: str, limit: int = 5) -> Tuple[int, str, bytes]:

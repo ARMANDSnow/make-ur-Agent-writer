@@ -636,6 +636,41 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(len(data["lines"]), 1)
         self.assertEqual(data["lines"][0]["task"], "review")
+        self.assertEqual(
+            set(data["lines"][0]),
+            {"task", "model", "prompt_tokens", "response_tokens"},
+        )
+
+    def test_api_logs_tail_does_not_project_provider_error_or_fingerprint(self) -> None:
+        log_path = Path(self._tmp.name) / "alpha" / "logs" / "llm_calls.jsonl"
+        log_path.write_text(
+            json.dumps({
+                "task": "drama_plan",
+                "status": "retry_error",
+                "model": "openai/example",
+                "duration_ms": 1250,
+                "error": "upstream failed at https://signed.example/secret?token=abc",
+                "request_hash": "private-fingerprint",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        status, data = self._get_json("/api/workspace/alpha/logs/tail?n=10")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            data["lines"],
+            [{
+                "task": "drama_plan",
+                "status": "retry_error",
+                "model": "openai/example",
+                "duration_ms": 1250,
+            }],
+        )
+
+    def test_jobs_ui_formats_times_and_renders_llm_summary_table(self) -> None:
+        js = routes.static.JS_DASHBOARD
+        self.assertIn("function formatJobTimestamp", js)
+        self.assertIn("function renderLlmCallSummary", js)
+        self.assertNotIn("lines.map((l) => escapeHtml(JSON.stringify(l)))", js)
 
     def test_api_cost_runs(self) -> None:
         status, data = self._get_json("/api/workspace/alpha/cost")
