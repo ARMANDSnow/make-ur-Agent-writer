@@ -146,12 +146,13 @@ docs/iterations/           逐轮审计记录
 | 短剧逐镜视频能力与可恢复尝试 | 117 | ✅ provider-neutral capability、exact once authorization、adapter identity、durable receipts、D2 candidate 补账与 process-crash 零重复 submit 形成 D3 mock-only 闭环 |
 | 短剧完整 SOP 真人用户验证 | 118 | ✅ 当前 Web 创作/交付主链完成桌面与移动端 E2E；真文本 5 calls、真图 2 张局部校准通过，真视频未执行；付费产物与本地预览边界收口 |
 | 短剧本地完整成片链 | 119-123 | ✅ D4 compose gate、E1/E2 voice/TTS recovery、E3 唯一时间线/SRT 与 F1 FFmpeg 1080×1920/25fps MP4/QA 已完成 |
+| 短剧桌面端 SOP 与真模型验证 | 124 | ✅ 两集桌面主链、多集编辑导航、任务页安全可读投影已收口；真文本五站与真图 2 张局部校准通过，真视频 safe-blocked、TTS 未测 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 123**（2026-07-17，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。现有短剧 Web 主链已经过桌面与 390px 移动端真人用户路径验证；逐镜图片 C1-C3、逐镜视频 D1-D4、声音/时间线 E1-E3 与 F1 本地合成形成完整纯本地链。F1 只消费 strict `TimelineManifest`，以 FFmpeg 8.1.2 生成并 post-probe 验证 `1080×1920 / 25fps` H.264/AAC MP4、SRT 与绑定 output SHA/timeline fingerprint 的媒体 QA；当前仍只有 fake/bounded 音频与 fixture 视频。iter123 另完成指定 endpoint 的 synthetic 文本 1 call/图片 1 submit 局部校准，真语音/真视频仍为 0 submit；该证据不把 F1 或完整 pipeline 升格为 provider-validated。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，F1 synthetic 组件为 `local-e2e`。
+最近一次更新：**iter 124**（2026-07-17，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。逐镜图片 C1-C3、逐镜视频 D1-D4、声音/时间线 E1-E3 与 F1 本地合成仍是完整纯本地链；iter124 的真文本五站与 2 张真图只构成局部 provider 校准，视频因无有效 key/公网素材回调保持 0 submit `safe-blocked`，TTS 未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，F1 synthetic 组件为 `local-e2e`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -192,7 +193,7 @@ docs/iterations/           逐轮审计记录
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | ⏳ | 已有领域专用恢复/付费 ledger；尚未做通用调度，且不得用通用状态替代付费证据 |
 | H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ⏳ | 小说实体/摘要可作基础；短剧事件图与 `source_event_ids` 未实现，不阻塞阶段 F |
 | I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ⏳ | 已有剧集页、Insights 和季包；尚无统一生产工作台及含媒体/证据的可移植归档 |
-| J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118 已完成五站真文本（5 calls）与 2 张角色真图；iter123 另完成 synthetic 文本 1 call 与图片 1 submit 局部校准。真语音/真视频、全角色/多题材、单镜/单集/多集和 SLA 仍未验证 |
+| J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118 与 iter124 各完成一次五站真文本 + 2 张角色真图局部校准，iter123 另有 synthetic 文本/图片最小校准；真语音/真视频、全角色/多题材、单镜/单集/多集和 SLA 仍未验证。iter124 视频因无有效 key/公网素材回调为 `safe-blocked`、0 submit |
 | 现有规划之外：平台发布 | 将成片上传到抖音、快手、视频号等平台 | ⏳ | A-J 没有发布 adapter、账号审核或回执状态设计；现阶段只能人工发布，后续需另行规划 |
 
 ## 文档导航

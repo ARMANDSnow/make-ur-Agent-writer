@@ -49,6 +49,7 @@
 | 121 | 短剧可恢复 TTS Attempt | 逐句一次授权、POST/GET 分离、durable receipt 与 os._exit 恢复矩阵 |
 | 122 | 短剧唯一时间线与字幕 | fresh MP4/WAV 同锁投影、严格 TimelineManifest 与同源 SRT |
 | 123 | 短剧本地 FFmpeg 完整成片 | argv-only 合成计划、verified-byte staging、1080×1920/25fps MP4/SRT 与 post-probe QA |
+| 124 | 短剧桌面端 SOP 与真模型验证 | 两集桌面 E2E、多集分镜/导航、任务日志安全投影与真文本/图片局部校准 |
 
 ## Iteration Implementation Index
 
@@ -152,6 +153,8 @@
 | 120 | 建立 Voice Profile、显式 assignment 与逐句音频计划 | `src/drama_schemas.py`、`src/drama_audio.py`、`tests/test_drama_audio.py` |
 | 121 | 建立 provider-neutral once-only TTS attempt 与恢复 store | `src/drama_schemas.py`、`src/drama_tts_attempts.py`、`src/drama_tts_attempt_store.py`、`tests/test_drama_tts_attempt*.py` |
 | 122 | 建立唯一 TimelineManifest、字幕 revision 与同源 SRT | `src/drama_schemas.py`、`src/drama_timeline.py`、`tests/test_drama_timeline.py` |
+| 123 | 建立固定 profile 本地 FFmpeg 完整成片与媒体 QA | `src/drama_compositor.py`、`src/drama_media_qa.py`、`tests/test_drama_compositor.py` |
+| 124 | 修复两集桌面 SOP、多集编辑与任务日志安全可读投影 | `src/storyboard_builder.py`、`src/web/`、`tests/test_drama_storyboard_builder.py`、`tests/test_web_routes_get.py` |
 
 ## Durable Decisions
 
