@@ -40,7 +40,10 @@ iter125 已完成 F2 同源 ASS 与通用可编辑工程，canonical 基线为 2
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、canonical、真模型校准、审查结论与未修风险。>
+- **结论：`mock-functional`，A126-01、A126-02、A126-03、A126-04、A126-05 全部通过。** implementation commit `8eeef4f9b11f3cb280cbed5956d057ce4999b2f2` 上唯一 canonical `bash scripts/verify.sh` exit 0：**2537 tests OK**，15 steps / 301 秒，run `497adce99a36419099eb71f56f8f16e2`，tree `aedd8692c35ef80df2ff17daf54ffdb3e7306210`，`tracked_scope_clean=true`、`mock_offline=true`、preflight 0 FATAL / 0 WARN；mandatory `local_drama_e2e` 通过，但不升级真实 provider 级别。
+- 聚焦最终为 iter126 专项 23 tests、visual/render/edit 相邻 65 tests 全绿；`py_compile`、agent harness 与 `git diff --check` 通过。
+- correctness、security/boundary、media/workflow 三个独立只读视角覆盖 schema/选择恢复、路径/TOCTOU/敏感信息、A-J 媒体血统与 stale 边界。主线程修复全部 findings 后，三视角最终均确认无遗留 P0/P1/P2；未修风险仅保留“不合作本机进程可绕过 flock”的既有威胁模型边界。
+- canonical 后独立执行一次 scope-specific 真文本协议校准：`gpt-5.5-medium` HTTP 200，3.198 秒、164 tokens，严格命中 transition affected/unaffected nodes；响应正文与 key 均未打印/落盘。iter125-126 累计保守计 3/60 文本请求、2 次模型成功、预算预留 ¥0.20；图片 0/20、视频 0、TTS 0。该证据只记为 `provider-validated-local-calibration`，不代表完整短剧链 provider-validated。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

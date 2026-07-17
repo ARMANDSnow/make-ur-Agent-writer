@@ -12,7 +12,7 @@
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
 - **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
-- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、逐镜图片 C1-C3、逐镜视频 D1-D4、声音 E1-E3，以及 F1/F2 本地 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 与通用可编辑工程。
+- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、逐镜图片 C1-C3、逐镜视频 D1-D4、声音 E1-E3，以及 F1/F2 本地 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 与通用可编辑工程。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -148,12 +148,13 @@ docs/iterations/           逐轮审计记录
 | 短剧本地完整成片链 | 119-123 | ✅ D4 compose gate、E1/E2 voice/TTS recovery、E3 唯一时间线/SRT 与 F1 FFmpeg 1080×1920/25fps MP4/QA 已完成 |
 | 短剧桌面端 SOP 与真模型验证 | 124 | ✅ 两集桌面主链、多集编辑导航、任务页安全可读投影已收口；真文本五站与真图 2 张局部校准通过，真视频 safe-blocked、TTS 未测 |
 | 短剧 ASS 与可编辑工程导出 | 125 | ✅ 同源 ASS、vendor-neutral edit project、素材 SHA/revision 与 completion marker 已形成纯本地 F2 闭环；文本协议局部校准通过 |
+| 短剧 Visual Override 与 Stale 矩阵 | 126 | ✅ 四字段 visual-only 不可变候选、双 CAS、双快照 receipt ledger 与 A-F 精确依赖矩阵形成 A2 纯本地闭环；文本协议局部校准通过 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 125**（2026-07-18，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。逐镜图片 C1-C3、逐镜视频 D1-D4、声音/时间线 E1-E3 与 F1/F2 本地合成/可编辑导出已形成纯本地链；iter125 的 scope-specific 真文本只构成局部协议校准，视频因无有效 key/公网素材回调保持 0 submit `safe-blocked`，TTS 未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，F1 synthetic 组件为 `local-e2e`。
+最近一次更新：**iter 126**（2026-07-18，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。A1/A2 RenderPlan、visual-only override 与精确 stale matrix，逐镜图片 C1-C3、逐镜视频 D1-D4、声音/时间线 E1-E3，以及 F1/F2 本地合成/可编辑导出已形成纯本地链；iter125/126 的 scope-specific 真文本只构成局部协议校准，真视频仍未执行，TTS 未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，mandatory local-drama 组件为 `local-e2e`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -185,7 +186,7 @@ docs/iterations/           逐轮审计记录
 | 4. 角色与季角色库 | 站④生成角色卡、合并季角色库并登记本集 appearances（最多 8 人） | ✅ | 五站 job 的 `drama-characters`；角色不可变资产版本与 selected reference 由阶段 B 的独立目录承接 |
 | 5. 评审与组装 | 站⑤五维评审，revision 后仅从 Approve 血统组装 canonical episode，并将本集角色 IDs 冻结进 meta | ✅ | `episode_NN.json` 是创作事实真源；解析失败/血统不一致 fail-closed |
 | 6. 连续多集与创作交付 | 只从最新连续、完整、fresh 前集创建 N+1；导出 JSON/MD/CSV/Comfy、严格季包/快照与 Insights | ✅ | 当前仅 season 1、计划上限 100 集；多季模型未闭环；Comfy 仅为 workflow 导出 |
-| A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、五态检查 | 🟨 | **A1 已完成**；A2 已冻结角色、ArtDirection、场景与道具/线索 selected refs，并让 ArtDirection/RenderPlan/资产选择精确传播到对应单集 manifest；通用 visual override 与后续媒体依赖矩阵待完成 |
+| A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、visual-only override 与五态检查 | ✅ | **A1+A2 纯本地闭环已完成**：camera movement、lighting、negative prompt、剪辑 transition 使用不可变候选、revision/current-ID 双 CAS、effective manifest、可恢复 receipt ledger；creative/override/BGM/first-frame 变化按 v1 矩阵精确传播到 A-F 节点 |
 | B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本和 selected CAS；场景及道具/线索支持 episode used-by；跨集 used-by/Web 管理与 ArtDirection 多 scope 待实现 |
 | C. 逐镜图片 | 每镜图片候选、首帧/可选尾帧、引用冻结、比较选择与覆盖率 | 🟨 | **C1+C2+C3 纯本地闭环已实现**：provider-neutral request/exact refs，content-addressed strict PNG 候选与 guarded first/tail/previous-tail lineage，provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与进程 crash 零重复调用；真实 provider/network adapter、多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 与 power-loss 证明未实现 |
 | D. 逐镜视频 | 每镜 I2V/R2V 输入计划、submit→poll→download、候选选择与跨镜连续性 | 🟨 | **D1-D4 纯本地闭环已完成**：D1-D3 冻结输入、候选/coverage 与 once-only 恢复；D4 以有序 selected snapshot、artifact 实体重验、global stale、首尾帧 lineage 和连续性 warning 建立 production compose gate。真实 provider/network、主观视觉相似度、Web/CLI 与 episode 2+ 成片未实现；旧 episode 1 高光入口保持兼容 |
@@ -194,7 +195,7 @@ docs/iterations/           逐轮审计记录
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | ⏳ | 已有领域专用恢复/付费 ledger；尚未做通用调度，且不得用通用状态替代付费证据 |
 | H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ⏳ | 小说实体/摘要可作基础；短剧事件图与 `source_event_ids` 未实现，不阻塞阶段 F |
 | I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ⏳ | 已有剧集页、Insights 和季包；尚无统一生产工作台及含媒体/证据的可移植归档 |
-| J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118 与 iter124 各完成一次五站真文本 + 2 张角色真图局部校准，iter123 另有 synthetic 文本/图片最小校准；真语音/真视频、全角色/多题材、单镜/单集/多集和 SLA 仍未验证。iter124 视频因无有效 key/公网素材回调为 `safe-blocked`、0 submit |
+| J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118 与 iter124 各完成一次五站真文本 + 2 张角色真图局部校准，iter123 有 synthetic 最小校准，iter125/126 各完成一次文本协议校准；真语音/真视频、全角色/多题材、单镜/单集/多集和 SLA 仍未验证 |
 | 现有规划之外：平台发布 | 将成片上传到抖音、快手、视频号等平台 | ⏳ | A-J 没有发布 adapter、账号审核或回执状态设计；现阶段只能人工发布，后续需另行规划 |
 
 ## 文档导航

@@ -51,6 +51,7 @@
 | 123 | 短剧本地 FFmpeg 完整成片 | argv-only 合成计划、verified-byte staging、1080×1920/25fps MP4/SRT 与 post-probe QA |
 | 124 | 短剧桌面端 SOP 与真模型验证 | 两集桌面 E2E、多集分镜/导航、任务日志安全投影与真文本/图片局部校准 |
 | 125 | 短剧 ASS 与可编辑工程导出 | 同源 ASS、vendor-neutral 六轨工程、素材/字幕版本冻结与 completion marker |
+| 126 | 短剧 Visual Override 与 Stale 矩阵 | 四字段不可变 override、双 CAS/receipt ledger 与 A-F 精确传播 |
 
 ## Iteration Implementation Index
 
@@ -156,6 +157,8 @@
 | 122 | 建立唯一 TimelineManifest、字幕 revision 与同源 SRT | `src/drama_schemas.py`、`src/drama_timeline.py`、`tests/test_drama_timeline.py` |
 | 123 | 建立固定 profile 本地 FFmpeg 完整成片与媒体 QA | `src/drama_compositor.py`、`src/drama_media_qa.py`、`tests/test_drama_compositor.py` |
 | 124 | 修复两集桌面 SOP、多集编辑与任务日志安全可读投影 | `src/storyboard_builder.py`、`src/web/`、`tests/test_drama_storyboard_builder.py`、`tests/test_web_routes_get.py` |
+| 125 | 建立同源 ASS、六轨可编辑工程与安全完成协议 | `src/drama_schemas.py`、`src/drama_edit_export.py`、`tests/test_drama_edit_export.py` |
+| 126 | 建立 visual override、可恢复选择与 stale 矩阵 | `src/drama_schemas.py`、`src/drama_visual_overrides.py`、`tests/test_drama_visual_overrides.py` |
 
 ## Durable Decisions
 
@@ -229,6 +232,7 @@
 30. **付费 attempt 的一次调用承诺必须先于 provider 接线落地**：capability、provider/request identity 与 ordered exact references 要在调用前冻结，`started` 必须先 durable；只有 transport 能证明 not-sent 才可释放机会。receipt、staging、C2 candidate 与 succeeded ledger 是分阶段事实，恢复应优先用已提交的 exact candidate 补账，并在最终锁内重读 source/target。该证据只证明受控本地 writer 下的 process-crash 恢复；不能外推 power-loss、非合作本机进程或真实 provider exactly-once。
 31. **媒体合成的完成态必须由同源时间线和 post-probe 共同证明**：plan 只接受显式 argv 与严格相对路径；hash/probe 后应把已验证字节固化到私有 staging，避免 FFmpeg 消费漂移源。容器总时长不能替代视频流时长，SRT 与 QA 也不能靠各自落盘值自证；应从 TimelineManifest 重建并把 output SHA、轨道规格和 required-shot coverage 一起复核。
 32. **多文件可编辑导出需要显式完成协议，而不只是逐文件原子替换**：ASS 与工程文件各自原子写入仍可能形成跨文件 partial pair；应先失效旧 marker，在同一锁域内重验素材、输出目录 identity 和完整 pair，最后才提交 completion marker。字幕 revision、素材 SHA、source range、profile 与 timeline fingerprint 必须进入可重建工程，特定 NLE 兼容性只能由对应 adapter 另行证明。
+33. **可恢复选择回执必须证明历史状态转换，而不只是保存结果哈希**：lost-response recovery 需要把 mutation 与 receipt 原子提交；before/after manifest 要逐版本绑定 append-only catalog、只允许目标镜头 old→new，连续保留回执必须首尾成链，ack 形成的 revision gap 才可跳过。结果状态应描述可验证事实（如目标当前是否仍被选择），不能把 ABA 误写成“从未被覆盖”。
 
 ## Historical Evidence Notes
 
