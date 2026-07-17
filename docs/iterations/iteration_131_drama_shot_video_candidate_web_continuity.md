@@ -42,7 +42,12 @@ iter115-119 已完成 D1-D4 的 provider-neutral 逐镜视频 plan、content-add
 
 ## Acceptance Result
 
-<iter-finish 回填 A131-01..05、测试数、canonical、真文本校准、审查结论与未修风险。>
+- **A131-01 — passed**：D1-D4 stable shot/request/candidate/selection、latest attempt 安全状态类、coverage、continuity 与 compose readiness 由同一 bounded projection 重建；source-plan stale compare-only，placeholder 和 `web_unverified` 均不能伪装 production ready。
+- **A131-02 — passed**：drama-only 页面/API 与 exact MP4 HEAD/GET/single-Range 路由通过。原始 MP4 不公开；派生 preview 经 decode/re-encode、metadata/轨道清除、4 MiB/单轨/尺寸/sample/线程/并发门禁和结构复核。缺失、坏 identity/manifest/artifact、Range 与 busy 均 fail closed。
+- **A131-03 — passed**：selection 复用 D2 manifest fingerprint、selection revision/current selection CAS；current candidate 选择、clear、exact lost-response replay、stale/retired/oversize selected clear 语义确定，mutation 从 bounded overview 到 domain precommit 均受 Web 资源门禁约束。
+- **A131-04 — passed**：same-origin/intent/32 KiB body、workspace/episode/shot/candidate exact identity、公开字段 allowlist 与派生媒体边界通过；测试钉住 GET/media/select 不进入 submit/poll/download/provider。图片、视频、TTS 真实调用均为 0。
+- **A131-05 — passed（真文本校准未通过语义检查）**：implementation commit `53c13139ac3baf0977d0a85d6c584b0df1129cc2` 上唯一 canonical `bash scripts/verify.sh` exit 0：**2610 tests OK**、15 steps、333 秒，run `9356464938a748e88918d8ee48f74178`，tree `9c856d38c35ac3125b11c1337ab57a72150cb301`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN，结论 `mock-functional`；mandatory local-drama step 为 `local-e2e`，不升级 provider 结论。correctness、security/boundary、Web/media/paid 三视角最终均无遗留 P0/P1/P2。
+- 真文本按授权仅调用 1 次：`gpt-5.5-medium`，HTTP 200，11.370 秒，provider usage 552 tokens；四项协议布尔检查均为 false，因此记录为“传输/模型响应成功，语义校准未通过”，不计为本轮协议校准成功，也不重试。iter125-131 累计保守计 8/60 请求、7 次 HTTP/model response、6 次协议检查通过，预留约 ¥0.70；图片 0/20、视频/TTS 0。未读取 `.env`，key、完整 prompt 与 response 正文均未输出或落盘。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

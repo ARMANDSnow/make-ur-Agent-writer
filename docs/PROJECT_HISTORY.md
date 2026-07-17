@@ -56,6 +56,7 @@
 | 128 | 短剧 ArtDirection 多 Scope 解析与冻结 | Episode > Series > Global、revision lineage、显式 clear 与跨 season retirement guard |
 | 129 | 短剧资产管理 Web 总览与治理 | strict allowlist 六分区资产页、scope-aware/cross-season impact 与受控 CAS mutation |
 | 130 | 短剧逐镜图片候选 Web 比较与选择 | strict/bounded C4 投影、metadata-safe exact PNG preview 与 guarded first/tail selection |
+| 131 | 短剧逐镜视频候选 Web 与连续性门禁 | derived-only MP4 preview、attempt/coverage/continuity 投影与 guarded selection |
 
 ## Iteration Implementation Index
 
@@ -167,6 +168,7 @@
 | 128 | 建立 ArtDirection 多 Scope 解析与 RenderPlan 冻结 | `src/drama_art_direction_scope.py`、`src/drama_render_store.py`、`src/drama_asset_usage.py`、`tests/test_drama_art_direction_scope.py` |
 | 129 | 建立资产治理 Web 投影与受控 mutation | `src/drama_asset_web.py`、`src/web/`、`tests/test_drama_asset_web.py`、`tests/test_web_server.py` |
 | 130 | 建立逐镜图片候选比较、选择与安全预览 Web | `src/drama_shot_image_web.py`、`src/web/`、`tests/test_drama_shot_image_web.py`、`tests/test_web_server.py` |
+| 131 | 建立逐镜视频候选、连续性与安全派生预览 Web | `src/drama_shot_video_web.py`、`src/drama_shot_video_candidate_store.py`、`src/web/`、`tests/test_drama_shot_video_web.py` |
 
 ## Durable Decisions
 
@@ -243,6 +245,7 @@
 33. **可恢复选择回执必须证明历史状态转换，而不只是保存结果哈希**：lost-response recovery 需要把 mutation 与 receipt 原子提交；before/after manifest 要逐版本绑定 append-only catalog、只允许目标镜头 old→new，连续保留回执必须首尾成链，ack 形成的 revision gap 才可跳过。结果状态应描述可验证事实（如目标当前是否仍被选择），不能把 ABA 误写成“从未被覆盖”。
 34. **资产零引用必须来自完整扫描证明，不能来自文件缺席**：跨集 used-by 要先枚举 canonical episode/source 闭包，再把缺失、坏 envelope、identity 错位、目录 symlink 与扫描竞态显式变成 blocker。`disabled` 只关闭未来选择/物化入口，不能删除或破坏历史冻结引用；即使当前 `references=[]`，没有独立 GC 协议也不能推出物理可删除。
 35. **多层 fallback 必须冻结解析历史，而不能只保存最终 ref**：Episode > Series > Global 若逐层读取却不复查先前 missing token，会在高层覆盖并发出现时短暂把低层计划判 fresh。resolution 应显式保存 selection/scope revision 并自校验 lineage；scope clear 与 lifecycle disabled 必须使用不同状态语义，Global mutation 还要检查所有已知 season ledger，不能信任调用方指定的单季证明。
+36. **内容哈希有效不等于媒体可安全公开**：浏览器不应直接消费 provider MP4；应从 manifest read 前实施并发/字节门禁，对单视频轨、尺寸、sample 与线程做解码前限制，再以去 metadata 的 decode/re-encode 派生物公开。超过 Web 重验上限的已选素材应保留可清除的 exact CAS 状态，但必须显式 `web_unverified` 并阻断 compose readiness，不能读取后才拒绝或误标成领域 artifact invalid。
 
 ## Historical Evidence Notes
 

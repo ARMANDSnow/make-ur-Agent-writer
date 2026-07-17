@@ -12,7 +12,7 @@
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
 - **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
-- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1 跨集资产 Used-By/停用治理、B2 ArtDirection Episode > Series > Global 解析冻结、逐镜图片 C1-C4、逐镜视频 D1-D4、声音 E1-E3，以及 F1/F2 本地 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 与通用可编辑工程。
+- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1 跨集资产 Used-By/停用治理、B2 ArtDirection Episode > Series > Global 解析冻结、逐镜图片 C1-C4、逐镜视频 D1-D5、声音 E1-E3，以及 F1/F2 本地 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 与通用可编辑工程。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -153,12 +153,13 @@ docs/iterations/           逐轮审计记录
 | 短剧 ArtDirection 多 Scope 解析与冻结 | 128 | ✅ workspace-local Episode > Series > Global、revision lineage、显式 clear/fallback 与 retirement guard 形成 B2 本地闭环；文本协议局部校准通过 |
 | 短剧资产管理 Web 总览与治理 | 129 | ✅ 六分区 strict allowlist 资产页、exact Used-By、scope/cross-season impact 与受控 select/lifecycle/clear mutation 形成 B3 本地 Web 闭环；文本协议局部校准通过 |
 | 短剧逐镜图片候选 Web 比较与选择 | 130 | ✅ strict/bounded 候选投影、exact 安全 PNG preview、两图比较与 guarded first/tail selection 形成 C4 本地 Web 闭环；文本协议局部校准通过 |
+| 短剧逐镜视频候选 Web 与连续性门禁 | 131 | ✅ strict/bounded 候选投影、安全派生 MP4 preview、attempt/coverage/continuity 与 guarded selection 形成 D5 本地 Web 闭环；本轮真文本响应成功但协议语义检查未通过 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 130**（2026-07-18，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。A1/A2 RenderPlan、visual-only override 与精确 stale matrix，B1 跨集资产 Used-By/停用治理、B2 ArtDirection 多 scope 解析冻结、B3 资产管理 Web，逐镜图片 C1-C4、逐镜视频 D1-D4、声音/时间线 E1-E3，以及 F1/F2 本地合成/可编辑导出已形成纯本地链；iter125-130 的 scope-specific 真文本只构成局部协议校准，真视频仍未执行，TTS 未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，mandatory local-drama 组件为 `local-e2e`。
+最近一次更新：**iter 131**（2026-07-18，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。A1/A2 RenderPlan、visual-only override 与精确 stale matrix，B1 跨集资产 Used-By/停用治理、B2 ArtDirection 多 scope 解析冻结、B3 资产管理 Web，逐镜图片 C1-C4、逐镜视频 D1-D5、声音/时间线 E1-E3，以及 F1/F2 本地合成/可编辑导出已形成纯本地链；iter125-131 的 scope-specific 真文本只构成局部协议校准，其中 iter131 语义检查未通过，真视频仍未执行，TTS 未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，mandatory local-drama 组件为 `local-e2e`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -193,7 +194,7 @@ docs/iterations/           逐轮审计记录
 | A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、visual-only override 与五态检查 | ✅ | **A1+A2 纯本地闭环已完成**：camera movement、lighting、negative prompt、剪辑 transition 使用不可变候选、revision/current-ID 双 CAS、effective manifest、可恢复 receipt ledger；creative/override/BGM/first-frame 变化按 v1 矩阵精确传播到 A-F 节点 |
 | B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | **B1-B3 本地治理与 Web 闭环已完成**：四类 exact-version 跨集 used-by、source blocker、active/disabled ledger 与 selection/materialization guard，ArtDirection Episode > Series > Global、显式 clear、revision freeze/ABA stale，以及 strict allowlist 资产总览和 CAS mutation 已实现。物理 GC 待实现 |
 | C. 逐镜图片 | 每镜图片候选、首帧/可选尾帧、引用冻结、比较选择与覆盖率 | 🟨 | **C1-C4 本地闭环已实现**：provider-neutral request/exact refs、content-addressed strict PNG 候选、guarded first/tail/previous-tail lineage、once-only attempt/durable receipt，并提供 strict/bounded Web 候选投影、两图比较、CAS 选择与 metadata-safe exact preview；真实 provider/network adapter、多参考上传协议、JPEG/WebP、显式 staging GC、power-loss 证明与主观质量校准未实现 |
-| D. 逐镜视频 | 每镜 I2V/R2V 输入计划、submit→poll→download、候选选择与跨镜连续性 | 🟨 | **D1-D4 纯本地闭环已完成**：D1-D3 冻结输入、候选/coverage 与 once-only 恢复；D4 以有序 selected snapshot、artifact 实体重验、global stale、首尾帧 lineage 和连续性 warning 建立 production compose gate。真实 provider/network、主观视觉相似度、Web/CLI 与 episode 2+ 成片未实现；旧 episode 1 高光入口保持兼容 |
+| D. 逐镜视频 | 每镜 I2V/R2V 输入计划、submit→poll→download、候选选择与跨镜连续性 | 🟨 | **D1-D5 本地闭环已完成**：D1-D3 冻结输入、候选/coverage 与 once-only 恢复；D4 建立 artifact-aware continuity/compose gate；D5 提供 strict/bounded 候选播放、选择、attempt/coverage/continuity Web，浏览器只消费有界去 metadata 派生 preview。真实 provider/network、Web submit/poll/cancel、主观视觉相似度与 episode 2+ 成片未实现；旧 episode 1 高光入口保持兼容 |
 | E. 声音与唯一时间线 | 角色 voice、逐句 TTS、旁白、字幕、BGM/SFX 与 `TimelineManifest` | ✅ | **E1-E3 纯本地闭环已完成**：VoiceProfile/AudioManifest、逐 utterance once-only recovery，以及只消费 fresh D4/E2 artifact 的 strict TimelineManifest；视频/对白/旁白/silence/optional BGM/SFX 和字幕共享 fingerprint，SRT 由同一 manifest 确定导出。仅 fake adapter/bounded WAV，真实 TTS、真实 BGM/SFX 与主观音频质量未验证 |
 | F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | 🟨 | **F1+F2 纯本地闭环已完成**：固定 1080×1920/25fps H.264/AAC 的 argv-only compose/QA，加同源 ASS、六轨 vendor-neutral edit project、素材 SHA/revision 与 completion marker。Web compose job、特定 NLE adapter、多 profile 与更广 codec/container 待完成 |
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | ⏳ | 已有领域专用恢复/付费 ledger；尚未做通用调度，且不得用通用状态替代付费证据 |
