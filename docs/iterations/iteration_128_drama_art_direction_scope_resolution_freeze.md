@@ -41,7 +41,17 @@ iter127 已完成阶段 B1 的跨集 Used-By 与非破坏停用治理。阶段 B
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、canonical、真模型校准、审查结论与未修风险。>
+- **结论**：本轮五项 Acceptance 全部通过。交付级别为 `mock-functional` / `canonical-mock-offline`；mandatory local-drama 子步骤为 `local-e2e`，`provider_validated=false`。独立 scope-specific 文本证据记为 `provider-validated-local-calibration`，不提升全项目等级。
+- **A128-01**：通过；Global/Episode scoped catalog、Series 兼容层与 resolution 均 strict、content-addressed，workspace/season/episode identity 与路径隔离有专项回归。
+- **A128-02**：通过；Episode > Series > Global、合法缺失 fallback、坏高层 fail closed、scope clear/fallback 与 lifecycle disabled 分离均成立；三层 source token 前后复查阻断 missing→present 竞态。
+- **A128-03**：通过；RenderPlan 显式冻结 scope、exact ref、selection/scope revision 与双 fingerprint；未选候选不 stale，selection/clear ABA 精确 stale，旧 season-only plan 可读并要求显式 rebuild。
+- **A128-04**：通过；scoped create/append/select/clear/re-enable 具 workspace lock、target CAS、revision/current-ID CAS、nofollow 原子写与 precommit 重验；Episode retirement 绑定 catalog season，Global 检查全部已知 canonical ledger。
+- **A128-05**：通过；聚焦 sanity、correctness/security/art-lineage 三视角、唯一 canonical 与一次真文本校准均在授权和 cap 内完成。
+- **实现提交**：`adcc3efb02a8b74292b134457024cb0e5e6c0127`，tree `696a5236dc8fbbaf726544d58374324e1c30c774`，`tracked_scope_clean=true`。
+- **唯一 canonical**：`bash scripts/verify.sh` exit 0；2561 tests OK，15 steps，310 秒，run `68216a338c0147109202fc2cbfcb43ae`；local drama E2E passed，mock preflight 0 FATAL / 0 WARN。
+- **聚焦与审查**：相关 assets/art-direction/render/usage 83 tests、受影响文件 `py_compile`、harness 与 diff check 均通过。初审确认并修复 resolver 非一致快照、caller-controlled governance season、初建 retirement guard 缺失和 revision lineage 不透明四类问题；补充 clear/re-enable ABA 与内层 fingerprint 防伪后，三路最终复核无遗留 P0/P1/P2。
+- **真文本校准**：获用户本轮明确授权后只读取桌面 `key.rtf` 的 key，向指定 HTTPS endpoint 发起 1 次 `gpt-5.5-medium` 请求；HTTP 200，275 tokens，3.980 秒，严格 JSON keys 与协议 verdict 均通过。临时脚本已删除，未打印 key 或响应正文。iter125-128 累计保守计 5/60 请求、4 次模型成功、预留 ¥0.40；图片 0/20、视频 0、TTS 0。未找到用户提及的 `sd_real_max.md`，因此未推断或执行任何图片配置。
+- **边界/未修风险**：未实现资产 Web 管理、物理 GC、跨 workspace registry 或真实图片/视频/语音；当前 episode artifact namespace 仍以单 workspace/season 1 主链为产品边界，多季模型未闭环。cooperative atomicity 依赖项目 writer 遵守 workspace lock。四份用户未跟踪体检报告未读取、未修改、未暂存。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
