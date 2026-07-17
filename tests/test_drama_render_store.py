@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from src import (
     character_designer,
+    drama_art_direction_scope,
     drama_art_direction_store,
     drama_render_store,
     drama_reviewer,
@@ -581,10 +582,30 @@ class DramaRenderStoreTests(DramaTestBase):
             expected_selected_version_id=appended.selected_version_id,
         )
         changed_ref = selected_art_direction_ref(changed)
+        current_resolution = drama_art_direction_scope._resolution(
+            scope="series",
+            season_no=1,
+            episode_no=1,
+            ref=current_ref,
+            source_selection_revision=0,
+            source_scope_revision=None,
+        )
+        changed_resolution = drama_art_direction_scope._resolution(
+            scope="series",
+            season_no=1,
+            episode_no=1,
+            ref=changed_ref,
+            source_selection_revision=1,
+            source_scope_revision=None,
+        )
         with patch.object(
             drama_render_store,
-            "resolve_selected_art_direction_ref",
-            side_effect=[current_ref, current_ref, changed_ref],
+            "resolve_art_direction",
+            side_effect=[
+                current_resolution,
+                current_resolution,
+                changed_resolution,
+            ],
         ):
             with self.assertRaisesRegex(
                 drama_render_store.RenderPlanStoreError,

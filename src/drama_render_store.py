@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Literal
 
 from . import paths
-from .drama_art_direction_store import (
-    DramaArtDirectionStoreError,
-    resolve_selected_art_direction_ref,
+from .drama_art_direction_scope import (
+    DramaArtDirectionScopeError,
+    resolve_art_direction,
 )
 from .drama_render_plan import build_render_plan
 from .drama_schemas import ArtDirectionRef, RenderPlan, episode_paths, normalize_episode_no
@@ -166,11 +166,15 @@ def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanIns
         return RenderPlanInspection("blocked_source", ("source_stale",), plan)
 
     try:
-        selected_art_ref = resolve_selected_art_direction_ref(
+        art_resolution = resolve_art_direction(
             workspace,
             season_no=snapshot.episode["season_no"],
+            episode_no=number,
         )
-    except (OSError, TypeError, ValueError, DramaArtDirectionStoreError):
+        selected_art_ref = (
+            art_resolution.ref if art_resolution is not None else None
+        )
+    except (OSError, TypeError, ValueError, DramaArtDirectionScopeError):
         return RenderPlanInspection(
             "blocked_source",
             ("art_direction_catalog_invalid",),
@@ -187,6 +191,7 @@ def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanIns
         expected = build_render_plan(
             snapshot,
             art_direction_ref=selected_art_ref,
+            art_direction_resolution=art_resolution,
         )
     except (TypeError, ValueError):
         return RenderPlanInspection("blocked_source", ("source_unrenderable",), plan)
@@ -206,6 +211,8 @@ def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanIns
         reasons.append("creative_fingerprint_mismatch")
     if plan.art_direction_ref != expected.art_direction_ref:
         reasons.append("art_direction_ref_mismatch")
+    if plan.art_direction_resolution != expected.art_direction_resolution:
+        reasons.append("art_direction_resolution_mismatch")
     if plan.plan_fingerprint != expected.plan_fingerprint:
         reasons.append("plan_source_mismatch")
     if reasons:
@@ -409,11 +416,15 @@ def _create_render_plan_locked(
 
     snapshot = _source_snapshot(workspace, episode_no=episode_no)
     try:
-        selected_art_ref = resolve_selected_art_direction_ref(
+        art_resolution = resolve_art_direction(
             workspace,
             season_no=snapshot.episode["season_no"],
+            episode_no=episode_no,
         )
-    except (OSError, TypeError, ValueError, DramaArtDirectionStoreError) as exc:
+        selected_art_ref = (
+            art_resolution.ref if art_resolution is not None else None
+        )
+    except (OSError, TypeError, ValueError, DramaArtDirectionScopeError) as exc:
         raise RenderPlanStoreError("valid art direction catalog is required") from exc
     if art_direction_ref is not None:
         expected_ref = (
@@ -425,7 +436,11 @@ def _create_render_plan_locked(
             raise RenderPlanStoreError(
                 "art direction ref does not match the selected catalog version"
             )
-    desired = build_render_plan(snapshot, art_direction_ref=selected_art_ref)
+    desired = build_render_plan(
+        snapshot,
+        art_direction_ref=selected_art_ref,
+        art_direction_resolution=art_resolution,
+    )
 
     if inspection.state == "fresh" and inspection.plan is not None:
         if inspection.plan.plan_fingerprint == desired.plan_fingerprint:
@@ -457,15 +472,21 @@ def _create_render_plan_locked(
                 "render source changed concurrently; retry from inspection"
             )
         try:
-            final_art_ref = resolve_selected_art_direction_ref(
+            final_resolution = resolve_art_direction(
                 workspace,
                 season_no=final_snapshot.episode["season_no"],
+                episode_no=episode_no,
             )
-        except (OSError, TypeError, ValueError, DramaArtDirectionStoreError) as exc:
+        except (
+            OSError,
+            TypeError,
+            ValueError,
+            DramaArtDirectionScopeError,
+        ) as exc:
             raise RenderPlanStoreError(
                 "art direction source changed concurrently"
             ) from exc
-        if final_art_ref != selected_art_ref:
+        if final_resolution != art_resolution:
             raise RenderPlanStoreError("art direction source changed concurrently")
         assert_art_direction_selectable()
 

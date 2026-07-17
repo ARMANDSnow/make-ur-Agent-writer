@@ -149,3 +149,4 @@
 134. [Iteration 125 - 短剧 ASS 与可编辑工程导出](./iteration_125_drama_ass_editable_export.md)
 135. [Iteration 126 - 短剧 Visual Override 与 Stale 依赖矩阵](./iteration_126_drama_visual_override_stale_matrix.md)
 136. [Iteration 127 - 短剧资产跨集 Used-By 与停用保护](./iteration_127_drama_asset_cross_episode_usage_retirement.md)
+137. [Iteration 128 - 短剧美术方向多 Scope 解析与冻结](./iteration_128_drama_art_direction_scope_resolution_freeze.md)

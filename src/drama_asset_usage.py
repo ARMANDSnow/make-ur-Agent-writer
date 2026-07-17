@@ -16,6 +16,11 @@ from .drama_art_direction_store import (
     _read_catalog as _read_art_direction_catalog,
     art_direction_catalog_path,
 )
+from .drama_art_direction_scope import (
+    MAX_SCOPED_ART_DIRECTION_CATALOG_BYTES,
+    _read_scoped_catalog,
+    scoped_art_direction_catalog_path,
+)
 from .drama_asset_versions import (
     MAX_ASSET_CATALOG_BYTES,
     MAX_ASSET_MANIFEST_BYTES,
@@ -74,7 +79,7 @@ MAX_USAGE_SCAN_ENTRIES = 2048
 MAX_USAGE_VERSIONS = 4096
 _EPISODE_FILE_RE = re.compile(
     r"^episode_([0-9]{2,3})\."
-    r"(render_plan|asset_manifest|scene_asset_manifest|"
+    r"(render_plan|art_direction|asset_manifest|scene_asset_manifest|"
     r"prop_clue_asset_manifest)\.json$"
 )
 _CANONICAL_EPISODE_FILE_RE = re.compile(r"^episode_([0-9]{2,3})\.json$")
@@ -306,6 +311,85 @@ def assert_asset_version_selectable(
         raise DramaAssetUsageError("disabled asset version cannot be selected")
 
 
+def _workspace_retirement_season_nos(workspace: str) -> tuple[int, ...]:
+    """List canonical retirement ledgers without following workspace symlinks."""
+
+    root = paths.workspace_root(workspace)
+    _validate_render_workspace_root(root)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise DramaAssetUsageError(
+            "strict no-follow retirement inspection is unavailable"
+        )
+    opened: list[int] = []
+    try:
+        current_fd = os.open(str(root), os.O_RDONLY | directory | nofollow)
+        opened.append(current_fd)
+        for part in ("data", "assets"):
+            try:
+                current_fd = os.open(
+                    part,
+                    os.O_RDONLY | directory | nofollow,
+                    dir_fd=current_fd,
+                )
+            except FileNotFoundError:
+                return (1,)
+            opened.append(current_fd)
+        names = os.listdir(current_fd)
+    except OSError as exc:
+        raise DramaAssetUsageError(
+            "retirement ledger namespace is invalid"
+        ) from exc
+    finally:
+        for fd in reversed(opened):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    if len(names) > MAX_USAGE_SCAN_ENTRIES:
+        raise DramaAssetUsageError("retirement ledger namespace is too large")
+    seasons = {1}
+    for name in names:
+        if not (
+            name.startswith("season_")
+            and name.endswith(".asset_retirement.json")
+        ):
+            continue
+        match = re.fullmatch(
+            r"season_([0-9]+)\.asset_retirement\.json",
+            name,
+        )
+        if match is None:
+            raise DramaAssetUsageError("retirement ledger name is invalid")
+        season = int(match.group(1))
+        if season < 1 or name != (
+            f"season_{season:02d}.asset_retirement.json"
+        ):
+            raise DramaAssetUsageError("retirement ledger name is invalid")
+        seasons.add(season)
+    return tuple(sorted(seasons))
+
+
+def assert_asset_version_selectable_across_workspace(
+    workspace: str,
+    *,
+    kind: AssetUsageKind,
+    asset_id: str,
+    version_id: str,
+) -> None:
+    """Guard a workspace-global selection against every known season ledger."""
+
+    for season_no in _workspace_retirement_season_nos(workspace):
+        assert_asset_version_selectable(
+            workspace,
+            kind=kind,
+            asset_id=asset_id,
+            version_id=version_id,
+            season_no=season_no,
+        )
+
+
 def _snapshot_token(
     root: Path,
     path: Path,
@@ -426,6 +510,16 @@ def build_season_asset_usage_index(
         version_id: str,
         fingerprint: str,
     ) -> None:
+        key = (kind, asset_id, version_id)
+        existing = inventory.get(key)
+        if existing is not None:
+            if existing != fingerprint:
+                _add_blocker(
+                    blocker_rows,
+                    source="episode_scan",
+                    code="version_identity_conflict",
+                )
+            return
         if len(inventory) >= MAX_USAGE_VERSIONS:
             _add_blocker(
                 blocker_rows,
@@ -433,7 +527,7 @@ def build_season_asset_usage_index(
                 code="version_capacity_exceeded",
             )
             return
-        inventory[(kind, asset_id, version_id)] = fingerprint
+        inventory[key] = fingerprint
 
     catalog_specs = [
         (
@@ -447,6 +541,20 @@ def build_season_asset_usage_index(
             art_direction_catalog_path(workspace, season_no=season),
             MAX_ART_DIRECTION_CATALOG_BYTES,
             lambda: _read_art_direction_catalog(workspace, season_no=season),
+        ),
+        (
+            "art_direction_global_catalog",
+            scoped_art_direction_catalog_path(
+                workspace,
+                scope="global",
+            ),
+            MAX_SCOPED_ART_DIRECTION_CATALOG_BYTES,
+            lambda: _read_scoped_catalog(
+                workspace,
+                scope="global",
+                season_no=None,
+                episode_no=None,
+            ),
         ),
         (
             "scene_catalog",
@@ -493,6 +601,15 @@ def build_season_asset_usage_index(
             add_inventory(
                 "art_direction",
                 art_catalog.art_direction_id,
+                version.version_id,
+                version.version_fingerprint,
+            )
+    global_art_catalog = catalogs.get("art_direction_global_catalog")
+    if global_art_catalog is not None:
+        for version in global_art_catalog.versions:
+            add_inventory(
+                "art_direction",
+                global_art_catalog.art_direction_id,
                 version.version_id,
                 version.version_fingerprint,
             )
@@ -548,6 +665,7 @@ def build_season_asset_usage_index(
                 name.endswith(f".{suffix}.json")
                 for suffix in (
                     "render_plan",
+                    "art_direction",
                     "asset_manifest",
                     "scene_asset_manifest",
                     "prop_clue_asset_manifest",
@@ -602,6 +720,22 @@ def build_season_asset_usage_index(
             render_plan_path,
             _read_render_plan,
         ),
+        "art_direction": (
+            "art_direction_episode_catalog",
+            MAX_SCOPED_ART_DIRECTION_CATALOG_BYTES,
+            lambda workspace, episode_no: scoped_art_direction_catalog_path(
+                workspace,
+                scope="episode",
+                season_no=season,
+                episode_no=episode_no,
+            ),
+            lambda workspace, episode_no: _read_scoped_catalog(
+                workspace,
+                scope="episode",
+                season_no=season,
+                episode_no=episode_no,
+            ),
+        ),
         "asset_manifest": (
             "character_manifest",
             MAX_ASSET_MANIFEST_BYTES,
@@ -652,6 +786,17 @@ def build_season_asset_usage_index(
                     episode_no=episode_no,
                     code="episode_identity_mismatch",
                 )
+                continue
+            if file_kind == "art_direction":
+                if value.season_no != season:
+                    continue
+                for version in value.versions:
+                    add_inventory(
+                        "art_direction",
+                        value.art_direction_id,
+                        version.version_id,
+                        version.version_fingerprint,
+                    )
                 continue
             if value.season_no != season:
                 continue

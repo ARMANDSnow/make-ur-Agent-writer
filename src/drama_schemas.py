@@ -885,6 +885,155 @@ class ArtDirectionCatalog(BaseModel):
         return self
 
 
+ArtDirectionScope = Literal["global", "series", "episode"]
+ScopedArtDirectionScope = Literal["global", "episode"]
+
+
+class ScopedArtDirectionCatalog(BaseModel):
+    """Workspace-global or episode override catalog with explicit activation."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    scope: ScopedArtDirectionScope
+    season_no: Optional[int] = Field(default=None, ge=1)
+    episode_no: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=MAX_DRAMA_EPISODE_NO,
+    )
+    art_direction_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    versions: List[ArtDirectionVersion] = Field(min_length=1, max_length=256)
+    selected_version_id: str = Field(pattern=_ART_DIRECTION_VERSION_ID_PATTERN)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+    enabled: bool = True
+    scope_revision: int = Field(ge=0, le=2_147_483_647)
+    catalog_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "season_no",
+        "episode_no",
+        "selection_revision",
+        "scope_revision",
+        mode="before",
+    )
+    @classmethod
+    def _scoped_catalog_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> Optional[int]:
+        if value is None and info.field_name in ("season_no", "episode_no"):
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _scoped_catalog_is_consistent(self) -> "ScopedArtDirectionCatalog":
+        if self.scope == "global":
+            if self.season_no is not None or self.episode_no is not None:
+                raise ValueError("global art direction scope cannot bind an episode")
+        elif self.season_no is None or self.episode_no is None:
+            raise ValueError("episode art direction scope requires season and episode")
+        if any(
+            version.art_direction_id != self.art_direction_id
+            for version in self.versions
+        ):
+            raise ValueError("art direction versions must belong to the scope")
+        ids = [version.version_id for version in self.versions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("scoped art direction version ids must be unique")
+        if self.selected_version_id not in set(ids):
+            raise ValueError("scoped selected art direction version does not exist")
+        parents = {
+            version.version_id: version.derived_from for version in self.versions
+        }
+        for parent in parents.values():
+            if parent is not None and parent not in parents:
+                raise ValueError("scoped derived art direction version does not exist")
+        for version_id in parents:
+            seen: set[str] = set()
+            current: Optional[str] = version_id
+            while current is not None:
+                if current in seen:
+                    raise ValueError("scoped art direction derivation contains a cycle")
+                seen.add(current)
+                current = parents[current]
+        payload = self.model_dump(exclude={"catalog_fingerprint"})
+        if _canonical_sha256(payload) != self.catalog_fingerprint:
+            raise ValueError("scoped art direction catalog fingerprint is invalid")
+        return self
+
+
+class ArtDirectionResolution(BaseModel):
+    """Exact scoped selection frozen into one episode RenderPlan."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    scope: ArtDirectionScope
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    ref: ArtDirectionRef
+    source_selection_revision: int = Field(ge=0, le=2_147_483_647)
+    source_scope_revision: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=2_147_483_647,
+    )
+    source_selection_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    resolution_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "season_no",
+        "episode_no",
+        "source_selection_revision",
+        "source_scope_revision",
+        mode="before",
+    )
+    @classmethod
+    def _resolution_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> Optional[int]:
+        if value is None and info.field_name == "source_scope_revision":
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _resolution_is_content_addressed(self) -> "ArtDirectionResolution":
+        if (self.scope == "series") != (self.source_scope_revision is None):
+            raise ValueError(
+                "art direction resolution scope revision is inconsistent"
+            )
+        selection_payload = {
+            "scope": self.scope,
+            "season_no": (
+                self.season_no
+                if self.scope in ("series", "episode")
+                else None
+            ),
+            "episode_no": self.episode_no if self.scope == "episode" else None,
+            "ref": self.ref.model_dump(),
+            "selection_revision": self.source_selection_revision,
+            "scope_revision": self.source_scope_revision,
+        }
+        if (
+            _canonical_sha256(selection_payload)
+            != self.source_selection_fingerprint
+        ):
+            raise ValueError(
+                "art direction source selection fingerprint is invalid"
+            )
+        payload = self.model_dump(exclude={"resolution_fingerprint"})
+        if _canonical_sha256(payload) != self.resolution_fingerprint:
+            raise ValueError("art direction resolution fingerprint is invalid")
+        return self
+
+
 class AssetArtifact(BaseModel):
     """Bounded local artifact identity without provider or prompt data."""
 
@@ -1683,6 +1832,8 @@ AssetUsageSourceKind = Literal[
     "episode_scan",
     "character_catalog",
     "art_direction_catalog",
+    "art_direction_global_catalog",
+    "art_direction_episode_catalog",
     "scene_catalog",
     "prop_clue_catalog",
     "render_plan",
@@ -1803,6 +1954,7 @@ class AssetUsageSourceSnapshot(BaseModel):
         episode_sources = {
             "render_plan",
             "character_manifest",
+            "art_direction_episode_catalog",
             "scene_manifest",
             "prop_clue_manifest",
         }
@@ -1836,6 +1988,7 @@ class AssetUsageBlocker(BaseModel):
         episode_sources = {
             "render_plan",
             "character_manifest",
+            "art_direction_episode_catalog",
             "scene_manifest",
             "prop_clue_manifest",
         }
@@ -2887,6 +3040,7 @@ class RenderPlan(BaseModel):
     frozen_character_ids: List[str] = Field(min_length=1, max_length=8)
     character_projection_fingerprint: str = Field(pattern=_SHA256_PATTERN)
     art_direction_ref: Optional[ArtDirectionRef] = None
+    art_direction_resolution: Optional[ArtDirectionResolution] = None
     shots: List[RenderShot] = Field(min_length=1, max_length=100)
     spoken_segments: List[SpokenSegment] = Field(default_factory=list, max_length=200)
     source_event_ids: List[str] = Field(default_factory=list, max_length=256)
@@ -2931,6 +3085,16 @@ class RenderPlan(BaseModel):
 
     @model_validator(mode="after")
     def _render_plan_is_internally_consistent(self) -> "RenderPlan":
+        if self.art_direction_resolution is not None:
+            resolution = self.art_direction_resolution
+            if (
+                self.art_direction_ref != resolution.ref
+                or resolution.season_no != self.season_no
+                or resolution.episode_no != self.episode_no
+            ):
+                raise ValueError(
+                    "render plan art direction resolution is inconsistent"
+                )
         shot_ids = [shot.shot_id for shot in self.shots]
         if len(shot_ids) != len(set(shot_ids)):
             raise ValueError("render shot ids must be unique")
@@ -2977,7 +3141,14 @@ class RenderPlan(BaseModel):
             raise ValueError("spoken segments must be referenced once in plan order")
 
         payload = self.model_dump(exclude={"plan_fingerprint"})
-        if _canonical_sha256(payload) != self.plan_fingerprint:
+        valid_fingerprint = _canonical_sha256(payload) == self.plan_fingerprint
+        if not valid_fingerprint and self.art_direction_resolution is None:
+            legacy_payload = dict(payload)
+            legacy_payload.pop("art_direction_resolution", None)
+            valid_fingerprint = (
+                _canonical_sha256(legacy_payload) == self.plan_fingerprint
+            )
+        if not valid_fingerprint:
             raise ValueError("render plan fingerprint does not match its payload")
         return self
 

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from src import (
     character_designer,
+    drama_art_direction_scope,
     drama_art_direction_store,
     drama_asset_usage,
     drama_asset_versions,
@@ -169,6 +170,16 @@ class DramaAssetUsageTests(DramaTestBase):
     def _clone_episode_two_sources(self, name: str, ready: dict) -> None:
         plan_payload = ready["plan"].model_dump()
         plan_payload["episode_no"] = 2
+        if plan_payload["art_direction_resolution"] is not None:
+            resolution = plan_payload["art_direction_resolution"]
+            resolution["episode_no"] = 2
+            resolution["resolution_fingerprint"] = _canonical_sha256(
+                {
+                    key: value
+                    for key, value in resolution.items()
+                    if key != "resolution_fingerprint"
+                }
+            )
         plan_payload["plan_fingerprint"] = _canonical_sha256(
             {
                 key: value
@@ -233,6 +244,67 @@ class DramaAssetUsageTests(DramaTestBase):
                     "manifest": model_to_dict(manifest),
                 },
             )
+
+    def test_scoped_art_direction_catalogs_join_exact_version_inventory(self) -> None:
+        ready = self._ready("usage-scoped-art")
+        global_catalog = (
+            drama_art_direction_scope.create_scoped_art_direction_catalog(
+                "usage-scoped-art",
+                scope="global",
+                art_direction_id="global_default",
+                spec=self._art_spec("global"),
+                source_kind="manual",
+            )
+        )
+        episode_catalog = (
+            drama_art_direction_scope.create_scoped_art_direction_catalog(
+                "usage-scoped-art",
+                scope="episode",
+                season_no=1,
+                episode_no=1,
+                art_direction_id="episode_default",
+                spec=self._art_spec("episode"),
+                source_kind="manual",
+            )
+        )
+        replaced = drama_render_store.create_render_plan(
+            "usage-scoped-art",
+            replace_stale=True,
+        )
+        self.assertEqual(replaced.art_direction_resolution.scope, "episode")
+        index = drama_asset_usage.build_season_asset_usage_index(
+            "usage-scoped-art"
+        )
+        self.assertEqual(index.blockers, [])
+        keys = {
+            (entry.kind, entry.asset_id, entry.version_id): entry
+            for entry in index.entries
+        }
+        for catalog in (
+            ready["art_catalog"],
+            global_catalog,
+            episode_catalog,
+        ):
+            key = (
+                "art_direction",
+                catalog.art_direction_id,
+                catalog.selected_version_id,
+            )
+            self.assertIn(key, keys)
+        episode_entry = keys[
+            (
+                "art_direction",
+                episode_catalog.art_direction_id,
+                episode_catalog.selected_version_id,
+            )
+        ]
+        self.assertEqual(
+            [row.episode_no for row in episode_entry.references],
+            [1],
+        )
+        sources = {row.source for row in index.source_snapshots}
+        self.assertIn("art_direction_global_catalog", sources)
+        self.assertIn("art_direction_episode_catalog", sources)
 
     def _append_candidates(self, name: str, ready: dict) -> dict:
         character_asset = ready["character_catalog"].assets[0]
@@ -467,6 +539,16 @@ class DramaAssetUsageTests(DramaTestBase):
         ready = self._ready("usage-wrong-episode")
         payload = ready["plan"].model_dump()
         payload["episode_no"] = 2
+        if payload["art_direction_resolution"] is not None:
+            resolution = payload["art_direction_resolution"]
+            resolution["episode_no"] = 2
+            resolution["resolution_fingerprint"] = _canonical_sha256(
+                {
+                    key: value
+                    for key, value in resolution.items()
+                    if key != "resolution_fingerprint"
+                }
+            )
         payload["plan_fingerprint"] = _canonical_sha256(
             {
                 key: value

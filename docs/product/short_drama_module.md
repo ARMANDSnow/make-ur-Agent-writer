@@ -668,6 +668,14 @@ drama workspace
 
 生命周期 ledger 只有 `active` 与 `disabled`，mutation 使用 state revision + current status 双 CAS，并把停用决定绑定到当次 usage index fingerprint。`disabled` 不删除版本、artifact 或历史 manifest，也不把已有 selected/no-op 读取改写为失败；但它会阻止该 exact version 被重新选择，以及被新的或替换后的 RenderPlan/character/scene/prop-clue manifest 再次冻结。显式恢复 `active` 产生新 revision 后才可重新选择或物化。当前不提供物理删除/GC；未来即使增加 GC，也必须另立可证明的引用闭包和迁移协议，不能把 `references=[]` 直接解释为可删除。
 
+#### B2 ArtDirection 多 Scope 解析与冻结
+
+ArtDirection 解析固定为 workspace 内 `Episode > Series > Global`。Series 沿用 season catalog；Global 是该 workspace 的默认方向，不是跨 workspace registry；Episode 是带 season/episode identity 的显式覆盖。缺失的高层可向下 fallback，schema-invalid、orphan、特殊文件或读取竞态必须 fail closed。scoped catalog 的 `enabled=false` 表示用户显式 clear，可审计地 fallback；它不同于 B1 lifecycle `disabled`：后者继续允许历史 selected/no-op 与既有 RenderPlan 读取，但禁止新建、替换、重新选择或重新启用时冻结该 exact version。
+
+resolver 在一次解析前后复查 Episode、Series、Global 三个源的 content token，包括 missing token，避免高优先级覆盖在层间读取时出现却仍把旧低优先级 RenderPlan 判 fresh。解析结果写入 RenderPlan，显式冻结 source scope、exact ref、selection revision，以及 scoped Global/Episode 的 activation revision；selection fingerprint 与 resolution fingerprint 均由 schema 重新派生校验。追加未选候选不 stale；选择切换、select-away/back、clear/re-enable 和 scope 优先级变化会因 revision 或 ref 变化精确 stale。没有 resolution 的旧 season-only RenderPlan 仍可严格读取，但 inspect 会要求显式 rebuild 完成迁移。
+
+scoped mutation 与既有 catalog 相同，使用 workspace lock、目标 bytes token、revision/current-ID CAS、nofollow 原子替换和 precommit 重验。Episode retirement guard 强绑定 catalog season；Global create/select/re-enable 必须检查 workspace 中全部已知 canonical season ledger，调用方不能借另一 season 的空 ledger 绕过停用。Global 与 Episode catalog 的全部 immutable versions 也进入 B1 exact-version inventory；同 identity 不同 fingerprint 会形成 blocker。
+
 ### 11.4 依赖顺序与完成口径
 
 创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。

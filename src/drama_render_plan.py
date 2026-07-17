@@ -7,6 +7,7 @@ import json
 from typing import Any, Dict, Iterable
 
 from .drama_schemas import (
+    ArtDirectionResolution,
     ArtDirectionRef,
     CameraMovement,
     DialogueSegment,
@@ -220,6 +221,9 @@ def build_render_plan(
     snapshot: FreshEpisodeSnapshot,
     *,
     art_direction_ref: ArtDirectionRef | Dict[str, Any] | None = None,
+    art_direction_resolution: (
+        ArtDirectionResolution | Dict[str, Any] | None
+    ) = None,
 ) -> RenderPlan:
     """Build a byte-stable RenderPlan without file or network access."""
 
@@ -232,12 +236,28 @@ def build_render_plan(
         raise ValueError("render source storyboard must be a non-empty list")
 
     art_ref = None
+    resolution = None
+    if art_direction_resolution is not None:
+        resolution = (
+            art_direction_resolution
+            if isinstance(art_direction_resolution, ArtDirectionResolution)
+            else ArtDirectionResolution(**art_direction_resolution)
+        )
+        if (
+            resolution.season_no != episode["season_no"]
+            or resolution.episode_no != episode["episode_no"]
+        ):
+            raise ValueError("art direction resolution belongs to another episode")
+        art_ref = resolution.ref
     if art_direction_ref is not None:
-        art_ref = (
+        supplied_ref = (
             art_direction_ref
             if isinstance(art_direction_ref, ArtDirectionRef)
             else ArtDirectionRef(**art_direction_ref)
         )
+        if art_ref is not None and supplied_ref != art_ref:
+            raise ValueError("art direction ref does not match its resolution")
+        art_ref = supplied_ref
 
     normalized_sources = [_normalize_source_shot(row) for row in storyboard]
     source_numbers = [row["shot_no"] for row in normalized_sources]
@@ -369,6 +389,8 @@ def build_render_plan(
         "spoken_segments": spoken_segments,
         "source_event_ids": [],
     }
+    if resolution is not None:
+        plan_payload["art_direction_resolution"] = model_to_dict(resolution)
     plan_payload["plan_fingerprint"] = _strict_sha256(plan_payload)
     return RenderPlan(**plan_payload)
 
