@@ -52,6 +52,7 @@
 | 124 | 短剧桌面端 SOP 与真模型验证 | 两集桌面 E2E、多集分镜/导航、任务日志安全投影与真文本/图片局部校准 |
 | 125 | 短剧 ASS 与可编辑工程导出 | 同源 ASS、vendor-neutral 六轨工程、素材/字幕版本冻结与 completion marker |
 | 126 | 短剧 Visual Override 与 Stale 矩阵 | 四字段不可变 override、双 CAS/receipt ledger 与 A-F 精确传播 |
+| 127 | 短剧跨集资产 Used-By 与停用保护 | 四类 exact-version 反向索引、坏源 blocker、非破坏停用与新物化保护 |
 
 ## Iteration Implementation Index
 
@@ -159,6 +160,7 @@
 | 124 | 修复两集桌面 SOP、多集编辑与任务日志安全可读投影 | `src/storyboard_builder.py`、`src/web/`、`tests/test_drama_storyboard_builder.py`、`tests/test_web_routes_get.py` |
 | 125 | 建立同源 ASS、六轨可编辑工程与安全完成协议 | `src/drama_schemas.py`、`src/drama_edit_export.py`、`tests/test_drama_edit_export.py` |
 | 126 | 建立 visual override、可恢复选择与 stale 矩阵 | `src/drama_schemas.py`、`src/drama_visual_overrides.py`、`tests/test_drama_visual_overrides.py` |
+| 127 | 建立跨集资产使用索引与非破坏停用治理 | `src/drama_schemas.py`、`src/drama_asset_usage.py`、`src/drama_asset_versions.py`、`tests/test_drama_asset_usage.py` |
 
 ## Durable Decisions
 
@@ -233,6 +235,7 @@
 31. **媒体合成的完成态必须由同源时间线和 post-probe 共同证明**：plan 只接受显式 argv 与严格相对路径；hash/probe 后应把已验证字节固化到私有 staging，避免 FFmpeg 消费漂移源。容器总时长不能替代视频流时长，SRT 与 QA 也不能靠各自落盘值自证；应从 TimelineManifest 重建并把 output SHA、轨道规格和 required-shot coverage 一起复核。
 32. **多文件可编辑导出需要显式完成协议，而不只是逐文件原子替换**：ASS 与工程文件各自原子写入仍可能形成跨文件 partial pair；应先失效旧 marker，在同一锁域内重验素材、输出目录 identity 和完整 pair，最后才提交 completion marker。字幕 revision、素材 SHA、source range、profile 与 timeline fingerprint 必须进入可重建工程，特定 NLE 兼容性只能由对应 adapter 另行证明。
 33. **可恢复选择回执必须证明历史状态转换，而不只是保存结果哈希**：lost-response recovery 需要把 mutation 与 receipt 原子提交；before/after manifest 要逐版本绑定 append-only catalog、只允许目标镜头 old→new，连续保留回执必须首尾成链，ack 形成的 revision gap 才可跳过。结果状态应描述可验证事实（如目标当前是否仍被选择），不能把 ABA 误写成“从未被覆盖”。
+34. **资产零引用必须来自完整扫描证明，不能来自文件缺席**：跨集 used-by 要先枚举 canonical episode/source 闭包，再把缺失、坏 envelope、identity 错位、目录 symlink 与扫描竞态显式变成 blocker。`disabled` 只关闭未来选择/物化入口，不能删除或破坏历史冻结引用；即使当前 `references=[]`，没有独立 GC 协议也不能推出物理可删除。
 
 ## Historical Evidence Notes
 

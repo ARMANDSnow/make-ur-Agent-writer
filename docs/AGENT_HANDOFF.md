@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 126，2026-07-18 收官 |
+| 更新时间 | iter 127，2026-07-18 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2537 tests OK** |
-| Accepted implementation commit | `8eeef4f9b11f3cb280cbed5956d057ce4999b2f2` |
+| Canonical 基线 | **2549 tests OK** |
+| Accepted implementation commit | `f770cba1eb5b5b38f42b5a6397ce2285806ff00e` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真语音、真视频、episode 2+ 成片及完整逐镜/单集媒体质量与费用仍未实测；视频配置仍缺有效 key 与公网素材回调；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter126 已完成 A2 visual-only override、双 CAS/receipt 恢复与 A-F stale dependency matrix；本轮 1 次 scope-specific 真文本校准，图片/视频/TTS 均 0 调用 |
+| 当前开发轮次 | 无；iter127 已完成 B1 exact-version 跨集 Used-By、非破坏停用 ledger 与 selection/materialization guard；本轮 1 次 scope-specific 真文本校准，图片/视频/TTS 均 0 调用 |
 
 ## Capability Map
 
@@ -22,7 +22,7 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights、多集编辑入口、中文可读且脱敏的任务历史 | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、A1 strict RenderPlan 与五态 stale、A2 visual-only immutable candidate/双 CAS/effective manifest/receipt ledger/v1 stale matrix、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、角色/scene/prop-clue manifests 与 episode used-by、C1-C3 逐镜图片、D1-D4 逐镜视频 compose gate、E1 VoiceProfile/逐句 AudioManifest、E2 once-only TTS recovery、E3 strict TimelineManifest/SRT、F1 FFmpeg 1080×1920/25fps MP4 与媒体 QA、F2 同源 ASS/vendor-neutral 六轨工程/完成回执、单集四导出、严格整季母包/阶段快照、Insights、episode 1 高光视频 job、多模态可恢复编排 | 资产 Web/跨集 used-by、ArtDirection 多 scope、真实逐镜图片/视频 provider 与主观质量、真实 TTS adapter、特定 NLE adapter/Web compose job、多 profile、更广 codec、episode 2+ 成片及真语音/真视频未验证 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、A1 strict RenderPlan 与五态 stale、A2 visual-only immutable candidate/双 CAS/effective manifest/receipt ledger/v1 stale matrix、B1 四类 exact-version 跨集 Used-By/source blocker/active-disabled ledger/新选择与物化保护、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、C1-C3 逐镜图片、D1-D4 逐镜视频 compose gate、E1 VoiceProfile/逐句 AudioManifest、E2 once-only TTS recovery、E3 strict TimelineManifest/SRT、F1 FFmpeg 1080×1920/25fps MP4 与媒体 QA、F2 同源 ASS/vendor-neutral 六轨工程/完成回执、单集四导出、严格整季母包/阶段快照、Insights、episode 1 高光视频 job、多模态可恢复编排 | 资产 Web、ArtDirection 多 scope、物理 GC、真实逐镜图片/视频 provider 与主观质量、真实 TTS adapter、特定 NLE adapter/Web compose job、多 profile、更广 codec、episode 2+ 成片及真语音/真视频未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
@@ -34,8 +34,9 @@
 - iter124 真文本五站审计 6 calls，另有错误根路径 1 次失败请求，总计 7/60、估算 ¥0.2973；2 张真角色图首次成功、113.974/105.397 秒、2/20、估算 ¥10，人工视觉复核通过。视频文档仅含 key 占位符且文本 key 对视频服务 401，同时无公网素材回调，因此 0 submit `safe-blocked`；TTS 未测。
 - iter125 F2 从唯一 TimelineManifest 确定导出同源 ASS 与 vendor-neutral 六轨可编辑工程；素材 SHA/source range、音频 gain/fade/profile、字幕 source hash/revision 和 completion marker 可精确重建重验，partial pair 与 source/output namespace swap fail closed。
 - iter126 A2 新增四字段 visual-only override、append-only content-addressed catalog、revision/current-ID 双 CAS、effective manifest 与最多 512 条 receipt ledger；before/after 双快照证明单镜头 delta，连续保留 receipt 必须成链，ack gap、lost response、ABA `target_current` 语义均有回归。v1 matrix 精确覆盖 creative、各 override 字段、BGM 与 first frame 对 A-F 的传播。
-- iter125-126 scope-specific 文本校准累计保守计 3/60 请求、2 次模型成功；iter126 单次 HTTP 200、164 tokens/3.198 秒并完全匹配 transition matrix。累计预留 ¥0.20，图片 0/20、视频/TTS 0；证据仅为 `provider-validated-local-calibration`。
-- canonical **2537 tests OK**（项目 `.venv`）；implementation commit `8eeef4f` 上 exit 0，15 steps / 301 秒，run `497adce99a36419099eb71f56f8f16e2`，tree `aedd8692c35ef80df2ff17daf54ffdb3e7306210`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`；correctness、security/boundary、media/workflow 最终无遗留 P0/P1/P2。
+- iter127 B1 从 strict catalog 与 frozen RenderPlan/manifests 重建四类 exact-version 跨集反向索引；canonical episode 缺源、内外 episode 错位、特殊文件、目录 symlink 与扫描竞态均成为 blocker。active/disabled ledger 使用 revision/current-status 双 CAS，停用保留历史但阻止新的选择与物化，永不宣称物理可删除。
+- iter125-127 scope-specific 文本校准累计保守计 4/60 请求、3 次模型成功；iter127 单次 HTTP 200、237 tokens/3.091 秒并严格匹配停用决策协议。累计预留 ¥0.30，图片 0/20、视频/TTS 0；证据仅为 `provider-validated-local-calibration`。
+- canonical **2549 tests OK**（项目 `.venv`）；implementation commit `f770cba` 上 exit 0，15 steps / 286 秒，run `2357293212f64010a90d7cfb1e9a95ff`，tree `895a9bb6c49d0b82c0ab9b952fb9eee6920f16e0`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`；correctness、security/boundary、asset-lineage 最终无遗留 P0/P1/P2。
 
 ## Retained Working Memory
 
@@ -267,4 +268,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter126 完成 A2 visual-only override 与 `drama-stale-matrix-v1`：四字段不可变候选、revision/current-ID 双 CAS、effective manifest、安全原子 state 和最多 512 条的 before/after receipt ledger；历史 receipt 逐版本绑定 catalog、连续修订成链，lost response、ack gap、same-shot supersede 与 ABA `target_current` 都有确定语义。矩阵把 creative/override/BGM/first-frame 精确投影到 A-F 节点且不误伤 spoken audio/无关镜头。本轮 scope-specific 真文本 1/1 成功、164 tokens/3.198 秒；累计 iter125-126 保守 3/60 请求、¥0.20，图片 0/20、视频/TTS 0。三视角最终无遗留 P0/P1/P2；canonical 2537 tests、15 steps、301 秒，run `497adce99a36419099eb71f56f8f16e2`，mock preflight 0 WARN/FATAL，总级别 `mock-functional`，局部文本为 `provider-validated-local-calibration`。
+iter127 完成 B1 跨集 Used-By 与非破坏停用治理：四类 catalog 的每个 exact version 都进入 content-addressed season 索引，episode/shot refs、source bytes 和 blocker 均稳定排序；缺源、坏 envelope、identity 错位、特殊文件、目录 symlink 与扫描竞态不能伪装 zero-use。active/disabled ledger 使用 revision/current-status 双 CAS，停用保留旧 selected/frozen refs，但阻止新的 selection 与 RenderPlan/manifest 物化，显式恢复后才可重用，物理删除恒为 false。初审 2×P1 + 2×P2 全修后，三视角最终无遗留 P0/P1/P2；canonical 2549 tests、15 steps、286 秒，run `2357293212f64010a90d7cfb1e9a95ff`，mock preflight 0 WARN/FATAL。真文本 1/1 成功、237 tokens/3.091 秒；累计 iter125-127 保守 4/60 请求、¥0.30，图片 0/20、视频/TTS 0，总级别 `mock-functional`，局部文本为 `provider-validated-local-calibration`。

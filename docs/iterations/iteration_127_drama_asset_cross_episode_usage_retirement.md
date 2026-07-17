@@ -41,7 +41,17 @@ iter126 已完成 A2 visual-only override 与 A-F stale dependency matrix。A-J 
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、canonical、真模型校准、审查结论与未修风险。>
+- **结论**：本轮五项 Acceptance 全部通过。交付级别为 `mock-functional` / `canonical-mock-offline`；mandatory local-drama 子步骤为 `local-e2e`，`provider_validated=false`。独立 scope-specific 文本证据记为 `provider-validated-local-calibration`，不提升全项目等级。
+- **A127-01**：通过；四类 exact-version 跨集索引、空 references、稳定排序与 content address 均有专项回归。
+- **A127-02**：通过；缺源、坏源、special file、intermediate symlink、identity 错位及目录竞态均形成 blocker。
+- **A127-03**：通过；active/disabled ledger、revision/current-status 双 CAS、原子写与物理删除恒 false 均成立。
+- **A127-04**：通过；disabled 阻止四类新选择/物化，已有 fresh/no-op 与历史 frozen refs 可读，restore 后可重用。
+- **A127-05**：通过；聚焦、三视角最终复核、唯一 canonical 与一次真文本校准均在授权和 cap 内完成。
+- **实现提交**：`f770cba1eb5b5b38f42b5a6397ce2285806ff00e`，tree `895a9bb6c49d0b82c0ab9b952fb9eee6920f16e0`，`tracked_scope_clean=true`。
+- **唯一 canonical**：`bash scripts/verify.sh` exit 0；2549 tests OK，15 steps，286 秒，run `2357293212f64010a90d7cfb1e9a95ff`；local drama E2E passed，mock preflight 0 FATAL / 0 WARN。
+- **聚焦与审查**：iter127 专项 12 tests、相关 asset/render 87 tests、`py_compile`、harness 与 diff check 均通过。correctness 初审 1×P2、security 1×P2、asset-lineage 2×P1 均已修复并新增回归；三路最终复核无遗留 P0/P1/P2。
+- **真文本校准**：获用户本轮明确授权后只读取桌面 `key.rtf` 的 key，向指定 HTTPS endpoint 发起 1 次 `gpt-5.5-medium` 请求；HTTP 200，237 tokens，3.091 秒，严格 JSON 与 expected retirement decision 完全匹配。临时脚本已删除，未打印 key、prompt 或响应正文。iter125-127 累计保守计 4/60 请求、3 次模型成功、预留 ¥0.30；图片 0/20、视频 0、TTS 0。未找到用户提及的 `sd_real_max.md`，因此未推断或执行任何图片配置。
+- **边界/未修风险**：没有 Web 资产管理、ArtDirection Global/Series/Episode 多 scope、物理 GC 或 archive 集成；SHA-256 是本地内容一致性而非签名，cooperative atomicity 仍依赖所有项目 writer 遵守 workspace lock。四份用户未跟踪体检报告未读取、未修改、未暂存。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
