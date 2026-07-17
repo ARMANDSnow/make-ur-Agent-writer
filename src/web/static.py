@@ -628,6 +628,25 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .shot-image-compare:empty { display: none; }
 .shot-image-compare figure { margin: 0; }
 .shot-image-compare figcaption { overflow-wrap: anywhere; }
+.shot-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-4);
+}
+.shot-video-candidate {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.shot-video-candidate video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  max-height: 480px;
+  background: #111;
+}
+.shot-video-candidate .candidate-body { padding: var(--space-3); }
 .drama-episode-table { min-width: 620px; }
 .drama-episode-table th, .drama-episode-table td { white-space: nowrap; }
 .storyboard-table { min-width: 1120px; }
@@ -7004,6 +7023,229 @@ JS_DASHBOARD = """\
     await load();
   }
 
+  // ---- D2-D4 shot video candidates and continuity (iter131) ------------
+  function shotVideoStateText(state) {
+    return ({
+      needs_shot_video_assets: "尚未建立视频候选清单",
+      fresh: "视频候选清单有效",
+      stale: "候选或来源已过期",
+      invalid: "视频候选清单无效",
+      blocked_source: "上游视频计划未就绪",
+    })[state] || String(state || "未知");
+  }
+
+  function shotVideoCoverageText(state) {
+    return ({
+      ready: "可进入合成",
+      incomplete: "选择未完整",
+      stale: "选择已过期",
+      invalid: "候选产物无效",
+      web_unverified: "所选产物超出 Web 重验上限",
+      blocked_source: "上游来源阻塞",
+      missing: "尚未选择",
+      placeholder: "仅占位预览",
+      blocked: "来源阻塞",
+    })[state] || String(state || "未知");
+  }
+
+  function renderShotVideoCandidate(candidate, shot, mutationAllowed) {
+    const identity = "镜头 " + shot.shot_id + " 视频候选 " + candidate.candidate_id;
+    const badges = [];
+    if (candidate.selected) badges.push('<span class="badge success">已选择</span>');
+    if (candidate.is_placeholder) badges.push('<span class="badge warning">占位预览</span>');
+    if (!candidate.current) badges.push('<span class="badge warning">旧 request</span>');
+    if (!candidate.preview_available) badges.push('<span class="badge warning">预览超限</span>');
+    const media = candidate.preview_available && candidate.preview_url
+      ? '<video controls preload="none" playsinline data-shot-video-preview="' +
+        escapeHtml(candidate.preview_url) + '" aria-label="' +
+        escapeHtml(identity) + '"></video>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-shot-video-load-preview>' +
+        '加载／重试安全预览</button>' +
+        '<p class="hint">安全派生预览：静音，最长 30 秒。</p>'
+      : '<div class="empty-state"><p>候选已登记，但超过 Web 安全预览上限。</p></div>';
+    return (
+      '<article class="shot-video-candidate">' +
+      media +
+      '<div class="candidate-body"><div class="cluster">' + badges.join("") + '</div>' +
+      '<p><code>' + escapeHtml(candidate.candidate_id) + '</code></p>' +
+      '<p class="hint">' + Number(candidate.width) + "×" + Number(candidate.height) +
+      " · " + (Number(candidate.duration_milliseconds) / 1000).toFixed(3) + " 秒 · " +
+      Number(candidate.size_bytes) + " bytes" +
+      (candidate.has_audio_track ? " · 源候选含音轨" : " · 源候选无音轨") + '</p>' +
+      '<div class="cluster">' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-shot-video-select ' +
+      'data-shot-id="' + escapeHtml(shot.shot_id) + '" data-candidate-id="' +
+      escapeHtml(candidate.candidate_id) + '" aria-label="' +
+      escapeHtml((candidate.selected ? "当前选择：" : "选择：") + identity +
+        (candidate.is_placeholder ? "（仅降级预览）" : "")) + '"' +
+      (!mutationAllowed || !candidate.current || candidate.selected ? " disabled" : "") +
+      '>选择候选</button>' +
+      '</div></div></article>'
+    );
+  }
+
+  function renderShotVideoOverview(overview) {
+    const state = shotVideoStateText(overview.state);
+    const continuity = overview.continuity;
+    const attempts = overview.attempts || {};
+    let summary =
+      '<div class="card"><div class="card-body"><div class="cluster">' +
+      '<span class="badge ' + (overview.state === "fresh" ? "success" : "warning") + '">' +
+      escapeHtml(state) + '</span>' +
+      (overview.coverage
+        ? '<span class="muted">覆盖：' +
+          escapeHtml(shotVideoCoverageText(overview.coverage.status)) + '</span>'
+        : "") +
+      (continuity
+        ? '<span class="badge ' + (continuity.ready_for_compose ? "success" : "warning") +
+          '">合成：' + escapeHtml(continuity.status) + '</span>'
+        : "") +
+      '</div>' +
+      '<p class="hint">Attempt：' + escapeHtml(attempts.state || "needs_attempts") +
+      ' · 未发送 ' + Number(attempts.not_sent_count || 0) +
+      ' · 未知 ' + Number(attempts.unknown_count || 0) +
+      ' · 已提交 ' + Number(attempts.submitted_count || 0) +
+      ' · 终态 ' + Number(attempts.terminal_count || 0) + '</p>' +
+      ((overview.reasons || []).length
+        ? '<p class="hint"><code>' + escapeHtml(overview.reasons.join(", ")) + '</code></p>'
+        : "") +
+      (!overview.mutation_allowed && overview.manifest_fingerprint
+        ? '<p class="hint">当前 D1 来源已变化；候选仅可播放，需先 reconcile 才能选择。</p>'
+        : "") +
+      '</div></div>';
+    if (continuity) {
+      const warnings = []
+        .concat((continuity.broken_lineage_shot_ids || []).map(function (id) {
+          return "首尾帧 lineage：" + id;
+        }))
+        .concat((continuity.character_version_change_shot_ids || []).map(function (id) {
+          return "角色版本变化：" + id;
+        }))
+        .concat((continuity.scene_version_change_shot_ids || []).map(function (id) {
+          return "场景版本变化：" + id;
+        }))
+        .concat((continuity.camera_reversal_shot_ids || []).map(function (id) {
+          return "镜头方向反转：" + id;
+        }));
+      if (warnings.length) {
+        summary += '<div class="callout warning"><strong>连续性提示</strong><span>' +
+          escapeHtml(warnings.join("；")) + '</span></div>';
+      }
+    }
+    if (!(overview.shots || []).length) {
+      return summary + '<div class="empty-state"><p>' + escapeHtml(state) + '</p></div>';
+    }
+    return summary + overview.shots.map(function (shot) {
+      const candidates = (shot.candidates || []).length
+        ? '<div class="shot-video-grid">' + shot.candidates.map(function (candidate) {
+            return renderShotVideoCandidate(candidate, shot, overview.mutation_allowed);
+          }).join("") + '</div>'
+        : '<div class="empty-state"><p>当前镜头还没有 MP4 候选。</p></div>';
+      const omitted = Number(shot.omitted_candidate_count || 0)
+        ? '<p class="hint">为控制浏览器资源，本镜头另有 ' +
+          Number(shot.omitted_candidate_count) + ' 个候选未在本页投影。</p>'
+        : "";
+      const attempt = shot.attempt
+        ? shot.attempt.status + " / " + shot.attempt.outcome
+        : "无 attempt";
+      return (
+        '<section class="section"><div class="section-title"><div><h2><code>' +
+        escapeHtml(shot.shot_id) + '</code></h2>' +
+        '<p class="hint">Attempt：' + escapeHtml(attempt) + '</p></div>' +
+        '<span class="badge ' + (shot.coverage_state === "ready" ? "success" : "warning") +
+        '">' + escapeHtml(shotVideoCoverageText(shot.coverage_state)) + '</span></div>' +
+        candidates + omitted +
+        '<div class="cluster" style="margin-top:12px">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-shot-video-clear ' +
+        'data-shot-id="' + escapeHtml(shot.shot_id) + '" aria-label="' +
+        escapeHtml("清除镜头 " + shot.shot_id + " 的视频选择") + '"' +
+        (!overview.mutation_allowed || !shot.selected ? " disabled" : "") +
+        '>清除选择</button></div></section>'
+      );
+    }).join("");
+  }
+
+  async function initDramaShotVideos() {
+    const root = document.getElementById("shot-videos-page-root");
+    if (!root) return;
+    const episodeInput = document.getElementById("shot-video-episode-no");
+    const refresh = document.getElementById("shot-video-refresh");
+    let overview = null;
+    function episodeNo() {
+      const value = Number(episodeInput && episodeInput.value || 1);
+      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+    }
+    function findShot(shotId) {
+      return (overview && overview.shots || []).find(function (shot) {
+        return shot.shot_id === shotId;
+      });
+    }
+    async function load() {
+      root.setAttribute("aria-busy", "true");
+      try {
+        overview = await fetchJson(
+          wsUrl("/drama/shot-videos?episode_no=" + encodeURIComponent(episodeNo()))
+        );
+        root.innerHTML = renderShotVideoOverview(overview);
+      } catch (err) {
+        root.innerHTML = renderErrorCard(err);
+      } finally {
+        root.removeAttribute("aria-busy");
+      }
+    }
+    if (refresh) refresh.addEventListener("click", load);
+    if (episodeInput) episodeInput.addEventListener("change", load);
+    root.addEventListener("click", async function (ev) {
+      const loadPreview = ev.target.closest("[data-shot-video-load-preview]");
+      if (loadPreview) {
+        const card = loadPreview.closest(".shot-video-candidate");
+        const video = card && card.querySelector("[data-shot-video-preview]");
+        if (video) {
+          video.setAttribute("src", video.dataset.shotVideoPreview);
+          video.load();
+        }
+        return;
+      }
+      const select = ev.target.closest("[data-shot-video-select]");
+      const clear = ev.target.closest("[data-shot-video-clear]");
+      if (!select && !clear) return;
+      const button = select || clear;
+      const shot = findShot(button.dataset.shotId);
+      if (!shot || !overview || !overview.manifest_fingerprint) return;
+      button.disabled = true;
+      try {
+        const result = await postJson(
+          wsUrl("/drama/shot-videos/select"),
+          {
+            episode_no: episodeNo(),
+            shot_id: shot.shot_id,
+            candidate_id: clear ? null : select.dataset.candidateId,
+            expected_selection_revision: Number(shot.selection_revision),
+            expected_current_selection: shot.selected,
+            expected_manifest_fingerprint: overview.manifest_fingerprint,
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "X-Drama-Shot-Video-Intent": "mutate-v1",
+            },
+          }
+        );
+        overview = result.overview;
+        root.innerHTML = renderShotVideoOverview(overview);
+        showToast(result.changed ? "镜头视频选择已更新" : "选择未变化", "success");
+      } catch (err) {
+        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
+        if (err && err.status === 409) {
+          await load();
+        } else {
+          button.disabled = false;
+        }
+      }
+    });
+    await load();
+  }
+
   // ---- dispatch ---------------------------------------------------------
   function boot() {
     initShellControls();
@@ -7034,6 +7276,7 @@ JS_DASHBOARD = """\
     if (pageKind === "drama_characters") return initDramaCharacters();
     if (pageKind === "drama_assets") return initDramaAssets();
     if (pageKind === "drama_shot_images") return initDramaShotImages();
+    if (pageKind === "drama_shot_videos") return initDramaShotVideos();
     if (pageKind === "drama_episodes") return initDramaEpisodes();
     if (pageKind === "drama_episode_detail") return initDramaEpisodeDetail();
     if (pageKind === "drama_insights") return initDramaInsights();

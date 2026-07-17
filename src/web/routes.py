@@ -316,6 +316,23 @@ def render_workspace_shot_images_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_shot_images(name, list_workspaces()))
 
 
+def render_workspace_shot_videos_page(name: str) -> Tuple[int, str, bytes]:
+    """Drama-only D2-D4 video candidate and continuity page."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_shot_videos(name, list_workspaces()))
+
+
 def render_workspace_episodes_page(name: str) -> Tuple[int, str, bytes]:
     """Drama-only episode list page."""
 
@@ -1946,6 +1963,178 @@ def api_drama_shot_images_select(
         return _json(409, {"error": str(exc)})
     except ValueError:
         return _json(400, {"error": "invalid shot image mutation request"})
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        raise
+    return _json(200, model_to_dict(result))
+
+
+def _drama_shot_video_mutation_request_error(
+    body: bytes,
+    headers: Dict[str, str],
+) -> Optional[Tuple[int, str, bytes]]:
+    if len(body) > 32 * 1024:
+        return _json(413, {"error": "shot video mutation payload too large"})
+    content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        return _json(415, {"error": "Content-Type must be application/json"})
+    if str(headers.get("x-drama-shot-video-intent") or "") != "mutate-v1":
+        return _json(403, {"error": "explicit shot video mutation intent required"})
+    fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
+        return _json(403, {"error": "cross-origin shot video mutation rejected"})
+    origin = str(headers.get("origin") or "").strip()
+    host = str(headers.get("host") or "").strip().lower()
+    if origin:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return _json(403, {"error": "invalid shot video mutation origin"})
+        if host and parsed.netloc.lower() != host:
+            return _json(403, {"error": "cross-origin shot video mutation rejected"})
+    return None
+
+
+def api_drama_shot_videos_get(
+    name: str,
+    raw_episode_no: Any = 1,
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid episode_no"})
+    from ..drama_shot_video_web import build_shot_video_web_overview
+    from ..schemas import model_to_dict
+
+    try:
+        overview = build_shot_video_web_overview(name, episode_no=episode_no)
+    except RuntimeError:
+        return _json(503, {"error": "shot video overview is busy; retry shortly"})
+    return _json(200, model_to_dict(overview))
+
+
+def _bounded_single_byte_range(raw: str, total: int) -> Optional[Tuple[int, int]]:
+    if not raw:
+        return None
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", raw.strip())
+    if match is None or (not match.group(1) and not match.group(2)):
+        raise ValueError("invalid range")
+    if match.group(1):
+        start = int(match.group(1))
+        end = int(match.group(2)) if match.group(2) else total - 1
+        if start >= total or end < start:
+            raise ValueError("unsatisfiable range")
+        return start, min(end, total - 1)
+    suffix = int(match.group(2))
+    if suffix <= 0:
+        raise ValueError("unsatisfiable range")
+    return max(0, total - suffix), total - 1
+
+
+def api_drama_shot_video_candidate_mp4(
+    name: str,
+    raw_episode_no: str,
+    shot_id: str,
+    candidate_id: str,
+    headers: Dict[str, str],
+    *,
+    head_only: bool = False,
+) -> WebResponse:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid episode_no"})
+    from ..drama_shot_video_web import load_exact_shot_video_candidate_mp4
+
+    try:
+        payload = load_exact_shot_video_candidate_mp4(
+            name,
+            episode_no=episode_no,
+            shot_id=shot_id,
+            candidate_id=candidate_id,
+        )
+    except FileNotFoundError:
+        return _json(404, {"error": "shot video candidate not found"})
+    except RuntimeError:
+        return _json(503, {"error": "shot video preview is busy; retry shortly"})
+    except ValueError:
+        return _json(409, {"error": "shot video candidate is unavailable"})
+    total = len(payload)
+    try:
+        byte_range = _bounded_single_byte_range(
+            str(headers.get("range") or ""),
+            total,
+        )
+    except ValueError:
+        status, content_type, body = _json(416, {"error": "invalid media range"})
+        return (
+            status,
+            content_type,
+            b"" if head_only else body,
+            {
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes */{total}",
+                "Content-Length": str(len(body)),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    response_headers = {
+        "Accept-Ranges": "bytes",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if byte_range is None:
+        response_headers["Content-Length"] = str(total)
+        return 200, "video/mp4", b"" if head_only else payload, response_headers
+    start, end = byte_range
+    response_headers["Content-Range"] = f"bytes {start}-{end}/{total}"
+    response_headers["Content-Length"] = str(end - start + 1)
+    return (
+        206,
+        "video/mp4",
+        b"" if head_only else payload[start : end + 1],
+        response_headers,
+    )
+
+
+def api_drama_shot_videos_select(
+    name: str,
+    body: bytes,
+    headers: Dict[str, str],
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    request_error = _drama_shot_video_mutation_request_error(body, headers)
+    if request_error:
+        return request_error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    from ..drama_shot_video_web import (
+        DramaShotVideoWebBusy,
+        DramaShotVideoWebConflict,
+        ShotVideoSelectionRequest,
+        select_shot_video_candidate,
+    )
+    from ..schemas import model_to_dict
+
+    try:
+        request = ShotVideoSelectionRequest(**(payload or {}))
+        with jobs.workspace_reserved(name):
+            result = select_shot_video_candidate(name, request)
+    except DramaShotVideoWebConflict as exc:
+        return _json(409, {"error": str(exc)})
+    except DramaShotVideoWebBusy as exc:
+        return _json(503, {"error": str(exc)})
+    except ValueError:
+        return _json(400, {"error": "invalid shot video mutation request"})
     except RuntimeError as exc:
         conflict = _write_conflict_response(exc)
         if conflict:
@@ -4328,6 +4517,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"), lambda name, **_: render_workspace_characters_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/assets/?$"), lambda name, **_: render_workspace_assets_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-images/?$"), lambda name, **_: render_workspace_shot_images_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-videos/?$"), lambda name, **_: render_workspace_shot_videos_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/episodes/?$"), lambda name, **_: render_workspace_episodes_page(name)),
     (
         "GET",
@@ -4593,6 +4783,60 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/shot-images/select/?$"),
         lambda name, _body=b"", _headers=None, **_: api_drama_shot_images_select(
+            name,
+            _body,
+            _headers or {},
+        ),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/shot-videos/?$"),
+        lambda name, _query=None, **_: api_drama_shot_videos_get(
+            name,
+            ((_query or {}).get("episode_no", ["1"])[0]),
+        ),
+    ),
+    (
+        "GET",
+        re.compile(
+            r"^/api/workspace/(?P<name>[^/]+)/drama/shot-videos/"
+            r"(?P<raw_episode_no>[0-9]{1,3})/"
+            r"(?P<shot_id>shot_[0-9a-f]{24})/"
+            r"(?P<candidate_id>svc_[0-9a-f]{24})\.mp4$"
+        ),
+        lambda name, raw_episode_no, shot_id, candidate_id, _headers=None, **_: (
+            api_drama_shot_video_candidate_mp4(
+                name,
+                raw_episode_no,
+                shot_id,
+                candidate_id,
+                _headers or {},
+            )
+        ),
+    ),
+    (
+        "HEAD",
+        re.compile(
+            r"^/api/workspace/(?P<name>[^/]+)/drama/shot-videos/"
+            r"(?P<raw_episode_no>[0-9]{1,3})/"
+            r"(?P<shot_id>shot_[0-9a-f]{24})/"
+            r"(?P<candidate_id>svc_[0-9a-f]{24})\.mp4$"
+        ),
+        lambda name, raw_episode_no, shot_id, candidate_id, _headers=None, **_: (
+            api_drama_shot_video_candidate_mp4(
+                name,
+                raw_episode_no,
+                shot_id,
+                candidate_id,
+                _headers or {},
+                head_only=True,
+            )
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/shot-videos/select/?$"),
+        lambda name, _body=b"", _headers=None, **_: api_drama_shot_videos_select(
             name,
             _body,
             _headers or {},

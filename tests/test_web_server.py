@@ -113,6 +113,27 @@ class ServerTests(unittest.TestCase):
             r"^HTTP/1\.[01] 413 ",
         )
 
+    def test_shot_video_mutation_transport_cap_rejects_before_body_read(self) -> None:
+        with socket.create_connection(
+            ("127.0.0.1", self.port),
+            timeout=1.0,
+        ) as client:
+            client.settimeout(1.0)
+            request = (
+                "POST /api/workspace/ghost/drama/shot-videos/select HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{self.port}\r\n"
+                "Content-Type: application/json\r\n"
+                "X-Drama-Shot-Video-Intent: mutate-v1\r\n"
+                "Content-Length: 32769\r\n"
+                "Connection: close\r\n\r\n"
+            )
+            client.sendall(request.encode("ascii"))
+            response = client.recv(4096)
+        self.assertRegex(
+            response.decode("iso-8859-1"),
+            r"^HTTP/1\.[01] 413 ",
+        )
+
     def test_legacy_workspace_url_emits_location_header(self) -> None:
         """Iter 032: ``/workspace/<name>/`` returns 301 with a Location
         header pointing at the new ``/w/<name>/`` IA. urllib follows
@@ -164,6 +185,35 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
             self.assertIsNone(response.headers.get("X-Not-Allowlisted"))
             self.assertEqual(response.read(), b"a,b\r\n1,2\r\n")
+
+    def test_head_and_range_response_headers_are_preserved(self) -> None:
+        with patch(
+            "src.web.server.routes.dispatch",
+            return_value=(
+                206,
+                "video/mp4",
+                b"",
+                {
+                    "Content-Length": "16",
+                    "Accept-Ranges": "bytes",
+                    "Content-Range": "bytes 0-15/128",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            ),
+        ) as dispatch:
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/candidate.mp4",
+                method="HEAD",
+                headers={"Range": "bytes=0-15"},
+            )
+            response = urllib.request.urlopen(request, timeout=2.0)
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.headers.get("Content-Length"), "16")
+            self.assertEqual(response.headers.get("Accept-Ranges"), "bytes")
+            self.assertEqual(response.headers.get("Content-Range"), "bytes 0-15/128")
+            self.assertEqual(response.read(), b"")
+            self.assertEqual(dispatch.call_args.args[0], "HEAD")
+            self.assertEqual(dispatch.call_args.args[3]["range"], "bytes=0-15")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

@@ -257,13 +257,15 @@ def _parse_stsz(
     data: bytes,
     start: int,
     end: int,
+    *,
+    maximum_samples: int = MAX_MP4_VIDEO_SAMPLES,
 ) -> tuple[int, int, list[int] | None]:
     payload = data[start:end]
     if len(payload) < 12:
         raise ValueError("MP4 stsz is truncated")
     sample_size = int.from_bytes(payload[4:8], "big")
     sample_count = int.from_bytes(payload[8:12], "big")
-    if not 1 <= sample_count <= MAX_MP4_VIDEO_SAMPLES:
+    if not 1 <= sample_count <= min(MAX_MP4_VIDEO_SAMPLES, maximum_samples):
         raise ValueError("MP4 video sample count is invalid")
     if sample_size > 0:
         if len(payload) != 12:
@@ -330,12 +332,13 @@ def _parse_chunk_offsets(
     end: int,
     *,
     width: int,
+    maximum_entries: int = MAX_MP4_VIDEO_SAMPLES,
 ) -> list[int]:
     payload = data[start:end]
     if len(payload) < 8:
         raise ValueError("MP4 chunk offset table is truncated")
     count = int.from_bytes(payload[4:8], "big")
-    if not 1 <= count <= MAX_MP4_VIDEO_SAMPLES:
+    if not 1 <= count <= min(MAX_MP4_VIDEO_SAMPLES, maximum_entries):
         raise ValueError("MP4 chunk offset count is invalid")
     expected = 8 + count * width
     if len(payload) != expected:
@@ -421,7 +424,12 @@ def _validate_video_sample_ranges(
         raise ValueError("MP4 stsc does not account for every video sample")
 
 
-def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
+def _probe_mp4(
+    data: bytes,
+    *,
+    maximum_video_samples: int = MAX_MP4_VIDEO_SAMPLES,
+    require_single_video_track: bool = False,
+) -> tuple[int, int, int, bool]:
     cache: dict[tuple[int, int], list[tuple[bytes, int, int]]] = {}
     budget = [0]
     top = _mp4_boxes(data, 0, len(data), cache=cache, budget=budget)
@@ -465,6 +473,8 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
     width = height = 0
     video_duration_milliseconds = 0
     has_audio_track = False
+    video_track_count = 0
+    valid_video_track_count = 0
     for box_type, trak_start, trak_end in _mp4_boxes(
         data, moov_start, moov_end, cache=cache, budget=budget
     ):
@@ -478,6 +488,8 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
                 data, mdia_start, mdia_end, b"hdlr", cache=cache, budget=budget
             )
         except ValueError:
+            if require_single_video_track:
+                raise
             continue
         hdlr = data[hdlr_start:hdlr_end]
         if len(hdlr) >= 12 and hdlr[8:12] == b"soun":
@@ -485,6 +497,7 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
             continue
         if len(hdlr) < 12 or hdlr[8:12] != b"vide":
             continue
+        video_track_count += 1
         try:
             mdhd_start, mdhd_end = _first_mp4_box(
                 data, mdia_start, mdia_end, b"mdhd", cache=cache, budget=budget
@@ -534,6 +547,7 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
                     stco_start,
                     stco_end,
                     width=4,
+                    maximum_entries=maximum_video_samples,
                 )
             except ValueError:
                 co64_start, co64_end = _first_mp4_box(
@@ -549,6 +563,7 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
                     co64_start,
                     co64_end,
                     width=8,
+                    maximum_entries=maximum_video_samples,
                 )
             description_count, sample_dimensions = _parse_stsd(
                 data,
@@ -561,6 +576,7 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
                 data,
                 stsz_start,
                 stsz_end,
+                maximum_samples=maximum_video_samples,
             )
             track_duration = _parse_stts_duration(
                 data,
@@ -609,8 +625,15 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
                     video_duration_milliseconds,
                     current_duration,
                 )
+                valid_video_track_count += 1
         except ValueError:
+            if require_single_video_track:
+                raise
             continue
+    if require_single_video_track and (
+        video_track_count != 1 or valid_video_track_count != 1
+    ):
+        raise ValueError("MP4 Web preview requires exactly one valid video track")
     if width <= 0 or height <= 0 or video_duration_milliseconds <= 0:
         raise ValueError("MP4 has no valid video track")
     if movie_duration_milliseconds <= 0:
@@ -618,11 +641,20 @@ def _probe_mp4(data: bytes) -> tuple[int, int, int, bool]:
     return video_duration_milliseconds, width, height, has_audio_track
 
 
-def _candidate_payload_identity(data: bytes) -> tuple[str, int, int, int, int, bool]:
+def _candidate_payload_identity(
+    data: bytes,
+    *,
+    maximum_video_samples: int = MAX_MP4_VIDEO_SAMPLES,
+    require_single_video_track: bool = False,
+) -> tuple[str, int, int, int, int, bool]:
     if type(data) is not bytes or not data or len(data) > MAX_SHOT_VIDEO_CANDIDATE_BYTES:
         raise DramaShotVideoCandidateStoreError("candidate artifact is not a bounded MP4")
     try:
-        duration_milliseconds, width, height, has_audio_track = _probe_mp4(data)
+        duration_milliseconds, width, height, has_audio_track = _probe_mp4(
+            data,
+            maximum_video_samples=maximum_video_samples,
+            require_single_video_track=require_single_video_track,
+        )
     except (OverflowError, TypeError, ValueError) as exc:
         raise DramaShotVideoCandidateStoreError(
             "candidate artifact is not a valid MP4 video"
@@ -649,6 +681,8 @@ def _validate_manifest_artifacts(
     manifest: EpisodeShotVideoCandidateManifest,
     *,
     skip_artifact_path: str | None = None,
+    maximum_artifact_bytes: int = MAX_SHOT_VIDEO_CANDIDATE_BYTES,
+    defer_oversize_artifacts: bool = False,
 ) -> tuple[str, ...]:
     root = paths.workspace_root(workspace)
     invalid_shot_ids: list[str] = []
@@ -664,7 +698,15 @@ def _validate_manifest_artifacts(
         artifact = candidate.artifact
         if artifact.path == skip_artifact_path or artifact.path in checked_paths:
             continue
+        if (
+            defer_oversize_artifacts
+            and artifact.size_bytes > maximum_artifact_bytes
+        ):
+            checked_paths.add(artifact.path)
+            continue
         try:
+            if artifact.size_bytes > maximum_artifact_bytes:
+                raise ValueError("candidate artifact exceeds the inspection limit")
             payload = _read_strict_workspace_bytes(
                 root,
                 root / artifact.path,
@@ -714,11 +756,15 @@ def _require_valid_selected_artifacts(
     manifest: EpisodeShotVideoCandidateManifest,
     *,
     skip_artifact_path: str | None = None,
+    maximum_artifact_bytes: int = MAX_SHOT_VIDEO_CANDIDATE_BYTES,
+    defer_oversize_artifacts: bool = False,
 ) -> None:
     if _validate_manifest_artifacts(
         workspace,
         manifest,
         skip_artifact_path=skip_artifact_path,
+        maximum_artifact_bytes=maximum_artifact_bytes,
+        defer_oversize_artifacts=defer_oversize_artifacts,
     ):
         raise DramaShotVideoCandidateStoreError(
             "selected candidate artifact is invalid"
@@ -729,6 +775,8 @@ def inspect_episode_shot_video_candidates(
     workspace: str,
     *,
     episode_no: int = 1,
+    maximum_artifact_bytes: int = MAX_SHOT_VIDEO_CANDIDATE_BYTES,
+    defer_oversize_artifacts: bool = False,
 ) -> ShotVideoCandidateInspection:
     try:
         number = normalize_episode_no(episode_no)
@@ -753,7 +801,12 @@ def inspect_episode_shot_video_candidates(
     if stored is None:
         return ShotVideoCandidateInspection("needs_shot_video_assets", ("missing",))
     try:
-        invalid_artifacts = _validate_manifest_artifacts(workspace, stored)
+        invalid_artifacts = _validate_manifest_artifacts(
+            workspace,
+            stored,
+            maximum_artifact_bytes=maximum_artifact_bytes,
+            defer_oversize_artifacts=defer_oversize_artifacts,
+        )
         affected = shot_video_candidate_affected_ids(stored, plan)
         coverage = shot_video_coverage(
             stored,
@@ -1305,13 +1358,20 @@ def _precommit_check(
     episode_no: int,
     source_plan_fingerprint: str,
     manifest: EpisodeShotVideoCandidateManifest,
+    maximum_selected_artifact_bytes: int = MAX_SHOT_VIDEO_CANDIDATE_BYTES,
+    defer_oversize_selected_artifacts: bool = False,
 ) -> None:
     latest = load_fresh_episode_shot_video_plan(workspace, episode_no=episode_no)
     if latest.plan_fingerprint != source_plan_fingerprint:
         raise DramaShotVideoCandidateStoreError(
             "shot video plan changed during candidate operation"
         )
-    _require_valid_selected_artifacts(workspace, manifest)
+    _require_valid_selected_artifacts(
+        workspace,
+        manifest,
+        maximum_artifact_bytes=maximum_selected_artifact_bytes,
+        defer_oversize_artifacts=defer_oversize_selected_artifacts,
+    )
 
 
 def _persist_manifest(
@@ -1320,6 +1380,8 @@ def _persist_manifest(
     *,
     target_token: tuple[Any, ...],
     source_plan_fingerprint: str,
+    maximum_selected_artifact_bytes: int = MAX_SHOT_VIDEO_CANDIDATE_BYTES,
+    defer_oversize_selected_artifacts: bool = False,
 ) -> EpisodeShotVideoCandidateManifest:
     _write_manifest(
         workspace,
@@ -1330,6 +1392,8 @@ def _persist_manifest(
             episode_no=manifest.episode_no,
             source_plan_fingerprint=source_plan_fingerprint,
             manifest=manifest,
+            maximum_selected_artifact_bytes=maximum_selected_artifact_bytes,
+            defer_oversize_selected_artifacts=defer_oversize_selected_artifacts,
         ),
     )
     persisted = _read_manifest(workspace, episode_no=manifest.episode_no)
@@ -1661,6 +1725,8 @@ def _select_candidate_impl(
     expected_current_selection: ShotVideoSelection | Mapping[str, Any] | None,
     episode_no: int,
     expected_manifest_fingerprint: str,
+    maximum_selected_artifact_bytes: int,
+    defer_oversize_selected_artifacts: bool,
 ) -> EpisodeShotVideoCandidateManifest:
     number = normalize_episode_no(episode_no)
     root = paths.workspace_root(workspace)
@@ -1677,7 +1743,12 @@ def _select_candidate_impl(
             episode_no=number,
             manifest=current,
         )
-        _require_valid_selected_artifacts(workspace, current)
+        _require_valid_selected_artifacts(
+            workspace,
+            current,
+            maximum_artifact_bytes=maximum_selected_artifact_bytes,
+            defer_oversize_artifacts=defer_oversize_selected_artifacts,
+        )
         plan = load_fresh_episode_shot_video_plan(workspace, episode_no=number)
         desired = select_shot_video_candidate(
             current,
@@ -1704,6 +1775,8 @@ def _select_candidate_impl(
             desired,
             target_token=token,
             source_plan_fingerprint=plan.plan_fingerprint,
+            maximum_selected_artifact_bytes=maximum_selected_artifact_bytes,
+            defer_oversize_selected_artifacts=defer_oversize_selected_artifacts,
         )
 
 
@@ -1716,6 +1789,8 @@ def select_episode_shot_video_candidate(
     expected_current_selection: ShotVideoSelection | Mapping[str, Any] | None,
     episode_no: int = 1,
     expected_manifest_fingerprint: str,
+    maximum_selected_artifact_bytes: int = MAX_SHOT_VIDEO_CANDIDATE_BYTES,
+    defer_oversize_selected_artifacts: bool = False,
 ) -> EpisodeShotVideoCandidateManifest:
     try:
         return _select_candidate_impl(
@@ -1726,6 +1801,8 @@ def select_episode_shot_video_candidate(
             expected_current_selection=expected_current_selection,
             episode_no=episode_no,
             expected_manifest_fingerprint=expected_manifest_fingerprint,
+            maximum_selected_artifact_bytes=maximum_selected_artifact_bytes,
+            defer_oversize_selected_artifacts=defer_oversize_selected_artifacts,
         )
     except DramaShotVideoCandidateStoreError:
         raise

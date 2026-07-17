@@ -148,6 +148,7 @@ _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("characters", "角色库", "characters"),
     ("assets", "资产治理", "assets"),
     ("shot_images", "镜头图片", "shot-images"),
+    ("shot_videos", "镜头视频", "shot-videos"),
     ("episodes", "剧集", "episodes"),
     ("insights", "数据", "insights"),
     ("jobs", "任务", "jobs"),
@@ -582,6 +583,48 @@ def render_workspace_shot_images(name: str, workspaces: Iterable[str]) -> str:
             workspaces,
             active_workspace=name,
             active_section="shot_images",
+        ),
+        workspace=name,
+    )
+
+
+def render_workspace_shot_videos(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧 · D 阶段</p>'
+        '<h1>镜头视频候选</h1>'
+        '<p class="muted">播放 D2 已登记候选，显式选择，并查看 attempt、coverage 与连续性门禁。</p>'
+        '</div>'
+        '<div class="cluster">'
+        '<label class="field compact">集数 '
+        '<input id="shot-video-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
+        '</label>'
+        '<button class="btn btn-secondary" id="shot-video-refresh" type="button">刷新</button>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="callout info">'
+        '<strong>此页不会提交视频任务</strong>'
+        '<span>只读取本地 D1-D4 事实；播放和选择不会触发 submit、poll、download 或付费调用。</span>'
+        '</div>'
+        '<div id="shot-videos-page-root" aria-live="polite">'
+        '<p class="muted">载入中…</p>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 镜头视频候选",
+        page_kind="drama_shot_videos",
+        main_html=main,
+        breadcrumb_html=_crumbs(
+            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("镜头视频", None)]
+        ),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(
+            workspaces,
+            active_workspace=name,
+            active_section="shot_videos",
         ),
         workspace=name,
     )

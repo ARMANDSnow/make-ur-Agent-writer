@@ -22,6 +22,7 @@ _DRAMA_ASSET_MUTATION_PATH_RE = re.compile(
     r"^/api/workspace/[^/]+/drama/(?:"
     r"assets/(?:select|status|art-direction-scope)"
     r"|shot-images/select"
+    r"|shot-videos/select"
     r")/?$"
 )
 _DRAMA_ASSET_MUTATION_BODY_LIMIT = 32 * 1024
@@ -32,6 +33,9 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib naming
         self._respond("GET", self.path)
+
+    def do_HEAD(self) -> None:  # noqa: N802 - stdlib naming
+        self._respond("HEAD", self.path)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         self._respond("POST", self.path)
@@ -108,13 +112,25 @@ class WebHandler(BaseHTTPRequestHandler):
             response_headers = {}
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
+        explicit_length = response_headers.get("Content-Length")
+        content_length = (
+            explicit_length
+            if isinstance(explicit_length, str)
+            and explicit_length.isdigit()
+            else str(len(body))
+        )
+        self.send_header("Content-Length", content_length)
         # No cache: dashboard data is read fresh on every load.
         self.send_header("Cache-Control", "no-store")
         # Only download handlers use the optional fourth response item. Keep
         # the allowlist deliberately narrow and reject CR/LF so future route
         # code cannot turn a filename into response-header injection.
-        for key in ("Content-Disposition", "X-Content-Type-Options"):
+        for key in (
+            "Content-Disposition",
+            "X-Content-Type-Options",
+            "Accept-Ranges",
+            "Content-Range",
+        ):
             value = response_headers.get(key)
             if isinstance(value, str) and "\r" not in value and "\n" not in value:
                 self.send_header(key, value)
@@ -132,7 +148,8 @@ class WebHandler(BaseHTTPRequestHandler):
             except ValueError:
                 pass
         self.end_headers()
-        self.wfile.write(body)
+        if method != "HEAD":
+            self.wfile.write(body)
 
 
 # Iter 026 code-review #10: any host other than loopback opens the

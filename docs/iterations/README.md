@@ -152,3 +152,4 @@
 137. [Iteration 128 - 短剧美术方向多 Scope 解析与冻结](./iteration_128_drama_art_direction_scope_resolution_freeze.md)
 138. [Iteration 129 - 短剧资产管理 Web 总览与治理](./iteration_129_drama_asset_management_web_governance.md)
 139. [Iteration 130 - 短剧逐镜图片候选 Web 比较与选择](./iteration_130_drama_shot_image_candidate_web_compare_select.md)
+140. [Iteration 131 - 短剧逐镜视频候选 Web 与连续性门禁](./iteration_131_drama_shot_video_candidate_web_continuity.md)
