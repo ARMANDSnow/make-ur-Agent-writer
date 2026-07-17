@@ -7,8 +7,8 @@ iter123 已完成本地 FFmpeg 完整成片竖切，canonical 基线为 2493 tes
 ## Plan
 
 ### Implementation Context
-- `must_read`: `AGENTS.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`, `docs/product/short_drama_module.md`, `docs/iterations/iteration_118_drama_full_sop_real_user_validation.md`, `docs/iterations/iteration_123_drama_ffmpeg_local_full_compose.md`, 短剧 Web/领域实现与相关测试
-- `expected_changes`: 短剧多集 mock 行为、剧集导航、任务历史安全投影与桌面呈现、相关测试、iteration/README/handoff/history 同步
+- `must_read`: `AGENTS.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`, `docs/product/short_drama_module.md`, `docs/iterations/iteration_118_drama_full_sop_real_user_validation.md`, `docs/iterations/iteration_123_drama_ffmpeg_local_full_compose.md`, `src/storyboard_builder.py`, `src/web/routes.py`, `src/web/static.py`, `src/web/templates.py`
+- `expected_changes`: `src/storyboard_builder.py`, `src/web/routes.py`, `src/web/static.py`, `src/web/templates.py`, `tests/test_drama_storyboard_builder.py`, `tests/test_web_routes_get.py`, `docs/iterations/README.md`, `docs/iterations/iteration_124_drama_desktop_sop_real_provider_validation.md`, `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`, `docs/product/short_drama_module.md`
 - `do_not_touch`: `.env`、`小说txt/`、用户未跟踪体检报告；不测 TTS，不 push，不把局部 provider 校准外推为完整 provider pipeline
 
 1. 清空原有 workspace，以 fresh synthetic 项目从 Wizard 走完两集五站、编辑/重排/单镜重生、角色复用、评审组装、导出、整季交付与 mock 视频。
@@ -50,9 +50,9 @@ iter123 已完成本地 FFmpeg 完整成片竖切，canonical 基线为 2493 tes
 - **A124-05 — PENDING**：待三视角审查与唯一 canonical verify。
 
 ### Knowledge Promotion
-- `decision`: `pending`
-- `destination`: `pending`
-- `reason`: 收官审查后判断任务页公开投影与真媒体 safe-blocked 经验是否需要晋升到长期文档。
+- `decision`: `none`
+- `destination`: `none`
+- `reason`: 任务页公开投影与真媒体 safe-blocked 均已有长期凭据/公开投影规则覆盖，本轮是现有规则的实现与验证，无需新增长期规范。
 
 ## 文件变更汇总
 
