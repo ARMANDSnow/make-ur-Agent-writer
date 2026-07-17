@@ -636,8 +636,8 @@ drama workspace
 | 阶段 | 输入 | 主要动作与产物 | 验收门槛 | 当前状态与精确边界 |
 |---|---|---|---|---|
 | A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect；visual-only override 与依赖传播 | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；override 不能改剧情/对白/角色；零网络 | ✅ **A1+A2 纯本地闭环已完成**：RenderPlan 外新增 camera movement、lighting、negative prompt、剪辑 transition 四类 shot-scoped override，不可变候选、derived-from、revision/current-ID 双 CAS、effective manifest 和 atomic catalog+manifest state；未选候选不改变下游 fingerprint，selected old/new spec 的字段增加、修改与清空按 v1 矩阵取依赖并集。角色/ArtDirection/场景/道具引用仍由 B 的独立 manifest 冻结 |
-| B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 **B1 本地治理闭环已完成**：角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本、显式 selected/CAS、跨集 exact-version used-by 与 active/disabled ledger；停用不删除历史，阻止新的选择和物化。Web 管理、ArtDirection 多 scope 与物理 GC 未实现 |
-| C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | 🟨 **C1-C3 纯本地契约已实现**：C1 冻结 request/exact refs，C2 提供 content-addressed strict PNG 候选、guarded first/tail/previous-tail 与 coverage/repair，C3 提供 provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与 process-crash 零重复调用。C3 仅使用代码内注入 fake adapter；真实 provider/network 与多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 和 power-loss 证明未实现 |
+| B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 **B1-B3 本地治理与 Web 闭环已完成**：四类不可变版本、显式 selected/CAS、跨集 exact-version used-by、active/disabled ledger、ArtDirection Episode > Series > Global 与 strict allowlist 资产治理页已实现；停用不删除历史，mutation 服务端重算 impact。物理 GC 未实现 |
+| C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | 🟨 **C1-C4 本地契约与候选 Web 已实现**：C1 冻结 request/exact refs，C2 提供 content-addressed strict PNG 候选、guarded first/tail/previous-tail 与 coverage/repair，C3 提供 provider-neutral capability、once-only attempt、durable receipt，C4 提供 exact PNG 安全预览、两图比较和 guarded first/tail selection。真实 provider/network、多参考上传、JPEG/WebP、显式 staging GC 和 power-loss 证明未实现 |
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | 🟨 **D1-D4 纯本地闭环已完成**：冻结输入、候选/coverage、once-only attempt、artifact 重验、首尾帧 lineage 与 production compose gate；真实 provider/network、Web/CLI 和 episode 2+ 成片仍未闭环 |
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
 | F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1+F2 本地闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程，冻结素材 SHA、video/dialogue/narration/BGM/SFX/silence 轨道、fade/gain、48kHz stereo/AAC profile 与字幕 revision，并以 pinned dirfd、前后流式 hash 和 completion marker 安全提交。特定 NLE 私有格式、Web compose job、多 profile 与更广 codec/container 未实现 |
@@ -676,6 +676,18 @@ resolver 在一次解析前后复查 Episode、Series、Global 三个源的 cont
 
 scoped mutation 与既有 catalog 相同，使用 workspace lock、目标 bytes token、revision/current-ID CAS、nofollow 原子替换和 precommit 重验。Episode retirement guard 强绑定 catalog season；Global create/select/re-enable 必须检查 workspace 中全部已知 canonical season ledger，调用方不能借另一 season 的空 ledger 绕过停用。Global 与 Episode catalog 的全部 immutable versions 也进入 B1 exact-version inventory；同 identity 不同 fingerprint 会形成 blocker。
 
+#### B3 资产管理 Web 总览与治理
+
+drama-only 资产页 `/w/<name>/assets` 从领域事实重建 character、ArtDirection Series/Global/Episode、scene、prop/clue 六个分区。公开投影只允许 semantic/version ID、selected、当前 season lifecycle、跨 season selection eligibility、exact-version Used-By、scope-specific stale impact、revision 与有界 blocker；缺失可选 catalog 显示空状态，坏源、身份错位、特殊文件与扫描竞态 fail closed。
+
+选择、active/disabled、ArtDirection clear/re-enable 都在 workspace reservation/lock 中由服务端重建当前 overview，再使用 revision/current identity/target token CAS 调用既有领域 writer；Global impact 与可选择性扫描全部 canonical season。mutation 具 JSON、显式 intent、same-origin/Fetch Metadata 与双层 32 KiB 上限。B3 不提供媒体上传/删除或物理 GC，也不混淆 B1 lifecycle disabled 与 B2 scope clear。
+
+#### C4 逐镜图片候选 Web 比较与选择
+
+drama-only `/w/<name>/shot-images` 只投影 C2 已登记的 stable shot、request freshness、candidate ID/fingerprint、首帧/尾帧/previous-tail binding、coverage 与有界原因。候选图通过包含 workspace/episode/shot/candidate exact identity 的同源路由读取；每次响应前重新校验 strict manifest、canonical artifact path、PNG 结构、尺寸、size 与 SHA，不接受客户端路径或任意 URL。Web 预览是经认证 artifact 的安全派生物：剥离 text/EXIF/未知 ancillary metadata，只有符合颜色类型、长度、顺序和唯一性约束的合法 `tRNS` 可保留，避免 prompt/provider/path/签名 URL 泄露，同时不破坏透明像素语义。
+
+两图比较只在浏览器消费上述安全 URL；首帧/尾帧选择和清除尾帧由服务端按当前 manifest 找到 exact candidate，再复用 C2 manifest fingerprint、selection revision 与 current binding CAS。新候选不会自动变更 selection，exact lost-response replay 不二次写盘，409 后页面刷新权威状态。C4 不生成图片、不调用 provider，也不扩大 C3 的真实执行声明。
+
 ### 11.4 依赖顺序与完成口径
 
 创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。
@@ -688,7 +700,7 @@ scoped mutation 与既有 catalog 相同，使用 workspace lock、目标 bytes 
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 126，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约，以及 B-F 的固定 profile 纯本地完整成片、SRT/ASS 与通用可编辑工程已经形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B/C/D/F 仍有 Web、多 scope、多格式/多 profile 与真实媒体缺口，G-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
+截至 iter 130，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web，以及 D-F 的固定 profile 纯本地完整成片、SRT/ASS 与通用可编辑工程已经形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体与 Web compose 仍有缺口，G-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
 
 ### 11.5 规划外边界
 

@@ -299,6 +299,23 @@ def render_workspace_assets_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_assets(name, list_workspaces()))
 
 
+def render_workspace_shot_images_page(name: str) -> Tuple[int, str, bytes]:
+    """Drama-only C2 image candidate comparison and selection page."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_shot_images(name, list_workspaces()))
+
+
 def render_workspace_episodes_page(name: str) -> Tuple[int, str, bytes]:
     """Drama-only episode list page."""
 
@@ -1813,6 +1830,122 @@ def api_drama_art_direction_scope(
         return _json(409, {"error": str(exc)})
     except ValueError:
         return _json(400, {"error": "invalid asset mutation request"})
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        raise
+    return _json(200, model_to_dict(result))
+
+
+def _drama_shot_image_mutation_request_error(
+    body: bytes,
+    headers: Dict[str, str],
+) -> Optional[Tuple[int, str, bytes]]:
+    if len(body) > 32 * 1024:
+        return _json(413, {"error": "shot image mutation payload too large"})
+    content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        return _json(415, {"error": "Content-Type must be application/json"})
+    if str(headers.get("x-drama-shot-image-intent") or "") != "mutate-v1":
+        return _json(403, {"error": "explicit shot image mutation intent required"})
+    fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
+        return _json(403, {"error": "cross-origin shot image mutation rejected"})
+    origin = str(headers.get("origin") or "").strip()
+    host = str(headers.get("host") or "").strip().lower()
+    if origin:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return _json(403, {"error": "invalid shot image mutation origin"})
+        if host and parsed.netloc.lower() != host:
+            return _json(403, {"error": "cross-origin shot image mutation rejected"})
+    return None
+
+
+def api_drama_shot_images_get(
+    name: str,
+    raw_episode_no: Any = 1,
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid episode_no"})
+    from ..drama_shot_image_web import build_shot_image_web_overview
+    from ..schemas import model_to_dict
+
+    return _json(
+        200,
+        model_to_dict(build_shot_image_web_overview(name, episode_no=episode_no)),
+    )
+
+
+def api_drama_shot_image_candidate_png(
+    name: str,
+    raw_episode_no: str,
+    shot_id: str,
+    candidate_id: str,
+) -> WebResponse:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid episode_no"})
+    from ..drama_shot_image_web import load_exact_shot_image_candidate_png
+
+    try:
+        payload = load_exact_shot_image_candidate_png(
+            name,
+            episode_no=episode_no,
+            shot_id=shot_id,
+            candidate_id=candidate_id,
+        )
+    except FileNotFoundError:
+        return _json(404, {"error": "shot image candidate not found"})
+    except ValueError:
+        return _json(409, {"error": "shot image candidate is unavailable"})
+    return (
+        200,
+        "image/png",
+        payload,
+        {"X-Content-Type-Options": "nosniff"},
+    )
+
+
+def api_drama_shot_images_select(
+    name: str,
+    body: bytes,
+    headers: Dict[str, str],
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    request_error = _drama_shot_image_mutation_request_error(body, headers)
+    if request_error:
+        return request_error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    from ..drama_shot_image_web import (
+        DramaShotImageWebConflict,
+        ShotImageSelectionRequest,
+        select_shot_image_candidate,
+    )
+    from ..schemas import model_to_dict
+
+    try:
+        request = ShotImageSelectionRequest(**(payload or {}))
+        with jobs.workspace_reserved(name):
+            result = select_shot_image_candidate(name, request)
+    except DramaShotImageWebConflict as exc:
+        return _json(409, {"error": str(exc)})
+    except ValueError:
+        return _json(400, {"error": "invalid shot image mutation request"})
     except RuntimeError as exc:
         conflict = _write_conflict_response(exc)
         if conflict:
@@ -4194,6 +4327,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"), lambda name, **_: render_workspace_characters_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/assets/?$"), lambda name, **_: render_workspace_assets_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-images/?$"), lambda name, **_: render_workspace_shot_images_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/episodes/?$"), lambda name, **_: render_workspace_episodes_page(name)),
     (
         "GET",
@@ -4425,6 +4559,40 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         "POST",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/assets/art-direction-scope/?$"),
         lambda name, _body=b"", _headers=None, **_: api_drama_art_direction_scope(
+            name,
+            _body,
+            _headers or {},
+        ),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/shot-images/?$"),
+        lambda name, _query=None, **_: api_drama_shot_images_get(
+            name,
+            ((_query or {}).get("episode_no", ["1"])[0]),
+        ),
+    ),
+    (
+        "GET",
+        re.compile(
+            r"^/api/workspace/(?P<name>[^/]+)/drama/shot-images/"
+            r"(?P<raw_episode_no>[0-9]{1,3})/"
+            r"(?P<shot_id>shot_[0-9a-f]{24})/"
+            r"(?P<candidate_id>sic_[0-9a-f]{24})\.png$"
+        ),
+        lambda name, raw_episode_no, shot_id, candidate_id, **_: (
+            api_drama_shot_image_candidate_png(
+                name,
+                raw_episode_no,
+                shot_id,
+                candidate_id,
+            )
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/shot-images/select/?$"),
+        lambda name, _body=b"", _headers=None, **_: api_drama_shot_images_select(
             name,
             _body,
             _headers or {},

@@ -147,6 +147,7 @@ _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("write", "创作台", "write"),
     ("characters", "角色库", "characters"),
     ("assets", "资产治理", "assets"),
+    ("shot_images", "镜头图片", "shot-images"),
     ("episodes", "剧集", "episodes"),
     ("insights", "数据", "insights"),
     ("jobs", "任务", "jobs"),
@@ -538,6 +539,49 @@ def render_workspace_assets(name: str, workspaces: Iterable[str]) -> str:
             workspaces,
             active_workspace=name,
             active_section="assets",
+        ),
+        workspace=name,
+    )
+
+
+def render_workspace_shot_images(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧 · C 阶段</p>'
+        '<h1>镜头图片候选</h1>'
+        '<p class="muted">比较当前逐镜 PNG 候选，并以 revision guard 选择首帧或尾帧。</p>'
+        '</div>'
+        '<div class="cluster">'
+        '<label class="field compact">集数 '
+        '<input id="shot-image-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
+        '</label>'
+        '<button class="btn btn-secondary" id="shot-image-refresh" type="button">刷新</button>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="callout info">'
+        '<strong>候选不会自动替换选择</strong>'
+        '<span>页面只读取 C2 已登记的 exact PNG；比较和选择不会发起图片生成或付费调用。</span>'
+        '</div>'
+        '<div id="shot-image-compare" class="shot-image-compare" aria-live="polite"></div>'
+        '<div id="shot-images-page-root" aria-live="polite">'
+        '<p class="muted">载入中…</p>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 镜头图片候选",
+        page_kind="drama_shot_images",
+        main_html=main,
+        breadcrumb_html=_crumbs(
+            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("镜头图片", None)]
+        ),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(
+            workspaces,
+            active_workspace=name,
+            active_section="shot_images",
         ),
         workspace=name,
     )

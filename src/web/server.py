@@ -19,8 +19,10 @@ from . import routes
 
 
 _DRAMA_ASSET_MUTATION_PATH_RE = re.compile(
-    r"^/api/workspace/[^/]+/drama/assets/"
-    r"(?:select|status|art-direction-scope)/?$"
+    r"^/api/workspace/[^/]+/drama/(?:"
+    r"assets/(?:select|status|art-direction-scope)"
+    r"|shot-images/select"
+    r")/?$"
 )
 _DRAMA_ASSET_MUTATION_BODY_LIMIT = 32 * 1024
 

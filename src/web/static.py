@@ -600,6 +600,34 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   -webkit-overflow-scrolling: touch;
 }
 .table-wide { min-width: 760px; }
+.shot-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+.shot-image-candidate {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.shot-image-candidate img,
+.shot-image-compare img {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: contain;
+  background: var(--bg-sunken);
+}
+.shot-image-candidate .candidate-body { padding: var(--space-3); }
+.shot-image-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.shot-image-compare:empty { display: none; }
+.shot-image-compare figure { margin: 0; }
+.shot-image-compare figcaption { overflow-wrap: anywhere; }
 .drama-episode-table { min-width: 620px; }
 .drama-episode-table th, .drama-episode-table td { white-space: nowrap; }
 .storyboard-table { min-width: 1120px; }
@@ -6759,6 +6787,223 @@ JS_DASHBOARD = """\
     await load();
   }
 
+  // ---- C2 shot image candidate compare/select (iter130) ----------------
+  function shotImageBindingText(binding) {
+    if (!binding) return "未选择";
+    if (binding.kind === "none") return "不使用尾帧";
+    if (binding.kind === "previous_tail") {
+      return "沿用上一镜尾帧 " + String(binding.candidate_id || "");
+    }
+    return String(binding.candidate_id || "");
+  }
+
+  function shotImageStateText(state) {
+    return ({
+      needs_shot_image_assets: "尚未建立候选清单",
+      fresh: "候选清单有效",
+      stale: "候选或来源已过期",
+      invalid: "候选清单无效",
+      blocked_source: "上游未就绪",
+    })[state] || String(state || "未知");
+  }
+
+  function renderShotImageCandidate(candidate, shot, mutationAllowed) {
+    const badges = [];
+    if (candidate.selected_first) badges.push('<span class="badge success">首帧</span>');
+    if (candidate.selected_tail) badges.push('<span class="badge success">尾帧</span>');
+    if (!candidate.current) badges.push('<span class="badge warning">旧 request 候选</span>');
+    const identity = "镜头 " + shot.shot_id + " 候选 " + candidate.candidate_id;
+    return (
+      '<article class="shot-image-candidate">' +
+      '<img src="' + escapeHtml(candidate.preview_url) + '" alt="镜头 ' +
+      escapeHtml(shot.shot_id) + ' 的候选 ' + escapeHtml(candidate.candidate_id) + '" loading="lazy">' +
+      '<div class="candidate-body"><div class="cluster">' + badges.join("") + '</div>' +
+      '<p><code>' + escapeHtml(candidate.candidate_id) + '</code></p>' +
+      '<p class="hint">' + Number(candidate.width) + "×" + Number(candidate.height) +
+      " · " + Number(candidate.size_bytes) + " bytes</p>" +
+      '<div class="cluster">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-shot-image-compare ' +
+      'data-shot-id="' + escapeHtml(shot.shot_id) + '" data-candidate-id="' +
+      escapeHtml(candidate.candidate_id) + '" aria-pressed="false" aria-label="' +
+      escapeHtml("加入对比：" + identity + (candidate.current ? "" : "（旧 request，只读）")) +
+      '">加入对比</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-shot-image-select="first" ' +
+      'data-shot-id="' + escapeHtml(shot.shot_id) + '" data-candidate-id="' +
+      escapeHtml(candidate.candidate_id) + '" aria-label="' +
+      escapeHtml((candidate.selected_first ? "当前首帧：" : "设为首帧：") + identity) + '"' +
+      (!mutationAllowed || !candidate.current || candidate.selected_first ? " disabled" : "") +
+      '>设为首帧</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-shot-image-select="tail" ' +
+      'data-shot-id="' + escapeHtml(shot.shot_id) + '" data-candidate-id="' +
+      escapeHtml(candidate.candidate_id) + '" aria-label="' +
+      escapeHtml((candidate.selected_tail ? "当前尾帧：" : "设为尾帧：") + identity) + '"' +
+      (!mutationAllowed || !candidate.current || candidate.selected_tail ? " disabled" : "") +
+      '>设为尾帧</button>' +
+      '</div></div></article>'
+    );
+  }
+
+  function renderShotImageOverview(overview) {
+    const state = shotImageStateText(overview.state);
+    const summary =
+      '<div class="card"><div class="card-body"><div class="cluster">' +
+      '<span class="badge ' + (overview.state === "fresh" ? "success" : "warning") + '">' +
+      escapeHtml(state) + '</span>' +
+      (overview.coverage
+        ? '<span class="muted">覆盖：' + escapeHtml(overview.coverage.status) + '</span>'
+        : "") +
+      '</div>' +
+      ((overview.reasons || []).length
+        ? '<p class="hint"><code>' + escapeHtml(overview.reasons.join(", ")) + '</code></p>'
+        : "") +
+      (!overview.mutation_allowed && overview.manifest_fingerprint
+        ? '<p class="hint">当前来源已变化；候选可预览比较，但需先重建 C1/C2 才能选择。</p>'
+        : "") +
+      '</div></div>';
+    if (!(overview.shots || []).length) {
+      return summary + '<div class="empty-state"><p>' + escapeHtml(state) + '</p></div>';
+    }
+    return summary + overview.shots.map(function (shot) {
+      const candidates = (shot.candidates || []).length
+        ? '<div class="shot-image-grid">' + shot.candidates.map(function (candidate) {
+            return renderShotImageCandidate(candidate, shot, overview.mutation_allowed);
+          }).join("") + '</div>'
+        : '<div class="empty-state"><p>当前镜头还没有 PNG 候选。</p></div>';
+      return (
+        '<section class="section"><div class="section-title"><div><h2><code>' +
+        escapeHtml(shot.shot_id) + '</code></h2>' +
+        '<p class="hint">首帧：' + escapeHtml(shotImageBindingText(shot.first_binding)) +
+        ' · 尾帧：' + escapeHtml(shotImageBindingText(shot.tail_binding)) + '</p></div>' +
+        '<span class="badge ' + (shot.coverage_state === "covered" ? "success" : "warning") + '">' +
+        escapeHtml(shot.coverage_state) + '</span></div>' +
+        candidates +
+        '<div class="cluster" style="margin-top:12px">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-shot-image-clear-tail ' +
+        'data-shot-id="' + escapeHtml(shot.shot_id) + '" aria-label="' +
+        escapeHtml("清除镜头 " + shot.shot_id + " 的尾帧选择") + '"' +
+        (!overview.mutation_allowed ||
+          (shot.tail_binding && shot.tail_binding.kind === "none") ? " disabled" : "") +
+        '>清除尾帧</button></div></section>'
+      );
+    }).join("");
+  }
+
+  async function initDramaShotImages() {
+    const root = document.getElementById("shot-images-page-root");
+    if (!root) return;
+    const compareRoot = document.getElementById("shot-image-compare");
+    const episodeInput = document.getElementById("shot-image-episode-no");
+    const refresh = document.getElementById("shot-image-refresh");
+    let overview = null;
+    let compared = [];
+    function episodeNo() {
+      const value = Number(episodeInput && episodeInput.value || 1);
+      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+    }
+    function findShot(shotId) {
+      return (overview && overview.shots || []).find(function (shot) {
+        return shot.shot_id === shotId;
+      });
+    }
+    function findCandidate(shot, candidateId) {
+      return (shot && shot.candidates || []).find(function (candidate) {
+        return candidate.candidate_id === candidateId;
+      });
+    }
+    function renderCompare() {
+      if (!compareRoot) return;
+      compareRoot.innerHTML = compared.map(function (entry) {
+        return '<figure><img src="' + escapeHtml(entry.preview_url) + '" alt="对比候选 ' +
+          escapeHtml(entry.candidate_id) + '"><figcaption><code>' +
+          escapeHtml(entry.candidate_id) + '</code></figcaption></figure>';
+      }).join("");
+    }
+    async function load() {
+      root.setAttribute("aria-busy", "true");
+      compared = [];
+      renderCompare();
+      try {
+        overview = await fetchJson(
+          wsUrl("/drama/shot-images?episode_no=" + encodeURIComponent(episodeNo()))
+        );
+        root.innerHTML = renderShotImageOverview(overview);
+      } catch (err) {
+        root.innerHTML = renderErrorCard(err);
+      } finally {
+        root.removeAttribute("aria-busy");
+      }
+    }
+    if (refresh) refresh.addEventListener("click", load);
+    if (episodeInput) episodeInput.addEventListener("change", load);
+    root.addEventListener("click", async function (ev) {
+      const compare = ev.target.closest("[data-shot-image-compare]");
+      const select = ev.target.closest("[data-shot-image-select]");
+      const clearTail = ev.target.closest("[data-shot-image-clear-tail]");
+      if (compare) {
+        const shot = findShot(compare.dataset.shotId);
+        const candidate = findCandidate(shot, compare.dataset.candidateId);
+        if (!candidate) return;
+        const key = shot.shot_id + ":" + candidate.candidate_id;
+        const index = compared.findIndex(function (item) { return item.key === key; });
+        if (index >= 0) {
+          compared.splice(index, 1);
+          compare.setAttribute("aria-pressed", "false");
+          compare.textContent = "加入对比";
+        } else {
+          if (compared.length >= 2) {
+            showToast("一次最多比较两个候选", "warn");
+            return;
+          }
+          compared.push(Object.assign({ key: key }, candidate));
+          compare.setAttribute("aria-pressed", "true");
+          compare.textContent = "移出对比";
+        }
+        renderCompare();
+        return;
+      }
+      if (!select && !clearTail) return;
+      const button = select || clearTail;
+      const shot = findShot(button.dataset.shotId);
+      if (!shot || !overview || !overview.manifest_fingerprint) return;
+      const frame = clearTail ? "tail" : select.dataset.shotImageSelect;
+      const candidateId = clearTail ? null : select.dataset.candidateId;
+      button.disabled = true;
+      try {
+        const result = await postJson(
+          wsUrl("/drama/shot-images/select"),
+          {
+            episode_no: episodeNo(),
+            shot_id: shot.shot_id,
+            frame: frame,
+            candidate_id: candidateId,
+            expected_selection_revision: Number(shot.selection_revision),
+            expected_current_binding: frame === "first" ? shot.first_binding : shot.tail_binding,
+            expected_manifest_fingerprint: overview.manifest_fingerprint,
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "X-Drama-Shot-Image-Intent": "mutate-v1",
+            },
+          }
+        );
+        overview = result.overview;
+        compared = [];
+        renderCompare();
+        root.innerHTML = renderShotImageOverview(overview);
+        showToast(result.changed ? "镜头图片选择已更新" : "选择未变化", "success");
+      } catch (err) {
+        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
+        if (err && err.status === 409) {
+          await load();
+        } else {
+          button.disabled = false;
+        }
+      }
+    });
+    await load();
+  }
+
   // ---- dispatch ---------------------------------------------------------
   function boot() {
     initShellControls();
@@ -6788,6 +7033,7 @@ JS_DASHBOARD = """\
     if (pageKind === "drama_write") return initDramaWrite();
     if (pageKind === "drama_characters") return initDramaCharacters();
     if (pageKind === "drama_assets") return initDramaAssets();
+    if (pageKind === "drama_shot_images") return initDramaShotImages();
     if (pageKind === "drama_episodes") return initDramaEpisodes();
     if (pageKind === "drama_episode_detail") return initDramaEpisodeDetail();
     if (pageKind === "drama_insights") return initDramaInsights();
