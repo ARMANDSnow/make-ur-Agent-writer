@@ -1185,9 +1185,15 @@ class DramaUserFacingCopyTests(unittest.TestCase):
         self.assertIn('const statusLabel = { done: "已完成"', source)
         self.assertIn('const labels = { approve: "通过"', source)
         self.assertIn('class="table drama-episode-table"', source)
+        self.assertIn("/write?episode=", source)
+        self.assertIn('>编辑</a>', source)
         self.assertIn(".sidebar-library-list", source)
         self.assertNotIn('<span class="badge ready">fresh</span>', source)
         self.assertIn('return /[.]png$/i.test', source)
+
+    def test_drama_episode_detail_has_direct_edit_link(self) -> None:
+        html = templates.render_workspace_episode_detail("drama", ["drama"], 2)
+        self.assertIn('href="/w/drama/write?episode=2">编辑本集</a>', html)
 
     def test_example_config_pins_video_provider_without_enabling_paid_video(self) -> None:
         source = Path(".env.example").read_text(encoding="utf-8")

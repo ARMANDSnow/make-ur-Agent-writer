@@ -6014,7 +6014,10 @@ JS_DASHBOARD = """\
           '<td>' + verdictBadge(ep.verdict || "") + '</td>' +
           '<td>' + escapeHtml(String(ep.estimated_duration_seconds || 0)) + ' 秒</td>' +
           '<td>' + (ep.stale ? '<span class="badge warn">需重新组装</span>' : '<span class="badge ready">已就绪</span>') + '</td>' +
-          '<td><a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(ep.episode_no || 1)) + '">查看</a></td>' +
+          '<td><div class="cluster">' +
+          '<a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(ep.episode_no || 1)) + '">查看</a>' +
+          '<a class="btn btn-ghost btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(ep.episode_no || 1)) + '">编辑</a>' +
+          '</div></td>' +
           '</tr>';
       }).join("");
       const episodeList = episodes.length
