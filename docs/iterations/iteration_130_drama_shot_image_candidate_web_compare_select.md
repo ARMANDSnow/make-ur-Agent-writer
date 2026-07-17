@@ -43,7 +43,13 @@ iter111/113/114 已完成 C1-C3 的 provider-neutral 逐镜图片 request、cont
 
 ## Acceptance Result
 
-<iter-finish 回填 A130-01..05、测试数、canonical、真文本校准、审查结论与未修风险。>
+- **A130-01：通过。** `src/drama_shot_image_web.py` 只投影 allowlist 字段并稳定按 shot/candidate 排序；request freshness、current/selectable、first/tail/previous-tail、coverage、manifest revision 与有界 blocker 均由服务端从 strict C1/C2 source 重建。
+- **A130-02：通过。** 新增 `/w/<name>/shot-images`、drama-only JSON API 与 exact PNG route；缺失 manifest graceful degrade，坏 identity/manifest/artifact/SHA/PNG/symlink fail closed。Web 只返回重验后的 derived preview。
+- **A130-03：通过。** 两图比较、首帧/尾帧选择和清尾帧复用 C2 revision/current/request CAS；409 触发重载，exact lost-response replay 为 `changed=false`，source-plan stale 只读，lineage stale 可由 current direct candidate 显式修复。
+- **A130-04：通过。** mutation 同时要求 JSON、显式 intent、same-origin/Fetch Metadata 与 route/transport 双层 32 KiB cap；安全预览剥离 text/EXIF/未知 ancillary metadata 并严格保留合法 `tRNS`。本轮真实图片、视频、TTS 与 provider media 调用均为 0。
+- **A130-05：通过。** 聚焦最终回归 220 tests、py_compile、JS parse、harness 与 diff check 通过；correctness、security/boundary、Web/media 三视角初审 findings 全部修复，最终均 no findings，无遗留 P0/P1/P2。implementation commit `f5a70c3825e470239b3ac95786c9102a297b0e41` 上唯一 canonical `bash scripts/verify.sh` 通过：2588 tests、15 steps、313 秒，run `ce4af8cbe16a451b90ac3f75d890e086`，tree `a611c6dc0fab8d05bae66497e12f3da74d4971ce`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN。
+- 真文本协议校准按授权仅调用 1 次 `gpt-5.5-medium`：HTTP 200、155 tokens、3.326 秒，`exact_candidate_identity / guarded_frame_selection / stale_compare_only / metadata_safe_preview` 四项均为 `true`。iter125-130 累计保守计 7/60 文本请求、6 次模型成功、约 ¥0.60；图片 0/20、视频/TTS 0。该证据只构成 C4 局部文本协议校准，不升级 provider 验收。
+- **结论：** `mock-functional`；mandatory local-drama 子步骤为 `local-e2e`，`provider_validated=false`。真实图片 provider、JPEG/WebP、staging GC 与主观视觉质量仍未验证。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
