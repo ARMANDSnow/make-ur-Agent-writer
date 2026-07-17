@@ -134,6 +134,27 @@ class ServerTests(unittest.TestCase):
             r"^HTTP/1\.[01] 413 ",
         )
 
+    def test_compose_transport_cap_rejects_before_body_read(self) -> None:
+        with socket.create_connection(
+            ("127.0.0.1", self.port),
+            timeout=1.0,
+        ) as client:
+            client.settimeout(1.0)
+            request = (
+                "POST /api/workspace/ghost/drama/compose HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{self.port}\r\n"
+                "Content-Type: application/json\r\n"
+                "X-Drama-Compose-Intent: run-local-v1\r\n"
+                "Content-Length: 32769\r\n"
+                "Connection: close\r\n\r\n"
+            )
+            client.sendall(request.encode("ascii"))
+            response = client.recv(4096)
+        self.assertRegex(
+            response.decode("iso-8859-1"),
+            r"^HTTP/1\.[01] 413 ",
+        )
+
     def test_legacy_workspace_url_emits_location_header(self) -> None:
         """Iter 032: ``/workspace/<name>/`` returns 301 with a Location
         header pointing at the new ``/w/<name>/`` IA. urllib follows

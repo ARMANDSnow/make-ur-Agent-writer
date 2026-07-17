@@ -310,9 +310,19 @@ def require_workspace_timeline_manifest(
                 or probed["sample_rate"] != clip.sample_rate
             ):
                 raise DramaTimelineError("optional audio artifact is stale")
-        return _build_timeline_manifest_from_validated_sources(
+        timeline = _build_timeline_manifest_from_validated_sources(
             plan, videos, report, audio_manifest, records,
             bgm_policy=bgm_policy, optional_audio_clips=optional_clips,
+        )
+        # E3 completion is also the durable F3 hand-off.  Import lazily to
+        # avoid a module cycle at import time; the helper assumes this lock is
+        # already held and never accepts arbitrary client TimelineManifest JSON.
+        from .drama_compose_web import _persist_validated_timeline_under_lock
+
+        return _persist_validated_timeline_under_lock(
+            workspace,
+            timeline,
+            preserve_existing_revision=True,
         )
 
 

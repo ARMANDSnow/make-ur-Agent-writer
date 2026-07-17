@@ -1916,6 +1916,33 @@ def _step_drama_video(params: Dict[str, Any], progress_cb: Callable[[str, float]
     return _run_locked_drama_step("drama-video", params, progress_cb, _op)
 
 
+def _step_drama_compose(
+    params: Dict[str, Any],
+    progress_cb: Callable[[str, float], None],
+) -> Any:
+    """Run local F1/F2 from the persisted, server-validated E3 timeline."""
+    from ..drama_compose_web import (
+        DramaComposeWebError,
+        run_workspace_compose_job,
+    )
+    episode_no = _drama_episode_no(params)
+    try:
+        return run_workspace_compose_job(
+            paths.workspace_name(),
+            episode_no=episode_no,
+            progress_cb=progress_cb,
+        )
+    except FileNotFoundError:
+        return _blocked(
+            "drama_timeline_missing",
+            "validated timeline is not available",
+        )
+    except DramaComposeWebError as exc:
+        if exc.code == "workspace_busy":
+            return _blocked("workspace_locked", "workspace locked")
+        return _blocked(exc.code, "compose prerequisite is stale or invalid")
+
+
 # Hard-coded whitelist. Adding a step here = a code review event.
 STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]], Any]] = {
     "normalize": _step_normalize,
@@ -1940,6 +1967,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "drama-characters": _step_drama_characters,
     "drama-review-assemble": _step_drama_review_assemble,
     "drama-video": _step_drama_video,
+    "drama-compose": _step_drama_compose,
 }
 
 
@@ -1993,6 +2021,12 @@ def _worker(job_id: str) -> None:
     def _progress(sub_step: str, fraction: float) -> None:
         _check_cancelled(job_id, deadline, timeout_minutes)
         _update(job_id, current_step=sub_step, progress=float(fraction))
+
+    # Local media subprocesses need a cheap cancellation/deadline probe without
+    # persisting the same progress row four times per second.
+    _progress.check_cancelled = lambda: _check_cancelled(  # type: ignore[attr-defined]
+        job_id, deadline, timeout_minutes
+    )
 
     _update(job_id, status="running", started_at=_now(), current_step=step)
     try:
@@ -2063,7 +2097,7 @@ def _summarize_result(step: str, result: Any) -> Any:
     """Coerce step-native return types into a JSON-safe summary the
     client can render without needing the full payload."""
     if step.startswith("drama-") and isinstance(result, dict):
-        return {
+        summary = {
             key: result.get(key)
             for key in (
                 "status", "station", "episode_no", "hook_count", "skipped",
@@ -2071,9 +2105,20 @@ def _summarize_result(step: str, result: Any) -> Any:
                 "budget_cny", "cost_cny",
                 "task_id", "provider", "provider_model", "duration_seconds",
                 "ratio", "resolution", "file_size_bytes", "network_requests",
+                "timeline_fingerprint", "qa_fingerprint", "export_fingerprint",
+                "acceptance_level",
             )
             if key in result
         }
+        blocked = result.get("blocked")
+        first = blocked[0] if isinstance(blocked, list) and blocked else None
+        if isinstance(first, dict):
+            summary["first_blocked"] = {
+                key: first.get(key)
+                for key in ("reason", "error", "status")
+                if key in first
+            }
+        return summary
     if step in {"auto-pipeline-greenfield", "auto-pipeline"} and isinstance(result, dict):
         write_part = result.get("write") or []
         summary: Dict[str, Any] = {"chapters_written": len(write_part)}

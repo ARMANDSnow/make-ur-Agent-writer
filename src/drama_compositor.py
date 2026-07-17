@@ -9,7 +9,7 @@ import secrets
 import shutil
 import stat
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from . import paths
 from .drama_media_qa import (
@@ -36,6 +36,8 @@ class DramaComposeError(ValueError):
 
 
 _OUTPUT_TOKEN = "{output_temp}"
+MAX_COMPOSE_OUTPUT_BYTES = 64 * 1024 * 1024
+MAX_COMPOSE_SOURCE_SET_BYTES = 128 * 1024 * 1024
 
 
 def _seconds(milliseconds: int) -> str:
@@ -149,9 +151,12 @@ def build_compose_plan(
             "-filter_complex", filter_graph,
             "-map", "[vout]", "-map", "[aout]",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-threads", "1", "-filter_threads", "1",
+            "-filter_complex_threads", "1",
             "-pix_fmt", "yuv420p", "-r", "25", "-g", "50",
             "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
             "-t", total_seconds,
+            "-fs", str(MAX_COMPOSE_OUTPUT_BYTES),
             "-metadata", f"comment=timeline_fingerprint={timeline.timeline_fingerprint}",
             "-video_track_timescale", "25000",
             "-movflags", "+faststart", "-f", "mp4", _OUTPUT_TOKEN,
@@ -258,6 +263,20 @@ def _atomic_write(root: Path, relative_path: str, data: bytes, *, maximum: int) 
 
 def _validate_sources(root: Path, timeline: TimelineManifest) -> dict[str, bytes]:
     verified: dict[str, bytes] = {}
+    total_bytes = 0
+
+    def remember(relative_path: str, data: bytes) -> None:
+        nonlocal total_bytes
+        previous = verified.get(relative_path)
+        if previous is not None:
+            if previous != data:
+                raise DramaComposeError("compose source identity is ambiguous")
+            return
+        total_bytes += len(data)
+        if total_bytes > MAX_COMPOSE_SOURCE_SET_BYTES:
+            raise DramaComposeError("compose source set exceeds its limit")
+        verified[relative_path] = data
+
     for clip in timeline.video_clips:
         try:
             data = _read_strict_workspace_bytes(
@@ -267,7 +286,7 @@ def _validate_sources(root: Path, timeline: TimelineManifest) -> dict[str, bytes
             raise DramaComposeError("required video artifact is invalid") from None
         if hashlib.sha256(data).hexdigest() != clip.artifact_sha256:
             raise DramaComposeError("required video artifact is stale")
-        verified[clip.artifact_path] = data
+        remember(clip.artifact_path, data)
     for clip in timeline.audio_clips:
         try:
             data = _read_strict_workspace_bytes(
@@ -277,7 +296,7 @@ def _validate_sources(root: Path, timeline: TimelineManifest) -> dict[str, bytes
             raise DramaComposeError("required audio artifact is invalid") from None
         if hashlib.sha256(data).hexdigest() != clip.artifact_sha256:
             raise DramaComposeError("required audio artifact is stale")
-        verified[clip.artifact_path] = data
+        remember(clip.artifact_path, data)
     for clip in timeline.optional_audio_clips:
         try:
             data = _read_strict_workspace_bytes(
@@ -290,10 +309,7 @@ def _validate_sources(root: Path, timeline: TimelineManifest) -> dict[str, bytes
             or hashlib.sha256(data).hexdigest() != clip.artifact_sha256
         ):
             raise DramaComposeError("optional audio artifact is stale")
-        previous = verified.get(clip.artifact_path)
-        if previous is not None and previous != data:
-            raise DramaComposeError("optional audio artifact identity is ambiguous")
-        verified[clip.artifact_path] = data
+        remember(clip.artifact_path, data)
     return verified
 
 
@@ -349,6 +365,8 @@ def _run_ffmpeg(
     timeline: TimelineManifest,
     plan: DramaComposePlan,
     verified_sources: Mapping[str, bytes],
+    *,
+    checkpoint: Callable[[], None] | None = None,
 ) -> tuple[str, bytes]:
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         raise DramaComposeError("ffmpeg and ffprobe are required")
@@ -388,11 +406,12 @@ def _run_ffmpeg(
         completed = _run_bounded_process(
             argv, cwd=root, timeout_seconds=180,
             stdout_limit=0, stderr_limit=65_536,
+            checkpoint=checkpoint,
         )
         if completed.returncode != 0:
             raise DramaComposeError("ffmpeg composition failed")
         output_bytes = _read_strict_workspace_bytes(
-            root, temp_target, maximum=500_000_000
+            root, temp_target, maximum=MAX_COMPOSE_OUTPUT_BYTES
         )
         return temp_relative, output_bytes
     except DramaComposeError:
@@ -414,6 +433,9 @@ def _run_ffmpeg(
 def compose_workspace_timeline(
     workspace: str,
     manifest: TimelineManifest | Mapping[str, Any],
+    *,
+    precompose_check: Callable[[], None] | None = None,
+    checkpoint: Callable[[], None] | None = None,
 ) -> tuple[DramaComposePlan, DramaComposeQaReport]:
     """Production F1 entry. A result is returned only after MP4/SRT/QA pass."""
 
@@ -422,12 +444,18 @@ def compose_workspace_timeline(
         plan = build_compose_plan(timeline)
         with use_workspace(workspace), acquire_write_lock(source="drama-compositor"):
             root = paths.workspace_root(workspace)
+            if precompose_check is not None:
+                precompose_check()
             verified_sources = _validate_sources(root, timeline)
             srt = export_timeline_srt(timeline)
             srt_bytes = srt.content.encode("utf-8")
             _atomic_write(root, plan.srt_path, srt_bytes, maximum=100_000)
             temp_relative, output_bytes = _run_ffmpeg(
-                root, timeline, plan, verified_sources
+                root,
+                timeline,
+                plan,
+                verified_sources,
+                checkpoint=checkpoint,
             )
             try:
                 output_probe = probe_media(root, temp_relative)
@@ -467,47 +495,74 @@ def compose_workspace_timeline(
         raise DramaComposeError("compose input was rejected") from None
 
 
+def _require_workspace_compose_result_under_lock(
+    root: Path,
+    timeline: TimelineManifest,
+    *,
+    maximum_output_bytes: int = MAX_COMPOSE_OUTPUT_BYTES,
+) -> tuple[DramaComposeQaReport, bytes, bytes]:
+    """Verify F1 while the caller owns the workspace lock."""
+
+    if (
+        not isinstance(maximum_output_bytes, int)
+        or isinstance(maximum_output_bytes, bool)
+        or not 1 <= maximum_output_bytes <= MAX_COMPOSE_OUTPUT_BYTES
+    ):
+        raise DramaComposeError("compose verification limit is invalid")
+    plan = build_compose_plan(timeline)
+    qa_bytes = _read_strict_workspace_bytes(
+        root, root / plan.qa_path, maximum=200_000
+    )
+    raw = json.loads(qa_bytes.decode("utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("QA envelope must be an object")
+    stored = DramaComposeQaReport(**raw)
+    if stored.output_size_bytes > maximum_output_bytes:
+        raise ValueError("compose output exceeds verifier limit")
+    output_bytes = _read_strict_workspace_bytes(
+        root, root / plan.output_path, maximum=maximum_output_bytes
+    )
+    srt_bytes = _read_strict_workspace_bytes(
+        root, root / plan.srt_path, maximum=100_000
+    )
+    expected_srt_bytes = export_timeline_srt(timeline).content.encode("utf-8")
+    if srt_bytes != expected_srt_bytes:
+        raise ValueError("SRT is not the deterministic timeline export")
+    if (
+        stored.plan_fingerprint != plan.plan_fingerprint
+        or stored.timeline_fingerprint != plan.timeline_fingerprint
+        or stored.output_sha256 != hashlib.sha256(output_bytes).hexdigest()
+        or stored.output_size_bytes != len(output_bytes)
+        or stored.srt_sha256 != hashlib.sha256(srt_bytes).hexdigest()
+    ):
+        raise ValueError("compose artifacts do not match QA")
+    probe = probe_media(root, plan.output_path)
+    rebuilt = build_compose_qa_report(
+        plan, probe, output_bytes=output_bytes, srt_bytes=srt_bytes
+    )
+    if rebuilt != stored:
+        raise ValueError("compose QA is stale")
+    return stored, output_bytes, srt_bytes
+
+
 def require_workspace_compose_result(
     workspace: str,
     manifest: TimelineManifest | Mapping[str, Any],
+    *,
+    maximum_output_bytes: int = MAX_COMPOSE_OUTPUT_BYTES,
 ) -> DramaComposeQaReport:
     """Re-read MP4/SRT/QA and authorize only the exact timeline-derived result."""
 
     try:
         timeline = _safe_timeline(manifest)
-        plan = build_compose_plan(timeline)
         with use_workspace(workspace), acquire_write_lock(source="drama-compose-verify"):
-            root = paths.workspace_root(workspace)
-            qa_bytes = _read_strict_workspace_bytes(
-                root, root / plan.qa_path, maximum=200_000
+            stored, _output_bytes, _srt_bytes = (
+                _require_workspace_compose_result_under_lock(
+                    paths.workspace_root(workspace),
+                    timeline,
+                    maximum_output_bytes=maximum_output_bytes,
+                )
             )
-            output_bytes = _read_strict_workspace_bytes(
-                root, root / plan.output_path, maximum=500_000_000
-            )
-            srt_bytes = _read_strict_workspace_bytes(
-                root, root / plan.srt_path, maximum=100_000
-            )
-            expected_srt_bytes = export_timeline_srt(timeline).content.encode("utf-8")
-            if srt_bytes != expected_srt_bytes:
-                raise ValueError("SRT is not the deterministic timeline export")
-            raw = json.loads(qa_bytes.decode("utf-8"))
-            if not isinstance(raw, dict):
-                raise ValueError("QA envelope must be an object")
-            stored = DramaComposeQaReport(**raw)
-            if (
-                stored.plan_fingerprint != plan.plan_fingerprint
-                or stored.timeline_fingerprint != plan.timeline_fingerprint
-                or stored.output_sha256 != hashlib.sha256(output_bytes).hexdigest()
-                or stored.output_size_bytes != len(output_bytes)
-                or stored.srt_sha256 != hashlib.sha256(srt_bytes).hexdigest()
-            ):
-                raise ValueError("compose artifacts do not match QA")
-            probe = probe_media(root, plan.output_path)
-            rebuilt = build_compose_qa_report(
-                plan, probe, output_bytes=output_bytes, srt_bytes=srt_bytes
-            )
-            if rebuilt != stored:
-                raise ValueError("compose QA is stale")
             return stored
     except WorkspaceLocked:
         raise DramaComposeError("compose workspace is busy") from None

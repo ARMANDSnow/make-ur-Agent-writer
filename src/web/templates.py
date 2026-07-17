@@ -149,6 +149,7 @@ _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("assets", "资产治理", "assets"),
     ("shot_images", "镜头图片", "shot-images"),
     ("shot_videos", "镜头视频", "shot-videos"),
+    ("compose", "合成交付", "compose"),
     ("episodes", "剧集", "episodes"),
     ("insights", "数据", "insights"),
     ("jobs", "任务", "jobs"),
@@ -625,6 +626,48 @@ def render_workspace_shot_videos(name: str, workspaces: Iterable[str]) -> str:
             workspaces,
             active_workspace=name,
             active_section="shot_videos",
+        ),
+        workspace=name,
+    )
+
+
+def render_workspace_compose(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧 · F 阶段</p>'
+        '<h1>本地合成与交付</h1>'
+        '<p class="muted">从已验证的 E3 时间线生成竖屏 MP4、SRT、ASS 与通用剪辑工程。</p>'
+        '</div>'
+        '<div class="cluster">'
+        '<label class="field compact">集数 '
+        '<input id="compose-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
+        '</label>'
+        '<button class="btn btn-secondary" id="compose-refresh" type="button">刷新</button>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="callout info">'
+        '<strong>合成只在本机执行</strong>'
+        '<span>此页不会调用文本、图片、视频或 TTS provider；下载只开放当前时间线经 QA 验证的 exact 产物。</span>'
+        '</div>'
+        '<div id="compose-page-root" aria-live="polite">'
+        '<p class="muted">载入中…</p>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 本地合成与交付",
+        page_kind="drama_compose",
+        main_html=main,
+        breadcrumb_html=_crumbs(
+            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("合成交付", None)]
+        ),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(
+            workspaces,
+            active_workspace=name,
+            active_section="compose",
         ),
         workspace=name,
     )

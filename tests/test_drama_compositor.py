@@ -53,6 +53,13 @@ class DramaCompositorTests(unittest.TestCase):
         self.assertEqual((first.fps_numerator, first.fps_denominator), (25, 1))
         self.assertEqual(first.ffmpeg_argv[0], "ffmpeg")
         self.assertEqual(first.ffmpeg_argv[-1], "{output_temp}")
+        self.assertIn("-threads", first.ffmpeg_argv)
+        self.assertIn("-filter_complex_threads", first.ffmpeg_argv)
+        self.assertIn("-fs", first.ffmpeg_argv)
+        self.assertEqual(
+            first.ffmpeg_argv[first.ffmpeg_argv.index("-threads") + 1],
+            "1",
+        )
         self.assertIn("concat=n=2:v=1:a=0", first.filter_graph)
         self.assertIn("amix=inputs=3", first.filter_graph)
         self.assertNotIn("shell=True", " ".join(first.ffmpeg_argv))

@@ -333,6 +333,21 @@ def render_workspace_shot_videos_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_shot_videos(name, list_workspaces()))
 
 
+def render_workspace_compose_page(name: str) -> Tuple[int, str, bytes]:
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_compose(name, list_workspaces()))
+
+
 def render_workspace_episodes_page(name: str) -> Tuple[int, str, bytes]:
     """Drama-only episode list page."""
 
@@ -2143,6 +2158,187 @@ def api_drama_shot_videos_select(
     return _json(200, model_to_dict(result))
 
 
+def api_drama_compose_overview(
+    name: str,
+    raw_episode_no: Any = 1,
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
+    from ..drama_compose_web import build_compose_web_overview
+
+    overview = build_compose_web_overview(name, episode_no=episode_no)
+    active = next(
+        (
+            row
+            for row in jobs.active_jobs(name)
+            if row.get("step") == "drama-compose"
+            and (row.get("params") or {}).get("episode_no") == episode_no
+        ),
+        None,
+    )
+    if active is not None:
+        overview["job"] = jobs.public_job_detail_view(active)
+    else:
+        recent = next(
+            (
+                row
+                for row in jobs.recent_jobs(name, limit=20)
+                if row.get("step") == "drama-compose"
+                and (row.get("params") or {}).get("episode_no") == episode_no
+            ),
+            None,
+        )
+        overview["job"] = (
+            jobs.public_job_detail_view(recent) if recent is not None else None
+        )
+    return _json(200, overview)
+
+
+def _drama_compose_request_error(
+    body: bytes,
+    headers: Dict[str, str],
+) -> Optional[Tuple[int, str, bytes]]:
+    if len(body) > 32 * 1024:
+        return _json(413, {"error": "compose payload too large"})
+    content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        return _json(415, {"error": "Content-Type must be application/json"})
+    if headers.get("x-drama-compose-intent") != "run-local-v1":
+        return _json(403, {"error": "missing compose intent"})
+    fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site and fetch_site not in ("same-origin", "same-site", "none"):
+        return _json(403, {"error": "cross-site compose request rejected"})
+    return None
+
+
+def api_drama_compose_start(
+    name: str,
+    body: bytes,
+    headers: Dict[str, str],
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    request_error = _drama_compose_request_error(body, headers)
+    if request_error:
+        return request_error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    params_error, params = _validated_drama_compose_params(payload or {})
+    if params_error:
+        return _json(400, {"error": params_error})
+    try:
+        job = jobs.start_job(name, "drama-compose", params)
+    except ValueError as exc:
+        return _json(400, errors.exception_body(exc))
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(
+                409,
+                {
+                    "error": "workspace already has a running job",
+                    "running_job_id": msg.split(":", 1)[1],
+                },
+            )
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    return _json(
+        202,
+        {
+            "job_id": job["job_id"],
+            "status": job["status"],
+            "step": "drama-compose",
+        },
+    )
+
+
+def api_drama_compose_deliverable(
+    name: str,
+    raw_episode_no: str,
+    timeline_fingerprint: str,
+    kind: str,
+    headers: Dict[str, str],
+    *,
+    head_only: bool = False,
+) -> WebResponse:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid episode_no"})
+    from ..drama_compose_web import (
+        DramaComposeWebError,
+        load_exact_compose_deliverable,
+    )
+
+    try:
+        payload, content_type, filename = load_exact_compose_deliverable(
+            name,
+            episode_no=episode_no,
+            timeline_fingerprint=timeline_fingerprint,
+            kind=kind,
+        )
+    except FileNotFoundError:
+        return _json(404, {"error": "deliverable not found"})
+    except DramaComposeWebError as exc:
+        if exc.code == "workspace_busy":
+            return _json(503, {"error": "deliverable verification is busy; retry shortly"})
+        return _json(409, {"error": "deliverable is unavailable"})
+    except RuntimeError:
+        return _json(503, {"error": "deliverable verification is busy; retry shortly"})
+    except ValueError:
+        return _json(409, {"error": "deliverable is unavailable"})
+
+    total = len(payload)
+    response_headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+        "Content-Length": str(total),
+    }
+    if kind != "mp4":
+        return 200, content_type, b"" if head_only else payload, response_headers
+    response_headers["Accept-Ranges"] = "bytes"
+    try:
+        byte_range = _bounded_single_byte_range(
+            str(headers.get("range") or ""),
+            total,
+        )
+    except ValueError:
+        status, error_type, body = _json(416, {"error": "invalid media range"})
+        return (
+            status,
+            error_type,
+            b"" if head_only else body,
+            {
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes */{total}",
+                "Content-Length": str(len(body)),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    if byte_range is None:
+        return 200, content_type, b"" if head_only else payload, response_headers
+    start, end = byte_range
+    response_headers["Content-Range"] = f"bytes {start}-{end}/{total}"
+    response_headers["Content-Length"] = str(end - start + 1)
+    return (
+        206,
+        content_type,
+        b"" if head_only else payload[start : end + 1],
+        response_headers,
+    )
+
+
 _DRAMA_STEP_TASKS = {
     "drama-plan": "drama_plan",
     "drama-hooks": "drama_hooks",
@@ -2150,6 +2346,20 @@ _DRAMA_STEP_TASKS = {
     "drama-characters": "drama_character",
     "drama-review-assemble": "drama_review",
 }
+_DRAMA_JOB_STEPS = frozenset((*_DRAMA_STEP_TASKS, "drama-compose"))
+
+
+def _validated_drama_compose_params(
+    params: Dict[str, Any],
+) -> Tuple[Optional[str], Dict[str, Any]]:
+    unknown = set(params) - {"episode_no"}
+    if unknown:
+        return f"unknown drama compose params: {', '.join(sorted(unknown))}", {}
+    try:
+        episode_no = _parse_episode_no(params.get("episode_no", 1))
+    except (TypeError, ValueError):
+        return "episode_no must be an integer between 1 and 100", {}
+    return None, {"episode_no": episode_no}
 
 
 def api_drama_progress(name: str, raw_episode_no: Any = 1) -> Tuple[int, str, bytes]:
@@ -4201,11 +4411,15 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
     step = payload.get("step")
     if not step or not isinstance(step, str):
         return _json(400, {"error": "missing or invalid 'step' field"})
+    if step == "drama-compose":
+        return _json(400, {
+            "error": "use the dedicated local compose endpoint",
+        })
     params = payload.get("params") or {}
     if not isinstance(params, dict):
         return _json(400, {"error": "'params' must be an object"})
     workspace_type = _meta_read(name).get("type")
-    is_drama_step = step in _DRAMA_STEP_TASKS
+    is_drama_step = step in _DRAMA_JOB_STEPS
     if workspace_type == "drama" and not is_drama_step:
         return _json(400, {
             "error": "drama workspace only accepts drama job steps",
@@ -4238,6 +4452,8 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
 
 
 def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+    if step == "drama-compose":
+        return _validated_drama_compose_params(params)
     if step in _DRAMA_STEP_TASKS:
         return _validated_drama_params(step, params)
     # iter060 (Codex B): timeout_minutes applies to every step (jobs._timeout_deadline
@@ -4518,6 +4734,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/assets/?$"), lambda name, **_: render_workspace_assets_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-images/?$"), lambda name, **_: render_workspace_shot_images_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-videos/?$"), lambda name, **_: render_workspace_shot_videos_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/compose/?$"), lambda name, **_: render_workspace_compose_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/episodes/?$"), lambda name, **_: render_workspace_episodes_page(name)),
     (
         "GET",
@@ -4840,6 +5057,56 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
             name,
             _body,
             _headers or {},
+        ),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/compose/?$"),
+        lambda name, _query=None, **_: api_drama_compose_overview(
+            name,
+            ((_query or {}).get("episode_no", ["1"])[0]),
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/compose/?$"),
+        lambda name, _body=b"", _headers=None, **_: api_drama_compose_start(
+            name, _body, _headers or {}
+        ),
+    ),
+    (
+        "GET",
+        re.compile(
+            r"^/api/workspace/(?P<name>[^/]+)/drama/compose/"
+            r"(?P<raw_episode_no>[0-9]{1,3})/"
+            r"(?P<timeline_fingerprint>[0-9a-f]{64})/"
+            r"(?P<kind>mp4|srt|ass|edit)$"
+        ),
+        lambda name, raw_episode_no, timeline_fingerprint, kind,
+        _headers=None, **_: api_drama_compose_deliverable(
+            name,
+            raw_episode_no,
+            timeline_fingerprint,
+            kind,
+            _headers or {},
+        ),
+    ),
+    (
+        "HEAD",
+        re.compile(
+            r"^/api/workspace/(?P<name>[^/]+)/drama/compose/"
+            r"(?P<raw_episode_no>[0-9]{1,3})/"
+            r"(?P<timeline_fingerprint>[0-9a-f]{64})/"
+            r"(?P<kind>mp4|srt|ass|edit)$"
+        ),
+        lambda name, raw_episode_no, timeline_fingerprint, kind,
+        _headers=None, **_: api_drama_compose_deliverable(
+            name,
+            raw_episode_no,
+            timeline_fingerprint,
+            kind,
+            _headers or {},
+            head_only=True,
         ),
     ),
     (

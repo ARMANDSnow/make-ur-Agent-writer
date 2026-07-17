@@ -8,7 +8,7 @@ import os
 import secrets
 import stat
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from . import paths
 from .drama_schemas import (
@@ -885,6 +885,8 @@ def _result(
 def export_workspace_editable_sidecars(
     workspace: str,
     manifest: TimelineManifest | Mapping[str, Any],
+    *,
+    preexport_check: Callable[[], None] | None = None,
 ) -> DramaEditExportResult:
     """Validate exact sources and commit the pair with a durable completion marker."""
 
@@ -914,6 +916,8 @@ def export_workspace_editable_sidecars(
             + "\n"
         ).encode("utf-8")
         with use_workspace(workspace), acquire_write_lock(source="drama-edit-export"):
+            if preexport_check is not None:
+                preexport_check()
             identities = _validate_source_materials(workspace, project)
             output_fd = _open_output_directory(
                 paths.workspace_root(workspace),
@@ -978,6 +982,79 @@ def export_workspace_editable_sidecars(
         raise DramaEditExportError("editable sidecar export was rejected") from None
 
 
+def _require_workspace_editable_sidecars_under_lock(
+    workspace: str,
+    timeline: TimelineManifest,
+) -> tuple[DramaEditExportResult, bytes, bytes]:
+    """Verify F2 while the caller owns the workspace lock."""
+
+    ass = export_timeline_ass(timeline)
+    project = build_editable_timeline_project(timeline)
+    expected_ass = ass.content.encode("utf-8")
+    expected_project = _project_bytes(project)
+    ass_path, project_path, completion_path = _export_paths(timeline)
+    expected_result = _result(
+        timeline,
+        ass_path=ass_path,
+        ass_sha256=hashlib.sha256(expected_ass).hexdigest(),
+        project_path=project_path,
+        project_sha256=hashlib.sha256(expected_project).hexdigest(),
+        completion_path=completion_path,
+    )
+    expected_completion = (
+        json.dumps(
+            model_to_dict(expected_result),
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    identities = _validate_source_materials(workspace, project)
+    output_fd = _open_output_directory(
+        paths.workspace_root(workspace),
+        str(Path(ass_path).parent),
+        create=False,
+    )
+    output_identity = _directory_identity(output_fd)
+    try:
+        stored_ass = _read_output_at(
+            output_fd,
+            Path(ass_path).name,
+            maximum=MAX_ASS_BYTES,
+        )
+        stored_project = _read_output_at(
+            output_fd,
+            Path(project_path).name,
+            maximum=MAX_EDIT_PROJECT_BYTES,
+        )
+        stored_completion = _read_output_at(
+            output_fd,
+            Path(completion_path).name,
+            maximum=MAX_COMPLETION_BYTES,
+        )
+        _validate_source_materials(
+            workspace,
+            project,
+            expected=identities,
+        )
+        _require_current_output_directory(
+            paths.workspace_root(workspace),
+            str(Path(ass_path).parent),
+            expected=output_identity,
+        )
+    finally:
+        os.close(output_fd)
+    if (
+        stored_ass != expected_ass
+        or stored_project != expected_project
+        or stored_completion != expected_completion
+    ):
+        raise DramaEditExportError("editable sidecar bytes do not match timeline")
+    return expected_result, stored_ass, stored_project
+
+
 def require_workspace_editable_sidecars(
     workspace: str,
     manifest: TimelineManifest | Mapping[str, Any],
@@ -986,72 +1063,14 @@ def require_workspace_editable_sidecars(
 
     try:
         timeline = _safe_timeline(manifest)
-        ass = export_timeline_ass(timeline)
-        project = build_editable_timeline_project(timeline)
-        expected_ass = ass.content.encode("utf-8")
-        expected_project = _project_bytes(project)
-        ass_path, project_path, completion_path = _export_paths(timeline)
-        expected_result = _result(
-            timeline,
-            ass_path=ass_path,
-            ass_sha256=hashlib.sha256(expected_ass).hexdigest(),
-            project_path=project_path,
-            project_sha256=hashlib.sha256(expected_project).hexdigest(),
-            completion_path=completion_path,
-        )
-        expected_completion = (
-            json.dumps(
-                model_to_dict(expected_result),
-                ensure_ascii=False,
-                sort_keys=True,
-                indent=2,
-                allow_nan=False,
-            )
-            + "\n"
-        ).encode("utf-8")
         with use_workspace(workspace), acquire_write_lock(source="drama-edit-verify"):
-            identities = _validate_source_materials(workspace, project)
-            output_fd = _open_output_directory(
-                paths.workspace_root(workspace),
-                str(Path(ass_path).parent),
-                create=False,
-            )
-            output_identity = _directory_identity(output_fd)
-            try:
-                stored_ass = _read_output_at(
-                    output_fd,
-                    Path(ass_path).name,
-                    maximum=MAX_ASS_BYTES,
-                )
-                stored_project = _read_output_at(
-                    output_fd,
-                    Path(project_path).name,
-                    maximum=MAX_EDIT_PROJECT_BYTES,
-                )
-                stored_completion = _read_output_at(
-                    output_fd,
-                    Path(completion_path).name,
-                    maximum=MAX_COMPLETION_BYTES,
-                )
-                _validate_source_materials(
+            result, _ass_bytes, _project_bytes_value = (
+                _require_workspace_editable_sidecars_under_lock(
                     workspace,
-                    project,
-                    expected=identities,
+                    timeline,
                 )
-                _require_current_output_directory(
-                    paths.workspace_root(workspace),
-                    str(Path(ass_path).parent),
-                    expected=output_identity,
-                )
-            finally:
-                os.close(output_fd)
-        if (
-            stored_ass != expected_ass
-            or stored_project != expected_project
-            or stored_completion != expected_completion
-        ):
-            raise DramaEditExportError("editable sidecar bytes do not match timeline")
-        return expected_result
+            )
+            return result
     except WorkspaceLocked:
         raise DramaEditExportError("editable workspace is busy") from None
     except DramaEditExportError:

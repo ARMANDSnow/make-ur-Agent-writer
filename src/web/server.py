@@ -11,6 +11,7 @@ so the port is released immediately on the next start.
 from __future__ import annotations
 
 import re
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -23,9 +24,14 @@ _DRAMA_ASSET_MUTATION_PATH_RE = re.compile(
     r"assets/(?:select|status|art-direction-scope)"
     r"|shot-images/select"
     r"|shot-videos/select"
+    r"|compose"
     r")/?$"
 )
 _DRAMA_ASSET_MUTATION_BODY_LIMIT = 32 * 1024
+_DRAMA_COMPOSE_READ_PATH_RE = re.compile(
+    r"^/api/workspace/[^/]+/drama/compose(?:/.*)?$"
+)
+_DRAMA_COMPOSE_READ_CAPACITY = threading.BoundedSemaphore(1)
 
 
 class WebHandler(BaseHTTPRequestHandler):
@@ -60,6 +66,22 @@ class WebHandler(BaseHTTPRequestHandler):
         sys.stderr.write(f"[web] {self.address_string()} {rendered}\n")
 
     def _respond(self, method: str, path: str) -> None:
+        decoded_path = unquote(urlsplit(path).path)
+        if (
+            method in {"GET", "HEAD"}
+            and _DRAMA_COMPOSE_READ_PATH_RE.fullmatch(decoded_path)
+        ):
+            if not _DRAMA_COMPOSE_READ_CAPACITY.acquire(blocking=False):
+                self.send_error(503, "Compose verification is busy")
+                return
+            try:
+                self._respond_inner(method, path)
+            finally:
+                _DRAMA_COMPOSE_READ_CAPACITY.release()
+            return
+        self._respond_inner(method, path)
+
+    def _respond_inner(self, method: str, path: str) -> None:
         # iter 026: POST / PUT carry bodies. Hard cap at 64 MB so a
         # rogue Content-Length doesn't make us allocate the universe;
         # the wizard's multipart upload enforces its own tighter 50 MB

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .drama_schemas import DramaComposePlan, DramaComposeQaReport, _canonical_sha256
 
@@ -28,6 +28,7 @@ def _run_bounded_process(
     timeout_seconds: int,
     stdout_limit: int,
     stderr_limit: int,
+    checkpoint: Callable[[], None] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """Run without a shell and kill as soon as either captured stream exceeds cap."""
 
@@ -64,6 +65,8 @@ def _run_bounded_process(
     deadline = time.monotonic() + timeout_seconds
     try:
         while selector.get_map():
+            if checkpoint is not None:
+                checkpoint()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise DramaMediaQaError("media process timed out")
@@ -93,20 +96,22 @@ def _run_bounded_process(
         return subprocess.CompletedProcess(
             argv, returncode, bytes(buffers["stdout"]), bytes(buffers["stderr"])
         )
-    except DramaMediaQaError:
+    except (DramaMediaQaError, subprocess.SubprocessError) as exc:
+        process.kill()
+        try:
+            process.wait(timeout=5)
+        except subprocess.SubprocessError:
+            pass
+        if isinstance(exc, DramaMediaQaError):
+            raise
+        raise DramaMediaQaError("media process failed") from None
+    except BaseException:
         process.kill()
         try:
             process.wait(timeout=5)
         except subprocess.SubprocessError:
             pass
         raise
-    except subprocess.SubprocessError:
-        process.kill()
-        try:
-            process.wait(timeout=5)
-        except subprocess.SubprocessError:
-            pass
-        raise DramaMediaQaError("media process failed") from None
     finally:
         selector.close()
         for name in ("stdout", "stderr"):
@@ -309,6 +314,21 @@ def build_compose_qa_report(
     srt_bytes: bytes,
 ) -> DramaComposeQaReport:
     try:
+        # A CFR encoder cannot end between frames.  ``-t`` therefore rounds a
+        # non-frame-aligned TimelineManifest duration up to the next 25 fps
+        # frame (for example 402 ms -> 440 ms).  Bind QA to that deterministic
+        # frame-grid result instead of requiring the encoded video stream to
+        # reproduce an impossible sub-frame duration.
+        frame_denominator = 1000 * plan.fps_denominator
+        expected_video_frames = (
+            plan.total_duration_ms * plan.fps_numerator
+            + frame_denominator
+            - 1
+        ) // frame_denominator
+        expected_video_duration_ms = (
+            expected_video_frames * frame_denominator
+            + plan.fps_numerator // 2
+        ) // plan.fps_numerator
         if (
             "mp4" not in probe.format_names
             or probe.video_codec != "h264"
@@ -328,7 +348,7 @@ def build_compose_qa_report(
             or probe.timeline_fingerprint != plan.timeline_fingerprint
             or abs(probe.duration_ms - plan.total_duration_ms) > 160
             or probe.video_duration_ms is None
-            or abs(probe.video_duration_ms - plan.total_duration_ms) > 20
+            or abs(probe.video_duration_ms - expected_video_duration_ms) > 1
         ):
             raise ValueError("post-compose probe did not match profile")
         payload = {

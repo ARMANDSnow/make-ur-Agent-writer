@@ -551,7 +551,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 - **v1** 2026-06-03 下午 · 三件套 schema + 4 站创作向导 + N1-N5 拍板
 - **v2** 2026-07-15 · 保留 v1 产品决策，追加“五站创作 + A-J 媒体生产”的完整实时 SOP
 - **v3** 2026-07-18 · 同步 A-F1 已实现基线，并登记 F2 ASS/通用可编辑工程与安全 completion marker
-- **v4** 2026-07-18 · 登记 A2 visual-only override、双 CAS 选择、effective manifest 与 stale dependency matrix（**当前版本**）
+- **v4** 2026-07-18 · 登记 A2 visual-only override、双 CAS 选择、effective manifest 与 stale dependency matrix
+- **v5** 2026-07-18 · 登记 F3 Web 本地合成、持久 E3 时间线、QA 真值与 exact 交付边界（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -640,7 +641,7 @@ drama workspace
 | C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | 🟨 **C1-C4 本地契约与候选 Web 已实现**：C1 冻结 request/exact refs，C2 提供 content-addressed strict PNG 候选、guarded first/tail/previous-tail 与 coverage/repair，C3 提供 provider-neutral capability、once-only attempt、durable receipt，C4 提供 exact PNG 安全预览、两图比较和 guarded first/tail selection。真实 provider/network、多参考上传、JPEG/WebP、显式 staging GC 和 power-loss 证明未实现 |
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | 🟨 **D1-D5 本地闭环已完成**：冻结输入、候选/coverage、once-only attempt、artifact 重验、首尾帧 lineage 与 production compose gate，并提供 strict/bounded 候选播放、选择、attempt/continuity/compose readiness Web；真实 provider/network、Web submit/poll/cancel 和 episode 2+ 成片仍未闭环 |
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
-| F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1+F2 本地闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程，冻结素材 SHA、video/dialogue/narration/BGM/SFX/silence 轨道、fade/gain、48kHz stereo/AAC profile 与字幕 revision，并以 pinned dirfd、前后流式 hash 和 completion marker 安全提交。特定 NLE 私有格式、Web compose job、多 profile 与更广 codec/container 未实现 |
+| F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1-F3 本地与 Web 闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程；F3 将 E3 成功结果持久化为 Web 唯一输入，提供本地 compose job、durable QA truth 与 exact MP4/SRT/ASS/edit 下载。FFmpeg 单线程、跨 workspace 单槽、总源/输出各 128 MiB；Web MP4 另限 64 MiB 且 current D4/E3、F1/F2、返回字节在同一锁快照验证。特定 NLE 私有格式、多 profile、更广 codec/container、真实媒体质量与 episode 2+ 成片仍未闭环 |
 | G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | ⏳ 已有图片/视频领域专用恢复和 paid ledger；通用 worker/DAG/capability/pricing 尚未实现，且未来不能替代 paid evidence |
 | H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ⏳ 小说侧实体/摘要是可复用基础；短剧 event graph、`source_event_ids` 和可失效 cache 未实现；不阻塞阶段 F |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
@@ -694,6 +695,14 @@ drama-only `/w/<name>/shot-videos` 从 D1-D4 重建 stable shot、当前 request
 
 候选播放 URL 绑定 exact workspace/episode/shot/candidate identity；每次 HEAD/GET/单一 byte Range 前重验 strict manifest、canonical MP4 bytes、size/SHA/container/时长/尺寸/音轨。浏览器不接收原始 provider MP4，而是消费本地 decode/re-encode、去音轨/字幕/章节/metadata、最长 30 秒、最大 360 宽/12fps/512kbps 的派生预览；输出还要通过 4 MiB 上限、MP4 box allowlist 和结构复核。源候选 Web 预览上限 32 MiB、恰好一个合法视频轨、长边 1920/短边 1080（横竖屏均可）与 36,000 个视频 sample，每镜最多投影 8 个候选、整页最多 64 个 preview identity 并优先保留 selected；浏览器只在用户显式点击后绑定媒体 URL，服务端从 manifest inspection 前开始限制最多 2 个并发预览，FFmpeg decoder/filter/encoder 均为单线程，LRU 4 项。超限候选仍显示身份且允许清除 selection，但标记 `web_unverified`、不加载预览且不宣称 compose ready。不能把“D2 内容哈希有效”直接等同于“媒体可安全公开”。候选选择复用 D2 manifest fingerprint、selection revision/current selection CAS，允许 exact lost-response replay；旧 request/retired 候选只读，placeholder 只形成 `degraded_preview`，任何 hard blocker 都不得显示为 production compose ready。
 
+#### F3 Web 本地合成、QA 与 exact 交付
+
+E3 production gate 成功后，在同一 workspace lock 内以 pinned dirfd/no-follow 原子提交 episode-scoped TimelineManifest；浏览器不能上传任意时间线。字幕修订只能按 current timeline fingerprint 与 cue ID 做 CAS，修订后的同一 TimelineManifest 继续驱动 SRT、ASS 和 editable project。`/w/<name>/compose` 从 current D4、持久 E3、F1 QA 与 F2 completion marker 重建 `needs_timeline/ready/partial/stale/invalid/complete`，job history 或进程内 future 永远不是完成真源；服务重启后只要 exact 产物仍通过重验，页面仍显示 complete。
+
+compose job 在 FFmpeg 与 F2 各自锁域开始前重新验证 current D4/E3/source，并在最终返回 `committed=true` 前再复核；FFmpeg 使用 argv-only、单线程、128 MiB 总源集、64 MiB 单一生成/验证/交付硬上限与跨 workspace 单槽，取消/期限在最长 250 ms 的子进程轮询点 kill/wait 并清理 staging/temp。执行失败是 `failed`，缺 timeline/stale/capacity 等前置条件是带安全 blocker 的 `blocked`；页面按 exact episode 关联 job，不能跨集轮询或取消。
+
+MP4/SRT/ASS/edit 下载 URL 绑定 episode 与完整 timeline fingerprint。current D4/E3、F1 probe/QA、F2 completion/source identity 和本次返回字节必须在同一 workspace lock 快照内成立；Web MP4 上限 64 MiB，HTTP compose GET/HEAD/Range 整体单槽，响应仅使用固定文件名和 allowlist headers。HEAD/单 Range 不改变 exact authorization；坏 fingerprint、partial set、symlink、namespace/source 替换或 hash 不符均 fail closed。F3 不调用文本、图片、视频、TTS 或 ASR provider。
+
 ### 11.4 依赖顺序与完成口径
 
 创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。
@@ -706,7 +715,7 @@ drama-only `/w/<name>/shot-videos` 从 D1-D4 重建 stable shot、当前 request
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 131，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web，以及 D-F 的固定 profile 纯本地完整成片、SRT/ASS 与通用可编辑工程已经形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体与 Web compose 仍有缺口，G-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
+截至 iter 132，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web，以及 E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付已经形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体与 episode 2+ 成片仍有缺口，G-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
 
 ### 11.5 规划外边界
 

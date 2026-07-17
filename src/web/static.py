@@ -2476,6 +2476,7 @@ JS_DASHBOARD = """\
     "drama_storyboard": "短剧站③分镜", "drama_character": "短剧站④角色",
     "drama_review": "短剧站⑤评审组装",
     "drama-video": "短剧视频生成",
+    "drama-compose": "短剧本地合成交付",
   };
   function stepLabel(step) {
     return STEP_LABELS[step] || step || "任务";
@@ -4153,7 +4154,7 @@ JS_DASHBOARD = """\
       btn.disabled = true;
       try {
         await postJson(wsUrl("/job/" + jobId + "/cancel"));
-        showToast("已请求取消，等待当前 LLM 调用结束", "info");
+        showToast("已请求取消，等待当前不可中断步骤结束", "info");
       } catch (err) {
         btn.disabled = false;
         showToast("取消失败：" + errTitle(err), "error");
@@ -4194,7 +4195,7 @@ JS_DASHBOARD = """\
         ' <a class="btn btn-ghost btn-sm" href="' + wsHref("/jobs") + '">任务页</a>' +
         "</div>" +
         (cancelPending
-          ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(job.current_step || "?") + "」" + waited + "；最多再等当前一次 LLM 调用结束。</div>"
+          ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(job.current_step || "?") + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
           : "");
       const terminal = ["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"];
       if (terminal.indexOf(job.status) >= 0) {
@@ -7246,6 +7247,138 @@ JS_DASHBOARD = """\
     await load();
   }
 
+  function composeStateLabel(state) {
+    return {
+      needs_timeline: "等待 E3 时间线",
+      ready: "可以合成",
+      partial: "交付不完整",
+      complete: "QA 通过",
+      stale: "时间线已过期",
+      invalid: "产物无效",
+      busy: "工作区繁忙",
+    }[state] || state || "未知";
+  }
+
+  function renderComposeOverview(data) {
+    const state = data.state || "needs_timeline";
+    const good = state === "complete";
+    const actionable = data.ready_to_compose === true;
+    const warnings = (data.warnings || []).length
+      ? '<div class="callout warning"><strong>门禁提示</strong><span><code>' +
+        escapeHtml(data.warnings.join(", ")) + '</code></span></div>'
+      : "";
+    const summary =
+      '<div class="card"><div class="card-body">' +
+      '<div class="section-title"><div><h2>Episode ' +
+      Number(data.episode_no || 1) + '</h2><p class="hint">时间线 <code>' +
+      escapeHtml((data.timeline_fingerprint || "尚未落盘").slice(0, 24)) +
+      '</code></p></div><span class="badge ' + (good ? "success" : actionable ? "warning" : "") +
+      '">' + escapeHtml(composeStateLabel(state)) + '</span></div>' +
+      '<div class="kv-list compact">' +
+      '<div class="k">时长</div><div class="v">' +
+      (data.duration_ms == null ? "—" : (Number(data.duration_ms) / 1000).toFixed(3) + " s") +
+      '</div><div class="k">镜头</div><div class="v">' + Number(data.shot_count || 0) +
+      '</div><div class="k">字幕</div><div class="v">' + Number(data.subtitle_count || 0) +
+      '</div></div></div></div>';
+    let action = "";
+    if (state === "needs_timeline") {
+      action =
+        '<div class="empty-state"><h3>尚无可消费的 E3 时间线</h3>' +
+        '<p>请先由音频/时间线流程提交经过服务端验证的 TimelineManifest。此页不接受手工 JSON 上传。</p></div>';
+    } else if (state === "stale") {
+      action =
+        '<div class="empty-state"><h3>上游事实已变化</h3>' +
+        '<p>重新完成 D4/E3 后再合成；历史交付不会冒充当前结果。</p></div>';
+    } else if (state === "busy") {
+      action = '<div class="alert info">另一个写任务正在占用工作区，请稍后刷新。</div>';
+    } else if (actionable) {
+      action =
+        '<div class="form-actions"><button type="button" class="btn btn-primary" id="compose-start">' +
+        (state === "ready" ? "开始本地合成" : "重新生成完整交付") +
+        '</button><span class="hint">FFmpeg 最长 180 秒；取消会在当前不可中断子进程结束后生效。</span></div>';
+    }
+    const qa = data.qa
+      ? '<div class="card"><div class="card-body"><h3>QA 证据</h3>' +
+        '<div class="kv-list compact"><div class="k">等级</div><div class="v">' +
+        escapeHtml(data.qa.acceptance_level || "") +
+        '</div><div class="k">规格</div><div class="v">' +
+        escapeHtml(data.qa.profile || "") +
+        '</div><div class="k">覆盖</div><div class="v">' +
+        Number(data.qa.covered_shot_count || 0) + " / " +
+        Number(data.qa.required_shot_count || 0) +
+        '</div><div class="k">MP4 SHA-256</div><div class="v"><code>' +
+        escapeHtml(data.qa.output_sha256 || "") +
+        '</code></div></div></div></div>'
+      : "";
+    const downloads = (data.deliverables || []).length
+      ? '<div class="card"><div class="card-body"><h3>Exact 交付</h3><div class="cluster">' +
+        data.deliverables.map(function (item) {
+          return '<a class="btn btn-secondary" href="' + escapeHtml(item.url || "") +
+            '" download="' + escapeHtml(item.filename || "") + '">' +
+            escapeHtml(String(item.kind || "").toUpperCase()) + '</a>';
+        }).join("") + '</div></div></div>'
+      : "";
+    const job = data.job;
+    const jobNote = job && ["blocked", "failed", "aborted", "lost"].indexOf(job.status) >= 0
+      ? '<div class="alert warn">最近一次合成任务：' +
+        escapeHtml(job.status) + '。页面状态仍以磁盘上的 exact 产物为准。</div>'
+      : "";
+    return summary + warnings + action + qa + downloads + jobNote;
+  }
+
+  async function initDramaCompose() {
+    const root = document.getElementById("compose-page-root");
+    if (!root) return;
+    const episodeInput = document.getElementById("compose-episode-no");
+    const refresh = document.getElementById("compose-refresh");
+    let overview = null;
+    function episodeNo() {
+      const value = Number(episodeInput && episodeInput.value || 1);
+      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+    }
+    async function load() {
+      root.setAttribute("aria-busy", "true");
+      try {
+        overview = await fetchJson(
+          wsUrl("/drama/compose?episode_no=" + encodeURIComponent(episodeNo()))
+        );
+        root.innerHTML = renderComposeOverview(overview);
+        const job = overview.job;
+        if (job && (job.status === "pending" || job.status === "running") && job.job_id) {
+          await pollJob(job.job_id, root, null, load);
+        }
+      } catch (err) {
+        root.innerHTML = renderErrorCard(err);
+      } finally {
+        root.removeAttribute("aria-busy");
+      }
+    }
+    if (refresh) refresh.addEventListener("click", load);
+    if (episodeInput) episodeInput.addEventListener("change", load);
+    root.addEventListener("click", async function (ev) {
+      const start = ev.target.closest("#compose-start");
+      if (!start) return;
+      start.disabled = true;
+      try {
+        const data = await postJson(
+          wsUrl("/drama/compose"),
+          { episode_no: episodeNo() },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "X-Drama-Compose-Intent": "run-local-v1",
+            },
+          }
+        );
+        await pollJob(data.job_id, root, start, load);
+      } catch (err) {
+        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
+        start.disabled = false;
+      }
+    });
+    await load();
+  }
+
   // ---- dispatch ---------------------------------------------------------
   function boot() {
     initShellControls();
@@ -7277,6 +7410,7 @@ JS_DASHBOARD = """\
     if (pageKind === "drama_assets") return initDramaAssets();
     if (pageKind === "drama_shot_images") return initDramaShotImages();
     if (pageKind === "drama_shot_videos") return initDramaShotVideos();
+    if (pageKind === "drama_compose") return initDramaCompose();
     if (pageKind === "drama_episodes") return initDramaEpisodes();
     if (pageKind === "drama_episode_detail") return initDramaEpisodeDetail();
     if (pageKind === "drama_insights") return initDramaInsights();
