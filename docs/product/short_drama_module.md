@@ -553,7 +553,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 - **v3** 2026-07-18 · 同步 A-F1 已实现基线，并登记 F2 ASS/通用可编辑工程与安全 completion marker
 - **v4** 2026-07-18 · 登记 A2 visual-only override、双 CAS 选择、effective manifest 与 stale dependency matrix
 - **v5** 2026-07-18 · 登记 F3 Web 本地合成、持久 E3 时间线、QA 真值与 exact 交付边界
-- **v6** 2026-07-18 · 登记 G1 最小持久 task DAG、active dedupe、guarded transition 与取消级联（**当前版本**）
+- **v6** 2026-07-18 · 登记 G1 最小持久 task DAG、active dedupe、guarded transition 与取消级联
+- **v7** 2026-07-18 · 登记 G2 worker lease、heartbeat/takeover 与跨集 capacity lane（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -643,7 +644,7 @@ drama workspace
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | 🟨 **D1-D5 本地闭环已完成**：冻结输入、候选/coverage、once-only attempt、artifact 重验、首尾帧 lineage 与 production compose gate，并提供 strict/bounded 候选播放、选择、attempt/continuity/compose readiness Web；真实 provider/network、Web submit/poll/cancel 和 episode 2+ 成片仍未闭环 |
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
 | F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1-F3 本地与 Web 闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程；F3 将 E3 成功结果持久化为 Web 唯一输入，提供本地 compose job、durable QA truth 与 exact MP4/SRT/ASS/edit 下载。FFmpeg 单线程、跨 workspace 单槽、总源集 128 MiB、生成/验证/交付单一 64 MiB 上限；current D4/E3、F1/F2 与返回字节在同一锁快照验证，真实本地 episode 2 已覆盖。特定 NLE 私有格式、多 profile、更广 codec/container 与真实媒体质量仍未闭环 |
-| G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1 持久任务语义已实现**：episode-scoped strict DAG、active dedupe、attempt revision、guarded transitions、dependency promotion、cancel cascade 与安全投影已落地；generic task 只编排，不保存 provider task/response 或替代 paid ledger。worker lease/capacity、backend registry、queue client、pricing/Insights 尚未实现 |
+| G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1-G2 持久任务与 worker ownership 已实现**：episode-scoped strict DAG、active dedupe、guarded transitions、dependency/failure/cancel propagation、安全投影、worker claim/heartbeat/release/expired takeover 与 workspace-wide provider×media capacity lane 已落地；generic task/lease 只编排，不保存 provider task/response 或替代 paid ledger。backend registry、queue client、执行 loop、pricing/Insights 尚未实现 |
 | H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ⏳ 小说侧实体/摘要是可复用基础；短剧 event graph、`source_event_ids` 和可失效 cache 未实现；不阻塞阶段 F |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
 | J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清 provider/model/account fingerprint、提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F。当前为 `mock-functional` + fake-provider `local-e2e`、`provider_validated=false` |
@@ -710,6 +711,12 @@ G1 只抽取 C-F 已稳定重复的编排字段：episode、media/stage、subjec
 
 状态转换采用显式 allowlist；`submission_unknown` 在 G1 无出边并持续占用 active dedupe，generic task 不能据此重发 provider 请求，未来只能由绑定 paid evidence 的专用 reconciliation 扩展。新任务拒绝依赖 failed/cancelled/cancelling/unknown task，但既有 task 的 lost-response exact replay 仍成立；依赖失败沿 planned descendants 确定性传播为 `dependency_failed`。取消从目标沿 DAG 传播到 active dependents 并进入 `cancelling`，只有外部确定取消后才能写 `cancelled`；unknown submission 保持 unknown。公开投影不含 backend/account/endpoint/model fingerprints、provider task/result、prompt、path、response 或签名 URL。G1 不接 worker/backend/provider，也不读取、迁移或替代图片、视频、TTS 的 paid ledger/receipt。
 
+#### G2 Worker lease 与容量 lane
+
+G2 将 lease、task 与认证 replay receipt 放在同一 episode ledger 原子提交。旧 G1 v1 ledger 仅在不存在 `claimed/submitting/submitted/polling/downloading/validating` 时确定性逻辑升级，task ID、dedupe、input/provider identity 不变，下一次 mutation 写为 v2；缺少 owner/token 证据的 v1 在途态必须 safe-block 到显式 reconciliation，不能合成所有权。`claimed` 只能由 worker API 创建，后续执行态 transition 同样必须匹配 current worker/token、task/lease revision、ledger identity 和未过期 lease；release 与 worker transition 的 lost-response replay 由同 ledger 内容寻址 receipt 认证，不能由非 owner 冒认。
+
+所有 worker mutation 都在 workspace lock 内读取一次可信 wall clock；调用方不能伪造未来时间提前释放容量、续租或 takeover。claim 以 bounded no-follow 扫描覆盖全部 episode ledger 的未过期 lease；相同 provider identity×media kind 共享 capacity，active lane policy 不一致 loud fail，避免 episode 分片超卖。未过期 lease 不可接管，过期 lease 只能用新 token 在同一提交中替换 owner 并增加 task/lease revision；不读 PID 或猜进程是否存活，任何返回 lease 的 exact replay 也必须在可信时钟下仍有效。lease 随 succeeded/failed/cancelled/submission_unknown 或 cancel cascade 清除；unknown 仍不可 claim/重提。公开 worker 投影只含 episode/task/media/stage/state/revision/heartbeat/expiry 与 active/expired，不含 owner、token、lane、provider/account/path/prompt 或 paid evidence。G2 尚无执行 loop/backend/provider/queue/Web mutation，因此不能把 worker ownership 表述为真实媒体执行已接通。
+
 ### 11.4 依赖顺序与完成口径
 
 创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。
@@ -722,7 +729,7 @@ G1 只抽取 C-F 已稳定重复的编排字段：episode、media/stage、subjec
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 133，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，以及 G1 最小持久媒体任务 DAG 已形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体仍有缺口，G2+ 的 worker/backend/pricing、H-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
+截至 iter 134，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，以及 G1-G2 持久媒体任务 DAG、worker lease 与跨集容量 lane 已形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体仍有缺口，G3+ 的 backend/queue/pricing、H-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
 
 ### 11.5 规划外边界
 

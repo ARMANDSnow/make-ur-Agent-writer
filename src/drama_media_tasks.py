@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -21,7 +22,11 @@ from .drama_schemas import (
     DramaMediaStage,
     DramaMediaTask,
     DramaMediaTaskLedger,
+    DramaMediaTaskLedgerV2,
     DramaMediaTaskState,
+    DramaMediaWorkerLease,
+    DramaMediaWorkerReleaseReceipt,
+    DramaMediaWorkerTransitionReceipt,
     _canonical_sha256,
     normalize_episode_no,
 )
@@ -52,6 +57,9 @@ ACTIVE_MEDIA_TASK_STATES = frozenset(
         "cancelling",
     }
 )
+LEASED_MEDIA_TASK_STATES = frozenset(
+    {"claimed", "submitting", "submitted", "polling", "downloading", "validating"}
+)
 _TRANSITIONS: dict[str, frozenset[str]] = {
     "planned": frozenset({"ready", "cancelling"}),
     "ready": frozenset({"claimed", "cancelling"}),
@@ -77,6 +85,10 @@ _TRANSITIONS: dict[str, frozenset[str]] = {
 
 class DramaMediaTaskError(ValueError):
     """Fail-closed public error without paths, prompts, or provider payloads."""
+
+
+def _clock_ms() -> int:
+    return time.time_ns() // 1_000_000
 
 
 def media_task_ledger_path(
@@ -218,33 +230,144 @@ def _replace_task(
     )
 
 
+def _media_lane_key(task: DramaMediaTask) -> str:
+    return _canonical_sha256(
+        {
+            "schema_version": 1,
+            "provider_fingerprint": task.provider_fingerprint,
+            "media_kind": task.media_kind,
+        }
+    )
+
+
+def _build_worker_lease(
+    *,
+    task: DramaMediaTask,
+    worker_fingerprint: str,
+    lease_token_fingerprint: str,
+    lane_capacity: int,
+    lease_revision: int,
+    claimed_at_ms: int,
+    heartbeat_at_ms: int,
+    expires_at_ms: int,
+) -> DramaMediaWorkerLease:
+    payload = {
+        "schema_version": 1,
+        "task_id": task.task_id,
+        "task_revision": task.revision,
+        "worker_fingerprint": worker_fingerprint,
+        "lease_token_fingerprint": lease_token_fingerprint,
+        "lane_key": _media_lane_key(task),
+        "lane_capacity": lane_capacity,
+        "lease_revision": lease_revision,
+        "claimed_at_ms": claimed_at_ms,
+        "heartbeat_at_ms": heartbeat_at_ms,
+        "expires_at_ms": expires_at_ms,
+    }
+    payload["record_fingerprint"] = _canonical_sha256(payload)
+    try:
+        return DramaMediaWorkerLease(**payload)
+    except (RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError("media worker lease input is invalid") from None
+
+
+def _lease_with_task_revision(
+    lease: DramaMediaWorkerLease,
+    task: DramaMediaTask,
+) -> DramaMediaWorkerLease:
+    return _build_worker_lease(
+        task=task,
+        worker_fingerprint=lease.worker_fingerprint,
+        lease_token_fingerprint=lease.lease_token_fingerprint,
+        lane_capacity=lease.lane_capacity,
+        lease_revision=lease.lease_revision,
+        claimed_at_ms=lease.claimed_at_ms,
+        heartbeat_at_ms=lease.heartbeat_at_ms,
+        expires_at_ms=lease.expires_at_ms,
+    )
+
+
+def _build_transition_receipt(
+    *,
+    before: DramaMediaTask,
+    transitioned: DramaMediaTask,
+    lease: DramaMediaWorkerLease,
+    before_ledger_fingerprint: str,
+    transitioned_at_ms: int,
+) -> DramaMediaWorkerTransitionReceipt:
+    payload = {
+        "schema_version": 1,
+        "task_id": before.task_id,
+        "from_task_revision": before.revision,
+        "to_task_revision": transitioned.revision,
+        "from_state": before.state,
+        "to_state": transitioned.state,
+        "worker_fingerprint": lease.worker_fingerprint,
+        "lease_token_fingerprint": lease.lease_token_fingerprint,
+        "lease_revision": lease.lease_revision,
+        "transitioned_at_ms": transitioned_at_ms,
+        "before_ledger_fingerprint": before_ledger_fingerprint,
+        "result_fingerprint": transitioned.result_fingerprint,
+        "outcome_code": transitioned.outcome_code,
+        "transitioned_task_fingerprint": transitioned.record_fingerprint,
+    }
+    payload["record_fingerprint"] = _canonical_sha256(payload)
+    try:
+        return DramaMediaWorkerTransitionReceipt(**payload)
+    except (RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError(
+            "media worker transition receipt is invalid"
+        ) from None
+
+
 def _build_ledger(
     episode_no: int,
     tasks: Sequence[DramaMediaTask],
     *,
     revision: int,
-) -> DramaMediaTaskLedger:
+    leases: Sequence[DramaMediaWorkerLease] = (),
+    release_receipts: Sequence[DramaMediaWorkerReleaseReceipt] = (),
+    transition_receipts: Sequence[DramaMediaWorkerTransitionReceipt] = (),
+) -> DramaMediaTaskLedgerV2:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "episode_no": episode_no,
         "revision": revision,
         "tasks": [
             model_to_dict(item)
             for item in sorted(tasks, key=lambda item: item.task_id)
         ],
+        "leases": [
+            model_to_dict(item)
+            for item in sorted(leases, key=lambda item: item.task_id)
+        ],
+        "release_receipts": [
+            model_to_dict(item)
+            for item in sorted(
+                release_receipts, key=lambda item: item.task_id
+            )
+        ],
+        "transition_receipts": [
+            model_to_dict(item)
+            for item in sorted(
+                transition_receipts, key=lambda item: item.task_id
+            )
+        ],
     }
     payload["ledger_fingerprint"] = _canonical_sha256(payload)
     try:
-        return DramaMediaTaskLedger(**payload)
+        return DramaMediaTaskLedgerV2(**payload)
     except (RecursionError, TypeError, ValueError):
         raise DramaMediaTaskError("media task DAG is invalid") from None
 
 
-def _empty_ledger(episode_no: int) -> DramaMediaTaskLedger:
+def _empty_ledger(episode_no: int) -> DramaMediaTaskLedgerV2:
     return _build_ledger(episode_no, (), revision=0)
 
 
-def _ledger_bytes(ledger: DramaMediaTaskLedger) -> bytes:
+def _ledger_bytes(
+    ledger: DramaMediaTaskLedger | DramaMediaTaskLedgerV2,
+) -> bytes:
     return (
         json.dumps(
             {
@@ -266,7 +389,7 @@ def _read_ledger(
     workspace: str,
     *,
     episode_no: int,
-) -> DramaMediaTaskLedger:
+) -> DramaMediaTaskLedgerV2:
     number = normalize_episode_no(episode_no)
     root = paths.workspace_root(workspace)
     _validate_render_workspace_root(root)
@@ -312,7 +435,31 @@ def _read_ledger(
             or not isinstance(payload.get("ledger"), dict)
         ):
             raise ValueError("invalid media task envelope")
-        ledger = DramaMediaTaskLedger(**payload["ledger"])
+        ledger_payload = payload["ledger"]
+        if ledger_payload.get("schema_version") == 1:
+            legacy = DramaMediaTaskLedger(**ledger_payload)
+            if (
+                legacy.episode_no != number
+                or payload["ledger_fingerprint"] != legacy.ledger_fingerprint
+                or raw != _ledger_bytes(legacy)
+            ):
+                raise ValueError("legacy media task ledger identity mismatch")
+            if any(
+                task.state in LEASED_MEDIA_TASK_STATES
+                for task in legacy.tasks
+            ):
+                raise DramaMediaTaskError(
+                    "legacy active media task requires reconciliation"
+                )
+            return _build_ledger(
+                number,
+                legacy.tasks,
+                revision=legacy.revision,
+                leases=(),
+                release_receipts=(),
+                transition_receipts=(),
+            )
+        ledger = DramaMediaTaskLedgerV2(**ledger_payload)
         if (
             ledger.episode_no != number
             or payload["ledger_fingerprint"] != ledger.ledger_fingerprint
@@ -321,6 +468,8 @@ def _read_ledger(
             raise ValueError("media task ledger identity mismatch")
         return ledger
     except FileNotFoundError:
+        raise
+    except DramaMediaTaskError:
         raise
     except (OSError, RecursionError, TypeError, ValueError):
         raise DramaMediaTaskError("media task ledger is invalid") from None
@@ -340,7 +489,7 @@ def _target_token(root: Path, path: Path) -> tuple[Any, ...]:
 
 def _write_ledger(
     workspace: str,
-    ledger: DramaMediaTaskLedger,
+    ledger: DramaMediaTaskLedgerV2,
     *,
     expected_target_token: tuple[Any, ...],
 ) -> None:
@@ -386,10 +535,10 @@ def _write_ledger(
 
 def _persist_ledger(
     workspace: str,
-    ledger: DramaMediaTaskLedger,
+    ledger: DramaMediaTaskLedgerV2,
     *,
     expected_target_token: tuple[Any, ...],
-) -> DramaMediaTaskLedger:
+) -> DramaMediaTaskLedgerV2:
     _write_ledger(
         workspace, ledger, expected_target_token=expected_target_token
     )
@@ -403,7 +552,7 @@ def load_media_task_ledger(
     workspace: str,
     *,
     episode_no: int = 1,
-) -> DramaMediaTaskLedger:
+) -> DramaMediaTaskLedgerV2:
     try:
         return _read_ledger(
             workspace, episode_no=normalize_episode_no(episode_no)
@@ -417,7 +566,7 @@ def load_media_task_ledger(
 
 
 def _validate_expected_ledger(
-    ledger: DramaMediaTaskLedger,
+    ledger: DramaMediaTaskLedgerV2,
     expected_ledger_fingerprint: str | None,
     *,
     missing: bool,
@@ -556,6 +705,9 @@ def create_media_task(
                 number,
                 [*ledger.tasks, proposed],
                 revision=ledger.revision + 1,
+                leases=ledger.leases,
+                release_receipts=ledger.release_receipts,
+                transition_receipts=ledger.transition_receipts,
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -682,11 +834,13 @@ def transition_media_task(
     target_state: DramaMediaTaskState,
     expected_task_revision: int,
     expected_ledger_fingerprint: str,
-    now_ms: int,
+    worker_fingerprint: str | None = None,
+    lease_token_fingerprint: str | None = None,
+    expected_lease_revision: int | None = None,
     result_fingerprint: str | None = None,
     outcome_code: DramaMediaTaskOutcomeCode | None = None,
 ) -> DramaMediaTask:
-    """CAS-transition one task and promote newly unblocked dependents."""
+    """Transition one task; leased execution states require current ownership."""
 
     try:
         number = normalize_episode_no(episode_no)
@@ -694,13 +848,17 @@ def transition_media_task(
             task_id=task_id,
             expected_task_revision=expected_task_revision,
             expected_ledger_fingerprint=expected_ledger_fingerprint,
-            now_ms=now_ms,
+            now_ms=0,
         )
         result, outcome = _transition_outcome(
             target_state,
             result_fingerprint=result_fingerprint,
             outcome_code=outcome_code,
         )
+        if target_state == "claimed":
+            raise DramaMediaTaskError(
+                "media task claim requires the worker lease API"
+            )
         with use_workspace(workspace), acquire_write_lock(
             source="drama-media-task-transition"
         ):
@@ -712,25 +870,128 @@ def transition_media_task(
             current = by_id.get(task_id)
             if current is None:
                 raise DramaMediaTaskError("media task is missing")
+            transition_receipt = next(
+                (
+                    item
+                    for item in ledger.transition_receipts
+                    if item.task_id == task_id
+                ),
+                None,
+            )
+            authenticated_replay = (
+                transition_receipt is not None
+                and current.state == target_state
+                and current.result_fingerprint == result
+                and current.outcome_code == outcome
+                and transition_receipt.from_task_revision
+                == expected_task_revision
+                and transition_receipt.to_task_revision == current.revision
+                and transition_receipt.worker_fingerprint
+                == worker_fingerprint
+                and transition_receipt.lease_token_fingerprint
+                == lease_token_fingerprint
+                and transition_receipt.lease_revision
+                == expected_lease_revision
+                and transition_receipt.before_ledger_fingerprint
+                == expected_ledger_fingerprint
+                and transition_receipt.transitioned_task_fingerprint
+                == current.record_fingerprint
+            )
             if current.revision != expected_task_revision:
-                if (
-                    current.state == target_state
-                    and current.result_fingerprint == result
-                    and current.outcome_code == outcome
-                ):
+                if authenticated_replay:
+                    if current.state in LEASED_MEDIA_TASK_STATES:
+                        replay_lease = next(
+                            (
+                                item
+                                for item in ledger.leases
+                                if item.task_id == current.task_id
+                            ),
+                            None,
+                        )
+                        replay_now = _clock_ms()
+                        if (
+                            replay_lease is None
+                            or replay_lease.worker_fingerprint
+                            != worker_fingerprint
+                            or replay_lease.lease_token_fingerprint
+                            != lease_token_fingerprint
+                            or replay_lease.lease_revision
+                            != expected_lease_revision
+                            or replay_lease.task_revision != current.revision
+                            or not isinstance(replay_now, int)
+                            or isinstance(replay_now, bool)
+                            or replay_now < 0
+                            or replay_now > 9_999_999_999_999
+                            or replay_now >= replay_lease.expires_at_ms
+                        ):
+                            raise DramaMediaTaskError(
+                                "media task worker replay is expired"
+                            )
                     return current
                 raise DramaMediaTaskError("media task changed; refresh")
             if ledger.ledger_fingerprint != expected_ledger_fingerprint:
                 raise DramaMediaTaskError("media task ledger changed; refresh")
             if current.state == target_state:
                 if (
-                    current.result_fingerprint == result
+                    transition_receipt is None
+                    and current.result_fingerprint == result
                     and current.outcome_code == outcome
+                    and current.state not in LEASED_MEDIA_TASK_STATES
                 ):
                     return current
                 raise DramaMediaTaskError("media task replay does not match")
             if target_state not in _TRANSITIONS[current.state]:
                 raise DramaMediaTaskError("media task transition is invalid")
+            now_ms = _clock_ms()
+            if (
+                not isinstance(now_ms, int)
+                or isinstance(now_ms, bool)
+                or now_ms < 0
+                or now_ms > 9_999_999_999_999
+            ):
+                raise DramaMediaTaskError("media task clock is invalid")
+            current_lease = None
+            if current.state in LEASED_MEDIA_TASK_STATES:
+                current_lease = next(
+                    (
+                        item
+                        for item in ledger.leases
+                        if item.task_id == current.task_id
+                    ),
+                    None,
+                )
+                if (
+                    current_lease is None
+                    or not isinstance(worker_fingerprint, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", worker_fingerprint)
+                    is None
+                    or not isinstance(lease_token_fingerprint, str)
+                    or re.fullmatch(
+                        r"[0-9a-f]{64}", lease_token_fingerprint
+                    )
+                    is None
+                    or not isinstance(expected_lease_revision, int)
+                    or isinstance(expected_lease_revision, bool)
+                    or expected_lease_revision < 0
+                    or expected_lease_revision > 10_000
+                ):
+                    raise DramaMediaTaskError(
+                        "media task worker ownership is required"
+                    )
+                if (
+                    current_lease.worker_fingerprint != worker_fingerprint
+                    or current_lease.lease_token_fingerprint
+                    != lease_token_fingerprint
+                    or current_lease.lease_revision != expected_lease_revision
+                    or current_lease.task_revision != current.revision
+                ):
+                    raise DramaMediaTaskError(
+                        "media task worker ownership changed; refresh"
+                    )
+                if now_ms >= current_lease.expires_at_ms:
+                    raise DramaMediaTaskError(
+                        "media task worker lease is expired"
+                    )
             if now_ms < current.updated_at_ms:
                 raise DramaMediaTaskError("media task update time is invalid")
             if target_state == "ready" and any(
@@ -753,8 +1014,51 @@ def transition_media_task(
                 tasks = _refresh_ready_tasks(tasks, now_ms=now_ms)
             elif target_state == "failed":
                 tasks = _fail_blocked_dependents(tasks, now_ms=now_ms)
+            leases = []
+            for lease in ledger.leases:
+                if lease.task_id != task_id:
+                    leases.append(lease)
+                elif target_state in {
+                    "claimed",
+                    "submitting",
+                    "submitted",
+                    "polling",
+                    "downloading",
+                    "validating",
+                }:
+                    leases.append(_lease_with_task_revision(lease, replacement))
             updated = _build_ledger(
-                number, tasks, revision=ledger.revision + 1
+                number,
+                tasks,
+                revision=ledger.revision + 1,
+                leases=leases,
+                release_receipts=[
+                    item
+                    for item in ledger.release_receipts
+                    if item.task_id != task_id
+                ],
+                transition_receipts=[
+                    *[
+                        item
+                        for item in ledger.transition_receipts
+                        if item.task_id != task_id
+                    ],
+                    *(
+                        [
+                            _build_transition_receipt(
+                                before=current,
+                                transitioned=replacement,
+                                lease=current_lease,
+                                before_ledger_fingerprint=(
+                                    ledger.ledger_fingerprint
+                                ),
+                                transitioned_at_ms=now_ms,
+                            )
+                        ]
+                        if current_lease is not None
+                        else []
+                    ),
+                ],
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -846,8 +1150,24 @@ def cancel_media_task_cascade(
             tasks = [
                 replacements.get(item.task_id, item) for item in ledger.tasks
             ]
+            leases = [
+                item for item in ledger.leases if item.task_id not in affected
+            ]
             updated = _build_ledger(
-                number, tasks, revision=ledger.revision + 1
+                number,
+                tasks,
+                revision=ledger.revision + 1,
+                leases=leases,
+                release_receipts=[
+                    item
+                    for item in ledger.release_receipts
+                    if item.task_id not in affected
+                ],
+                transition_receipts=[
+                    item
+                    for item in ledger.transition_receipts
+                    if item.task_id not in affected
+                ],
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token

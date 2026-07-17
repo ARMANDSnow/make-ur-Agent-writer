@@ -6,7 +6,7 @@ import json
 import socket
 from unittest.mock import patch
 
-from src import drama_media_tasks, paths
+from src import drama_media_tasks, drama_media_worker, paths
 from src.cli_workspace import init_workspace
 from src.drama_schemas import DramaMediaTaskLedger, _canonical_sha256
 from tests._drama_base import DramaTestBase
@@ -70,17 +70,56 @@ class DramaMediaTaskTests(DramaTestBase):
     ):
         ledger = self._ledger(task.episode_no)
         current = next(item for item in ledger.tasks if item.task_id == task.task_id)
-        return drama_media_tasks.transition_media_task(
-            self.name,
-            episode_no=task.episode_no,
-            task_id=task.task_id,
-            target_state=target,
-            expected_task_revision=current.revision,
-            expected_ledger_fingerprint=ledger.ledger_fingerprint,
-            now_ms=self.now + now_delta,
-            result_fingerprint=result_fingerprint,
-            outcome_code=outcome_code,
+        if target == "claimed":
+            with patch.object(
+                drama_media_worker,
+                "_clock_ms",
+                return_value=self.now + now_delta,
+            ):
+                drama_media_worker.claim_media_task(
+                    self.name,
+                    episode_no=task.episode_no,
+                    task_id=task.task_id,
+                    worker_fingerprint="5" * 64,
+                    lease_token_fingerprint="6" * 64,
+                    expected_task_revision=current.revision,
+                    expected_ledger_fingerprint=ledger.ledger_fingerprint,
+                    lease_duration_ms=60_000,
+                    lane_capacity=8,
+                )
+            return next(
+                item
+                for item in self._ledger(task.episode_no).tasks
+                if item.task_id == task.task_id
+            )
+        lease = next(
+            (
+                item
+                for item in ledger.leases
+                if item.task_id == task.task_id
+            ),
+            None,
         )
+        with patch.object(
+            drama_media_tasks,
+            "_clock_ms",
+            return_value=self.now + now_delta,
+        ):
+            return drama_media_tasks.transition_media_task(
+                self.name,
+                episode_no=task.episode_no,
+                task_id=task.task_id,
+                target_state=target,
+                expected_task_revision=current.revision,
+                expected_ledger_fingerprint=ledger.ledger_fingerprint,
+                worker_fingerprint="5" * 64 if lease is not None else None,
+                lease_token_fingerprint="6" * 64 if lease is not None else None,
+                expected_lease_revision=(
+                    lease.lease_revision if lease is not None else None
+                ),
+                result_fingerprint=result_fingerprint,
+                outcome_code=outcome_code,
+            )
 
     def _succeed(self, task, *, offset: int = 1):
         for index, state in enumerate(
@@ -255,6 +294,7 @@ class DramaMediaTaskTests(DramaTestBase):
         task = self._create()
         task = self._transition(task, "claimed", now_delta=1)
         task = self._transition(task, "submitting", now_delta=2)
+        before_unknown = self._ledger()
         unknown = self._transition(
             task,
             "submission_unknown",
@@ -268,12 +308,26 @@ class DramaMediaTaskTests(DramaTestBase):
             task_id=task.task_id,
             target_state="submission_unknown",
             expected_task_revision=task.revision,
-            expected_ledger_fingerprint="0" * 64,
-            now_ms=self.now + 3,
+            expected_ledger_fingerprint=before_unknown.ledger_fingerprint,
+            worker_fingerprint="5" * 64,
+            lease_token_fingerprint="6" * 64,
+            expected_lease_revision=0,
             outcome_code="transport_unknown",
         )
         self.assertEqual(replay, unknown)
         self.assertEqual(self._ledger(), ledger)
+        with self.assertRaisesRegex(
+            drama_media_tasks.DramaMediaTaskError, "replay does not match"
+        ):
+            drama_media_tasks.transition_media_task(
+                self.name,
+                episode_no=1,
+                task_id=unknown.task_id,
+                target_state="submission_unknown",
+                expected_task_revision=unknown.revision,
+                expected_ledger_fingerprint=ledger.ledger_fingerprint,
+                outcome_code="transport_unknown",
+            )
         with self.assertRaisesRegex(
             drama_media_tasks.DramaMediaTaskError, "transition is invalid"
         ):
@@ -284,7 +338,6 @@ class DramaMediaTaskTests(DramaTestBase):
                 target_state="submitting",
                 expected_task_revision=unknown.revision,
                 expected_ledger_fingerprint=ledger.ledger_fingerprint,
-                now_ms=self.now + 4,
             )
         with self.assertRaisesRegex(
             drama_media_tasks.DramaMediaTaskError, "outcome is invalid"
@@ -529,7 +582,6 @@ class DramaMediaTaskTests(DramaTestBase):
                     target_state="claimed",
                     expected_task_revision=invalid_revision,
                     expected_ledger_fingerprint=ledger.ledger_fingerprint,
-                    now_ms=self.now + 1,
                 )
             with self.assertRaisesRegex(
                 drama_media_tasks.DramaMediaTaskError,
@@ -544,19 +596,6 @@ class DramaMediaTaskTests(DramaTestBase):
                     now_ms=self.now + 1,
                 )
         for invalid_time in (False, 0.0, -1, 10_000_000_000_000):
-            with self.assertRaisesRegex(
-                drama_media_tasks.DramaMediaTaskError,
-                "update time is invalid",
-            ):
-                drama_media_tasks.transition_media_task(
-                    self.name,
-                    episode_no=1,
-                    task_id=first.task_id,
-                    target_state="ready",
-                    expected_task_revision=first.revision,
-                    expected_ledger_fingerprint=ledger.ledger_fingerprint,
-                    now_ms=invalid_time,
-                )
             with self.assertRaisesRegex(
                 drama_media_tasks.DramaMediaTaskError,
                 "update time is invalid",

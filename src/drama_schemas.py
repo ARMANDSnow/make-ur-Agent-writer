@@ -7350,3 +7350,281 @@ class DramaMediaTaskLedger(BaseModel):
         if _canonical_sha256(payload) != self.ledger_fingerprint:
             raise ValueError("media task ledger fingerprint is invalid")
         return self
+
+
+_DRAMA_MEDIA_LEASED_STATES = frozenset(
+    {
+        "claimed",
+        "submitting",
+        "submitted",
+        "polling",
+        "downloading",
+        "validating",
+    }
+)
+
+
+class DramaMediaWorkerLease(BaseModel):
+    """Opaque worker ownership bound to one current task revision and lane."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    task_revision: int = Field(ge=1, le=10_000)
+    worker_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    lease_token_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    lane_key: str = Field(pattern=_SHA256_PATTERN)
+    lane_capacity: int = Field(ge=1, le=64)
+    lease_revision: int = Field(ge=0, le=10_000)
+    claimed_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    heartbeat_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    expires_at_ms: int = Field(ge=1, le=9_999_999_999_999)
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "task_revision",
+        "lane_capacity",
+        "lease_revision",
+        "claimed_at_ms",
+        "heartbeat_at_ms",
+        "expires_at_ms",
+        mode="before",
+    )
+    @classmethod
+    def _lease_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _lease_is_canonical(self) -> "DramaMediaWorkerLease":
+        if not (
+            self.claimed_at_ms
+            <= self.heartbeat_at_ms
+            < self.expires_at_ms
+        ):
+            raise ValueError("media worker lease time range is invalid")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("media worker lease fingerprint is invalid")
+        return self
+
+
+class DramaMediaWorkerReleaseReceipt(BaseModel):
+    """Content-addressed evidence for one authenticated lease release."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    from_task_revision: int = Field(ge=1, le=10_000)
+    to_task_revision: int = Field(ge=1, le=10_000)
+    worker_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    lease_token_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    lease_revision: int = Field(ge=0, le=10_000)
+    released_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    before_ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    released_task_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "from_task_revision",
+        "to_task_revision",
+        "lease_revision",
+        "released_at_ms",
+        mode="before",
+    )
+    @classmethod
+    def _release_receipt_numbers_are_strict(
+        cls, value: Any, info: Any
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _release_receipt_is_canonical(
+        self,
+    ) -> "DramaMediaWorkerReleaseReceipt":
+        if self.to_task_revision != self.from_task_revision + 1:
+            raise ValueError("media worker release revision is invalid")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("media worker release fingerprint is invalid")
+        return self
+
+
+class DramaMediaWorkerTransitionReceipt(BaseModel):
+    """Authenticated exact-replay evidence for one worker state transition."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    from_task_revision: int = Field(ge=1, le=10_000)
+    to_task_revision: int = Field(ge=1, le=10_000)
+    from_state: DramaMediaTaskState
+    to_state: DramaMediaTaskState
+    worker_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    lease_token_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    lease_revision: int = Field(ge=0, le=10_000)
+    transitioned_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    before_ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    result_fingerprint: Optional[str] = Field(
+        default=None, pattern=_SHA256_PATTERN
+    )
+    outcome_code: Optional[DramaMediaTaskOutcomeCode] = None
+    transitioned_task_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "from_task_revision",
+        "to_task_revision",
+        "lease_revision",
+        "transitioned_at_ms",
+        mode="before",
+    )
+    @classmethod
+    def _transition_receipt_numbers_are_strict(
+        cls, value: Any, info: Any
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _transition_receipt_is_canonical(
+        self,
+    ) -> "DramaMediaWorkerTransitionReceipt":
+        if self.to_task_revision != self.from_task_revision + 1:
+            raise ValueError("media worker transition revision is invalid")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("media worker transition fingerprint is invalid")
+        return self
+
+
+class DramaMediaTaskLedgerV2(BaseModel):
+    """G2 task ledger: G1 DAG plus atomically committed worker leases."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[2] = 2
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    revision: int = Field(ge=0, le=1_000_000)
+    tasks: List[DramaMediaTask] = Field(max_length=1000)
+    leases: List[DramaMediaWorkerLease] = Field(max_length=1000)
+    release_receipts: List[DramaMediaWorkerReleaseReceipt] = Field(
+        max_length=1000
+    )
+    transition_receipts: List[DramaMediaWorkerTransitionReceipt] = Field(
+        max_length=1000
+    )
+    ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", "revision", mode="before")
+    @classmethod
+    def _media_ledger_v2_numbers_are_strict(
+        cls, value: Any, info: Any
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator(
+        "tasks",
+        "leases",
+        "release_receipts",
+        "transition_receipts",
+        mode="before",
+    )
+    @classmethod
+    def _media_ledger_v2_lists_are_strict(
+        cls, value: Any, info: Any
+    ) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"media task ledger {info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _media_ledger_v2_is_canonical(self) -> "DramaMediaTaskLedgerV2":
+        legacy_payload = {
+            "schema_version": 1,
+            "episode_no": self.episode_no,
+            "revision": self.revision,
+            "tasks": [item.model_dump() for item in self.tasks],
+        }
+        DramaMediaTaskLedger(
+            **legacy_payload,
+            ledger_fingerprint=_canonical_sha256(legacy_payload),
+        )
+        lease_ids = [item.task_id for item in self.leases]
+        if lease_ids != sorted(lease_ids) or len(lease_ids) != len(set(lease_ids)):
+            raise ValueError("media worker lease order or identity is invalid")
+        by_id = {item.task_id: item for item in self.tasks}
+        for lease in self.leases:
+            task = by_id.get(lease.task_id)
+            if (
+                task is None
+                or task.state not in _DRAMA_MEDIA_LEASED_STATES
+                or lease.task_revision != task.revision
+            ):
+                raise ValueError("media worker lease task binding is invalid")
+            lane_payload = {
+                "schema_version": 1,
+                "provider_fingerprint": task.provider_fingerprint,
+                "media_kind": task.media_kind,
+            }
+            if lease.lane_key != _canonical_sha256(lane_payload):
+                raise ValueError("media worker lease lane is invalid")
+        leased = set(lease_ids)
+        if any(
+            task.state in _DRAMA_MEDIA_LEASED_STATES
+            and task.task_id not in leased
+            for task in self.tasks
+        ):
+            raise ValueError("active media task has no worker lease")
+        receipt_ids = [item.task_id for item in self.release_receipts]
+        if (
+            receipt_ids != sorted(receipt_ids)
+            or len(receipt_ids) != len(set(receipt_ids))
+        ):
+            raise ValueError("media worker release receipt order is invalid")
+        if leased.intersection(receipt_ids):
+            raise ValueError("media worker ownership evidence is ambiguous")
+        for receipt in self.release_receipts:
+            task = by_id.get(receipt.task_id)
+            if (
+                task is None
+                or task.state != "ready"
+                or task.revision != receipt.to_task_revision
+                or task.record_fingerprint
+                != receipt.released_task_fingerprint
+            ):
+                raise ValueError("media worker release receipt binding is invalid")
+        transition_ids = [item.task_id for item in self.transition_receipts]
+        if (
+            transition_ids != sorted(transition_ids)
+            or len(transition_ids) != len(set(transition_ids))
+            or set(receipt_ids).intersection(transition_ids)
+        ):
+            raise ValueError("media worker transition receipt order is invalid")
+        for receipt in self.transition_receipts:
+            task = by_id.get(receipt.task_id)
+            if (
+                task is None
+                or task.state != receipt.to_state
+                or task.revision != receipt.to_task_revision
+                or task.result_fingerprint != receipt.result_fingerprint
+                or task.outcome_code != receipt.outcome_code
+                or task.record_fingerprint
+                != receipt.transitioned_task_fingerprint
+            ):
+                raise ValueError(
+                    "media worker transition receipt binding is invalid"
+                )
+        payload = self.model_dump(exclude={"ledger_fingerprint"})
+        if _canonical_sha256(payload) != self.ledger_fingerprint:
+            raise ValueError("media task ledger v2 fingerprint is invalid")
+        return self
