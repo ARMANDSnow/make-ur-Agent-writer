@@ -2651,6 +2651,745 @@ class RenderPlan(BaseModel):
         return self
 
 
+_VISUAL_OVERRIDE_VERSION_ID_PATTERN = r"^vo_[0-9a-f]{24}$"
+
+
+class VisualOverrideSpec(BaseModel):
+    """Visual-only shot adjustments that never mutate creative facts."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    camera_movement: Optional[CameraMovement] = None
+    lighting: Optional[str] = Field(default=None, max_length=120)
+    negative_prompt: Optional[str] = Field(default=None, max_length=400)
+    transition: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("lighting", "negative_prompt", "transition", mode="before")
+    @classmethod
+    def _visual_override_text_is_canonical(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> Optional[str]:
+        if value is None:
+            return None
+        if (
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            or any(ord(char) < 32 for char in value)
+        ):
+            raise ValueError(f"{info.field_name} must be canonical bounded text")
+        return value
+
+    @model_validator(mode="after")
+    def _visual_override_is_not_empty(self) -> "VisualOverrideSpec":
+        if all(
+            value is None
+            for value in (
+                self.camera_movement,
+                self.lighting,
+                self.negative_prompt,
+                self.transition,
+            )
+        ):
+            raise ValueError("visual override must set at least one visual-only field")
+        return self
+
+
+VisualOverrideSourceKind = Literal["manual", "ai_suggestion", "imported"]
+
+
+class VisualOverrideVersion(BaseModel):
+    """One immutable visual-only candidate bound to an exact RenderShot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    version_id: str = Field(pattern=_VISUAL_OVERRIDE_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    derived_from: Optional[str] = Field(
+        default=None,
+        pattern=_VISUAL_OVERRIDE_VERSION_ID_PATTERN,
+    )
+    source_kind: VisualOverrideSourceKind
+    spec: VisualOverrideSpec
+
+    @model_validator(mode="after")
+    def _visual_override_version_is_content_addressed(
+        self,
+    ) -> "VisualOverrideVersion":
+        if self.derived_from == self.version_id:
+            raise ValueError("visual override version cannot derive from itself")
+        payload = self.model_dump(exclude={"version_id", "version_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if fingerprint != self.version_fingerprint:
+            raise ValueError("visual override version fingerprint is invalid")
+        if self.version_id != f"vo_{fingerprint[:24]}":
+            raise ValueError("visual override version id is invalid")
+        return self
+
+
+class VisualOverrideSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    version_id: str = Field(pattern=_VISUAL_OVERRIDE_VERSION_ID_PATTERN)
+
+
+class VisualOverrideCatalog(BaseModel):
+    """Episode candidates plus explicit selections for one RenderPlan."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    versions: List[VisualOverrideVersion] = Field(default_factory=list, max_length=512)
+    selections: List[VisualOverrideSelection] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+    catalog_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _visual_override_episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("season_no", "selection_revision", mode="before")
+    @classmethod
+    def _visual_override_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _visual_override_catalog_is_consistent(self) -> "VisualOverrideCatalog":
+        version_ids = [item.version_id for item in self.versions]
+        if len(version_ids) != len(set(version_ids)):
+            raise ValueError("visual override version ids must be unique")
+        if [
+            (item.shot_id, item.version_id) for item in self.versions
+        ] != sorted((item.shot_id, item.version_id) for item in self.versions):
+            raise ValueError("visual override versions must use canonical order")
+        version_by_id = {item.version_id: item for item in self.versions}
+        for item in self.versions:
+            if item.derived_from is not None:
+                parent = version_by_id.get(item.derived_from)
+                if parent is None or parent.shot_id != item.shot_id:
+                    raise ValueError("visual override parent is invalid")
+        parents = {
+            item.version_id: item.derived_from for item in self.versions
+        }
+        for version_id in parents:
+            seen: set[str] = set()
+            current: Optional[str] = version_id
+            while current is not None:
+                if current in seen:
+                    raise ValueError("visual override derivation contains a cycle")
+                seen.add(current)
+                current = parents[current]
+        shot_ids = [item.shot_id for item in self.selections]
+        if len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("visual override selections must be unique per shot")
+        if shot_ids != sorted(shot_ids):
+            raise ValueError("visual override selections must use canonical order")
+        for selection in self.selections:
+            version = version_by_id.get(selection.version_id)
+            if version is None or version.shot_id != selection.shot_id:
+                raise ValueError("visual override selection is invalid")
+        payload = self.model_dump(exclude={"catalog_fingerprint"})
+        if _canonical_sha256(payload) != self.catalog_fingerprint:
+            raise ValueError("visual override catalog fingerprint is invalid")
+        return self
+
+
+class SelectedVisualOverride(BaseModel):
+    """Effective selected candidate embedded for deterministic consumers."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    version_id: str = Field(pattern=_VISUAL_OVERRIDE_VERSION_ID_PATTERN)
+    version_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    spec: VisualOverrideSpec
+
+
+class EpisodeVisualOverrideManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    season_no: int = Field(ge=1)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    selection_revision: int = Field(ge=0, le=2_147_483_647)
+    selected_overrides: List[SelectedVisualOverride] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+    manifest_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", mode="before")
+    @classmethod
+    def _visual_manifest_episode_no_is_strict(cls, value: Any) -> int:
+        return _strict_schema_episode_no(value)
+
+    @field_validator("season_no", "selection_revision", mode="before")
+    @classmethod
+    def _visual_manifest_integers_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _visual_manifest_is_content_addressed(
+        self,
+    ) -> "EpisodeVisualOverrideManifest":
+        shot_ids = [item.shot_id for item in self.selected_overrides]
+        if shot_ids != sorted(shot_ids) or len(shot_ids) != len(set(shot_ids)):
+            raise ValueError("selected visual overrides must use unique shot-id order")
+        payload = self.model_dump(exclude={"manifest_fingerprint"})
+        if _canonical_sha256(payload) != self.manifest_fingerprint:
+            raise ValueError("visual override manifest fingerprint is invalid")
+        return self
+
+
+class VisualOverrideState(BaseModel):
+    """Single-file atomic state for catalog plus its derived manifest."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    catalog: VisualOverrideCatalog
+    manifest: EpisodeVisualOverrideManifest
+    selection_transitions: List["VisualOverrideSelectionTransition"] = Field(
+        default_factory=list,
+        max_length=512,
+    )
+    state_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _visual_override_state_is_consistent(self) -> "VisualOverrideState":
+        if (
+            self.catalog.season_no != self.manifest.season_no
+            or self.catalog.episode_no != self.manifest.episode_no
+            or self.catalog.render_plan_fingerprint
+            != self.manifest.render_plan_fingerprint
+            or self.catalog.selection_revision != self.manifest.selection_revision
+        ):
+            raise ValueError("visual override state identity is inconsistent")
+        transition_ids = [
+            item.transition_id for item in self.selection_transitions
+        ]
+        if len(transition_ids) != len(set(transition_ids)):
+            raise ValueError("visual override transition ids must be unique")
+        after_revisions = [
+            item.after_selection_revision for item in self.selection_transitions
+        ]
+        if after_revisions != sorted(set(after_revisions)):
+            raise ValueError(
+                "visual override transitions must use increasing revisions"
+            )
+        if (
+            after_revisions
+            and after_revisions[-1] > self.catalog.selection_revision
+        ):
+            raise ValueError("visual override transition revision is inconsistent")
+        for previous, current in zip(
+            self.selection_transitions,
+            self.selection_transitions[1:],
+        ):
+            if (
+                previous.after_selection_revision
+                == current.before_selection_revision
+                and previous.after_manifest != current.before_manifest
+            ):
+                raise ValueError(
+                    "visual override transition manifest chain is inconsistent"
+                )
+        version_by_id = {
+            item.version_id: item for item in self.catalog.versions
+        }
+        for transition in self.selection_transitions:
+            for version in (
+                transition.impact.old_version,
+                transition.impact.new_version,
+            ):
+                if (
+                    version is not None
+                    and version_by_id.get(version.version_id) != version
+                ):
+                    raise ValueError(
+                        "visual override transition version is not in the catalog"
+                    )
+            for manifest in (
+                transition.before_manifest,
+                transition.after_manifest,
+            ):
+                if (
+                    manifest.season_no != self.catalog.season_no
+                    or manifest.episode_no != self.catalog.episode_no
+                    or manifest.render_plan_fingerprint
+                    != self.catalog.render_plan_fingerprint
+                ):
+                    raise ValueError(
+                        "visual override transition manifest belongs to another state"
+                    )
+                for selected in manifest.selected_overrides:
+                    version = version_by_id.get(selected.version_id)
+                    if version is None or selected.model_dump() != {
+                        "shot_id": version.shot_id,
+                        "source_fingerprint": version.source_fingerprint,
+                        "version_id": version.version_id,
+                        "version_fingerprint": version.version_fingerprint,
+                        "spec": version.spec.model_dump(),
+                    }:
+                        raise ValueError(
+                            "visual override transition manifest version "
+                            "is not in the catalog"
+                        )
+        if (
+            self.selection_transitions
+            and self.selection_transitions[-1].after_selection_revision
+            == self.catalog.selection_revision
+        ):
+            transition = self.selection_transitions[-1]
+            if transition.after_manifest != self.manifest:
+                raise ValueError(
+                    "latest visual override transition manifest is inconsistent"
+                )
+        payload = self.model_dump(exclude={"state_fingerprint"})
+        if _canonical_sha256(payload) != self.state_fingerprint:
+            raise ValueError("visual override state fingerprint is invalid")
+        return self
+
+
+StaleDependencyChange = Literal[
+    "creative_revision",
+    "override_camera",
+    "override_lighting",
+    "override_negative_prompt",
+    "override_transition",
+    "bgm_selection",
+    "selected_first_frame",
+]
+StaleDependencyNode = Literal[
+    "render_plan",
+    "shot_image_request",
+    "shot_image_candidate",
+    "shot_video_plan",
+    "shot_video_candidate",
+    "audio_plan",
+    "timeline",
+    "composite",
+    "edit_export",
+    "media_qa",
+]
+
+DRAMA_STALE_DEPENDENCY_NODES: tuple[StaleDependencyNode, ...] = (
+    "render_plan",
+    "shot_image_request",
+    "shot_image_candidate",
+    "shot_video_plan",
+    "shot_video_candidate",
+    "audio_plan",
+    "timeline",
+    "composite",
+    "edit_export",
+    "media_qa",
+)
+DRAMA_STALE_DEPENDENCY_ROWS: Dict[
+    StaleDependencyChange,
+    tuple[StaleDependencyNode, ...],
+] = {
+    "creative_revision": DRAMA_STALE_DEPENDENCY_NODES,
+    "override_camera": (
+        "shot_image_request",
+        "shot_image_candidate",
+        "shot_video_plan",
+        "shot_video_candidate",
+        "timeline",
+        "composite",
+        "edit_export",
+        "media_qa",
+    ),
+    "override_lighting": (
+        "shot_image_request",
+        "shot_image_candidate",
+        "shot_video_plan",
+        "shot_video_candidate",
+        "timeline",
+        "composite",
+        "edit_export",
+        "media_qa",
+    ),
+    "override_negative_prompt": (
+        "shot_image_request",
+        "shot_image_candidate",
+        "shot_video_plan",
+        "shot_video_candidate",
+        "timeline",
+        "composite",
+        "edit_export",
+        "media_qa",
+    ),
+    "override_transition": (
+        "timeline",
+        "composite",
+        "edit_export",
+        "media_qa",
+    ),
+    "bgm_selection": ("timeline", "composite", "edit_export", "media_qa"),
+    "selected_first_frame": (
+        "shot_video_plan",
+        "shot_video_candidate",
+        "timeline",
+        "composite",
+        "edit_export",
+        "media_qa",
+    ),
+}
+DRAMA_STALE_DEPENDENCY_SCOPES: Dict[
+    StaleDependencyChange,
+    Literal["episode", "shot"],
+] = {
+    "creative_revision": "episode",
+    "override_camera": "shot",
+    "override_lighting": "shot",
+    "override_negative_prompt": "shot",
+    "override_transition": "shot",
+    "bgm_selection": "episode",
+    "selected_first_frame": "shot",
+}
+
+
+class StaleDependencyImpact(BaseModel):
+    """Versioned, content-addressed result of one dependency invalidation."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    matrix_version: Literal["drama-stale-matrix-v1"] = "drama-stale-matrix-v1"
+    change: StaleDependencyChange
+    scope: Literal["episode", "shot"]
+    shot_id: Optional[str] = Field(default=None, pattern=_SHOT_ID_PATTERN)
+    affected_nodes: List[StaleDependencyNode] = Field(min_length=1, max_length=10)
+    unaffected_nodes: List[StaleDependencyNode] = Field(max_length=10)
+    impact_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _stale_dependency_impact_is_consistent(self) -> "StaleDependencyImpact":
+        if (self.scope == "shot") != (self.shot_id is not None):
+            raise ValueError("stale dependency scope and shot id are inconsistent")
+        if (
+            len(self.affected_nodes) != len(set(self.affected_nodes))
+            or len(self.unaffected_nodes) != len(set(self.unaffected_nodes))
+            or set(self.affected_nodes) & set(self.unaffected_nodes)
+        ):
+            raise ValueError("stale dependency node partition is invalid")
+        if (
+            set(self.affected_nodes) | set(self.unaffected_nodes)
+            != set(DRAMA_STALE_DEPENDENCY_NODES)
+        ):
+            raise ValueError("stale dependency node partition is incomplete")
+        if (
+            self.scope != DRAMA_STALE_DEPENDENCY_SCOPES[self.change]
+            or self.affected_nodes != list(DRAMA_STALE_DEPENDENCY_ROWS[self.change])
+            or self.unaffected_nodes
+            != [
+                item
+                for item in DRAMA_STALE_DEPENDENCY_NODES
+                if item not in DRAMA_STALE_DEPENDENCY_ROWS[self.change]
+            ]
+        ):
+            raise ValueError("stale dependency row does not match matrix version")
+        payload = self.model_dump(exclude={"impact_fingerprint"})
+        if _canonical_sha256(payload) != self.impact_fingerprint:
+            raise ValueError("stale dependency impact fingerprint is invalid")
+        return self
+
+
+VisualOverrideChangedField = Literal[
+    "camera_movement",
+    "lighting",
+    "negative_prompt",
+    "transition",
+]
+
+
+class VisualOverrideSelectionImpact(BaseModel):
+    """Exact old/new selected-spec diff and dependency-union result."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    matrix_version: Literal["drama-stale-matrix-v1"] = "drama-stale-matrix-v1"
+    shot_id: str = Field(pattern=_SHOT_ID_PATTERN)
+    old_version: Optional[VisualOverrideVersion] = None
+    new_version: Optional[VisualOverrideVersion] = None
+    changed_fields: List[VisualOverrideChangedField] = Field(max_length=4)
+    affected_nodes: List[StaleDependencyNode] = Field(max_length=10)
+    unaffected_nodes: List[StaleDependencyNode] = Field(max_length=10)
+    impact_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _visual_selection_impact_is_consistent(
+        self,
+    ) -> "VisualOverrideSelectionImpact":
+        if (
+            self.old_version is not None
+            and self.old_version.shot_id != self.shot_id
+        ) or (
+            self.new_version is not None
+            and self.new_version.shot_id != self.shot_id
+        ):
+            raise ValueError("visual override impact version belongs to another shot")
+        old_spec = self.old_version.spec if self.old_version is not None else None
+        new_spec = self.new_version.spec if self.new_version is not None else None
+        expected_changed_fields = [
+            item
+            for item in (
+                "camera_movement",
+                "lighting",
+                "negative_prompt",
+                "transition",
+            )
+            if (
+                getattr(old_spec, item) if old_spec is not None else None
+            )
+            != (
+                getattr(new_spec, item) if new_spec is not None else None
+            )
+        ]
+        if self.changed_fields != expected_changed_fields:
+            raise ValueError("visual override changed fields are not canonical")
+        field_changes: Dict[VisualOverrideChangedField, StaleDependencyChange] = {
+            "camera_movement": "override_camera",
+            "lighting": "override_lighting",
+            "negative_prompt": "override_negative_prompt",
+            "transition": "override_transition",
+        }
+        affected_set = {
+            node
+            for field in self.changed_fields
+            for node in DRAMA_STALE_DEPENDENCY_ROWS[field_changes[field]]
+        }
+        expected_affected = [
+            item for item in DRAMA_STALE_DEPENDENCY_NODES if item in affected_set
+        ]
+        expected_unaffected = [
+            item for item in DRAMA_STALE_DEPENDENCY_NODES if item not in affected_set
+        ]
+        if (
+            self.affected_nodes != expected_affected
+            or self.unaffected_nodes != expected_unaffected
+        ):
+            raise ValueError("visual override selection impact is inconsistent")
+        payload = self.model_dump(exclude={"impact_fingerprint"})
+        if _canonical_sha256(payload) != self.impact_fingerprint:
+            raise ValueError("visual override selection impact fingerprint is invalid")
+        return self
+
+
+_VISUAL_OVERRIDE_TRANSITION_ID_PATTERN = r"^vot_[0-9a-f]{24}$"
+
+
+class VisualOverrideSelectionTransition(BaseModel):
+    """Durable receipt atomically committed with a selection mutation."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    transition_id: str = Field(pattern=_VISUAL_OVERRIDE_TRANSITION_ID_PATTERN)
+    before_state_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    before_selection_revision: int = Field(ge=0, le=2_147_483_647)
+    after_selection_revision: int = Field(ge=0, le=2_147_483_647)
+    impact: VisualOverrideSelectionImpact
+    before_manifest: EpisodeVisualOverrideManifest
+    after_manifest: EpisodeVisualOverrideManifest
+    transition_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "before_selection_revision",
+        "after_selection_revision",
+        mode="before",
+    )
+    @classmethod
+    def _visual_transition_revisions_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _visual_transition_is_content_addressed(
+        self,
+    ) -> "VisualOverrideSelectionTransition":
+        old_id = (
+            self.impact.old_version.version_id
+            if self.impact.old_version is not None
+            else None
+        )
+        new_id = (
+            self.impact.new_version.version_id
+            if self.impact.new_version is not None
+            else None
+        )
+        if old_id == new_id:
+            raise ValueError("no-op visual selection must not create a transition")
+        expected_after = self.before_selection_revision + 1
+        if self.after_selection_revision != expected_after:
+            raise ValueError("visual override transition revision is invalid")
+        if self.before_manifest.selection_revision != self.before_selection_revision:
+            raise ValueError("visual override transition before revision is invalid")
+        if self.after_manifest.selection_revision != self.after_selection_revision:
+            raise ValueError("visual override transition manifest revision is invalid")
+        if (
+            self.before_manifest.season_no != self.after_manifest.season_no
+            or self.before_manifest.episode_no != self.after_manifest.episode_no
+            or self.before_manifest.render_plan_fingerprint
+            != self.after_manifest.render_plan_fingerprint
+        ):
+            raise ValueError("visual override transition manifest identity changed")
+        before_by_shot = {
+            item.shot_id: item for item in self.before_manifest.selected_overrides
+        }
+        after_by_shot = {
+            item.shot_id: item for item in self.after_manifest.selected_overrides
+        }
+        before_selected = before_by_shot.pop(self.impact.shot_id, None)
+        after_selected = after_by_shot.pop(self.impact.shot_id, None)
+        if before_by_shot != after_by_shot:
+            raise ValueError(
+                "visual override transition changed an unrelated shot"
+            )
+        old = self.impact.old_version
+        expected = self.impact.new_version
+        if old is None:
+            if before_selected is not None:
+                raise ValueError("visual override transition old target is inconsistent")
+        elif (
+            before_selected is None
+            or before_selected.source_fingerprint != old.source_fingerprint
+            or before_selected.version_id != old.version_id
+            or before_selected.version_fingerprint != old.version_fingerprint
+            or before_selected.spec != old.spec
+        ):
+            raise ValueError("visual override transition old target is inconsistent")
+        if expected is None:
+            if after_selected is not None:
+                raise ValueError("visual override transition clear was not applied")
+        elif (
+            after_selected is None
+            or after_selected.source_fingerprint != expected.source_fingerprint
+            or after_selected.version_id != expected.version_id
+            or after_selected.version_fingerprint != expected.version_fingerprint
+            or after_selected.spec != expected.spec
+        ):
+            raise ValueError("visual override transition target is inconsistent")
+        payload = self.model_dump(
+            exclude={"transition_id", "transition_fingerprint"}
+        )
+        fingerprint = _canonical_sha256(payload)
+        if self.transition_fingerprint != fingerprint:
+            raise ValueError("visual override transition fingerprint is invalid")
+        if self.transition_id != f"vot_{fingerprint[:24]}":
+            raise ValueError("visual override transition id is invalid")
+        return self
+
+
+class VisualOverrideSelectionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    state: VisualOverrideState
+    transition_id: Optional[str] = Field(
+        default=None,
+        pattern=_VISUAL_OVERRIDE_TRANSITION_ID_PATTERN,
+    )
+    status: Literal["target_current", "superseded", "no_op"]
+    result_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _visual_selection_result_is_content_addressed(
+        self,
+    ) -> "VisualOverrideSelectionResult":
+        transition_ids = {
+            item.transition_id for item in self.state.selection_transitions
+        }
+        if (self.status == "no_op") != (self.transition_id is None):
+            raise ValueError("visual override selection result kind is invalid")
+        if self.transition_id is not None and self.transition_id not in transition_ids:
+            raise ValueError("visual override selection result transition is missing")
+        if self.transition_id is not None:
+            transition = next(
+                item
+                for item in self.state.selection_transitions
+                if item.transition_id == self.transition_id
+            )
+            selected_by_shot = {
+                item.shot_id: item
+                for item in self.state.manifest.selected_overrides
+            }
+            selected = selected_by_shot.get(transition.impact.shot_id)
+            expected = transition.impact.new_version
+            is_current = (
+                (expected is None and selected is None)
+                or (
+                    expected is not None
+                    and selected is not None
+                    and selected.source_fingerprint
+                    == expected.source_fingerprint
+                    and selected.version_id == expected.version_id
+                    and selected.version_fingerprint
+                    == expected.version_fingerprint
+                    and selected.spec == expected.spec
+                )
+            )
+            expected_status = "target_current" if is_current else "superseded"
+            if self.status != expected_status:
+                raise ValueError(
+                    "visual override selection result status is inconsistent"
+                )
+        payload = self.model_dump(exclude={"result_fingerprint"})
+        if _canonical_sha256(payload) != self.result_fingerprint:
+            raise ValueError("visual override selection result fingerprint is invalid")
+        return self
+
+    @property
+    def manifest(self) -> EpisodeVisualOverrideManifest:
+        if self.transition_id is None:
+            return self.state.manifest
+        return next(
+            item.after_manifest
+            for item in self.state.selection_transitions
+            if item.transition_id == self.transition_id
+        )
+
+    @property
+    def impact(self) -> VisualOverrideSelectionImpact:
+        if self.transition_id is None:
+            raise ValueError("no-op visual selection has no stale impact")
+        return next(
+            item.impact
+            for item in self.state.selection_transitions
+            if item.transition_id == self.transition_id
+        )
+
+
 ShotImageAttemptStatus = Literal[
     "started",
     "artifact_received",

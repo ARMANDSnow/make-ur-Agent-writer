@@ -550,7 +550,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 - **v0** 2026-06-03 上午 · Fountain 假设，被用户工作流截图证伪
 - **v1** 2026-06-03 下午 · 三件套 schema + 4 站创作向导 + N1-N5 拍板
 - **v2** 2026-07-15 · 保留 v1 产品决策，追加“五站创作 + A-J 媒体生产”的完整实时 SOP
-- **v3** 2026-07-18 · 同步 A-F1 已实现基线，并登记 F2 ASS/通用可编辑工程与安全 completion marker（**当前版本**）
+- **v3** 2026-07-18 · 同步 A-F1 已实现基线，并登记 F2 ASS/通用可编辑工程与安全 completion marker
+- **v4** 2026-07-18 · 登记 A2 visual-only override、双 CAS 选择、effective manifest 与 stale dependency matrix（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -634,7 +635,7 @@ drama workspace
 
 | 阶段 | 输入 | 主要动作与产物 | 验收门槛 | 当前状态与精确边界 |
 |---|---|---|---|---|
-| A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；零网络 | 🟨 **A1 已实现**；A2 已冻结角色、当前 selected ArtDirection、场景与道具/线索 refs，并把 ArtDirection/RenderPlan/资产选择变化传播到对应单集 manifest；通用 visual override 与 BGM/首尾帧/逐镜媒体/时间线矩阵待完成 |
+| A. 渲染契约与 stale | fresh/Approve canonical episode、冻结角色投影 | 确定性生成 strict `RenderPlan`；稳定 shot ID、有序 spoken segments、fingerprint、五态 inspect；visual-only override 与依赖传播 | 相同输入字节稳定；创作变化 stale；旧 workspace 明示 `needs_render_plan`；override 不能改剧情/对白/角色；零网络 | ✅ **A1+A2 纯本地闭环已完成**：RenderPlan 外新增 camera movement、lighting、negative prompt、剪辑 transition 四类 shot-scoped override，不可变候选、derived-from、revision/current-ID 双 CAS、effective manifest 和 atomic catalog+manifest state；未选候选不改变下游 fingerprint，selected old/new spec 的字段增加、修改与清空按 v1 矩阵取依赖并集。角色/ArtDirection/场景/道具引用仍由 B 的独立 manifest 冻结 |
 | B. 视觉资产圣经 | RenderPlan、现有季角色库 | 建立角色/场景/道具/线索/美术方向；每次生成或编辑产生不可变 version；显式 selected/derived-from/used-by | 旧角色无损迁移；新候选不自动替换 selected；被引用版本不可静默删除；路径/URL 安全 | 🟨 角色、season ArtDirection、SceneAsset 与 PropOrClueAsset 已有不可变版本、显式 selected 和 CAS；场景及道具/线索已有 episode used-by；跨集 used-by、Web 管理、ArtDirection 多 scope 与删除策略未完成 |
 | C. 逐镜图片与首尾帧 | A-B、镜头视觉字段、selected references、provider capability | 构建每镜 image spec；生成/校验候选；显式选择首帧与可选尾帧；绑定跨镜 lineage；输出覆盖率 | 每个 required shot 有明确 selection；引用超限确定性裁剪并告警；单镜重生只 stale 依赖项；付费 crash matrix 不退化 | 🟨 **C1-C3 纯本地契约已实现**：C1 冻结 request/exact refs，C2 提供 content-addressed strict PNG 候选、guarded first/tail/previous-tail 与 coverage/repair，C3 提供 provider-neutral capability、once-only attempt、durable receipt、C2 exact candidate 补账与 process-crash 零重复调用。C3 仅使用代码内注入 fake adapter；真实 provider/network 与多参考上传协议、JPEG/WebP、质量比较 UI、显式 staging GC 和 power-loss 证明未实现 |
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | 🟨 **D1-D4 纯本地闭环已完成**：冻结输入、候选/coverage、once-only attempt、artifact 重验、首尾帧 lineage 与 production compose gate；真实 provider/network、Web/CLI 和 episode 2+ 成片仍未闭环 |
@@ -644,6 +645,22 @@ drama workspace
 | H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ⏳ 小说侧实体/摘要是可复用基础；短剧 event graph、`source_event_ids` 和可失效 cache 未实现；不阻塞阶段 F |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
 | J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清 provider/model/account fingerprint、提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F。当前为 `mock-functional` + fake-provider `local-e2e`、`provider_validated=false` |
+
+#### A2 stale dependency matrix v1
+
+矩阵输出是 strict、content-addressed 的内部控制事实；`change → scope → affected_nodes` 由 schema 精确校验，不能由调用方提交任意节点列表。视觉候选只追加不 stale；只有 selected old/new spec 的实际字段差异触发传播，字段被清空也计为变化，多字段切换取依赖并集。
+
+| 变化 | scope | 必须 stale | 明确不 stale |
+|---|---|---|---|
+| creative revision | episode | RenderPlan、逐镜图片/视频 request+candidate、audio plan、timeline、composite、edit export、media QA | 无 |
+| camera movement / lighting / negative prompt override | shot | 该镜 image request+candidate、video plan+candidate；整集 timeline、composite、edit export、media QA | RenderPlan、audio plan、其它镜独立候选 |
+| 剪辑 transition override | shot | timeline、composite、edit export、media QA | RenderPlan、逐镜图片/视频 provider 资产、audio plan |
+| BGM selection | episode | timeline、composite、edit export、media QA | RenderPlan、逐镜图片/视频、spoken audio plan |
+| selected first frame | shot | 该镜 video plan+candidate；整集 timeline、composite、edit export、media QA | RenderPlan、image candidate 本体、audio plan |
+
+这里的 `transition` 是 timeline/F 层剪辑转场，不写入图片或视频 provider request；若未来新增 provider 生成侧的 motion transition，应另立字段和矩阵版本，不能静默扩大 v1 含义。A2 state 以一次严格读取所得的 bytes token 做目标 CAS，RenderPlan token 在 replace 前后重验；该原子性仍以所有项目写者遵守 workspace flock 为前提，不宣称抵抗不合作本机进程在最后一条指令间的抢占。
+
+每次真实 selection mutation 与一条 content-addressed transition receipt 原子提交；receipt 保存 before/after effective manifest，schema 强制只有目标 shot 从 old version 变到 new version、其它 shot 不变，且两个快照的每个版本都精确存在于 append-only catalog。未确认 receipt 最多保留 512 条，满额时 fail closed，调用方可显式 acknowledge；旧请求重试只读恢复、不再次写盘。结果状态 `target_current` 仅表示该 receipt 的目标版本当前仍被选择，`superseded` 表示当前目标不同，`no_op` 表示本次没有 mutation；它不把 ABA 历史误称为“从未被覆盖”。
 
 ### 11.4 依赖顺序与完成口径
 
@@ -657,7 +674,7 @@ drama workspace
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 125，可以准确表述为：**创作五站、连续多集、A-F 的固定 profile 纯本地完整成片、SRT/ASS 与通用可编辑工程已经形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B/C/D/F 仍有 Web、多 scope、多格式/多 profile 与真实媒体缺口，G-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
+截至 iter 126，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约，以及 B-F 的固定 profile 纯本地完整成片、SRT/ASS 与通用可编辑工程已经形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B/C/D/F 仍有 Web、多 scope、多格式/多 profile 与真实媒体缺口，G-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
 
 ### 11.5 规划外边界
 
