@@ -58,6 +58,7 @@
 | 130 | 短剧逐镜图片候选 Web 比较与选择 | strict/bounded C4 投影、metadata-safe exact PNG preview 与 guarded first/tail selection |
 | 131 | 短剧逐镜视频候选 Web 与连续性门禁 | derived-only MP4 preview、attempt/coverage/continuity 投影与 guarded selection |
 | 132 | 短剧 Web 合成、QA 与交付 | 持久 E3/current gate、本地 F1/F2 job、durable QA、四类 exact delivery 与 revision retention |
+| 133 | 短剧持久媒体任务 DAG | episode-scoped strict ledger、active dedupe、guarded transition、failure/cancel cascade 与 unknown 零重提 |
 
 ## Iteration Implementation Index
 
@@ -171,6 +172,7 @@
 | 130 | 建立逐镜图片候选比较、选择与安全预览 Web | `src/drama_shot_image_web.py`、`src/web/`、`tests/test_drama_shot_image_web.py`、`tests/test_web_server.py` |
 | 131 | 建立逐镜视频候选、连续性与安全派生预览 Web | `src/drama_shot_video_web.py`、`src/drama_shot_video_candidate_store.py`、`src/web/`、`tests/test_drama_shot_video_web.py` |
 | 132 | 建立短剧 Web 本地合成、durable QA 与 exact delivery | `src/drama_compose_web.py`、`src/drama_compositor.py`、`src/web/`、`tests/test_drama_compose_web.py` |
+| 133 | 建立持久媒体 task DAG 与安全状态投影 | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`tests/test_drama_media_tasks.py` |
 
 ## Durable Decisions
 
@@ -187,6 +189,7 @@
 - JSON/schema 失败不能静默 Approve；必要时修复已知字段，否则显式 Abstain/blocked。
 - 计费媒体使用独立确认和预算。授权不从旧 job/state 继承，也不跨文本、图片、视频阶段复用。
 - 文本、图片、视频可以保留各自 ledger schema，但持久状态词汇与关键分类必须由共享不可变常量驱动；新增状态会让矩阵失败，直到完成显式分类，不为统一外观提前迁移 paid ledger。
+- 通用媒体 task 只编排 identity/dependency/state，不保存或替代 provider task、response、receipt 与 paid attempt evidence。`submission_unknown` 在 generic DAG 无出边并持续占用 dedupe；未来恢复必须走绑定权威 paid evidence 的专用 reconciliation。
 
 ### Keep state auditable
 

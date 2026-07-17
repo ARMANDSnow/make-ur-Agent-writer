@@ -45,7 +45,14 @@ iter114/117/121 已分别建立图片、视频、TTS 的 once-only attempt 与 p
 
 ## Acceptance Result
 
-<iter-finish 回填 A133-01..05、测试数、canonical、真文本校准、审查结论与未修风险。>
+- **A133-01 — passed**：`DramaMediaTask`/`DramaMediaTaskLedger` 使用 strict schema、content-addressed task/dedupe/record/ledger identity、canonical dependency list 与 cycle/attempt/episode/time/state invariants；额外字段、bool/float CAS、坏 stage-kind、伪 hash、跨 episode 与非 drama workspace 均 fail closed。
+- **A133-02 — passed**：episode ledger 使用 strict duplicate-key/finite JSON、4 MiB 上限、workspace metadata 4 KiB exact schema、nofollow regular-file read、workspace flock、pinned dirfd 原子写与 target-token CAS；坏文件、symlink、oversize、metadata bool version 和并发 token 不覆盖既有 bytes。
+- **A133-03 — passed**：active dedupe、连续 attempt、create/transition/cancel exact replay、依赖晋升、失败级联与取消级联均持久确定；dead dependency 只拒绝真正新建，既有 child 仍可 lost-response replay；`submission_unknown` 无出边、持续占用 dedupe 且不被 generic task 自动重发或无证据关闭。
+- **A133-04 — passed**：公开投影只含 allowlist 字段与有限本地 outcome code，不含 backend/provider/model/account/endpoint identity、prompt、path、provider task/response、签名 URL 或 paid receipt；新增测试以 socket 禁用证明 provider/network 0 调用，既有 image/video/TTS attempt 26 项回归通过。
+- **A133-05 — passed**：correctness、security/boundary、runner/media/paid 三视角初审 findings 均经主线程复核、修复与再审，最终全部 **no findings**；新增 G1 聚焦测试 **15 tests OK**，`py_compile`、agent harness 与 diff check 通过。
+- implementation commit `dfb9b409103dd52531b738835056c6f25eff20e7` 上唯一 canonical `bash scripts/verify.sh` exit 0：**2643 tests OK**、15 steps、369 秒，run `d5faee88833a4dfc88505c37da43747b`，tree `da563617250a4e99530272d6ab4990e8f43e31cf`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN；结论 `mock-functional`，mandatory local-drama component 为 `local-e2e`，不升级 provider 结论。
+- 真文本按授权仅调用 1 次：`gpt-5.5-medium`，HTTP 200，4.470 秒，provider usage 320 tokens；episode DAG、unknown 零重提、dead-dependency exact replay、generic/paid evidence 隔离四项布尔检查全部 true，协议校准通过且未重试。iter125-133 累计保守计 11/60 请求、9 次 HTTP/model response、7 次协议检查通过，预留约 ¥0.90；图片 0/20、视频/TTS 0。未读取 `.env`，key、完整 prompt 与 response 正文均未输出或落盘。
+- **未修风险**：G1 尚未接 worker lease/heartbeat/takeover、provider×media capacity lane、backend registry/queue client 或 pricing/Insights，也未迁移现有 paid ledger；unknown 未来若要恢复，必须新增绑定权威 paid evidence 的专用 reconciliation seam，不能放宽 generic transition。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
