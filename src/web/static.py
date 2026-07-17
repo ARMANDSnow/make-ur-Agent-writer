@@ -6477,6 +6477,288 @@ JS_DASHBOARD = """\
     }
   }
 
+  // ---- drama asset governance (iter129) ---------------------------------
+  function assetReferenceText(refs) {
+    refs = refs || [];
+    if (!refs.length) return "尚未被已冻结分镜引用";
+    return refs.map(function (ref) {
+      const shots = (ref.shot_ids || []).length
+        ? " · " + ref.shot_ids.map(escapeHtml).join("、")
+        : "";
+      return "第 " + Number(ref.season_no) + " 季 / 第 " +
+        Number(ref.episode_no) + " 集" + shots;
+    }).join("；");
+  }
+
+  function renderDramaAssetVersion(item, version, overview) {
+    const selected = !!version.selected;
+    const disabled = version.status === "disabled";
+    const refs = version.references || [];
+    const selectAttrs = [
+      'data-asset-select',
+      'data-kind="' + escapeHtml(item.kind) + '"',
+      'data-asset-id="' + escapeHtml(item.asset_id) + '"',
+      'data-version-id="' + escapeHtml(version.version_id) + '"',
+      'data-selected-id="' + escapeHtml(item.selected_version_id) + '"',
+      'data-selection-revision="' + Number(item.selection_revision) + '"',
+      'data-season-no="' + Number(overview.season_no) + '"',
+    ];
+    if (item.scope) selectAttrs.push('data-scope="' + escapeHtml(item.scope) + '"');
+    if (item.episode_no) selectAttrs.push('data-episode-no="' + Number(item.episode_no) + '"');
+    if (!version.selection_allowed) {
+      if (disabled) {
+        selectAttrs.push('title="当前季 lifecycle 已停用，不能选择该版本"');
+        selectAttrs.push('aria-label="该版本当前季已停用，不能选择"');
+      } else {
+        selectAttrs.push('title="跨季治理阻断：其他季已停用或治理状态无效"');
+        selectAttrs.push('aria-label="该版本当前季可用，但跨季不可选择"');
+      }
+    }
+    const selectButton = selected
+      ? '<span class="badge success">当前选中</span>'
+      : '<button type="button" class="btn btn-secondary btn-sm" ' +
+          selectAttrs.join(" ") +
+          (disabled || !version.selection_allowed || !item.impact_complete ? " disabled" : "") +
+          '>设为选中</button>';
+    const statusButton =
+      '<button type="button" class="btn btn-secondary btn-sm" data-asset-status ' +
+      'data-kind="' + escapeHtml(item.kind) + '" ' +
+      'data-asset-id="' + escapeHtml(item.asset_id) + '" ' +
+      'data-version-id="' + escapeHtml(version.version_id) + '" ' +
+      'data-current-status="' + escapeHtml(version.status) + '" ' +
+      'data-retirement-revision="' + Number(overview.retirement_revision) + '" ' +
+      (overview.mutation_allowed || disabled ? "" : "disabled ") + '>' +
+      (disabled ? "重新启用" : "停用") + '</button>';
+    const statusLabel = disabled
+      ? '<span class="badge warning">已停用</span>'
+      : (!version.selection_allowed
+          ? '<span class="badge warning">当前季可用</span>' +
+            '<div class="hint">跨季不可选择：其他季已停用或治理状态无效</div>'
+          : '<span class="badge success">可用</span>');
+    return (
+      '<tr>' +
+      '<td><code>' + escapeHtml(version.version_id) + '</code>' +
+      (version.derived_from ? '<div class="hint">源自 ' + escapeHtml(version.derived_from) + '</div>' : "") +
+      '</td>' +
+      '<td>' + statusLabel + '</td>' +
+      '<td>' + escapeHtml(assetReferenceText(refs)) + '</td>' +
+      '<td><div class="cluster">' + selectButton + statusButton + '</div></td>' +
+      '</tr>'
+    );
+  }
+
+  function renderDramaAssetItem(item, overview) {
+    const scopeLabel = item.scope
+      ? " · " + ({ series: "剧集级", global: "工作区全局", episode: "单集覆盖" }[item.scope] || item.scope)
+      : "";
+    const stale = (item.stale_references || []).length
+      ? '<p class="hint">切换后需重建的既有冻结引用：' +
+          escapeHtml(assetReferenceText(item.stale_references)) + '</p>'
+      : '<p class="hint">当前选中版本没有冻结引用。</p>';
+    let scopeToggle = "";
+    if ((item.scope === "global" || item.scope === "episode") && item.scope_revision != null) {
+      const selectedVersion = (item.versions || []).find(function (version) {
+        return version.selected;
+      });
+      const scopeBlocked = !item.impact_complete ||
+        (!item.enabled && selectedVersion && !selectedVersion.selection_allowed);
+      const scopeTitle = (!item.enabled && selectedVersion && !selectedVersion.selection_allowed)
+        ? (selectedVersion.status === "disabled"
+            ? 'title="当前季 lifecycle 已停用，不能重新启用该覆盖" ' +
+              'aria-label="当前季版本已停用，该覆盖不可重新启用" '
+            : 'title="跨季治理阻断：其他季已停用或治理状态无效" ' +
+              'aria-label="该覆盖因跨季治理阻断而不可重新启用" ')
+        : "";
+      scopeToggle =
+        '<button type="button" class="btn btn-secondary btn-sm" data-art-scope-toggle ' +
+        'data-scope="' + escapeHtml(item.scope) + '" ' +
+        'data-enabled="' + String(!!item.enabled) + '" ' +
+        'data-scope-revision="' + Number(item.scope_revision) + '" ' +
+        'data-season-no="' + Number(overview.season_no) + '" ' +
+        (item.episode_no ? 'data-episode-no="' + Number(item.episode_no) + '" ' : "") +
+        scopeTitle +
+        (scopeBlocked ? "disabled " : "") +
+        '>' + (item.enabled ? "清除覆盖" : "重新启用覆盖") + '</button>';
+    }
+    return (
+      '<article class="card">' +
+      '<div class="card-body">' +
+      '<div class="section-title"><div><h3><code>' + escapeHtml(item.asset_id) +
+      '</code>' + escapeHtml(scopeLabel) + '</h3>' + stale + '</div>' + scopeToggle + '</div>' +
+      '<div class="table-scroll"><table class="table table-wide"><thead><tr><th>版本</th><th>状态</th>' +
+      '<th>已用于</th><th>操作</th></tr></thead><tbody>' +
+      (item.versions || []).map(function (version) {
+        return renderDramaAssetVersion(item, version, overview);
+      }).join("") +
+      '</tbody></table></div></div></article>'
+    );
+  }
+
+  function renderDramaAssetOverview(overview) {
+    const sectionLabels = {
+      characters: "角色",
+      art_direction_series: "美术方向 · Series",
+      art_direction_global: "美术方向 · Global",
+      art_direction_episode: "美术方向 · Episode",
+      scenes: "场景",
+      props_and_clues: "道具与线索",
+    };
+    const blockers = overview.blockers || [];
+    const summary =
+      '<div class="card"><div class="card-body">' +
+      '<div class="cluster"><span class="badge ' + (blockers.length ? "warning" : "success") + '">' +
+      (blockers.length ? "引用扫描不完整" : "引用扫描完整") + '</span>' +
+      '<span class="muted">已扫描第 ' +
+      ((overview.scanned_episode_nos || []).map(Number).join("、") || "—") +
+      ' 集</span></div>' +
+      (blockers.length
+        ? '<ul>' + blockers.map(function (b) {
+            return '<li><code>' + escapeHtml(b.source + ":" + b.code) + '</code>' +
+              (b.episode_no ? "（第 " + Number(b.episode_no) + " 集）" : "") + '</li>';
+          }).join("") + '</ul>'
+        : "") +
+      '</div></div>';
+    const sections = (overview.sections || []).map(function (section) {
+      const label = sectionLabels[section.key] || section.key;
+      const stateText = {
+        fresh: "就绪",
+        missing: "尚未建立",
+        stale: "已过期",
+        blocked_source: "上游未就绪",
+        invalid: "无效（已阻断变更）",
+      }[section.state] || section.state;
+      const body = (section.items || []).length
+        ? section.items.map(function (item) {
+            return renderDramaAssetItem(item, overview);
+          }).join("")
+        : '<div class="empty-state"><p>' + escapeHtml(stateText) + '</p>' +
+          ((section.reasons || []).length
+            ? '<p class="hint"><code>' + escapeHtml(section.reasons.join(", ")) + '</code></p>'
+            : "") + '</div>';
+      return (
+        '<section class="section"><div class="section-title"><h2>' + escapeHtml(label) +
+        '</h2><span class="badge ' + (section.state === "fresh" ? "success" : "warning") + '">' +
+        escapeHtml(stateText) + '</span></div>' + body + '</section>'
+      );
+    }).join("");
+    return summary + sections;
+  }
+
+  function assetMutationOptions() {
+    return {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Drama-Asset-Intent": "mutate-v1",
+      },
+    };
+  }
+
+  async function initDramaAssets() {
+    const root = document.getElementById("assets-page-root");
+    if (!root) return;
+    const episodeInput = document.getElementById("asset-episode-no");
+    const refresh = document.getElementById("asset-refresh");
+    let overview = null;
+    function episodeNo() {
+      const value = Number(episodeInput && episodeInput.value || 1);
+      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+    }
+    async function load() {
+      root.setAttribute("aria-busy", "true");
+      try {
+        overview = await fetchJson(
+          wsUrl("/drama/assets?season_no=1&episode_no=" + encodeURIComponent(episodeNo()))
+        );
+        root.innerHTML = renderDramaAssetOverview(overview);
+      } catch (err) {
+        root.innerHTML = renderErrorCard(err);
+      } finally {
+        root.removeAttribute("aria-busy");
+      }
+    }
+    if (refresh) refresh.addEventListener("click", load);
+    if (episodeInput) episodeInput.addEventListener("change", load);
+    root.addEventListener("click", async function (ev) {
+      const select = ev.target.closest("[data-asset-select]");
+      const status = ev.target.closest("[data-asset-status]");
+      const scope = ev.target.closest("[data-art-scope-toggle]");
+      if (!select && !status && !scope) return;
+      const button = select || status || scope;
+      button.disabled = true;
+      try {
+        let result;
+        if (select) {
+          const payload = {
+            kind: select.dataset.kind,
+            asset_id: select.dataset.assetId,
+            version_id: select.dataset.versionId,
+            expected_selection_revision: Number(select.dataset.selectionRevision),
+            expected_selected_version_id: select.dataset.selectedId,
+            season_no: Number(select.dataset.seasonNo),
+            view_episode_no: episodeNo(),
+          };
+          if (select.dataset.scope) payload.scope = select.dataset.scope;
+          if (select.dataset.episodeNo) payload.episode_no = Number(select.dataset.episodeNo);
+          result = await postJson(
+            wsUrl("/drama/assets/select"),
+            payload,
+            assetMutationOptions()
+          );
+        } else if (status) {
+          const current = status.dataset.currentStatus;
+          result = await postJson(
+            wsUrl("/drama/assets/status"),
+            {
+              kind: status.dataset.kind,
+              asset_id: status.dataset.assetId,
+              version_id: status.dataset.versionId,
+              status: current === "disabled" ? "active" : "disabled",
+              expected_revision: Number(status.dataset.retirementRevision),
+              expected_current_status: current,
+              season_no: 1,
+              view_episode_no: episodeNo(),
+            },
+            assetMutationOptions()
+          );
+        } else {
+          const enabled = scope.dataset.enabled === "true";
+          const payload = {
+            scope: scope.dataset.scope,
+            enabled: !enabled,
+            expected_scope_revision: Number(scope.dataset.scopeRevision),
+            expected_enabled: enabled,
+            view_episode_no: episodeNo(),
+          };
+          if (scope.dataset.scope === "episode") {
+            payload.season_no = Number(scope.dataset.seasonNo);
+            payload.episode_no = Number(scope.dataset.episodeNo);
+          }
+          result = await postJson(
+            wsUrl("/drama/assets/art-direction-scope"),
+            payload,
+            assetMutationOptions()
+          );
+        }
+        overview = result.overview;
+        root.innerHTML = renderDramaAssetOverview(overview);
+        const affected = (result.affected_references || []).length;
+        showToast(
+          (result.changed ? "资产状态已更新" : "状态未变化") +
+          (affected ? "；影响 " + affected + " 个集级引用" : ""),
+          "success"
+        );
+      } catch (err) {
+        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
+        if (err && err.status === 409) {
+          await load();
+        } else {
+          button.disabled = false;
+        }
+      }
+    });
+    await load();
+  }
+
   // ---- dispatch ---------------------------------------------------------
   function boot() {
     initShellControls();
@@ -6505,6 +6787,7 @@ JS_DASHBOARD = """\
     if (pageKind === "insights") return initInsights();
     if (pageKind === "drama_write") return initDramaWrite();
     if (pageKind === "drama_characters") return initDramaCharacters();
+    if (pageKind === "drama_assets") return initDramaAssets();
     if (pageKind === "drama_episodes") return initDramaEpisodes();
     if (pageKind === "drama_episode_detail") return initDramaEpisodeDetail();
     if (pageKind === "drama_insights") return initDramaInsights();

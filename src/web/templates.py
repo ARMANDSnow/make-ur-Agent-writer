@@ -146,6 +146,7 @@ _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
     ("write", "创作台", "write"),
     ("characters", "角色库", "characters"),
+    ("assets", "资产治理", "assets"),
     ("episodes", "剧集", "episodes"),
     ("insights", "数据", "insights"),
     ("jobs", "任务", "jobs"),
@@ -496,6 +497,48 @@ def render_workspace_characters(name: str, workspaces: Iterable[str]) -> str:
         breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("角色库", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="characters"),
+        workspace=name,
+    )
+
+
+def render_workspace_assets(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧 · B 阶段</p>'
+        '<h1>资产治理</h1>'
+        '<p class="muted">统一查看角色、美术方向、场景与道具/线索的版本、引用、停用状态和影响集。</p>'
+        '</div>'
+        '<div class="cluster">'
+        '<label class="field compact">集数 '
+        '<input id="asset-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
+        '</label>'
+        '<button class="btn btn-secondary" id="asset-refresh" type="button">刷新</button>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="callout info">'
+        '<strong>非破坏式治理</strong>'
+        '<span>停用不会删除文件；切换版本不会改写已冻结分镜。影响集由服务端按当前引用重新计算。</span>'
+        '</div>'
+        '<div id="assets-page-root" aria-live="polite">'
+        '<p class="muted">载入中…</p>'
+        '</div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 资产治理",
+        page_kind="drama_assets",
+        main_html=main,
+        breadcrumb_html=_crumbs(
+            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("资产治理", None)]
+        ),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(
+            workspaces,
+            active_workspace=name,
+            active_section="assets",
+        ),
         workspace=name,
     )
 

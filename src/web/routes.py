@@ -282,6 +282,23 @@ def render_workspace_characters_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_characters(name, list_workspaces()))
 
 
+def render_workspace_assets_page(name: str) -> Tuple[int, str, bytes]:
+    """Drama-only redacted asset governance page."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_assets(name, list_workspaces()))
+
+
 def render_workspace_episodes_page(name: str) -> Tuple[int, str, bytes]:
     """Drama-only episode list page."""
 
@@ -1625,6 +1642,183 @@ def _drama_endpoint_error(name: str) -> Optional[Tuple[int, str, bytes]]:
     if _meta_read(name).get("type") != "drama":
         return _json(400, {"error": "drama-only endpoint"})
     return None
+
+
+def _drama_asset_mutation_request_error(
+    body: bytes,
+    headers: Dict[str, str],
+) -> Optional[Tuple[int, str, bytes]]:
+    """Require a bounded JSON request carrying a same-origin-only intent header.
+
+    The custom header forces a browser cross-origin preflight.  Fetch Metadata
+    and Origin/Host checks add defense in depth without making non-browser
+    route tests invent a Host header.
+    """
+
+    if len(body) > 32 * 1024:
+        return _json(413, {"error": "asset mutation payload too large"})
+    content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        return _json(415, {"error": "Content-Type must be application/json"})
+    if headers.get("x-drama-asset-intent") != "mutate-v1":
+        return _json(403, {"error": "missing asset mutation intent"})
+    fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site and fetch_site not in ("same-origin", "same-site", "none"):
+        return _json(403, {"error": "cross-site asset mutation rejected"})
+    origin = str(headers.get("origin") or "").strip()
+    if origin:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in ("http", "https") or parsed.hostname not in (
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        ):
+            return _json(403, {"error": "cross-origin asset mutation rejected"})
+        host = str(headers.get("host") or "").strip().lower()
+        if host and parsed.netloc.lower() != host:
+            return _json(403, {"error": "cross-origin asset mutation rejected"})
+    return None
+
+
+def api_drama_assets_get(
+    name: str,
+    raw_season_no: Any = 1,
+    raw_episode_no: Any = 1,
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        season_no = int(raw_season_no)
+        episode_no = _parse_episode_no(raw_episode_no)
+        if season_no < 1 or isinstance(raw_season_no, bool):
+            raise ValueError
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid season_no or episode_no"})
+    from ..drama_asset_web import build_asset_web_overview
+    from ..schemas import model_to_dict
+
+    return _json(
+        200,
+        model_to_dict(
+            build_asset_web_overview(
+                name,
+                season_no=season_no,
+                episode_no=episode_no,
+            )
+        ),
+    )
+
+
+def api_drama_assets_select(
+    name: str,
+    body: bytes,
+    headers: Dict[str, str],
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    request_error = _drama_asset_mutation_request_error(body, headers)
+    if request_error:
+        return request_error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    from ..drama_asset_web import (
+        AssetSelectionRequest,
+        DramaAssetWebConflict,
+        select_asset_candidate,
+    )
+    from ..schemas import model_to_dict
+
+    try:
+        request = AssetSelectionRequest(**(payload or {}))
+        with jobs.workspace_reserved(name):
+            result = select_asset_candidate(name, request)
+    except DramaAssetWebConflict as exc:
+        return _json(409, {"error": str(exc)})
+    except ValueError:
+        return _json(400, {"error": "invalid asset mutation request"})
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        raise
+    return _json(200, model_to_dict(result))
+
+
+def api_drama_assets_status(
+    name: str,
+    body: bytes,
+    headers: Dict[str, str],
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    request_error = _drama_asset_mutation_request_error(body, headers)
+    if request_error:
+        return request_error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    from ..drama_asset_web import (
+        AssetStatusRequest,
+        DramaAssetWebConflict,
+        set_asset_status,
+    )
+    from ..schemas import model_to_dict
+
+    try:
+        request = AssetStatusRequest(**(payload or {}))
+        with jobs.workspace_reserved(name):
+            result = set_asset_status(name, request)
+    except DramaAssetWebConflict as exc:
+        return _json(409, {"error": str(exc)})
+    except ValueError:
+        return _json(400, {"error": "invalid asset mutation request"})
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        raise
+    return _json(200, model_to_dict(result))
+
+
+def api_drama_art_direction_scope(
+    name: str,
+    body: bytes,
+    headers: Dict[str, str],
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    request_error = _drama_asset_mutation_request_error(body, headers)
+    if request_error:
+        return request_error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    from ..drama_asset_web import (
+        ArtDirectionScopeRequest,
+        DramaAssetWebConflict,
+        set_art_direction_scope_enabled,
+    )
+    from ..schemas import model_to_dict
+
+    try:
+        request = ArtDirectionScopeRequest(**(payload or {}))
+        with jobs.workspace_reserved(name):
+            result = set_art_direction_scope_enabled(name, request)
+    except DramaAssetWebConflict as exc:
+        return _json(409, {"error": str(exc)})
+    except ValueError:
+        return _json(400, {"error": "invalid asset mutation request"})
+    except RuntimeError as exc:
+        conflict = _write_conflict_response(exc)
+        if conflict:
+            return conflict
+        raise
+    return _json(200, model_to_dict(result))
 
 
 _DRAMA_STEP_TASKS = {
@@ -3999,6 +4193,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         ),
     ),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"), lambda name, **_: render_workspace_characters_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/assets/?$"), lambda name, **_: render_workspace_assets_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/episodes/?$"), lambda name, **_: render_workspace_episodes_page(name)),
     (
         "GET",
@@ -4197,6 +4392,42 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/characters/(?P<cid>[^/]+)/redraw/?$"),
         lambda name, cid, _body=b"", _headers=None, **_: api_drama_character_redraw(
             name, cid, _body, _headers or {}
+        ),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/assets/?$"),
+        lambda name, _query=None, **_: api_drama_assets_get(
+            name,
+            ((_query or {}).get("season_no", ["1"])[0]),
+            ((_query or {}).get("episode_no", ["1"])[0]),
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/assets/select/?$"),
+        lambda name, _body=b"", _headers=None, **_: api_drama_assets_select(
+            name,
+            _body,
+            _headers or {},
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/assets/status/?$"),
+        lambda name, _body=b"", _headers=None, **_: api_drama_assets_status(
+            name,
+            _body,
+            _headers or {},
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/assets/art-direction-scope/?$"),
+        lambda name, _body=b"", _headers=None, **_: api_drama_art_direction_scope(
+            name,
+            _body,
+            _headers or {},
         ),
     ),
     (

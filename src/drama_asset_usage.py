@@ -371,6 +371,12 @@ def _workspace_retirement_season_nos(workspace: str) -> tuple[int, ...]:
     return tuple(sorted(seasons))
 
 
+def list_asset_governance_season_nos(workspace: str) -> tuple[int, ...]:
+    """Public bounded view of seasons participating in global governance."""
+
+    return _workspace_retirement_season_nos(workspace)
+
+
 def assert_asset_version_selectable_across_workspace(
     workspace: str,
     *,

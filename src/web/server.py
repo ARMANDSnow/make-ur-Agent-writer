@@ -10,10 +10,19 @@ so the port is released immediately on the next start.
 
 from __future__ import annotations
 
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from . import routes
+
+
+_DRAMA_ASSET_MUTATION_PATH_RE = re.compile(
+    r"^/api/workspace/[^/]+/drama/assets/"
+    r"(?:select|status|art-direction-scope)/?$"
+)
+_DRAMA_ASSET_MUTATION_BODY_LIMIT = 32 * 1024
 
 
 class WebHandler(BaseHTTPRequestHandler):
@@ -33,8 +42,6 @@ class WebHandler(BaseHTTPRequestHandler):
         # this local dev tool a compact single line is enough; keep it
         # on stderr so it doesn't pollute --capture in test runs.
         import sys
-        import re
-
         rendered = fmt % args
         # The video provider callback uses a bearer capability in the path.
         # BaseHTTPRequestHandler's request line would otherwise persist that
@@ -57,6 +64,16 @@ class WebHandler(BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length", "0") or 0)
             except ValueError:
                 length = 0
+            decoded_path = unquote(urlsplit(path).path)
+            if (
+                method == "POST"
+                and _DRAMA_ASSET_MUTATION_PATH_RE.fullmatch(decoded_path)
+                and length > _DRAMA_ASSET_MUTATION_BODY_LIMIT
+            ):
+                # iter129: this cap must run before rfile.read.  The route
+                # repeats it for direct-dispatch tests and defense in depth.
+                self.send_error(413, "Asset mutation payload too large")
+                return
             if length > 64 * 1024 * 1024:
                 self.send_error(413, "Payload too large")
                 return

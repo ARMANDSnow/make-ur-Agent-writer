@@ -220,6 +220,33 @@ def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanIns
     return RenderPlanInspection("fresh", (), plan)
 
 
+def inspect_stored_render_plan(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> RenderPlanInspection:
+    """Validate only the persisted plan, without resolving current sources.
+
+    Asset-governance impact needs the historical frozen resolution even after
+    its creative sources or selected asset have changed.
+    """
+
+    number = normalize_episode_no(episode_no)
+    try:
+        plan = _read_render_plan(workspace, episode_no=number)
+    except FileNotFoundError:
+        return RenderPlanInspection("needs_render_plan", ("missing",))
+    except _RenderPlanReadError as exc:
+        return RenderPlanInspection("invalid", (exc.reason,))
+    if plan.episode_no != number:
+        return RenderPlanInspection(
+            "invalid",
+            ("episode_identity_mismatch",),
+            plan,
+        )
+    return RenderPlanInspection("fresh", (), plan)
+
+
 def _render_plan_target_token(workspace: str, *, episode_no: int) -> tuple[Any, ...]:
     root = paths.workspace_root(workspace)
     path = render_plan_path(workspace, episode_no=episode_no)

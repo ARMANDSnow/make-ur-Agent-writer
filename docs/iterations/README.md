@@ -150,3 +150,4 @@
 135. [Iteration 126 - 短剧 Visual Override 与 Stale 依赖矩阵](./iteration_126_drama_visual_override_stale_matrix.md)
 136. [Iteration 127 - 短剧资产跨集 Used-By 与停用保护](./iteration_127_drama_asset_cross_episode_usage_retirement.md)
 137. [Iteration 128 - 短剧美术方向多 Scope 解析与冻结](./iteration_128_drama_art_direction_scope_resolution_freeze.md)
+138. [Iteration 129 - 短剧资产管理 Web 总览与治理](./iteration_129_drama_asset_management_web_governance.md)
