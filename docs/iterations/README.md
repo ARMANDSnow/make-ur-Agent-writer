@@ -145,3 +145,4 @@
 130. [Iteration 121 - 短剧可恢复 TTS Attempt](./iteration_121_drama_recoverable_tts_attempt.md)
 131. [Iteration 122 - 短剧唯一 TimelineManifest 与字幕](./iteration_122_drama_timeline_manifest_subtitles.md)
 132. [Iteration 123 - FFmpeg 本地完整成片竖切](./iteration_123_drama_ffmpeg_local_full_compose.md)
+133. [Iteration 124 - 短剧桌面端 SOP 与真模型验证](./iteration_124_drama_desktop_sop_real_provider_validation.md)
