@@ -50,6 +50,7 @@
 | 122 | 短剧唯一时间线与字幕 | fresh MP4/WAV 同锁投影、严格 TimelineManifest 与同源 SRT |
 | 123 | 短剧本地 FFmpeg 完整成片 | argv-only 合成计划、verified-byte staging、1080×1920/25fps MP4/SRT 与 post-probe QA |
 | 124 | 短剧桌面端 SOP 与真模型验证 | 两集桌面 E2E、多集分镜/导航、任务日志安全投影与真文本/图片局部校准 |
+| 125 | 短剧 ASS 与可编辑工程导出 | 同源 ASS、vendor-neutral 六轨工程、素材/字幕版本冻结与 completion marker |
 
 ## Iteration Implementation Index
 
@@ -227,6 +228,7 @@
 29. **媒体候选、选择与恢复要分层**：content-addressed candidate 是不可变事实，新 candidate 不能自动替换 first/tail selection；跨镜 lineage 必须绑定 source tail revision 与 target request，lost-response 只能凭 exact transition receipt 重放。缺失 artifact 可按 manifest identity create-only 恢复，但损坏/占位目标不能自动覆盖或靠重建 manifest 掩盖。
 30. **付费 attempt 的一次调用承诺必须先于 provider 接线落地**：capability、provider/request identity 与 ordered exact references 要在调用前冻结，`started` 必须先 durable；只有 transport 能证明 not-sent 才可释放机会。receipt、staging、C2 candidate 与 succeeded ledger 是分阶段事实，恢复应优先用已提交的 exact candidate 补账，并在最终锁内重读 source/target。该证据只证明受控本地 writer 下的 process-crash 恢复；不能外推 power-loss、非合作本机进程或真实 provider exactly-once。
 31. **媒体合成的完成态必须由同源时间线和 post-probe 共同证明**：plan 只接受显式 argv 与严格相对路径；hash/probe 后应把已验证字节固化到私有 staging，避免 FFmpeg 消费漂移源。容器总时长不能替代视频流时长，SRT 与 QA 也不能靠各自落盘值自证；应从 TimelineManifest 重建并把 output SHA、轨道规格和 required-shot coverage 一起复核。
+32. **多文件可编辑导出需要显式完成协议，而不只是逐文件原子替换**：ASS 与工程文件各自原子写入仍可能形成跨文件 partial pair；应先失效旧 marker，在同一锁域内重验素材、输出目录 identity 和完整 pair，最后才提交 completion marker。字幕 revision、素材 SHA、source range、profile 与 timeline fingerprint 必须进入可重建工程，特定 NLE 兼容性只能由对应 adapter 另行证明。
 
 ## Historical Evidence Notes
 

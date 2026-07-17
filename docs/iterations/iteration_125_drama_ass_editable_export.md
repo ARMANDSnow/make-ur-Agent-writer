@@ -42,7 +42,12 @@ iter124 收官时，短剧 A-F 已具备逐镜图片/视频、声音时间线和
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- **A125-01 — PASS**：同一 strict TimelineManifest 可字节稳定导出 UTF-8 ASS；固定 10ms timebase、确定性样式/排序与反斜杠/花括号转义，高密度不可表示 cue fail closed，ASS 与 SRT 共享 timeline fingerprint。
+- **A125-02 — PASS**：vendor-neutral project v1 冻结 `vertical-1080x1920-25-v1`、48kHz stereo/AAC 128k、video/dialogue/narration/BGM/SFX/silence 六类轨道、素材 SHA、source range、gain/fade 与字幕 source hash/revision；不宣称特定 NLE 私有格式兼容。
+- **A125-03 — PASS**：导出在 workspace lock 与 pinned dirfd 下完成；completion marker 只在 ASS/project、素材与输出 namespace 最终复验后提交。exact require 可阻断路径穿越、绝对路径、symlink/FIFO/目录、坏 hash、partial pair、失败重导残留与 source/output namespace swap。
+- **A125-04 — PASS**：新增 16 项聚焦回归，与 TimelineManifest/F1 compositor 合并共 35 项通过；correctness、security/boundary、media/export 三个独立只读视角最终均无遗留 P0/P1/P2。实现提交 `7aa140bd22addd9e6ff7e6b5ae306b700610dc12` 上唯一 canonical `bash scripts/verify.sh` 通过：2514 tests、15 steps、304 秒、run `1f66b58ebc9c4e27bf430f4e744b3e21`、tree `bfb9843a1c2ff32f7138599c39efb38980e7f1d8`、`tracked_scope_clean=true`，结论 `mock-functional`。
+- **A125-05 — PASS（局部校准）**：不回显临时 loader 首次在网关层得到 HTTP 403（0.272 秒），调整正常客户端请求头后追加一次重试成功：`gpt-5.5-medium` HTTP 200、3.295 秒、prompt/completion/total tokens 为 85/89/174，返回对象与 F2 ASS timebase、editable profile 和六轨协议完全匹配，response SHA-256 为 `29d32c72ed9e2d4ffcb50d02eaf8ae85b2d39b95a5931f5d4592722fde0bd867`。保守计为文本请求 2/60、成功模型响应 1，预算预留 ¥0.10/¥150（非供应商账单）；图片 0/20、视频 0、TTS 0，凭据与响应正文均未落仓/日志。
+- **总级别**：canonical 为 `mock-functional`；本轮 scope-specific 文本仅为 `provider-validated-local-calibration`，`provider_validated_pipeline=false`，不外推图片、视频、TTS、特定 NLE 或完整 A-J pipeline。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
@@ -67,3 +72,4 @@ iter124 收官时，短剧 A-F 已具备逐镜图片/视频、声音时间线和
 ## Notes
 
 - 真模型校准与 `iter-finish` 的 canonical mock 验收分离，避免真实 provider 进入单测或 `verify.sh`。
+- 用户所指 `sd_real_max.md` 在本机可检索范围内不存在；本轮与视频无关且保持 0 submit，后续视频阶段仍须以可用的非占位配置和公网素材回调完成 preflight。
