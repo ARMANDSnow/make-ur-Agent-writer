@@ -41,7 +41,16 @@ iter139 已闭合阶段 G1-G7 的通用媒体调度、pricing 与 lifecycle metr
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- 聚焦回归：`.venv/bin/python3 -m unittest tests.test_drama_event_graph tests.test_drama_render_plan tests.test_drama_assets tests.test_drama_store tests.test_entity_advance tests.test_chapter_summary tests.test_context_budget`，**97 tests OK**；H1 自身 16 tests，`py_compile`、agent harness 与 `git diff --check` 通过。
+- 三个独立只读视角（correctness、security/boundary、multi-workspace+adaptation provenance）最终均为 **no remaining P0/P1/P2**。审查中修复了跨 workspace graph copy/load 与 event transplant、workspace/family scope 绕过、projection 非 exact/canonical closure、omitted 直接反序列化、membership record 自证、merge/split/事实排序与 pre-bound，以及文档 provenance/opaque atom 过度承诺；主线程逐项以 fully-rehashed 回归复核。未修风险：H1 source hash 仍是 caller-trusted assertion，没有权威 chapter-byte ledger、签名或 MAC；生产 adapter、RenderPlan binding 与 context memory 留给 H2/H3。
+- implementation commit：`dfe64adfbadfb80f79e77bdffe89e6b0936c6f93`（`feat(iter140): add typed source event graph`）。
+- 唯一 canonical：`bash scripts/verify.sh` exit 0，**2765 tests / 15 steps / 379 秒**，run `3c4b8062cef34e16bb26027d7fb158d7`，tree `7721632b283a720c5ef573dd262637bbfefd958b`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**；总级别 `mock-functional / canonical-mock-offline`，mandatory local-drama 子步骤 `local-e2e` 通过，未升级为 provider-validated。
+- 真文本局部协议校准：`gpt-5.5-medium` 单次 HTTP 200，5.056 秒、442 tokens，`typed_source_invented_separation / unknown_causality_not_inferred / exact_graph_closure_boundary / content_identity_not_authenticated_provenance` **4/4 true**。未保存或回显 key、响应正文或完整 prompt；本轮图片/视频/TTS 0。iter125-140 累计保守计 **20/60 requests、15 responses、13 protocol passes、约 ¥1.80 预留**，图片 **0/20**。
+- **A140-01 PASS**：event/fact/graph strict schema 同时绑定 workspace/family，source/invented/mixed、typed facts、chronology/parent 与来源 identity 全部有界且内容寻址。
+- **A140-02 PASS**：canonical no-follow create-once store、exact replay 与 save/load workspace 复核通过；坏 JSON、special file、symlink、hash/ID/scope splice fail closed。
+- **A140-03 PASS**：merge/split 精确保留来源、事实、资产与 causal/lineage，unknown 不补猜，invented/source-derived 无洗白旁路。
+- **A140-04 PASS**：projection 是 graph-order 的 exact minimum causal+lineage closure；omitted、source/spoiler 越界、extra/cross-graph/cross-workspace 全量拒绝。
+- **A140-05 PASS**：聚焦、三视角、唯一 canonical 与局部真文本校准均完成；结论严格限定为 H1 synthetic/mock-functional contract。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

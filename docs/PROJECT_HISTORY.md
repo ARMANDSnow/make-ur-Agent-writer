@@ -64,6 +64,8 @@
 | 136 | 短剧媒体持久 Binding 与 Queue Client | ledger v3、provider task+binding 原子入队、legacy reconciliation 与 bounded wait/cancel |
 | 137 | 短剧媒体 Owner-Guarded Provider Execution Loop | 显式 paid bridge、owner/context guarded step、inspect-or-submit crash takeover 与媒体特定 phase 路由 |
 | 138 | 短剧媒体 Pricing Facts 与 Insights | 六类 append-only facts、精确定点金额、跨集 evidence 唯一性与 unknown-safe 多币种聚合 |
+| 139 | 短剧媒体 Durable Lifecycle Metrics 与 Insights | 可信 ready/first-claim/terminal、legacy unknown、external exact evidence 与 terminal-denominator 指标 |
+| 140 | 短剧 Typed Source Event Graph 与来源边界 | workspace/family 双 scope、source/invented、unknown causal、strict lineage、exact projection 与 no-follow store |
 
 ## Iteration Implementation Index
 
@@ -184,6 +186,7 @@
 | 137 | 建立 owner-guarded provider execution loop 与 paid bridge | `src/drama_media_executor.py`、`tests/test_drama_media_executor.py`、`tests/support/drama_media_executor_driver.py` |
 | 138 | 建立 strict pricing facts 与安全 Insights | `src/drama_media_pricing.py`、`src/web/drama_insights.py`、`tests/test_drama_media_pricing.py` |
 | 139 | 建立 durable media lifecycle metrics 与安全 Insights | `src/drama_media_tasks.py`、`src/drama_media_metrics.py`、`src/web/drama_insights.py`、`tests/test_drama_media_metrics.py` |
+| 140 | 建立 typed source event graph 与来源边界 | `src/drama_schemas.py`、`src/drama_event_graph.py`、`tests/test_drama_event_graph.py` |
 
 ## Durable Decisions
 
@@ -271,6 +274,7 @@
 37. **Web 完成态必须绑定持久源、阶段锁与可交付上限**：job success 不是 durable truth；F1/F2 开始后仍要在各自锁内重读 current E3，下载应在同一 workspace snapshot 中绑定 episode/fingerprint 并重建 QA/completion。生成、验证和 Web 交付若使用不同字节上限，会产生“成功但不可下载”；content-addressed revision 还必须在幂等 replay 路径补偿清理不可达交付，否则 crash 会把有限单次输出变成无界累计磁盘。
 38. **Lease 的幂等重放也是所有权操作，不是普通只读返回**：caller-controlled time 会让另一个进程提前判定 expiry，未认证或已过期 replay 会让旧 worker 把别人的状态当成自己的成功继续付费动作。可靠协议必须在同一锁域读取可信时钟，把 owner/token、task/lease revision、before-ledger 与结果指纹写进持久 receipt；无证据的 legacy 在途状态宁可 reconciliation，也不能合成 lease。
 39. **Registry 的字符串 ID 与授权 fingerprint 必须形成同一身份，而不是两条并行线**：只验证 caller fingerprint 等于 task，却不证明它对应本次 provider/model ID，会在同 backend 多模型时把 A 的授权路由给 B。registration 应保存 ID↔fingerprint 双射，binding 冻结完整 capability snapshot；source Pydantic 对象也要在 API 边界重建验证，且通用抽象不能把 TTS 的“只重下、不重合成”降格为不支持 download。
+40. **事件图的可追溯性需要同时区分身份闭包与认证来源**：event 只绑定 graph family 会允许跨 workspace 移植，projection 只列已选成员会允许跨图自证，helper-only 守门也会被直接反序列化绕过。可靠边界应把 workspace/family 写入 event identity，以完整有序 membership 证明 graph，以 schema 复核 exact minimum closure；即便如此，普通 source hash/content addressing 仍只是 caller-trusted 内部一致性，生产 adapter 必须另行绑定权威 source snapshot，不能把它宣称为签名 provenance。
 
 ## Historical Evidence Notes
 
