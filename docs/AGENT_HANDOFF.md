@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 137，2026-07-18 收官 |
+| 更新时间 | iter 138，2026-07-18 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2717 tests OK** |
-| Accepted implementation commit | `a1c10aaca42d43eeb47ec582d5152183dcb9a7d6` |
+| Canonical 基线 | **2738 tests OK** |
+| Accepted implementation commit | `ba823c850b4477dcca013ca05844a01390cd6bb9` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过、`provider_validated=false`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | 真语音、真视频、真实 episode 2+ 成片及完整逐镜/单集媒体质量与费用仍未实测；视频配置仍缺有效 key 与公网素材回调；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter137 已完成 G5 显式 paid bridge、owner/context guarded execution、inspect-or-submit crash takeover 与 image/video/audio phase 路由；本轮真文本四项协议检查全部通过，图片/视频/TTS 均 0 调用 |
+| 当前开发轮次 | 无；iter138 已完成 G6 六类 strict pricing facts、精确定点金额、跨 episode evidence 唯一性、多币种/unknown-safe Insights；本轮真文本四项协议检查全部通过，图片/视频/TTS 均 0 调用 |
 
 ## Capability Map
 
@@ -22,7 +22,7 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、严格离线 mock、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、Insights、多集编辑入口、中文可读且脱敏的任务历史 | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、A1 strict RenderPlan 与五态 stale、A2 visual-only immutable candidate/双 CAS/effective manifest/receipt ledger/v1 stale matrix、B1 四类 exact-version 跨集 Used-By/source blocker/active-disabled ledger/新选择与物化保护、B2 ArtDirection Episode > Series > workspace-Global/selection+scope revision lineage/显式 clear 与 ABA stale、B3 strict allowlist 六分区资产 Web/exact Used-By/scope-aware cross-season impact/受控 CAS mutation、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、C1-C4 逐镜图片与候选比较/选择 Web、D1-D5 逐镜视频候选/attempt/continuity/compose readiness Web、E1 VoiceProfile/逐句 AudioManifest、E2 once-only TTS recovery、E3 strict TimelineManifest/SRT、F1 FFmpeg 1080×1920/25fps MP4 与媒体 QA、F2 同源 ASS/vendor-neutral 六轨工程/完成回执、F3 持久 E3/current gate/本地 Web compose/durable QA/MP4-SRT-ASS-edit exact delivery、G1 strict task DAG/active dedupe/failure-cancel cascade/unknown 零重提、G2 可信时钟 lease/owner-guarded transition+receipt replay/heartbeat/release/takeover/跨集 capacity、G3 static registry/ID-fingerprint 双向绑定/C-D-E capability/frozen binding、G4 ledger v3/provider task+binding 原子入队/legacy reconciliation/三态安全投影/纯本地 queue client、G5 explicit paid bridge/owner-context guarded execution/inspect-or-submit crash takeover/image-video-audio phase 路由、单集四导出、严格整季母包/阶段快照、Insights、episode 1 高光视频 job | G6 pricing/Insights 与真实 provider adapter，物理 GC、真实逐镜图片/视频 provider 与主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音/真视频未验证 |
+| 短剧 | 五站 job、显式文本 revision、Approve review 血统组装、连续多集（计划上限 100）、季角色库与单集冻结阵容/8 人边界、A1 strict RenderPlan 与五态 stale、A2 visual-only immutable candidate/双 CAS/effective manifest/receipt ledger/v1 stale matrix、B1 四类 exact-version 跨集 Used-By/source blocker/active-disabled ledger/新选择与物化保护、B2 ArtDirection Episode > Series > workspace-Global/selection+scope revision lineage/显式 clear 与 ABA stale、B3 strict allowlist 六分区资产 Web/exact Used-By/scope-aware cross-season impact/受控 CAS mutation、角色/season ArtDirection/season SceneAsset/season PropOrClueAsset 不可变版本与显式 selected CAS、C1-C4 逐镜图片与候选比较/选择 Web、D1-D5 逐镜视频候选/attempt/continuity/compose readiness Web、E1 VoiceProfile/逐句 AudioManifest、E2 once-only TTS recovery、E3 strict TimelineManifest/SRT、F1 FFmpeg 1080×1920/25fps MP4 与媒体 QA、F2 同源 ASS/vendor-neutral 六轨工程/完成回执、F3 持久 E3/current gate/本地 Web compose/durable QA/MP4-SRT-ASS-edit exact delivery、G1 strict task DAG/active dedupe/failure-cancel cascade/unknown 零重提、G2 可信时钟 lease/owner-guarded transition+receipt replay/heartbeat/release/takeover/跨集 capacity、G3 static registry/ID-fingerprint 双向绑定/C-D-E capability/frozen binding、G4 ledger v3/provider task+binding 原子入队/legacy reconciliation/三态安全投影/纯本地 queue client、G5 explicit paid bridge/owner-context guarded execution/inspect-or-submit crash takeover/image-video-audio phase 路由、G6 六类 append-only pricing facts/精确定点金额/跨集 evidence 唯一性/分币种 unknown-safe Insights、单集四导出、严格整季母包/阶段快照、Insights、episode 1 高光视频 job | 真实 provider/billing adapter、完整 task success/queue-wait 指标、物理 GC、真实逐镜图片/视频 provider 与主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音/真视频未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
@@ -36,9 +36,9 @@
 - iter128 B2 将 ArtDirection 固定为 workspace-local Episode > Series > Global；resolution 显式冻结 exact ref、selection/scope revision，三源 before/after token 防止层间竞态，scope clear 与 lifecycle disabled 分离，Global/episode retirement guard 不能跨 season 绕过。
 - iter129 B3 新增 strict allowlist 六分区资产页与 API；exact-version Used-By 和 scope-specific/cross-season impact 分离，Global 治理扫描全部 canonical season，select/lifecycle/clear mutation 复用领域 CAS、nofollow 与 workspace lock，32 KiB transport cap 在 body read 前生效。
 - iter130 C4 完成 strict/bounded 逐镜图片候选比较/选择 Web；iter131 D5 完成逐镜视频候选/attempt/coverage/continuity Web；iter132 F3 完成持久 E3/current gate、本地 compose job、durable QA 和四类 exact delivery。D5 exact 媒体路由永不返回 raw provider MP4；F3 生成/验证/交付统一 64 MiB，subtitle revision exact replay 与 episode-scoped retention 可在中断后幂等恢复。
-- iter133 G1 建立 strict task DAG；iter134 G2 建立可信时钟 worker ownership/capacity；iter135 G3 建立 deep-frozen 静态 registry 与 frozen binding；iter136 G4 将 provider task 与完整 binding 在 ledger v3 单次原子入队；iter137 G5 以显式 identity/context-bound paid bridge 和 owner-guarded step 驱动 image/video/audio，三类 `os._exit` crash window 经 takeover/inspect-or-submit 恢复后外部提交计数仍为 1。generic 层仍不保存或替代 provider task/response/paid receipt，真实 adapter 必须自行履行 paid-ledger inspection 与 context deadline。
-- iter125-137 scope-specific 文本校准累计保守计 16/60 请求、13 次 HTTP/model response、11 次协议检查通过；iter137 单次 HTTP 200、396 tokens/5.142 秒，四项协议检查 4/4。累计预留约 ¥1.30，图片 0/20、视频/TTS 0；该证据仍不升级总 provider 结论。
-- canonical **2717 tests OK**（项目 `.venv`）；implementation commit `a1c10aa` 上 exit 0，15 steps / 372 秒，run `0740a87ce5ff4b05a8be4585fa3bf3e8`，tree `abad88b8d39d2933c86fae5808181f691115246c`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`；correctness、security/boundary、runner/media/paid 最终 no findings。
+- iter133 G1 建立 strict task DAG；iter134 G2 建立可信时钟 worker ownership/capacity；iter135 G3 建立 deep-frozen 静态 registry 与 frozen binding；iter136 G4 将 provider task 与完整 binding 在 ledger v3 单次原子入队；iter137 G5 以显式 identity/context-bound paid bridge 和 owner-guarded step 驱动 image/video/audio，三类 `os._exit` crash window 经 takeover/inspect-or-submit 恢复后外部提交计数仍为 1；iter138 G6 以六类 append-only facts 记录精确定点 estimate/authorized/reserved/actual/refunded/unknown，workspace evidence 唯一性、多币种不换汇与 unknown 不归零在写侧和 Insights 读侧同时 fail closed。generic 层仍不保存或替代 provider task/response/paid receipt/billing，真实 adapter 必须自行履行 paid-ledger inspection、evidence 产生与 context deadline。
+- iter125-138 scope-specific 文本校准累计保守计 17/60 请求、14 次 HTTP/model response、12 次协议检查通过；iter138 单次 HTTP 200、422 tokens/5.28 秒，四项协议检查 4/4。累计预留约 ¥1.40，图片 0/20、视频/TTS 0；该证据仍不升级总 provider 结论。
+- canonical **2738 tests OK**（项目 `.venv`）；implementation commit `ba823c8` 上 exit 0，15 steps / 375 秒，run `6ceb05d4ac2042ec93253b4377d98949`，tree `2834bf7efac9628247c89e4dc0be70d8fd71cec8`，`tracked_scope_clean=true`，mock preflight **0 FATAL / 0 WARN**。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`；correctness、security/boundary、pricing/financial/Web 最终 no findings。
 
 ## Retained Working Memory
 
@@ -225,7 +225,7 @@
 1. **短剧真实多模态后续校准**：iter124 已验证指定样本的五站真文本与 2 张角色图；真视频仍缺有效服务 key 与公网素材回调，全角色/多题材图像、逐镜/单集媒体费用与质量仍需分别授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体**：A1/A2 渲染与 stale、B1-B3 exact-version/多 scope/资产 Web、C1-C4 本地逐镜图片与候选比较/选择 Web、D1-D5 逐镜视频候选/连续性 Web、E1-E3 voice/TTS/timeline、F1-F3 本地完整成片/可编辑导出/Web exact delivery 与 G1-G5 持久 task DAG/worker ownership/capacity/static registry/原子 frozen binding/纯本地 queue client/owner-guarded execution loop 已完成；G6 pricing/Insights、真实图片/视频/语音 provider adapter、物理 GC、Web provider submit/poll/cancel、JPEG/WebP、staging GC/power-loss、真实 BGM/SFX、特定 NLE、公网流式交付、真实 episode 2+ 与真实多模态质量仍未验证。
+4. **短剧媒体**：A1/A2 渲染与 stale、B1-B3 exact-version/多 scope/资产 Web、C1-C4 本地逐镜图片与候选比较/选择 Web、D1-D5 逐镜视频候选/连续性 Web、E1-E3 voice/TTS/timeline、F1-F3 本地完整成片/可编辑导出/Web exact delivery 与 G1-G6 持久 task DAG/worker ownership/capacity/static registry/原子 frozen binding/owner-guarded execution/strict pricing facts/安全 Insights 已完成；真实图片/视频/语音 provider 与 billing adapter、完整 task success/queue-wait 指标、物理 GC、Web provider submit/poll/cancel、JPEG/WebP、staging GC/power-loss、真实 BGM/SFX、特定 NLE、公网流式交付、真实 episode 2+ 与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 7. **严格本地对手 TOCTOU**：项目锁可阻止本项目 Web/runner 并发，workspace lock/holder、state/PNG 和新增 ArtDirection store 已使用 nofollow dirfd；若威胁模型包含不遵守 flock 的本机其他进程在最终检查后竞态替换目标或父目录，仍需更强的统一 dirfd/事务协议。
@@ -233,7 +233,7 @@
 ## Next Candidates
 
 - 低风险工程轮：可靠有界 JPEG/WebP decoder、provider 幂等键/资产上传恢复调研、100 集只读扫描优化或已登记 P2 技债。
-- 低风险短剧阶段轮：基于已稳定的 G1-G5 推进 G6 strict pricing facts 与安全 Insights 投影；真实 adapter 另起高风险授权轮。也可推进 C 的 JPEG/WebP/staging GC 或 I 的同源 production workbench/归档。不得把 estimate/reserve 冒充 actual/refund、跨币种求和，或把 generic task/lease/binding/observation 替代 paid evidence。
+- 低风险短剧阶段轮：G1-G6 已闭合，可推进完整 task success/queue-wait 指标、C 的 JPEG/WebP/staging GC，或 I 的同源 production workbench/归档；真实 adapter 另起高风险授权轮。不得从终态 `updated_at-created_at` 伪造 queue wait，也不得把 pricing facts 冒充 provider billing。
 - 需授权验证轮：全角色/多题材真生图、补齐有效视频 key/公网素材回调后的 episode 1 单次真视频、逐镜/单集媒体或小说 capstone。不要把这些授权合并推定；iter118/124 的文本与角色图证据不自动授权复跑。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -272,4 +272,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter137 完成 G5 owner-guarded provider execution loop：显式 paid bridge 与 exact frozen binding、task、owner/token、lease revision、deadline context 绑定；每个外部动作前 heartbeat、动作后 task/lease/ledger CAS，submit unknown 零自动重发，image/video/audio 保留各自 phase。三类 `os._exit`/新解释器 crash window 经 expired-lease takeover 和 inspect-or-submit 恢复后外部 submit count 严格为 1；cancel 竞态、audio download-only retry 与 stale owner result 均 fail closed。三视角 findings 全部修复并最终 no P0-P2；canonical 2717 tests、15 steps、372 秒，run `0740a87ce5ff4b05a8be4585fa3bf3e8`，mock preflight 0 WARN/FATAL。真文本 1 request、396 tokens/5.142 秒，协议 4/4；累计 iter125-137 保守 16/60 请求、约 ¥1.30，图片 0/20、视频/TTS 0，总级别 `mock-functional`。
+iter138 完成 G6 strict media pricing facts 与 Insights：estimate/authorized/reserved/actual/refunded/unknown 以精确定点微单位和 exact task/provider/media/evidence identity append-only 持久化；unknown 不归零，多币种不换汇，跨 episode evidence 重用、坏源和工作区超限均 fail closed 空汇总。三视角修复 reservation/replay、读侧 evidence splice 与 namespace 替换 TOCTOU，最终 no P0-P2；canonical 2738 tests、15 steps、375 秒，run `6ceb05d4ac2042ec93253b4377d98949`，mock preflight 0 WARN/FATAL。真文本 1 request、422 tokens/5.28 秒，协议 4/4；累计 iter125-138 保守 17/60 请求、约 ¥1.40，图片 0/20、视频/TTS 0，总级别 `mock-functional`。

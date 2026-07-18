@@ -43,7 +43,16 @@ iter133-137 已完成阶段 G 的 task DAG、worker ownership/capacity、静态 
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- 聚焦回归：`.venv/bin/python3 -m unittest tests.test_drama_media_pricing tests.test_drama_insights tests.test_drama_iter088_web tests.test_drama_media_tasks tests.test_drama_media_executor tests.test_web_routes_get`，**161 tests OK**；`py_compile`、agent harness 与 `git diff --check` 通过。
+- 三视角只读审查：correctness 修复付费 outcome 后倒退补 reservation 与非 exact replay 忽略时间；pricing/financial + Web 修复 fully-rehashed 跨 episode evidence 重用在 Insights 被重复聚合；security 修复 scan/commit namespace 替换 TOCTOU。修复后 correctness、security/boundary、pricing-financial-Web 最终均 **no remaining P0/P1/P2 findings**。
+- implementation commit `ba823c850b4477dcca013ca05844a01390cd6bb9` 上唯一标准验收 `bash scripts/verify.sh` exit 0：**2738 tests OK**、15 steps / 375 秒、run `6ceb05d4ac2042ec93253b4377d98949`、tree `2834bf7efac9628247c89e4dc0be70d8fd71cec8`、`tracked_scope_clean=true`；mock preflight **0 FATAL / 0 WARN**。总级别为 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`，`provider_validated=false`。
+- 授权真文本局部协议校准仅执行 1 request：`gpt-5.5-medium`，HTTP 200，422 tokens / 5.28 秒，exact JSON shape 与 `exact_fixed_point_pricing`、`unknown_not_zero`、`multi_currency_no_conversion`、`paid_evidence_bound_insights` 四项均通过。iter125-138 累计保守计 17/60 请求、14 次 HTTP/model response、12 次协议检查通过、预留约 ¥1.40；图片 0/20，视频/TTS 0。本次不持久化 key、prompt 或响应正文，不提升 provider 结论。
+- **A138-01：通过。** 六类 fact 与 episode/task/provider/media identity 严格、内容寻址；金额只接受有界 canonical 十进制字符串并持久化精确微单位，所有 ambiguous numeric 与重算 identity splice 均拒绝。
+- **A138-02：通过。** transition、CAS 与 exact replay 确定；unknown 无金额且后续 actual 只解析、不删除历史，refund 不超过 actual，付费 outcome 后不能倒退 reservation。
+- **A138-03：通过。** 每币种分别汇总 known actual/refund/net/delta/unknown/pending，不换汇、不跨币种求和；工作区 facts/tasks 超限、evidence 歧义或坏源均 degraded 空汇总。
+- **A138-04：通过。** Insights 缺失 graceful、坏源显式 degraded，公开字段 allowlist 且 UI escape/16 币种截断有提示；未泄漏 account/endpoint/evidence/binding/path/prompt/response，聚焦测试零 socket/provider/媒体/TTS。
+- **A138-05：通过。** 聚焦、三视角修复复核、唯一 canonical 与局部真文本校准均完成，无未处理 P0/P1/P2。
+- 未修风险：本地 pricing facts 不是 provider billing、发票或汇率结算；真实 adapter 仍需从 C/D/E 权威 paid ledger 产生 evidence，完整 task success/queue-wait 指标与真实媒体费用/质量仍待后续轮次。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

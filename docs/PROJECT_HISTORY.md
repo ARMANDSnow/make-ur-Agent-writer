@@ -63,6 +63,7 @@
 | 135 | 短剧媒体 Backend 能力注册与冻结解析 | 静态 capability registry、ID↔fingerprint 双向绑定与 submitted 后 frozen binding |
 | 136 | 短剧媒体持久 Binding 与 Queue Client | ledger v3、provider task+binding 原子入队、legacy reconciliation 与 bounded wait/cancel |
 | 137 | 短剧媒体 Owner-Guarded Provider Execution Loop | 显式 paid bridge、owner/context guarded step、inspect-or-submit crash takeover 与媒体特定 phase 路由 |
+| 138 | 短剧媒体 Pricing Facts 与 Insights | 六类 append-only facts、精确定点金额、跨集 evidence 唯一性与 unknown-safe 多币种聚合 |
 
 ## Iteration Implementation Index
 
@@ -181,6 +182,7 @@
 | 135 | 建立静态 backend registry 与 frozen task binding | `src/drama_schemas.py`、`src/drama_media_backends/`、`tests/test_drama_media_backend_registry.py` |
 | 136 | 建立持久 backend binding 与纯本地 queue client | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`src/drama_media_worker.py`、`src/drama_media_queue_client.py`、`tests/test_drama_media_queue_client.py` |
 | 137 | 建立 owner-guarded provider execution loop 与 paid bridge | `src/drama_media_executor.py`、`tests/test_drama_media_executor.py`、`tests/support/drama_media_executor_driver.py` |
+| 138 | 建立 strict pricing facts 与安全 Insights | `src/drama_media_pricing.py`、`src/web/drama_insights.py`、`tests/test_drama_media_pricing.py` |
 
 ## Durable Decisions
 
@@ -202,6 +204,7 @@
 - 通用 backend registry 只接受代码内显式、deep-frozen、内容寻址声明；provider/model ID 与 fingerprint 必须双向唯一并同时匹配 task。首次 binding 要冻结完整 capability/registration；进入 submitting 后不得从 current registry 重解释。C/D/E source capability 必须在转换入口重新验证，TTS synthesis 与 download 恢复语义不得被通用化抹平。
 - provider task 与完整 backend binding 必须在 ledger v3 同一 workspace lock/CAS 中原子持久化；legacy provider task 明示 unbound 并等待权威 paid evidence reconciliation，不能从 current registry 补猜。本地 compose/export 明示 binding 不适用；queue wait 必须由调用方 monotonic deadline 严格约束。
 - provider execution bridge 必须由受审查代码显式注入，并逐项绑定 frozen backend/task、current owner/token、lease revision 与 deadline context；外部动作前 heartbeat、动作后 CAS，且不持 workspace lock。submit 不明永不自动重发，崩溃接管只能通过权威 paid ledger 的 inspect-or-submit 恢复；generic observation 只留内容寻址 evidence fingerprint，不能保存或冒充 provider task、response、prompt、URL、path 或 paid receipt。
+- 媒体 pricing facts 与 provider billing 必须分层：persisted amount 只接受精确定点微单位，estimate/authorized/reserved/actual/refunded/unknown 保留不同事实语义；unknown 不能归零，多币种不能隐式换汇或跨币种求和。evidence fingerprint 要在写侧与读侧按工作区唯一，namespace 扫描和提交必须绑定同一 nofollow directory fd；歧义、坏源或聚合超限应返回空的 degraded 汇总，而不是 partial totals。
 
 ### Keep state auditable
 
