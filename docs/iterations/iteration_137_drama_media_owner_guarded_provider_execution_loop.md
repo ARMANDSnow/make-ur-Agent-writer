@@ -41,7 +41,20 @@ iter133-136 已完成 G1 task DAG、G2 worker ownership/capacity、G3 static reg
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- 聚焦验收：`.venv/bin/python3 -m unittest tests.test_drama_media_executor tests.test_drama_media_queue_client tests.test_drama_media_worker tests.test_drama_media_backend_registry` 共 **73 tests OK**；新增 executor 自身 23 项，另完成相关 `py_compile`、agent harness 与 `git diff --check`。测试期间 socket 被阻断，图片、视频与 TTS provider 调用均为 0。
+- correctness 首轮发现真实进程 crash 证明不足，补入三类 `os._exit`/新解释器窗口和持久外部计数；runner/media/paid 首轮发现 deadline 二次检查、crash matrix、audio download retry、证据等级与产品状态行问题，均已修复并聚焦回归。correctness、security/boundary、runner/media/paid 最终均 **no P0/P1/P2 findings**。主线程复核确认 synthetic paid bridge 只证明 mock 编排，不冒充真实 adapter 或 provider exactly-once。
+- implementation commit `a1c10aaca42d43eeb47ec582d5152183dcb9a7d6` 上唯一一次 `bash scripts/verify.sh` 通过：**2717 tests OK**，15 steps / 372 秒，run `0740a87ce5ff4b05a8be4585fa3bf3e8`，tree `abad88b8d39d2933c86fae5808181f691115246c`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN，mandatory `local_drama_e2e` 子步骤通过。
+- 授权真文本局部协议校准仅执行 1 request：`gpt-5.5-medium`，HTTP 200，396 tokens / 5.142 秒，exact JSON shape 与 `owner_guarded_paid_bridge`、`submit_unknown_no_resend`、`crash_takeover_exactly_once`、`media_specific_phase_routing` 四项均通过。iter125-137 累计保守计 16/60 请求、13 次 HTTP/model response、11 次协议检查通过、预留约 ¥1.30；图片 0/20，视频/TTS 0。本次不读取或持久化 key、prompt、响应正文，不提升 provider 结论。
+
+### Acceptance 判定
+
+- **A137-01：通过。** bridge 由代码显式注入，identity 与 frozen binding、task、owner/token、lease revision 和 deadline context 逐项绑定；旧 owner、stale CAS、动态解析和 identity drift 均 fail closed。
+- **A137-02：通过。** image/video/audio 三种 phase 路由确定；provider 动作前 heartbeat，动作后 task/lease/ledger CAS；三类真实进程 crash + takeover 均保持外部 submit count=1。
+- **A137-03：通过。** 只有权威 `not_sent` 形成确定失败；submit 异常/坏 observation/identity drift 进入 `submission_unknown` 且零自动重发，poll/download 可恢复，cancel request 不伪造上游确认。
+- **A137-04：通过。** 16-step/300 秒上限、调用前后 deadline、零 sleep pending、异常与公开 projection 均有界；generic ledger 未保存 provider task、response、prompt、URL、路径或 paid receipt，C/D/E paid ledger 未变更。
+- **A137-05：通过。** 聚焦、三视角审查、唯一 canonical 与局部真文本校准均完成，无未处理 P0/P1/P2。
+
+结论：总级别保持 **`mock-functional` / `canonical-mock-offline`**；mandatory local-drama 组件为 **`local-e2e`**，`provider_validated=false`。G5 owner-guarded execution loop 的本轮新增证据仅为 **mock-functional**；真实图片/视频/TTS adapter、真实媒体 exactly-once、provider deadline/SLA、pricing/Insights 仍未验证。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

@@ -62,6 +62,7 @@
 | 134 | 短剧媒体 Worker Lease 与容量 Lane | 可信时钟 lease、owner-guarded replay、v1 在途 reconciliation 与跨集 provider×media capacity |
 | 135 | 短剧媒体 Backend 能力注册与冻结解析 | 静态 capability registry、ID↔fingerprint 双向绑定与 submitted 后 frozen binding |
 | 136 | 短剧媒体持久 Binding 与 Queue Client | ledger v3、provider task+binding 原子入队、legacy reconciliation 与 bounded wait/cancel |
+| 137 | 短剧媒体 Owner-Guarded Provider Execution Loop | 显式 paid bridge、owner/context guarded step、inspect-or-submit crash takeover 与媒体特定 phase 路由 |
 
 ## Iteration Implementation Index
 
@@ -179,6 +180,7 @@
 | 134 | 建立 worker lease、认证 replay 与跨集容量 lane | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`src/drama_media_worker.py`、`tests/test_drama_media_worker.py` |
 | 135 | 建立静态 backend registry 与 frozen task binding | `src/drama_schemas.py`、`src/drama_media_backends/`、`tests/test_drama_media_backend_registry.py` |
 | 136 | 建立持久 backend binding 与纯本地 queue client | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`src/drama_media_worker.py`、`src/drama_media_queue_client.py`、`tests/test_drama_media_queue_client.py` |
+| 137 | 建立 owner-guarded provider execution loop 与 paid bridge | `src/drama_media_executor.py`、`tests/test_drama_media_executor.py`、`tests/support/drama_media_executor_driver.py` |
 
 ## Durable Decisions
 
@@ -199,6 +201,7 @@
 - 通用媒体 worker ownership 只使用 workspace lock 内可信时钟；执行态 mutation 与 lost-response replay 必须绑定 current owner/token、task/lease revision 和内容寻址 receipt。过期 lease 不能靠 replay 恢复成功，takeover 必须轮换 token；缺少 owner 证据的 legacy 在途态只能 safe-block reconciliation。
 - 通用 backend registry 只接受代码内显式、deep-frozen、内容寻址声明；provider/model ID 与 fingerprint 必须双向唯一并同时匹配 task。首次 binding 要冻结完整 capability/registration；进入 submitting 后不得从 current registry 重解释。C/D/E source capability 必须在转换入口重新验证，TTS synthesis 与 download 恢复语义不得被通用化抹平。
 - provider task 与完整 backend binding 必须在 ledger v3 同一 workspace lock/CAS 中原子持久化；legacy provider task 明示 unbound 并等待权威 paid evidence reconciliation，不能从 current registry 补猜。本地 compose/export 明示 binding 不适用；queue wait 必须由调用方 monotonic deadline 严格约束。
+- provider execution bridge 必须由受审查代码显式注入，并逐项绑定 frozen backend/task、current owner/token、lease revision 与 deadline context；外部动作前 heartbeat、动作后 CAS，且不持 workspace lock。submit 不明永不自动重发，崩溃接管只能通过权威 paid ledger 的 inspect-or-submit 恢复；generic observation 只留内容寻址 evidence fingerprint，不能保存或冒充 provider task、response、prompt、URL、path 或 paid receipt。
 
 ### Keep state auditable
 
