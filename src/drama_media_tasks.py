@@ -18,11 +18,14 @@ from typing import Any, Sequence
 from . import drama_edit_export, paths
 from .drama_schemas import (
     DramaMediaKind,
+    DramaMediaBackendBinding,
+    DramaMediaBackendRegistrySnapshot,
     DramaMediaTaskOutcomeCode,
     DramaMediaStage,
     DramaMediaTask,
     DramaMediaTaskLedger,
     DramaMediaTaskLedgerV2,
+    DramaMediaTaskLedgerV3,
     DramaMediaTaskState,
     DramaMediaWorkerLease,
     DramaMediaWorkerReleaseReceipt,
@@ -35,6 +38,8 @@ from .drama_store import (
     _read_strict_workspace_json,
     _validate_render_workspace_root,
 )
+from .drama_media_backends.base import DramaMediaBackendError
+from .drama_media_backends.registry import resolve_task_backend
 from .schemas import model_to_dict
 from .web.workspace_ctx import use_workspace
 from .workspace_lock import WorkspaceLocked, acquire_write_lock
@@ -57,6 +62,7 @@ ACTIVE_MEDIA_TASK_STATES = frozenset(
         "cancelling",
     }
 )
+PROVIDER_BACKED_MEDIA_KINDS = frozenset({"image", "video", "audio"})
 LEASED_MEDIA_TASK_STATES = frozenset(
     {"claimed", "submitting", "submitted", "polling", "downloading", "validating"}
 )
@@ -85,6 +91,36 @@ _TRANSITIONS: dict[str, frozenset[str]] = {
 
 class DramaMediaTaskError(ValueError):
     """Fail-closed public error without paths, prompts, or provider payloads."""
+
+
+def _canonical_dependency_task_ids(value: Any) -> list[str]:
+    if (
+        not isinstance(value, (list, tuple))
+        or isinstance(value, (str, bytes, bytearray))
+        or len(value) > 32
+        or any(
+            not isinstance(item, str)
+            or re.fullmatch(r"dmt_[0-9a-f]{24}", item) is None
+            for item in value
+        )
+        or len(value) != len(set(value))
+    ):
+        raise DramaMediaTaskError("media task dependency list is invalid")
+    return sorted(value)
+
+
+def _requires_backend_binding(task: DramaMediaTask) -> bool:
+    return task.media_kind in PROVIDER_BACKED_MEDIA_KINDS
+
+
+def _backend_binding_status(
+    task: DramaMediaTask,
+    *,
+    bound: bool,
+) -> str:
+    if not _requires_backend_binding(task):
+        return "not_applicable"
+    return "frozen" if bound else "legacy_unbound"
 
 
 def _clock_ms() -> int:
@@ -161,7 +197,9 @@ def _build_task(
     result_fingerprint: str | None = None,
     outcome_code: str | None = None,
 ) -> DramaMediaTask:
-    canonical_dependencies = sorted(dependency_task_ids)
+    canonical_dependencies = _canonical_dependency_task_ids(
+        dependency_task_ids
+    )
     dedupe_payload = _task_dedupe_payload(
         episode_no=episode_no,
         media_kind=media_kind,
@@ -328,9 +366,10 @@ def _build_ledger(
     leases: Sequence[DramaMediaWorkerLease] = (),
     release_receipts: Sequence[DramaMediaWorkerReleaseReceipt] = (),
     transition_receipts: Sequence[DramaMediaWorkerTransitionReceipt] = (),
-) -> DramaMediaTaskLedgerV2:
+    backend_bindings: Sequence[DramaMediaBackendBinding] = (),
+) -> DramaMediaTaskLedgerV3:
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "episode_no": episode_no,
         "revision": revision,
         "tasks": [
@@ -353,20 +392,28 @@ def _build_ledger(
                 transition_receipts, key=lambda item: item.task_id
             )
         ],
+        "backend_bindings": [
+            item.model_dump(mode="json")
+            for item in sorted(
+                backend_bindings, key=lambda item: item.task_id
+            )
+        ],
     }
     payload["ledger_fingerprint"] = _canonical_sha256(payload)
     try:
-        return DramaMediaTaskLedgerV2(**payload)
+        return DramaMediaTaskLedgerV3(**payload)
     except (RecursionError, TypeError, ValueError):
         raise DramaMediaTaskError("media task DAG is invalid") from None
 
 
-def _empty_ledger(episode_no: int) -> DramaMediaTaskLedgerV2:
+def _empty_ledger(episode_no: int) -> DramaMediaTaskLedgerV3:
     return _build_ledger(episode_no, (), revision=0)
 
 
 def _ledger_bytes(
-    ledger: DramaMediaTaskLedger | DramaMediaTaskLedgerV2,
+    ledger: DramaMediaTaskLedger
+    | DramaMediaTaskLedgerV2
+    | DramaMediaTaskLedgerV3,
 ) -> bytes:
     return (
         json.dumps(
@@ -389,7 +436,7 @@ def _read_ledger(
     workspace: str,
     *,
     episode_no: int,
-) -> DramaMediaTaskLedgerV2:
+) -> DramaMediaTaskLedgerV3:
     number = normalize_episode_no(episode_no)
     root = paths.workspace_root(workspace)
     _validate_render_workspace_root(root)
@@ -459,7 +506,25 @@ def _read_ledger(
                 release_receipts=(),
                 transition_receipts=(),
             )
-        ledger = DramaMediaTaskLedgerV2(**ledger_payload)
+        if ledger_payload.get("schema_version") == 2:
+            legacy_v2 = DramaMediaTaskLedgerV2(**ledger_payload)
+            if (
+                legacy_v2.episode_no != number
+                or payload["ledger_fingerprint"]
+                != legacy_v2.ledger_fingerprint
+                or raw != _ledger_bytes(legacy_v2)
+            ):
+                raise ValueError("media task ledger identity mismatch")
+            return _build_ledger(
+                number,
+                legacy_v2.tasks,
+                revision=legacy_v2.revision,
+                leases=legacy_v2.leases,
+                release_receipts=legacy_v2.release_receipts,
+                transition_receipts=legacy_v2.transition_receipts,
+                backend_bindings=(),
+            )
+        ledger = DramaMediaTaskLedgerV3(**ledger_payload)
         if (
             ledger.episode_no != number
             or payload["ledger_fingerprint"] != ledger.ledger_fingerprint
@@ -489,7 +554,7 @@ def _target_token(root: Path, path: Path) -> tuple[Any, ...]:
 
 def _write_ledger(
     workspace: str,
-    ledger: DramaMediaTaskLedgerV2,
+    ledger: DramaMediaTaskLedgerV3,
     *,
     expected_target_token: tuple[Any, ...],
 ) -> None:
@@ -535,10 +600,10 @@ def _write_ledger(
 
 def _persist_ledger(
     workspace: str,
-    ledger: DramaMediaTaskLedgerV2,
+    ledger: DramaMediaTaskLedgerV3,
     *,
     expected_target_token: tuple[Any, ...],
-) -> DramaMediaTaskLedgerV2:
+) -> DramaMediaTaskLedgerV3:
     _write_ledger(
         workspace, ledger, expected_target_token=expected_target_token
     )
@@ -552,7 +617,7 @@ def load_media_task_ledger(
     workspace: str,
     *,
     episode_no: int = 1,
-) -> DramaMediaTaskLedgerV2:
+) -> DramaMediaTaskLedgerV3:
     try:
         return _read_ledger(
             workspace, episode_no=normalize_episode_no(episode_no)
@@ -566,7 +631,7 @@ def load_media_task_ledger(
 
 
 def _validate_expected_ledger(
-    ledger: DramaMediaTaskLedgerV2,
+    ledger: DramaMediaTaskLedgerV3,
     expected_ledger_fingerprint: str | None,
     *,
     missing: bool,
@@ -631,6 +696,13 @@ def create_media_task(
 
     try:
         number = normalize_episode_no(episode_no)
+        dependencies = _canonical_dependency_task_ids(
+            dependency_task_ids
+        )
+        if media_kind in PROVIDER_BACKED_MEDIA_KINDS:
+            raise DramaMediaTaskError(
+                "provider media task requires a frozen backend binding"
+            )
         with use_workspace(workspace), acquire_write_lock(
             source="drama-media-task-create"
         ):
@@ -644,9 +716,6 @@ def create_media_task(
                 ledger = _empty_ledger(number)
                 missing = True
             by_id = {item.task_id: item for item in ledger.tasks}
-            dependencies = sorted(dependency_task_ids)
-            if len(dependencies) != len(set(dependencies)):
-                raise DramaMediaTaskError("media task dependency list is invalid")
             if any(item not in by_id for item in dependencies):
                 raise DramaMediaTaskError("media task dependency is missing")
             if any(now_ms < by_id[item].created_at_ms for item in dependencies):
@@ -708,6 +777,7 @@ def create_media_task(
                 leases=ledger.leases,
                 release_receipts=ledger.release_receipts,
                 transition_receipts=ledger.transition_receipts,
+                backend_bindings=ledger.backend_bindings,
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -719,6 +789,160 @@ def create_media_task(
         raise
     except (OSError, RecursionError, TypeError, ValueError):
         raise DramaMediaTaskError("media task creation was rejected") from None
+
+
+def enqueue_bound_media_task(
+    workspace: str,
+    *,
+    episode_no: int,
+    media_kind: DramaMediaKind,
+    stage: DramaMediaStage,
+    subject_id: str,
+    input_fingerprint: str,
+    backend_id: str,
+    provider_id: str,
+    model_id: str,
+    provider_fingerprint: str,
+    model_fingerprint: str,
+    account_fingerprint: str,
+    endpoint_fingerprint: str,
+    registry: DramaMediaBackendRegistrySnapshot,
+    dependency_task_ids: Sequence[str] = (),
+    attempt_no: int = 1,
+    now_ms: int,
+    expected_ledger_fingerprint: str | None,
+) -> tuple[DramaMediaTask, DramaMediaBackendBinding]:
+    """Atomically persist one task and its immutable G3 backend binding."""
+
+    try:
+        number = normalize_episode_no(episode_no)
+        dependencies = _canonical_dependency_task_ids(
+            dependency_task_ids
+        )
+        if media_kind not in PROVIDER_BACKED_MEDIA_KINDS:
+            raise DramaMediaTaskError(
+                "local media task does not use a provider backend binding"
+            )
+        if not isinstance(registry, DramaMediaBackendRegistrySnapshot):
+            raise DramaMediaTaskError("media backend registry is invalid")
+        with use_workspace(workspace), acquire_write_lock(
+            source="drama-media-task-bound-enqueue"
+        ):
+            root = paths.workspace_root(workspace)
+            path = media_task_ledger_path(workspace, episode_no=number)
+            token = _target_token(root, path)
+            try:
+                ledger = _read_ledger(workspace, episode_no=number)
+                missing = False
+            except FileNotFoundError:
+                ledger = _empty_ledger(number)
+                missing = True
+            by_id = {item.task_id: item for item in ledger.tasks}
+            bindings = {
+                item.task_id: item for item in ledger.backend_bindings
+            }
+            if any(item not in by_id for item in dependencies):
+                raise DramaMediaTaskError("media task dependency is missing")
+            if any(now_ms < by_id[item].created_at_ms for item in dependencies):
+                raise DramaMediaTaskError("media task creation time is invalid")
+            ready = all(by_id[item].state == "succeeded" for item in dependencies)
+            proposed = _build_task(
+                episode_no=number,
+                media_kind=media_kind,
+                stage=stage,
+                subject_id=subject_id,
+                input_fingerprint=input_fingerprint,
+                backend_id=backend_id,
+                provider_fingerprint=provider_fingerprint,
+                model_fingerprint=model_fingerprint,
+                account_fingerprint=account_fingerprint,
+                endpoint_fingerprint=endpoint_fingerprint,
+                dependency_task_ids=dependencies,
+                attempt_no=attempt_no,
+                state="ready" if ready else "planned",
+                revision=0,
+                created_at_ms=now_ms,
+                updated_at_ms=now_ms,
+            )
+
+            def existing_binding(
+                task: DramaMediaTask,
+            ) -> DramaMediaBackendBinding:
+                binding = bindings.get(task.task_id)
+                if binding is None:
+                    raise DramaMediaTaskError(
+                        "legacy unbound media task requires reconciliation"
+                    )
+                if (
+                    binding.provider_id != provider_id
+                    or binding.model_id != model_id
+                    or binding.backend_id != backend_id
+                    or binding.provider_fingerprint != provider_fingerprint
+                    or binding.model_fingerprint != model_fingerprint
+                ):
+                    raise DramaMediaTaskError(
+                        "frozen media backend binding changed"
+                    )
+                return binding
+
+            existing = by_id.get(proposed.task_id)
+            if existing is not None:
+                if existing.dedupe_key != proposed.dedupe_key:
+                    raise DramaMediaTaskError("media task identity collision")
+                return existing, existing_binding(existing)
+            if any(
+                by_id[item].state
+                in {"failed", "cancelled", "cancelling", "submission_unknown"}
+                for item in dependencies
+            ):
+                raise DramaMediaTaskError(
+                    "media task dependency cannot reach success"
+                )
+            _validate_expected_ledger(
+                ledger,
+                expected_ledger_fingerprint,
+                missing=missing,
+            )
+            active = next(
+                (
+                    item
+                    for item in ledger.tasks
+                    if item.dedupe_key == proposed.dedupe_key
+                    and item.state in ACTIVE_MEDIA_TASK_STATES
+                ),
+                None,
+            )
+            if active is not None:
+                return active, existing_binding(active)
+            binding = resolve_task_backend(
+                registry,
+                proposed,
+                provider_id=provider_id,
+                model_id=model_id,
+                provider_fingerprint=provider_fingerprint,
+                model_fingerprint=model_fingerprint,
+            )
+            updated = _build_ledger(
+                number,
+                [*ledger.tasks, proposed],
+                revision=ledger.revision + 1,
+                leases=ledger.leases,
+                release_receipts=ledger.release_receipts,
+                transition_receipts=ledger.transition_receipts,
+                backend_bindings=[*ledger.backend_bindings, binding],
+            )
+            _persist_ledger(
+                workspace, updated, expected_target_token=token
+            )
+            return proposed, binding
+    except WorkspaceLocked:
+        raise DramaMediaTaskError("media task workspace is busy") from None
+    except (DramaMediaTaskError, DramaMediaBackendError):
+        raise
+    except (OSError, RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError(
+            "bound media task enqueue was rejected"
+        ) from None
 
 
 def _transition_outcome(
@@ -870,6 +1094,17 @@ def transition_media_task(
             current = by_id.get(task_id)
             if current is None:
                 raise DramaMediaTaskError("media task is missing")
+            if (
+                _requires_backend_binding(current)
+                and current.state in LEASED_MEDIA_TASK_STATES
+                and not any(
+                item.task_id == current.task_id
+                for item in ledger.backend_bindings
+                )
+            ):
+                raise DramaMediaTaskError(
+                    "media task has no frozen backend binding"
+                )
             transition_receipt = next(
                 (
                     item
@@ -1059,6 +1294,7 @@ def transition_media_task(
                         else []
                     ),
                 ],
+                backend_bindings=ledger.backend_bindings,
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -1168,6 +1404,7 @@ def cancel_media_task_cascade(
                     for item in ledger.transition_receipts
                     if item.task_id not in affected
                 ],
+                backend_bindings=ledger.backend_bindings,
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -1197,6 +1434,7 @@ def build_media_task_projection(
     except FileNotFoundError:
         ledger = _empty_ledger(number)
     by_id = {item.task_id: item for item in ledger.tasks}
+    bound_ids = {item.task_id for item in ledger.backend_bindings}
     tasks = []
     for item in ledger.tasks:
         blocked = [
@@ -1219,6 +1457,11 @@ def build_media_task_projection(
                 "updated_at_ms": item.updated_at_ms,
                 "result_fingerprint": item.result_fingerprint,
                 "outcome_code": item.outcome_code,
+                "backend_binding_status": (
+                    _backend_binding_status(
+                        item, bound=item.task_id in bound_ids
+                    )
+                ),
             }
         )
     counts = {

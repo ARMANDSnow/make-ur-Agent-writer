@@ -10,6 +10,11 @@ from src import drama_media_tasks, drama_media_worker, paths
 from src.cli_workspace import init_workspace
 from src.drama_schemas import DramaMediaTaskLedger, _canonical_sha256
 from tests._drama_base import DramaTestBase
+from tests._drama_media_backend_fixture import (
+    MODEL_ID,
+    PROVIDER_ID,
+    build_registry,
+)
 
 
 class DramaMediaTaskTests(DramaTestBase):
@@ -45,19 +50,38 @@ class DramaMediaTaskTests(DramaTestBase):
         episode_no: int = 1,
         now_ms: int | None = None,
     ):
-        return drama_media_tasks.create_media_task(
-            self.name,
-            episode_no=episode_no,
-            media_kind=media_kind,
-            stage=stage,
-            subject_id=subject_id,
-            input_fingerprint=input_fingerprint,
-            dependency_task_ids=dependencies,
-            attempt_no=attempt_no,
-            now_ms=self.now if now_ms is None else now_ms,
-            expected_ledger_fingerprint=expected,
+        arguments = {
+            "episode_no": episode_no,
+            "media_kind": media_kind,
+            "stage": stage,
+            "subject_id": subject_id,
+            "input_fingerprint": input_fingerprint,
+            "dependency_task_ids": dependencies,
+            "attempt_no": attempt_no,
+            "now_ms": self.now if now_ms is None else now_ms,
+            "expected_ledger_fingerprint": expected,
             **self._IDENTITY,
+        }
+        if media_kind == "compose":
+            return drama_media_tasks.create_media_task(
+                self.name,
+                **arguments,
+            )
+        task, _binding = drama_media_tasks.enqueue_bound_media_task(
+            self.name,
+            provider_id=PROVIDER_ID,
+            model_id=MODEL_ID,
+            registry=build_registry(
+                media_kind=media_kind,
+                backend_id=self._IDENTITY["backend_id"],
+                provider_fingerprint=self._IDENTITY[
+                    "provider_fingerprint"
+                ],
+                model_fingerprint=self._IDENTITY["model_fingerprint"],
+            ),
+            **arguments,
         )
+        return task
 
     def _transition(
         self,
@@ -158,7 +182,7 @@ class DramaMediaTaskTests(DramaTestBase):
         self.assertIn("episode_001.tasks.json", str(path))
         envelope = json.loads(path.read_text("utf-8"))
         self.assertEqual(envelope["ledger_fingerprint"], loaded.ledger_fingerprint)
-        self.assertEqual(envelope["ledger"], loaded.model_dump())
+        self.assertEqual(envelope["ledger"], loaded.model_dump(mode="json"))
 
     def test_exact_create_replay_and_active_dedupe_do_not_swallow_new_input(self) -> None:
         first = self._create()
@@ -637,8 +661,8 @@ class DramaMediaTaskTests(DramaTestBase):
             drama_media_tasks.create_media_task(
                 name,
                 episode_no=1,
-                media_kind="image",
-                stage="image-generate",
+                media_kind="compose",
+                stage="compose",
                 subject_id="shot_001",
                 input_fingerprint="a" * 64,
                 dependency_task_ids=(),
@@ -663,6 +687,54 @@ class DramaMediaTaskTests(DramaTestBase):
         ):
             self._ledger()
         self.assertEqual(path.read_bytes(), before)
+
+    def test_unbound_provider_tasks_and_unbounded_dependencies_are_rejected(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            drama_media_tasks.DramaMediaTaskError,
+            "requires a frozen backend binding",
+        ):
+            drama_media_tasks.create_media_task(
+                self.name,
+                episode_no=1,
+                media_kind="image",
+                stage="image-generate",
+                subject_id="shot_unbound",
+                input_fingerprint="a" * 64,
+                dependency_task_ids=(),
+                attempt_no=1,
+                now_ms=self.now,
+                expected_ledger_fingerprint=None,
+                **self._IDENTITY,
+            )
+        invalid_dependencies = [
+            ["dmt_" + f"{index:024x}" for index in range(33)],
+            (item for item in ()),
+        ]
+        with patch.object(
+            drama_media_tasks,
+            "acquire_write_lock",
+            side_effect=AssertionError("lock must not be reached"),
+        ):
+            for dependencies in invalid_dependencies:
+                with self.assertRaisesRegex(
+                    drama_media_tasks.DramaMediaTaskError,
+                    "dependency list is invalid",
+                ):
+                    drama_media_tasks.create_media_task(
+                        self.name,
+                        episode_no=1,
+                        media_kind="compose",
+                        stage="compose",
+                        subject_id="episode_compose",
+                        input_fingerprint="b" * 64,
+                        dependency_task_ids=dependencies,
+                        attempt_no=1,
+                        now_ms=self.now,
+                        expected_ledger_fingerprint=None,
+                        **self._IDENTITY,
+                    )
 
     def test_workspace_metadata_symlink_and_oversize_fail_closed(self) -> None:
         for suffix, content in (
@@ -752,6 +824,7 @@ class DramaMediaTaskTests(DramaTestBase):
                 "updated_at_ms",
                 "result_fingerprint",
                 "outcome_code",
+                "backend_binding_status",
             },
         )
         rendered = json.dumps(projection, ensure_ascii=False)

@@ -22,12 +22,13 @@ from .drama_media_tasks import (
     _persist_ledger,
     _read_ledger,
     _replace_task,
+    _requires_backend_binding,
     _target_token,
     media_task_ledger_path,
 )
 from .drama_schemas import (
     DramaMediaTask,
-    DramaMediaTaskLedgerV2,
+    DramaMediaTaskLedgerV3,
     DramaMediaWorkerLease,
     DramaMediaWorkerReleaseReceipt,
     _canonical_sha256,
@@ -169,7 +170,7 @@ def _workspace_ledgers(
     workspace: str,
     *,
     include_episode_no: int,
-) -> list[DramaMediaTaskLedgerV2]:
+) -> list[DramaMediaTaskLedgerV3]:
     numbers = set(_episode_numbers_with_ledgers(workspace))
     numbers.add(include_episode_no)
     ledgers = []
@@ -185,7 +186,7 @@ def _workspace_ledgers(
 
 
 def _require_lane_capacity(
-    ledgers: list[DramaMediaTaskLedgerV2],
+    ledgers: list[DramaMediaTaskLedgerV3],
     *,
     lane_key: str,
     lane_capacity: int,
@@ -207,7 +208,7 @@ def _require_lane_capacity(
 
 
 def _task_and_lease(
-    ledger: DramaMediaTaskLedgerV2,
+    ledger: DramaMediaTaskLedgerV3,
     task_id: str,
 ) -> tuple[DramaMediaTask, DramaMediaWorkerLease | None]:
     task = next((item for item in ledger.tasks if item.task_id == task_id), None)
@@ -215,6 +216,20 @@ def _task_and_lease(
         raise DramaMediaWorkerError("media worker task is missing")
     lease = next((item for item in ledger.leases if item.task_id == task_id), None)
     return task, lease
+
+
+def _require_task_backend_binding(
+    ledger: DramaMediaTaskLedgerV3,
+    task: DramaMediaTask,
+) -> None:
+    if not _requires_backend_binding(task):
+        return
+    if not any(
+        item.task_id == task.task_id for item in ledger.backend_bindings
+    ):
+        raise DramaMediaWorkerError(
+            "media worker task has no frozen backend binding"
+        )
 
 
 def _build_release_receipt(
@@ -279,6 +294,7 @@ def claim_media_task(
             token = _target_token(root, path)
             ledger = _read_ledger(workspace, episode_no=number)
             task, existing = _task_and_lease(ledger, task_id)
+            _require_task_backend_binding(ledger, task)
             if existing is not None:
                 replay_now = _trusted_now_ms()
                 if (
@@ -343,6 +359,7 @@ def claim_media_task(
                     for item in ledger.transition_receipts
                     if item.task_id != task_id
                 ],
+                backend_bindings=ledger.backend_bindings,
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return lease
@@ -393,6 +410,7 @@ def heartbeat_media_task(
             token = _target_token(root, path)
             ledger = _read_ledger(workspace, episode_no=number)
             task, lease = _task_and_lease(ledger, task_id)
+            _require_task_backend_binding(ledger, task)
             if lease is None:
                 raise DramaMediaWorkerError("media worker lease is missing")
             now = _trusted_now_ms()
@@ -444,6 +462,7 @@ def heartbeat_media_task(
                 ],
                 release_receipts=ledger.release_receipts,
                 transition_receipts=ledger.transition_receipts,
+                backend_bindings=ledger.backend_bindings,
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return renewed
@@ -493,6 +512,7 @@ def release_media_task(
             token = _target_token(root, path)
             ledger = _read_ledger(workspace, episode_no=number)
             task, lease = _task_and_lease(ledger, task_id)
+            _require_task_backend_binding(ledger, task)
             if lease is None:
                 receipt = next(
                     (
@@ -567,6 +587,7 @@ def release_media_task(
                     for item in ledger.transition_receipts
                     if item.task_id != task_id
                 ],
+                backend_bindings=ledger.backend_bindings,
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return ready
@@ -618,6 +639,7 @@ def takeover_media_task(
             token = _target_token(root, path)
             ledger = _read_ledger(workspace, episode_no=number)
             task, lease = _task_and_lease(ledger, task_id)
+            _require_task_backend_binding(ledger, task)
             now = _trusted_now_ms()
             if (
                 lease is not None
@@ -689,6 +711,7 @@ def takeover_media_task(
                     for item in ledger.transition_receipts
                     if item.task_id != task_id
                 ],
+                backend_bindings=ledger.backend_bindings,
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return replacement

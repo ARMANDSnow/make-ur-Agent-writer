@@ -10,6 +10,11 @@ from unittest.mock import patch
 from src import drama_media_tasks, drama_media_worker, paths
 from src.drama_schemas import DramaMediaTaskLedger, _canonical_sha256
 from tests._drama_base import DramaTestBase
+from tests._drama_media_backend_fixture import (
+    MODEL_ID,
+    PROVIDER_ID,
+    build_registry,
+)
 
 
 def _claim_in_process(
@@ -77,7 +82,7 @@ class DramaMediaWorkerTests(DramaTestBase):
             expected = self._ledger(episode_no).ledger_fingerprint
         except FileNotFoundError:
             expected = None
-        return drama_media_tasks.create_media_task(
+        task, _binding = drama_media_tasks.enqueue_bound_media_task(
             self.name,
             episode_no=episode_no,
             media_kind=media_kind,
@@ -88,8 +93,19 @@ class DramaMediaWorkerTests(DramaTestBase):
             attempt_no=1,
             now_ms=self.now,
             expected_ledger_fingerprint=expected,
+            provider_id=PROVIDER_ID,
+            model_id=MODEL_ID,
+            registry=build_registry(
+                media_kind=media_kind,
+                backend_id=self._IDENTITY["backend_id"],
+                provider_fingerprint=self._IDENTITY[
+                    "provider_fingerprint"
+                ],
+                model_fingerprint=self._IDENTITY["model_fingerprint"],
+            ),
             **self._IDENTITY,
         )
+        return task
 
     def _claim(
         self,
@@ -159,6 +175,50 @@ class DramaMediaWorkerTests(DramaTestBase):
             str(paths.workspace_root(self.name)),
         ):
             self.assertNotIn(forbidden, rendered)
+
+    def test_local_compose_task_keeps_g2_lease_semantics_without_binding(
+        self,
+    ) -> None:
+        task = drama_media_tasks.create_media_task(
+            self.name,
+            episode_no=1,
+            media_kind="compose",
+            stage="compose",
+            subject_id="episode_001",
+            input_fingerprint="a" * 64,
+            dependency_task_ids=(),
+            attempt_no=1,
+            now_ms=self.now,
+            expected_ledger_fingerprint=None,
+            **self._IDENTITY,
+        )
+        self.assertEqual(self._ledger().backend_bindings, [])
+        lease = self._claim(task)
+        ledger = self._ledger()
+        claimed = next(
+            item for item in ledger.tasks if item.task_id == task.task_id
+        )
+        with patch.object(
+            drama_media_worker, "_clock_ms", return_value=self.now + 2
+        ):
+            released = drama_media_worker.release_media_task(
+                self.name,
+                episode_no=1,
+                task_id=task.task_id,
+                worker_fingerprint="5" * 64,
+                lease_token_fingerprint="6" * 64,
+                expected_task_revision=claimed.revision,
+                expected_lease_revision=lease.lease_revision,
+                expected_ledger_fingerprint=ledger.ledger_fingerprint,
+            )
+        self.assertEqual(released.state, "ready")
+        projection = drama_media_tasks.build_media_task_projection(
+            self.name, episode_no=1
+        )
+        self.assertEqual(
+            projection["tasks"][0]["backend_binding_status"],
+            "not_applicable",
+        )
 
     def test_workspace_lane_capacity_spans_episodes_and_policy_is_frozen(self) -> None:
         first = self._create(episode_no=1)
@@ -786,14 +846,19 @@ class DramaMediaWorkerTests(DramaTestBase):
         path = drama_media_tasks.media_task_ledger_path(self.name)
         path.write_bytes(drama_media_tasks._ledger_bytes(legacy))
         upgraded = self._ledger()
-        self.assertEqual(upgraded.schema_version, 2)
+        self.assertEqual(upgraded.schema_version, 3)
+        self.assertEqual(upgraded.backend_bindings, [])
         self.assertEqual(upgraded.tasks, [task])
         self.assertEqual(upgraded.leases, [])
         self.assertEqual(upgraded.release_receipts, [])
         self.assertEqual(upgraded.transition_receipts, [])
-        self._claim(task)
+        with self.assertRaisesRegex(
+            drama_media_worker.DramaMediaWorkerError,
+            "no frozen backend binding",
+        ):
+            self._claim(task)
         envelope = json.loads(path.read_text("utf-8"))
-        self.assertEqual(envelope["ledger"]["schema_version"], 2)
+        self.assertEqual(envelope["ledger"]["schema_version"], 1)
 
     def test_legacy_v1_inflight_states_require_reconciliation(self) -> None:
         task = self._create()

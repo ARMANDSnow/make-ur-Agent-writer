@@ -7630,6 +7630,93 @@ class DramaMediaTaskLedgerV2(BaseModel):
         return self
 
 
+class DramaMediaTaskLedgerV3(BaseModel):
+    """G4 ledger: worker ownership plus durable attempt-frozen backends."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[3] = 3
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    revision: int = Field(ge=0, le=1_000_000)
+    tasks: List[DramaMediaTask] = Field(max_length=1000)
+    leases: List[DramaMediaWorkerLease] = Field(max_length=1000)
+    release_receipts: List[DramaMediaWorkerReleaseReceipt] = Field(
+        max_length=1000
+    )
+    transition_receipts: List[DramaMediaWorkerTransitionReceipt] = Field(
+        max_length=1000
+    )
+    backend_bindings: List["DramaMediaBackendBinding"] = Field(max_length=1000)
+    ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("episode_no", "revision", mode="before")
+    @classmethod
+    def _media_ledger_v3_numbers_are_strict(
+        cls, value: Any, info: Any
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator(
+        "tasks",
+        "leases",
+        "release_receipts",
+        "transition_receipts",
+        "backend_bindings",
+        mode="before",
+    )
+    @classmethod
+    def _media_ledger_v3_lists_are_strict(
+        cls, value: Any, info: Any
+    ) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"media task ledger {info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _media_ledger_v3_is_canonical(self) -> "DramaMediaTaskLedgerV3":
+        v2_payload = {
+            "schema_version": 2,
+            "episode_no": self.episode_no,
+            "revision": self.revision,
+            "tasks": [item.model_dump() for item in self.tasks],
+            "leases": [item.model_dump() for item in self.leases],
+            "release_receipts": [
+                item.model_dump() for item in self.release_receipts
+            ],
+            "transition_receipts": [
+                item.model_dump() for item in self.transition_receipts
+            ],
+        }
+        DramaMediaTaskLedgerV2(
+            **v2_payload,
+            ledger_fingerprint=_canonical_sha256(v2_payload),
+        )
+        binding_ids = [item.task_id for item in self.backend_bindings]
+        if (
+            binding_ids != sorted(binding_ids)
+            or len(binding_ids) != len(set(binding_ids))
+        ):
+            raise ValueError("media backend binding order or identity is invalid")
+        by_id = {item.task_id: item for item in self.tasks}
+        for binding in self.backend_bindings:
+            task = by_id.get(binding.task_id)
+            if (
+                task is None
+                or binding.task_input_fingerprint != task.input_fingerprint
+                or binding.backend_id != task.backend_id
+                or binding.media_kind != task.media_kind
+                or binding.provider_fingerprint != task.provider_fingerprint
+                or binding.model_fingerprint != task.model_fingerprint
+            ):
+                raise ValueError("media backend binding task identity is invalid")
+        payload = self.model_dump(exclude={"ledger_fingerprint"})
+        if _canonical_sha256(payload) != self.ledger_fingerprint:
+            raise ValueError("media task ledger v3 fingerprint is invalid")
+        return self
+
+
 DramaMediaBackendKind = Literal["image", "video", "audio"]
 DramaMediaBackendSubmissionMode = Literal["synchronous", "asynchronous"]
 DramaMediaBackendMode = Literal[
