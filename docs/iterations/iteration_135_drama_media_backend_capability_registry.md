@@ -42,7 +42,13 @@ iter133-134 已完成 G1 持久 task DAG 与 G2 worker lease/capacity，但 work
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- **A135-01 — passed**：新增 strict、deep-frozen `DramaMediaBackendResolution/Capability/Registration/RegistrySnapshot/Binding`；tuple/frozen value object 阻止嵌套 mutation，公开入口仍 JSON-mode round-trip 重验内容指纹。bool/int/list、canonical order、额外字段、非法 identity 与 secret-like extra field 聚焦矩阵均 fail closed；schema 不承载 credential、endpoint、prompt、path、response 或费用事实。
+- **A135-02 — passed**：registry 仅接受显式已验证 registration 对象，不存在 dynamic import、entry point、任意 callable 或用户模块执行。key 按 `(provider, media, model)` deterministic 排序；duplicate key、backend ownership 歧义、provider/model ID↔fingerprint 非双射、不同 model ID 复用 fingerprint、未知组合及大小写/`.`/`..` 路径歧义 loud fail。
+- **A135-03 — passed**：首次 binding 仅允许 `planned/ready/claimed`，同时校验 task backend/media 与 registration provider/model fingerprints；binding 冻结完整 registration/capability 和原 registry fingerprint。`submitting` 以后无原 binding safe-block；有原 binding 时 current registry drift 不重解释，cross-task/cross-provider/cross-model replay 均被阻断。
+- **A135-04 — passed**：C3 image、D3 video、E2 TTS source capability 在转换入口重新验证，原对象与 source fingerprint 不变；TTS descriptor 保留“同步 synthesis 后独立 download，只重下不重合成”。projection 不含 provider/model/fingerprint/endpoint/account/prompt/path/response/paid evidence；最终聚焦 G1-G3 + C/D/E attempt/store **145 tests OK**，provider/network/图片/视频/TTS 调用为 0。
+- **A135-05 — passed**：correctness、security/boundary、runner/media/paid 首轮确认并修复 ID-fingerprint 交叉绑定、source capability mutation、TTS download 语义、`.` 路径段和 shallow freeze；最终三视角均 **no findings（P0-P2）**。未修风险仅为本轮明确排除的持久 binding/queue、provider execution loop、pricing/Insights 与真实媒体。
+- implementation commit `d9de3a74cc6777ee960f00a35d9797520bce74e0` 上唯一 canonical `bash scripts/verify.sh` exit 0：**2680 tests OK**、15 steps、369 秒，run `65e6a602b81c4514a060fca45a9fbca5`，tree `cc29c88604a103e98343dd096527c24f279a9961`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN。总口径 `mock-functional` / `canonical-mock-offline`，mandatory local-drama 子步骤为 `local-e2e`，`provider_validated=false`。
+- 真文本按授权仅发生 1 次请求：`gpt-5.5-medium` HTTP 200、4.324 秒、provider usage 282 tokens，`identity_fingerprint_bijection / frozen_binding_after_submission / tts_download_without_resynthesis / unknown_combination_loud_fail` 四项均 true，协议校准通过。iter125-135 累计保守计 14/60 请求、11 次 HTTP/model response、9 次协议检查通过，预留约 ¥1.10；图片 0/20、视频/TTS 0。未读取 `.env`，key、完整 prompt 与 response 正文均未输出或落盘。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
