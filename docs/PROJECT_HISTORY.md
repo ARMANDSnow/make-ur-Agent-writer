@@ -61,6 +61,7 @@
 | 133 | 短剧持久媒体任务 DAG | episode-scoped strict ledger、active dedupe、guarded transition、failure/cancel cascade 与 unknown 零重提 |
 | 134 | 短剧媒体 Worker Lease 与容量 Lane | 可信时钟 lease、owner-guarded replay、v1 在途 reconciliation 与跨集 provider×media capacity |
 | 135 | 短剧媒体 Backend 能力注册与冻结解析 | 静态 capability registry、ID↔fingerprint 双向绑定与 submitted 后 frozen binding |
+| 136 | 短剧媒体持久 Binding 与 Queue Client | ledger v3、provider task+binding 原子入队、legacy reconciliation 与 bounded wait/cancel |
 
 ## Iteration Implementation Index
 
@@ -177,6 +178,7 @@
 | 133 | 建立持久媒体 task DAG 与安全状态投影 | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`tests/test_drama_media_tasks.py` |
 | 134 | 建立 worker lease、认证 replay 与跨集容量 lane | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`src/drama_media_worker.py`、`tests/test_drama_media_worker.py` |
 | 135 | 建立静态 backend registry 与 frozen task binding | `src/drama_schemas.py`、`src/drama_media_backends/`、`tests/test_drama_media_backend_registry.py` |
+| 136 | 建立持久 backend binding 与纯本地 queue client | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`src/drama_media_worker.py`、`src/drama_media_queue_client.py`、`tests/test_drama_media_queue_client.py` |
 
 ## Durable Decisions
 
@@ -196,6 +198,7 @@
 - 通用媒体 task 只编排 identity/dependency/state，不保存或替代 provider task、response、receipt 与 paid attempt evidence。`submission_unknown` 在 generic DAG 无出边并持续占用 dedupe；未来恢复必须走绑定权威 paid evidence 的专用 reconciliation。
 - 通用媒体 worker ownership 只使用 workspace lock 内可信时钟；执行态 mutation 与 lost-response replay 必须绑定 current owner/token、task/lease revision 和内容寻址 receipt。过期 lease 不能靠 replay 恢复成功，takeover 必须轮换 token；缺少 owner 证据的 legacy 在途态只能 safe-block reconciliation。
 - 通用 backend registry 只接受代码内显式、deep-frozen、内容寻址声明；provider/model ID 与 fingerprint 必须双向唯一并同时匹配 task。首次 binding 要冻结完整 capability/registration；进入 submitting 后不得从 current registry 重解释。C/D/E source capability 必须在转换入口重新验证，TTS synthesis 与 download 恢复语义不得被通用化抹平。
+- provider task 与完整 backend binding 必须在 ledger v3 同一 workspace lock/CAS 中原子持久化；legacy provider task 明示 unbound 并等待权威 paid evidence reconciliation，不能从 current registry 补猜。本地 compose/export 明示 binding 不适用；queue wait 必须由调用方 monotonic deadline 严格约束。
 
 ### Keep state auditable
 

@@ -41,7 +41,16 @@ iter133-135 已完成 G1 task DAG、G2 worker ownership/capacity 与 G3 static r
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- 聚焦验收：审查修复后 66 项媒体 task/worker/backend/queue client 回归全部通过；相关 `py_compile`、harness checker 与 `git diff --check` 通过。
+- 多视角审查：correctness、security/boundary、runner/media/paid 三个独立只读视角完成。初审发现 provider task 可绕过原子 binding、依赖数组边界检查晚于 workspace lock，以及 wait 会接受 deadline 后才观察到的终态；主线程逐项修复并补回归，终审均为 no findings。
+- 唯一 canonical：implementation commit `d116de9d7de0271f006810773c1847ced372c646` 上 `bash scripts/verify.sh` exit 0，**2694 tests OK**、15 steps / 369 秒，run `4662e3bc93b74ac5934bdd823e00022b`，tree `2e8b410c045ba128135b1eb295b93d5e2929a157`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN。
+- 真文本局部协议校准：使用用户授权配置执行 1 request，HTTP 200、284 tokens、3.188 秒；`atomic_task_binding_commit`、`deadline_bounded_wait`、`legacy_provider_unbound_reconciliation`、`local_task_binding_not_applicable` 四项均通过。iter125-136 累计保守计 15/60 requests、12 次 HTTP/model response、10 次协议通过、预留约 ¥1.20；图片 0/20，视频/TTS 0。
+- `A136-01`：通过；v1/v2 identity-preserving migration 与 legacy unbound reconciliation 回归覆盖。
+- `A136-02`：通过；task+binding 单次原子入队、exact replay、dedupe 与 registry drift fail-closed 回归覆盖。
+- `A136-03`：通过；provider binding gate、terminal/cancel retention、unknown 零重提与 local lease 回归覆盖。
+- `A136-04`：通过；queue enqueue/get/bounded wait/cancel/restart 与三态安全投影回归覆盖。
+- `A136-05`：通过；聚焦、三视角、唯一 canonical 与真文本局部协议校准均完成。总验收保持 `mock-functional` / `canonical-mock-offline`，mandatory `local_drama_e2e` 为 `local-e2e`，`provider_validated=false`；本次真文本只校准协议理解，不证明真实图片/视频/TTS provider 执行。
+- 未修风险：无未处理 P0/P1/P2；G5 provider execution loop、pricing/Insights、现有 paid ledger reconciliation 与真实媒体质量仍在本轮范围外。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
