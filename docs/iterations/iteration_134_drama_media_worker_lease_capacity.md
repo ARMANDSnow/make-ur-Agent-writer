@@ -42,7 +42,13 @@ iter133 已完成 G1 episode-scoped 持久 task DAG、active dedupe、guarded tr
 
 ## Acceptance Result
 
-<iter-finish 回填 A134-01..05、测试数、canonical、真文本校准、审查结论与未修风险。>
+- **A134-01 — passed**：新增 strict v2 ledger、worker lease、release/transition receipt；task/dedupe/input/provider identity 保持不变。非在途 v1 逻辑升级后下一次 mutation 写 v2；`claimed/submitting/submitted/polling/downloading/validating` 六种缺 owner 证据的 v1 在途态显式 `requires reconciliation`，不合成授权。strict numeric/hash/time/order/task binding 与 receipt content address 均由 schema 和聚焦矩阵覆盖。
+- **A134-02 — passed**：claim 在 workspace lock 内以 bounded no-follow scan 遍历全部 canonical episode ledger，使用同一可信时钟计算未过期 lease；provider fingerprint×media kind lane 的 capacity 与 active policy 跨集共享。fork 双进程同 task 竞争只有一个 owner，capacity full/policy drift/坏 namespace 均不改目标 ledger。
+- **A134-03 — passed**：claim/heartbeat/release/takeover 及 execution transition 使用 owner+token、task/lease revision、ledger fingerprint guarded CAS；所有 worker mutation 和返回 active lease 的 replay 都在锁内重验可信时钟。expired release/heartbeat/replay fail closed，takeover 必须轮换 token；release/transition lost-response 由同 ledger receipt 认证，非 owner、旧 owner、current-revision 冒认和 ABA 均被回归阻断。
+- **A134-04 — passed**：terminal、`submission_unknown` 与 cancel cascade 确定性清 lease/失效同 task receipt；unknown 仍无 generic 出边且不能 claim/resubmit。公开投影不含 owner/token/lane/provider/account/path/prompt/paid evidence；worker/task 模块不导入 provider adapter 或 paid store。最终聚焦 G1/G2 29 tests OK；此前 G1/G2 + paid recovery + image/video attempt store 79 tests OK，图片/视频/TTS/provider/network 调用均为 0。
+- **A134-05 — passed**：correctness、security/boundary、runner/media/paid 三视角首轮共发现 caller-controlled clock、post-claim ownership bypass、v1 in-flight、token ABA、expired release、unauthenticated replay 与时间回拨；主线程逐条复现修复。后续复核继续发现 active/terminal/expired replay 窗口并补 trusted-clock live check 与 authenticated transition receipt；三视角最终均 **no findings（P0-P2）**，未修风险仅为本轮明确排除的 G3+ backend/queue/provider loop/pricing 和真实媒体校准。
+- implementation commit `d19dfbb3192a3fcac90e685291b161a12341e5e5` 上唯一 canonical `bash scripts/verify.sh` exit 0：**2657 tests OK**、15 steps、369 秒，run `b67107f7411a4e53a7569fa259535047`，tree `000eb6f491acd4c2781cbb8901e5c6c2e1996aa1`，`tracked_scope_clean=true`，mock preflight 0 FATAL / 0 WARN。总口径 `mock-functional` / `canonical-mock-offline`，mandatory local-drama 子步骤为 `local-e2e`，`provider_validated=false`。
+- 真文本按授权发生 2 次 HTTP attempt：第一次网关 HTTP 403、0.350 秒、无模型响应；按预授权追加一次相同模型/协议请求并仅补标准 User-Agent，`gpt-5.5-medium` HTTP 200、6.208 秒、provider usage 364 tokens，`trusted_clock / authenticated_transition_replay / token_rotation_takeover / legacy_inflight_reconciliation` 四项均 true，协议校准通过。iter125-134 累计保守计 13/60 请求、10 次 HTTP/model response、8 次协议检查通过，预留约 ¥1.00；图片 0/20、视频/TTS 0。未读取 `.env`，key、完整 prompt 与 response 正文均未输出或落盘。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

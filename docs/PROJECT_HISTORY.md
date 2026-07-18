@@ -59,6 +59,7 @@
 | 131 | 短剧逐镜视频候选 Web 与连续性门禁 | derived-only MP4 preview、attempt/coverage/continuity 投影与 guarded selection |
 | 132 | 短剧 Web 合成、QA 与交付 | 持久 E3/current gate、本地 F1/F2 job、durable QA、四类 exact delivery 与 revision retention |
 | 133 | 短剧持久媒体任务 DAG | episode-scoped strict ledger、active dedupe、guarded transition、failure/cancel cascade 与 unknown 零重提 |
+| 134 | 短剧媒体 Worker Lease 与容量 Lane | 可信时钟 lease、owner-guarded replay、v1 在途 reconciliation 与跨集 provider×media capacity |
 
 ## Iteration Implementation Index
 
@@ -173,6 +174,7 @@
 | 131 | 建立逐镜视频候选、连续性与安全派生预览 Web | `src/drama_shot_video_web.py`、`src/drama_shot_video_candidate_store.py`、`src/web/`、`tests/test_drama_shot_video_web.py` |
 | 132 | 建立短剧 Web 本地合成、durable QA 与 exact delivery | `src/drama_compose_web.py`、`src/drama_compositor.py`、`src/web/`、`tests/test_drama_compose_web.py` |
 | 133 | 建立持久媒体 task DAG 与安全状态投影 | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`tests/test_drama_media_tasks.py` |
+| 134 | 建立 worker lease、认证 replay 与跨集容量 lane | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`src/drama_media_worker.py`、`tests/test_drama_media_worker.py` |
 
 ## Durable Decisions
 
@@ -190,6 +192,7 @@
 - 计费媒体使用独立确认和预算。授权不从旧 job/state 继承，也不跨文本、图片、视频阶段复用。
 - 文本、图片、视频可以保留各自 ledger schema，但持久状态词汇与关键分类必须由共享不可变常量驱动；新增状态会让矩阵失败，直到完成显式分类，不为统一外观提前迁移 paid ledger。
 - 通用媒体 task 只编排 identity/dependency/state，不保存或替代 provider task、response、receipt 与 paid attempt evidence。`submission_unknown` 在 generic DAG 无出边并持续占用 dedupe；未来恢复必须走绑定权威 paid evidence 的专用 reconciliation。
+- 通用媒体 worker ownership 只使用 workspace lock 内可信时钟；执行态 mutation 与 lost-response replay 必须绑定 current owner/token、task/lease revision 和内容寻址 receipt。过期 lease 不能靠 replay 恢复成功，takeover 必须轮换 token；缺少 owner 证据的 legacy 在途态只能 safe-block reconciliation。
 
 ### Keep state auditable
 
@@ -252,6 +255,7 @@
 35. **多层 fallback 必须冻结解析历史，而不能只保存最终 ref**：Episode > Series > Global 若逐层读取却不复查先前 missing token，会在高层覆盖并发出现时短暂把低层计划判 fresh。resolution 应显式保存 selection/scope revision 并自校验 lineage；scope clear 与 lifecycle disabled 必须使用不同状态语义，Global mutation 还要检查所有已知 season ledger，不能信任调用方指定的单季证明。
 36. **内容哈希有效不等于媒体可安全公开**：浏览器不应直接消费 provider MP4；应从 manifest read 前实施并发/字节门禁，对单视频轨、尺寸、sample 与线程做解码前限制，再以去 metadata 的 decode/re-encode 派生物公开。超过 Web 重验上限的已选素材应保留可清除的 exact CAS 状态，但必须显式 `web_unverified` 并阻断 compose readiness，不能读取后才拒绝或误标成领域 artifact invalid。
 37. **Web 完成态必须绑定持久源、阶段锁与可交付上限**：job success 不是 durable truth；F1/F2 开始后仍要在各自锁内重读 current E3，下载应在同一 workspace snapshot 中绑定 episode/fingerprint 并重建 QA/completion。生成、验证和 Web 交付若使用不同字节上限，会产生“成功但不可下载”；content-addressed revision 还必须在幂等 replay 路径补偿清理不可达交付，否则 crash 会把有限单次输出变成无界累计磁盘。
+38. **Lease 的幂等重放也是所有权操作，不是普通只读返回**：caller-controlled time 会让另一个进程提前判定 expiry，未认证或已过期 replay 会让旧 worker 把别人的状态当成自己的成功继续付费动作。可靠协议必须在同一锁域读取可信时钟，把 owner/token、task/lease revision、before-ledger 与结果指纹写进持久 receipt；无证据的 legacy 在途状态宁可 reconciliation，也不能合成 lease。
 
 ## Historical Evidence Notes
 
