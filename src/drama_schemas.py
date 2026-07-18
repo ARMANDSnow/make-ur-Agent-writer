@@ -7628,3 +7628,390 @@ class DramaMediaTaskLedgerV2(BaseModel):
         if _canonical_sha256(payload) != self.ledger_fingerprint:
             raise ValueError("media task ledger v2 fingerprint is invalid")
         return self
+
+
+DramaMediaBackendKind = Literal["image", "video", "audio"]
+DramaMediaBackendSubmissionMode = Literal["synchronous", "asynchronous"]
+DramaMediaBackendMode = Literal[
+    "image_generation",
+    "image_to_video",
+    "reference_to_video",
+    "text_to_speech",
+]
+
+
+class DramaMediaBackendResolution(BaseModel):
+    """Deep-frozen output dimensions for one generic video capability."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    width: int = Field(ge=1, le=8192)
+    height: int = Field(ge=1, le=8192)
+
+    @field_validator("width", "height", mode="before")
+    @classmethod
+    def _backend_resolution_is_strict(
+        cls, value: Any, info: Any
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _backend_resolution_is_bounded(
+        self,
+    ) -> "DramaMediaBackendResolution":
+        if self.width * self.height > 40_000_000:
+            raise ValueError("media backend resolution exceeds its pixel limit")
+        return self
+
+
+class DramaMediaBackendCapability(BaseModel):
+    """Secret-free G3 capability normalized from one existing C/D/E contract."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    backend_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{0,63}$")
+    capability_version: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,31}$")
+    media_kind: DramaMediaBackendKind
+    stage: Literal["image-generate", "video-generate", "tts-synthesize"]
+    submission_mode: DramaMediaBackendSubmissionMode
+    supports_poll: bool
+    supports_resume: bool
+    supports_download: bool
+    supports_tail_frame: bool
+    max_reference_images: int = Field(ge=0, le=25)
+    supported_modes: tuple[DramaMediaBackendMode, ...] = Field(
+        min_length=1, max_length=2
+    )
+    supported_durations_seconds: tuple[int, ...] = Field(max_length=30)
+    supported_resolutions: tuple[DramaMediaBackendResolution, ...] = Field(
+        max_length=16
+    )
+    output_media_types: tuple[
+        Literal["image/png", "video/mp4", "audio/wav"], ...
+    ] = Field(min_length=1, max_length=1)
+    sample_rates: tuple[int, ...] = Field(max_length=8)
+    max_text_characters: Optional[int] = Field(default=None, ge=1, le=1000)
+    source_capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "supports_poll",
+        "supports_resume",
+        "supports_download",
+        "supports_tail_frame",
+        mode="before",
+    )
+    @classmethod
+    def _backend_capability_bools_are_strict(
+        cls, value: Any, info: Any
+    ) -> bool:
+        if type(value) is not bool:
+            raise ValueError(f"{info.field_name} must be bool")
+        return value
+
+    @field_validator("max_reference_images", mode="before")
+    @classmethod
+    def _backend_reference_limit_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("max_reference_images must be a strict integer")
+        return value
+
+    @field_validator("max_text_characters", mode="before")
+    @classmethod
+    def _backend_text_limit_is_strict(cls, value: Any) -> Optional[int]:
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool)
+        ):
+            raise ValueError("max_text_characters must be a strict integer")
+        return value
+
+    @field_validator(
+        "supported_modes",
+        "supported_durations_seconds",
+        "supported_resolutions",
+        "output_media_types",
+        "sample_rates",
+        mode="before",
+    )
+    @classmethod
+    def _backend_capability_lists_are_strict(
+        cls, value: Any, info: Any
+    ) -> tuple[Any, ...]:
+        if not isinstance(value, list):
+            raise ValueError(f"{info.field_name} must be a list")
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def _backend_capability_is_canonical(
+        self,
+    ) -> "DramaMediaBackendCapability":
+        mode_order = [
+            "image_generation",
+            "image_to_video",
+            "reference_to_video",
+            "text_to_speech",
+        ]
+        if self.supported_modes != tuple(
+            item for item in mode_order if item in self.supported_modes
+        ) or len(self.supported_modes) != len(set(self.supported_modes)):
+            raise ValueError("media backend modes are not canonical")
+        if (
+            any(
+                not isinstance(item, int)
+                or isinstance(item, bool)
+                or not 1 <= item <= 30
+                for item in self.supported_durations_seconds
+            )
+            or self.supported_durations_seconds
+            != tuple(sorted(set(self.supported_durations_seconds)))
+        ):
+            raise ValueError("media backend durations are not canonical")
+        profiles = [
+            (item.width, item.height) for item in self.supported_resolutions
+        ]
+        if profiles != sorted(set(profiles)):
+            raise ValueError("media backend resolutions are not canonical")
+        if (
+            any(
+                not isinstance(item, int)
+                or isinstance(item, bool)
+                or not 8000 <= item <= 48000
+                for item in self.sample_rates
+            )
+            or self.sample_rates != tuple(sorted(set(self.sample_rates)))
+        ):
+            raise ValueError("media backend sample rates are not canonical")
+        expected_stage = {
+            "image": "image-generate",
+            "video": "video-generate",
+            "audio": "tts-synthesize",
+        }[self.media_kind]
+        if self.stage != expected_stage:
+            raise ValueError("media backend stage does not match media kind")
+        expected_output = {
+            "image": ("image/png",),
+            "video": ("video/mp4",),
+            "audio": ("audio/wav",),
+        }[self.media_kind]
+        if self.output_media_types != expected_output:
+            raise ValueError("media backend output type is invalid")
+        if self.media_kind == "image":
+            valid = (
+                self.submission_mode == "synchronous"
+                and not self.supports_poll
+                and not self.supports_resume
+                and not self.supports_download
+                and not self.supports_tail_frame
+                and self.supported_modes == ("image_generation",)
+                and not self.supported_durations_seconds
+                and not self.supported_resolutions
+                and not self.sample_rates
+                and self.max_text_characters is None
+            )
+        elif self.media_kind == "video":
+            valid = (
+                self.submission_mode == "asynchronous"
+                and self.supports_poll
+                and self.supports_resume
+                and self.supports_download
+                and "image_to_video" in self.supported_modes
+                and bool(self.supported_durations_seconds)
+                and bool(self.supported_resolutions)
+                and not self.sample_rates
+                and self.max_text_characters is None
+            )
+        else:
+            valid = (
+                self.submission_mode == "synchronous"
+                and not self.supports_poll
+                and not self.supports_resume
+                and self.supports_download
+                and not self.supports_tail_frame
+                and self.max_reference_images == 0
+                and self.supported_modes == ("text_to_speech",)
+                and not self.supported_durations_seconds
+                and not self.supported_resolutions
+                and len(self.sample_rates) == 1
+                and self.max_text_characters is not None
+            )
+        if not valid:
+            raise ValueError("media backend capability is inconsistent")
+        payload = self.model_dump(exclude={"capability_fingerprint"})
+        if _canonical_sha256(payload) != self.capability_fingerprint:
+            raise ValueError("media backend capability fingerprint is invalid")
+        return self
+
+
+class DramaMediaBackendRegistration(BaseModel):
+    """One explicit code-owned `(provider, media, model)` registration."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    provider_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{0,63}$")
+    media_kind: DramaMediaBackendKind
+    model_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._/-]{0,119}$")
+    provider_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    model_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    backend_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{0,63}$")
+    capability: DramaMediaBackendCapability
+    registration_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("model_id", mode="before")
+    @classmethod
+    def _registered_model_id_is_safe(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or ".." in value
+            or "//" in value
+            or value.startswith("/")
+            or value.endswith("/")
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+        ):
+            raise ValueError("registered media model id is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def _registration_is_content_addressed(
+        self,
+    ) -> "DramaMediaBackendRegistration":
+        if (
+            self.backend_id != self.capability.backend_id
+            or self.media_kind != self.capability.media_kind
+        ):
+            raise ValueError("media backend registration is inconsistent")
+        payload = self.model_dump(exclude={"registration_fingerprint"})
+        if _canonical_sha256(payload) != self.registration_fingerprint:
+            raise ValueError("media backend registration fingerprint is invalid")
+        return self
+
+
+class DramaMediaBackendRegistrySnapshot(BaseModel):
+    """Immutable deterministic registry; it never imports backend code."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    registrations: tuple[DramaMediaBackendRegistration, ...] = Field(
+        min_length=1, max_length=256
+    )
+    registry_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("registrations", mode="before")
+    @classmethod
+    def _registry_entries_are_strict(
+        cls, value: Any
+    ) -> tuple[Any, ...]:
+        if not isinstance(value, list):
+            raise ValueError("media backend registrations must be a list")
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def _registry_is_canonical(self) -> "DramaMediaBackendRegistrySnapshot":
+        keys = [
+            (item.provider_id, item.media_kind, item.model_id)
+            for item in self.registrations
+        ]
+        if keys != sorted(keys) or len(keys) != len(set(keys)):
+            raise ValueError("media backend registry key order is invalid")
+        backend_owners: Dict[str, set[tuple[str, str]]] = {}
+        for item in self.registrations:
+            backend_owners.setdefault(item.backend_id, set()).add(
+                (item.provider_id, item.media_kind)
+            )
+        if any(len(owners) != 1 for owners in backend_owners.values()):
+            raise ValueError("media backend identity has ambiguous ownership")
+        provider_ids: Dict[str, set[str]] = {}
+        provider_fingerprints: Dict[str, set[str]] = {}
+        model_ids: Dict[tuple[str, str, str], set[str]] = {}
+        model_fingerprints: Dict[tuple[str, str, str], set[str]] = {}
+        for item in self.registrations:
+            provider_ids.setdefault(item.provider_id, set()).add(
+                item.provider_fingerprint
+            )
+            provider_fingerprints.setdefault(
+                item.provider_fingerprint, set()
+            ).add(item.provider_id)
+            owner = (item.provider_id, item.media_kind)
+            model_ids.setdefault((*owner, item.model_id), set()).add(
+                item.model_fingerprint
+            )
+            model_fingerprints.setdefault(
+                (*owner, item.model_fingerprint), set()
+            ).add(item.model_id)
+        if (
+            any(len(values) != 1 for values in provider_ids.values())
+            or any(
+                len(values) != 1
+                for values in provider_fingerprints.values()
+            )
+            or any(len(values) != 1 for values in model_ids.values())
+            or any(
+                len(values) != 1
+                for values in model_fingerprints.values()
+            )
+        ):
+            raise ValueError("media backend identity fingerprints are ambiguous")
+        payload = self.model_dump(exclude={"registry_fingerprint"})
+        if _canonical_sha256(payload) != self.registry_fingerprint:
+            raise ValueError("media backend registry fingerprint is invalid")
+        return self
+
+
+class DramaMediaBackendBinding(BaseModel):
+    """Attempt-frozen registry resolution bound to one exact generic task."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    task_input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    backend_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{0,63}$")
+    provider_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{0,63}$")
+    media_kind: DramaMediaBackendKind
+    model_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._/-]{0,119}$")
+    provider_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    model_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    capability_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    registration_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    registry_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    registration: DramaMediaBackendRegistration
+    binding_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def _binding_is_content_addressed(self) -> "DramaMediaBackendBinding":
+        if (
+            ".." in self.model_id
+            or "//" in self.model_id
+            or self.model_id.startswith("/")
+            or self.model_id.endswith("/")
+            or any(
+                part in {"", ".", ".."} for part in self.model_id.split("/")
+            )
+        ):
+            raise ValueError("bound media model id is invalid")
+        if (
+            self.backend_id != self.registration.backend_id
+            or self.provider_id != self.registration.provider_id
+            or self.media_kind != self.registration.media_kind
+            or self.model_id != self.registration.model_id
+            or self.provider_fingerprint
+            != self.registration.provider_fingerprint
+            or self.model_fingerprint
+            != self.registration.model_fingerprint
+            or self.source_capability_fingerprint
+            != self.registration.capability.source_capability_fingerprint
+            or self.capability_fingerprint
+            != self.registration.capability.capability_fingerprint
+            or self.registration_fingerprint
+            != self.registration.registration_fingerprint
+        ):
+            raise ValueError("media backend binding snapshot is inconsistent")
+        payload = self.model_dump(exclude={"binding_fingerprint"})
+        if _canonical_sha256(payload) != self.binding_fingerprint:
+            raise ValueError("media backend binding fingerprint is invalid")
+        return self

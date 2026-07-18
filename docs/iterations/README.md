@@ -156,3 +156,4 @@
 141. [Iteration 132 - 短剧 Web 合成、QA 与交付](./iteration_132_drama_web_compose_qa_delivery.md)
 142. [Iteration 133 - 短剧通用媒体任务 DAG 与持久状态](./iteration_133_drama_media_task_dag_persistent_state.md)
 143. [Iteration 134 - 短剧媒体 Worker Lease 与容量 Lane](./iteration_134_drama_media_worker_lease_capacity.md)
+144. [Iteration 135 - 短剧媒体 Backend 能力注册与冻结解析](./iteration_135_drama_media_backend_capability_registry.md)

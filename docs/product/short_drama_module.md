@@ -554,7 +554,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 - **v4** 2026-07-18 · 登记 A2 visual-only override、双 CAS 选择、effective manifest 与 stale dependency matrix
 - **v5** 2026-07-18 · 登记 F3 Web 本地合成、持久 E3 时间线、QA 真值与 exact 交付边界
 - **v6** 2026-07-18 · 登记 G1 最小持久 task DAG、active dedupe、guarded transition 与取消级联
-- **v7** 2026-07-18 · 登记 G2 worker lease、heartbeat/takeover 与跨集 capacity lane（**当前版本**）
+- **v7** 2026-07-18 · 登记 G2 worker lease、heartbeat/takeover 与跨集 capacity lane
+- **v8** 2026-07-18 · 登记 G3 静态 backend capability registry 与 attempt-frozen binding（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -644,7 +645,7 @@ drama workspace
 | D. 逐镜视频与连续性 | C 的 selected first/tail、references、镜头时长、provider capability | 每镜 I2V/R2V submit→durable receipt/id→poll→download/validate；候选选择与确定性连续性检查 | unknown submission 不重提；download 可重试但不 resubmit；任一 required shot stale/failed 时 production compose blocked | 🟨 **D1-D5 本地闭环已完成**：冻结输入、候选/coverage、once-only attempt、artifact 重验、首尾帧 lineage 与 production compose gate，并提供 strict/bounded 候选播放、选择、attempt/continuity/compose readiness Web；真实 provider/network、Web submit/poll/cancel 和 episode 2+ 成片仍未闭环 |
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
 | F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1-F3 本地与 Web 闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程；F3 将 E3 成功结果持久化为 Web 唯一输入，提供本地 compose job、durable QA truth 与 exact MP4/SRT/ASS/edit 下载。FFmpeg 单线程、跨 workspace 单槽、总源集 128 MiB、生成/验证/交付单一 64 MiB 上限；current D4/E3、F1/F2 与返回字节在同一锁快照验证，真实本地 episode 2 已覆盖。特定 NLE 私有格式、多 profile、更广 codec/container 与真实媒体质量仍未闭环 |
-| G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1-G2 持久任务与 worker ownership 已实现**：episode-scoped strict DAG、active dedupe、guarded transitions、dependency/failure/cancel propagation、安全投影、worker claim/heartbeat/release/expired takeover 与 workspace-wide provider×media capacity lane 已落地；generic task/lease 只编排，不保存 provider task/response 或替代 paid ledger。backend registry、queue client、执行 loop、pricing/Insights 尚未实现 |
+| G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1-G3 持久任务、worker ownership 与静态能力注册已实现**：episode-scoped strict DAG、worker lease/capacity lane，以及代码内 `(provider, media, model)` registry、C/D/E capability 纯转换和 attempt-frozen binding 已落地；unknown/重复/身份漂移 loud fail，submitted 后不重解析。generic task/binding 只编排，不保存 provider task/response 或替代 paid ledger。queue client、执行 loop、pricing/Insights 尚未实现 |
 | H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ⏳ 小说侧实体/摘要是可复用基础；短剧 event graph、`source_event_ids` 和可失效 cache 未实现；不阻塞阶段 F |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
 | J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清 provider/model/account fingerprint、提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F。当前为 `mock-functional` + fake-provider `local-e2e`、`provider_validated=false` |
@@ -717,6 +718,12 @@ G2 将 lease、task 与认证 replay receipt 放在同一 episode ledger 原子�
 
 所有 worker mutation 都在 workspace lock 内读取一次可信 wall clock；调用方不能伪造未来时间提前释放容量、续租或 takeover。claim 以 bounded no-follow 扫描覆盖全部 episode ledger 的未过期 lease；相同 provider identity×media kind 共享 capacity，active lane policy 不一致 loud fail，避免 episode 分片超卖。未过期 lease 不可接管，过期 lease 只能用新 token 在同一提交中替换 owner 并增加 task/lease revision；不读 PID 或猜进程是否存活，任何返回 lease 的 exact replay 也必须在可信时钟下仍有效。lease 随 succeeded/failed/cancelled/submission_unknown 或 cancel cascade 清除；unknown 仍不可 claim/重提。公开 worker 投影只含 episode/task/media/stage/state/revision/heartbeat/expiry 与 active/expired，不含 owner、token、lane、provider/account/path/prompt 或 paid evidence。G2 尚无执行 loop/backend/provider/queue/Web mutation，因此不能把 worker ownership 表述为真实媒体执行已接通。
 
+#### G3 静态 backend capability registry 与冻结 binding
+
+G3 registry 是由受审查代码显式传入声明后构建的 deep-frozen、content-addressed snapshot，不读取 `.env`、endpoint、credential 或用户模块名，也没有 dynamic import、entry point、任意 callable、热加载或网络副作用。唯一 lookup key 是 canonical `(provider_id, media_kind, model_id)`；provider/model ID 与 fingerprint 在 registry 内双向唯一，重复 key、同 backend 跨 provider/media 的歧义 ownership、不同 model ID 复用 fingerprint、未知组合、大小写/`.`/`..` 路径歧义与 backend/task identity drift 均 loud fail。同一 backend 可为同一 provider/media 声明多个 model，但每项 capability 与 registration 独立内容寻址。
+
+现有 C3 image、D3 video 与 E2 TTS capability 在 API 边界重新验证后只做纯转换：G3 descriptor 保存原 `source_capability_fingerprint` 及公共执行约束，不修改或替代原 attempt、authorization、artifact、submission/terminal receipt；TTS 明确保留“同步 synthesis POST 后独立 download，可只重下不重合成”。首次 task binding 只允许在 `planned/ready/claimed`，同时校验 task backend/media/provider/model fingerprints；binding 内冻结完整 registration/capability snapshot 与原 registry fingerprint。`submitting` 及之后的 task 没有原 binding 必须 safe-block，携带原 binding 时即使当前 registry 已更新也继续使用原 snapshot，不能重解释或据此自动重提。公开 registry projection 只展示 backend/media 和有界能力，不含 provider/model、任何 fingerprint、endpoint/account/prompt/path/response/paid evidence。G3 仍无 adapter callable、queue、provider execution、Web mutation 或 pricing，因此不能表述为真实媒体 backend 已接通。
+
 ### 11.4 依赖顺序与完成口径
 
 创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。
@@ -729,7 +736,7 @@ G2 将 lease、task 与认证 replay receipt 放在同一 episode ledger 原子�
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 134，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，以及 G1-G2 持久媒体任务 DAG、worker lease 与跨集容量 lane 已形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体仍有缺口，G3+ 的 backend/queue/pricing、H-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
+截至 iter 135，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，以及 G1-G3 持久媒体任务 DAG、worker lease、跨集容量 lane、静态 backend capability registry 与冻结 binding 已形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体仍有缺口，G4+ 的 queue/execution/pricing、H-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
 
 ### 11.5 规划外边界
 
