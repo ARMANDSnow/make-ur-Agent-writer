@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from .. import paths
 from ..cost_estimator import cost_cny
+from ..drama_media_pricing import collect_workspace_media_pricing
 
 
 _EPISODE_RE = re.compile(r"^episode_(\d+)\.json$")
@@ -31,7 +32,11 @@ _MAX_TOKEN_COUNT = 1_000_000_000
 _MAX_EPISODE_COST_CNY = 1_000_000.0
 _MAX_TARGET_DURATION_SECONDS = 300.0
 _MAX_ESTIMATED_DURATION_SECONDS = 600.0
-_MOCK_COST_NOTE = "mock 模式费用恒为 0；启用真模型后才会产生真实费用。"
+_MOCK_COST_NOTE = (
+    "LLM mock 模式费用恒为 0，启用真模型后才产生文本费用；"
+    "媒体金额来自独立 pricing facts，"
+    "unknown 不计作 0。"
+)
 
 
 def collect_drama_insights(workspace: str) -> Dict[str, Any]:
@@ -46,9 +51,11 @@ def collect_drama_insights(workspace: str) -> Dict[str, Any]:
     llm_cost = _collect_llm_cost(root / "logs" / "llm_calls.jsonl")
     episode_meta_cost = _collect_episode_meta_cost(root / "outputs" / "episodes")
     duration, hook_types = _collect_episode_metrics(root / "outputs" / "episodes")
+    media_pricing = collect_workspace_media_pricing(workspace)
     return {
         "llm_cost": llm_cost,
         "episode_meta_cost": episode_meta_cost,
+        "media_pricing": media_pricing,
         "duration": duration,
         "hook_types": hook_types,
         "cost_note": _MOCK_COST_NOTE,

@@ -343,6 +343,7 @@ class DramaIter088WebTests(DramaTestBase):
         payload = json.loads(body)
         self.assertIn("llm_cost", payload)
         self.assertIn("episode_meta_cost", payload)
+        self.assertIn("media_pricing", payload)
         self.assertIn("duration", payload)
         self.assertIn("hook_types", payload)
 
@@ -350,6 +351,8 @@ class DramaIter088WebTests(DramaTestBase):
         self.assertEqual(status, 200)
         js = body.decode("utf-8")
         self.assertIn("function dramaPayload", js)
+        self.assertIn("mediaPricing.currencies", js)
+        self.assertIn("尚无 pricing fact", js)
         self.assertIn("data-start-next-episode", js)
         self.assertIn("Comfy workflow 模板", js)
         self.assertNotIn("导出即将上线", js)

@@ -6357,9 +6357,26 @@ JS_DASHBOARD = """\
       const data = await fetchJson(wsUrl("/insights"));
       const llm = data.llm_cost || {};
       const meta = data.episode_meta_cost || {};
+      const mediaPricing = data.media_pricing || {};
+      const mediaCurrencies = Array.isArray(mediaPricing.currencies) ? mediaPricing.currencies.slice(0, 16) : [];
+      const hiddenMediaCurrencies = Array.isArray(mediaPricing.currencies) ? Math.max(0, mediaPricing.currencies.length - mediaCurrencies.length) : 0;
+      const mediaCostRows = mediaCurrencies.map(function (row) {
+        const state = row.actual_complete
+          ? "完整"
+          : (Number(row.unknown_submission_tasks || 0) > 0
+            ? "含 " + String(row.unknown_submission_tasks) + " 项未知"
+            : "待实际费用");
+        return '<div class="k">媒体 ' + escapeHtml(row.currency || "???") + '</div><div class="v">估算 ' +
+          escapeHtml(row.estimate == null ? "—" : String(row.estimate)) + ' · 已知实际 ' +
+          escapeHtml(row.actual_known == null ? "—" : String(row.actual_known)) + ' · ' +
+          escapeHtml(state) + '</div>';
+      }).join("");
       costBox.innerHTML = '<div class="kv-list compact">' +
         '<div class="k">LLM 日志</div><div class="v">¥' + escapeHtml(Number(llm.cost_cny || 0).toFixed(4)) + ' · ' + escapeHtml(String(llm.calls || 0)) + ' 次</div>' +
         '<div class="k">Episode meta</div><div class="v">¥' + escapeHtml(Number(meta.cost_cny || 0).toFixed(4)) + ' · ' + escapeHtml(String(meta.episodes || 0)) + ' 集</div>' +
+        (mediaCostRows || '<div class="k">媒体任务</div><div class="v">尚无 pricing fact</div>') +
+        (hiddenMediaCurrencies ? '<div class="k">更多币种</div><div class="v">另有 ' + escapeHtml(String(hiddenMediaCurrencies)) + ' 种，请查看 API 明细</div>' : '') +
+        (mediaPricing.status === "degraded" ? '<div class="k">媒体账本</div><div class="v">存在 ' + escapeHtml(String(mediaPricing.invalid_ledgers || 0)) + ' 个无效来源，未计入金额</div>' : '') +
         '<div class="k">说明</div><div class="v">' + escapeHtml(data.cost_note || "mock 成本为 0，真模型启用后生效。") + '</div>' +
         '</div>';
       const duration = data.duration || {};

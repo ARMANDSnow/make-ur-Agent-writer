@@ -747,7 +747,7 @@ def render_workspace_drama_insights(name: str, workspaces: Iterable[str]) -> str
         '<div class="titles">'
         '<p class="eyebrow ornament">短剧</p>'
         '<h1>数据 Insights</h1>'
-        '<p class="muted">查看短剧调用成本、单集时长达标率与钩子类型分布。</p>'
+        '<p class="muted">查看短剧调用成本、媒体任务分币种事实、单集时长达标率与钩子类型分布。</p>'
         '</div>'
         '<div class="cluster">'
         f'<a class="btn btn-secondary" href="/w/{escape(name)}/episodes">返回剧集</a>'

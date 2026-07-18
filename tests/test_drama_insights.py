@@ -66,6 +66,19 @@ class DramaInsightsTests(unittest.TestCase):
         )
         self.assertEqual(data["episode_meta_cost"], {"cost_cny": 0.0, "episodes": 0, "invalid": 0})
         self.assertEqual(
+            data["media_pricing"],
+            {
+                "schema_version": 1,
+                "status": "ok",
+                "ledger_count": 0,
+                "invalid_ledgers": 0,
+                "fact_count": 0,
+                "task_count": 0,
+                "currencies": [],
+                "rows": [],
+            },
+        )
+        self.assertEqual(
             data["duration"],
             {"total": 0, "within_tolerance": 0, "rate": 0.0, "tolerance_seconds": 3, "invalid": 0},
         )

@@ -159,3 +159,4 @@
 144. [Iteration 135 - 短剧媒体 Backend 能力注册与冻结解析](./iteration_135_drama_media_backend_capability_registry.md)
 145. [Iteration 136 - 短剧媒体持久 Binding 与 Queue Client](./iteration_136_drama_media_persistent_binding_queue_client.md)
 146. [Iteration 137 - 短剧媒体 Owner-Guarded Provider Execution Loop](./iteration_137_drama_media_owner_guarded_provider_execution_loop.md)
+147. [Iteration 138 - 短剧媒体 Pricing Facts 与 Insights](./iteration_138_drama_media_pricing_facts_insights.md)
