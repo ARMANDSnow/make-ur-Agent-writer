@@ -559,7 +559,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 - **v9** 2026-07-18 · 登记 G4 ledger v3、原子 frozen binding 与纯本地 queue client
 - **v10** 2026-07-18 · 登记 G5 owner-guarded provider execution loop
 - **v11** 2026-07-18 · 登记 G6 strict pricing facts 与分币种 Insights
-- **v12** 2026-07-18 · 登记 G7 durable lifecycle metrics 与成功率/等待时间 Insights（**当前版本**）
+- **v13** 2026-07-18 · 登记 H1 typed source event graph、来源与 spoiler boundary（**当前版本**）
+- **v12** 2026-07-18 · 登记 G7 durable lifecycle metrics 与成功率/等待时间 Insights
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -650,7 +651,7 @@ drama workspace
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
 | F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1-F3 本地与 Web 闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程；F3 将 E3 成功结果持久化为 Web 唯一输入，提供本地 compose job、durable QA truth 与 exact MP4/SRT/ASS/edit 下载。FFmpeg 单线程、跨 workspace 单槽、总源集 128 MiB、生成/验证/交付单一 64 MiB 上限；current D4/E3、F1/F2 与返回字节在同一锁快照验证，真实本地 episode 2 已覆盖。特定 NLE 私有格式、多 profile、更广 codec/container 与真实媒体质量仍未闭环 |
 | G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1-G7 持久调度、pricing 与 lifecycle metrics 已实现**：episode-scoped strict DAG、worker lease/capacity lane、代码内 registry、provider task+frozen binding 原子入队、纯本地 queue client、owner-guarded execution loop、六类 append-only pricing facts，以及 durable ready/first-claim/terminal lifecycle 与 success/queue/run Insights 已落地。generic task/pricing 只绑定受控 evidence fingerprint，不保存 provider task/response 或替代 paid ledger/billing。真实 adapter/账单对接尚未实现 |
-| H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ⏳ 小说侧实体/摘要是可复用基础；短剧 event graph、`source_event_ids` 和可失效 cache 未实现；不阻塞阶段 F |
+| H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | 🟨 **H1 typed graph 核心已实现**：strict source ref/hash、source-derived/invented/mixed provenance、typed precondition/effect、causal/lineage closure、deterministic merge/split、content-addressed no-follow store 与 spoiler-safe selection 已纯本地闭合。小说 entity/summary adapter、RenderPlan graph fingerprint、可失效 context memory、Web/UI 与真实提取仍未实现 |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
 | J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清 provider/model/account fingerprint、提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F。当前为 `mock-functional` + fake-provider `local-e2e`、`provider_validated=false` |
 
@@ -760,6 +761,16 @@ v1-v3 逻辑迁移会把原 canonical source ledger 保存在独立 immutable si
 
 只读 lifecycle Insights 按 episode/subject/media/stage/provider/model 分组，明确投影 task/terminal/succeeded/failed/cancelled/submission-unknown/pending 数量；success rate 的分母固定为 terminal task。queue wait 只在 ready + first claim 同时可证时计算，run duration 只在 first claim + terminal 同时可证时计算，并同时公开 known/unknown sample count、sum 与 deterministic average string；无样本返回 `null` 而不是伪 0。读取在 workspace 一致锁内完成，namespace/target token 前后重验，且实际解析字节的 source token 必须等于初始快照；task namespace 非 canonical、symlink/目录、坏 ledger、identity drift、超过 4000 tasks/1000 rows 或扫描竞态均 fail closed 为 degraded 空汇总。公开 projection 不含 worker/token/lease、account/endpoint/fingerprint、provider task、paid evidence、prompt、response、迁移来源或 path。真实 provider SLA、自动告警和分位数不在 G7。
 
+#### H1 Typed Source Event Graph 与来源边界
+
+H1 事件图只接收调用方显式提供的结构化事实，不读取原文章节、自由文本摘要或路径，也不从章节邻接、实体关系或文本相似度猜测因果。每个 event 同时绑定 workspace scope 与独立 immutable graph-family scope、稳定 content-addressed ID、逐章 `chapter_id/chapter_no/source_hash`、等于最高来源章的 spoiler boundary、排序唯一的参与者/场景/道具/线索，以及内容寻址的 typed precondition/effect；fact 的 subject/object/value 只能是无空格、无路径分隔符的 bounded opaque atom，没有专用或自由文本的原文、prompt、path、response、credential 字段。调用方仍不得把敏感内容编码进 opaque atom，H1 projection 也尚不能作为无需额外审查的公开 Web projection。来源类型固定为 `source_derived / invented / mixed`；original invented 不得携带 source，original mixed 不合法，source-derived 不得标 invented。`causality_complete=false` 明示已知 parent 之外仍有未知因果，不能被 builder 自动补全。
+
+graph 对 event、source identity、causal parent 与 merge/split lineage 做全闭包验证：workspace scope 与 graph-family scope 分列，不同 workspace 或 family 的 event 不可拼接；所有 parent 必须存在且不晚于 child，causal+lineage 联合图不得成环；同一 chapter ID 或 chapter number 的另一 hash/alias 冲突。merge 必须精确保留 parent 的 source、typed facts、参与者/资产、可证明 causal parents 与 completeness，source-derived 与 invented 混合后只能标 mixed；split 必须由至少两个 child 对 parent 的 precondition/effect 做无重叠完整分区，child 不能改变 source、参与者/资产或 causal facts。build/merge/split 都是 deterministic exact replay，不生成自然语言事件，也不修改 episode/RenderPlan。
+
+持久 graph 是 workspace-local immutable artifact：canonical envelope/bytes、8 MiB 上限、逐级 no-follow 目录、create-once hard-link commit 和 exact replay；symlink、目录、坏/重复 JSON、非 canonical bytes、scope/source splice 或 ID/hash drift 均 fail closed。graph fingerprint 由完整有序且逐条 content-addressed 的 event ID/fingerprint membership records 产生；selection 携带该安全 manifest proof，对显式 event IDs 递归加入 causal + lineage ancestors，要求结果恰好等于按 graph order 排列的最小闭包，并在返回任何内容前核对允许 chapter ID 与最大 spoiler boundary。任一 selected/ancestor/source 越界、omitted 混入、unselected/cross-graph event 注入时整体拒绝，不返回 partial graph。projection 没有专用自由文本、provider、credential 或 embedding 字段，但 opaque atom 仍是调用方可信输入，不能据此宣称它天然适合公开。
+
+这些 source hash、event/graph fingerprint 和 create-once 规则只证明 caller-trusted 结构化 assertion 的内部一致性与内容 identity；H1 不读取 chapter bytes 对账，也没有签名、MAC 或外部 source ledger，不能抵抗有本机写权限者离线重写完整原始 graph 并生成一套全新 ID。生产 entity/summary adapter 必须在 H2 绑定权威 source snapshot；RenderPlan graph fingerprint、context memory 与 UI 也由 H2/H3 后续承接。H1 当前只证明 synthetic `mock-functional` contract。
+
 ### 11.4 依赖顺序与完成口径
 
 创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。
@@ -772,7 +783,7 @@ v1-v3 逻辑迁移会把原 canonical source ledger 保存在独立 immutable si
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 139，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，以及 G1-G7 持久媒体任务 DAG、worker lease、跨集容量 lane、静态 backend capability registry、原子 frozen binding、纯本地 queue client、owner-guarded paid-evidence execution loop、分币种 pricing facts 与 durable success/queue/run Insights 已形成可恢复、可重建的工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体仍有缺口，G 的真实 adapter/账单尚未完成，H-I 尚未完成，J 也只具备真文本和少量角色图的局部校准证据。
+截至 iter 140，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，G1-G7 持久媒体任务 DAG/worker/registry/execution/pricing/lifecycle metrics，以及 H1 typed source event graph 核心已形成可恢复、可重建的纯本地工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体，G 的真实 adapter/账单，H 的 production adapter/RenderPlan/context memory，I 的工作台/归档仍有缺口，J 也只具备真文本和少量角色图的局部校准证据。
 
 ### 11.5 规划外边界
 

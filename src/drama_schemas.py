@@ -8576,3 +8576,717 @@ class DramaMediaBackendBinding(BaseModel):
         if _canonical_sha256(payload) != self.binding_fingerprint:
             raise ValueError("media backend binding fingerprint is invalid")
         return self
+
+
+# ---------------------------------------------------------------------------
+# Stage H1: typed adaptation source events.
+
+DRAMA_EVENT_GRAPH_MAX_EVENTS = 1000
+DRAMA_EVENT_MAX_FACTS = 64
+DRAMA_EVENT_MAX_SOURCE_CHAPTERS = 64
+_DRAMA_EVENT_ID_PATTERN = r"^dse_[0-9a-f]{24}$"
+_DRAMA_EVENT_FACT_ID_PATTERN = r"^def_[0-9a-f]{24}$"
+_DRAMA_EVENT_GRAPH_ID_PATTERN = r"^deg_[0-9a-f]{24}$"
+_DRAMA_SOURCE_CHAPTER_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+_DRAMA_EVENT_ENTITY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+
+
+class DramaEventSourceRef(BaseModel):
+    """One exact source chapter identity without source text or a file path."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    chapter_id: str = Field(pattern=_DRAMA_SOURCE_CHAPTER_ID_PATTERN)
+    chapter_no: int = Field(ge=1, le=100_000)
+    source_hash: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("chapter_no", mode="before")
+    @classmethod
+    def _source_chapter_no_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("source chapter number must be a strict integer")
+        return value
+
+
+DramaEventFactKind = Literal["precondition", "effect"]
+DramaEventFactPredicate = Literal[
+    "state",
+    "location",
+    "ownership",
+    "relationship",
+    "knowledge",
+    "availability",
+    "custom",
+]
+
+
+class DramaEventFact(BaseModel):
+    """A bounded typed state assertion used as a precondition or effect."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    fact_id: str = Field(pattern=_DRAMA_EVENT_FACT_ID_PATTERN)
+    kind: DramaEventFactKind
+    subject_id: str = Field(pattern=_DRAMA_EVENT_ENTITY_ID_PATTERN)
+    predicate: DramaEventFactPredicate
+    object_id: Optional[str] = Field(
+        default=None,
+        pattern=_DRAMA_EVENT_ENTITY_ID_PATTERN,
+    )
+    value: Optional[str] = Field(
+        default=None,
+        pattern=_DRAMA_EVENT_ENTITY_ID_PATTERN,
+    )
+    fact_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def _event_fact_value_is_canonical(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if (
+            not isinstance(value, str)
+            or not value
+            or re.fullmatch(_DRAMA_EVENT_ENTITY_ID_PATTERN, value) is None
+        ):
+            raise ValueError("event fact value must be an opaque bounded atom")
+        return value
+
+    @model_validator(mode="after")
+    def _event_fact_is_content_addressed(self) -> "DramaEventFact":
+        if self.object_id is None and self.value is None:
+            raise ValueError("event fact must carry an object or value")
+        payload = self.model_dump(exclude={"fact_id", "fact_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.fact_fingerprint != fingerprint:
+            raise ValueError("event fact fingerprint is invalid")
+        if self.fact_id != f"def_{fingerprint[:24]}":
+            raise ValueError("event fact id is invalid")
+        return self
+
+
+DramaEventSourceKind = Literal["source_derived", "invented", "mixed"]
+DramaEventAdaptationStatus = Literal[
+    "selected",
+    "merged",
+    "split",
+    "omitted",
+    "invented",
+]
+DramaEventLineageOperation = Literal["original", "merged", "split"]
+
+
+class DramaSourceEvent(BaseModel):
+    """One immutable adaptation event with explicit source and lineage facts."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    event_id: str = Field(pattern=_DRAMA_EVENT_ID_PATTERN)
+    workspace_scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_kind: DramaEventSourceKind
+    adaptation_status: DramaEventAdaptationStatus
+    chronology_order: int = Field(ge=1, le=1_000_000)
+    source_chapters: tuple[DramaEventSourceRef, ...] = Field(
+        max_length=DRAMA_EVENT_MAX_SOURCE_CHAPTERS
+    )
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    spoiler_boundary: Optional[int] = Field(default=None, ge=1, le=100_000)
+    participant_ids: tuple[str, ...] = Field(default=(), max_length=64)
+    scene_ids: tuple[str, ...] = Field(default=(), max_length=32)
+    prop_ids: tuple[str, ...] = Field(default=(), max_length=64)
+    clue_ids: tuple[str, ...] = Field(default=(), max_length=64)
+    preconditions: tuple[DramaEventFact, ...] = Field(
+        default=(), max_length=DRAMA_EVENT_MAX_FACTS
+    )
+    effects: tuple[DramaEventFact, ...] = Field(
+        default=(), max_length=DRAMA_EVENT_MAX_FACTS
+    )
+    causal_parent_ids: tuple[str, ...] = Field(default=(), max_length=64)
+    causality_complete: bool
+    lineage_operation: DramaEventLineageOperation = "original"
+    lineage_parent_event_ids: tuple[str, ...] = Field(default=(), max_length=64)
+    event_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("chronology_order", "spoiler_boundary", mode="before")
+    @classmethod
+    def _event_numbers_are_strict(cls, value: Any, info: Any) -> Any:
+        if value is None and info.field_name == "spoiler_boundary":
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator("causality_complete", mode="before")
+    @classmethod
+    def _event_causality_flag_is_strict(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("causality_complete must be bool")
+        return value
+
+    @field_validator(
+        "source_chapters",
+        "participant_ids",
+        "scene_ids",
+        "prop_ids",
+        "clue_ids",
+        "preconditions",
+        "effects",
+        "causal_parent_ids",
+        "lineage_parent_event_ids",
+        mode="before",
+    )
+    @classmethod
+    def _event_sequences_are_strict(cls, value: Any, info: Any) -> tuple[Any, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"{info.field_name} must be a list or tuple")
+        return tuple(value)
+
+    @field_validator(
+        "participant_ids",
+        "scene_ids",
+        "prop_ids",
+        "clue_ids",
+        mode="after",
+    )
+    @classmethod
+    def _event_entity_ids_are_canonical(
+        cls,
+        value: tuple[str, ...],
+        info: Any,
+    ) -> tuple[str, ...]:
+        if (
+            list(value) != sorted(value)
+            or len(value) != len(set(value))
+            or any(
+                not isinstance(item, str)
+                or re.fullmatch(_DRAMA_EVENT_ENTITY_ID_PATTERN, item) is None
+                for item in value
+            )
+        ):
+            raise ValueError(f"{info.field_name} must contain sorted unique ids")
+        return value
+
+    @field_validator("causal_parent_ids", "lineage_parent_event_ids", mode="after")
+    @classmethod
+    def _event_parent_ids_are_canonical(
+        cls,
+        value: tuple[str, ...],
+        info: Any,
+    ) -> tuple[str, ...]:
+        if (
+            list(value) != sorted(value)
+            or len(value) != len(set(value))
+            or any(
+                not isinstance(item, str)
+                or re.fullmatch(_DRAMA_EVENT_ID_PATTERN, item) is None
+                for item in value
+            )
+        ):
+            raise ValueError(f"{info.field_name} must contain sorted unique event ids")
+        return value
+
+    @model_validator(mode="after")
+    def _source_event_is_content_addressed(self) -> "DramaSourceEvent":
+        if self.workspace_scope_fingerprint == self.scope_fingerprint:
+            raise ValueError(
+                "workspace and event graph family scopes must be distinct"
+            )
+        source_keys = [
+            (item.chapter_no, item.chapter_id) for item in self.source_chapters
+        ]
+        if source_keys != sorted(source_keys) or len(source_keys) != len(
+            set(source_keys)
+        ) or len({item.chapter_no for item in self.source_chapters}) != len(
+            self.source_chapters
+        ) or len({item.chapter_id for item in self.source_chapters}) != len(
+            self.source_chapters
+        ):
+            raise ValueError("event source chapters must be sorted and unique")
+        expected_source_fingerprint = _canonical_sha256(
+            [item.model_dump() for item in self.source_chapters]
+        )
+        if self.source_fingerprint != expected_source_fingerprint:
+            raise ValueError("event source fingerprint is invalid")
+        if self.source_kind == "invented":
+            if (
+                self.source_chapters
+                or self.spoiler_boundary is not None
+            ):
+                raise ValueError("invented event must not claim source provenance")
+            if (
+                self.lineage_operation == "original"
+                and self.adaptation_status != "invented"
+            ):
+                raise ValueError("original invented event must remain explicit")
+        else:
+            if not self.source_chapters or self.spoiler_boundary is None:
+                raise ValueError("source event must carry chapter provenance")
+            if self.spoiler_boundary != max(
+                item.chapter_no for item in self.source_chapters
+            ):
+                raise ValueError("event spoiler boundary must match its sources")
+            if (
+                self.source_kind == "source_derived"
+                and self.adaptation_status == "invented"
+            ):
+                raise ValueError("source-derived event cannot be invented")
+        facts = (*self.preconditions, *self.effects)
+        if len(facts) > DRAMA_EVENT_MAX_FACTS:
+            raise ValueError("event exceeds its total fact limit")
+        fact_ids = [item.fact_id for item in facts]
+        if len(fact_ids) != len(set(fact_ids)):
+            raise ValueError("event facts must be unique")
+        if [item.fact_id for item in self.preconditions] != sorted(
+            item.fact_id for item in self.preconditions
+        ) or [item.fact_id for item in self.effects] != sorted(
+            item.fact_id for item in self.effects
+        ):
+            raise ValueError("event facts must use canonical order")
+        if any(item.kind != "precondition" for item in self.preconditions) or any(
+            item.kind != "effect" for item in self.effects
+        ):
+            raise ValueError("event facts are in the wrong partition")
+        if self.event_id in self.causal_parent_ids or self.event_id in (
+            self.lineage_parent_event_ids
+        ):
+            raise ValueError("event cannot reference itself")
+        parent_count = len(self.lineage_parent_event_ids)
+        if (
+            (self.lineage_operation == "original" and parent_count != 0)
+            or (self.lineage_operation == "merged" and parent_count < 2)
+            or (self.lineage_operation == "split" and parent_count != 1)
+        ):
+            raise ValueError("event lineage shape is invalid")
+        if self.lineage_operation == "original" and self.source_kind == "mixed":
+            raise ValueError("mixed provenance requires explicit lineage")
+        if (
+            self.lineage_operation == "merged"
+            and self.adaptation_status != "merged"
+        ) or (
+            self.lineage_operation == "split"
+            and self.adaptation_status != "split"
+        ) or (
+            self.adaptation_status == "merged"
+            and self.lineage_operation != "merged"
+        ) or (
+            self.adaptation_status == "split"
+            and self.lineage_operation != "split"
+        ):
+            raise ValueError("event adaptation status does not match lineage")
+        payload = self.model_dump(exclude={"event_id", "event_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.event_fingerprint != fingerprint:
+            raise ValueError("source event fingerprint is invalid")
+        if self.event_id != f"dse_{fingerprint[:24]}":
+            raise ValueError("source event id is invalid")
+        return self
+
+
+class DramaEventGraphRecord(BaseModel):
+    """Safe full-graph membership record without event fact contents."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    chronology_order: int = Field(ge=1, le=1_000_000)
+    event_id: str = Field(pattern=_DRAMA_EVENT_ID_PATTERN)
+    event_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("chronology_order", mode="before")
+    @classmethod
+    def _record_order_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("event graph record order must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _record_is_content_addressed(self) -> "DramaEventGraphRecord":
+        if self.event_id != f"dse_{self.event_fingerprint[:24]}":
+            raise ValueError("event graph record identity is invalid")
+        return self
+
+
+def _drama_event_graph_identity_payload(
+    *,
+    workspace_scope_fingerprint: str,
+    scope_fingerprint: str,
+    records: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "workspace_scope_fingerprint": workspace_scope_fingerprint,
+        "scope_fingerprint": scope_fingerprint,
+        "event_records": records,
+    }
+
+
+class DramaEventGraph(BaseModel):
+    """Immutable, scope-bound event graph with exact causal and lineage edges."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    graph_id: str = Field(pattern=_DRAMA_EVENT_GRAPH_ID_PATTERN)
+    workspace_scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    events: tuple[DramaSourceEvent, ...] = Field(
+        min_length=1,
+        max_length=DRAMA_EVENT_GRAPH_MAX_EVENTS,
+    )
+    graph_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("events", mode="before")
+    @classmethod
+    def _graph_events_are_strict(cls, value: Any) -> tuple[Any, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("event graph events must be a list or tuple")
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def _event_graph_is_content_addressed(self) -> "DramaEventGraph":
+        if self.workspace_scope_fingerprint == self.scope_fingerprint:
+            raise ValueError(
+                "workspace and event graph family scopes must be distinct"
+            )
+        event_ids = [item.event_id for item in self.events]
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("event graph ids must be unique")
+        if [
+            (item.chronology_order, item.event_id) for item in self.events
+        ] != sorted(
+            (item.chronology_order, item.event_id) for item in self.events
+        ):
+            raise ValueError("event graph order is not canonical")
+        by_id = {item.event_id: item for item in self.events}
+        source_identity: Dict[str, tuple[int, str]] = {}
+        source_number_identity: Dict[int, tuple[str, str]] = {}
+        for event in self.events:
+            if (
+                event.workspace_scope_fingerprint
+                != self.workspace_scope_fingerprint
+            ):
+                raise ValueError("event belongs to another workspace scope")
+            if event.scope_fingerprint != self.scope_fingerprint:
+                raise ValueError("event belongs to another graph scope")
+            for source in event.source_chapters:
+                identity = (source.chapter_no, source.source_hash)
+                previous = source_identity.setdefault(source.chapter_id, identity)
+                if previous != identity:
+                    raise ValueError("event graph source identity is ambiguous")
+                numbered = (source.chapter_id, source.source_hash)
+                previous_numbered = source_number_identity.setdefault(
+                    source.chapter_no, numbered
+                )
+                if previous_numbered != numbered:
+                    raise ValueError("event graph source identity is ambiguous")
+            for parent_id in (
+                *event.causal_parent_ids,
+                *event.lineage_parent_event_ids,
+            ):
+                parent = by_id.get(parent_id)
+                if parent is None:
+                    raise ValueError("event graph contains a dangling parent")
+                if parent.chronology_order > event.chronology_order:
+                    raise ValueError("event parent occurs after its child")
+            lineage_parents = [
+                by_id[parent_id] for parent_id in event.lineage_parent_event_ids
+            ]
+            if event.lineage_operation == "merged":
+                parent_kinds = {item.source_kind for item in lineage_parents}
+                if parent_kinds == {"invented"}:
+                    expected_source_kind = "invented"
+                elif parent_kinds == {"source_derived"}:
+                    expected_source_kind = "source_derived"
+                else:
+                    expected_source_kind = "mixed"
+                expected_sources = {
+                    (item.chapter_no, item.chapter_id, item.source_hash)
+                    for parent in lineage_parents
+                    for item in parent.source_chapters
+                }
+                expected_causal = (
+                    set().union(
+                        *(set(parent.causal_parent_ids) for parent in lineage_parents)
+                    )
+                    - set(event.lineage_parent_event_ids)
+                )
+                for field_name in (
+                    "participant_ids",
+                    "scene_ids",
+                    "prop_ids",
+                    "clue_ids",
+                ):
+                    expected_ids = set().union(
+                        *(set(getattr(parent, field_name)) for parent in lineage_parents)
+                    )
+                    if set(getattr(event, field_name)) != expected_ids:
+                        raise ValueError("merged event loses parent identity facts")
+                expected_preconditions = {
+                    fact.fact_id
+                    for parent in lineage_parents
+                    for fact in parent.preconditions
+                }
+                expected_effects = {
+                    fact.fact_id
+                    for parent in lineage_parents
+                    for fact in parent.effects
+                }
+                if (
+                    event.source_kind != expected_source_kind
+                    or {
+                        (item.chapter_no, item.chapter_id, item.source_hash)
+                        for item in event.source_chapters
+                    }
+                    != expected_sources
+                    or set(event.causal_parent_ids) != expected_causal
+                    or event.causality_complete
+                    != all(parent.causality_complete for parent in lineage_parents)
+                    or {fact.fact_id for fact in event.preconditions}
+                    != expected_preconditions
+                    or {fact.fact_id for fact in event.effects} != expected_effects
+                ):
+                    raise ValueError("merged event provenance is inconsistent")
+            elif event.lineage_operation == "split":
+                parent = lineage_parents[0]
+                if (
+                    event.source_kind != parent.source_kind
+                    or event.source_chapters != parent.source_chapters
+                    or event.participant_ids != parent.participant_ids
+                    or event.scene_ids != parent.scene_ids
+                    or event.prop_ids != parent.prop_ids
+                    or event.clue_ids != parent.clue_ids
+                    or event.causal_parent_ids != parent.causal_parent_ids
+                    or event.causality_complete != parent.causality_complete
+                    or not {fact.fact_id for fact in event.preconditions}.issubset(
+                        fact.fact_id for fact in parent.preconditions
+                    )
+                    or not {fact.fact_id for fact in event.effects}.issubset(
+                        fact.fact_id for fact in parent.effects
+                    )
+                ):
+                    raise ValueError("split event provenance is inconsistent")
+
+        split_children: Dict[str, list[DramaSourceEvent]] = {}
+        for event in self.events:
+            if event.lineage_operation == "split":
+                split_children.setdefault(
+                    event.lineage_parent_event_ids[0], []
+                ).append(event)
+        for parent_id, children in split_children.items():
+            parent = by_id[parent_id]
+            precondition_ids = [
+                fact.fact_id
+                for child in children
+                for fact in child.preconditions
+            ]
+            effect_ids = [
+                fact.fact_id for child in children for fact in child.effects
+            ]
+            if (
+                len(children) < 2
+                or len(precondition_ids) != len(set(precondition_ids))
+                or set(precondition_ids)
+                != {fact.fact_id for fact in parent.preconditions}
+                or len(effect_ids) != len(set(effect_ids))
+                or set(effect_ids) != {fact.fact_id for fact in parent.effects}
+            ):
+                raise ValueError("split event partitions are incomplete")
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(event_id: str) -> None:
+            if event_id in visiting:
+                raise ValueError("event graph causal edges contain a cycle")
+            if event_id in visited:
+                return
+            visiting.add(event_id)
+            for parent_id in (
+                *by_id[event_id].causal_parent_ids,
+                *by_id[event_id].lineage_parent_event_ids,
+            ):
+                visit(parent_id)
+            visiting.remove(event_id)
+            visited.add(event_id)
+
+        for event_id in event_ids:
+            visit(event_id)
+        records = [
+            {
+                "chronology_order": item.chronology_order,
+                "event_id": item.event_id,
+                "event_fingerprint": item.event_fingerprint,
+            }
+            for item in self.events
+        ]
+        payload = _drama_event_graph_identity_payload(
+            workspace_scope_fingerprint=self.workspace_scope_fingerprint,
+            scope_fingerprint=self.scope_fingerprint,
+            records=records,
+        )
+        fingerprint = _canonical_sha256(payload)
+        if self.graph_fingerprint != fingerprint:
+            raise ValueError("event graph fingerprint is invalid")
+        if self.graph_id != f"deg_{fingerprint[:24]}":
+            raise ValueError("event graph id is invalid")
+        return self
+
+
+class DramaEventProjection(BaseModel):
+    """A bounded full-closure selection from one exact event graph."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    graph_id: str = Field(pattern=_DRAMA_EVENT_GRAPH_ID_PATTERN)
+    graph_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    workspace_scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    graph_event_records: tuple[DramaEventGraphRecord, ...] = Field(
+        min_length=1,
+        max_length=DRAMA_EVENT_GRAPH_MAX_EVENTS,
+    )
+    selected_event_ids: tuple[str, ...] = Field(min_length=1, max_length=256)
+    included_event_ids: tuple[str, ...] = Field(min_length=1, max_length=1000)
+    allowed_source_chapter_ids: tuple[str, ...] = Field(
+        default=(), max_length=1000
+    )
+    max_spoiler_boundary: int = Field(ge=1, le=100_000)
+    events: tuple[DramaSourceEvent, ...] = Field(min_length=1, max_length=1000)
+    projection_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("max_spoiler_boundary", mode="before")
+    @classmethod
+    def _projection_boundary_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("projection spoiler boundary must be a strict integer")
+        return value
+
+    @field_validator(
+        "selected_event_ids",
+        "included_event_ids",
+        "allowed_source_chapter_ids",
+        "graph_event_records",
+        "events",
+        mode="before",
+    )
+    @classmethod
+    def _projection_sequences_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> tuple[Any, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"{info.field_name} must be a list or tuple")
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def _event_projection_is_content_addressed(self) -> "DramaEventProjection":
+        if self.workspace_scope_fingerprint == self.scope_fingerprint:
+            raise ValueError(
+                "workspace and event graph family scopes must be distinct"
+            )
+        if (
+            self.graph_id != f"deg_{self.graph_fingerprint[:24]}"
+            or [
+                (item.chronology_order, item.event_id)
+                for item in self.graph_event_records
+            ]
+            != sorted(
+                (item.chronology_order, item.event_id)
+                for item in self.graph_event_records
+            )
+            or len({item.event_id for item in self.graph_event_records})
+            != len(self.graph_event_records)
+            or _canonical_sha256(
+                _drama_event_graph_identity_payload(
+                    workspace_scope_fingerprint=self.workspace_scope_fingerprint,
+                    scope_fingerprint=self.scope_fingerprint,
+                    records=[item.model_dump() for item in self.graph_event_records],
+                )
+            )
+            != self.graph_fingerprint
+            or
+            list(self.selected_event_ids) != sorted(self.selected_event_ids)
+            or len(self.selected_event_ids) != len(set(self.selected_event_ids))
+            or list(self.included_event_ids) != [
+                item.event_id for item in self.events
+            ]
+            or len(self.included_event_ids) != len(set(self.included_event_ids))
+            or list(self.allowed_source_chapter_ids)
+            != sorted(self.allowed_source_chapter_ids)
+            or len(self.allowed_source_chapter_ids)
+            != len(set(self.allowed_source_chapter_ids))
+        ):
+            raise ValueError("event projection order or identity is invalid")
+        if not set(self.selected_event_ids).issubset(self.included_event_ids):
+            raise ValueError("event projection omits a selected event")
+        included = set(self.included_event_ids)
+        allowed = set(self.allowed_source_chapter_ids)
+        record_by_id = {
+            item.event_id: item for item in self.graph_event_records
+        }
+        canonical_included_ids = [
+            item.event_id
+            for item in self.graph_event_records
+            if item.event_id in included
+        ]
+        if not included.issubset(record_by_id):
+            raise ValueError("event projection contains a non-member event")
+        if list(self.included_event_ids) != canonical_included_ids:
+            raise ValueError("event projection order is not canonical")
+        if any(
+            not isinstance(item, str)
+            or re.fullmatch(_DRAMA_SOURCE_CHAPTER_ID_PATTERN, item) is None
+            for item in self.allowed_source_chapter_ids
+        ):
+            raise ValueError("event projection source ids are invalid")
+        for event in self.events:
+            if (
+                event.workspace_scope_fingerprint
+                != self.workspace_scope_fingerprint
+            ):
+                raise ValueError("event projection crosses workspace scope")
+            if event.scope_fingerprint != self.scope_fingerprint:
+                raise ValueError("event projection crosses graph scope")
+            if event.adaptation_status == "omitted":
+                raise ValueError("event projection closure contains an omitted event")
+            record = record_by_id[event.event_id]
+            if (
+                record.event_fingerprint != event.event_fingerprint
+                or record.chronology_order != event.chronology_order
+            ):
+                raise ValueError("event projection membership proof is invalid")
+            if not set(
+                (*event.causal_parent_ids, *event.lineage_parent_event_ids)
+            ).issubset(included):
+                raise ValueError("event projection is not a full closure")
+            if (
+                event.spoiler_boundary is not None
+                and event.spoiler_boundary > self.max_spoiler_boundary
+            ) or any(
+                source.chapter_id not in allowed
+                or source.chapter_no > self.max_spoiler_boundary
+                for source in event.source_chapters
+            ):
+                raise ValueError("event projection exceeds its source boundary")
+        event_by_id = {item.event_id: item for item in self.events}
+        reachable: set[str] = set()
+        pending = list(self.selected_event_ids)
+        while pending:
+            event_id = pending.pop()
+            if event_id in reachable:
+                continue
+            event = event_by_id.get(event_id)
+            if event is None:
+                raise ValueError("event projection closure is incomplete")
+            reachable.add(event_id)
+            pending.extend(event.causal_parent_ids)
+            pending.extend(event.lineage_parent_event_ids)
+        if reachable != included:
+            raise ValueError("event projection is not the exact selected closure")
+        payload = self.model_dump(exclude={"projection_fingerprint"})
+        if _canonical_sha256(payload) != self.projection_fingerprint:
+            raise ValueError("event projection fingerprint is invalid")
+        return self
