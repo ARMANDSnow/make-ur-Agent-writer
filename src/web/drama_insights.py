@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from .. import paths
 from ..cost_estimator import cost_cny
+from ..drama_media_metrics import collect_workspace_media_metrics
 from ..drama_media_pricing import collect_workspace_media_pricing
 
 
@@ -52,10 +53,12 @@ def collect_drama_insights(workspace: str) -> Dict[str, Any]:
     episode_meta_cost = _collect_episode_meta_cost(root / "outputs" / "episodes")
     duration, hook_types = _collect_episode_metrics(root / "outputs" / "episodes")
     media_pricing = collect_workspace_media_pricing(workspace)
+    media_metrics = collect_workspace_media_metrics(workspace)
     return {
         "llm_cost": llm_cost,
         "episode_meta_cost": episode_meta_cost,
         "media_pricing": media_pricing,
+        "media_metrics": media_metrics,
         "duration": duration,
         "hook_types": hook_types,
         "cost_note": _MOCK_COST_NOTE,

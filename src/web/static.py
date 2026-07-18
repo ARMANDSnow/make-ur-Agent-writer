@@ -6347,10 +6347,12 @@ JS_DASHBOARD = """\
 
   async function initDramaInsights() {
     const costBox = document.getElementById("drama-insights-cost");
+    const metricsBox = document.getElementById("drama-insights-media-metrics");
     const durationBox = document.getElementById("drama-insights-duration");
     const hooksBox = document.getElementById("drama-insights-hooks");
-    if (!costBox || !durationBox || !hooksBox) return;
+    if (!costBox || !metricsBox || !durationBox || !hooksBox) return;
     costBox.innerHTML = skeleton(3);
+    metricsBox.innerHTML = skeleton(3);
     durationBox.innerHTML = skeleton(2);
     hooksBox.innerHTML = skeleton(3);
     try {
@@ -6358,6 +6360,7 @@ JS_DASHBOARD = """\
       const llm = data.llm_cost || {};
       const meta = data.episode_meta_cost || {};
       const mediaPricing = data.media_pricing || {};
+      const mediaMetrics = data.media_metrics || {};
       const mediaCurrencies = Array.isArray(mediaPricing.currencies) ? mediaPricing.currencies.slice(0, 16) : [];
       const hiddenMediaCurrencies = Array.isArray(mediaPricing.currencies) ? Math.max(0, mediaPricing.currencies.length - mediaCurrencies.length) : 0;
       const mediaCostRows = mediaCurrencies.map(function (row) {
@@ -6379,6 +6382,34 @@ JS_DASHBOARD = """\
         (mediaPricing.status === "degraded" ? '<div class="k">媒体账本</div><div class="v">存在 ' + escapeHtml(String(mediaPricing.invalid_ledgers || 0)) + ' 个无效来源，未计入金额</div>' : '') +
         '<div class="k">说明</div><div class="v">' + escapeHtml(data.cost_note || "mock 成本为 0，真模型启用后生效。") + '</div>' +
         '</div>';
+      const successRate = mediaMetrics.success_rate == null
+        ? "—"
+        : (Math.max(0, Math.min(1, Number(mediaMetrics.success_rate))) * 100).toFixed(1) + "%";
+      const queueAverage = mediaMetrics.queue_wait_average_ms == null
+        ? "—"
+        : escapeHtml(String(mediaMetrics.queue_wait_average_ms)) + " ms";
+      const runAverage = mediaMetrics.run_average_ms == null
+        ? "—"
+        : escapeHtml(String(mediaMetrics.run_average_ms)) + " ms";
+      metricsBox.innerHTML = '<div class="kv-list compact">' +
+        '<div class="k">任务</div><div class="v">' + escapeHtml(String(mediaMetrics.task_count || 0)) +
+        ' · 成功 ' + escapeHtml(String(mediaMetrics.succeeded_count || 0)) +
+        ' · 失败 ' + escapeHtml(String(mediaMetrics.failed_count || 0)) +
+        ' · 取消 ' + escapeHtml(String(mediaMetrics.cancelled_count || 0)) + '</div>' +
+        '<div class="k">成功率</div><div class="v">' + escapeHtml(successRate) +
+        ' · terminal ' + escapeHtml(String(mediaMetrics.terminal_count || 0)) + '</div>' +
+        '<div class="k">等待均值</div><div class="v">' + queueAverage +
+        ' · 可证样本 ' + escapeHtml(String(mediaMetrics.queue_wait_known_samples || 0)) +
+        ' · 未知 ' + escapeHtml(String(mediaMetrics.queue_wait_unknown_samples || 0)) + '</div>' +
+        '<div class="k">运行均值</div><div class="v">' + runAverage +
+        ' · 可证样本 ' + escapeHtml(String(mediaMetrics.run_known_samples || 0)) +
+        ' · 未知 ' + escapeHtml(String(mediaMetrics.run_unknown_samples || 0)) + '</div>' +
+        '<div class="k">submission unknown</div><div class="v">' +
+        escapeHtml(String(mediaMetrics.unknown_submission_count || 0)) + '</div>' +
+        (mediaMetrics.status === "degraded"
+          ? '<div class="k">指标来源</div><div class="v">存在无效或超限 task ledger，未返回部分指标</div>'
+          : '') +
+        '</div>';
       const duration = data.duration || {};
       const rate = Number(duration.rate || 0);
       const pct = Math.max(0, Math.min(100, Math.round(rate * 100)));
@@ -6389,6 +6420,7 @@ JS_DASHBOARD = """\
         : '<p class="muted">尚无已组装剧集。</p>';
     } catch (err) {
       costBox.innerHTML = renderErrorCard(err);
+      metricsBox.innerHTML = "";
       durationBox.innerHTML = "";
       hooksBox.innerHTML = "";
     }

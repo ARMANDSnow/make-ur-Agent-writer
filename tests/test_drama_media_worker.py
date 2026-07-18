@@ -82,29 +82,32 @@ class DramaMediaWorkerTests(DramaTestBase):
             expected = self._ledger(episode_no).ledger_fingerprint
         except FileNotFoundError:
             expected = None
-        task, _binding = drama_media_tasks.enqueue_bound_media_task(
-            self.name,
-            episode_no=episode_no,
-            media_kind=media_kind,
-            stage=stage,
-            subject_id=subject_id,
-            input_fingerprint=input_fingerprint,
-            dependency_task_ids=(),
-            attempt_no=1,
-            now_ms=self.now,
-            expected_ledger_fingerprint=expected,
-            provider_id=PROVIDER_ID,
-            model_id=MODEL_ID,
-            registry=build_registry(
+        with patch.object(
+            drama_media_tasks, "_clock_ms", return_value=self.now
+        ):
+            task, _binding = drama_media_tasks.enqueue_bound_media_task(
+                self.name,
+                episode_no=episode_no,
                 media_kind=media_kind,
-                backend_id=self._IDENTITY["backend_id"],
-                provider_fingerprint=self._IDENTITY[
-                    "provider_fingerprint"
-                ],
-                model_fingerprint=self._IDENTITY["model_fingerprint"],
-            ),
-            **self._IDENTITY,
-        )
+                stage=stage,
+                subject_id=subject_id,
+                input_fingerprint=input_fingerprint,
+                dependency_task_ids=(),
+                attempt_no=1,
+                now_ms=self.now,
+                expected_ledger_fingerprint=expected,
+                provider_id=PROVIDER_ID,
+                model_id=MODEL_ID,
+                registry=build_registry(
+                    media_kind=media_kind,
+                    backend_id=self._IDENTITY["backend_id"],
+                    provider_fingerprint=self._IDENTITY[
+                        "provider_fingerprint"
+                    ],
+                    model_fingerprint=self._IDENTITY["model_fingerprint"],
+                ),
+                **self._IDENTITY,
+            )
         return task
 
     def _claim(
@@ -179,19 +182,22 @@ class DramaMediaWorkerTests(DramaTestBase):
     def test_local_compose_task_keeps_g2_lease_semantics_without_binding(
         self,
     ) -> None:
-        task = drama_media_tasks.create_media_task(
-            self.name,
-            episode_no=1,
-            media_kind="compose",
-            stage="compose",
-            subject_id="episode_001",
-            input_fingerprint="a" * 64,
-            dependency_task_ids=(),
-            attempt_no=1,
-            now_ms=self.now,
-            expected_ledger_fingerprint=None,
-            **self._IDENTITY,
-        )
+        with patch.object(
+            drama_media_tasks, "_clock_ms", return_value=self.now
+        ):
+            task = drama_media_tasks.create_media_task(
+                self.name,
+                episode_no=1,
+                media_kind="compose",
+                stage="compose",
+                subject_id="episode_001",
+                input_fingerprint="a" * 64,
+                dependency_task_ids=(),
+                attempt_no=1,
+                now_ms=self.now,
+                expected_ledger_fingerprint=None,
+                **self._IDENTITY,
+            )
         self.assertEqual(self._ledger().backend_bindings, [])
         lease = self._claim(task)
         ledger = self._ledger()
@@ -341,10 +347,23 @@ class DramaMediaWorkerTests(DramaTestBase):
             expected_ledger_fingerprint=ledger.ledger_fingerprint,
         )
         self.assertEqual(replay, ready)
+        first_claimed = next(
+            item
+            for item in self._ledger().lifecycle
+            if item.task_id == task.task_id
+        ).first_claimed_at_ms
         reclaimed = self._claim(
             ready, worker="7", token="8", now_delta=3
         )
         self.assertEqual(reclaimed.worker_fingerprint, "7" * 64)
+        self.assertEqual(
+            next(
+                item
+                for item in self._ledger().lifecycle
+                if item.task_id == task.task_id
+            ).first_claimed_at_ms,
+            first_claimed,
+        )
 
     def test_takeover_requires_expiry_and_old_owner_cannot_heartbeat(self) -> None:
         task = self._create()
@@ -388,6 +407,14 @@ class DramaMediaWorkerTests(DramaTestBase):
                 lane_capacity=1,
             )
         self.assertEqual(takeover.lease_revision, 1)
+        self.assertEqual(
+            next(
+                item
+                for item in self._ledger().lifecycle
+                if item.task_id == task.task_id
+            ).first_claimed_at_ms,
+            lease.claimed_at_ms,
+        )
         with self.assertRaises(
             drama_media_worker.DramaMediaWorkerError
         ):
@@ -846,7 +873,7 @@ class DramaMediaWorkerTests(DramaTestBase):
         path = drama_media_tasks.media_task_ledger_path(self.name)
         path.write_bytes(drama_media_tasks._ledger_bytes(legacy))
         upgraded = self._ledger()
-        self.assertEqual(upgraded.schema_version, 3)
+        self.assertEqual(upgraded.schema_version, 4)
         self.assertEqual(upgraded.backend_bindings, [])
         self.assertEqual(upgraded.tasks, [task])
         self.assertEqual(upgraded.leases, [])

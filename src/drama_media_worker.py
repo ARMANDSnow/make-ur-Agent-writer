@@ -16,8 +16,10 @@ from typing import Any
 from . import paths
 from .drama_media_tasks import (
     DramaMediaTaskError,
+    _build_first_claim_evidence,
     _build_ledger,
     _build_worker_lease,
+    _evolve_lifecycle,
     _media_lane_key,
     _persist_ledger,
     _read_ledger,
@@ -28,7 +30,7 @@ from .drama_media_tasks import (
 )
 from .drama_schemas import (
     DramaMediaTask,
-    DramaMediaTaskLedgerV3,
+    DramaMediaTaskLedgerV4,
     DramaMediaWorkerLease,
     DramaMediaWorkerReleaseReceipt,
     _canonical_sha256,
@@ -170,7 +172,7 @@ def _workspace_ledgers(
     workspace: str,
     *,
     include_episode_no: int,
-) -> list[DramaMediaTaskLedgerV3]:
+) -> list[DramaMediaTaskLedgerV4]:
     numbers = set(_episode_numbers_with_ledgers(workspace))
     numbers.add(include_episode_no)
     ledgers = []
@@ -186,7 +188,7 @@ def _workspace_ledgers(
 
 
 def _require_lane_capacity(
-    ledgers: list[DramaMediaTaskLedgerV3],
+    ledgers: list[DramaMediaTaskLedgerV4],
     *,
     lane_key: str,
     lane_capacity: int,
@@ -208,7 +210,7 @@ def _require_lane_capacity(
 
 
 def _task_and_lease(
-    ledger: DramaMediaTaskLedgerV3,
+    ledger: DramaMediaTaskLedgerV4,
     task_id: str,
 ) -> tuple[DramaMediaTask, DramaMediaWorkerLease | None]:
     task = next((item for item in ledger.tasks if item.task_id == task_id), None)
@@ -219,7 +221,7 @@ def _task_and_lease(
 
 
 def _require_task_backend_binding(
-    ledger: DramaMediaTaskLedgerV3,
+    ledger: DramaMediaTaskLedgerV4,
     task: DramaMediaTask,
 ) -> None:
     if not _requires_backend_binding(task):
@@ -341,6 +343,30 @@ def claim_media_task(
                 heartbeat_at_ms=now,
                 expires_at_ms=now + duration,
             )
+            prior_lifecycle = next(
+                item
+                for item in ledger.lifecycle
+                if item.task_id == task_id
+            )
+            claim_evidence = None
+            if (
+                not prior_lifecycle.legacy_unknown
+                and prior_lifecycle.first_claim_evidence is None
+            ):
+                if prior_lifecycle.ready_at_ms is None:
+                    raise DramaMediaWorkerError(
+                        "media worker readiness evidence is missing"
+                    )
+                claim_evidence = _build_first_claim_evidence(
+                    before_task=task,
+                    claimed_task=claimed,
+                    initial_lease=lease,
+                    ready_at_ms=prior_lifecycle.ready_at_ms,
+                    first_claimed_at_ms=now,
+                    before_ledger_fingerprint=(
+                        ledger.ledger_fingerprint
+                    ),
+                )
             updated = _build_ledger(
                 number,
                 [
@@ -360,6 +386,23 @@ def claim_media_task(
                     if item.task_id != task_id
                 ],
                 backend_bindings=ledger.backend_bindings,
+                lifecycle=_evolve_lifecycle(
+                    ledger.lifecycle,
+                    before_tasks=ledger.tasks,
+                    after_tasks=[
+                        claimed if item.task_id == task_id else item
+                        for item in ledger.tasks
+                    ],
+                    now_ms=now,
+                    first_claimed_task_id=task_id,
+                    first_claim_evidence=claim_evidence,
+                ),
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return lease
@@ -463,6 +506,13 @@ def heartbeat_media_task(
                 release_receipts=ledger.release_receipts,
                 transition_receipts=ledger.transition_receipts,
                 backend_bindings=ledger.backend_bindings,
+                lifecycle=ledger.lifecycle,
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return renewed
@@ -588,6 +638,13 @@ def release_media_task(
                     if item.task_id != task_id
                 ],
                 backend_bindings=ledger.backend_bindings,
+                lifecycle=ledger.lifecycle,
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return ready
@@ -712,6 +769,13 @@ def takeover_media_task(
                     if item.task_id != task_id
                 ],
                 backend_bindings=ledger.backend_bindings,
+                lifecycle=ledger.lifecycle,
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(workspace, updated, expected_target_token=token)
             return replacement

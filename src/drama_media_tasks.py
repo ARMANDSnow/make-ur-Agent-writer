@@ -23,9 +23,13 @@ from .drama_schemas import (
     DramaMediaTaskOutcomeCode,
     DramaMediaStage,
     DramaMediaTask,
+    DramaMediaTaskFirstClaimEvidence,
+    DramaMediaTaskLegacyMigrationEvidence,
+    DramaMediaTaskLifecycle,
     DramaMediaTaskLedger,
     DramaMediaTaskLedgerV2,
     DramaMediaTaskLedgerV3,
+    DramaMediaTaskLedgerV4,
     DramaMediaTaskState,
     DramaMediaWorkerLease,
     DramaMediaWorkerReleaseReceipt,
@@ -34,6 +38,7 @@ from .drama_schemas import (
     normalize_episode_no,
 )
 from .drama_store import (
+    _reject_render_json_duplicates,
     _read_strict_workspace_bytes,
     _read_strict_workspace_json,
     _validate_render_workspace_root,
@@ -45,8 +50,11 @@ from .web.workspace_ctx import use_workspace
 from .workspace_lock import WorkspaceLocked, acquire_write_lock
 
 
-MAX_MEDIA_TASK_LEDGER_BYTES = 4 * 1024 * 1024
+MAX_LEGACY_MEDIA_TASK_LEDGER_BYTES = 4 * 1024 * 1024
+MAX_MEDIA_TASK_LEDGER_BYTES = 8 * 1024 * 1024
+MAX_MEDIA_TASK_CLAIM_EVIDENCE_BYTES = 128 * 1024
 MAX_WORKSPACE_METADATA_BYTES = 4 * 1024
+MEDIA_TASK_EVIDENCE_DIRECTORY = "outputs/drama/media_task_evidence"
 TERMINAL_MEDIA_TASK_STATES = frozenset({"succeeded", "failed", "cancelled"})
 ACTIVE_MEDIA_TASK_STATES = frozenset(
     {
@@ -125,6 +133,25 @@ def _backend_binding_status(
 
 def _clock_ms() -> int:
     return time.time_ns() // 1_000_000
+
+
+def _trusted_create_time_ms(caller_now_ms: int) -> int:
+    if (
+        not isinstance(caller_now_ms, int)
+        or isinstance(caller_now_ms, bool)
+        or caller_now_ms < 0
+        or caller_now_ms > 9_999_999_999_999
+    ):
+        raise DramaMediaTaskError("media task creation time is invalid")
+    trusted = _clock_ms()
+    if (
+        not isinstance(trusted, int)
+        or isinstance(trusted, bool)
+        or trusted < 0
+        or trusted > 9_999_999_999_999
+    ):
+        raise DramaMediaTaskError("media task creation clock is invalid")
+    return trusted
 
 
 def media_task_ledger_path(
@@ -358,6 +385,259 @@ def _build_transition_receipt(
         ) from None
 
 
+def _build_lifecycle(
+    *,
+    task_id: str,
+    task_input_fingerprint: str,
+    ready_at_ms: int | None,
+    first_claimed_at_ms: int | None,
+    terminal_at_ms: int | None,
+    legacy_unknown: bool,
+    first_claim_evidence: DramaMediaTaskFirstClaimEvidence | None = None,
+    legacy_source_schema_version: int | None = None,
+    legacy_source_ledger_fingerprint: str | None = None,
+    legacy_source_record_fingerprint: str | None = None,
+    legacy_source_evidence_fingerprint: str | None = None,
+) -> DramaMediaTaskLifecycle:
+    payload = {
+        "schema_version": 1,
+        "task_id": task_id,
+        "task_input_fingerprint": task_input_fingerprint,
+        "ready_at_ms": ready_at_ms,
+        "first_claimed_at_ms": first_claimed_at_ms,
+        "terminal_at_ms": terminal_at_ms,
+        "first_claim_evidence": (
+            None
+            if first_claim_evidence is None
+            else first_claim_evidence.model_dump(mode="json")
+        ),
+        "legacy_unknown": legacy_unknown,
+        "legacy_source_schema_version": legacy_source_schema_version,
+        "legacy_source_ledger_fingerprint": (
+            legacy_source_ledger_fingerprint
+        ),
+        "legacy_source_record_fingerprint": (
+            legacy_source_record_fingerprint
+        ),
+        "legacy_source_evidence_fingerprint": (
+            legacy_source_evidence_fingerprint
+        ),
+    }
+    payload["record_fingerprint"] = _canonical_sha256(payload)
+    try:
+        return DramaMediaTaskLifecycle(**payload)
+    except (RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError(
+            "media task lifecycle is invalid"
+        ) from None
+
+
+def _build_first_claim_evidence(
+    *,
+    before_task: DramaMediaTask,
+    claimed_task: DramaMediaTask,
+    initial_lease: DramaMediaWorkerLease,
+    ready_at_ms: int,
+    first_claimed_at_ms: int,
+    before_ledger_fingerprint: str,
+) -> DramaMediaTaskFirstClaimEvidence:
+    payload = {
+        "schema_version": 1,
+        "task_id": before_task.task_id,
+        "task_input_fingerprint": before_task.input_fingerprint,
+        "ready_at_ms": ready_at_ms,
+        "first_claimed_at_ms": first_claimed_at_ms,
+        "before_ledger_fingerprint": before_ledger_fingerprint,
+        "before_task": before_task.model_dump(mode="json"),
+        "claimed_task": claimed_task.model_dump(mode="json"),
+        "initial_lease": initial_lease.model_dump(mode="json"),
+    }
+    payload["record_fingerprint"] = _canonical_sha256(payload)
+    try:
+        return DramaMediaTaskFirstClaimEvidence(**payload)
+    except (RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError(
+            "media task first claim evidence is invalid"
+        ) from None
+
+
+def _build_legacy_migration_evidence(
+    task: DramaMediaTask,
+    *,
+    source_schema_version: int,
+    source_ledger_fingerprint: str,
+) -> DramaMediaTaskLegacyMigrationEvidence:
+    payload = {
+        "schema_version": 1,
+        "task_id": task.task_id,
+        "task_input_fingerprint": task.input_fingerprint,
+        "task_dedupe_key": task.dedupe_key,
+        "source_schema_version": source_schema_version,
+        "source_ledger_fingerprint": source_ledger_fingerprint,
+        "source_task_revision": task.revision,
+        "source_task_state": task.state,
+        "source_task_record_fingerprint": task.record_fingerprint,
+    }
+    payload["record_fingerprint"] = _canonical_sha256(payload)
+    try:
+        return DramaMediaTaskLegacyMigrationEvidence(**payload)
+    except (RecursionError, TypeError, ValueError):
+        raise DramaMediaTaskError(
+            "media task legacy migration evidence is invalid"
+        ) from None
+
+
+def _legacy_migration_evidence(
+    tasks: Sequence[DramaMediaTask],
+    *,
+    source_schema_version: int,
+    source_ledger_fingerprint: str,
+) -> list[DramaMediaTaskLegacyMigrationEvidence]:
+    return [
+        _build_legacy_migration_evidence(
+            task,
+            source_schema_version=source_schema_version,
+            source_ledger_fingerprint=source_ledger_fingerprint,
+        )
+        for task in sorted(tasks, key=lambda item: item.task_id)
+        if task.state != "planned"
+    ]
+
+
+def _evolve_lifecycle(
+    lifecycle: Sequence[DramaMediaTaskLifecycle],
+    *,
+    before_tasks: Sequence[DramaMediaTask],
+    after_tasks: Sequence[DramaMediaTask],
+    now_ms: int,
+    created_task_ids: frozenset[str] = frozenset(),
+    first_claimed_task_id: str | None = None,
+    first_claim_evidence: DramaMediaTaskFirstClaimEvidence | None = None,
+) -> list[DramaMediaTaskLifecycle]:
+    before = {item.task_id: item for item in before_tasks}
+    existing = {item.task_id: item for item in lifecycle}
+    result: dict[str, DramaMediaTaskLifecycle] = dict(existing)
+    for task in after_tasks:
+        prior_task = before.get(task.task_id)
+        prior = existing.get(task.task_id)
+        should_create = (
+            task.task_id in created_task_ids
+            or task.task_id == first_claimed_task_id
+            or (
+                prior_task is not None
+                and prior_task.state != task.state
+                and (
+                    task.state == "ready"
+                    or task.state in TERMINAL_MEDIA_TASK_STATES
+                )
+            )
+        )
+        if prior is None and not should_create:
+            continue
+        ready_at = None if prior is None else prior.ready_at_ms
+        first_claimed = (
+            None if prior is None else prior.first_claimed_at_ms
+        )
+        terminal_at = None if prior is None else prior.terminal_at_ms
+        claim_evidence = (
+            None if prior is None else prior.first_claim_evidence
+        )
+        legacy_unknown = (
+            False if prior is None else prior.legacy_unknown
+        )
+        if task.task_id in created_task_ids and task.state == "ready":
+            ready_at = now_ms
+        if (
+            prior_task is not None
+            and prior_task.state == "planned"
+            and task.state == "ready"
+            and ready_at is None
+        ):
+            ready_at = task.updated_at_ms
+        if (
+            task.task_id == first_claimed_task_id
+            and first_claimed is None
+            and not legacy_unknown
+        ):
+            first_claimed = now_ms
+            claim_evidence = first_claim_evidence
+        if (
+            task.state in TERMINAL_MEDIA_TASK_STATES
+            and terminal_at is None
+        ):
+            terminal_at = now_ms
+        result[task.task_id] = _build_lifecycle(
+            task_id=task.task_id,
+            task_input_fingerprint=task.input_fingerprint,
+            ready_at_ms=ready_at,
+            first_claimed_at_ms=first_claimed,
+            terminal_at_ms=terminal_at,
+            first_claim_evidence=claim_evidence,
+            legacy_unknown=legacy_unknown,
+            legacy_source_schema_version=(
+                None
+                if prior is None
+                else prior.legacy_source_schema_version
+            ),
+            legacy_source_ledger_fingerprint=(
+                None
+                if prior is None
+                else prior.legacy_source_ledger_fingerprint
+            ),
+            legacy_source_record_fingerprint=(
+                None
+                if prior is None
+                else prior.legacy_source_record_fingerprint
+            ),
+            legacy_source_evidence_fingerprint=(
+                None
+                if prior is None
+                else prior.legacy_source_evidence_fingerprint
+            ),
+        )
+    return [result[key] for key in sorted(result)]
+
+
+def _legacy_lifecycle(
+    tasks: Sequence[DramaMediaTask],
+    *,
+    migration_evidence: Sequence[DramaMediaTaskLegacyMigrationEvidence],
+) -> list[DramaMediaTaskLifecycle]:
+    evidence_by_id = {
+        item.task_id: item for item in migration_evidence
+    }
+    return [
+        _build_lifecycle(
+            task_id=task.task_id,
+            task_input_fingerprint=task.input_fingerprint,
+            ready_at_ms=None,
+            first_claimed_at_ms=None,
+            terminal_at_ms=None,
+            first_claim_evidence=None,
+            legacy_unknown=task.state != "planned",
+            legacy_source_schema_version=(
+                evidence_by_id[task.task_id].source_schema_version
+                if task.state != "planned"
+                else None
+            ),
+            legacy_source_ledger_fingerprint=(
+                evidence_by_id[task.task_id].source_ledger_fingerprint
+                if task.state != "planned"
+                else None
+            ),
+            legacy_source_record_fingerprint=(
+                task.record_fingerprint if task.state != "planned" else None
+            ),
+            legacy_source_evidence_fingerprint=(
+                evidence_by_id[task.task_id].record_fingerprint
+                if task.state != "planned"
+                else None
+            ),
+        )
+        for task in sorted(tasks, key=lambda item: item.task_id)
+    ]
+
+
 def _build_ledger(
     episode_no: int,
     tasks: Sequence[DramaMediaTask],
@@ -367,9 +647,19 @@ def _build_ledger(
     release_receipts: Sequence[DramaMediaWorkerReleaseReceipt] = (),
     transition_receipts: Sequence[DramaMediaWorkerTransitionReceipt] = (),
     backend_bindings: Sequence[DramaMediaBackendBinding] = (),
-) -> DramaMediaTaskLedgerV3:
+    lifecycle: Sequence[DramaMediaTaskLifecycle] = (),
+    legacy_migration_evidence: Sequence[
+        DramaMediaTaskLegacyMigrationEvidence
+    ] = (),
+    legacy_source_ledger_runtime: (
+        DramaMediaTaskLedger
+        | DramaMediaTaskLedgerV2
+        | DramaMediaTaskLedgerV3
+        | None
+    ) = None,
+) -> DramaMediaTaskLedgerV4:
     payload = {
-        "schema_version": 3,
+        "schema_version": 4,
         "episode_no": episode_no,
         "revision": revision,
         "tasks": [
@@ -398,22 +688,51 @@ def _build_ledger(
                 backend_bindings, key=lambda item: item.task_id
             )
         ],
+        "lifecycle": [
+            item.model_dump(mode="json")
+            for item in sorted(
+                lifecycle, key=lambda item: item.task_id
+            )
+        ],
+        "legacy_migration_evidence": [
+            item.model_dump(mode="json")
+            for item in sorted(
+                legacy_migration_evidence,
+                key=lambda item: item.task_id,
+            )
+        ],
     }
     payload["ledger_fingerprint"] = _canonical_sha256(payload)
     try:
-        return DramaMediaTaskLedgerV3(**payload)
+        ledger = DramaMediaTaskLedgerV4.model_validate(
+            payload,
+            context={
+                "verified_claim_evidence": frozenset(
+                    item.first_claim_evidence.record_fingerprint
+                    for item in lifecycle
+                    if item.first_claim_evidence is not None
+                ),
+                "verified_legacy_migration_evidence": frozenset(
+                    item.record_fingerprint
+                    for item in legacy_migration_evidence
+                ),
+            },
+        )
+        ledger._legacy_source_ledger = legacy_source_ledger_runtime
+        return ledger
     except (RecursionError, TypeError, ValueError):
         raise DramaMediaTaskError("media task DAG is invalid") from None
 
 
-def _empty_ledger(episode_no: int) -> DramaMediaTaskLedgerV3:
+def _empty_ledger(episode_no: int) -> DramaMediaTaskLedgerV4:
     return _build_ledger(episode_no, (), revision=0)
 
 
 def _ledger_bytes(
     ledger: DramaMediaTaskLedger
     | DramaMediaTaskLedgerV2
-    | DramaMediaTaskLedgerV3,
+    | DramaMediaTaskLedgerV3
+    | DramaMediaTaskLedgerV4,
 ) -> bytes:
     return (
         json.dumps(
@@ -436,7 +755,11 @@ def _read_ledger(
     workspace: str,
     *,
     episode_no: int,
-) -> DramaMediaTaskLedgerV3:
+    include_source_token: bool = False,
+) -> (
+    DramaMediaTaskLedgerV4
+    | tuple[DramaMediaTaskLedgerV4, tuple[Any, ...]]
+):
     number = normalize_episode_no(episode_no)
     root = paths.workspace_root(workspace)
     _validate_render_workspace_root(root)
@@ -465,6 +788,22 @@ def _read_ledger(
         raw = _read_strict_workspace_bytes(
             root, path, maximum=MAX_MEDIA_TASK_LEDGER_BYTES
         )
+        source_token = (
+            "file",
+            len(raw),
+            hashlib.sha256(raw).hexdigest(),
+        )
+
+        def finish(
+            value: DramaMediaTaskLedgerV4,
+        ) -> (
+            DramaMediaTaskLedgerV4
+            | tuple[DramaMediaTaskLedgerV4, tuple[Any, ...]]
+        ):
+            if include_source_token:
+                return value, source_token
+            return value
+
         payload = _read_strict_workspace_json(
             root, path, maximum=MAX_MEDIA_TASK_LEDGER_BYTES
         )
@@ -483,6 +822,11 @@ def _read_ledger(
         ):
             raise ValueError("invalid media task envelope")
         ledger_payload = payload["ledger"]
+        if (
+            ledger_payload.get("schema_version") in {1, 2, 3}
+            and len(raw) > MAX_LEGACY_MEDIA_TASK_LEDGER_BYTES
+        ):
+            raise ValueError("legacy media task ledger exceeds its limit")
         if ledger_payload.get("schema_version") == 1:
             legacy = DramaMediaTaskLedger(**ledger_payload)
             if (
@@ -498,14 +842,24 @@ def _read_ledger(
                 raise DramaMediaTaskError(
                     "legacy active media task requires reconciliation"
                 )
-            return _build_ledger(
+            legacy_evidence = _legacy_migration_evidence(
+                legacy.tasks,
+                source_schema_version=1,
+                source_ledger_fingerprint=legacy.ledger_fingerprint,
+            )
+            return finish(_build_ledger(
                 number,
                 legacy.tasks,
                 revision=legacy.revision,
                 leases=(),
                 release_receipts=(),
                 transition_receipts=(),
-            )
+                lifecycle=_legacy_lifecycle(
+                    legacy.tasks, migration_evidence=legacy_evidence
+                ),
+                legacy_migration_evidence=legacy_evidence,
+                legacy_source_ledger_runtime=legacy,
+            ))
         if ledger_payload.get("schema_version") == 2:
             legacy_v2 = DramaMediaTaskLedgerV2(**ledger_payload)
             if (
@@ -515,7 +869,12 @@ def _read_ledger(
                 or raw != _ledger_bytes(legacy_v2)
             ):
                 raise ValueError("media task ledger identity mismatch")
-            return _build_ledger(
+            legacy_v2_evidence = _legacy_migration_evidence(
+                legacy_v2.tasks,
+                source_schema_version=2,
+                source_ledger_fingerprint=legacy_v2.ledger_fingerprint,
+            )
+            return finish(_build_ledger(
                 number,
                 legacy_v2.tasks,
                 revision=legacy_v2.revision,
@@ -523,15 +882,57 @@ def _read_ledger(
                 release_receipts=legacy_v2.release_receipts,
                 transition_receipts=legacy_v2.transition_receipts,
                 backend_bindings=(),
+                lifecycle=_legacy_lifecycle(
+                    legacy_v2.tasks,
+                    migration_evidence=legacy_v2_evidence,
+                ),
+                legacy_migration_evidence=legacy_v2_evidence,
+                legacy_source_ledger_runtime=legacy_v2,
+            ))
+        if ledger_payload.get("schema_version") == 3:
+            legacy_v3 = DramaMediaTaskLedgerV3(**ledger_payload)
+            if (
+                legacy_v3.episode_no != number
+                or payload["ledger_fingerprint"]
+                != legacy_v3.ledger_fingerprint
+                or raw != _ledger_bytes(legacy_v3)
+            ):
+                raise ValueError("media task ledger identity mismatch")
+            legacy_v3_evidence = _legacy_migration_evidence(
+                legacy_v3.tasks,
+                source_schema_version=3,
+                source_ledger_fingerprint=legacy_v3.ledger_fingerprint,
             )
-        ledger = DramaMediaTaskLedgerV3(**ledger_payload)
+            return finish(_build_ledger(
+                number,
+                legacy_v3.tasks,
+                revision=legacy_v3.revision,
+                leases=legacy_v3.leases,
+                release_receipts=legacy_v3.release_receipts,
+                transition_receipts=legacy_v3.transition_receipts,
+                backend_bindings=legacy_v3.backend_bindings,
+                lifecycle=_legacy_lifecycle(
+                    legacy_v3.tasks,
+                    migration_evidence=legacy_v3_evidence,
+                ),
+                legacy_migration_evidence=legacy_v3_evidence,
+                legacy_source_ledger_runtime=legacy_v3,
+            ))
+        evidence_context, legacy_source = _load_evidence_context(
+            root, ledger_payload
+        )
+        ledger = DramaMediaTaskLedgerV4.model_validate(
+            ledger_payload,
+            context=evidence_context,
+        )
+        ledger._legacy_source_ledger = legacy_source
         if (
             ledger.episode_no != number
             or payload["ledger_fingerprint"] != ledger.ledger_fingerprint
             or raw != _ledger_bytes(ledger)
         ):
             raise ValueError("media task ledger identity mismatch")
-        return ledger
+        return finish(ledger)
     except FileNotFoundError:
         raise
     except DramaMediaTaskError:
@@ -552,9 +953,239 @@ def _target_token(root: Path, path: Path) -> tuple[Any, ...]:
     return ("file", len(data), hashlib.sha256(data).hexdigest())
 
 
+def _claim_evidence_bytes(
+    evidence: DramaMediaTaskFirstClaimEvidence,
+) -> bytes:
+    return (
+        json.dumps(
+            evidence.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _parse_legacy_source_ledger(
+    raw: bytes,
+) -> DramaMediaTaskLedger | DramaMediaTaskLedgerV2 | DramaMediaTaskLedgerV3:
+    if not 0 < len(raw) <= MAX_LEGACY_MEDIA_TASK_LEDGER_BYTES:
+        raise ValueError("legacy source ledger size is invalid")
+    payload = json.loads(
+        raw.decode("utf-8"),
+        object_pairs_hook=_reject_render_json_duplicates,
+    )
+    if (
+        not isinstance(payload, dict)
+        or set(payload)
+        != {
+            "schema_version",
+            "artifact_type",
+            "ledger_fingerprint",
+            "ledger",
+        }
+        or payload.get("schema_version") != 1
+        or payload.get("artifact_type") != "drama_media_task_ledger"
+        or not isinstance(payload.get("ledger"), dict)
+    ):
+        raise ValueError("legacy source envelope is invalid")
+    ledger_payload = payload["ledger"]
+    schema_version = ledger_payload.get("schema_version")
+    ledger: (
+        DramaMediaTaskLedger
+        | DramaMediaTaskLedgerV2
+        | DramaMediaTaskLedgerV3
+    )
+    if schema_version == 1:
+        ledger = DramaMediaTaskLedger(**ledger_payload)
+    elif schema_version == 2:
+        ledger = DramaMediaTaskLedgerV2(**ledger_payload)
+    elif schema_version == 3:
+        ledger = DramaMediaTaskLedgerV3(**ledger_payload)
+    else:
+        raise ValueError("legacy source schema is invalid")
+    if (
+        payload["ledger_fingerprint"] != ledger.ledger_fingerprint
+        or raw != _ledger_bytes(ledger)
+    ):
+        raise ValueError("legacy source identity is invalid")
+    return ledger
+
+
+def _load_evidence_context(
+    root: Path,
+    ledger_payload: dict[str, Any],
+) -> tuple[dict[str, frozenset[str]], Any]:
+    lifecycle_payload = ledger_payload.get("lifecycle")
+    legacy_payload = ledger_payload.get("legacy_migration_evidence")
+    if not isinstance(lifecycle_payload, list) or not isinstance(
+        legacy_payload, list
+    ):
+        raise ValueError("media evidence projection is invalid")
+    claim_evidence = []
+    for item in lifecycle_payload:
+        if not isinstance(item, dict):
+            raise ValueError("media lifecycle projection is invalid")
+        raw_evidence = item.get("first_claim_evidence")
+        if raw_evidence is not None:
+            claim_evidence.append(
+                DramaMediaTaskFirstClaimEvidence(**raw_evidence)
+            )
+    legacy_evidence = [
+        DramaMediaTaskLegacyMigrationEvidence(**item)
+        for item in legacy_payload
+    ]
+    if not claim_evidence and not legacy_evidence:
+        return {
+            "verified_claim_evidence": frozenset(),
+            "verified_legacy_migration_evidence": frozenset(),
+        }, None
+    directory_fd: int | None = None
+    try:
+        directory_fd = drama_edit_export._open_output_directory(
+            root, MEDIA_TASK_EVIDENCE_DIRECTORY, create=False
+        )
+        identity = drama_edit_export._directory_identity(directory_fd)
+        for evidence in claim_evidence:
+            expected = _claim_evidence_bytes(evidence)
+            actual = drama_edit_export._read_output_at(
+                directory_fd,
+                f"claim_{evidence.record_fingerprint}.json",
+                maximum=MAX_MEDIA_TASK_CLAIM_EVIDENCE_BYTES,
+            )
+            if actual != expected:
+                raise ValueError("media claim evidence source is invalid")
+        source_ledger = None
+        if legacy_evidence:
+            source_fingerprints = {
+                item.source_ledger_fingerprint for item in legacy_evidence
+            }
+            source_versions = {
+                item.source_schema_version for item in legacy_evidence
+            }
+            if len(source_fingerprints) != 1 or len(source_versions) != 1:
+                raise ValueError("legacy source identity is ambiguous")
+            source_fingerprint = next(iter(source_fingerprints))
+            source_raw = drama_edit_export._read_output_at(
+                directory_fd,
+                f"legacy_{source_fingerprint}.json",
+                maximum=MAX_LEGACY_MEDIA_TASK_LEDGER_BYTES,
+            )
+            source_ledger = _parse_legacy_source_ledger(source_raw)
+            source_by_id = {
+                item.task_id: item for item in source_ledger.tasks
+            }
+            for evidence in legacy_evidence:
+                source_task = source_by_id.get(evidence.task_id)
+                if (
+                    evidence.source_schema_version
+                    != source_ledger.schema_version
+                    or evidence.source_ledger_fingerprint
+                    != source_ledger.ledger_fingerprint
+                    or source_task is None
+                    or evidence.task_input_fingerprint
+                    != source_task.input_fingerprint
+                    or evidence.task_dedupe_key != source_task.dedupe_key
+                    or evidence.source_task_revision != source_task.revision
+                    or evidence.source_task_state != source_task.state
+                    or evidence.source_task_record_fingerprint
+                    != source_task.record_fingerprint
+                ):
+                    raise ValueError(
+                        "legacy migration source evidence is invalid"
+                    )
+        drama_edit_export._require_current_output_directory(
+            root, MEDIA_TASK_EVIDENCE_DIRECTORY, expected=identity
+        )
+        return {
+            "verified_claim_evidence": frozenset(
+                item.record_fingerprint for item in claim_evidence
+            ),
+            "verified_legacy_migration_evidence": frozenset(
+                item.record_fingerprint for item in legacy_evidence
+            ),
+        }, source_ledger
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
+
+
+def _write_evidence_sidecars(
+    workspace: str,
+    ledger: DramaMediaTaskLedgerV4,
+) -> None:
+    claims = [
+        item.first_claim_evidence
+        for item in ledger.lifecycle
+        if item.first_claim_evidence is not None
+    ]
+    legacy = ledger.legacy_migration_evidence
+    if not claims and not legacy:
+        return
+    source = ledger._legacy_source_ledger
+    if legacy and (
+        source is None
+        or source.ledger_fingerprint
+        != legacy[0].source_ledger_fingerprint
+    ):
+        raise DramaMediaTaskError(
+            "legacy migration source is unavailable"
+        )
+    root = paths.workspace_root(workspace)
+    directory_fd: int | None = None
+    try:
+        directory_fd = drama_edit_export._open_output_directory(
+            root, MEDIA_TASK_EVIDENCE_DIRECTORY, create=True
+        )
+        identity = drama_edit_export._directory_identity(directory_fd)
+        artifacts = [
+            (
+                f"claim_{item.record_fingerprint}.json",
+                _claim_evidence_bytes(item),
+                MAX_MEDIA_TASK_CLAIM_EVIDENCE_BYTES,
+            )
+            for item in claims
+        ]
+        if legacy:
+            artifacts.append(
+                (
+                    f"legacy_{source.ledger_fingerprint}.json",
+                    _ledger_bytes(source),
+                    MAX_LEGACY_MEDIA_TASK_LEDGER_BYTES,
+                )
+            )
+        for name, data, maximum in artifacts:
+            token = drama_edit_export._target_token_at(
+                directory_fd, name, maximum=maximum
+            )
+            expected = ("file", len(data), hashlib.sha256(data).hexdigest())
+            if token == ("missing",):
+                drama_edit_export._atomic_write_at(
+                    directory_fd, name, data, maximum=maximum
+                )
+            elif token != expected:
+                raise DramaMediaTaskError(
+                    "media lifecycle evidence changed"
+                )
+        drama_edit_export._require_current_output_directory(
+            root, MEDIA_TASK_EVIDENCE_DIRECTORY, expected=identity
+        )
+    except DramaMediaTaskError:
+        raise
+    except (OSError, ValueError, drama_edit_export.DramaEditExportError):
+        raise DramaMediaTaskError(
+            "media lifecycle evidence could not be committed safely"
+        ) from None
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
+
+
 def _write_ledger(
     workspace: str,
-    ledger: DramaMediaTaskLedgerV3,
+    ledger: DramaMediaTaskLedgerV4,
     *,
     expected_target_token: tuple[Any, ...],
 ) -> None:
@@ -600,10 +1231,11 @@ def _write_ledger(
 
 def _persist_ledger(
     workspace: str,
-    ledger: DramaMediaTaskLedgerV3,
+    ledger: DramaMediaTaskLedgerV4,
     *,
     expected_target_token: tuple[Any, ...],
-) -> DramaMediaTaskLedgerV3:
+) -> DramaMediaTaskLedgerV4:
+    _write_evidence_sidecars(workspace, ledger)
     _write_ledger(
         workspace, ledger, expected_target_token=expected_target_token
     )
@@ -617,7 +1249,7 @@ def load_media_task_ledger(
     workspace: str,
     *,
     episode_no: int = 1,
-) -> DramaMediaTaskLedgerV3:
+) -> DramaMediaTaskLedgerV4:
     try:
         return _read_ledger(
             workspace, episode_no=normalize_episode_no(episode_no)
@@ -631,7 +1263,7 @@ def load_media_task_ledger(
 
 
 def _validate_expected_ledger(
-    ledger: DramaMediaTaskLedgerV3,
+    ledger: DramaMediaTaskLedgerV4,
     expected_ledger_fingerprint: str | None,
     *,
     missing: bool,
@@ -715,10 +1347,14 @@ def create_media_task(
             except FileNotFoundError:
                 ledger = _empty_ledger(number)
                 missing = True
+            trusted_now_ms = _trusted_create_time_ms(now_ms)
             by_id = {item.task_id: item for item in ledger.tasks}
             if any(item not in by_id for item in dependencies):
                 raise DramaMediaTaskError("media task dependency is missing")
-            if any(now_ms < by_id[item].created_at_ms for item in dependencies):
+            if any(
+                trusted_now_ms < by_id[item].created_at_ms
+                for item in dependencies
+            ):
                 raise DramaMediaTaskError(
                     "media task creation time is invalid"
                 )
@@ -738,8 +1374,8 @@ def create_media_task(
                 attempt_no=attempt_no,
                 state="ready" if ready else "planned",
                 revision=0,
-                created_at_ms=now_ms,
-                updated_at_ms=now_ms,
+                created_at_ms=trusted_now_ms,
+                updated_at_ms=trusted_now_ms,
             )
             existing = by_id.get(proposed.task_id)
             if existing is not None:
@@ -778,6 +1414,19 @@ def create_media_task(
                 release_receipts=ledger.release_receipts,
                 transition_receipts=ledger.transition_receipts,
                 backend_bindings=ledger.backend_bindings,
+                lifecycle=_evolve_lifecycle(
+                    ledger.lifecycle,
+                    before_tasks=ledger.tasks,
+                    after_tasks=[*ledger.tasks, proposed],
+                    now_ms=trusted_now_ms,
+                    created_task_ids=frozenset({proposed.task_id}),
+                ),
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -837,13 +1486,17 @@ def enqueue_bound_media_task(
             except FileNotFoundError:
                 ledger = _empty_ledger(number)
                 missing = True
+            trusted_now_ms = _trusted_create_time_ms(now_ms)
             by_id = {item.task_id: item for item in ledger.tasks}
             bindings = {
                 item.task_id: item for item in ledger.backend_bindings
             }
             if any(item not in by_id for item in dependencies):
                 raise DramaMediaTaskError("media task dependency is missing")
-            if any(now_ms < by_id[item].created_at_ms for item in dependencies):
+            if any(
+                trusted_now_ms < by_id[item].created_at_ms
+                for item in dependencies
+            ):
                 raise DramaMediaTaskError("media task creation time is invalid")
             ready = all(by_id[item].state == "succeeded" for item in dependencies)
             proposed = _build_task(
@@ -861,8 +1514,8 @@ def enqueue_bound_media_task(
                 attempt_no=attempt_no,
                 state="ready" if ready else "planned",
                 revision=0,
-                created_at_ms=now_ms,
-                updated_at_ms=now_ms,
+                created_at_ms=trusted_now_ms,
+                updated_at_ms=trusted_now_ms,
             )
 
             def existing_binding(
@@ -930,6 +1583,19 @@ def enqueue_bound_media_task(
                 release_receipts=ledger.release_receipts,
                 transition_receipts=ledger.transition_receipts,
                 backend_bindings=[*ledger.backend_bindings, binding],
+                lifecycle=_evolve_lifecycle(
+                    ledger.lifecycle,
+                    before_tasks=ledger.tasks,
+                    after_tasks=[*ledger.tasks, proposed],
+                    now_ms=trusted_now_ms,
+                    created_task_ids=frozenset({proposed.task_id}),
+                ),
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -1295,6 +1961,18 @@ def transition_media_task(
                     ),
                 ],
                 backend_bindings=ledger.backend_bindings,
+                lifecycle=_evolve_lifecycle(
+                    ledger.lifecycle,
+                    before_tasks=ledger.tasks,
+                    after_tasks=tasks,
+                    now_ms=now_ms,
+                ),
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token
@@ -1405,6 +2083,13 @@ def cancel_media_task_cascade(
                     if item.task_id not in affected
                 ],
                 backend_bindings=ledger.backend_bindings,
+                lifecycle=ledger.lifecycle,
+                legacy_migration_evidence=(
+                    ledger.legacy_migration_evidence
+                ),
+                legacy_source_ledger_runtime=(
+                    ledger._legacy_source_ledger
+                ),
             )
             _persist_ledger(
                 workspace, updated, expected_target_token=token

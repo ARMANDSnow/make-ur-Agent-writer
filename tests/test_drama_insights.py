@@ -78,6 +78,13 @@ class DramaInsightsTests(unittest.TestCase):
                 "rows": [],
             },
         )
+        self.assertEqual(data["media_metrics"]["status"], "ok")
+        self.assertEqual(data["media_metrics"]["task_count"], 0)
+        self.assertIsNone(data["media_metrics"]["success_rate"])
+        self.assertIsNone(
+            data["media_metrics"]["queue_wait_average_ms"]
+        )
+        self.assertEqual(data["media_metrics"]["rows"], [])
         self.assertEqual(
             data["duration"],
             {"total": 0, "within_tolerance": 0, "rate": 0.0, "tolerance_seconds": 3, "invalid": 0},

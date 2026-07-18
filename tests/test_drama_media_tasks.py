@@ -62,25 +62,30 @@ class DramaMediaTaskTests(DramaTestBase):
             "expected_ledger_fingerprint": expected,
             **self._IDENTITY,
         }
-        if media_kind == "compose":
-            return drama_media_tasks.create_media_task(
+        with patch.object(
+            drama_media_tasks,
+            "_clock_ms",
+            return_value=arguments["now_ms"],
+        ):
+            if media_kind == "compose":
+                return drama_media_tasks.create_media_task(
+                    self.name,
+                    **arguments,
+                )
+            task, _binding = drama_media_tasks.enqueue_bound_media_task(
                 self.name,
+                provider_id=PROVIDER_ID,
+                model_id=MODEL_ID,
+                registry=build_registry(
+                    media_kind=media_kind,
+                    backend_id=self._IDENTITY["backend_id"],
+                    provider_fingerprint=self._IDENTITY[
+                        "provider_fingerprint"
+                    ],
+                    model_fingerprint=self._IDENTITY["model_fingerprint"],
+                ),
                 **arguments,
             )
-        task, _binding = drama_media_tasks.enqueue_bound_media_task(
-            self.name,
-            provider_id=PROVIDER_ID,
-            model_id=MODEL_ID,
-            registry=build_registry(
-                media_kind=media_kind,
-                backend_id=self._IDENTITY["backend_id"],
-                provider_fingerprint=self._IDENTITY[
-                    "provider_fingerprint"
-                ],
-                model_fingerprint=self._IDENTITY["model_fingerprint"],
-            ),
-            **arguments,
-        )
         return task
 
     def _transition(
@@ -203,6 +208,29 @@ class DramaMediaTaskTests(DramaTestBase):
         self.assertNotEqual(changed.dedupe_key, first.dedupe_key)
         self.assertEqual(len(self._ledger().tasks), 2)
 
+    def test_exact_create_replay_ignores_stale_caller_clock(self) -> None:
+        first = self._create(media_kind="compose", stage="compose")
+        with patch.object(
+            drama_media_tasks,
+            "_clock_ms",
+            return_value=self.now + 600_000,
+        ):
+            replay = drama_media_tasks.create_media_task(
+                self.name,
+                episode_no=1,
+                media_kind="compose",
+                stage="compose",
+                subject_id="shot_001",
+                input_fingerprint="a" * 64,
+                dependency_task_ids=(),
+                attempt_no=1,
+                now_ms=self.now,
+                expected_ledger_fingerprint=None,
+                **self._IDENTITY,
+            )
+        self.assertEqual(replay, first)
+        self.assertEqual(self._ledger().revision, 1)
+
     def test_terminal_attempt_allows_new_attempt_but_old_attempt_replays(self) -> None:
         first = self._create()
         failed = self._transition(
@@ -293,8 +321,19 @@ class DramaMediaTaskTests(DramaTestBase):
         self.assertEqual(promoted.state, "ready")
         self.assertEqual(promoted.revision, 1)
         self.assertEqual(promoted.updated_at_ms, self.now + 8)
+        lifecycle = {
+            item.task_id: item for item in loaded.lifecycle
+        }
+        self.assertEqual(
+            lifecycle[video.task_id].ready_at_ms,
+            self.now + 8,
+        )
+        self.assertEqual(
+            lifecycle[image.task_id].terminal_at_ms,
+            self.now + 8,
+        )
 
-    def test_future_dated_child_promotes_without_reversing_its_time(self) -> None:
+    def test_trusted_child_creation_and_promotion_times_are_monotonic(self) -> None:
         image = self._create()
         ledger = self._ledger()
         video = self._create(
@@ -313,6 +352,37 @@ class DramaMediaTaskTests(DramaTestBase):
         )
         self.assertEqual(promoted.state, "ready")
         self.assertEqual(promoted.updated_at_ms, self.now + 100)
+        self.assertEqual(
+            next(
+                item
+                for item in self._ledger().lifecycle
+                if item.task_id == video.task_id
+            ).ready_at_ms,
+            self.now + 100,
+        )
+
+    def test_create_uses_trusted_lock_clock_not_caller_time(self) -> None:
+        with patch.object(
+            drama_media_tasks, "_clock_ms", return_value=self.now
+        ):
+            task = drama_media_tasks.create_media_task(
+                self.name,
+                episode_no=1,
+                media_kind="compose",
+                stage="compose",
+                subject_id="trusted_clock",
+                input_fingerprint="8" * 64,
+                dependency_task_ids=(),
+                attempt_no=1,
+                now_ms=self.now - 100,
+                expected_ledger_fingerprint=None,
+                **self._IDENTITY,
+            )
+        lifecycle = self._ledger().lifecycle[0]
+        self.assertEqual(task.created_at_ms, self.now)
+        self.assertEqual(task.updated_at_ms, self.now)
+        self.assertEqual(lifecycle.ready_at_ms, self.now)
+        self.assertNotEqual(lifecycle.ready_at_ms, self.now - 100)
 
     def test_transition_graph_unknown_submission_and_exact_replay_fail_closed(self) -> None:
         task = self._create()

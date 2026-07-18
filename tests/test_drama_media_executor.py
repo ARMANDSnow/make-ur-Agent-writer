@@ -126,29 +126,32 @@ class DramaMediaExecutorTests(DramaTestBase):
             "video": "video-generate",
             "audio": "tts-synthesize",
         }[media_kind]
-        task, binding = drama_media_tasks.enqueue_bound_media_task(
-            self.name,
-            episode_no=1,
-            media_kind=media_kind,
-            stage=stage,
-            subject_id="subject_001",
-            input_fingerprint="0" * 64,
-            provider_id=PROVIDER_ID,
-            model_id=MODEL_ID,
-            registry=build_registry(
+        with patch.object(
+            drama_media_tasks, "_clock_ms", return_value=self.now
+        ):
+            task, binding = drama_media_tasks.enqueue_bound_media_task(
+                self.name,
+                episode_no=1,
                 media_kind=media_kind,
-                backend_id=self._TASK_IDENTITY["backend_id"],
-                provider_fingerprint=self._TASK_IDENTITY[
-                    "provider_fingerprint"
-                ],
-                model_fingerprint=self._TASK_IDENTITY["model_fingerprint"],
-            ),
-            dependency_task_ids=(),
-            attempt_no=1,
-            now_ms=self.now,
-            expected_ledger_fingerprint=None,
-            **self._TASK_IDENTITY,
-        )
+                stage=stage,
+                subject_id="subject_001",
+                input_fingerprint="0" * 64,
+                provider_id=PROVIDER_ID,
+                model_id=MODEL_ID,
+                registry=build_registry(
+                    media_kind=media_kind,
+                    backend_id=self._TASK_IDENTITY["backend_id"],
+                    provider_fingerprint=self._TASK_IDENTITY[
+                        "provider_fingerprint"
+                    ],
+                    model_fingerprint=self._TASK_IDENTITY["model_fingerprint"],
+                ),
+                dependency_task_ids=(),
+                attempt_no=1,
+                now_ms=self.now,
+                expected_ledger_fingerprint=None,
+                **self._TASK_IDENTITY,
+            )
         with patch.object(
             drama_media_worker, "_clock_ms", return_value=self.now + 1
         ):

@@ -755,6 +755,7 @@ def render_workspace_drama_insights(name: str, workspaces: Iterable[str]) -> str
         '</header>'
         '<section class="section stack">'
         '<div class="card"><div class="card-header"><h3>成本口径</h3></div><div class="card-body" id="drama-insights-cost"></div></div>'
+        '<div class="card"><div class="card-header"><h3>媒体任务</h3></div><div class="card-body" id="drama-insights-media-metrics"></div></div>'
         '<div class="card"><div class="card-header"><h3>时长达标率</h3></div><div class="card-body" id="drama-insights-duration"></div></div>'
         '<div class="card"><div class="card-header"><h3>钩子类型</h3></div><div class="card-body" id="drama-insights-hooks"></div></div>'
         '</section>'

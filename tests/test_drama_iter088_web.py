@@ -336,6 +336,7 @@ class DramaIter088WebTests(DramaTestBase):
         html = body.decode("utf-8")
         self.assertIn('window.PAGE_KIND = "drama_insights"', html)
         self.assertIn('id="drama-insights-cost"', html)
+        self.assertIn('id="drama-insights-media-metrics"', html)
         self.assertIn('/w/drama/insights', html)
 
         status, _ct, body = routes.dispatch("GET", "/api/workspace/drama/insights")
@@ -344,6 +345,7 @@ class DramaIter088WebTests(DramaTestBase):
         self.assertIn("llm_cost", payload)
         self.assertIn("episode_meta_cost", payload)
         self.assertIn("media_pricing", payload)
+        self.assertIn("media_metrics", payload)
         self.assertIn("duration", payload)
         self.assertIn("hook_types", payload)
 
@@ -353,6 +355,8 @@ class DramaIter088WebTests(DramaTestBase):
         self.assertIn("function dramaPayload", js)
         self.assertIn("mediaPricing.currencies", js)
         self.assertIn("尚无 pricing fact", js)
+        self.assertIn("queue_wait_known_samples", js)
+        self.assertIn("submission unknown", js)
         self.assertIn("data-start-next-episode", js)
         self.assertIn("Comfy workflow 模板", js)
         self.assertNotIn("导出即将上线", js)

@@ -16,6 +16,7 @@ from src.drama_media_backends import base, registry
 from src.drama_schemas import (
     DramaMediaTaskLedgerV2,
     DramaMediaTaskLedgerV3,
+    DramaMediaTaskLedgerV4,
     _canonical_sha256,
 )
 from src.schemas import model_to_dict
@@ -49,10 +50,17 @@ class DramaMediaQueueClientTests(DramaTestBase):
         )
 
     def _enqueue(self, *, subject_id: str = "shot_001"):
-        with patch.object(
-            drama_media_queue_client,
-            "_wall_clock_ms",
-            return_value=self.now,
+        with (
+            patch.object(
+                drama_media_queue_client,
+                "_wall_clock_ms",
+                return_value=self.now,
+            ),
+            patch.object(
+                drama_media_tasks,
+                "_clock_ms",
+                return_value=self.now,
+            ),
         ):
             return drama_media_queue_client.enqueue_media_task(
                 self.name,
@@ -75,7 +83,7 @@ class DramaMediaQueueClientTests(DramaTestBase):
     def test_enqueue_commits_task_and_binding_atomically(self) -> None:
         projected = self._enqueue()
         ledger = self._ledger()
-        self.assertEqual(ledger.schema_version, 3)
+        self.assertEqual(ledger.schema_version, 4)
         self.assertEqual(len(ledger.tasks), 1)
         self.assertEqual(len(ledger.backend_bindings), 1)
         self.assertEqual(
@@ -120,22 +128,25 @@ class DramaMediaQueueClientTests(DramaTestBase):
             ]
         )
         before = self._ledger()
-        task, binding = drama_media_tasks.enqueue_bound_media_task(
-            self.name,
-            episode_no=1,
-            media_kind="image",
-            stage="image-generate",
-            subject_id="shot_001",
-            input_fingerprint="a" * 64,
-            provider_id=PROVIDER_ID,
-            model_id=MODEL_ID,
-            registry=changed,
-            dependency_task_ids=(),
-            attempt_no=1,
-            now_ms=self.now,
-            expected_ledger_fingerprint=before.ledger_fingerprint,
-            **self._IDENTITY,
-        )
+        with patch.object(
+            drama_media_tasks, "_clock_ms", return_value=self.now
+        ):
+            task, binding = drama_media_tasks.enqueue_bound_media_task(
+                self.name,
+                episode_no=1,
+                media_kind="image",
+                stage="image-generate",
+                subject_id="shot_001",
+                input_fingerprint="a" * 64,
+                provider_id=PROVIDER_ID,
+                model_id=MODEL_ID,
+                registry=changed,
+                dependency_task_ids=(),
+                attempt_no=1,
+                now_ms=self.now,
+                expected_ledger_fingerprint=before.ledger_fingerprint,
+                **self._IDENTITY,
+            )
         self.assertEqual(task.task_id, first["task_id"])
         self.assertEqual(
             binding.registry_fingerprint,
@@ -146,7 +157,12 @@ class DramaMediaQueueClientTests(DramaTestBase):
     def test_replay_rejects_provider_id_drift(self) -> None:
         first = self._enqueue()
         ledger = self._ledger()
-        with self.assertRaises(drama_media_tasks.DramaMediaTaskError):
+        with (
+            patch.object(
+                drama_media_tasks, "_clock_ms", return_value=self.now
+            ),
+            self.assertRaises(drama_media_tasks.DramaMediaTaskError),
+        ):
             drama_media_tasks.enqueue_bound_media_task(
                 self.name,
                 episode_no=1,
@@ -183,7 +199,7 @@ class DramaMediaQueueClientTests(DramaTestBase):
             self.name, episode_no=1
         ).write_bytes(drama_media_tasks._ledger_bytes(legacy))
         migrated = self._ledger()
-        self.assertIsInstance(migrated, DramaMediaTaskLedgerV3)
+        self.assertIsInstance(migrated, DramaMediaTaskLedgerV4)
         self.assertEqual(migrated.backend_bindings, [])
         safe = drama_media_queue_client.get_media_task(
             self.name,

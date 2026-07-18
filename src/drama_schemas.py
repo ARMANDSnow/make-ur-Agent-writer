@@ -8,7 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from . import paths
 
@@ -7714,6 +7722,472 @@ class DramaMediaTaskLedgerV3(BaseModel):
         payload = self.model_dump(exclude={"ledger_fingerprint"})
         if _canonical_sha256(payload) != self.ledger_fingerprint:
             raise ValueError("media task ledger v3 fingerprint is invalid")
+        return self
+
+
+class DramaMediaTaskFirstClaimEvidence(BaseModel):
+    """Immutable snapshots proving one task's first observed claim."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    task_input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    ready_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    first_claimed_at_ms: int = Field(ge=0, le=9_999_999_999_999)
+    before_ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    before_task: DramaMediaTask
+    claimed_task: DramaMediaTask
+    initial_lease: DramaMediaWorkerLease
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("ready_at_ms", "first_claimed_at_ms", mode="before")
+    @classmethod
+    def _claim_evidence_times_are_strict(
+        cls, value: Any, info: Any
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _claim_evidence_is_canonical(
+        self,
+    ) -> "DramaMediaTaskFirstClaimEvidence":
+        before = self.before_task
+        claimed = self.claimed_task
+        lease = self.initial_lease
+        if (
+            self.ready_at_ms > self.first_claimed_at_ms
+            or self.task_id != before.task_id
+            or self.task_id != claimed.task_id
+            or self.task_id != lease.task_id
+            or self.task_input_fingerprint != before.input_fingerprint
+            or self.task_input_fingerprint != claimed.input_fingerprint
+            or before.state != "ready"
+            or claimed.state != "claimed"
+            or claimed.revision != before.revision + 1
+            or claimed.created_at_ms != before.created_at_ms
+            or claimed.updated_at_ms != self.first_claimed_at_ms
+            or self.ready_at_ms != before.updated_at_ms
+            or before.updated_at_ms > self.first_claimed_at_ms
+            or lease.task_revision != claimed.revision
+            or lease.lease_revision != 0
+            or lease.claimed_at_ms != self.first_claimed_at_ms
+        ):
+            raise ValueError("media first claim evidence binding is invalid")
+        immutable_fields = (
+            "episode_no",
+            "media_kind",
+            "stage",
+            "subject_id",
+            "input_fingerprint",
+            "backend_id",
+            "provider_fingerprint",
+            "model_fingerprint",
+            "account_fingerprint",
+            "endpoint_fingerprint",
+            "dependency_task_ids",
+            "attempt_no",
+            "dedupe_key",
+        )
+        if any(
+            getattr(before, field) != getattr(claimed, field)
+            for field in immutable_fields
+        ):
+            raise ValueError("media first claim task identity changed")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("media first claim evidence fingerprint is invalid")
+        return self
+
+
+class DramaMediaTaskLifecycle(BaseModel):
+    """Durable observable lifecycle times; absent values stay unknown."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    task_input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    ready_at_ms: Optional[int] = Field(
+        default=None, ge=0, le=9_999_999_999_999
+    )
+    first_claimed_at_ms: Optional[int] = Field(
+        default=None, ge=0, le=9_999_999_999_999
+    )
+    terminal_at_ms: Optional[int] = Field(
+        default=None, ge=0, le=9_999_999_999_999
+    )
+    first_claim_evidence: Optional[DramaMediaTaskFirstClaimEvidence] = None
+    legacy_unknown: bool
+    legacy_source_schema_version: Optional[Literal[1, 2, 3]] = None
+    legacy_source_ledger_fingerprint: Optional[str] = Field(
+        default=None, pattern=_SHA256_PATTERN
+    )
+    legacy_source_record_fingerprint: Optional[str] = Field(
+        default=None, pattern=_SHA256_PATTERN
+    )
+    legacy_source_evidence_fingerprint: Optional[str] = Field(
+        default=None, pattern=_SHA256_PATTERN
+    )
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator(
+        "ready_at_ms",
+        "first_claimed_at_ms",
+        "terminal_at_ms",
+        mode="before",
+    )
+    @classmethod
+    def _lifecycle_times_are_strict(
+        cls, value: Any, info: Any
+    ) -> Optional[int]:
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _lifecycle_is_canonical(self) -> "DramaMediaTaskLifecycle":
+        if not isinstance(self.legacy_unknown, bool):
+            raise ValueError("media lifecycle legacy marker must be a bool")
+        if self.legacy_unknown != (
+            self.legacy_source_schema_version is not None
+            and self.legacy_source_ledger_fingerprint is not None
+            and self.legacy_source_record_fingerprint is not None
+            and self.legacy_source_evidence_fingerprint is not None
+        ):
+            raise ValueError("media lifecycle legacy provenance is invalid")
+        if (
+            not self.legacy_unknown
+            and (
+                self.legacy_source_schema_version is not None
+                or self.legacy_source_ledger_fingerprint is not None
+                or self.legacy_source_record_fingerprint is not None
+                or self.legacy_source_evidence_fingerprint is not None
+            )
+        ):
+            raise ValueError("media lifecycle legacy provenance is unexpected")
+        if (
+            self.first_claimed_at_ms is not None
+            and self.ready_at_ms is None
+        ):
+            raise ValueError("media lifecycle claim lacks readiness")
+        if (self.first_claimed_at_ms is None) != (
+            self.first_claim_evidence is None
+        ):
+            raise ValueError("media lifecycle first claim evidence is incomplete")
+        if self.first_claim_evidence is not None and (
+            self.first_claim_evidence.task_id != self.task_id
+            or self.first_claim_evidence.task_input_fingerprint
+            != self.task_input_fingerprint
+            or self.first_claim_evidence.ready_at_ms != self.ready_at_ms
+            or self.first_claim_evidence.first_claimed_at_ms
+            != self.first_claimed_at_ms
+        ):
+            raise ValueError("media lifecycle first claim evidence is invalid")
+        if (
+            self.ready_at_ms is not None
+            and self.first_claimed_at_ms is not None
+            and self.first_claimed_at_ms < self.ready_at_ms
+        ):
+            raise ValueError("media lifecycle claim precedes readiness")
+        lower = (
+            self.first_claimed_at_ms
+            if self.first_claimed_at_ms is not None
+            else self.ready_at_ms
+        )
+        if (
+            lower is not None
+            and self.terminal_at_ms is not None
+            and self.terminal_at_ms < lower
+        ):
+            raise ValueError("media lifecycle terminal time is invalid")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("media lifecycle fingerprint is invalid")
+        return self
+
+
+class DramaMediaTaskLegacyMigrationEvidence(BaseModel):
+    """Bounded source identity for one lifecycle-unknown legacy task."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    task_id: str = Field(pattern=r"^dmt_[0-9a-f]{24}$")
+    task_input_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    task_dedupe_key: str = Field(pattern=_SHA256_PATTERN)
+    source_schema_version: Literal[1, 2, 3]
+    source_ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_task_revision: int = Field(ge=0, le=10_000)
+    source_task_state: DramaMediaTaskState
+    source_task_record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("source_task_revision", mode="before")
+    @classmethod
+    def _legacy_evidence_revision_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("legacy evidence revision must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _legacy_evidence_is_canonical(
+        self,
+    ) -> "DramaMediaTaskLegacyMigrationEvidence":
+        if self.source_task_state == "planned":
+            raise ValueError("planned task does not need legacy unknown evidence")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if _canonical_sha256(payload) != self.record_fingerprint:
+            raise ValueError("legacy migration evidence fingerprint is invalid")
+        return self
+
+
+class DramaMediaTaskLedgerV4(BaseModel):
+    """G7 ledger: v3 orchestration plus durable lifecycle metrics facts."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[4] = 4
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    revision: int = Field(ge=0, le=1_000_000)
+    tasks: List[DramaMediaTask] = Field(max_length=1000)
+    leases: List[DramaMediaWorkerLease] = Field(max_length=1000)
+    release_receipts: List[DramaMediaWorkerReleaseReceipt] = Field(
+        max_length=1000
+    )
+    transition_receipts: List[DramaMediaWorkerTransitionReceipt] = Field(
+        max_length=1000
+    )
+    backend_bindings: List["DramaMediaBackendBinding"] = Field(max_length=1000)
+    lifecycle: List[DramaMediaTaskLifecycle] = Field(max_length=1000)
+    legacy_migration_evidence: List[
+        DramaMediaTaskLegacyMigrationEvidence
+    ] = Field(max_length=1000)
+    ledger_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    _legacy_source_ledger: Any = PrivateAttr(default=None)
+
+    @field_validator("episode_no", "revision", mode="before")
+    @classmethod
+    def _media_ledger_v4_numbers_are_strict(
+        cls, value: Any, info: Any
+    ) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator(
+        "tasks",
+        "leases",
+        "release_receipts",
+        "transition_receipts",
+        "backend_bindings",
+        "lifecycle",
+        "legacy_migration_evidence",
+        mode="before",
+    )
+    @classmethod
+    def _media_ledger_v4_lists_are_strict(
+        cls, value: Any, info: Any
+    ) -> List[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"media task ledger {info.field_name} must be a list")
+        return value
+
+    @model_validator(mode="after")
+    def _media_ledger_v4_is_canonical(
+        self,
+        info: ValidationInfo,
+    ) -> "DramaMediaTaskLedgerV4":
+        v3_payload = {
+            "schema_version": 3,
+            "episode_no": self.episode_no,
+            "revision": self.revision,
+            "tasks": [item.model_dump() for item in self.tasks],
+            "leases": [item.model_dump() for item in self.leases],
+            "release_receipts": [
+                item.model_dump() for item in self.release_receipts
+            ],
+            "transition_receipts": [
+                item.model_dump() for item in self.transition_receipts
+            ],
+            "backend_bindings": [
+                item.model_dump(mode="json")
+                for item in self.backend_bindings
+            ],
+        }
+        DramaMediaTaskLedgerV3(
+            **v3_payload,
+            ledger_fingerprint=_canonical_sha256(v3_payload),
+        )
+        task_ids = {item.task_id for item in self.tasks}
+        lifecycle_ids = [item.task_id for item in self.lifecycle]
+        if (
+            lifecycle_ids != sorted(lifecycle_ids)
+            or len(lifecycle_ids) != len(set(lifecycle_ids))
+            or lifecycle_ids != sorted(task_ids)
+        ):
+            raise ValueError("media lifecycle order or identity is invalid")
+        by_id = {item.task_id: item for item in self.tasks}
+        leases = {item.task_id: item for item in self.leases}
+        legacy_ids = [
+            item.task_id for item in self.legacy_migration_evidence
+        ]
+        if (
+            legacy_ids != sorted(legacy_ids)
+            or len(legacy_ids) != len(set(legacy_ids))
+        ):
+            raise ValueError("legacy migration evidence order is invalid")
+        legacy_by_id = {
+            item.task_id: item for item in self.legacy_migration_evidence
+        }
+        context = info.context if isinstance(info.context, dict) else {}
+        verified_claims = context.get("verified_claim_evidence", frozenset())
+        verified_legacy = context.get(
+            "verified_legacy_migration_evidence", frozenset()
+        )
+        for item in self.lifecycle:
+            task = by_id[item.task_id]
+            if (
+                item.task_input_fingerprint != task.input_fingerprint
+            ):
+                raise ValueError("media lifecycle task binding is invalid")
+            if (
+                any(
+                    value is not None
+                    and (
+                        value < task.created_at_ms
+                        or value > task.updated_at_ms
+                    )
+                    for value in (
+                        item.ready_at_ms,
+                        item.first_claimed_at_ms,
+                        item.terminal_at_ms,
+                    )
+                )
+            ):
+                raise ValueError("media lifecycle time exceeds task update")
+            if (
+                item.terminal_at_ms is not None
+                and (
+                    task.state not in _DRAMA_MEDIA_TERMINAL_STATES
+                    or item.terminal_at_ms != task.updated_at_ms
+                )
+            ):
+                raise ValueError("media lifecycle terminal binding is invalid")
+            if (
+                task.state in _DRAMA_MEDIA_TERMINAL_STATES
+                and item.terminal_at_ms is None
+                and not item.legacy_unknown
+            ):
+                raise ValueError("observed terminal task lacks lifecycle time")
+            if item.legacy_unknown:
+                if (
+                    item.ready_at_ms is not None
+                    or item.first_claimed_at_ms is not None
+                    or item.first_claim_evidence is not None
+                ):
+                    raise ValueError(
+                        "legacy lifecycle cannot invent ready or first claim"
+                    )
+                source_evidence = legacy_by_id.get(task.task_id)
+                if (
+                    source_evidence is None
+                    or item.legacy_source_schema_version
+                    != source_evidence.source_schema_version
+                    or item.legacy_source_ledger_fingerprint
+                    != source_evidence.source_ledger_fingerprint
+                    or item.legacy_source_record_fingerprint
+                    != source_evidence.source_task_record_fingerprint
+                    or item.legacy_source_evidence_fingerprint
+                    != source_evidence.record_fingerprint
+                    or source_evidence.task_input_fingerprint
+                    != task.input_fingerprint
+                    or source_evidence.task_dedupe_key != task.dedupe_key
+                    or source_evidence.source_task_revision > task.revision
+                ):
+                    raise ValueError(
+                        "legacy lifecycle source task binding is invalid"
+                    )
+            elif task.state == "planned" and any(
+                value is not None
+                for value in (
+                    item.ready_at_ms,
+                    item.first_claimed_at_ms,
+                    item.terminal_at_ms,
+                )
+            ):
+                raise ValueError("planned task has impossible lifecycle")
+            elif task.state == "ready" and item.ready_at_ms is None:
+                raise ValueError("ready task lacks lifecycle evidence")
+            elif task.state in {
+                "claimed",
+                "submitting",
+                "submitted",
+                "polling",
+                "submission_unknown",
+                "downloading",
+                "validating",
+                "succeeded",
+            } and (
+                item.ready_at_ms is None
+                or item.first_claimed_at_ms is None
+            ):
+                raise ValueError("executed task lacks lifecycle evidence")
+            elif (
+                task.state == "failed"
+                and task.outcome_code != "dependency_failed"
+                and (
+                    item.ready_at_ms is None
+                    or item.first_claimed_at_ms is None
+                )
+            ):
+                raise ValueError("executed failure lacks lifecycle evidence")
+            lease = leases.get(task.task_id)
+            evidence = item.first_claim_evidence
+            if evidence is not None:
+                if evidence.record_fingerprint not in verified_claims:
+                    raise ValueError(
+                        "media first claim evidence is not externally anchored"
+                    )
+                if (
+                    evidence.before_task.task_id != task.task_id
+                    or evidence.before_task.dedupe_key != task.dedupe_key
+                    or evidence.before_task.input_fingerprint
+                    != task.input_fingerprint
+                    or evidence.claimed_task.revision > task.revision
+                ):
+                    raise ValueError(
+                        "media lifecycle first claim binding is invalid"
+                    )
+                if (
+                    lease is not None
+                    and lease.lease_revision == 0
+                    and lease.task_revision
+                    == evidence.claimed_task.revision
+                    and lease.record_fingerprint
+                    != evidence.initial_lease.record_fingerprint
+                ):
+                    raise ValueError(
+                        "media lifecycle initial lease binding is invalid"
+                    )
+        if set(legacy_by_id) != {
+            item.task_id for item in self.lifecycle if item.legacy_unknown
+        }:
+            raise ValueError("legacy migration evidence identity is invalid")
+        if any(
+            item.record_fingerprint not in verified_legacy
+            for item in self.legacy_migration_evidence
+        ):
+            raise ValueError(
+                "legacy migration evidence is not externally anchored"
+            )
+        payload = self.model_dump(exclude={"ledger_fingerprint"})
+        if _canonical_sha256(payload) != self.ledger_fingerprint:
+            raise ValueError("media task ledger v4 fingerprint is invalid")
         return self
 
 

@@ -49,10 +49,17 @@ class DramaMediaPricingTests(DramaTestBase):
         self.task_id = self._enqueue("shot_001")
 
     def _enqueue(self, subject_id: str, *, episode_no: int = 1) -> str:
-        with patch.object(
-            drama_media_queue_client,
-            "_wall_clock_ms",
-            return_value=self.now,
+        with (
+            patch.object(
+                drama_media_queue_client,
+                "_wall_clock_ms",
+                return_value=self.now,
+            ),
+            patch.object(
+                drama_media_tasks,
+                "_clock_ms",
+                return_value=self.now,
+            ),
         ):
             result = drama_media_queue_client.enqueue_media_task(
                 self.name,
