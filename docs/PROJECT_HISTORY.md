@@ -183,6 +183,7 @@
 | 136 | 建立持久 backend binding 与纯本地 queue client | `src/drama_schemas.py`、`src/drama_media_tasks.py`、`src/drama_media_worker.py`、`src/drama_media_queue_client.py`、`tests/test_drama_media_queue_client.py` |
 | 137 | 建立 owner-guarded provider execution loop 与 paid bridge | `src/drama_media_executor.py`、`tests/test_drama_media_executor.py`、`tests/support/drama_media_executor_driver.py` |
 | 138 | 建立 strict pricing facts 与安全 Insights | `src/drama_media_pricing.py`、`src/web/drama_insights.py`、`tests/test_drama_media_pricing.py` |
+| 139 | 建立 durable media lifecycle metrics 与安全 Insights | `src/drama_media_tasks.py`、`src/drama_media_metrics.py`、`src/web/drama_insights.py`、`tests/test_drama_media_metrics.py` |
 
 ## Durable Decisions
 
@@ -205,6 +206,7 @@
 - provider task 与完整 backend binding 必须在 ledger v3 同一 workspace lock/CAS 中原子持久化；legacy provider task 明示 unbound 并等待权威 paid evidence reconciliation，不能从 current registry 补猜。本地 compose/export 明示 binding 不适用；queue wait 必须由调用方 monotonic deadline 严格约束。
 - provider execution bridge 必须由受审查代码显式注入，并逐项绑定 frozen backend/task、current owner/token、lease revision 与 deadline context；外部动作前 heartbeat、动作后 CAS，且不持 workspace lock。submit 不明永不自动重发，崩溃接管只能通过权威 paid ledger 的 inspect-or-submit 恢复；generic observation 只留内容寻址 evidence fingerprint，不能保存或冒充 provider task、response、prompt、URL、path 或 paid receipt。
 - 媒体 pricing facts 与 provider billing 必须分层：persisted amount 只接受精确定点微单位，estimate/authorized/reserved/actual/refunded/unknown 保留不同事实语义；unknown 不能归零，多币种不能隐式换汇或跨币种求和。evidence fingerprint 要在写侧与读侧按工作区唯一，namespace 扫描和提交必须绑定同一 nofollow directory fd；歧义、坏源或聚合超限应返回空的 degraded 汇总，而不是 partial totals。
+- 媒体 lifecycle 延迟只能来自可信锁内 mutation 与 exact evidence：ready、first claim、terminal 必须单调并与 task/lease 绑定，legacy 缺失保持 unknown，不能从 caller time、最后 lease 或 `updated_at-created_at` 补猜。成功率只以 terminal task 为分母，queue/run 必须分列 known/unknown sample；应用层 create-once/content-addressed sidecar 不是签名，也不防有本机写权限者同时伪造新 ledger 与 sidecar。
 
 ### Keep state auditable
 

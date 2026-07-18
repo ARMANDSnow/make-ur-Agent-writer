@@ -12,7 +12,7 @@
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
 - **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
-- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1 跨集资产 Used-By/停用治理、B2 ArtDirection Episode > Series > Global 解析冻结、逐镜图片 C1-C4、逐镜视频 D1-D5、声音 E1-E3、F1-F3 本地 FFmpeg 竖屏 MP4/SRT/ASS/媒体 QA/通用可编辑工程/Web exact delivery，以及 G1-G6 持久媒体任务 DAG、worker lease/跨集容量 lane、静态 backend capability registry、原子 frozen binding、owner-guarded provider execution loop、strict pricing facts 与分币种 Insights。
+- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1 跨集资产 Used-By/停用治理、B2 ArtDirection Episode > Series > Global 解析冻结、逐镜图片 C1-C4、逐镜视频 D1-D5、声音 E1-E3、F1-F3 本地 FFmpeg 竖屏 MP4/SRT/ASS/媒体 QA/通用可编辑工程/Web exact delivery，以及 G1-G7 持久媒体任务 DAG、worker lease/跨集容量 lane、静态 backend capability registry、原子 frozen binding、owner-guarded provider execution loop、strict pricing facts、durable lifecycle metrics 与安全 Insights。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -161,12 +161,13 @@ docs/iterations/           逐轮审计记录
 | 短剧媒体持久 Binding 与 Queue Client | 136 | ✅ ledger v3、provider task+binding 单次原子入队、legacy reconciliation、三态安全投影与 bounded wait/cancel 形成 G4 纯本地闭环；文本协议校准通过 |
 | 短剧媒体 Owner-Guarded Provider Execution Loop | 137 | ✅ 显式 paid bridge、owner/context guarded step、inspect-or-submit、三类 crash/takeover 零重复提交与 image/video/audio phase 路由形成 G5 mock-functional 闭环；文本协议校准通过 |
 | 短剧媒体 Pricing Facts 与 Insights | 138 | ✅ 六类 append-only pricing facts、精确定点金额、跨集 evidence 唯一性、多币种/unknown 安全聚合与只读 Insights 形成 G6 mock-functional 闭环；文本协议校准通过 |
+| 短剧媒体 Durable Lifecycle Metrics 与 Insights | 139 | ✅ v4 ready/first-claim/terminal lifecycle、外部 exact evidence anchor、legacy unknown 与 terminal-denominator 成功率/known-unknown queue/run 聚合形成 G7 mock-functional 闭环；真文本校准两次上游 502，未形成协议判定 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 138**（2026-07-18，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。A1/A2 RenderPlan、visual-only override 与精确 stale matrix，B1 跨集资产 Used-By/停用治理、B2 ArtDirection 多 scope 解析冻结、B3 资产管理 Web，逐镜图片 C1-C4、逐镜视频 D1-D5、声音/时间线 E1-E3、F1-F3 本地合成/可编辑导出/durable QA/Web exact delivery，以及 G1-G6 持久 task DAG、worker lease/capacity、静态 backend registry、原子 frozen binding、owner-guarded execution loop、strict pricing facts 与分币种 Insights 已形成纯本地链；iter125-138 的 scope-specific 真文本只构成局部协议校准，其中 iter131/132 语义检查未通过、iter133-138 通过，真视频仍未执行，TTS 未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，mandatory local-drama 组件为 `local-e2e`。
+最近一次更新：**iter 139**（2026-07-18，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。A1/A2 RenderPlan、visual-only override 与精确 stale matrix，B1 跨集资产 Used-By/停用治理、B2 ArtDirection 多 scope 解析冻结、B3 资产管理 Web，逐镜图片 C1-C4、逐镜视频 D1-D5、声音/时间线 E1-E3、F1-F3 本地合成/可编辑导出/durable QA/Web exact delivery，以及 G1-G7 持久 task DAG、worker lease/capacity、静态 backend registry、原子 frozen binding、owner-guarded execution loop、strict pricing facts、durable lifecycle metrics 与安全 Insights 已形成纯本地链；iter125-139 的 scope-specific 真文本只构成局部协议校准，其中 iter131/132 语义检查未通过、iter139 两次上游 502 未形成响应，其余已记录轮次通过，真视频仍未执行，TTS 未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总验收为 `mock-functional`，mandatory local-drama 组件为 `local-e2e`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -204,10 +205,10 @@ docs/iterations/           逐轮审计记录
 | D. 逐镜视频 | 每镜 I2V/R2V 输入计划、submit→poll→download、候选选择与跨镜连续性 | 🟨 | **D1-D5 本地闭环已完成**：D1-D3 冻结输入、候选/coverage 与 once-only 恢复；D4 建立 artifact-aware continuity/compose gate；D5 提供 strict/bounded 候选播放、选择、attempt/coverage/continuity Web，浏览器只消费有界去 metadata 派生 preview。真实 provider/network、Web submit/poll/cancel、主观视觉相似度与真实 episode 2+ 媒体未验证；旧 episode 1 高光入口保持兼容 |
 | E. 声音与唯一时间线 | 角色 voice、逐句 TTS、旁白、字幕、BGM/SFX 与 `TimelineManifest` | ✅ | **E1-E3 纯本地闭环已完成**：VoiceProfile/AudioManifest、逐 utterance once-only recovery，以及只消费 fresh D4/E2 artifact 的 strict TimelineManifest；视频/对白/旁白/silence/optional BGM/SFX 和字幕共享 fingerprint，SRT 由同一 manifest 确定导出。仅 fake adapter/bounded WAV，真实 TTS、真实 BGM/SFX 与主观音频质量未验证 |
 | F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | 🟨 | **F1-F3 本地闭环已完成**：固定 1080×1920/25fps H.264/AAC 的 argv-only compose/QA，加同源 ASS、六轨 vendor-neutral edit project、素材 SHA/revision、completion marker、持久 E3/current gate、本地 Web compose job、durable overview 与四类 exact download；特定 NLE adapter、多 profile、更广 codec/container 与公网流式交付待完成 |
-| G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | 🟨 | **G1-G6 已完成**：strict DAG、owner-guarded lease/capacity、代码内 registry、provider task+binding 单次原子入队、安全 get/bounded wait/cancel、explicit paid bridge/owner-context guarded execution，以及六类 append-only pricing facts/精确定点金额/分币种 unknown-safe Insights 已实现；crash takeover 与 pricing evidence 仍依赖权威 paid bridge/ledger，generic 状态不替代 provider billing。真实 provider adapter 待实现 |
+| G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | 🟨 | **G1-G7 已完成**：strict DAG、owner-guarded lease/capacity、代码内 registry、provider task+binding 单次原子入队、安全 get/bounded wait/cancel、explicit paid bridge/owner-context guarded execution、六类 append-only pricing facts/精确定点金额/分币种 unknown-safe Insights，以及 durable ready/first-claim/terminal lifecycle 与 terminal-denominator 成功率/known-unknown queue/run metrics 已实现；crash takeover、pricing/lifecycle evidence 仍依赖权威 paid bridge/ledger 与应用层 sidecar，generic 状态不替代 provider billing。真实 provider adapter 待实现 |
 | H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ⏳ | 小说实体/摘要可作基础；短剧事件图与 `source_event_ids` 未实现，不阻塞阶段 F |
 | I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ⏳ | 已有剧集页、Insights 和季包；尚无统一生产工作台及含媒体/证据的可移植归档 |
-| J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118 与 iter124 各完成一次五站真文本 + 2 张角色真图局部校准，iter123 有 synthetic 最小校准，iter125-130/133-137 文本协议校准通过；iter131/132 得到模型响应但语义检查未通过。真语音/真视频、全角色/多题材、单镜/单集/多集和 SLA 仍未验证 |
+| J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118 与 iter124 各完成一次五站真文本 + 2 张角色真图局部校准，iter123 有 synthetic 最小校准，iter125-130/133-138 文本协议校准通过；iter131/132 得到模型响应但语义检查未通过，iter139 两次上游 502 未得到模型响应。真语音/真视频、全角色/多题材、单镜/单集/多集和 SLA 仍未验证 |
 | 现有规划之外：平台发布 | 将成片上传到抖音、快手、视频号等平台 | ⏳ | A-J 没有发布 adapter、账号审核或回执状态设计；现阶段只能人工发布，后续需另行规划 |
 
 ## 文档导航

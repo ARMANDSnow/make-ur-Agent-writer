@@ -42,7 +42,16 @@ iter133-138 已完成阶段 G 的 task DAG、worker lease/capacity、静态 capa
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- 聚焦回归：最终组合命令覆盖 media tasks/worker/queue/executor/pricing/metrics、Insights 与 Web 静态合同，**199 tests OK**；`py_compile`、agent harness 与 `git diff --check` 通过。
+- 三视角只读审查：correctness、security/boundary、runner/observability-Web 先后发现 caller ready 时间污染、dependency promotion 倒退、legacy reclaim 冒充首次、state/lease/terminal 绑定不足、非一致 metrics 扫描、first-claim/legacy 自证、非 dependency failed 缺 evidence、ready snapshot 未精确绑定和旧账本体积翻倍等问题；修复并聚焦回归后，三路最终均 **no remaining P0/P1/P2 findings**。
+- implementation commit `b4fb49cba8e18f7b26320a9b63dee410a5f8c816` 上唯一标准验收 `bash scripts/verify.sh` exit 0：**2749 tests OK**、15 steps / 376 秒、run `ad01b52c446344f48e133290d0b74850`、tree `0e8b471d021ecd7487053d480b7d303a00397b8d`、`tracked_scope_clean=true`；mock preflight **0 FATAL / 0 WARN**。总级别为 `mock-functional` / `canonical-mock-offline`，mandatory `local_drama_e2e` 子步骤通过；该证据不构成 `provider-validated`。
+- 授权真文本局部校准使用 `gpt-5.5-medium`，首次请求 10.861 秒返回 HTTP 502，依预授权追加一次同内容重试后 10.394 秒再次 HTTP 502；两次均无模型响应，未产生 token usage 或四项协议判定，本轮到此停止。iter125-139 累计保守计 **19/60 请求、14 次 HTTP/model response、12 次协议检查通过**，预留约 ¥1.60（两次 502 是否计费仍以 provider 账单为准）；图片 0/20，视频/TTS 0。未持久化 key、prompt 或响应正文。
+- **A139-01：通过。** v4 lifecycle 与 task identity、首次 claim exact task/lease evidence 和 terminal state 严格绑定；新 ready 使用可信锁内时钟，promotion/claim/terminal 单调，release/reclaim/takeover 不改首次时间。
+- **A139-02：通过。** v1-v3 canonical source 由外部 legacy sidecar 锚定；有执行历史但缺 lifecycle 的 legacy task 保持 unknown，不能由 caller time、`updated_at-created_at` 或末次 lease 补猜。
+- **A139-03：通过。** 成功率只以 terminal task 为分母；queue/run 分别公开 known/unknown sample、sum 与 deterministic average，submission-unknown/pending/cancelled 分列，缺证据不返回伪 0。
+- **A139-04：通过。** Insights 在 workspace lock 内对 canonical namespace/source token 前后复核；坏源、symlink、竞态或超限均 degraded 空汇总，公开 allowlist 不包含 owner/token/lease/account/endpoint/fingerprint/provider task/paid evidence/path/prompt/response。
+- **A139-05：通过。** 聚焦回归、三视角修复复核与唯一 canonical 均完成且无未处理 P0/P1/P2；真文本因上游连续 502 未形成协议通过证据，但它只属局部校准，不影响 mock-functional 验收。
+- 未修风险：external sidecar 只提供应用层 create-once/content-addressed 完整性，不是签名、MAC 或 OS 防篡改，也不能防止有本机写权限者离线同时伪造主账本与新 sidecar；真实 provider/billing adapter、真实 SLA/费用/质量和自动告警仍待后续轮次。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
