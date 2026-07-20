@@ -9,8 +9,8 @@
 | 更新时间 | iter 143，2026-07-20 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
 | Canonical 基线 | **2792 tests OK** |
-| Accepted implementation commit | `2241789749f53300d36c7768e3894ce81c584558` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；`local_drama_e2e` 子步骤通过；15 steps、run `9e969daa9c2345cdae3c416fb066ae44`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
+| Accepted implementation commit | `e0a321bb5d2ca4f2d76c48d740fed1d199c9d452` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `2241789749f53300d36c7768e3894ce81c584558`，其后仅有 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、run `9e969daa9c2345cdae3c416fb066ae44`；`verify.sh` exit 0；mock preflight 无 WARN/FATAL |
 | 当前高风险缺口 | iter142 的固定 5 秒真视频样本成功但实际人民币费用未回报；iter143 的 20 秒质量机会在确认 2 个素材后 create 结果不明，无 task/MP4、费用 unknown 且禁止重提，因此仍无长时质量证据。逐镜 adapter、完整单集、多集、真实 TTS、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
 | 当前开发轮次 | 无；iter143 已完成独立 20 秒 sample namespace、exact profile、prompt SHA lineage 与恢复门禁。工程验收 `mock-functional`；5 秒窄样本为 `provider-validated`，20 秒尝试为 `safe-blocked` |
 
