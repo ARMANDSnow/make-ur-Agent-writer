@@ -41,7 +41,20 @@ iter141 已证明 callback-only Quick Tunnel 的公网 exact-byte 素材回读�
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+### 工程验收
+
+- `A142-01`：通过。生产 parser 兼容文档化 `data.Id/data.Status/data.base_resp`，并对 root/asset/data 的 `base_resp.status_code`、可选 `success`、跨容器 ID/status、重复 asset ID、重复 JSON key、非法对象与 hostile mapping 严格 fail closed。
+- `A142-02`：通过。provider 边界异常统一映射为固定、有界分类；聚焦测试证明错误不拼接响应正文、底层异常、凭据、prompt、callback capability、完整 URL/query 或签名地址。
+- `A142-03`：通过。最终相关聚焦回归 **98 tests OK**；语法、harness 与 diff 检查通过。correctness、security/boundary、真实媒体/Tunnel/计费三视角的初轮有效 findings 均已修复，最终复审均为 **no findings**。
+- `A142-04`：通过。accepted implementation `23071cc52904d1096ae638dabe42ab8ffa6b7a7e` 上执行最终 canonical：**2785 tests、15 steps、453 秒**，run `283efea6d65442a293d46fabebef8f76`，tree `55e3fe64fcfb43cdd58d20cbf26cc7aa630789dc`；`acceptance_level=mock-functional`、mandatory local-drama=`local-e2e`、preflight 0 FATAL / 0 WARN、tracked scope clean。该结果不升级真实 provider 结论。
+
+### 单次真实视频证据
+
+- `A142-05`：通过，且只覆盖固定 workspace `iter124_real_sop_v2` 的本次 Episode 1 样本。提交前只读任务列表鉴权成功，provider 原有 1 个 completed task；callback-only 临时公网入口完成 exact-byte probe，root 与工作台路径均保持 404。
+- 专用入口确认 2 个素材 ID 后只执行 **1 次 video create**，**0 次自动重试**；task `mvt-f4d3fbcab68b4dfc` 进入 completed，provider 任务总数从 1 增为 2。asset-upload ledger 为 `uploaded_all`，video ledger 为 `succeeded`。
+- 产物 `workspaces/iter124_real_sop_v2/outputs/episodes/episode_01.video.mp4`：**5.042 秒、720×1280、9:16、2,123,273 bytes**，提交到完成/下载共 **179.974 秒**。抽帧人工复核显示实验室单场景和手持纸条在该短样本内基本连贯，纸条文字在中段可辨。
+- provider 回报 usage **108,900 tokens**，但未回报实际人民币金额；因此实际费用保持 **unknown**，不能记为 0。20 元仅是本次授权硬上限，不是实际账单。
+- 真实结论：本次固定 Episode 1、5 秒样本为 `provider-validated`；整个工程仍为 `mock-functional`。未修风险包括真实 billing adapter 缺失、仅有一个短样本的主观质量证据、无真实 TTS/音频、未覆盖逐镜 adapter、完整单集、多集、Web provider 操作或 SLA。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
@@ -62,6 +75,9 @@ iter141 已证明 callback-only Quick Tunnel 的公网 exact-byte 素材回读�
 | `tests/test_drama_iter098_hardening.py` | 为跨进程复用 asset ID 的 provider fingerprint 固定测试账号 |
 | `tests/test_drama_iter097_hardening.py` | 更新 create-response-loss fixture，使其使用唯一 asset ID 并断言脱敏 unknown |
 | `tests/support/local_drama_provider.py` | 本地 provider 改用文档化 `data.Id/data.Status/base_resp` 契约 |
+| `README.md` | 同步 iter142 项目状态与 A-J 实时 SOP |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前快照、证据、缺口、候选与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 晋升 provider 双写边界的长期决策与工程教训 |
 
 ## 不在本轮范围
 
