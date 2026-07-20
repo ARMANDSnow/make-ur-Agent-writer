@@ -48,6 +48,13 @@ VIDEO_RESOLUTION = "720p"
 EPISODE1_SINGLE_SUBMIT_PROFILE = "episode1-single-submit-v1"
 ITER142_SINGLE_SUBMIT_PROFILE = "iter142-iter124-real-sop-v2-single-submit-v1"
 ITER142_AUTHORIZED_WORKSPACE = "iter124_real_sop_v2"
+ITER143_QUALITY20_PROFILE = "iter143-iter124-real-sop-v2-quality20-single-submit-v1"
+ITER143_QUALITY20_SAMPLE_ID = "iter143_quality_20s_v1"
+ITER143_QUALITY20_DURATION_SECONDS = 20
+ITER143_QUALITY20_PROMPT_VERSION = "quality-continuity-v1"
+ITER143_QUALITY20_AUTHORIZED_WORKSPACE = "iter124_real_sop_v2"
+ITER143_QUALITY20_BUDGET_CNY = 80.0
+ITER143_QUALITY20_TIMEOUT_MINUTES = 30.0
 EPISODE1_SINGLE_SUBMIT_MAX_BUDGET_CNY = 20.0
 EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES = 10.0
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
@@ -103,9 +110,43 @@ class VideoSpec:
     height: int
 
 
-def video_paths(workspace: str, *, episode_no: int = 1) -> VideoPaths:
+@dataclass(frozen=True)
+class VideoRunContract:
+    duration_seconds: int
+    sample_id: str | None
+
+
+def _valid_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(ch in "0123456789abcdef" for ch in value)
+    )
+
+
+def _validate_video_sample_id(sample_id: str | None) -> str | None:
+    if sample_id is None:
+        return None
+    if sample_id != ITER143_QUALITY20_SAMPLE_ID:
+        raise DramaVideoInputError("unknown video sample id")
+    return sample_id
+
+
+def video_paths(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    sample_id: str | None = None,
+) -> VideoPaths:
     if episode_no != 1:
         raise DramaVideoInputError("video MVP supports episode 1 only")
+    sample_id = _validate_video_sample_id(sample_id)
+    if sample_id is not None:
+        root = paths.workspace_root(workspace) / "outputs" / "video_samples" / sample_id
+        return VideoPaths(
+            video_path=root / "episode_01.video.mp4",
+            meta_path=root / "episode_01.video.meta.json",
+        )
     ep = episode_paths(workspace, episode_no=episode_no)
     return VideoPaths(
         video_path=ep.episodes_dir / "episode_01.video.mp4",
@@ -113,15 +154,43 @@ def video_paths(workspace: str, *, episode_no: int = 1) -> VideoPaths:
     )
 
 
-def video_submission_path(workspace: str, *, episode_no: int = 1) -> Path:
+def video_submission_path(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    sample_id: str | None = None,
+) -> Path:
     if episode_no != 1:
         raise DramaVideoInputError("video MVP supports episode 1 only")
+    sample_id = _validate_video_sample_id(sample_id)
+    if sample_id is not None:
+        return (
+            paths.workspace_root(workspace)
+            / "logs"
+            / "drama_video_samples"
+            / sample_id
+            / "submission.json"
+        )
     return paths.workspace_root(workspace) / "logs" / "drama_video_submission.json"
 
 
-def video_asset_upload_path(workspace: str, *, episode_no: int = 1) -> Path:
+def video_asset_upload_path(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    sample_id: str | None = None,
+) -> Path:
     if episode_no != 1:
         raise DramaVideoInputError("video MVP supports episode 1 only")
+    sample_id = _validate_video_sample_id(sample_id)
+    if sample_id is not None:
+        return (
+            paths.workspace_root(workspace)
+            / "logs"
+            / "drama_video_samples"
+            / sample_id
+            / "asset_upload.json"
+        )
     return paths.workspace_root(workspace) / "logs" / "drama_video_asset_upload.json"
 
 
@@ -129,8 +198,14 @@ def read_video_asset_upload(
     workspace: str,
     *,
     episode_no: int = 1,
+    sample_id: str | None = None,
 ) -> Dict[str, Any] | None:
-    ledger_path = video_asset_upload_path(workspace, episode_no=episode_no)
+    sample_id = _validate_video_sample_id(sample_id)
+    ledger_path = video_asset_upload_path(
+        workspace,
+        episode_no=episode_no,
+        sample_id=sample_id,
+    )
     try:
         ledger_path.lstat()
     except FileNotFoundError:
@@ -192,15 +267,30 @@ def read_video_asset_upload(
     return raw
 
 
-def _write_video_asset_upload(workspace: str, payload: Mapping[str, Any]) -> None:
+def _write_video_asset_upload(
+    workspace: str,
+    payload: Mapping[str, Any],
+    *,
+    sample_id: str | None = None,
+) -> None:
     write_json(
-        video_asset_upload_path(workspace),
+        video_asset_upload_path(workspace, sample_id=sample_id),
         {"schema_version": 1, "episode_no": 1, **dict(payload)},
     )
 
 
-def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, Any] | None:
-    ledger_path = video_submission_path(workspace, episode_no=episode_no)
+def read_video_submission(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    sample_id: str | None = None,
+) -> Dict[str, Any] | None:
+    sample_id = _validate_video_sample_id(sample_id)
+    ledger_path = video_submission_path(
+        workspace,
+        episode_no=episode_no,
+        sample_id=sample_id,
+    )
     try:
         ledger_path.lstat()
     except FileNotFoundError:
@@ -267,18 +357,58 @@ def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, A
             value = raw.get(key)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value <= 0:
                 raise ValueError("video submission authorization value is invalid")
+        target_duration = raw.get("target_duration_seconds")
+        ledger_sample_id = raw.get("sample_id")
+        prompt_version = raw.get("prompt_version")
+        prompt_sha256 = raw.get("prompt_sha256")
+        has_run_contract = (
+            "target_duration_seconds" in raw
+            or "sample_id" in raw
+            or "prompt_version" in raw
+            or "prompt_sha256" in raw
+        )
+        if has_run_contract and (
+            target_duration != ITER143_QUALITY20_DURATION_SECONDS
+            or ledger_sample_id != ITER143_QUALITY20_SAMPLE_ID
+            or prompt_version != ITER143_QUALITY20_PROMPT_VERSION
+            or not _valid_sha256(prompt_sha256)
+        ):
+            raise ValueError("video submission run contract is invalid")
+        if (
+            sample_id == ITER143_QUALITY20_SAMPLE_ID
+            and not has_run_contract
+        ) or (
+            sample_id is None
+            and has_run_contract
+        ):
+            raise ValueError("video submission ledger belongs to a different sample")
         expected = _video_authorization(
             float(raw["authorized_budget_cny"]),
             float(raw["authorized_timeout_minutes"]),
             float(raw["estimated_cost_cny"]),
+            duration_seconds=(
+                ITER143_QUALITY20_DURATION_SECONDS
+                if has_run_contract
+                else VIDEO_DURATION_SECONDS
+            ),
+            sample_id=ledger_sample_id if has_run_contract else None,
+            prompt_sha256=prompt_sha256 if has_run_contract else None,
         )["authorization_fingerprint"]
         if raw.get("authorization_fingerprint") != expected:
             raise ValueError("video submission authorization fingerprint is invalid")
     return raw
 
 
-def _write_video_submission(workspace: str, payload: Mapping[str, Any]) -> None:
-    write_json(video_submission_path(workspace), {"schema_version": 1, "episode_no": 1, **dict(payload)})
+def _write_video_submission(
+    workspace: str,
+    payload: Mapping[str, Any],
+    *,
+    sample_id: str | None = None,
+) -> None:
+    write_json(
+        video_submission_path(workspace, sample_id=sample_id),
+        {"schema_version": 1, "episode_no": 1, **dict(payload)},
+    )
 
 
 def real_video_enabled() -> bool:
@@ -304,12 +434,19 @@ def validate_real_video_gate(
         if profile not in {
             EPISODE1_SINGLE_SUBMIT_PROFILE,
             ITER142_SINGLE_SUBMIT_PROFILE,
+            ITER143_QUALITY20_PROFILE,
         }:
             raise PermissionError("unknown real video authorization profile")
-        if budget > EPISODE1_SINGLE_SUBMIT_MAX_BUDGET_CNY:
-            raise PermissionError("single-submit video budget exceeds 20 CNY")
-        if timeout_minutes > EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES:
-            raise PermissionError("single-submit video timeout exceeds 600 seconds")
+        if profile == ITER143_QUALITY20_PROFILE:
+            if budget != ITER143_QUALITY20_BUDGET_CNY:
+                raise PermissionError("quality20 video budget must equal 80 CNY")
+            if timeout_minutes != ITER143_QUALITY20_TIMEOUT_MINUTES:
+                raise PermissionError("quality20 video timeout must equal 1800 seconds")
+        else:
+            if budget > EPISODE1_SINGLE_SUBMIT_MAX_BUDGET_CNY:
+                raise PermissionError("single-submit video budget exceeds 20 CNY")
+            if timeout_minutes > EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES:
+                raise PermissionError("single-submit video timeout exceeds 600 seconds")
         if (
             profile == ITER142_SINGLE_SUBMIT_PROFILE
             and workspace != ITER142_AUTHORIZED_WORKSPACE
@@ -317,17 +454,66 @@ def validate_real_video_gate(
             raise PermissionError(
                 "iter142 real video authorization belongs to a different workspace"
             )
+        if (
+            profile == ITER143_QUALITY20_PROFILE
+            and workspace != ITER143_QUALITY20_AUTHORIZED_WORKSPACE
+        ):
+            raise PermissionError(
+                "iter143 quality20 authorization belongs to a different workspace"
+            )
     return budget, timeout_minutes, estimate
 
 
-def _video_authorization(budget: float, timeout_minutes: float, estimate: float) -> Dict[str, Any]:
+def _video_authorization(
+    budget: float,
+    timeout_minutes: float,
+    estimate: float,
+    *,
+    duration_seconds: int = VIDEO_DURATION_SECONDS,
+    sample_id: str | None = None,
+    prompt_sha256: str | None = None,
+) -> Dict[str, Any]:
     payload = {
         "authorized_budget_cny": budget,
         "authorized_timeout_minutes": timeout_minutes,
         "estimated_cost_cny": estimate,
     }
+    if duration_seconds != VIDEO_DURATION_SECONDS or sample_id is not None:
+        if (
+            duration_seconds != ITER143_QUALITY20_DURATION_SECONDS
+            or sample_id != ITER143_QUALITY20_SAMPLE_ID
+            or not _valid_sha256(prompt_sha256)
+        ):
+            raise ValueError("unknown video authorization run contract")
+        payload.update({
+            "target_duration_seconds": duration_seconds,
+            "sample_id": sample_id,
+            "prompt_version": ITER143_QUALITY20_PROMPT_VERSION,
+            "prompt_sha256": prompt_sha256,
+        })
     payload["authorization_fingerprint"] = sha256_data(payload)
     return payload
+
+
+def _video_run_contract(
+    params: Mapping[str, Any],
+    *,
+    workspace: str,
+) -> VideoRunContract:
+    profile = params.get("authorization_profile")
+    if profile == ITER143_QUALITY20_PROFILE:
+        if workspace != ITER143_QUALITY20_AUTHORIZED_WORKSPACE:
+            raise PermissionError(
+                "iter143 quality20 authorization belongs to a different workspace"
+            )
+        return VideoRunContract(
+            duration_seconds=ITER143_QUALITY20_DURATION_SECONDS,
+            sample_id=ITER143_QUALITY20_SAMPLE_ID,
+        )
+    return VideoRunContract(
+        duration_seconds=VIDEO_DURATION_SECONDS,
+        sample_id=None,
+    )
 
 
 def load_video_inputs(workspace: str, *, episode_no: int = 1) -> VideoInputs:
@@ -437,9 +623,25 @@ def run_video_job(
     """Produce one video. Paid POSTs are never retried by this function."""
 
     inputs = load_video_inputs(workspace, episode_no=1)
+    contract = _video_run_contract(params, workspace=workspace)
+    target_duration_seconds = contract.duration_seconds
+    sample_id = contract.sample_id
+    prompt = _video_prompt(
+        inputs,
+        duration_seconds=target_duration_seconds,
+    )
+    prompt_sha256 = (
+        hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        if sample_id == ITER143_QUALITY20_SAMPLE_ID
+        else None
+    )
     progress_cb("upload-assets", 0.12)
-    submission = read_video_submission(workspace)
+    submission = read_video_submission(workspace, sample_id=sample_id)
     if not real_video_enabled():
+        if sample_id is not None:
+            raise DramaVideoProviderError(
+                "quality20 authorization profile requires real video mode"
+            )
         if submission is not None:
             raise DramaVideoProviderError(
                 "durable real video submission exists; restore the original real provider configuration"
@@ -463,7 +665,14 @@ def run_video_job(
             workspace=workspace,
         )
     deadline = monotonic() + timeout_minutes * 60.0
-    authorization = _video_authorization(budget, timeout_minutes, estimate)
+    authorization = _video_authorization(
+        budget,
+        timeout_minutes,
+        estimate,
+        duration_seconds=target_duration_seconds,
+        sample_id=sample_id,
+        prompt_sha256=prompt_sha256,
+    )
     model = os.getenv("SD_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL
     result_hosts = _result_hosts(os.getenv("SD_VIDEO_RESULT_HOSTS") or "")
     if not result_hosts:
@@ -471,7 +680,7 @@ def run_video_job(
     result_hosts_fingerprint = sha256_data(sorted(result_hosts))
     api = client or DramaVideoClient(request_timeout_seconds=min(60.0, timeout_minutes * 60.0))
     provider_fingerprint = _video_provider_fingerprint(api, model)
-    asset_upload = read_video_asset_upload(workspace)
+    asset_upload = read_video_asset_upload(workspace, sample_id=sample_id)
     if asset_upload is not None and (
         asset_upload.get("input_fingerprint") != inputs.fingerprint
         or asset_upload.get("provider_fingerprint") != provider_fingerprint
@@ -504,7 +713,7 @@ def run_video_job(
         # The process may have crashed after committing the verified MP4/meta
         # pair but before advancing the durable submission ledger.  Adopt that
         # exact local result before polling an expired provider task or URL.
-        out = video_paths(workspace)
+        out = video_paths(workspace, sample_id=sample_id)
         local_meta = read_json_optional(out.meta_path, None)
         if (
             isinstance(local_meta, dict)
@@ -513,7 +722,11 @@ def run_video_job(
             and local_meta.get("provider_fingerprint") == submission.get("provider_fingerprint")
         ):
             try:
-                _data, meta = read_video(workspace, episode_no=1)
+                _data, meta = read_video(
+                    workspace,
+                    episode_no=1,
+                    sample_id=sample_id,
+                )
                 reported_cost, cost_unreported = _validated_video_cost_state(local_meta)
             except (FileNotFoundError, OSError, TypeError, ValueError):
                 pass
@@ -529,13 +742,20 @@ def run_video_job(
                     "cost_unreported": cost_unreported,
                     **authorization,
                     "updated_at": int(time.time()),
-                })
+                }, sample_id=sample_id)
                 return {**meta, "committed": True, "resumed": True, "network_requests": 0}
     if submission is not None and submission.get("status") == "succeeded":
-        raw_meta = read_json_optional(video_paths(workspace).meta_path, None)
+        raw_meta = read_json_optional(
+            video_paths(workspace, sample_id=sample_id).meta_path,
+            None,
+        )
         if not isinstance(raw_meta, dict):
             raise DramaVideoProviderError("video submission artifact metadata is missing")
-        _data, meta = read_video(workspace, episode_no=1)
+        _data, meta = read_video(
+            workspace,
+            episode_no=1,
+            sample_id=sample_id,
+        )
         reported_cost, cost_unreported = _validated_video_cost_state(raw_meta)
         ledger_cost = submission.get("cost_cny")
         if (
@@ -561,12 +781,11 @@ def run_video_job(
     final: Dict[str, Any] = {}
     task_id = str(submission.get("task_id") or "") if submission is not None else ""
     if submission is None:
-        prompt = _video_prompt(inputs)
         # Callback topology and payload shape are prerequisites only for a new
         # upload/create attempt. A durable submitted task needs neither.
         build_video_payload(
             prompt=prompt,
-            duration=VIDEO_DURATION_SECONDS,
+            duration=target_duration_seconds,
             resolution=VIDEO_RESOLUTION,
             ratio=VIDEO_RATIO,
             generate_audio=False,
@@ -611,7 +830,7 @@ def run_video_job(
                     "asset_ids": asset_ids,
                     "current_index": index,
                     "updated_at": int(time.time()),
-                })
+                }, sample_id=sample_id)
                 try:
                     response = api.upload_asset(
                         url=asset_url,
@@ -628,9 +847,12 @@ def run_video_job(
                             "reference_count": len(inputs.references),
                             "asset_ids": asset_ids,
                             "updated_at": int(time.time()),
-                        })
+                        }, sample_id=sample_id)
                     else:
-                        video_asset_upload_path(workspace).unlink(missing_ok=True)
+                        video_asset_upload_path(
+                            workspace,
+                            sample_id=sample_id,
+                        ).unlink(missing_ok=True)
                     raise
                 except Exception:
                     raise DramaVideoSubmissionUnknown(
@@ -651,7 +873,7 @@ def run_video_job(
                     "reference_count": len(inputs.references),
                     "asset_ids": asset_ids,
                     "updated_at": int(time.time()),
-                })
+                }, sample_id=sample_id)
                 progress_cb(
                     "upload-assets",
                     0.12 + 0.18 * len(asset_ids) / len(inputs.references),
@@ -664,7 +886,7 @@ def run_video_job(
                 "reference_count": len(inputs.references),
                 "asset_ids": asset_ids,
                 "updated_at": int(time.time()),
-            })
+            }, sample_id=sample_id)
             for asset_id in asset_ids:
                 while True:
                     _deadline_checkpoint(deadline, monotonic)
@@ -705,12 +927,12 @@ def run_video_job(
                 "submission_count": 1,
                 **authorization,
                 "updated_at": int(time.time()),
-            })
+            }, sample_id=sample_id)
             try:
                 created = api.create_video_task(
                     prompt=prompt,
                     reference_asset_ids=asset_ids,
-                    duration=VIDEO_DURATION_SECONDS,
+                    duration=target_duration_seconds,
                     resolution=VIDEO_RESOLUTION,
                     ratio=VIDEO_RATIO,
                     generate_audio=False,
@@ -722,7 +944,10 @@ def run_video_job(
                 # The transport proves that no request headers/body crossed
                 # the socket.  Remove only the marker created immediately
                 # above so the single paid opportunity is not falsely spent.
-                video_submission_path(workspace).unlink(missing_ok=True)
+                video_submission_path(
+                    workspace,
+                    sample_id=sample_id,
+                ).unlink(missing_ok=True)
                 raise
             except Exception:
                 raise DramaVideoSubmissionUnknown(
@@ -738,7 +963,7 @@ def run_video_job(
                 "task_id": task_id,
                 **authorization,
                 "updated_at": int(time.time()),
-            })
+            }, sample_id=sample_id)
             progress_cb("queued", 0.4)
             final = created
         finally:
@@ -766,7 +991,7 @@ def run_video_job(
                 "cost_unreported": terminal_cost is None,
                 **authorization,
                 "updated_at": int(time.time()),
-            })
+            }, sample_id=sample_id)
             raise DramaVideoProviderError(f"video task ended with status={status}")
         if status not in _RUNNING:
             raise DramaVideoProviderError("video task returned an unsupported status")
@@ -786,7 +1011,7 @@ def run_video_job(
         raise ValueError("real video result must be an MP4 for strict specification validation")
     spec = _probe_mp4(video_bytes)
     if (
-        abs(spec.duration_seconds - VIDEO_DURATION_SECONDS) > 0.25
+        abs(spec.duration_seconds - target_duration_seconds) > 0.25
         or (spec.width, spec.height) != (720, 1280)
     ):
         raise ValueError("video result does not match the authorized duration, ratio, or resolution")
@@ -795,7 +1020,7 @@ def run_video_job(
         raise DramaVideoInputError("video inputs changed while the provider task was running")
     cost_cny = _task_cost_cny(final)
     terminal_status = "budget_exceeded" if cost_cny is not None and cost_cny > budget else "succeeded"
-    out = video_paths(workspace)
+    out = video_paths(workspace, sample_id=sample_id)
     safe_meta = {
         "schema_version": 1,
         "episode_no": 1,
@@ -816,6 +1041,13 @@ def run_video_job(
         "budget_cny": budget,
         "estimated_cost_cny": estimate,
     }
+    if sample_id == ITER143_QUALITY20_SAMPLE_ID:
+        safe_meta.update({
+            "target_duration_seconds": target_duration_seconds,
+            "sample_id": sample_id,
+            "prompt_version": ITER143_QUALITY20_PROMPT_VERSION,
+            "prompt_sha256": prompt_sha256,
+        })
     _commit_video_pair(out, video_bytes, safe_meta)
     _write_video_submission(workspace, {
         "status": "succeeded",
@@ -828,15 +1060,29 @@ def run_video_job(
         "cost_unreported": cost_cny is None,
         **authorization,
         "updated_at": int(time.time()),
-    })
+    }, sample_id=sample_id)
     progress_cb(terminal_status, 1.0)
     return {**safe_meta, "committed": True, "resumed": resuming_submitted}
 
 
-def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
-    out = video_paths(workspace, episode_no=episode_no)
+def video_status(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    sample_id: str | None = None,
+) -> Dict[str, Any]:
+    sample_id = _validate_video_sample_id(sample_id)
+    out = video_paths(
+        workspace,
+        episode_no=episode_no,
+        sample_id=sample_id,
+    )
     try:
-        submission = read_video_submission(workspace, episode_no=episode_no)
+        submission = read_video_submission(
+            workspace,
+            episode_no=episode_no,
+            sample_id=sample_id,
+        )
     except ValueError:
         return {
             "state": "blocked",
@@ -869,7 +1115,11 @@ def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     meta = read_json_optional(out.meta_path, None)
     if isinstance(meta, dict) and out.video_path.is_file():
         try:
-            _data, safe_meta = read_video(workspace, episode_no=episode_no)
+            _data, safe_meta = read_video(
+                workspace,
+                episode_no=episode_no,
+                sample_id=sample_id,
+            )
         except (FileNotFoundError, OSError, DramaVideoInputError, ValueError):
             safe_meta = None
         if safe_meta is not None:
@@ -888,8 +1138,18 @@ def video_status(workspace: str, *, episode_no: int = 1) -> Dict[str, Any]:
     return {"state": "ready", "download_ready": False}
 
 
-def read_video(workspace: str, *, episode_no: int = 1) -> tuple[bytes, Dict[str, Any]]:
-    out = video_paths(workspace, episode_no=episode_no)
+def read_video(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    sample_id: str | None = None,
+) -> tuple[bytes, Dict[str, Any]]:
+    sample_id = _validate_video_sample_id(sample_id)
+    out = video_paths(
+        workspace,
+        episode_no=episode_no,
+        sample_id=sample_id,
+    )
     meta = read_json_optional(out.meta_path, None)
     if not isinstance(meta, dict):
         raise FileNotFoundError("video metadata is missing")
@@ -902,9 +1162,23 @@ def read_video(workspace: str, *, episode_no: int = 1) -> tuple[bytes, Dict[str,
         raise ValueError("stored video hash does not match metadata")
     _validated_video_cost_state(meta)
     if meta.get("provider") != "mock":
+        expected_duration = (
+            ITER143_QUALITY20_DURATION_SECONDS
+            if sample_id == ITER143_QUALITY20_SAMPLE_ID
+            else VIDEO_DURATION_SECONDS
+        )
+        if sample_id == ITER143_QUALITY20_SAMPLE_ID:
+            if (
+                meta.get("sample_id") != sample_id
+                or meta.get("target_duration_seconds") != expected_duration
+                or meta.get("prompt_version") != ITER143_QUALITY20_PROMPT_VERSION
+            ):
+                raise ValueError("stored video sample contract is invalid")
+        elif meta.get("sample_id") not in (None, ""):
+            raise ValueError("stored default video claims a sample contract")
         probed = _probe_mp4(data)
         if (
-            abs(probed.duration_seconds - VIDEO_DURATION_SECONDS) > 0.25
+            abs(probed.duration_seconds - expected_duration) > 0.25
             or (probed.width, probed.height) != (720, 1280)
             or meta.get("duration_seconds") != round(probed.duration_seconds, 3)
             or meta.get("resolution") != f"{probed.width}x{probed.height}px"
@@ -914,6 +1188,15 @@ def read_video(workspace: str, *, episode_no: int = 1) -> tuple[bytes, Dict[str,
     current = load_video_inputs(workspace, episode_no=episode_no)
     if meta.get("input_fingerprint") != current.fingerprint:
         raise ValueError("stored video is stale for the current episode inputs")
+    if sample_id == ITER143_QUALITY20_SAMPLE_ID:
+        expected_prompt_sha256 = hashlib.sha256(
+            _video_prompt(
+                current,
+                duration_seconds=ITER143_QUALITY20_DURATION_SECONDS,
+            ).encode("utf-8")
+        ).hexdigest()
+        if meta.get("prompt_sha256") != expected_prompt_sha256:
+            raise ValueError("stored video prompt lineage is invalid")
     return data, _safe_video_meta(meta)
 
 
@@ -1255,11 +1538,25 @@ def _run_mock_video(inputs: VideoInputs, progress_cb: Callable[[str, float], Non
     return {**meta, "committed": True, "network_requests": 0}
 
 
-def _video_prompt(inputs: VideoInputs) -> str:
+def _video_prompt(
+    inputs: VideoInputs,
+    *,
+    duration_seconds: int = VIDEO_DURATION_SECONDS,
+) -> str:
     highlight = next((row for row in inputs.episode.get("storyboard", []) if isinstance(row, dict) and row.get("is_highlight")), None)
     shot = highlight if isinstance(highlight, dict) else (inputs.episode.get("storyboard") or [{}])[0]
     visual = " ".join(str(shot.get("visual_content") or "原创短剧高光镜头").split())[:900]
-    return f"竖屏短剧，第1集高光片段。{visual}。角色外观严格参考上传素材；镜头连贯，无文字水印。"
+    base = f"竖屏短剧，第1集高光片段。{visual}。角色外观严格参考上传素材；镜头连贯，无文字水印。"
+    if duration_seconds == ITER143_QUALITY20_DURATION_SECONDS:
+        return (
+            base
+            + " 20秒连续质量测试：开头建立人物与环境，中段完成清晰连贯的手部动作和镜头移动，"
+            "结尾自然停住；全过程保持人物身份、五官、服装、手指、道具文字、背景结构和光线一致，"
+            "不要跳切、重复动作、瞬移、变形或新增人物。"
+        )
+    if duration_seconds != VIDEO_DURATION_SECONDS:
+        raise ValueError("unsupported video prompt duration")
+    return base
 
 
 def _video_provider_fingerprint(api: Any, model: str) -> str:
@@ -1474,6 +1771,7 @@ def _safe_video_meta(meta: Mapping[str, Any]) -> Dict[str, Any]:
         "schema_version", "episode_no", "status", "provider", "provider_model", "task_id",
         "duration_seconds", "ratio", "resolution", "content_type", "file_size_bytes", "cost_cny",
         "budget_cny", "estimated_cost_cny", "cost_unreported",
+        "target_duration_seconds", "sample_id", "prompt_version", "prompt_sha256",
     )
     return {key: meta.get(key) for key in allowed if key in meta}
 

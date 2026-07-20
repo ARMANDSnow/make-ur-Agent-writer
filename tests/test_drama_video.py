@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
 import time
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from src import drama_video, drama_video_smoke
@@ -20,6 +22,7 @@ class _FakeVideoClient:
         self.uploads = 0
         self.submissions = 0
         self.polls = 0
+        self.last_create_kwargs = None
 
     def upload_asset(self, **_kwargs):
         self.uploads += 1
@@ -43,6 +46,7 @@ class _FakeVideoClient:
 
     def create_video_task(self, **kwargs):
         self.submissions += 1
+        self.last_create_kwargs = dict(kwargs)
         assert kwargs["allow_real_video"] is True
         return {"task": {"id": "video-task-1", "status": "pending"}}
 
@@ -872,6 +876,383 @@ class DramaVideoPipelineTests(DramaTestBase):
                     params,
                     lambda *_: None,
                 )
+
+    def test_iter143_quality20_profile_is_exact_and_workspace_bound(self) -> None:
+        params = {
+            "confirm_real_video": True,
+            "budget_cny": 80,
+            "timeout_minutes": 30,
+            "authorization_profile": drama_video.ITER143_QUALITY20_PROFILE,
+        }
+        with patch.dict(
+            os.environ,
+            {"SD_VIDEO_ESTIMATED_COST_CNY": "80"},
+            clear=False,
+        ):
+            self.assertEqual(
+                drama_video.validate_real_video_gate(
+                    params,
+                    workspace=drama_video.ITER143_QUALITY20_AUTHORIZED_WORKSPACE,
+                ),
+                (80.0, 30.0, 80.0),
+            )
+            for key, value, message in (
+                ("budget_cny", 80.01, "must equal 80"),
+                ("timeout_minutes", 29.99, "must equal 1800"),
+            ):
+                changed = dict(params)
+                changed[key] = value
+                with self.subTest(key=key), self.assertRaisesRegex(
+                    PermissionError,
+                    message,
+                ):
+                    drama_video.validate_real_video_gate(
+                        changed,
+                        workspace=drama_video.ITER143_QUALITY20_AUTHORIZED_WORKSPACE,
+                    )
+            with self.assertRaisesRegex(PermissionError, "different workspace"):
+                drama_video.validate_real_video_gate(
+                    params,
+                    workspace="other-workspace",
+                )
+
+    def test_iter143_submission_reader_rejects_misplaced_sample_contracts(self) -> None:
+        workspace = "misplaced-video-ledger"
+        prompt_sha256 = "d" * 64
+        common = {
+            "status": "submitted",
+            "input_fingerprint": "a" * 64,
+            "provider_fingerprint": "b" * 64,
+            "result_hosts_fingerprint": "c" * 64,
+            "submission_count": 1,
+            "task_id": "video-task-1",
+            "updated_at": int(time.time()),
+        }
+        drama_video._write_video_submission(workspace, {
+            **common,
+            **drama_video._video_authorization(
+                80.0,
+                30.0,
+                80.0,
+                duration_seconds=20,
+                sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+                prompt_sha256=prompt_sha256,
+            ),
+        })
+        with self.assertRaisesRegex(ValueError, "different sample"):
+            drama_video.read_video_submission(workspace)
+        self.assertEqual(drama_video.video_status(workspace)["state"], "blocked")
+
+        drama_video._write_video_submission(
+            workspace,
+            {
+                **common,
+                **drama_video._video_authorization(3.0, 1.0, 2.0),
+            },
+            sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+        )
+        with self.assertRaisesRegex(ValueError, "different sample"):
+            drama_video.read_video_submission(
+                workspace,
+                sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+            )
+        self.assertEqual(
+            drama_video.video_status(
+                workspace,
+                sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+            )["state"],
+            "blocked",
+        )
+
+    def test_iter143_quality20_isolated_paths_payload_and_qa(self) -> None:
+        workspace = drama_video.ITER143_QUALITY20_AUTHORIZED_WORKSPACE
+        self._prepare(workspace)
+        default_video = drama_video.video_paths(workspace)
+        default_video.video_path.parent.mkdir(parents=True, exist_ok=True)
+        default_video.video_path.write_bytes(b"legacy-five-second-video")
+        default_video.meta_path.write_bytes(b"legacy-five-second-meta")
+        default_submission = drama_video.video_submission_path(workspace)
+        default_asset_upload = drama_video.video_asset_upload_path(workspace)
+        default_submission.parent.mkdir(parents=True, exist_ok=True)
+        default_submission.write_bytes(b"legacy-five-second-submission")
+        default_asset_upload.write_bytes(b"legacy-five-second-assets")
+        before = {
+            path: path.read_bytes()
+            for path in (
+                default_video.video_path,
+                default_video.meta_path,
+                default_submission,
+                default_asset_upload,
+            )
+        }
+        params = {
+            "confirm_real_video": True,
+            "budget_cny": 80,
+            "timeout_minutes": 30,
+            "authorization_profile": drama_video.ITER143_QUALITY20_PROFILE,
+        }
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "80",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        client = _FakeVideoClient()
+        with patch.dict(os.environ, env, clear=False), patch(
+            "src.drama_video.download_video",
+            return_value=(drama_video._MOCK_MP4, "video/mp4"),
+        ), patch(
+            "src.drama_video._probe_mp4",
+            return_value=drama_video.VideoSpec(20.0, 720, 1280),
+        ):
+            result = drama_video.run_video_job(
+                workspace,
+                params,
+                lambda *_: None,
+                client=client,
+                sleep=lambda _seconds: None,
+            )
+            _data, meta = drama_video.read_video(
+                workspace,
+                sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+            )
+            quality_status = drama_video.video_status(
+                workspace,
+                sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+            )
+        self.assertEqual(client.submissions, 1)
+        self.assertEqual(client.last_create_kwargs["duration"], 20)
+        self.assertFalse(client.last_create_kwargs["generate_audio"])
+        self.assertEqual(result["target_duration_seconds"], 20)
+        self.assertEqual(meta["sample_id"], drama_video.ITER143_QUALITY20_SAMPLE_ID)
+        self.assertEqual(quality_status["state"], "succeeded")
+        quality_paths = drama_video.video_paths(
+            workspace,
+            sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+        )
+        self.assertNotEqual(quality_paths.video_path, default_video.video_path)
+        self.assertTrue(quality_paths.video_path.is_file())
+        for path, original in before.items():
+            self.assertEqual(path.read_bytes(), original)
+        quality_submission = drama_video.read_video_submission(
+            workspace,
+            sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+        )
+        quality_assets = drama_video.read_video_asset_upload(
+            workspace,
+            sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+        )
+        self.assertEqual(quality_submission["status"], "succeeded")
+        self.assertEqual(quality_submission["target_duration_seconds"], 20)
+        self.assertEqual(quality_assets["status"], "uploaded_all")
+        drift_client = _FakeVideoClient()
+        with patch.dict(os.environ, env, clear=False), patch(
+            "src.drama_video._video_prompt",
+            return_value="drifted quality prompt",
+        ):
+            with self.assertRaisesRegex(
+                drama_video.DramaVideoProviderError,
+                "authorization",
+            ):
+                drama_video.run_video_job(
+                    workspace,
+                    params,
+                    lambda *_: None,
+                    client=drift_client,
+                )
+        self.assertEqual(
+            (drift_client.uploads, drift_client.submissions, drift_client.polls),
+            (0, 0, 0),
+        )
+
+    def test_iter143_quality20_unknown_never_reposts_in_its_namespace(self) -> None:
+        workspace = drama_video.ITER143_QUALITY20_AUTHORIZED_WORKSPACE
+        self._prepare(workspace)
+        params = {
+            "confirm_real_video": True,
+            "budget_cny": 80,
+            "timeout_minutes": 30,
+            "authorization_profile": drama_video.ITER143_QUALITY20_PROFILE,
+        }
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "80",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        first = _FakeVideoClient()
+        first.create_video_task = Mock(side_effect=TimeoutError("private upstream"))
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
+                drama_video.run_video_job(
+                    workspace,
+                    params,
+                    lambda *_: None,
+                    client=first,
+                    sleep=lambda _seconds: None,
+                )
+        ledger = drama_video.read_video_submission(
+            workspace,
+            sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+        )
+        self.assertEqual(ledger["status"], "submitting")
+        second = _FakeVideoClient()
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
+                drama_video.run_video_job(
+                    workspace,
+                    params,
+                    lambda *_: None,
+                    client=second,
+                    sleep=lambda _seconds: None,
+                )
+        self.assertEqual(second.uploads, 0)
+        self.assertEqual(second.submissions, 0)
+
+    def test_iter143_quality20_resume_polls_only_quality_namespace(self) -> None:
+        workspace = drama_video.ITER143_QUALITY20_AUTHORIZED_WORKSPACE
+        self._prepare(workspace)
+        inputs = drama_video.load_video_inputs(workspace)
+        client = _FakeVideoClient()
+        provider_fingerprint = drama_video._video_provider_fingerprint(
+            client,
+            drama_video.DEFAULT_VIDEO_MODEL,
+        )
+        result_hosts_fingerprint = drama_video.sha256_data(["result.example.test"])
+        prompt_sha256 = hashlib.sha256(
+            drama_video._video_prompt(
+                inputs,
+                duration_seconds=20,
+            ).encode("utf-8")
+        ).hexdigest()
+        drama_video._write_video_submission(workspace, {
+            "status": "submitted",
+            "input_fingerprint": inputs.fingerprint,
+            "provider_fingerprint": provider_fingerprint,
+            "result_hosts_fingerprint": result_hosts_fingerprint,
+            "submission_count": 1,
+            "task_id": "default-task",
+            **drama_video._video_authorization(3.0, 1.0, 2.0),
+            "updated_at": int(time.time()),
+        })
+        drama_video._write_video_submission(
+            workspace,
+            {
+                "status": "submitted",
+                "input_fingerprint": inputs.fingerprint,
+                "provider_fingerprint": provider_fingerprint,
+                "result_hosts_fingerprint": result_hosts_fingerprint,
+                "submission_count": 1,
+                "task_id": "video-task-1",
+                **drama_video._video_authorization(
+                    80.0,
+                    30.0,
+                    80.0,
+                    duration_seconds=20,
+                    sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+                    prompt_sha256=prompt_sha256,
+                ),
+                "updated_at": int(time.time()),
+            },
+            sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
+        )
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "80",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        with patch.dict(os.environ, env, clear=False), patch(
+            "src.drama_video.download_video",
+            return_value=(drama_video._MOCK_MP4, "video/mp4"),
+        ), patch(
+            "src.drama_video._probe_mp4",
+            return_value=drama_video.VideoSpec(20.0, 720, 1280),
+        ):
+            result = drama_video.run_video_job(
+                workspace,
+                {
+                    "resume_submitted": True,
+                    "authorization_profile": drama_video.ITER143_QUALITY20_PROFILE,
+                },
+                lambda *_: None,
+                client=client,
+                sleep=lambda _seconds: None,
+            )
+        self.assertTrue(result["resumed"])
+        self.assertEqual((client.uploads, client.submissions), (0, 0))
+        self.assertGreater(client.polls, 0)
+        self.assertEqual(
+            drama_video.read_video_submission(workspace)["task_id"],
+            "default-task",
+        )
+
+    def test_iter143_quality20_prompt_and_script_are_fixed(self) -> None:
+        self._prepare()
+        prompt = drama_video._video_prompt(
+            drama_video.load_video_inputs("video"),
+            duration_seconds=20,
+        )
+        self.assertIn("20秒连续质量测试", prompt)
+        self.assertIn("手指", prompt)
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "drama_video_episode1_quality20_single_submit.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--budget-cny 80", script)
+        self.assertIn("--timeout-seconds 1800", script)
+        self.assertIn("SD_VIDEO_ESTIMATED_COST_CNY=80", script)
+        self.assertIn(drama_video.ITER143_QUALITY20_PROFILE, script)
+
+    def test_iter143_quality20_smoke_reads_exact_sample_namespace(self) -> None:
+        terminal = {"status": "succeeded", "result_summary": {}}
+        meta = {
+            "task_id": "quality-task",
+            "status": "succeeded",
+            "cost_cny": None,
+            "budget_cny": 80.0,
+            "duration_seconds": 20.0,
+            "target_duration_seconds": 20,
+            "sample_id": drama_video.ITER143_QUALITY20_SAMPLE_ID,
+            "ratio": "9:16",
+            "resolution": "720x1280px",
+        }
+        start_job = Mock(return_value={"job_id": "job-quality"})
+        read_video = Mock(return_value=(b"quality-video", meta))
+        with patch.dict(
+            os.environ,
+            {"CONFIRM_REAL_VIDEO_SMOKE": "可以跑真实视频 smoke"},
+            clear=False,
+        ), patch("src.drama_video.load_video_inputs"), patch(
+            "src.drama_video_smoke.jobs.start_job",
+            start_job,
+        ), patch(
+            "src.drama_video_smoke._wait",
+            return_value=terminal,
+        ), patch(
+            "src.drama_video.read_video",
+            read_video,
+        ), patch("src.drama_video_smoke.write_json"):
+            result = drama_video_smoke.run_smoke(
+                drama_video.ITER143_QUALITY20_AUTHORIZED_WORKSPACE,
+                real_video=True,
+                confirm_real_video=True,
+                budget_cny=0,
+                timeout_seconds=1800,
+                resume_submitted=True,
+                authorization_profile=drama_video.ITER143_QUALITY20_PROFILE,
+            )
+        self.assertEqual(
+            start_job.call_args.args[2]["authorization_profile"],
+            drama_video.ITER143_QUALITY20_PROFILE,
+        )
+        self.assertTrue(start_job.call_args.args[2]["resume_submitted"])
+        self.assertEqual(
+            read_video.call_args.kwargs["sample_id"],
+            drama_video.ITER143_QUALITY20_SAMPLE_ID,
+        )
+        self.assertEqual(result["sample_id"], drama_video.ITER143_QUALITY20_SAMPLE_ID)
 
     def test_real_smoke_forwards_single_submit_profile_to_last_hop(self) -> None:
         terminal = {"status": "succeeded", "result_summary": {}}

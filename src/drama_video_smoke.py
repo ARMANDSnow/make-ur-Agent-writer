@@ -109,6 +109,8 @@ def run_smoke(
     if real_video:
         if resume_submitted:
             params["resume_submitted"] = True
+            if authorization_profile is not None:
+                params["authorization_profile"] = authorization_profile
         else:
             params.update({
                 "confirm_real_video": True,
@@ -122,11 +124,21 @@ def run_smoke(
     terminal = _wait(started["job_id"], timeout_seconds)
     if terminal.get("status") not in {"succeeded", "budget_exceeded"}:
         raise RuntimeError(f"video job did not succeed: {terminal.get('status')}")
-    data, meta = drama_video.read_video(workspace, episode_no=1)
+    sample_id = (
+        drama_video.ITER143_QUALITY20_SAMPLE_ID
+        if authorization_profile == drama_video.ITER143_QUALITY20_PROFILE
+        else None
+    )
+    data, meta = drama_video.read_video(
+        workspace,
+        episode_no=1,
+        sample_id=sample_id,
+    )
     summary = terminal.get("result_summary") or {}
     result = {
         "ok": True,
         "workspace": workspace,
+        "sample_id": sample_id,
         "real_video": real_video,
         "job_id": started["job_id"],
         "task_id": meta.get("task_id"),

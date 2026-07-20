@@ -164,3 +164,4 @@
 149. [Iteration 140 - 短剧 Typed Source Event Graph 与来源边界](./iteration_140_drama_typed_source_event_graph_boundary.md)
 150. [Iteration 141 - 短剧 Callback-only 公网素材回调与 Episode 1 真视频验证](./iteration_141_drama_callback_only_quick_tunnel_real_video_validation.md)
 151. [Iteration 142 - 短剧 Provider 素材契约适配与单次真视频复验](./iteration_142_drama_video_asset_contract_real_retry.md)
+152. [Iteration 143 - 短剧真视频 20 秒质量样本](./iteration_143_drama_video_20s_quality_sample.md)
