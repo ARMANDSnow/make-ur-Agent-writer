@@ -66,6 +66,7 @@
 | 138 | 短剧媒体 Pricing Facts 与 Insights | 六类 append-only facts、精确定点金额、跨集 evidence 唯一性与 unknown-safe 多币种聚合 |
 | 139 | 短剧媒体 Durable Lifecycle Metrics 与 Insights | 可信 ready/first-claim/terminal、legacy unknown、external exact evidence 与 terminal-denominator 指标 |
 | 140 | 短剧 Typed Source Event Graph 与来源边界 | workspace/family 双 scope、source/invented、unknown causal、strict lineage、exact projection 与 no-follow store |
+| 141 | Callback-only 公网素材回调与真视频安全尝试 | 独立 loopback 随机 capability 服务、Quick Tunnel 隔离、fixed single-submit；公网回读通过，provider 素材上传 safe-blocked、视频 create=0 |
 
 ## Iteration Implementation Index
 
@@ -187,6 +188,7 @@
 | 138 | 建立 strict pricing facts 与安全 Insights | `src/drama_media_pricing.py`、`src/web/drama_insights.py`、`tests/test_drama_media_pricing.py` |
 | 139 | 建立 durable media lifecycle metrics 与安全 Insights | `src/drama_media_tasks.py`、`src/drama_media_metrics.py`、`src/web/drama_insights.py`、`tests/test_drama_media_metrics.py` |
 | 140 | 建立 typed source event graph 与来源边界 | `src/drama_schemas.py`、`src/drama_event_graph.py`、`tests/test_drama_event_graph.py` |
+| 141 | 建立 callback-only 素材服务与单提交门禁 | `src/drama_asset_callback_server.py`、`src/drama_video.py`、`scripts/drama_asset_callback.sh`、`scripts/drama_video_episode1_single_submit.sh` |
 
 ## Durable Decisions
 
@@ -210,6 +212,7 @@
 - provider execution bridge 必须由受审查代码显式注入，并逐项绑定 frozen backend/task、current owner/token、lease revision 与 deadline context；外部动作前 heartbeat、动作后 CAS，且不持 workspace lock。submit 不明永不自动重发，崩溃接管只能通过权威 paid ledger 的 inspect-or-submit 恢复；generic observation 只留内容寻址 evidence fingerprint，不能保存或冒充 provider task、response、prompt、URL、path 或 paid receipt。
 - 媒体 pricing facts 与 provider billing 必须分层：persisted amount 只接受精确定点微单位，estimate/authorized/reserved/actual/refunded/unknown 保留不同事实语义；unknown 不能归零，多币种不能隐式换汇或跨币种求和。evidence fingerprint 要在写侧与读侧按工作区唯一，namespace 扫描和提交必须绑定同一 nofollow directory fd；歧义、坏源或聚合超限应返回空的 degraded 汇总，而不是 partial totals。
 - 媒体 lifecycle 延迟只能来自可信锁内 mutation 与 exact evidence：ready、first claim、terminal 必须单调并与 task/lease 绑定，legacy 缺失保持 unknown，不能从 caller time、最后 lease 或 `updated_at-created_at` 补猜。成功率只以 terminal task 为分母，queue/run 必须分列 known/unknown sample；应用层 create-once/content-addressed sidecar 不是签名，也不防有本机写权限者同时伪造新 ledger 与 sidecar。
+- 临时公网素材回调必须与完整 Web 工作台物理分离：Tunnel 只指向 loopback callback-only 端口，成功面仅为 exact 随机 capability GET；raw query/encoding/尾斜杠/其他方法和路径统一 404，连接与并发有界，token 用后撤销。Quick Tunnel 地址不稳定，不能写入代码或视为长期部署。
 
 ### Keep state auditable
 
@@ -275,6 +278,7 @@
 38. **Lease 的幂等重放也是所有权操作，不是普通只读返回**：caller-controlled time 会让另一个进程提前判定 expiry，未认证或已过期 replay 会让旧 worker 把别人的状态当成自己的成功继续付费动作。可靠协议必须在同一锁域读取可信时钟，把 owner/token、task/lease revision、before-ledger 与结果指纹写进持久 receipt；无证据的 legacy 在途状态宁可 reconciliation，也不能合成 lease。
 39. **Registry 的字符串 ID 与授权 fingerprint 必须形成同一身份，而不是两条并行线**：只验证 caller fingerprint 等于 task，却不证明它对应本次 provider/model ID，会在同 backend 多模型时把 A 的授权路由给 B。registration 应保存 ID↔fingerprint 双射，binding 冻结完整 capability snapshot；source Pydantic 对象也要在 API 边界重建验证，且通用抽象不能把 TTS 的“只重下、不重合成”降格为不支持 download。
 40. **事件图的可追溯性需要同时区分身份闭包与认证来源**：event 只绑定 graph family 会允许跨 workspace 移植，projection 只列已选成员会允许跨图自证，helper-only 守门也会被直接反序列化绕过。可靠边界应把 workspace/family 写入 event identity，以完整有序 membership 证明 graph，以 schema 复核 exact minimum closure；即便如此，普通 source hash/content addressing 仍只是 caller-trusted 内部一致性，生产 adapter 必须另行绑定权威 source snapshot，不能把它宣称为签名 provenance。
+41. **公网回调通过不等于 provider 素材上传通过**：应把本地 capability、Tunnel 公网 exact-byte 回读、provider asset upload、video create 和结果下载分别记账。素材上传若在 durable video submitting marker 前失败，只能宣称 create=0；没有只读资产查询或脱敏响应证据时不能猜上游是否部分接收，也不能用同一授权重发 POST。
 
 ## Historical Evidence Notes
 

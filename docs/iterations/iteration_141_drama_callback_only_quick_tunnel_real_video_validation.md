@@ -45,10 +45,24 @@ iter140 收官时，短剧真视频仍缺供应商可访问的公网素材回调
 - 真实零提交探针在 `iter124_real_sop_v2` 上确认：Episode 1 与两张 PNG 参考图齐备，无 durable video ledger/旧视频；`GET /v1/video/tasks` 鉴权成功且只见 1 个 completed task。供应商详情实际返回 `task.outputs: [signed_url]`，暴露出完成态解析器只认单数 `output/result` 的阻塞 bug；保持 0 submit 后补齐严格单元素 outputs 支持。
 - outputs 修复的 correctness/security/media 复核进一步关闭三类边界：枚举所有出现的 legacy URL 别名并要求 exact 单值；`None` 空占位保持兼容，其他非法类型/长度/结构 fail closed；在 DNS/连接前以固定错误拒绝非 ASCII、空白/control、非法 port、非 HTTPS/credentials/fragment，避免签名 query 进入异常日志。30 项视频聚焦测试通过，最终三视角复核均为 none。
 - 只读详情探针随后确认既有 completed 输出 hostname 与 `SD_VIDEO_RESULT_HOSTS` 精确匹配；但当前 `SD_VIDEO_ESTIMATED_COST_CNY` 分类为 `over_20`，不满足本轮授权门，故仍为 0 submit，禁止通过降低真实估算来绕过。
+- 用户将真实估算明确改为 20 元并再次授权后，最终门禁确认临时 Tunnel 仍只暴露 callback-only 404 边界、Episode 1 的两张严格 PNG reference fresh、无 durable video ledger、结果 host 精确 allowlist、HEAD 仍为 accepted implementation。
+- 专用入口只执行一次即返回受控 `drama_video_smoke_failed`；公网 exact-byte callback 随后用新 capability 再验证通过并立即撤销。workspace 仍无 submission ledger、provider task ID、asset ID、视频/metadata、actual cost 或 budget metadata；前后两次只读 `GET /v1/video/tasks` 均为 1 个既有任务，因此本次视频 create 为 0。
+- 供应商不提供可用的只读 `GET /v1/sd/assets` 列表，不能在不重发 POST 的前提下进一步判断素材端是否曾部分接收；可确认失败边界为第一个 provider asset upload 请求/响应阶段，早于 durable video submitting marker。按单次授权和 unknown 不重提规则停止，没有第二次 provider 写请求。
+- 临时 callback 与 Quick Tunnel 均已停止；未注册系统服务，也未修改用户 `.env`。Quick Tunnel 域名随进程终止失效，下次真实运行仍须重新启动并由用户更新配置。
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- 结论：工程验收为 `mock-functional`；真实 Episode 1 验证为 `safe-blocked`，`provider_validated=false`。
+- `A141-01`：通过。独立 HTTP 服务返回冻结 PNG exact bytes；SHA-256、过期与撤销行为由专项测试覆盖。
+- `A141-02`：通过。无效/编码/query/尾斜杠/工作台路径与非 GET 方法统一 404/空正文，日志和错误不含 token。
+- `A141-03`：通过。非 loopback 拒绝；library 构造零环境副作用；CLI/脚本禁止 dotenv、清除 provider key；5 秒整连接 deadline 与 8 并发限制通过。
+- `A141-04`：通过。callback/video/异步媒体/path 回归、语法、harness 与 diff 检查通过；correctness、security/boundary、真实媒体/Tunnel/计费三视角最终均无 finding。accepted implementation `27397ee2dd69a01027e23e915db813fbffe8e497` 上最终 canonical `bash scripts/verify.sh` exit 0：**2777 tests OK**，15 steps / 445 秒，run `9bae4d30bc584118ae5b3d7cfbd9e47a`，tree `b75e946b4d8810ab09d281bc33e69e83ae7a1572`，`tracked_scope_clean=true`，`mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`。
+- `A141-05`：`safe-blocked`。Quick Tunnel 只公开 callback-only 端口，根路径和工作台路径保持 404/0-byte，首个冻结素材公网 exact-byte probe 成功；但唯一一次入口执行在第一个 provider asset upload 请求/响应阶段失败。视频 create=0，任务总数未增加，无 task/video/cost durable 事实；没有自动重提，故 5 秒、720×1280 MP4 与输入 fingerprint 终态校验未发生。
+- 审查记录：
+  - correctness：最终 none；复核 callback raw request-target、capability 生命周期、outputs 单值解析与回归绑定。
+  - security/boundary：最终 none；复核 loopback、统一 404、parser/slowloris/环境清理、URL 预校验与日志脱敏。
+  - real media/Tunnel/billing：最终 none；复核 callback-only Tunnel、20 元/600 秒最后一跳 profile、single-submit、result allowlist、durable 恢复与不重提边界。
+- 未修风险：该供应商素材上传响应契约或请求兼容性尚未确认；现有受控错误不保留脱敏 HTTP status/响应形态，若要继续应另起迭代先增加安全诊断，再取得新的单次 provider 写授权。不能由本次证据宣称旧 Episode 1 视频路径已通过。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
