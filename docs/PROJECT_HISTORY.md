@@ -68,6 +68,7 @@
 | 140 | 短剧 Typed Source Event Graph 与来源边界 | workspace/family 双 scope、source/invented、unknown causal、strict lineage、exact projection 与 no-follow store |
 | 141 | Callback-only 公网素材回调与真视频安全尝试 | 独立 loopback 随机 capability 服务、Quick Tunnel 隔离、fixed single-submit；公网回读通过，provider 素材上传 safe-blocked、视频 create=0 |
 | 142 | Provider 素材契约与 Episode 1 真视频闭环 | `data.Id/Status/base_resp` 严格适配、逐素材 durable upload ledger、exact-workspace profile；5.042 秒/720×1280 真实 MP4 完成，实际人民币费用未回报 |
+| 143 | 真视频 20 秒质量样本 | 独立 sample namespace、20 秒 exact profile、prompt SHA lineage；真实 create 结果不明、无 task/MP4、费用 unknown、0 重试 |
 
 ## Iteration Implementation Index
 
@@ -191,6 +192,7 @@
 | 140 | 建立 typed source event graph 与来源边界 | `src/drama_schemas.py`、`src/drama_event_graph.py`、`tests/test_drama_event_graph.py` |
 | 141 | 建立 callback-only 素材服务与单提交门禁 | `src/drama_asset_callback_server.py`、`src/drama_video.py`、`scripts/drama_asset_callback.sh`、`scripts/drama_video_episode1_single_submit.sh` |
 | 142 | 建立 provider 素材写入恢复与单次真视频闭环 | `src/drama_video.py`、`src/drama_video_client.py`、`scripts/drama_video_episode1_single_submit.sh` |
+| 143 | 建立独立 20 秒质量样本与 exact lineage | `src/drama_video.py`、`src/drama_video_smoke.py`、`scripts/drama_video_episode1_quality20_single_submit.sh` |
 
 ## Durable Decisions
 
@@ -216,6 +218,7 @@
 - 媒体 lifecycle 延迟只能来自可信锁内 mutation 与 exact evidence：ready、first claim、terminal 必须单调并与 task/lease 绑定，legacy 缺失保持 unknown，不能从 caller time、最后 lease 或 `updated_at-created_at` 补猜。成功率只以 terminal task 为分母，queue/run 必须分列 known/unknown sample；应用层 create-once/content-addressed sidecar 不是签名，也不防有本机写权限者同时伪造新 ledger 与 sidecar。
 - 临时公网素材回调必须与完整 Web 工作台物理分离：Tunnel 只指向 loopback callback-only 端口，成功面仅为 exact 随机 capability GET；raw query/encoding/尾斜杠/其他方法和路径统一 404，连接与并发有界，token 用后撤销。Quick Tunnel 地址不稳定，不能写入代码或视为长期部署。
 - provider asset upload 与最终 video create 是两个独立外部写边界：每次 POST 前分别持久化 ambiguity marker；只有 transport 明确证明 request not sent 才能释放重试机会，已确认 asset ID 可以续用，unknown 不能自动重发或被费用 `null` 伪装成 0。
+- 质量标定样本必须同时冻结 sample namespace、目标时长、实际 prompt SHA 与授权 fingerprint；仅保存 prompt 版本字符串不足以证明样本可比，样本产物和 ledger 也不能与默认 smoke 共用路径。
 
 ### Keep state auditable
 
@@ -283,6 +286,7 @@
 40. **事件图的可追溯性需要同时区分身份闭包与认证来源**：event 只绑定 graph family 会允许跨 workspace 移植，projection 只列已选成员会允许跨图自证，helper-only 守门也会被直接反序列化绕过。可靠边界应把 workspace/family 写入 event identity，以完整有序 membership 证明 graph，以 schema 复核 exact minimum closure；即便如此，普通 source hash/content addressing 仍只是 caller-trusted 内部一致性，生产 adapter 必须另行绑定权威 source snapshot，不能把它宣称为签名 provenance。
 41. **公网回调通过不等于 provider 素材上传通过**：应把本地 capability、Tunnel 公网 exact-byte 回读、provider asset upload、video create 和结果下载分别记账。素材上传若在 durable video submitting marker 前失败，只能宣称 create=0；没有只读资产查询或脱敏响应证据时不能猜上游是否部分接收，也不能用同一授权重发 POST。
 42. **素材上传与视频 create 是两个独立外部写状态机**：逐素材 POST 也可能在 provider 已接收、本地未收到响应时产生孤儿或费用，因此必须先写 durable marker，只有明确 not-sent 才能释放；已确认 ID 可续跑，unknown 必须阻断自动重发。provider 未返回实际人民币费用时应保留 unknown，不能把空值解释为 0。
+43. **版本标签不能单独证明质量样本可比**：应哈希实际 prompt，并用独立 namespace 隔离 artifact 与 ledger；create 返回不明、没有 task ID、只读 task 列表未变化，仍不能推出请求未到达或费用为 0，因此必须保留 unknown 且不重试。
 
 ## Historical Evidence Notes
 

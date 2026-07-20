@@ -41,7 +41,19 @@ iter142 已在固定 workspace `iter124_real_sop_v2` 完成一个 5.042 秒、72
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+### 工程验收
+
+- `A143-01`：通过。默认 5 秒路径与 authorization fingerprint 保持兼容；20 秒 sample 使用独立 artifact/asset/submission namespace，并把 duration、sample ID、prompt version、实际 prompt SHA 与授权指纹共同冻结。错位 ledger、prompt drift、跨 sample resume/read/status 均 fail closed。
+- `A143-02`：通过。shell 与 Python last-hop 双层固定 workspace `iter124_real_sop_v2`、20 秒、80 元、30 分钟和 exact profile；脚本拒绝其他 workspace/参数，门禁在真实 client/network 前完成。
+- `A143-03`：通过。逐素材 upload 与 video create 分别在 POST 前写 sample 专属 durable marker；submitted resume 只轮询 quality task、0 upload/0 create，unknown 再运行同 profile 时 0 POST。
+- `A143-04`：通过。相关聚焦回归 **105 tests OK**；correctness、security/boundary、真实媒体/计费三视角最终均 **no findings**。accepted implementation `2241789749f53300d36c7768e3894ce81c584558` 上 canonical **2792 tests、15 steps、454 秒**，run `9e969daa9c2345cdae3c416fb066ae44`，tree `7c1c83c80066bc044b112549e2ac5841a138880b`；`mock-functional` / `canonical-mock-offline`，preflight 0 FATAL / 0 WARN、tracked scope clean。
+
+### 单次真实 20 秒尝试
+
+- `A143-05`：按约定以 `safe-blocked` 收口。提交前只读任务列表为 **2 个 completed task**；callback-only 临时公网入口 root 与工作台路径均为 404，未暴露完整 Web。
+- sample 专属 asset ledger 达到 `uploaded_all`，共确认 **2 个素材 ID**。video create 前已写 `submitting` marker，随后约 14 秒内得到结果不明异常；没有 task ID、没有 MP4，自动重试 **0**。
+- 任务列表在异常后立即查询与约 30 秒后复查均保持 **2 个既有 completed task**，未观察到新增 provider task。该事实不能证明请求未到达或不会计费；实际人民币费用保持 **unknown**，不能记为 0。
+- 该次 create opportunity 已消费，禁止自动或沿用本次授权重提。由于没有 20 秒产物，本轮不能评价供应商的长时人物/手部/背景/运动质量，也不升级 20 秒样本为 `provider-validated`；iter142 的 5.042 秒成功样本仍是独立、未被改写的窄证据。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
@@ -58,6 +70,9 @@ iter142 已在固定 workspace `iter124_real_sop_v2` 完成一个 5.042 秒、72
 | `src/drama_video_smoke.py` | 在提交和恢复时透传 profile，并从精确 sample namespace 读取结果 |
 | `scripts/drama_video_episode1_quality20_single_submit.sh` | 新增固定 workspace/20 秒/80 元/1800 秒的单提交入口 |
 | `tests/test_drama_video.py` | 覆盖路径隔离、last-hop 门禁、20 秒 payload/QA、prompt drift、unknown 与恢复/错位账本 |
+| `README.md` | 同步 20 秒样本 safe-blocked 的项目状态与 A-J SOP |
+| `docs/AGENT_HANDOFF.md` | 更新 canonical、真实尝试、缺口、候选与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 晋升质量样本 exact lineage 的长期决策与工程教训 |
 
 ## 不在本轮范围
 

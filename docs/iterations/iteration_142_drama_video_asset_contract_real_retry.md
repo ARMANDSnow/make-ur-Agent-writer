@@ -91,3 +91,9 @@ iter141 已证明 callback-only Quick Tunnel 的公网 exact-byte 素材回读�
 - “1 分钟内”按成片时长执行，现有固定 5 秒规格不变；异步 provider 完成时间无法保证在 60 秒内，仍使用 600 秒轮询 deadline 防止因过短本地等待造成不明状态。
 - `SD_ASSET_PUBLIC_BASE_URL` 的 Quick Tunnel 域名每次启动均变化，只能由用户本地配置维护，不写入仓库。
 - 真视频超时或网络状态不确定时只查 task 与账单，不重提。
+
+### 20 秒质量样本追加记录（iter143）
+
+- 2026-07-20 用户另行授权固定 20 秒、80 元项目侧预算、30 分钟等待、最多一次 create、0 自动重试；iter143 为其建立独立 `iter143_quality_20s_v1` 账本和产物 namespace，未覆盖本轮 5.042 秒 MP4。
+- 真实入口确认 2 个素材后，在 video create 前写入 `submitting` marker，随后约 14 秒内结果不明；没有 task ID、没有 20 秒 MP4。供应商任务列表从尝试前到立即查询、约 30 秒后复查均保持 2 个既有 completed task。
+- 本次追加样本结论为 `safe-blocked`：create opportunity 已消费、自动重试 0、实际人民币费用 unknown，不得视为 0 或自动重提。由于没有产物，无法进行长时人物/手部/背景/运动质量评价；本轮原 5 秒样本的 `provider-validated` 窄结论保持不变。
