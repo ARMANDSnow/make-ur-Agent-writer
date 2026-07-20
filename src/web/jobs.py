@@ -520,6 +520,14 @@ def _open_job_logs_directory(workspace: str, *, create: bool) -> Optional[int]:
 
 
 def _read_job_rows(workspace: str) -> list[Dict[str, Any]]:
+    # Avoid a false empty projection when a local worker is in the tiny append
+    # critical section.  The file-level lock below remains non-blocking, so an
+    # unrelated process can never hold this request indefinitely.
+    with _JOB_LOG_LOCK:
+        return _read_job_rows_unlocked(workspace)
+
+
+def _read_job_rows_unlocked(workspace: str) -> list[Dict[str, Any]]:
     directory_fd = _open_job_logs_directory(workspace, create=False)
     if directory_fd is None:
         return []
