@@ -23,10 +23,23 @@ class _FakeVideoClient:
 
     def upload_asset(self, **_kwargs):
         self.uploads += 1
-        return {"asset": {"id": f"asset-{self.uploads}"}}
+        return {
+            "success": True,
+            "data": {
+                "Id": f"asset-{self.uploads}",
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            },
+        }
 
     def get_asset(self, asset_id):
-        return {"asset": {"id": asset_id, "status": "ready"}}
+        return {
+            "success": True,
+            "data": {
+                "Id": asset_id,
+                "Status": "Active",
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            },
+        }
 
     def create_video_task(self, **kwargs):
         self.submissions += 1
@@ -275,6 +288,217 @@ class DramaVideoPipelineTests(DramaTestBase):
                 )
         self.assertEqual(client.submissions, 0)
         self.assertIsNone(drama_video.read_video_submission("video"))
+
+    def test_documented_asset_envelope_and_capitalized_id_are_supported(self) -> None:
+        response = {
+            "success": True,
+            "data": {
+                "Id": "asset-20260705003737-njxmg",
+                "Status": "Active",
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            },
+        }
+        drama_video._validate_provider_envelope(response, "asset upload")
+        self.assertEqual(
+            drama_video._extract_resource_id(response, "asset"),
+            "asset-20260705003737-njxmg",
+        )
+
+    def test_asset_envelope_errors_are_bounded_and_do_not_echo_provider_body(self) -> None:
+        secret = "must-not-appear"
+        cases = (
+            {"success": False, "error": secret},
+            {"success": True, "data": [secret]},
+            {"success": True, "data": {"base_resp": secret}},
+            {
+                "success": True,
+                "data": {
+                    "base_resp": {
+                        "status_code": 401,
+                        "status_msg": secret,
+                    }
+                },
+            },
+        )
+        for response in cases:
+            with self.subTest(response=response):
+                with self.assertRaises(drama_video.DramaVideoProviderError) as caught:
+                    drama_video._validate_provider_envelope(response, "asset upload")
+                rendered = str(caught.exception)
+                self.assertNotIn(secret, rendered)
+                self.assertLessEqual(len(rendered), 80)
+
+    def test_conflicting_asset_query_aliases_fail_before_paid_submission(self) -> None:
+        self._prepare()
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        conflicts = (
+            {
+                "data": {
+                    "id": "asset-1",
+                    "Id": "asset-other",
+                    "status": "ready",
+                }
+            },
+            {
+                "asset": {"id": "asset-1", "status": "ready"},
+                "data": {"Id": "asset-1", "Status": "failed"},
+            },
+            {
+                "asset": {
+                    "id": "asset-1",
+                    "status": "ready",
+                    "base_resp": {"status_code": 500},
+                },
+            },
+        )
+        for index, response in enumerate(conflicts):
+            with self.subTest(index=index):
+                self._prepare(f"video-conflict-{index}")
+                client = _FakeVideoClient()
+                client.get_asset = Mock(return_value=response)
+                with patch.dict(os.environ, env, clear=False):
+                    with self.assertRaises(drama_video.DramaVideoProviderError):
+                        drama_video.run_video_job(
+                            f"video-conflict-{index}",
+                            {
+                                "confirm_real_video": True,
+                                "budget_cny": 3,
+                                "timeout_minutes": 1,
+                            },
+                            lambda *_: None,
+                            client=client,
+                            sleep=lambda _seconds: None,
+                        )
+                self.assertEqual(client.submissions, 0)
+                self.assertIsNone(
+                    drama_video.read_video_submission(f"video-conflict-{index}")
+                )
+
+    def test_unknown_asset_upload_is_durable_bounded_and_never_reposted(self) -> None:
+        self._prepare("video-upload-unknown")
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        params = {
+            "confirm_real_video": True,
+            "budget_cny": 3,
+            "timeout_minutes": 1,
+        }
+        first = _FakeVideoClient()
+        first.upload_asset = Mock(
+            side_effect=RuntimeError("secret-provider-response-must-not-appear")
+        )
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(drama_video.DramaVideoSubmissionUnknown) as caught:
+                drama_video.run_video_job(
+                    "video-upload-unknown",
+                    params,
+                    lambda *_: None,
+                    client=first,
+                    sleep=lambda _seconds: None,
+                )
+        self.assertNotIn("secret-provider", str(caught.exception))
+        ledger = drama_video.read_video_asset_upload("video-upload-unknown")
+        self.assertEqual(ledger["status"], "submitting")
+        self.assertEqual(ledger["asset_ids"], [])
+        self.assertIsNone(
+            drama_video.read_video_submission("video-upload-unknown")
+        )
+
+        second = _FakeVideoClient()
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
+                drama_video.run_video_job(
+                    "video-upload-unknown",
+                    params,
+                    lambda *_: None,
+                    client=second,
+                    sleep=lambda _seconds: None,
+                )
+        self.assertEqual(second.uploads, 0)
+        self.assertEqual(second.submissions, 0)
+
+    def test_duplicate_uploaded_asset_id_blocks_create_and_future_repost(self) -> None:
+        self._prepare("video-upload-duplicate")
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        params = {
+            "confirm_real_video": True,
+            "budget_cny": 3,
+            "timeout_minutes": 1,
+        }
+        first = _FakeVideoClient()
+        first.upload_asset = Mock(
+            return_value={
+                "success": True,
+                "data": {
+                    "Id": "same-asset",
+                    "base_resp": {"status_code": 0},
+                },
+            }
+        )
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaisesRegex(
+                drama_video.DramaVideoProviderError,
+                "duplicate asset id",
+            ):
+                drama_video.run_video_job(
+                    "video-upload-duplicate",
+                    params,
+                    lambda *_: None,
+                    client=first,
+                    sleep=lambda _seconds: None,
+                )
+        self.assertEqual(first.upload_asset.call_count, 2)
+        self.assertEqual(first.submissions, 0)
+        ledger = drama_video.read_video_asset_upload("video-upload-duplicate")
+        self.assertEqual(ledger["status"], "submitting")
+        self.assertEqual(ledger["asset_ids"], ["same-asset"])
+
+        second = _FakeVideoClient()
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
+                drama_video.run_video_job(
+                    "video-upload-duplicate",
+                    params,
+                    lambda *_: None,
+                    client=second,
+                    sleep=lambda _seconds: None,
+                )
+        self.assertEqual(second.uploads, 0)
+        self.assertEqual(second.submissions, 0)
+
+    def test_provider_helpers_reject_mapping_subclasses_without_calling_them(self) -> None:
+        secret = "secret-mapping-payload"
+
+        class HostileMapping(dict):
+            def get(self, *_args, **_kwargs):
+                raise RuntimeError(secret)
+
+        for helper, args in (
+            (drama_video._extract_resource_id, (HostileMapping(), "asset")),
+            (
+                drama_video._validate_provider_envelope,
+                (HostileMapping(), "asset upload"),
+            ),
+            (drama_video._extract_asset_status, (HostileMapping(),)),
+        ):
+            with self.subTest(helper=helper.__name__):
+                with self.assertRaises(drama_video.DramaVideoProviderError) as caught:
+                    helper(*args)
+                self.assertNotIn(secret, str(caught.exception))
 
     def test_submitted_ledger_resumes_polling_without_upload_or_second_post(self) -> None:
         self._prepare()
@@ -625,6 +849,29 @@ class DramaVideoPipelineTests(DramaTestBase):
                     "timeout_minutes": 10,
                     "authorization_profile": "untrusted-profile",
                 })
+
+    def test_iter142_profile_is_bound_to_exact_workspace_before_client(self) -> None:
+        self._prepare("other-workspace")
+        params = {
+            "confirm_real_video": True,
+            "budget_cny": 20,
+            "timeout_minutes": 10,
+            "authorization_profile": drama_video.ITER142_SINGLE_SUBMIT_PROFILE,
+        }
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "20",
+        }
+        with patch.dict(os.environ, env, clear=False), patch(
+            "src.drama_video.DramaVideoClient",
+            side_effect=AssertionError("client must not be constructed"),
+        ):
+            with self.assertRaisesRegex(PermissionError, "different workspace"):
+                drama_video.run_video_job(
+                    "other-workspace",
+                    params,
+                    lambda *_: None,
+                )
 
     def test_real_smoke_forwards_single_submit_profile_to_last_hop(self) -> None:
         terminal = {"status": "succeeded", "result_summary": {}}

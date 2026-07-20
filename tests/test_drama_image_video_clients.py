@@ -390,6 +390,27 @@ class DramaVideoClientTests(unittest.TestCase):
         self.assertEqual(json.loads(request_call.call_args.kwargs["body"])["model"], drama_video_client.DEFAULT_VIDEO_MODEL)
         self.assertEqual(result["task"]["status"], "pending")
 
+    def test_video_client_rejects_duplicate_json_fields_without_echoing_them(self) -> None:
+        duplicate_bodies = (
+            b'{"success":false,"success":true}',
+            b'{"data":{"Id":"safe","Id":"must-not-appear"}}',
+            b'{"data":{"base_resp":{"status_code":1,"status_code":0}}}',
+        )
+        for body in duplicate_bodies:
+            with self.subTest(body=body):
+                with patch(
+                    "src.drama_video_client.request_bytes",
+                    return_value=BoundedResponse(200, "application/json", body),
+                ):
+                    client = drama_video_client.DramaVideoClient(
+                        base_url="https://93.184.216.34",
+                        api_key="test-video-key",
+                    )
+                    with self.assertRaisesRegex(ValueError, "invalid JSON") as caught:
+                        client.list_tasks()
+                self.assertNotIn("must-not-appear", str(caught.exception))
+                self.assertNotIn("status_code", str(caught.exception))
+
     def test_resource_ids_and_asset_urls_are_fail_closed(self) -> None:
         client = drama_video_client.DramaVideoClient(
             base_url="https://93.184.216.34", api_key="test-video-key"

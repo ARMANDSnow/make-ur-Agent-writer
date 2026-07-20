@@ -333,6 +333,7 @@ class Iter098DramaHardeningTests(DramaTestBase):
         }
         options = {"confirm_real_video": True, "budget_cny": 3, "timeout_minutes": 1}
         first = Mock(base_url="https://video.example.test")
+        first.api_key = "stable-test-account"
         first.upload_asset.side_effect = [
             {"asset": {"id": "asset-1"}}, {"asset": {"id": "asset-2"}},
         ]
@@ -343,6 +344,7 @@ class Iter098DramaHardeningTests(DramaTestBase):
         self.assertIsNone(drama_video.read_video_submission("video-not-sent"))
 
         second = Mock(base_url="https://video.example.test")
+        second.api_key = "stable-test-account"
         second.upload_asset.side_effect = [
             {"asset": {"id": "asset-1"}}, {"asset": {"id": "asset-2"}},
         ]

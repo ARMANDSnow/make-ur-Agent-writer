@@ -46,6 +46,8 @@ VIDEO_DURATION_SECONDS = 5
 VIDEO_RATIO = "9:16"
 VIDEO_RESOLUTION = "720p"
 EPISODE1_SINGLE_SUBMIT_PROFILE = "episode1-single-submit-v1"
+ITER142_SINGLE_SUBMIT_PROFILE = "iter142-iter124-real-sop-v2-single-submit-v1"
+ITER142_AUTHORIZED_WORKSPACE = "iter124_real_sop_v2"
 EPISODE1_SINGLE_SUBMIT_MAX_BUDGET_CNY = 20.0
 EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES = 10.0
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
@@ -115,6 +117,86 @@ def video_submission_path(workspace: str, *, episode_no: int = 1) -> Path:
     if episode_no != 1:
         raise DramaVideoInputError("video MVP supports episode 1 only")
     return paths.workspace_root(workspace) / "logs" / "drama_video_submission.json"
+
+
+def video_asset_upload_path(workspace: str, *, episode_no: int = 1) -> Path:
+    if episode_no != 1:
+        raise DramaVideoInputError("video MVP supports episode 1 only")
+    return paths.workspace_root(workspace) / "logs" / "drama_video_asset_upload.json"
+
+
+def read_video_asset_upload(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> Dict[str, Any] | None:
+    ledger_path = video_asset_upload_path(workspace, episode_no=episode_no)
+    try:
+        ledger_path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ValueError("video asset upload ledger is unreadable") from exc
+    if ledger_path.is_symlink() or not ledger_path.is_file():
+        raise ValueError("video asset upload ledger must be a regular file")
+    try:
+        raw = json.loads(ledger_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("video asset upload ledger is unreadable") from exc
+    if (
+        type(raw) is not dict
+        or raw.get("schema_version") != 1
+        or raw.get("episode_no") != 1
+        or raw.get("status") not in {"ready", "submitting", "uploaded_all"}
+    ):
+        raise ValueError("video asset upload ledger is invalid")
+    for key in (
+        "input_fingerprint",
+        "provider_fingerprint",
+        "authorization_fingerprint",
+    ):
+        value = raw.get(key)
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(ch not in "0123456789abcdef" for ch in value)
+        ):
+            raise ValueError("video asset upload ledger fingerprint is invalid")
+    reference_count = raw.get("reference_count")
+    asset_ids = raw.get("asset_ids")
+    if (
+        isinstance(reference_count, bool)
+        or not isinstance(reference_count, int)
+        or not 1 <= reference_count <= MAX_REFERENCE_ASSETS
+        or not isinstance(asset_ids, list)
+        or len(asset_ids) > reference_count
+    ):
+        raise ValueError("video asset upload ledger count is invalid")
+    for asset_id in asset_ids:
+        _extract_resource_id({"id": asset_id}, "asset")
+    if len(set(asset_ids)) != len(asset_ids):
+        raise ValueError("video asset upload ledger contains duplicate ids")
+    current_index = raw.get("current_index")
+    if raw["status"] == "submitting":
+        if (
+            isinstance(current_index, bool)
+            or not isinstance(current_index, int)
+            or current_index != len(asset_ids)
+            or current_index >= reference_count
+        ):
+            raise ValueError("video asset upload ledger current index is invalid")
+    elif current_index is not None:
+        raise ValueError("video asset upload ledger unexpectedly claims an in-flight index")
+    if raw["status"] == "uploaded_all" and len(asset_ids) != reference_count:
+        raise ValueError("video asset upload ledger is incomplete")
+    return raw
+
+
+def _write_video_asset_upload(workspace: str, payload: Mapping[str, Any]) -> None:
+    write_json(
+        video_asset_upload_path(workspace),
+        {"schema_version": 1, "episode_no": 1, **dict(payload)},
+    )
 
 
 def read_video_submission(workspace: str, *, episode_no: int = 1) -> Dict[str, Any] | None:
@@ -203,7 +285,11 @@ def real_video_enabled() -> bool:
     return os.getenv("SD_VIDEO_MODE", "mock").strip().lower() == "real"
 
 
-def validate_real_video_gate(params: Mapping[str, Any]) -> tuple[float, float, float]:
+def validate_real_video_gate(
+    params: Mapping[str, Any],
+    *,
+    workspace: str | None = None,
+) -> tuple[float, float, float]:
     """Last-hop authorization; call before dotenv/client construction/network."""
 
     if params.get("confirm_real_video") is not True:
@@ -215,12 +301,22 @@ def validate_real_video_gate(params: Mapping[str, Any]) -> tuple[float, float, f
         raise PermissionError("video estimated cost exceeds the authorized budget")
     profile = params.get("authorization_profile")
     if profile is not None:
-        if profile != EPISODE1_SINGLE_SUBMIT_PROFILE:
+        if profile not in {
+            EPISODE1_SINGLE_SUBMIT_PROFILE,
+            ITER142_SINGLE_SUBMIT_PROFILE,
+        }:
             raise PermissionError("unknown real video authorization profile")
         if budget > EPISODE1_SINGLE_SUBMIT_MAX_BUDGET_CNY:
             raise PermissionError("single-submit video budget exceeds 20 CNY")
         if timeout_minutes > EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES:
             raise PermissionError("single-submit video timeout exceeds 600 seconds")
+        if (
+            profile == ITER142_SINGLE_SUBMIT_PROFILE
+            and workspace != ITER142_AUTHORIZED_WORKSPACE
+        ):
+            raise PermissionError(
+                "iter142 real video authorization belongs to a different workspace"
+            )
     return budget, timeout_minutes, estimate
 
 
@@ -362,7 +458,10 @@ def run_video_job(
                 "submitted video task is missing its original authorization"
             ) from exc
     else:
-        budget, timeout_minutes, estimate = validate_real_video_gate(params)
+        budget, timeout_minutes, estimate = validate_real_video_gate(
+            params,
+            workspace=workspace,
+        )
     deadline = monotonic() + timeout_minutes * 60.0
     authorization = _video_authorization(budget, timeout_minutes, estimate)
     model = os.getenv("SD_VIDEO_MODEL") or DEFAULT_VIDEO_MODEL
@@ -372,6 +471,17 @@ def run_video_job(
     result_hosts_fingerprint = sha256_data(sorted(result_hosts))
     api = client or DramaVideoClient(request_timeout_seconds=min(60.0, timeout_minutes * 60.0))
     provider_fingerprint = _video_provider_fingerprint(api, model)
+    asset_upload = read_video_asset_upload(workspace)
+    if asset_upload is not None and (
+        asset_upload.get("input_fingerprint") != inputs.fingerprint
+        or asset_upload.get("provider_fingerprint") != provider_fingerprint
+        or asset_upload.get("authorization_fingerprint")
+        != authorization["authorization_fingerprint"]
+        or asset_upload.get("reference_count") != len(inputs.references)
+    ):
+        raise DramaVideoProviderError(
+            "video asset upload ledger belongs to different inputs or authorization"
+        )
     if submission is not None and submission.get("input_fingerprint") != inputs.fingerprint:
         raise DramaVideoInputError("video submission ledger belongs to different inputs")
     if (
@@ -465,10 +575,21 @@ def run_video_job(
         )
         public_base = (os.getenv("SD_ASSET_PUBLIC_BASE_URL") or "").strip().rstrip("/")
         validate_api_base_url(public_base, label="SD_ASSET_PUBLIC_BASE_URL")
-        asset_ids: List[str] = []
+        if asset_upload is not None and asset_upload.get("status") == "submitting":
+            raise DramaVideoSubmissionUnknown(
+                "video asset upload outcome is unknown; reconcile provider assets before any retry"
+            )
+        asset_ids: List[str] = (
+            list(asset_upload.get("asset_ids") or [])
+            if asset_upload is not None
+            else []
+        )
         public_tokens: List[str] = []
+        callback_verified = False
         try:
             for index, (cid, _filename, asset_path) in enumerate(inputs.references):
+                if index < len(asset_ids):
+                    continue
                 _deadline_checkpoint(deadline, monotonic)
                 token = register_public_asset(asset_path, expires_at=deadline)
                 public_tokens.append(token)
@@ -477,42 +598,86 @@ def run_video_job(
                 # capability store before the first provider upload. Injected
                 # test clients exercise protocol logic without external
                 # callback topology.
-                if index == 0 and client is None:
+                if client is None and not callback_verified:
                     _verify_public_asset_callback(asset_url, asset_path, deadline, monotonic)
+                    callback_verified = True
                 _set_api_timeout(api, deadline, monotonic)
-                response = api.upload_asset(
-                    url=asset_url,
-                    name=f"episode-1-{cid}",
-                    asset_type="Image",
-                )
-                asset_ids.append(_extract_resource_id(response, "asset"))
+                _write_video_asset_upload(workspace, {
+                    "status": "submitting",
+                    "input_fingerprint": inputs.fingerprint,
+                    "provider_fingerprint": provider_fingerprint,
+                    "authorization_fingerprint": authorization["authorization_fingerprint"],
+                    "reference_count": len(inputs.references),
+                    "asset_ids": asset_ids,
+                    "current_index": index,
+                    "updated_at": int(time.time()),
+                })
+                try:
+                    response = api.upload_asset(
+                        url=asset_url,
+                        name=f"episode-1-{cid}",
+                        asset_type="Image",
+                    )
+                except RequestNotSentError:
+                    if asset_ids:
+                        _write_video_asset_upload(workspace, {
+                            "status": "ready",
+                            "input_fingerprint": inputs.fingerprint,
+                            "provider_fingerprint": provider_fingerprint,
+                            "authorization_fingerprint": authorization["authorization_fingerprint"],
+                            "reference_count": len(inputs.references),
+                            "asset_ids": asset_ids,
+                            "updated_at": int(time.time()),
+                        })
+                    else:
+                        video_asset_upload_path(workspace).unlink(missing_ok=True)
+                    raise
+                except Exception:
+                    raise DramaVideoSubmissionUnknown(
+                        "video asset upload outcome is unknown; reconcile provider assets before any retry"
+                    ) from None
+                _validate_provider_envelope(response, "asset upload")
+                uploaded_asset_id = _extract_resource_id(response, "asset")
+                if uploaded_asset_id in asset_ids:
+                    raise DramaVideoProviderError(
+                        "video asset upload returned a duplicate asset id"
+                    )
+                asset_ids.append(uploaded_asset_id)
+                _write_video_asset_upload(workspace, {
+                    "status": "ready",
+                    "input_fingerprint": inputs.fingerprint,
+                    "provider_fingerprint": provider_fingerprint,
+                    "authorization_fingerprint": authorization["authorization_fingerprint"],
+                    "reference_count": len(inputs.references),
+                    "asset_ids": asset_ids,
+                    "updated_at": int(time.time()),
+                })
                 progress_cb(
                     "upload-assets",
                     0.12 + 0.18 * len(asset_ids) / len(inputs.references),
                 )
+            _write_video_asset_upload(workspace, {
+                "status": "uploaded_all",
+                "input_fingerprint": inputs.fingerprint,
+                "provider_fingerprint": provider_fingerprint,
+                "authorization_fingerprint": authorization["authorization_fingerprint"],
+                "reference_count": len(inputs.references),
+                "asset_ids": asset_ids,
+                "updated_at": int(time.time()),
+            })
             for asset_id in asset_ids:
                 while True:
                     _deadline_checkpoint(deadline, monotonic)
                     _set_api_timeout(api, deadline, monotonic)
                     asset = api.get_asset(asset_id)
-                    asset_obj = (
-                        asset.get("asset")
-                        if isinstance(asset.get("asset"), dict)
-                        else asset.get("data")
-                    )
-                    if (
-                        not isinstance(asset_obj, dict)
-                        or str(_first(asset_obj, "id", "asset_id", "AssetID", "ID") or "")
-                        != asset_id
-                    ):
+                    _validate_provider_envelope(asset, "asset query")
+                    if _extract_resource_id(asset, "asset") != asset_id:
                         raise DramaVideoProviderError(
                             "uploaded asset query did not match the requested asset"
                         )
-                    asset_status = str(
-                        _first(asset_obj, "status", "Status") or ""
-                    ).strip().lower()
+                    asset_status = _extract_asset_status(asset)
                     if asset_status in {
-                        "ready", "available", "completed", "succeeded", "success"
+                        "active", "ready", "available", "completed", "succeeded", "success"
                     }:
                         break
                     if not asset_status:
@@ -559,6 +724,10 @@ def run_video_job(
                 # above so the single paid opportunity is not falsely spent.
                 video_submission_path(workspace).unlink(missing_ok=True)
                 raise
+            except Exception:
+                raise DramaVideoSubmissionUnknown(
+                    "video submission outcome is unknown; reconcile provider task and billing before any retry"
+                ) from None
             task_id = _extract_resource_id(created, "task")
             _write_video_submission(workspace, {
                 "status": "submitted",
@@ -1107,10 +1276,12 @@ def _video_provider_fingerprint(api: Any, model: str) -> str:
 
 
 def _extract_resource_id(response: Mapping[str, Any], kind: str) -> str:
-    nested = response.get(kind) if isinstance(response.get(kind), dict) else None
-    data = response.get("data") if isinstance(response.get("data"), dict) else None
+    if type(response) is not dict:
+        raise DramaVideoProviderError(f"video API {kind} response must be an object")
+    nested = response.get(kind) if type(response.get(kind)) is dict else None
+    data = response.get("data") if type(response.get("data")) is dict else None
     candidates: List[Any] = []
-    keys = ("id", "ID", f"{kind}_id", "AssetID", "TaskID")
+    keys = ("id", "Id", "ID", f"{kind}_id", "AssetID", "TaskID")
     for container in (response, nested or {}, data or {}):
         candidates.extend(container[key] for key in keys if key in container)
     valid: List[str] = []
@@ -1131,6 +1302,70 @@ def _extract_resource_id(response: Mapping[str, Any], kind: str) -> str:
             raise DramaVideoProviderError(f"video API response contains conflicting {kind} ids")
         return valid[0]
     raise DramaVideoProviderError(f"video API response is missing a valid {kind} id")
+
+
+def _validate_provider_envelope(response: Mapping[str, Any], phase: str) -> None:
+    """Validate documented asset envelopes without exposing response content."""
+
+    if type(response) is not dict:
+        raise DramaVideoProviderError(f"{phase} response must be an object")
+    success = response.get("success")
+    if success is not None and success is not True:
+        raise DramaVideoProviderError(f"{phase} response reported failure")
+    containers: List[Mapping[str, Any]] = [response]
+    for key in ("asset", "data"):
+        value = response.get(key)
+        if type(value) is dict:
+            containers.append(value)
+        elif value is not None:
+            raise DramaVideoProviderError(
+                f"{phase} response {key} must be an object"
+            )
+    for container in containers:
+        if "base_resp" not in container:
+            continue
+        base_resp = container.get("base_resp")
+        if type(base_resp) is not dict:
+            raise DramaVideoProviderError(f"{phase} base response must be an object")
+        status_code = base_resp.get("status_code")
+        if (
+            isinstance(status_code, bool)
+            or not isinstance(status_code, int)
+        ):
+            raise DramaVideoProviderError(f"{phase} base response status is invalid")
+        if status_code != 0:
+            raise DramaVideoProviderError(f"{phase} response reported provider error")
+
+
+def _extract_asset_status(response: Mapping[str, Any]) -> str:
+    if type(response) is not dict:
+        raise DramaVideoProviderError("asset query response must be an object")
+    containers: List[Mapping[str, Any]] = [response]
+    for key in ("asset", "data"):
+        value = response.get(key)
+        if type(value) is dict:
+            containers.append(value)
+        elif value is not None:
+            raise DramaVideoProviderError("asset query response contains invalid status data")
+    statuses: List[str] = []
+    for container in containers:
+        for key in ("status", "Status"):
+            if key not in container:
+                continue
+            value = container[key]
+            if (
+                not isinstance(value, str)
+                or not value.isascii()
+                or not value.strip()
+                or len(value) > 40
+            ):
+                raise DramaVideoProviderError("asset query response contains invalid status")
+            statuses.append(value.strip().lower())
+    if not statuses:
+        raise DramaVideoProviderError("uploaded asset response is missing status")
+    if len(set(statuses)) != 1:
+        raise DramaVideoProviderError("asset query response contains conflicting statuses")
+    return statuses[0]
 
 
 def _task_object(response: Mapping[str, Any]) -> Mapping[str, Any]:

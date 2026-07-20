@@ -254,7 +254,16 @@ class LocalDramaProvider(AbstractContextManager["LocalDramaProvider"]):
                         number = state.increment("asset_upload")
                         asset_id = f"asset-{number}"
                         state.assets[asset_id] = "ready"
-                        self._json(200, {"asset": {"id": asset_id}})
+                        self._json(200, {
+                            "success": True,
+                            "data": {
+                                "Id": asset_id,
+                                "base_resp": {
+                                    "status_code": 0,
+                                    "status_msg": "success",
+                                },
+                            },
+                        })
                         return
                     if self.path == "/v1/video/generate":
                         if not self._authorized(LocalDramaProvider.VIDEO_TOKEN):
@@ -303,7 +312,17 @@ class LocalDramaProvider(AbstractContextManager["LocalDramaProvider"]):
                     if asset_id not in state.assets:
                         self._json(404, {"error": "asset not found"})
                         return
-                    self._json(200, {"asset": {"id": asset_id, "status": "ready"}})
+                    self._json(200, {
+                        "success": True,
+                        "data": {
+                            "Id": asset_id,
+                            "Status": "Active",
+                            "base_resp": {
+                                "status_code": 0,
+                                "status_msg": "success",
+                            },
+                        },
+                    })
                     return
                 if self.path.startswith("/v1/video/tasks/"):
                     if not self._authorized(LocalDramaProvider.VIDEO_TOKEN):

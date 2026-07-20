@@ -31,6 +31,19 @@ class VideoGenerationNotAuthorized(PermissionError):
     """Raised before network when a real video submission is not authorized."""
 
 
+class _DuplicateJSONField(ValueError):
+    """Internal sentinel; its message never includes the conflicting field."""
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> Dict[str, Any]:
+    value: Dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise _DuplicateJSONField("video API returned duplicate JSON field")
+        value[key] = item
+    return value
+
+
 class DramaVideoClient:
     def __init__(
         self,
@@ -126,8 +139,11 @@ class DramaVideoClient:
         if content_type != "application/json":
             raise ValueError("video API response content-type must be application/json")
         try:
-            value = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            value = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_strict_json_object,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateJSONField) as exc:
             raise ValueError("video API returned invalid JSON") from exc
         if not isinstance(value, dict):
             raise ValueError("video API response must be a JSON object")

@@ -27,10 +27,15 @@ if [[ -z "$BOOK" ]]; then
   exit 64
 fi
 
+if [[ "$BOOK" != "iter124_real_sop_v2" ]]; then
+  echo '{"ok":false,"error_code":"single_submit_workspace_rejected"}'
+  exit 64
+fi
+
 exec bash "$ROOT/scripts/drama_video_smoke.sh" \
   --book "$BOOK" \
   --real-video \
   --confirm-real-video \
   --budget-cny 20 \
   --timeout-seconds 600 \
-  --authorization-profile episode1-single-submit-v1
+  --authorization-profile iter142-iter124-real-sop-v2-single-submit-v1
