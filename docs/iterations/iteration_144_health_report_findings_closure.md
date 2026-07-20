@@ -65,7 +65,18 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+验收结论：**mock-functional**。未运行真实文本、图片、视频、TTS、账单或 provider 请求。
+
+- **A144-01 closed**：已在本文件“七份报告去重核验”逐项记录 2026-07-14 至 07-20 findings 的当前状态、后续 iteration 证据与本轮处置；复核同时找回了未被最新报告继续携带的旧视频、祖先 stale、`xcrun_db` 与 staged whitespace 残余。
+- **A144-02 closed**：Insights 使用逐级 no-follow dirfd、普通文件/非阻塞打开、实际 bytes SHA-256 frozen token、末次 namespace 重扫、canonical episode 预过滤，以及 namespace/16 MiB 总字节/单文件/行/JSON 深度上限；任一坏源整体 `degraded` 且无 partial totals。
+- **A144-03 closed**：generic Web job 使用 step-aware typed allowlist、完整投影等价、credential grammar 与稳定错误码；JSONL 使用 no-follow、普通文件、非阻塞文件锁和总量/行数/单行上限，同进程读写由短临界区串行化；stderr、结果与持久记录不公开原异常、路径、URL、prompt 或凭据。
+- **A144-04 closed**：LLM timeout、connection、429、断流与未知 gateway 终态均归为 submission unknown，不自动重发；只有异常显式 `request_not_sent=True` 才保留自动重试，cache-control downgrade 也只接受明确 provider rejection。
+- **A144-05 closed**：pricing collector 在 workspace lock 中冻结 namespace 与实际 ledger bytes token，逐 ledger 读取核对 frozen len/SHA，末次重扫，并使用 16 MiB collector 总预算；坏源、ABA、缺失、重复 evidence 或超限均返回空 `degraded`。
+- **A144-06 closed**：直接 `unittest`/IDE 入口先于 ambient skip flag 清理 hostile inherited provider 配置并固定 `OPENAI_MODEL/DRAMA_MODEL/PLANNER_MODEL/SD_VIDEO_MODE=mock`、skip-dotenv 与 local cost map；clean/hostile 子进程回归通过。
+- **A144-07 closed**：correctness、security/boundary、Web/runner/pricing 三个独立只读视角的首轮 findings 均已修复，最终复核均无明确 finding；实现阶段最后一组相关聚焦回归 175 tests OK，job recent 竞态回归 51 tests OK，`py_compile`、harness 与 `git diff --check HEAD` 通过。
+- **A144-08 closed**：canonical 第一次在 `b5899ef` 暴露 7 个跨套件兼容/恢复问题，第二次在 `89bc505` 暴露 1 个同进程 job history 读写窗口；均按失败范围修复并重验。最终在 implementation commit `f1564a107fb250abde8d5937ab5756652a60e34f` 上 `bash scripts/verify.sh` exit 0：schema v2、`status=passed`、`mock-functional` / `canonical-mock-offline`、2813 tests、15 completed steps、408 秒、run `6ceda28c13cb4235a849dc7f867f4496`、tree `c26e5d125745201b8e4a6d38a6a21047a56ad318`、`tracked_scope_clean=true`。验收后七份体检报告已删除，README/handoff/history 已就地同步。
+
+未修风险：本轮没有残余明确 finding。现有产品级缺口（真实 provider/billing、真 TTS、长时多模态质量、小说 capstone 与公网多租户能力）保持在 handoff，不因本轮 mock 验收升级。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

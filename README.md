@@ -166,12 +166,13 @@ docs/iterations/           逐轮审计记录
 | Callback-only 素材回调与 Episode 1 真视频验证 | 141 | ⚠️ callback-only loopback 服务、随机 token、Quick Tunnel 与单提交门禁已形成 mock-functional 闭环；公网 exact-byte callback 通过，但真实运行在首个素材上传阶段 safe-blocked，视频 create=0 |
 | Provider 素材契约与 Episode 1 真视频复验 | 142 | ✅ `data.Id/Status/base_resp` 严格适配、逐素材 durable upload ledger 与 exact-workspace 单提交门禁已收口；固定 Episode 1 样本完成一次 5.042 秒、720×1280 真视频，1 create、0 自动重试，实际人民币费用未回报 |
 | 真视频 20 秒质量样本 | 143 | ⚠️ 独立 sample namespace、20 秒/80 元/30 分钟 exact profile 与 prompt SHA lineage 已形成 mock-functional 闭环；真实入口确认 2 个素材后 create 结果不明，无 task/MP4、0 自动重试，费用 unknown |
+| 仓库体检 findings 闭环 | 144 | ✅ 七份体检报告逐项核验；仍成立的 retry、job/Insights/pricing、mock 隔离、祖先 stale、旧视频与 workflow 问题已修复，报告在 canonical 验收后删除 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 143**（2026-07-20，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。A1/A2 RenderPlan、visual-only override 与精确 stale matrix，B1 跨集资产 Used-By/停用治理、B2 ArtDirection 多 scope 解析冻结、B3 资产管理 Web，逐镜图片 C1-C4、逐镜视频 D1-D5、声音/时间线 E1-E3、F1-F3 本地合成/可编辑导出/durable QA/Web exact delivery，G1-G7 持久媒体调度/计价/metrics，以及 H1 workspace-bound typed source event graph 已形成纯本地链。iter142 的固定 Episode 1 入口已得到 5.042 秒、720×1280 MP4，该窄样本为 `provider-validated`。iter143 为 20 秒质量测试建立独立账本/产物 namespace、exact profile 与 prompt SHA lineage；真实入口确认 2 个素材后在 video create 阶段结果不明，任务列表未增加、无 task ID/MP4、0 自动重试、费用 unknown，因此 20 秒样本为 `safe-blocked`，没有可评价的长时质量产物。iter125-140 的 scope-specific 真文本只构成局部协议校准；TTS 仍未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总工程验收仍为 `mock-functional`，mandatory local-drama 组件为 `local-e2e`。
+最近一次更新：**iter 144**（2026-07-21，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter144 已把七份体检报告中的仍成立问题转成回归并闭环，包括付费文本 unknown 不重发、job/Insights/pricing 安全快照、全入口 mock 隔离、祖先 episode stale 与旧视频下载门禁。短剧 Web 主链已完成两次真人用户路径验证：iter118 覆盖桌面与 390px 移动端，iter124 再以 1440×900 fresh 两集 SOP 验证多集内容、编辑导航、角色真图、交付与任务历史。A1/A2 RenderPlan、visual-only override 与精确 stale matrix，B1 跨集资产 Used-By/停用治理、B2 ArtDirection 多 scope 解析冻结、B3 资产管理 Web，逐镜图片 C1-C4、逐镜视频 D1-D5、声音/时间线 E1-E3、F1-F3 本地合成/可编辑导出/durable QA/Web exact delivery，G1-G7 持久媒体调度/计价/metrics，以及 H1 workspace-bound typed source event graph 已形成纯本地链。iter142 的固定 Episode 1 入口已得到 5.042 秒、720×1280 MP4，该窄样本为 `provider-validated`。iter143 为 20 秒质量测试建立独立账本/产物 namespace、exact profile 与 prompt SHA lineage；真实入口确认 2 个素材后在 video create 阶段结果不明，任务列表未增加、无 task ID/MP4、0 自动重试、费用 unknown，因此 20 秒样本为 `safe-blocked`，没有可评价的长时质量产物。iter125-140 的 scope-specific 真文本只构成局部协议校准；TTS 仍未测试。完整目标流程来自独立的 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总工程验收仍为 `mock-functional`，mandatory local-drama 组件为 `local-e2e`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 

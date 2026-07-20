@@ -69,6 +69,7 @@
 | 141 | Callback-only 公网素材回调与真视频安全尝试 | 独立 loopback 随机 capability 服务、Quick Tunnel 隔离、fixed single-submit；公网回读通过，provider 素材上传 safe-blocked、视频 create=0 |
 | 142 | Provider 素材契约与 Episode 1 真视频闭环 | `data.Id/Status/base_resp` 严格适配、逐素材 durable upload ledger、exact-workspace profile；5.042 秒/720×1280 真实 MP4 完成，实际人民币费用未回报 |
 | 143 | 真视频 20 秒质量样本 | 独立 sample namespace、20 秒 exact profile、prompt SHA lineage；真实 create 结果不明、无 task/MP4、费用 unknown、0 重试 |
+| 144 | 仓库体检 findings 闭环 | 七份报告逐项核验；重试、job/Insights/pricing、mock、祖先 stale、旧视频与 workflow 残余闭环并删报告 |
 
 ## Iteration Implementation Index
 
@@ -193,6 +194,7 @@
 | 141 | 建立 callback-only 素材服务与单提交门禁 | `src/drama_asset_callback_server.py`、`src/drama_video.py`、`scripts/drama_asset_callback.sh`、`scripts/drama_video_episode1_single_submit.sh` |
 | 142 | 建立 provider 素材写入恢复与单次真视频闭环 | `src/drama_video.py`、`src/drama_video_client.py`、`scripts/drama_video_episode1_single_submit.sh` |
 | 143 | 建立独立 20 秒质量样本与 exact lineage | `src/drama_video.py`、`src/drama_video_smoke.py`、`scripts/drama_video_episode1_quality20_single_submit.sh` |
+| 144 | 闭环七份体检报告的仍成立问题 | `src/llm_client.py`、`src/web/jobs.py`、`src/web/drama_insights.py`、`src/drama_media_pricing.py`、`src/drama_store.py` |
 
 ## Durable Decisions
 
@@ -287,6 +289,7 @@
 41. **公网回调通过不等于 provider 素材上传通过**：应把本地 capability、Tunnel 公网 exact-byte 回读、provider asset upload、video create 和结果下载分别记账。素材上传若在 durable video submitting marker 前失败，只能宣称 create=0；没有只读资产查询或脱敏响应证据时不能猜上游是否部分接收，也不能用同一授权重发 POST。
 42. **素材上传与视频 create 是两个独立外部写状态机**：逐素材 POST 也可能在 provider 已接收、本地未收到响应时产生孤儿或费用，因此必须先写 durable marker，只有明确 not-sent 才能释放；已确认 ID 可续跑，unknown 必须阻断自动重发。provider 未返回实际人民币费用时应保留 unknown，不能把空值解释为 0。
 43. **版本标签不能单独证明质量样本可比**：应哈希实际 prompt，并用独立 namespace 隔离 artifact 与 ledger；create 返回不明、没有 task ID、只读 task 列表未变化，仍不能推出请求未到达或费用为 0，因此必须保留 unknown 且不重试。
+44. **周期体检必须维护 finding 去重闭包，而不能只看最新报告**：后续报告可能漏掉早期仍成立项；应把跨报告问题归一到代码/测试/iteration 证据，按当前 HEAD 重放。多文件聚合的“有单文件上限”也不等于请求有界，身份复核必须绑定实际 bytes，资源守门还需 collector 累计预算。
 
 ## Historical Evidence Notes
 
