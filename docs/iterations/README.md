@@ -162,3 +162,4 @@
 147. [Iteration 138 - 短剧媒体 Pricing Facts 与 Insights](./iteration_138_drama_media_pricing_facts_insights.md)
 148. [Iteration 139 - 短剧媒体 Durable Lifecycle Metrics 与 Insights](./iteration_139_drama_media_durable_lifecycle_metrics_insights.md)
 149. [Iteration 140 - 短剧 Typed Source Event Graph 与来源边界](./iteration_140_drama_typed_source_event_graph_boundary.md)
+150. [Iteration 141 - 短剧 Callback-only 公网素材回调与 Episode 1 真视频验证](./iteration_141_drama_callback_only_quick_tunnel_real_video_validation.md)

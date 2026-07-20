@@ -65,6 +65,91 @@ class DramaVideoPipelineTests(DramaTestBase):
         self.assertNotIn("url", json.dumps(meta).lower())
         self.assertNotIn("authorization", json.dumps(meta).lower())
 
+    def test_provider_outputs_list_has_one_bounded_unambiguous_result_url(self) -> None:
+        url = "https://result.example.test/signed.mp4?token=upstream-only"
+        self.assertEqual(
+            drama_video._task_result_url(
+                {"task": {"status": "completed", "outputs": [url]}}
+            ),
+            url,
+        )
+        self.assertEqual(
+            drama_video._task_result_url(
+                {
+                    "task": {
+                        "status": "completed",
+                        "video_url": None,
+                        "result_url": url,
+                        "result": None,
+                        "outputs": [url],
+                        "output": None,
+                    }
+                }
+            ),
+            url,
+        )
+        for outputs in (None, [], [url, url], [123], ["x" * 4097]):
+            with self.subTest(outputs=outputs):
+                with self.assertRaises(drama_video.DramaVideoProviderError):
+                    drama_video._task_result_url(
+                        {"task": {"status": "completed", "outputs": outputs}}
+                    )
+        with self.assertRaisesRegex(
+            drama_video.DramaVideoProviderError,
+            "conflicting result URLs",
+        ):
+            drama_video._task_result_url(
+                {
+                    "task": {
+                        "status": "completed",
+                        "video_url": "https://one.example.test/video.mp4",
+                        "outputs": ["https://two.example.test/video.mp4"],
+                    }
+                }
+            )
+        for bad_url in (
+            "https://result.example.test/video.mp4?token=secret value",
+            "https://result.example.test/video.mp4?token=secret\rvalue",
+            "https://result.example.test:bad/video.mp4",
+            "not-a-url",
+        ):
+            with self.subTest(bad_url=bad_url):
+                with self.assertRaisesRegex(
+                    drama_video.DramaVideoProviderError,
+                    "invalid result URL",
+                ) as caught:
+                    drama_video._task_result_url(
+                        {"task": {"status": "completed", "outputs": [bad_url]}}
+                    )
+                self.assertNotIn("secret", str(caught.exception))
+                self.assertNotIn("bad", str(caught.exception))
+        with self.assertRaisesRegex(
+            drama_video.DramaVideoProviderError,
+            "conflicting result URLs",
+        ):
+            drama_video._task_result_url(
+                {
+                    "task": {
+                        "status": "completed",
+                        "video_url": "https://one.example.test/video.mp4",
+                        "result_url": "https://two.example.test/video.mp4",
+                    }
+                }
+            )
+        with self.assertRaisesRegex(
+            drama_video.DramaVideoProviderError,
+            "invalid result URL",
+        ):
+            drama_video._task_result_url(
+                {
+                    "task": {
+                        "status": "completed",
+                        "video_url": 123,
+                        "outputs": [url],
+                    }
+                }
+            )
+
     def test_stale_or_wrong_episode_inputs_fail_closed(self) -> None:
         self._prepare()
         sheet_path = character_paths("video").sheet_path
@@ -502,6 +587,83 @@ class DramaVideoPipelineTests(DramaTestBase):
         self.assertEqual(result["cost_cny"], 4.0)
         self.assertEqual(result["file_size_bytes"], len(b"paid-video"))
         self.assertEqual(result["automatic_retries"], 0)
+
+    def test_episode1_single_submit_profile_caps_authorization(self) -> None:
+        profile = drama_video.EPISODE1_SINGLE_SUBMIT_PROFILE
+        with patch.dict(
+            os.environ,
+            {"SD_VIDEO_ESTIMATED_COST_CNY": "1"},
+            clear=False,
+        ):
+            self.assertEqual(
+                drama_video.validate_real_video_gate({
+                    "confirm_real_video": True,
+                    "budget_cny": 20,
+                    "timeout_minutes": 10,
+                    "authorization_profile": profile,
+                }),
+                (20.0, 10.0, 1.0),
+            )
+            with self.assertRaisesRegex(PermissionError, "budget exceeds 20"):
+                drama_video.validate_real_video_gate({
+                    "confirm_real_video": True,
+                    "budget_cny": 20.01,
+                    "timeout_minutes": 10,
+                    "authorization_profile": profile,
+                })
+            with self.assertRaisesRegex(PermissionError, "exceeds 600"):
+                drama_video.validate_real_video_gate({
+                    "confirm_real_video": True,
+                    "budget_cny": 20,
+                    "timeout_minutes": 10.01,
+                    "authorization_profile": profile,
+                })
+            with self.assertRaisesRegex(PermissionError, "unknown"):
+                drama_video.validate_real_video_gate({
+                    "confirm_real_video": True,
+                    "budget_cny": 20,
+                    "timeout_minutes": 10,
+                    "authorization_profile": "untrusted-profile",
+                })
+
+    def test_real_smoke_forwards_single_submit_profile_to_last_hop(self) -> None:
+        terminal = {"status": "succeeded", "result_summary": {}}
+        meta = {
+            "task_id": "paid-task",
+            "status": "succeeded",
+            "cost_cny": 1.0,
+            "budget_cny": 20.0,
+            "duration_seconds": 5,
+            "ratio": "9:16",
+            "resolution": "720p",
+        }
+        start_job = Mock(return_value={"job_id": "job-1"})
+        with patch.dict(
+            os.environ,
+            {"CONFIRM_REAL_VIDEO_SMOKE": "可以跑真实视频 smoke"},
+            clear=False,
+        ), patch("src.drama_video.load_video_inputs"), patch(
+            "src.drama_video_smoke.jobs.start_job",
+            start_job,
+        ), patch(
+            "src.drama_video_smoke._wait",
+            return_value=terminal,
+        ), patch(
+            "src.drama_video.read_video",
+            return_value=(b"paid-video", meta),
+        ), patch("src.drama_video_smoke.write_json"):
+            drama_video_smoke.run_smoke(
+                "video",
+                real_video=True,
+                confirm_real_video=True,
+                budget_cny=20,
+                timeout_seconds=600,
+                authorization_profile=drama_video.EPISODE1_SINGLE_SUBMIT_PROFILE,
+            )
+        self.assertEqual(
+            start_job.call_args.args[2]["authorization_profile"],
+            drama_video.EPISODE1_SINGLE_SUBMIT_PROFILE,
+        )
 
     def test_real_smoke_needs_shell_and_cli_confirmation(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

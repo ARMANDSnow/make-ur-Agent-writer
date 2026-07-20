@@ -85,6 +85,7 @@ def run_smoke(
     prepare_inputs: bool = True,
     reset_jobs: bool = True,
     resume_submitted: bool = False,
+    authorization_profile: str | None = None,
 ) -> Dict[str, Any]:
     if not math.isfinite(timeout_seconds) or not 1 <= timeout_seconds <= 3600:
         raise SystemExit("timeout-seconds must be finite and between 1 and 3600")
@@ -114,6 +115,8 @@ def run_smoke(
                 "budget_cny": budget_cny,
                 "timeout_minutes": timeout_seconds / 60.0,
             })
+            if authorization_profile is not None:
+                params["authorization_profile"] = authorization_profile
     started_at = time.monotonic()
     started = jobs.start_job(workspace, "drama-video", params)
     terminal = _wait(started["job_id"], timeout_seconds)
@@ -150,6 +153,7 @@ def main() -> int:
     parser.add_argument("--confirm-real-video", action="store_true")
     parser.add_argument("--budget-cny", type=float, default=0.0)
     parser.add_argument("--timeout-seconds", type=float, default=300.0)
+    parser.add_argument("--authorization-profile")
     args = parser.parse_args()
     try:
         result = run_smoke(
@@ -158,6 +162,7 @@ def main() -> int:
             confirm_real_video=args.confirm_real_video,
             budget_cny=args.budget_cny,
             timeout_seconds=args.timeout_seconds,
+            authorization_profile=args.authorization_profile,
         )
     except Exception as exc:
         safe = {

@@ -45,6 +45,9 @@ from .utils import read_json_optional, sha256_data, write_json
 VIDEO_DURATION_SECONDS = 5
 VIDEO_RATIO = "9:16"
 VIDEO_RESOLUTION = "720p"
+EPISODE1_SINGLE_SUBMIT_PROFILE = "episode1-single-submit-v1"
+EPISODE1_SINGLE_SUBMIT_MAX_BUDGET_CNY = 20.0
+EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES = 10.0
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
 POLL_INTERVAL_SECONDS = 2.0
 MAX_REFERENCE_ASSETS = 8
@@ -210,6 +213,14 @@ def validate_real_video_gate(params: Mapping[str, Any]) -> tuple[float, float, f
     estimate = _finite_positive(os.getenv("SD_VIDEO_ESTIMATED_COST_CNY"), "SD_VIDEO_ESTIMATED_COST_CNY", maximum=1_000_000.0)
     if estimate > budget:
         raise PermissionError("video estimated cost exceeds the authorized budget")
+    profile = params.get("authorization_profile")
+    if profile is not None:
+        if profile != EPISODE1_SINGLE_SUBMIT_PROFILE:
+            raise PermissionError("unknown real video authorization profile")
+        if budget > EPISODE1_SINGLE_SUBMIT_MAX_BUDGET_CNY:
+            raise PermissionError("single-submit video budget exceeds 20 CNY")
+        if timeout_minutes > EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES:
+            raise PermissionError("single-submit video timeout exceeds 600 seconds")
     return budget, timeout_minutes, estimate
 
 
@@ -756,7 +767,12 @@ def _validated_video_cost_state(meta: Mapping[str, Any]) -> tuple[float, bool]:
     return float(cost), False
 
 
-def register_public_asset(path: Path, *, expires_at: float) -> str:
+def register_public_asset(
+    path: Path,
+    *,
+    expires_at: float,
+    store_root: Path | None = None,
+) -> str:
     """Freeze an exact image behind an unguessable, host-local short URL.
 
     The callback route may live in a different Web process from the CLI
@@ -777,7 +793,11 @@ def register_public_asset(path: Path, *, expires_at: float) -> str:
     except ValueError as exc:
         raise DramaVideoInputError("public drama asset is invalid") from exc
     token = secrets.token_urlsafe(32)
-    data_path, meta_path = _public_asset_paths(token, create_store=True)
+    data_path, meta_path = _public_asset_paths(
+        token,
+        create_store=True,
+        store_root=store_root,
+    )
     try:
         _atomic_write(data_path, data)
         write_json(meta_path, {
@@ -795,23 +815,37 @@ def register_public_asset(path: Path, *, expires_at: float) -> str:
     return token
 
 
-def revoke_public_assets(tokens: Iterable[str]) -> None:
+def revoke_public_assets(
+    tokens: Iterable[str],
+    *,
+    store_root: Path | None = None,
+) -> None:
     for token in tokens:
         if not _valid_public_asset_token(token):
             continue
         try:
-            data_path, meta_path = _public_asset_paths(token)
+            data_path, meta_path = _public_asset_paths(
+                token,
+                store_root=store_root,
+            )
         except (FileNotFoundError, OSError, ValueError):
             continue
         meta_path.unlink(missing_ok=True)
         data_path.unlink(missing_ok=True)
 
 
-def read_public_asset(token: str) -> tuple[bytes, str]:
+def read_public_asset(
+    token: str,
+    *,
+    store_root: Path | None = None,
+) -> tuple[bytes, str]:
     if not _valid_public_asset_token(token):
         raise FileNotFoundError("public drama asset token not found")
     try:
-        data_path, meta_path = _public_asset_paths(token)
+        data_path, meta_path = _public_asset_paths(
+            token,
+            store_root=store_root,
+        )
     except (FileNotFoundError, OSError, ValueError) as exc:
         raise FileNotFoundError("public drama asset token not found") from exc
     try:
@@ -840,7 +874,7 @@ def read_public_asset(token: str) -> tuple[bytes, str]:
     ):
         raise FileNotFoundError("public drama asset token not found")
     if time.time() >= float(meta["expires_at_epoch"]):
-        revoke_public_assets([token])
+        revoke_public_assets([token], store_root=store_root)
         raise FileNotFoundError("public drama asset token expired")
     try:
         data = _read_public_asset_file(data_path, MAX_IMAGE_BYTES)
@@ -869,8 +903,12 @@ def _valid_public_asset_token(token: Any) -> bool:
     )
 
 
-def _public_asset_store(*, create: bool = False) -> Path:
-    root = paths.WORKSPACE_DIR
+def _public_asset_store(
+    *,
+    create: bool = False,
+    store_root: Path | None = None,
+) -> Path:
+    root = paths.WORKSPACE_DIR if store_root is None else store_root
     store = root / PUBLIC_ASSET_STORE_DIRNAME
     if create:
         store.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -888,8 +926,16 @@ def _public_asset_store(*, create: bool = False) -> Path:
     return resolved
 
 
-def _public_asset_paths(token: str, *, create_store: bool = False) -> tuple[Path, Path]:
-    store = _public_asset_store(create=create_store)
+def _public_asset_paths(
+    token: str,
+    *,
+    create_store: bool = False,
+    store_root: Path | None = None,
+) -> tuple[Path, Path]:
+    store = _public_asset_store(
+        create=create_store,
+        store_root=store_root,
+    )
     return store / f"{token}.bin", store / f"{token}.json"
 
 
@@ -933,12 +979,38 @@ def _verify_public_asset_callback(
         raise DramaVideoInputError("public asset callback did not return the registered image")
 
 
+def _parse_video_result_url(url: str) -> Any:
+    if (
+        not isinstance(url, str)
+        or not 1 <= len(url) <= 4096
+        or not url.isascii()
+        or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in url)
+    ):
+        raise ValueError("video result URL is invalid")
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        raise ValueError("video result URL is invalid") from None
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or not hostname
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "video result must be an https URL without credentials or fragment"
+        )
+    return parsed
+
+
 def download_video(url: str, *, allowed_hosts: Iterable[str], timeout_seconds: float) -> tuple[bytes, str]:
-    parsed = urlparse(url)
+    parsed = _parse_video_result_url(url)
     hosts = {str(item).strip().lower().rstrip(".") for item in allowed_hosts if str(item).strip()}
     hostname = (parsed.hostname or "").lower().rstrip(".")
-    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.fragment:
-        raise ValueError("video result must be an https URL without credentials or fragment")
     if hostname not in hosts:
         raise ValueError("video result hostname is not allowlisted")
     _validate_public_endpoint(hostname)
@@ -1078,15 +1150,66 @@ def _task_status(response: Mapping[str, Any]) -> str:
 
 def _task_result_url(response: Mapping[str, Any]) -> str:
     task = _task_object(response)
-    output = task.get("output") if isinstance(task.get("output"), dict) else {}
-    result = task.get("result") if isinstance(task.get("result"), dict) else {}
-    for value in (
-        _first(task, "video_url", "result_url", "videoUrl", "VideoURL"),
-        _first(output, "video_url", "url", "videoUrl", "VideoURL", "URL"),
-        _first(result, "video_url", "url", "videoUrl", "VideoURL", "URL"),
-    ):
-        if isinstance(value, str) and len(value) <= 4096:
-            return value
+    candidates: List[str] = []
+
+    def add_candidates(
+        container: Mapping[str, Any],
+        keys: tuple[str, ...],
+    ) -> None:
+        for key in keys:
+            if key not in container:
+                continue
+            value = container[key]
+            if value is None:
+                continue
+            try:
+                _parse_video_result_url(value)
+            except ValueError:
+                raise DramaVideoProviderError(
+                    "completed video task contains an invalid result URL"
+                ) from None
+            candidates.append(value)
+
+    add_candidates(
+        task,
+        ("video_url", "result_url", "videoUrl", "VideoURL"),
+    )
+    for container_key in ("output", "result"):
+        if container_key not in task:
+            continue
+        container = task[container_key]
+        if container is None:
+            continue
+        if not isinstance(container, dict):
+            raise DramaVideoProviderError(
+                "completed video task contains an invalid result object"
+            )
+        add_candidates(
+            container,
+            ("video_url", "url", "videoUrl", "VideoURL", "URL"),
+        )
+    if "outputs" in task:
+        outputs = task["outputs"]
+        if (
+            not isinstance(outputs, list)
+            or len(outputs) != 1
+        ):
+            raise DramaVideoProviderError(
+                "completed video task contains invalid outputs"
+            )
+        try:
+            _parse_video_result_url(outputs[0])
+        except ValueError:
+            raise DramaVideoProviderError(
+                "completed video task contains an invalid result URL"
+            ) from None
+        candidates.append(outputs[0])
+    if candidates:
+        if len(set(candidates)) != 1:
+            raise DramaVideoProviderError(
+                "completed video task contains conflicting result URLs"
+            )
+        return candidates[0]
     raise DramaVideoProviderError("completed video task is missing a result URL")
 
 
