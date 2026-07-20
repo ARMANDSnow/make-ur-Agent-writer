@@ -37,6 +37,7 @@ iter141 已证明 callback-only Quick Tunnel 的公网 exact-byte 素材回读�
 - 真实媒体审查指出素材 upload 本身也是 provider 写动作，旧代码只在 video create 前落 durable marker，无法阻止 upload 响应丢失后的重发。新增独立 asset-upload ledger：逐素材 POST 前写 `submitting`；只有 transport 证明 request not sent 才删除首次 marker 或恢复 prior-ready；已确认 asset ID 可从下一 index 继续；unknown 永久阻止自动 repost；create 的 request-not-sent 可复用 `uploaded_all` ID。
 - 原计划外把本轮 profile 在最后一跳绑定到精确 workspace `iter124_real_sop_v2`，shell 与 Python gate 双层拒绝其他 workspace；通用 iter141 profile 保持兼容。
 - 初轮审查 findings：correctness 发现查询别名/容器冲突与重复 asset ID；security 发现重复 JSON key、hostile Mapping、`asset.base_resp` 漏检；真实媒体/计费发现 upload 缺 durable ambiguity marker、授权未绑定 workspace。全部修复后，视频/客户端/local-E2E/iter098 相关 **89 tests OK**，语法、harness 与 diff check 通过。
+- 首次 canonical 在 **2785 tests** 中只有 1 个 error：iter097 的 create-response-loss fixture 给两张不同参考图返回同一 asset ID，被本轮新增的重复 ID 门禁正确阻断，未到达该测试原本目标。fixture 改为两个唯一 ID，并把 raw `TimeoutError` 预期更新为本轮固定脱敏 `DramaVideoSubmissionUnknown`；98 项相关聚焦回归通过。该次 canonical 不计为通过证据。
 
 ## Acceptance Result
 
@@ -59,6 +60,7 @@ iter141 已证明 callback-only Quick Tunnel 的公网 exact-byte 素材回读�
 | `tests/test_drama_video.py` | 覆盖 Id/Status/base_resp、冲突/重复、hostile Mapping、upload unknown 与 workspace 门禁 |
 | `tests/test_drama_image_video_clients.py` | 覆盖 root/data/base_resp 重复 JSON key |
 | `tests/test_drama_iter098_hardening.py` | 为跨进程复用 asset ID 的 provider fingerprint 固定测试账号 |
+| `tests/test_drama_iter097_hardening.py` | 更新 create-response-loss fixture，使其使用唯一 asset ID 并断言脱敏 unknown |
 | `tests/support/local_drama_provider.py` | 本地 provider 改用文档化 `data.Id/data.Status/base_resp` 契约 |
 
 ## 不在本轮范围

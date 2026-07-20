@@ -198,12 +198,17 @@ class DramaIter097VideoLedgerTests(DramaTestBase):
     def test_post_response_loss_persists_unknown_and_blocks_resubmit(self) -> None:
         self._prepare()
         client = Mock(base_url="https://video.example.test", request_timeout_seconds=30)
-        client.upload_asset.return_value = {"asset": {"id": "asset-1"}}
-        client.get_asset.return_value = {"asset": {"id": "asset-1", "status": "ready"}}
+        client.upload_asset.side_effect = [
+            {"asset": {"id": "asset-1"}},
+            {"asset": {"id": "asset-2"}},
+        ]
+        client.get_asset.side_effect = lambda asset_id: {
+            "asset": {"id": asset_id, "status": "ready"}
+        }
         client.create_video_task.side_effect = TimeoutError("response lost")
         params = {"confirm_real_video": True, "budget_cny": 3, "timeout_minutes": 1}
         with patch.dict(os.environ, self._env(), clear=False):
-            with self.assertRaises(TimeoutError):
+            with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
                 drama_video.run_video_job("ledger", params, lambda *_: None, client=client)
             ledger = drama_video.read_video_submission("ledger")
             self.assertEqual(ledger["status"], "submitting")
