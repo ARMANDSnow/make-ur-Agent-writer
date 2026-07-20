@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import threading
 import time
-import traceback
 import uuid
 import json
 import math
+import fcntl
+import os
 import re
+import stat
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
@@ -63,7 +65,12 @@ _WORKSPACE_LOCK = threading.Lock()
 # All jobs, keyed by job_id. Survives only as long as the process.
 _JOBS: Dict[str, Dict[str, Any]] = {}
 _JOBS_LOCK = threading.Lock()
+_JOB_LOG_LOCK = threading.Lock()
 TERMINAL_STATUSES = {"succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"}
+_MAX_JOB_LOG_BYTES = 4 * 1024 * 1024
+_MAX_JOB_LOG_LINE_BYTES = 64 * 1024
+_MAX_JOB_LOG_ROWS = 5_000
+_MAX_JOB_WORKSPACES = 256
 
 
 class JobCancelled(RuntimeError):
@@ -163,7 +170,208 @@ _PUBLIC_JOB_DETAIL_FIELDS = _PUBLIC_JOB_SUMMARY_FIELDS + (
 )
 
 
-def _public_retry_params(value: Any) -> Dict[str, Any]:
+_RETRY_PARAM_KEYS_BY_STEP: Dict[str, frozenset[str]] = {
+    "normalize": frozenset({"lang"}),
+    "split": frozenset({"lang"}),
+    "extract": frozenset({"limit", "force", "reextract"}),
+    "compress": frozenset(),
+    "bootstrap": frozenset(),
+    "apply-bootstrap": frozenset({"name", "apply"}),
+    "debate": frozenset({"force"}),
+    "plan-chapters": frozenset({"target_chapters", "force"}),
+    "write-book": frozenset(
+        {
+            "chapters",
+            "resume_from",
+            "tier",
+            "budget_cny",
+            "min_confidence",
+            "require_plan",
+            "from_chapter",
+        }
+    ),
+    "review-chapter": frozenset({"chapter", "tier", "budget_cny"}),
+    "draft-once-dev": frozenset({"chapter"}),
+    "auto-pipeline-greenfield": frozenset(
+        {"extract_limit", "chapters", "force", "skip_extract"}
+    ),
+    "prepare-greenfield": frozenset(
+        {"extract_limit", "budget_cny", "force"}
+    ),
+    "rebuild-for-start": frozenset(
+        {"chapter", "window", "budget_cny", "force"}
+    ),
+    "expand-premise": frozenset({"force"}),
+    "drama-compose": frozenset({"episode_no"}),
+}
+_NON_RETRYABLE_STEPS = frozenset(
+    {
+        "extract-style",
+        "drama-plan",
+        "drama-hooks",
+        "drama-storyboard",
+        "drama-characters",
+        "drama-review-assemble",
+        "drama-video",
+    }
+)
+_RETRY_BOOL_KEYS = frozenset(
+    {
+        "apply",
+        "force",
+        "reextract",
+        "require_plan",
+        "skip_extract",
+    }
+)
+_RETRY_INT_KEYS = frozenset(
+    {
+        "chapter",
+        "chapters",
+        "episode_no",
+        "extract_limit",
+        "from_chapter",
+        "limit",
+        "resume_from",
+        "target_chapters",
+        "window",
+    }
+)
+_RETRY_FLOAT_KEYS = frozenset({"budget_cny", "min_confidence"})
+_RETRY_TOKEN_KEYS = frozenset({"lang", "name", "tier"})
+_PUBLIC_RESULT_KEYS = frozenset(
+    {
+        "acceptance_level",
+        "applied",
+        "assembled",
+        "blocked",
+        "budget_cny",
+        "chapter",
+        "chapters",
+        "chapters_written",
+        "cost_cny",
+        "count",
+        "duration_seconds",
+        "episode_no",
+        "error_code",
+        "estimated",
+        "export_fingerprint",
+        "extracted",
+        "fact_count",
+        "file_size_bytes",
+        "first_blocked",
+        "hook_count",
+        "holder",
+        "keys",
+        "network_requests",
+        "partial",
+        "progress",
+        "provider",
+        "provider_model",
+        "qa_fingerprint",
+        "ratio",
+        "resolution",
+        "reason",
+        "skipped",
+        "station",
+        "status",
+        "strict_failures",
+        "source",
+        "task_id",
+        "timeline_fingerprint",
+        "verdict",
+        "window",
+        "workspace_locked",
+    }
+)
+
+
+def _bounded_public_value(
+    value: Any,
+    *,
+    depth: int = 0,
+    field: Optional[str] = None,
+) -> Any:
+    if depth > 4:
+        return None
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        text = value.strip()
+        if re.fullmatch(r"[\w.:/+@-]{0,160}", text, flags=re.UNICODE) and not (
+            "://" in text
+            or text.startswith(("/", "~"))
+            or _looks_like_credential(text)
+        ):
+            return text
+        return "[redacted]"
+    if isinstance(value, list):
+        return [
+            _bounded_public_value(item, depth=depth + 1, field=field)
+            for item in value[:32]
+        ]
+    if isinstance(value, dict):
+        return {
+            key: _bounded_public_value(item, depth=depth + 1, field=key)
+            for key, item in value.items()
+            if isinstance(key, str) and key in _PUBLIC_RESULT_KEYS
+        }
+    return None
+
+
+def _looks_like_credential(text: str) -> bool:
+    """Reject credential grammars even when the surrounding field looks safe."""
+
+    if re.search(
+        r"(?i)(?:bearer|api[_-]?key|token|secret|password|"
+        r"sk-|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16}|"
+        r"gh[pousr]_[0-9A-Za-z]{20,}|xox[baprs]-|"
+        r"(?:sk|rk|pk)_live_[0-9A-Za-z]+|-----BEGIN)",
+        text,
+    ):
+        return True
+    return bool(
+        re.fullmatch(
+            r"eyJ[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}",
+            text,
+        )
+    )
+
+
+def _typed_retry_value(key: str, value: Any) -> Any:
+    if key in _RETRY_BOOL_KEYS:
+        return value if isinstance(value, bool) else None
+    if key in _RETRY_INT_KEYS:
+        return (
+            value
+            if isinstance(value, int)
+            and not isinstance(value, bool)
+            and 0 <= value <= 10_000
+            else None
+        )
+    if key in _RETRY_FLOAT_KEYS:
+        return (
+            value
+            if isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            and 0 <= float(value) <= 1_000_000
+            else None
+        )
+    if key in _RETRY_TOKEN_KEYS:
+        text = value.strip() if isinstance(value, str) else ""
+        if (
+            re.fullmatch(r"[\w.-]{1,80}", text, flags=re.UNICODE)
+            and _bounded_public_value(text) != "[redacted]"
+        ):
+            return text
+        return None
+    return None
+
+
+def _public_retry_params(value: Any, *, step: Any = None) -> Dict[str, Any]:
     """Return replayable parameters without one-shot paid authorization.
 
     Job history is durable and the UI can repost these parameters months later.
@@ -171,26 +379,75 @@ def _public_retry_params(value: Any) -> Dict[str, Any]:
     ``confirm_*`` field may cross this projection boundary.
     """
 
-    if not isinstance(value, dict):
+    allowed = _RETRY_PARAM_KEYS_BY_STEP.get(step)
+    if not isinstance(value, dict) or allowed is None:
         return {}
-    return {
-        key: item
-        for key, item in value.items()
-        if isinstance(key, str) and not key.startswith("confirm_")
-    }
+    projected: Dict[str, Any] = {}
+    for key in allowed:
+        if key not in value:
+            continue
+        item = _typed_retry_value(key, value[key])
+        if item is not None:
+            projected[key] = item
+    return projected
+
+
+def _job_retryable(job: Dict[str, Any]) -> bool:
+    if type(job.get("retryable")) is bool:
+        return bool(job["retryable"])
+    step = job.get("step")
+    if step in _NON_RETRYABLE_STEPS or step not in _RETRY_PARAM_KEYS_BY_STEP:
+        return False
+    if step == "debate" and job.get("params", {}).get("topic") not in (None, ""):
+        return False
+    params = job.get("params")
+    if not isinstance(params, dict):
+        return False
+    allowed = _RETRY_PARAM_KEYS_BY_STEP[step]
+    if any(
+        not isinstance(key, str)
+        or key not in allowed
+        or key.startswith("confirm_")
+        for key in params
+    ):
+        return False
+    projected = _public_retry_params(params, step=step)
+    return projected == params
+
+
+def _public_result_summary(value: Any) -> Any:
+    return _bounded_public_value(value)
+
+
+def _public_error(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    if value in {
+        "workspace locked",
+        "job timed out",
+        "user requested cancel",
+    }:
+        return str(value)
+    return "job_failed"
 
 
 def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project for /jobs/recent (sidebar + jobs table) — drops internal cancel_*."""
     projected = {key: job.get(key) for key in _PUBLIC_JOB_SUMMARY_FIELDS}
-    projected["params"] = _public_retry_params(job.get("params"))
+    projected["params"] = _public_retry_params(job.get("params"), step=job.get("step"))
+    projected["retryable"] = _job_retryable(job)
+    projected["error"] = _public_error(job.get("error"))
+    projected["result_summary"] = _public_result_summary(job.get("result_summary"))
     return projected
 
 
 def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project for /job/<id> — adds cancel_* (poll banner) on top of summary."""
     projected = {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
-    projected["params"] = _public_retry_params(job.get("params"))
+    projected["params"] = _public_retry_params(job.get("params"), step=job.get("step"))
+    projected["retryable"] = _job_retryable(job)
+    projected["error"] = _public_error(job.get("error"))
+    projected["result_summary"] = _public_result_summary(job.get("result_summary"))
     return projected
 
 
@@ -217,31 +474,177 @@ def _job_log_path(workspace: str) -> Path:
     return paths.WORKSPACE_DIR / workspace / "logs" / "web_jobs.jsonl"
 
 
+def _open_job_logs_directory(workspace: str, *, create: bool) -> Optional[int]:
+    try:
+        paths.workspace_root(workspace)
+    except ValueError:
+        return None
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        return None
+    root_fd: Optional[int] = None
+    workspace_fd: Optional[int] = None
+    try:
+        root_fd = os.open(
+            str(paths.WORKSPACE_DIR),
+            os.O_RDONLY | directory | nofollow,
+        )
+        workspace_fd = os.open(
+            workspace,
+            os.O_RDONLY | directory | nofollow,
+            dir_fd=root_fd,
+        )
+        try:
+            return os.open(
+                "logs",
+                os.O_RDONLY | directory | nofollow,
+                dir_fd=workspace_fd,
+            )
+        except FileNotFoundError:
+            if not create:
+                return None
+            os.mkdir("logs", mode=0o700, dir_fd=workspace_fd)
+            return os.open(
+                "logs",
+                os.O_RDONLY | directory | nofollow,
+                dir_fd=workspace_fd,
+            )
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        return None
+    finally:
+        if workspace_fd is not None:
+            os.close(workspace_fd)
+        if root_fd is not None:
+            os.close(root_fd)
+
+
+def _read_job_rows(workspace: str) -> list[Dict[str, Any]]:
+    directory_fd = _open_job_logs_directory(workspace, create=False)
+    if directory_fd is None:
+        return []
+    file_fd: Optional[int] = None
+    try:
+        file_fd = os.open(
+            "web_jobs.jsonl",
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_fd,
+        )
+        fcntl.flock(file_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        before = os.fstat(file_fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > _MAX_JOB_LOG_BYTES:
+            return []
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(file_fd, min(64 * 1024, _MAX_JOB_LOG_BYTES + 1 - total))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > _MAX_JOB_LOG_BYTES:
+                return []
+            chunks.append(chunk)
+        after = os.fstat(file_fd)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+        if identity(before) != identity(after):
+            return []
+        lines = b"".join(chunks).splitlines()
+        if len(lines) > _MAX_JOB_LOG_ROWS:
+            return []
+        rows: list[Dict[str, Any]] = []
+        for line in lines:
+            if len(line) > _MAX_JOB_LOG_LINE_BYTES:
+                return []
+            try:
+                row = json.loads(line)
+            except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+                return []
+            if not isinstance(row, dict):
+                return []
+            rows.append(row)
+        return rows
+    except (FileNotFoundError, OSError):
+        return []
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(directory_fd)
+
+
 def _persist_job(job: Dict[str, Any]) -> None:
     try:
-        path = _job_log_path(str(job.get("workspace") or ""))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        durable = dict(job)
-        durable["params"] = _public_retry_params(job.get("params"))
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(_finite_json_safe(durable), ensure_ascii=False) + "\n")
-    except OSError:
+        workspace = str(job.get("workspace") or "")
+        durable = {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
+        durable["params"] = _public_retry_params(
+            job.get("params"),
+            step=job.get("step"),
+        )
+        durable["retryable"] = _job_retryable(job)
+        durable["error"] = _public_error(job.get("error"))
+        durable["result_summary"] = _public_result_summary(job.get("result_summary"))
+        payload = (
+            json.dumps(
+                _finite_json_safe(durable),
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+        if len(payload) > _MAX_JOB_LOG_LINE_BYTES:
+            return
+        with _JOB_LOG_LOCK:
+            directory_fd = _open_job_logs_directory(workspace, create=True)
+            if directory_fd is None:
+                return
+            file_fd: Optional[int] = None
+            try:
+                file_fd = os.open(
+                    "web_jobs.jsonl",
+                    os.O_WRONLY
+                    | os.O_APPEND
+                    | os.O_CREAT
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_NONBLOCK", 0),
+                    0o600,
+                    dir_fd=directory_fd,
+                )
+                fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                info = os.fstat(file_fd)
+                if not stat.S_ISREG(info.st_mode):
+                    return
+                if info.st_size + len(payload) > _MAX_JOB_LOG_BYTES:
+                    return
+                written = os.write(file_fd, payload)
+                if written != len(payload):
+                    return
+                os.fsync(file_fd)
+            finally:
+                if file_fd is not None:
+                    os.close(file_fd)
+                os.close(directory_fd)
+    except (OSError, TypeError, ValueError):
         return
 
 
 def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
     latest: Optional[Dict[str, Any]] = None
-    for path in paths.WORKSPACE_DIR.glob("*/logs/web_jobs.jsonl"):
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        for line in lines:
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict) and row.get("job_id") == job_id:
+    try:
+        with os.scandir(paths.WORKSPACE_DIR) as entries:
+            names = [
+                entry.name
+                for entry in entries
+                if entry.is_dir(follow_symlinks=False)
+            ]
+    except OSError:
+        return None
+    if len(names) > _MAX_JOB_WORKSPACES:
+        return None
+    for workspace in sorted(names):
+        for row in _read_job_rows(workspace):
+            if row.get("job_id") == job_id:
                 latest = row
     return latest
 
@@ -254,19 +657,8 @@ def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
     """
 
     limit = max(1, min(int(limit or 5), 50))
-    path = _job_log_path(workspace)
-    if not path.exists():
-        return []
     latest_by_id: Dict[str, Dict[str, Any]] = {}
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    for line in lines:
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in _read_job_rows(workspace):
         if not isinstance(row, dict) or row.get("workspace") != workspace:
             continue
         job_id = str(row.get("job_id") or "")
@@ -2068,16 +2460,18 @@ def _worker(job_id: str) -> None:
         _update(
             job_id,
             status="failed",
-            error=f"{type(exc).__name__}: {exc}",
+            error=f"{type(exc).__name__}: job failed",
             trace_id=trace_id,
             finished_at=_now(),
         )
-        # Server-side: full traceback for debugging. Mirror's iter 026
-        # P5 hardening pattern for routes.py 500 path.
+        # Do not print the exception text or traceback: provider exceptions may
+        # contain credentials, signed URLs, prompts, responses and local paths.
         import sys
 
-        sys.stderr.write(f"[jobs] job_id={job_id} trace_id={trace_id}\n")
-        traceback.print_exc(file=sys.stderr)
+        sys.stderr.write(
+            f"[jobs] job_id={job_id} trace_id={trace_id} "
+            f"error_type={type(exc).__name__}\n"
+        )
     else:
         terminal = "succeeded"
         if isinstance(result, dict) and result.get("status") in {"blocked", "failed", "succeeded", "aborted", "budget_exceeded"}:

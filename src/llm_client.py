@@ -195,6 +195,50 @@ def _is_transient(exc: BaseException) -> bool:
     return any(marker in text for marker in _TRANSIENT_ERR_MARKERS)
 
 
+def _is_submission_unknown(exc: BaseException) -> bool:
+    """Whether a transport failure may have happened after submission."""
+
+    if getattr(exc, "request_not_sent", False) is True:
+        return False
+    name = type(exc).__name__.lower()
+    text = str(exc).lower()
+    return (
+        isinstance(exc, (TimeoutError, ConnectionError))
+        or "timeout" in name
+        or "connection" in name
+        or "stream" in name
+        or any(
+            marker in text
+            for marker in (
+                "timed out",
+                "timeout",
+                "connection reset",
+                "connection aborted",
+                "broken pipe",
+                "mid-stream",
+                "stream closed",
+            )
+        )
+    )
+
+
+def _is_safe_to_retry(exc: BaseException) -> bool:
+    """Retry only a transient attempt with a definitive non-submission result."""
+
+    if not _is_transient(exc):
+        return False
+    return getattr(exc, "request_not_sent", False) is True
+
+
+def _is_cache_control_rejection(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        not _is_submission_unknown(exc)
+        and "cache_control" in text
+        and any(marker in text for marker in ("reject", "unsupported", "invalid"))
+    )
+
+
 def _normalize_url(value: Any) -> str | None:
     if value is None:
         return None
@@ -343,7 +387,12 @@ class LLMClient:
                 )
                 # Mid-stream failures discard partial output (handled inside
                 # _consume_stream — it raises before returning any content).
-                if cache_segments and not cache_downgraded and any("cache_control" in msg for msg in prepared_messages):
+                if (
+                    cache_segments
+                    and not cache_downgraded
+                    and any("cache_control" in msg for msg in prepared_messages)
+                    and _is_cache_control_rejection(exc)
+                ):
                     prepared_messages = self._prepare_messages(messages, None)
                     request_meta = self._request_meta(prepared_messages)
                     cache_downgraded = True
@@ -351,7 +400,7 @@ class LLMClient:
                 # iter055 轨B: 仅 transient 重试,指数退避(base*2^(n-1) 封顶 cap)+ 抖动
                 # 错峰(530/1033 是 provider 过载,线性退避加剧拥堵)。非 transient(schema/
                 # context)立即 break → 不空耗 attempts。cache 降级 continue 路径在上方不受影响。
-                if attempt < attempts and _is_transient(exc):
+                if attempt < attempts and _is_safe_to_retry(exc):
                     base = float(self.config.get("retry_backoff_seconds", 0.5))
                     cap = float(self.config.get("retry_backoff_cap_seconds", 30))
                     jitter = float(self.config.get("retry_backoff_jitter_seconds", 1))

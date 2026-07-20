@@ -15,6 +15,7 @@ from . import paths
 from .drama_schemas import DramaSetup, episode_paths, normalize_episode_no
 from .llm_client import LLMClient
 from .schemas import model_to_dict
+from .utils import read_json_optional, sha256_data
 
 
 TRACK_PINYIN = {
@@ -92,6 +93,30 @@ def _inherit_previous_setup(workspace: str, *, episode_no: int) -> Dict[str, Any
     track = str(previous.get("track") or wizard_input.get("track") or "")
     if track not in TRACK_PINYIN:
         raise ValueError(f"unknown track: {track!r}")
+    previous_meta = read_json_optional(
+        episode_paths(workspace, episode_no=episode_no - 1).meta_path,
+        None,
+    )
+    from .drama_store import is_episode_stale
+
+    if isinstance(previous_meta, dict) and not is_episode_stale(
+        workspace, episode_no=episode_no - 1
+    ):
+        parent_revision = sha256_data(
+            {
+                "episode_no": episode_no - 1,
+                "input_fingerprint": previous_meta.get("input_fingerprint"),
+                "episode_sha256": previous_meta.get("episode_sha256"),
+            }
+        )
+    else:
+        # Direct library callers may prepare later-episode creative drafts
+        # before the parent is accepted.  Preserve that mock-first workflow,
+        # but bind a provisional revision that can never pass assembly until
+        # the child is rebuilt from a freshly accepted parent.
+        parent_revision = sha256_data(
+            {"episode_no": episode_no - 1, "provisional_setup": previous}
+        )
 
     # Only series-level fields cross the episode boundary. Episode-local
     # creative choices must start empty so ep3+ cannot accidentally continue
@@ -109,6 +134,8 @@ def _inherit_previous_setup(workspace: str, *, episode_no: int) -> Dict[str, Any
         "core_setup": dict(core_setup),
         "episode_mainline": "",
         "introduces_new_characters": False,
+        "parent_episode_no": episode_no - 1,
+        "parent_episode_revision": parent_revision,
     }
 
 

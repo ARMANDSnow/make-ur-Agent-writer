@@ -82,6 +82,20 @@ class DramaVideoPipelineTests(DramaTestBase):
         self.assertNotIn("url", json.dumps(meta).lower())
         self.assertNotIn("authorization", json.dumps(meta).lower())
 
+    def test_incomplete_submission_blocks_download_of_old_valid_video(self) -> None:
+        self._prepare()
+        with patch.dict(os.environ, {"SD_VIDEO_MODE": "mock"}, clear=False):
+            drama_video.run_video_job("video", {}, lambda *_: None)
+        with patch(
+            "src.drama_video.read_video_submission",
+            return_value={"status": "submitted"},
+        ):
+            with self.assertRaisesRegex(ValueError, "not downloadable"):
+                drama_video.read_video("video")
+            status, _content_type, body = routes.api_drama_video_file("video")
+        self.assertEqual(status, 409)
+        self.assertNotIn(b"ftyp", body)
+
     def test_provider_outputs_list_has_one_bounded_unambiguous_result_url(self) -> None:
         url = "https://result.example.test/signed.mp4?token=upstream-only"
         self.assertEqual(

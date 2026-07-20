@@ -4044,7 +4044,7 @@ JS_DASHBOARD = """\
       actions.push('<a class="btn btn-secondary btn-sm" href="' + wsHref("/chapter/" + chapter) + '">查看章节</a>');
     }
     if (actionKind) actions.push(renderJobPageCta(actionKind));
-    if (job.status !== "running" && job.status !== "pending") {
+    if (job.retryable === true && job.status !== "running" && job.status !== "pending") {
       actions.push('<button type="button" class="btn btn-primary btn-sm" data-job-retry="' + escapeHtml(job.job_id || "") + '">用相同参数重试</button>');
     }
     return '<div class="job-drawer">' +

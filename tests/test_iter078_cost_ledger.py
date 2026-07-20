@@ -161,13 +161,13 @@ class RetryErrorLoggingTests(_WorkspaceMixin, unittest.TestCase):
         records = self._log_records()
         retry_rows = [r for r in records if r.get("status") == "retry_error"]
         error_rows = [r for r in records if r.get("status") == "error"]
-        self.assertEqual(len(retry_rows), 2, records)
-        self.assertEqual([r.get("attempt") for r in retry_rows], [1, 2])
+        self.assertEqual(len(retry_rows), 1, records)
+        self.assertEqual([r.get("attempt") for r in retry_rows], [1])
         for row in retry_rows:
             self.assertGreater(row.get("prompt_tokens", 0), 0, "retry_error 必须带 prompt 消耗")
         self.assertEqual(len(error_rows), 1)
         self.assertEqual(error_rows[0].get("prompt_tokens"), 0, "终态 error 条防双计")
-        self.assertEqual(error_rows[0].get("final_of_attempts"), 2)
+        self.assertEqual(error_rows[0].get("final_of_attempts"), 1)
 
     def test_retry_error_log_redacts_keys_and_prompt_payload(self) -> None:
         from src.llm_client import LLMClient

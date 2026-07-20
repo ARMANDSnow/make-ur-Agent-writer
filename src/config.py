@@ -22,13 +22,15 @@ SKIP_DOTENV_ENV = "DRAGON_RAJA_SKIP_DOTENV"
 
 def load_dotenv_if_available() -> None:
     # Canonical verification must not even open or parse the user's .env.
-    # Check before importing python-dotenv or constructing the file path.
-    if os.environ.get(SKIP_DOTENV_ENV) == "1":
-        return
+    # Test detection must precede the ambient skip flag: inherited real-provider
+    # settings must never survive in a direct test process.
     if _running_under_unittest_discover():
-        os.environ["OPENAI_MODEL"] = "mock"
         for key in RUNTIME_ENV_KEYS:
             os.environ.pop(key, None)
+        _pin_test_environment()
+        return
+    # Check before importing python-dotenv or constructing the file path.
+    if os.environ.get(SKIP_DOTENV_ENV) == "1":
         return
     try:
         from dotenv import load_dotenv
@@ -361,4 +363,19 @@ def _running_under_unittest_discover() -> bool:
         return True
     if "unittest" not in sys.modules:
         return False
-    return any(arg == "discover" or "unittest" in arg for arg in sys.argv)
+    return any(
+        arg == "discover"
+        or "unittest" in arg
+        or Path(arg).name.startswith("test_")
+        for arg in sys.argv
+    )
+
+
+def _pin_test_environment() -> None:
+    os.environ["OPENAI_MODEL"] = "mock"
+    os.environ["DRAMA_MODEL"] = "mock"
+    os.environ["PLANNER_MODEL"] = "mock"
+    os.environ["SD_VIDEO_MODE"] = "mock"
+    os.environ[LITELLM_LOCAL_MODEL_COST_MAP_ENV] = "true"
+    os.environ[SKIP_DOTENV_ENV] = "1"
+    os.environ["PYTHON_DOTENV_DISABLED"] = "1"

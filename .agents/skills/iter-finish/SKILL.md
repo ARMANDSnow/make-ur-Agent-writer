@@ -26,7 +26,7 @@ description: 收尾一轮迭代（Dragon Raja AI Continuer 项目）。先做聚
 PYTHONPYCACHEPREFIX="$PWD/.pycache" .venv/bin/python3 -m unittest <受影响测试模块>
 .venv/bin/python3 -m py_compile <受影响 Python 文件>
 .venv/bin/python3 scripts/check_agent_harness.py
-git diff --check
+git diff --check HEAD
 ```
 
 此阶段不要运行全量 discovery 或 `scripts/verify.sh`。聚焦检查失败时先修复并回归，再进入审查。
@@ -86,7 +86,7 @@ bash scripts/verify.sh
 
 ```bash
 .venv/bin/python3 scripts/check_agent_harness.py
-git diff --check
+git diff --check HEAD
 ```
 
 这不是第二次全量验收。确认 iteration 八段、索引、README 与 handoff accepted iter 一致。

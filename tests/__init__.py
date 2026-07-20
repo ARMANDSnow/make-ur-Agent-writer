@@ -3,14 +3,18 @@
 import os
 
 os.environ["OPENAI_MODEL"] = "mock"
+os.environ["DRAMA_MODEL"] = "mock"
+os.environ["PLANNER_MODEL"] = "mock"
+os.environ["SD_VIDEO_MODE"] = "mock"
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
+os.environ["DRAGON_RAJA_SKIP_DOTENV"] = "1"
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 for key in (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_STREAM",
     "PLANNER_API_KEY",
     "PLANNER_BASE_URL",
-    "PLANNER_MODEL",
     "AI_DRAW_ENDPOINT",
     "AI_DRAW_BASE_URL",
     "AI_DRAW_MODEL",
@@ -18,7 +22,6 @@ for key in (
     "AI_DRAW_RESULT_HOSTS",
     "SD_API_BASE_URL",
     "SD_API_KEY",
-    "SD_VIDEO_MODE",
     "SD_VIDEO_MODEL",
     "SD_ASSET_PUBLIC_BASE_URL",
     "SD_VIDEO_RESULT_HOSTS",

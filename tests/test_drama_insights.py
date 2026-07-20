@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src import paths
 from src.cost_estimator import cost_cny
@@ -55,6 +57,7 @@ class DramaInsightsTests(unittest.TestCase):
         self.assertEqual(
             data["llm_cost"],
             {
+                "status": "ok",
                 "calls": 0,
                 "prompt_tokens": 0,
                 "response_tokens": 0,
@@ -64,7 +67,10 @@ class DramaInsightsTests(unittest.TestCase):
                 "dirty_lines": 0,
             },
         )
-        self.assertEqual(data["episode_meta_cost"], {"cost_cny": 0.0, "episodes": 0, "invalid": 0})
+        self.assertEqual(
+            data["episode_meta_cost"],
+            {"status": "ok", "cost_cny": 0.0, "episodes": 0, "invalid": 0},
+        )
         self.assertEqual(
             data["media_pricing"],
             {
@@ -87,7 +93,14 @@ class DramaInsightsTests(unittest.TestCase):
         self.assertEqual(data["media_metrics"]["rows"], [])
         self.assertEqual(
             data["duration"],
-            {"total": 0, "within_tolerance": 0, "rate": 0.0, "tolerance_seconds": 3, "invalid": 0},
+            {
+                "status": "ok",
+                "total": 0,
+                "within_tolerance": 0,
+                "rate": 0.0,
+                "tolerance_seconds": 3,
+                "invalid": 0,
+            },
         )
         self.assertEqual(data["hook_types"], [])
         self.assertIn("真模型", data["cost_note"])
@@ -153,10 +166,20 @@ class DramaInsightsTests(unittest.TestCase):
             round(cost_cny(1000, 100, 500, model="deepseek/deepseek-chat"), 4),
             places=4,
         )
-        self.assertEqual(data["episode_meta_cost"], {"cost_cny": 1.5, "episodes": 3, "invalid": 0})
+        self.assertEqual(
+            data["episode_meta_cost"],
+            {"status": "ok", "cost_cny": 1.5, "episodes": 3, "invalid": 0},
+        )
         self.assertEqual(
             data["duration"],
-            {"total": 3, "within_tolerance": 2, "rate": 0.6667, "tolerance_seconds": 3, "invalid": 0},
+            {
+                "status": "ok",
+                "total": 3,
+                "within_tolerance": 2,
+                "rate": 0.6667,
+                "tolerance_seconds": 3,
+                "invalid": 0,
+            },
         )
         self.assertEqual(
             data["hook_types"],
@@ -226,20 +249,28 @@ class DramaInsightsTests(unittest.TestCase):
 
         data = collect_drama_insights("drama")
 
-        self.assertEqual(data["llm_cost"]["calls"], 1)
-        self.assertEqual(data["llm_cost"]["prompt_tokens"], 12)
-        self.assertEqual(data["llm_cost"]["response_tokens"], 3)
-        self.assertEqual(data["llm_cost"]["dirty_lines"], 7)
+        self.assertEqual(data["llm_cost"]["status"], "degraded")
+        self.assertEqual(data["llm_cost"]["calls"], 0)
+        self.assertEqual(data["llm_cost"]["prompt_tokens"], 0)
+        self.assertEqual(data["llm_cost"]["response_tokens"], 0)
+        self.assertEqual(data["llm_cost"]["dirty_lines"], 1)
         self.assertEqual(data["llm_cost"]["cost_cny"], 0.0)
-        self.assertEqual(data["episode_meta_cost"], {"cost_cny": 0.0, "episodes": 1, "invalid": 6})
+        self.assertEqual(
+            data["episode_meta_cost"],
+            {"status": "degraded", "cost_cny": 0.0, "episodes": 0, "invalid": 1},
+        )
         self.assertEqual(
             data["duration"],
-            {"total": 1, "within_tolerance": 1, "rate": 1.0, "tolerance_seconds": 3, "invalid": 4},
+            {
+                "status": "degraded",
+                "total": 0,
+                "within_tolerance": 0,
+                "rate": 0.0,
+                "tolerance_seconds": 3,
+                "invalid": 1,
+            },
         )
-        self.assertEqual(
-            data["hook_types"],
-            [{"type": "(未标注)", "count": 2}, {"type": "反差钩", "count": 1}],
-        )
+        self.assertEqual(data["hook_types"], [])
         serialized = json.dumps(data, ensure_ascii=False)
         self.assertNotIn("sensitive-token", serialized)
         self.assertNotIn("private traceback", serialized)
@@ -288,9 +319,170 @@ class DramaInsightsTests(unittest.TestCase):
 
         data = collect_drama_insights("drama")
 
-        self.assertEqual(data["episode_meta_cost"], {"cost_cny": 0.0, "episodes": 0, "invalid": 1})
+        self.assertEqual(
+            data["episode_meta_cost"],
+            {"status": "degraded", "cost_cny": 0.0, "episodes": 0, "invalid": 1},
+        )
         self.assertEqual(data["duration"]["total"], 0)
-        self.assertEqual(data["duration"]["invalid"], 2)
+        self.assertEqual(data["duration"]["status"], "degraded")
+        self.assertEqual(data["duration"]["invalid"], 1)
+        self.assertEqual(data["hook_types"], [])
+
+    def test_symlinked_sources_degrade_empty_without_following(self) -> None:
+        outside = Path(self._tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "episode_01.json").write_text(
+            json.dumps(
+                {
+                    "episode_no": 1,
+                    "target_duration_seconds": 60,
+                    "estimated_duration_seconds": 60,
+                    "ending_hook": {"type": "OUTSIDE_HOOK"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        episodes = self.root / "outputs" / "episodes"
+        episodes.parent.mkdir(parents=True)
+        episodes.symlink_to(outside, target_is_directory=True)
+        log_outside = outside / "llm_calls.jsonl"
+        log_outside.write_text(
+            json.dumps({"task": "drama_plan", "model": "mock", "prompt_tokens": 7}),
+            encoding="utf-8",
+        )
+        logs = self.root / "logs"
+        logs.mkdir()
+        (logs / "llm_calls.jsonl").symlink_to(log_outside)
+
+        data = collect_drama_insights("drama")
+
+        self.assertEqual(data["llm_cost"]["status"], "degraded")
+        self.assertEqual(data["llm_cost"]["calls"], 0)
+        self.assertEqual(data["duration"]["total"], 0)
+        self.assertEqual(data["hook_types"], [])
+        self.assertNotIn("OUTSIDE_HOOK", json.dumps(data, ensure_ascii=False))
+
+    def test_episode_namespace_change_degrades_without_partial_totals(self) -> None:
+        self._write_meta(1, {"cost_cny": 1})
+        self._write_meta(2, {"cost_cny": 2})
+        from src.web import drama_insights
+
+        original = drama_insights._read_json_object
+        changed = False
+
+        def mutate_after_first(path, **kwargs):
+            nonlocal changed
+            result = original(path, **kwargs)
+            if path.name == "episode_01.meta.json" and not changed:
+                changed = True
+                (path.parent / "episode_02.meta.json").unlink()
+            return result
+
+        with patch.object(
+            drama_insights,
+            "_read_json_object",
+            side_effect=mutate_after_first,
+        ):
+            data = collect_drama_insights("drama")
+
+        self.assertEqual(data["episode_meta_cost"]["status"], "degraded")
+        self.assertEqual(data["episode_meta_cost"]["episodes"], 0)
+        self.assertEqual(data["episode_meta_cost"]["cost_cny"], 0.0)
+
+    def test_episode_file_aba_uses_frozen_token(self) -> None:
+        self._write_episode(
+            1,
+            {
+                "target_duration_seconds": 60,
+                "estimated_duration_seconds": 60,
+                "ending_hook": {"type": "SAFE_HOOK"},
+            },
+        )
+        from src.web import drama_insights
+
+        original_read = drama_insights._read_workspace_file
+        swapped = False
+
+        def swap_before_open(path, **kwargs):
+            nonlocal swapped
+            if path.name == "episode_01.json" and not swapped:
+                swapped = True
+                original_path = path.with_suffix(".original")
+                path.rename(original_path)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "episode_no": 1,
+                            "target_duration_seconds": 60,
+                            "estimated_duration_seconds": 60,
+                            "ending_hook": {"type": "OUTSIDE_HOOK"},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            return original_read(path, **kwargs)
+
+        with patch.object(
+            drama_insights,
+            "_read_workspace_file",
+            side_effect=swap_before_open,
+        ):
+            data = collect_drama_insights("drama")
+
+        self.assertEqual(data["duration"]["status"], "degraded")
+        self.assertEqual(data["duration"]["total"], 0)
+        self.assertNotIn("OUTSIDE_HOOK", json.dumps(data, ensure_ascii=False))
+
+    def test_same_inode_content_aba_is_rejected_by_frozen_hash(self) -> None:
+        self._write_episode(
+            1,
+            {
+                "target_duration_seconds": 60,
+                "estimated_duration_seconds": 60,
+                "ending_hook": {"type": "SAFE"},
+            },
+        )
+        from src.web import drama_insights
+
+        episode = self.root / "outputs" / "episodes" / "episode_01.json"
+        files, invalid = drama_insights._matching_files(
+            episode.parent, drama_insights._EPISODE_RE
+        )
+        self.assertEqual(invalid, 0)
+        token = files[0][1]
+        before = episode.stat()
+        raw = episode.read_bytes()
+        episode.write_bytes(raw.replace(b"SAFE", b"EVIL"))
+        os.utime(
+            episode,
+            ns=(before.st_atime_ns, before.st_mtime_ns),
+        )
+
+        state, value = drama_insights._read_json_object(
+            episode, expected_token=token
+        )
+        self.assertEqual(state, "invalid")
+        self.assertIsNone(value)
+
+    def test_episode_namespace_total_byte_budget_degrades_empty(self) -> None:
+        self._write_episode(
+            1,
+            {
+                "target_duration_seconds": 60,
+                "estimated_duration_seconds": 60,
+                "ending_hook": {"type": "SAFE"},
+            },
+        )
+        from src.web import drama_insights
+
+        with patch.object(
+            drama_insights,
+            "_MAX_EPISODE_NAMESPACE_BYTES",
+            1,
+        ):
+            data = collect_drama_insights("drama")
+        self.assertEqual(data["duration"]["status"], "degraded")
+        self.assertEqual(data["duration"]["total"], 0)
         self.assertEqual(data["hook_types"], [])
 
 

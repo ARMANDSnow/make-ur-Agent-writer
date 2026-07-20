@@ -435,6 +435,10 @@ def assemble_episode(
     """Assemble station outputs into the episode JSON export source of truth."""
 
     setup = _load_setup(workspace, episode_no=episode_no)
+    if not _parent_lineage_is_fresh(
+        workspace, episode_no=episode_no, setup=setup
+    ):
+        raise ValueError("previous episode lineage changed; rebuild this episode")
     storyboard = _load_storyboard(workspace, episode_no=episode_no)
     characters = _load_characters(workspace)
     review = _load_review(workspace, episode_no=episode_no)
@@ -894,6 +898,10 @@ def is_episode_stale(workspace: str, *, episode_no: int = 1) -> bool:
         return True
     if meta.season_no != int(characters.get("season_no") or 1):
         return True
+    if not _parent_lineage_is_fresh(
+        workspace, episode_no=episode_no, setup=setup
+    ):
+        return True
     version = meta.input_fingerprint_version
     try:
         current = input_fingerprint(
@@ -912,6 +920,40 @@ def is_episode_stale(workspace: str, *, episode_no: int = 1) -> bool:
     except (TypeError, ValueError):
         return True
     return current != meta.input_fingerprint
+
+
+def _parent_lineage_is_fresh(
+    workspace: str,
+    *,
+    episode_no: int,
+    setup: Dict[str, Any],
+) -> bool:
+    if episode_no == 1:
+        return (
+            setup.get("parent_episode_no") in (None, "")
+            and setup.get("parent_episode_revision") in (None, "")
+        )
+    if setup.get("parent_episode_no") != episode_no - 1:
+        return False
+    expected = setup.get("parent_episode_revision")
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        return False
+    if is_episode_stale(workspace, episode_no=episode_no - 1):
+        return False
+    previous_meta = read_json_optional(
+        episode_paths(workspace, episode_no=episode_no - 1).meta_path,
+        None,
+    )
+    if not isinstance(previous_meta, dict):
+        return False
+    current = sha256_data(
+        {
+            "episode_no": episode_no - 1,
+            "input_fingerprint": previous_meta.get("input_fingerprint"),
+            "episode_sha256": previous_meta.get("episode_sha256"),
+        }
+    )
+    return current == expected
 
 
 def input_fingerprint(

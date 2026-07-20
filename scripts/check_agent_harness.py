@@ -608,6 +608,7 @@ def _check_skills(root: Path, errors: list[str]) -> None:
         "不得新增逐轮",
         "Review Context",
         "Knowledge Promotion",
+        "git diff --check HEAD",
     ):
         if finish and required not in finish:
             errors.append(f"iter-finish is missing required workflow marker: {required!r}")

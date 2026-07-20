@@ -64,9 +64,8 @@ class DramaIter095CoreTests(DramaTestBase):
             episode_paths("ep3_setup", episode_no=3).review_path,
             drama_reviewer.run("ep3_setup", mock=True, episode_no=3),
         )
-        assembled = drama_store.assemble_episode("ep3_setup", episode_no=3)
-        self.assertEqual(assembled["episode"]["episode_no"], 3)
-        self.assertEqual(assembled["episode"]["logline"], "")
+        with self.assertRaisesRegex(ValueError, "previous episode lineage"):
+            drama_store.assemble_episode("ep3_setup", episode_no=3)
 
     def test_mock_hooks_are_stable_unique_and_prompt_history_is_bounded(self) -> None:
         name = "many_hooks"
@@ -133,6 +132,49 @@ class DramaIter095CoreTests(DramaTestBase):
         write_json(character_paths(name).sheet_path, character_designer.run(name, mock=True))
         write_json(ep.review_path, drama_reviewer.run(name, mock=True))
         drama_store.assemble_episode(name)
+
+    def test_reassembling_parent_stales_descendant_lineage(self) -> None:
+        name = "parent_lineage"
+        self._assembled_workspace(name)
+
+        ep2 = episode_paths(name, episode_no=2)
+        setup2 = drama_planner.run(name, mock=True, episode_no=2)
+        setup2.update(
+            {
+                "title": "第二集",
+                "logline": "第二集梗概",
+                "episode_mainline": "第二集主线",
+                "hook": {"type": "反差钩", "content": "第二集钩子"},
+            }
+        )
+        write_json(ep2.setup_path, setup2)
+        write_json(
+            ep2.storyboard_path,
+            storyboard_builder.run(name, mock=True, episode_no=2),
+        )
+        existing = json.loads(
+            character_paths(name).sheet_path.read_text(encoding="utf-8")
+        )
+        incoming = character_designer.run(name, mock=True, episode_no=2)
+        write_json(
+            character_paths(name).sheet_path,
+            character_designer.merge_character_sheet(existing, incoming),
+        )
+        write_json(
+            ep2.review_path,
+            drama_reviewer.run(name, mock=True, episode_no=2),
+        )
+        drama_store.assemble_episode(name, episode_no=2)
+        self.assertFalse(drama_store.is_episode_stale(name, episode_no=2))
+
+        ep1 = episode_paths(name, episode_no=1)
+        setup1 = json.loads(ep1.setup_path.read_text(encoding="utf-8"))
+        setup1["core_setup"]["protagonist"] = "回编后的主角设定"
+        write_json(ep1.setup_path, setup1)
+        write_json(ep1.review_path, drama_reviewer.run(name, mock=True))
+        drama_store.assemble_episode(name)
+
+        self.assertTrue(drama_store.is_episode_stale(name, episode_no=2))
 
     def _make_legacy_v1_meta(self, name: str) -> None:
         ep = episode_paths(name)

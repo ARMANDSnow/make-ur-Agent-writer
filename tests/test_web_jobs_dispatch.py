@@ -151,8 +151,8 @@ class JobsDispatchTests(unittest.TestCase):
             job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
         self.assertEqual(job["status"], "blocked")
         self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "outline_stale")
-        # raw message preserved in the blocked error (UI folds it under the card)
-        self.assertIn("stale debate outline", job["result_summary"]["first_blocked"]["error"])
+        # Raw planner errors can carry private context and are not public.
+        self.assertNotIn("error", job["result_summary"]["first_blocked"])
 
     def test_plan_chapters_typed_outline_stale_is_blocked(self) -> None:
         # iter064 #2: the real planner now raises the typed OutlineStale; the
@@ -288,7 +288,7 @@ class JobsDispatchTests(unittest.TestCase):
             job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
         self.assertEqual(job["status"], "blocked")
         self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "retry_exhausted")
-        self.assertIn("snapshot_path", job["result_summary"])
+        self.assertNotIn("snapshot_path", job["result_summary"])
 
     def test_write_book_job_preserves_zero_min_confidence(self) -> None:
         with unittest.mock.patch(

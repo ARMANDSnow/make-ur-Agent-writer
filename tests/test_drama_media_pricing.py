@@ -632,6 +632,82 @@ class DramaMediaPricingTests(DramaTestBase):
         self.assertEqual(data["currencies"], [])
         self.assertEqual(data["rows"], [])
 
+    def test_workspace_insights_corrupt_ledger_degrades_without_partial_totals(
+        self,
+    ) -> None:
+        self._record("estimate", "1")
+        bad = drama_media_pricing.media_pricing_ledger_path(
+            self.name, episode_no=2
+        )
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_text("{bad-json", encoding="utf-8")
+
+        data = collect_drama_insights(self.name)["media_pricing"]
+
+        self.assertEqual(data["status"], "degraded")
+        self.assertEqual(data["ledger_count"], 0)
+        self.assertEqual(data["fact_count"], 0)
+        self.assertEqual(data["task_count"], 0)
+        self.assertEqual(data["currencies"], [])
+        self.assertEqual(data["rows"], [])
+
+    def test_workspace_insights_namespace_change_degrades_empty(self) -> None:
+        self._record("estimate", "1")
+        original = drama_media_pricing._scan_pricing_namespace
+        calls = 0
+
+        def changing(root):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return original(root)
+            return [1, 2], 0
+
+        with patch.object(
+            drama_media_pricing,
+            "_scan_pricing_namespace",
+            side_effect=changing,
+        ):
+            data = collect_drama_insights(self.name)["media_pricing"]
+
+        self.assertEqual(data["status"], "degraded")
+        self.assertEqual(data["ledger_count"], 0)
+        self.assertEqual(data["rows"], [])
+
+    def test_frozen_pricing_content_token_rejects_aba_read(self) -> None:
+        self._record("estimate", "1")
+        path = drama_media_pricing.media_pricing_ledger_path(
+            self.name, episode_no=1
+        )
+        token = drama_media_pricing._pricing_target_token(
+            path.parents[3], path
+        )
+        with patch.object(
+            drama_media_pricing,
+            "_read_strict_workspace_bytes",
+            return_value=b'{"different":"same-path"}',
+        ):
+            with self.assertRaises(
+                drama_media_pricing.DramaMediaPricingError
+            ):
+                drama_media_pricing._read_ledger(
+                    self.name,
+                    episode_no=1,
+                    expected_token=token,
+                )
+
+    def test_pricing_collector_total_byte_budget_degrades_empty(self) -> None:
+        self._record("estimate", "1")
+        with patch.object(
+            drama_media_pricing,
+            "MAX_MEDIA_PRICING_INSIGHTS_BYTES",
+            1,
+        ):
+            data = collect_drama_insights(self.name)["media_pricing"]
+        self.assertEqual(data["status"], "degraded")
+        self.assertEqual(data["ledger_count"], 0)
+        self.assertEqual(data["rows"], [])
+
     def test_noncanonical_namespace_entry_is_counted_not_read(self) -> None:
         directory = (
             drama_media_pricing.media_pricing_ledger_path(

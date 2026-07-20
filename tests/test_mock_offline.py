@@ -106,6 +106,83 @@ class MockOfflineConfigTests(unittest.TestCase):
 
 
 class MockOfflineSubprocessTests(unittest.TestCase):
+    def test_direct_test_subprocess_inherits_skip_dotenv_and_all_mock_surfaces(self) -> None:
+        code = textwrap.dedent(
+            """
+            import os
+            import sys
+            import types
+
+            fake = types.ModuleType("dotenv")
+            def forbidden(*args, **kwargs):
+                raise AssertionError("dotenv loader must not be called")
+            fake.load_dotenv = forbidden
+            sys.modules["dotenv"] = fake
+
+            from src.config import load_dotenv_if_available
+            load_dotenv_if_available()
+            assert os.environ["DRAGON_RAJA_SKIP_DOTENV"] == "1"
+            assert os.environ["OPENAI_MODEL"] == "mock"
+            assert os.environ["DRAMA_MODEL"] == "mock"
+            assert os.environ["PLANNER_MODEL"] == "mock"
+            assert os.environ["SD_VIDEO_MODE"] == "mock"
+            """
+        )
+        env = os.environ.copy()
+        for key in (
+            "OPENAI_MODEL",
+            "DRAMA_MODEL",
+            "PLANNER_MODEL",
+            "SD_VIDEO_MODE",
+            "LITELLM_LOCAL_MODEL_COST_MAP",
+            "DRAGON_RAJA_SKIP_DOTENV",
+            "PYTHON_DOTENV_DISABLED",
+        ):
+            env.pop(key, None)
+        result = subprocess.run(
+            [sys.executable, "-c", "import sys,unittest;sys.argv=['tests/test_probe.py'];" + code],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_direct_test_subprocess_overrides_hostile_inherited_environment(self) -> None:
+        code = (
+            "import sys,unittest;"
+            "sys.argv=['tests/test_probe.py'];"
+            "from src.config import load_dotenv_if_available;"
+            "load_dotenv_if_available();"
+            "import os;"
+            "assert os.environ['OPENAI_MODEL']=='mock';"
+            "assert os.environ['DRAMA_MODEL']=='mock';"
+            "assert os.environ['PLANNER_MODEL']=='mock';"
+            "assert os.environ['SD_VIDEO_MODE']=='mock'"
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "DRAGON_RAJA_SKIP_DOTENV": "1",
+                "OPENAI_MODEL": "real/provider",
+                "DRAMA_MODEL": "real/drama",
+                "PLANNER_MODEL": "real/planner",
+                "SD_VIDEO_MODE": "real",
+            }
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
     def test_main_import_uses_forced_local_map_without_network_attempt(self) -> None:
         code = textwrap.dedent(
             """

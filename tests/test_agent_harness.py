@@ -75,7 +75,7 @@ class AgentHarnessCheckerTests(unittest.TestCase):
         (self.root / ".agents/skills/iter-finish/SKILL.md").write_text(
             "---\nname: iter-finish\ndescription: test\n---\n"
             "聚焦 只读 bash scripts/verify.sh 就地更新 不得新增逐轮 "
-            "Review Context Knowledge Promotion\n",
+            "Review Context Knowledge Promotion git diff --check HEAD\n",
             encoding="utf-8",
         )
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
@@ -865,11 +865,14 @@ class IsolatedCliTests(unittest.TestCase):
 
 class VerifyHarnessTests(unittest.TestCase):
     def assert_only_known_platform_tmp_entries(self, tmpdir: Path) -> None:
-        leftovers = [
-            path for path in tmpdir.iterdir()
-            if path.name != "xcrun_db"
-        ]
-        self.assertEqual(leftovers, [])
+        self.assertEqual(list(tmpdir.iterdir()), [])
+
+    def test_xcrun_db_name_is_not_exempt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "xcrun_db"
+            marker.mkdir()
+            with self.assertRaises(AssertionError):
+                self.assert_only_known_platform_tmp_entries(Path(tmp))
 
     def make_fixture(self, root: Path) -> None:
         (root / "scripts").mkdir()

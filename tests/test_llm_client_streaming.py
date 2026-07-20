@@ -78,7 +78,7 @@ class LLMClientStreamingTests(unittest.TestCase):
         self.assertEqual(row["prompt_tokens"], 7)
         self.assertEqual(row["response_tokens"], 3)
 
-    def test_stream_retries_after_mid_stream_exception(self) -> None:
+    def test_stream_submission_unknown_does_not_retry(self) -> None:
         def bad_stream() -> Iterator[Dict[str, Any]]:
             yield _chunk("partial-")
             raise ConnectionError("simulated mid-stream drop")
@@ -106,23 +106,20 @@ class LLMClientStreamingTests(unittest.TestCase):
                 with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
                     mock_prop.return_value = False
                     with patch("litellm.completion", side_effect=fake_completion):
-                        text = client.complete_text(
-                            [{"role": "user", "content": "hi"}], stream=True
-                        )
+                        with self.assertRaises(RuntimeError):
+                            client.complete_text(
+                                [{"role": "user", "content": "hi"}], stream=True
+                            )
             rows = self._read_log(tmp)
 
-        self.assertEqual(text, "good answer")
-        self.assertEqual(call_count["n"], 2)
-        # iter078 P1-2 语义迁移：每个失败 attempt 记一条 retry_error（旧行为
-        # 「失败只在最终放弃时才记」使 N-1 次真实调用的 prompt 消耗漏账）。
-        # 本用例原命题（中流失败 → 重试成功、partial 不泄漏）不变。
+        self.assertEqual(call_count["n"], 1)
+        # The failed attempt and terminal summary remain auditable, while the
+        # partial stream is discarded and never triggers a second paid call.
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["status"], "retry_error")
+        self.assertEqual(rows[1]["status"], "error")
         self.assertEqual(rows[0]["attempt"], 1)
-        self.assertEqual(rows[1]["status"], "ok")
-        self.assertEqual(rows[1]["attempt"], 2)
-        # Crucially the partial "partial-" must NOT leak into the result.
-        self.assertNotIn("partial", text)
+        self.assertEqual(rows[1]["final_of_attempts"], 1)
 
     def test_stream_falls_back_to_tiktoken_when_usage_missing(self) -> None:
         chunks = [

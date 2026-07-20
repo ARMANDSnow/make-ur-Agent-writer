@@ -99,11 +99,24 @@ class DramaSetup(BaseModel):
     track: str = Field(min_length=1, max_length=20)
     target_duration_seconds: int = Field(default=60, ge=10, le=600)
     core_setup: DramaCoreSetup
+    parent_episode_no: Optional[int] = Field(default=None, ge=1, le=MAX_DRAMA_EPISODE_NO)
+    parent_episode_revision: str = Field(default="", pattern=r"^(?:|[0-9a-f]{64})$")
 
     @field_validator("episode_no", mode="before")
     @classmethod
     def _episode_no_is_strict(cls, value: Any) -> int:
         return _strict_schema_episode_no(value)
+
+    @model_validator(mode="after")
+    def _parent_lineage_shape(self) -> "DramaSetup":
+        if self.episode_no == 1:
+            if self.parent_episode_no is not None or self.parent_episode_revision:
+                raise ValueError("episode 1 must not claim parent lineage")
+        elif (self.parent_episode_no is None) != (not self.parent_episode_revision):
+            raise ValueError("later episode parent lineage must be complete")
+        elif self.parent_episode_no is not None and self.parent_episode_no != self.episode_no - 1:
+            raise ValueError("later episode parent must be the preceding episode")
+        return self
 
 
 def canonical_episode_identity(

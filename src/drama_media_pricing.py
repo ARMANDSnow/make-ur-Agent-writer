@@ -9,6 +9,7 @@ systems and never appear in the public projection.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import stat
@@ -63,6 +64,7 @@ _EVIDENCE_KIND_BY_FACT: dict[str, str] = {
 }
 
 MAX_MEDIA_PRICING_LEDGER_BYTES = 4 * 1024 * 1024
+MAX_MEDIA_PRICING_INSIGHTS_BYTES = 16 * 1024 * 1024
 MAX_MEDIA_PRICING_FACTS = 4000
 MAX_MEDIA_PRICING_NAMESPACE_ENTRIES = 1000
 MAX_MEDIA_PRICING_INSIGHTS_FACTS = 4000
@@ -471,6 +473,7 @@ def _read_ledger(
     workspace: str,
     *,
     episode_no: int,
+    expected_token: tuple[Any, ...] | None = None,
 ) -> DramaMediaPricingLedger:
     number = normalize_episode_no(episode_no)
     root = paths.workspace_root(workspace)
@@ -480,9 +483,12 @@ def _read_ledger(
         raw = _read_strict_workspace_bytes(
             root, path, maximum=MAX_MEDIA_PRICING_LEDGER_BYTES
         )
-        payload = _read_strict_workspace_json(
-            root, path, maximum=MAX_MEDIA_PRICING_LEDGER_BYTES
-        )
+        actual_token = ("file", len(raw), hashlib.sha256(raw).hexdigest())
+        if expected_token is not None and actual_token != expected_token:
+            raise DramaMediaPricingError(
+                "media pricing ledger changed concurrently"
+            )
+        payload = json.loads(raw)
         return _validate_ledger_payload(
             workspace,
             episode_no=number,
@@ -1212,56 +1218,144 @@ def collect_workspace_media_pricing(
         if not root.exists():
             return empty
         _validate_render_workspace_root(root)
-        numbers, invalid = _scan_pricing_namespace(root)
-        facts: list[DramaMediaPricingFact] = []
-        seen_evidence: set[str] = set()
-        valid_ledgers = 0
-        for number in numbers:
-            try:
-                ledger = _read_ledger(workspace, episode_no=number)
-            except (FileNotFoundError, DramaMediaPricingError):
-                invalid += 1
-                continue
-            ledger_evidence = {
-                item.source_evidence_fingerprint
-                for item in ledger.facts
-            }
-            if seen_evidence.intersection(ledger_evidence):
+        with use_workspace(workspace), acquire_write_lock(
+            source="drama-media-pricing-insights"
+        ):
+            numbers, invalid = _scan_pricing_namespace(root)
+            if invalid:
                 return {
                     **empty,
                     "status": "degraded",
-                    "invalid_ledgers": invalid + 1,
+                    "invalid_ledgers": invalid,
                 }
-            if (
-                len(facts) + len(ledger.facts)
-                > MAX_MEDIA_PRICING_INSIGHTS_FACTS
-                or len(
-                    {
-                        item.task_id
-                        for item in [*facts, *ledger.facts]
+            tokens, token_invalid = _pricing_tokens_for_numbers(
+                root, workspace, numbers
+            )
+            if token_invalid:
+                return {
+                    **empty,
+                    "status": "degraded",
+                    "invalid_ledgers": 1,
+                }
+            facts: list[DramaMediaPricingFact] = []
+            seen_evidence: set[str] = set()
+            for number in numbers:
+                try:
+                    ledger = _read_ledger(
+                        workspace,
+                        episode_no=number,
+                        expected_token=tokens[number],
+                    )
+                except (FileNotFoundError, DramaMediaPricingError):
+                    return {
+                        **empty,
+                        "status": "degraded",
+                        "invalid_ledgers": 1,
                     }
-                )
-                > MAX_MEDIA_PRICING_INSIGHTS_TASKS
+                ledger_evidence = {
+                    item.source_evidence_fingerprint
+                    for item in ledger.facts
+                }
+                if seen_evidence.intersection(ledger_evidence):
+                    return {
+                        **empty,
+                        "status": "degraded",
+                        "invalid_ledgers": 1,
+                    }
+                if (
+                    len(facts) + len(ledger.facts)
+                    > MAX_MEDIA_PRICING_INSIGHTS_FACTS
+                    or len(
+                        {
+                            item.task_id
+                            for item in [*facts, *ledger.facts]
+                        }
+                    )
+                    > MAX_MEDIA_PRICING_INSIGHTS_TASKS
+                ):
+                    return {
+                        **empty,
+                        "status": "degraded",
+                        "invalid_ledgers": 1,
+                    }
+                seen_evidence.update(ledger_evidence)
+                facts.extend(ledger.facts)
+            final_numbers, final_invalid = _scan_pricing_namespace(root)
+            final_tokens, final_token_invalid = _pricing_tokens_for_numbers(
+                root, workspace, final_numbers
+            )
+            if (
+                final_invalid
+                or final_token_invalid
+                or final_numbers != numbers
+                or final_tokens != tokens
             ):
                 return {
                     **empty,
                     "status": "degraded",
-                    "invalid_ledgers": invalid + 1,
+                    "invalid_ledgers": 1,
                 }
-            valid_ledgers += 1
-            seen_evidence.update(ledger_evidence)
-            facts.extend(ledger.facts)
-        aggregate = _aggregate_facts(facts)
+            aggregate = _aggregate_facts(facts)
         return {
             "schema_version": 1,
-            "status": "degraded" if invalid else "ok",
-            "ledger_count": valid_ledgers,
-            "invalid_ledgers": invalid,
+            "status": "ok",
+            "ledger_count": len(numbers),
+            "invalid_ledgers": 0,
             **aggregate,
         }
-    except (OSError, RecursionError, TypeError, ValueError, DramaMediaPricingError):
+    except (
+        OSError,
+        RecursionError,
+        TypeError,
+        ValueError,
+        DramaMediaPricingError,
+        WorkspaceLocked,
+    ):
         return {
             **empty,
             "status": "degraded",
             "invalid_ledgers": 1,
         }
+
+
+def _pricing_tokens_for_numbers(
+    root: Path,
+    workspace: str,
+    numbers: list[int],
+) -> tuple[dict[int, tuple[Any, ...]], bool]:
+    tokens: dict[int, tuple[Any, ...]] = {}
+    remaining = MAX_MEDIA_PRICING_INSIGHTS_BYTES
+    for number in numbers:
+        if remaining <= 0:
+            return {}, True
+        token = _pricing_target_token(
+            root,
+            media_pricing_ledger_path(workspace, episode_no=number),
+            maximum=min(MAX_MEDIA_PRICING_LEDGER_BYTES, remaining),
+        )
+        if len(token) != 3 or token[0] != "file":
+            return {}, True
+        remaining -= int(token[1])
+        tokens[number] = token
+    return tokens, False
+
+
+def _pricing_target_token(
+    root: Path,
+    path: Path,
+    *,
+    maximum: int = MAX_MEDIA_PRICING_LEDGER_BYTES,
+) -> tuple[Any, ...]:
+    if maximum <= 0:
+        return ("invalid",)
+    try:
+        data = _read_strict_workspace_bytes(
+            root,
+            path,
+            maximum=maximum,
+        )
+    except FileNotFoundError:
+        return ("missing",)
+    except (OSError, ValueError):
+        return ("invalid",)
+    return ("file", len(data), hashlib.sha256(data).hexdigest())

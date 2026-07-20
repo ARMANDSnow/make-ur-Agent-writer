@@ -1145,6 +1145,13 @@ def read_video(
     sample_id: str | None = None,
 ) -> tuple[bytes, Dict[str, Any]]:
     sample_id = _validate_video_sample_id(sample_id)
+    submission = read_video_submission(
+        workspace,
+        episode_no=episode_no,
+        sample_id=sample_id,
+    )
+    if submission is not None and submission.get("status") in VIDEO_INCOMPLETE_STATUSES:
+        raise ValueError("video is not downloadable while submission is incomplete")
     out = video_paths(
         workspace,
         episode_no=episode_no,

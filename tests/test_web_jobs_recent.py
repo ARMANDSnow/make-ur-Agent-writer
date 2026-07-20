@@ -417,6 +417,166 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
         # a future internal field added to the record must NOT auto-leak
         self.assertNotIn("_secret", view)
 
+    def test_public_and_durable_job_views_redact_sensitive_fields(self) -> None:
+        marker = "SENSITIVE_MARKER"
+        rec = jobs._new_job_record(
+            "alpha",
+            "write-book",
+            {
+                "chapters": 2,
+                "api_key": marker,
+                "topic": f"private prompt {marker}",
+                "callback_url": f"https://example.invalid/?token={marker}",
+                "confirm_real_text": True,
+            },
+        )
+        rec["error"] = f"Bearer {marker}"
+        rec["result_summary"] = {
+            "status": "failed",
+            "error": f"provider response {marker}",
+            "snapshot_path": f"/private/{marker}",
+            "provider": "sk-secret-value",
+        }
+
+        view = jobs.public_job_detail_view(rec)
+        jobs._persist_job(rec)
+        durable = self._log_path("alpha").read_text(encoding="utf-8")
+        rendered = json.dumps(view, ensure_ascii=False) + durable
+
+        self.assertEqual(view["params"], {"chapters": 2})
+        self.assertEqual(view["error"], "job_failed")
+        self.assertNotIn(marker, rendered)
+        self.assertNotIn("sk-secret-value", rendered)
+        self.assertNotIn("snapshot_path", rendered)
+
+    def test_retry_projection_is_step_aware_and_disables_unsafe_replay(self) -> None:
+        normalize = jobs._new_job_record(
+            "alpha",
+            "normalize",
+            {"lang": "zh", "name": "Bearer-secret", "chapters": 99},
+        )
+        normalize_view = jobs.public_job_detail_view(normalize)
+        self.assertEqual(normalize_view["params"], {"lang": "zh"})
+        self.assertFalse(normalize_view["retryable"])
+        safe_normalize = jobs._new_job_record(
+            "alpha",
+            "normalize",
+            {"lang": "zh"},
+        )
+        self.assertTrue(
+            jobs.public_job_detail_view(safe_normalize)["retryable"]
+        )
+        spaced_normalize = jobs._new_job_record(
+            "alpha",
+            "normalize",
+            {"lang": " zh "},
+        )
+        self.assertFalse(
+            jobs.public_job_detail_view(spaced_normalize)["retryable"]
+        )
+        secret_apply = jobs._new_job_record(
+            "alpha",
+            "apply-bootstrap",
+            {"name": "sk-secret-value", "apply": True},
+        )
+        secret_view = jobs.public_job_detail_view(secret_apply)
+        self.assertNotIn("name", secret_view["params"])
+        self.assertFalse(secret_view["retryable"])
+
+        for credential in (
+            "AIzaSyDUMMYEXAMPLEVALUE123456789",
+            "AKIA1234567890ABCDEF",
+            "eyJabcdefgh.ijklmnop.qrstuvwx",
+        ):
+            credential_view = jobs.public_job_detail_view(
+                {
+                    **safe_normalize,
+                    "result_summary": {"task_id": credential},
+                }
+            )
+            self.assertEqual(
+                credential_view["result_summary"]["task_id"],
+                "[redacted]",
+            )
+
+        debate = jobs._new_job_record(
+            "alpha",
+            "debate",
+            {"topic": "private premise", "force": True},
+        )
+        debate_view = jobs.public_job_detail_view(debate)
+        self.assertEqual(debate_view["params"], {"force": True})
+        self.assertFalse(debate_view["retryable"])
+
+        style = jobs._new_job_record(
+            "alpha",
+            "extract-style",
+            {"sample_token": "a" * 32, "force": True},
+        )
+        style_view = jobs.public_job_detail_view(style)
+        self.assertEqual(style_view["params"], {})
+        self.assertFalse(style_view["retryable"])
+
+        write = jobs._new_job_record(
+            "alpha",
+            "write-book",
+            {"chapters": 2, "max_retries": 7},
+        )
+        write_view = jobs.public_job_detail_view(write)
+        self.assertEqual(write_view["params"], {"chapters": 2})
+        self.assertFalse(write_view["retryable"])
+
+    def test_job_log_symlink_is_neither_read_nor_appended(self) -> None:
+        outside = Path(self._tmp.name) / "outside.jsonl"
+        outside.write_text(
+            json.dumps(
+                {
+                    "job_id": "x" * 32,
+                    "workspace": "alpha",
+                    "status": "succeeded",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        log = self._log_path("alpha")
+        log.unlink(missing_ok=True)
+        log.symlink_to(outside)
+        before = outside.read_bytes()
+
+        rec = jobs._new_job_record("alpha", "write-book", {"chapters": 1})
+        jobs._persist_job(rec)
+
+        self.assertEqual(jobs.recent_jobs("alpha"), [])
+        self.assertEqual(outside.read_bytes(), before)
+
+    def test_job_log_fifo_is_rejected_without_blocking(self) -> None:
+        log = self._log_path("alpha")
+        log.unlink(missing_ok=True)
+        os.mkfifo(log)
+        rec = jobs._new_job_record("alpha", "write-book", {"chapters": 1})
+
+        jobs._persist_job(rec)
+
+        self.assertTrue(log.exists())
+        self.assertEqual(jobs.recent_jobs("alpha"), [])
+
+    def test_oversized_or_malformed_job_log_fails_closed(self) -> None:
+        self._log_path("alpha").write_bytes(b"x" * (jobs._MAX_JOB_LOG_BYTES + 1))
+        self.assertEqual(jobs.recent_jobs("alpha"), [])
+        self._log_path("alpha").write_text(
+            json.dumps(
+                {
+                    "job_id": "x" * 32,
+                    "workspace": "alpha",
+                    "status": "succeeded",
+                }
+            )
+            + "\n{bad-json\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(jobs.recent_jobs("alpha"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

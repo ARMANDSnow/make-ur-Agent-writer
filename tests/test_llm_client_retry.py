@@ -14,7 +14,13 @@ from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import PropertyMock, patch
 
-from src.llm_client import LLMClient, LLMContextOverflowError, _is_transient
+from src.llm_client import (
+    LLMClient,
+    LLMContextOverflowError,
+    _is_safe_to_retry,
+    _is_submission_unknown,
+    _is_transient,
+)
 
 
 def _ok(content: str = "ok") -> Dict[str, Any]:
@@ -31,6 +37,10 @@ class RateLimitError(_NamedExc):
 
 class APITimeoutError(_NamedExc):
     pass
+
+
+class RequestNotSentError(ConnectionError):
+    request_not_sent = True
 
 
 class IsTransientClassificationTests(unittest.TestCase):
@@ -64,6 +74,14 @@ class IsTransientClassificationTests(unittest.TestCase):
         self.assertFalse(_is_transient(RuntimeError("retry boom")))  # premise_guard 现存用例
         self.assertFalse(_is_transient(KeyError("missing field")))
 
+    def test_paid_retry_distinguishes_unknown_from_not_sent(self) -> None:
+        self.assertTrue(_is_submission_unknown(APITimeoutError("after send")))
+        self.assertTrue(_is_submission_unknown(ConnectionResetError("mid-stream")))
+        self.assertFalse(_is_safe_to_retry(APITimeoutError("after send")))
+        self.assertFalse(_is_safe_to_retry(ConnectionResetError("mid-stream")))
+        self.assertTrue(_is_safe_to_retry(RequestNotSentError("connect refused")))
+        self.assertFalse(_is_safe_to_retry(RateLimitError("429 Too Many Requests")))
+
 
 class RetryLoopBehaviorTests(unittest.TestCase):
     """complete_text 内部重试循环——仅 transient 重试,指数退避 + cap + jitter。"""
@@ -91,10 +109,13 @@ class RetryLoopBehaviorTests(unittest.TestCase):
                             err = exc
         return content, err, comp.call_count, sleeps
 
-    def test_transient_retries_then_succeeds(self) -> None:
-        # 两次 transient(530 + 断流)后成功 → 第三次返回内容,completion 调 3 次,sleep 2 次。
+    def test_proven_not_sent_retries_then_succeeds(self) -> None:
         content, err, calls, sleeps = self._run(
-            side_effect=[Exception("Error 530"), ConnectionError("drop"), _ok("done")],
+            side_effect=[
+                RequestNotSentError("connect refused"),
+                RequestNotSentError("connect refused"),
+                _ok("done"),
+            ],
             retry_attempts=3,
         )
         self.assertIsNone(err)
@@ -112,20 +133,28 @@ class RetryLoopBehaviorTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         self.assertEqual(sleeps, [])
 
-    def test_transient_exhausts_attempts_then_raises(self) -> None:
-        # 全 transient 且耗尽 → 调满 attempts 次,sleep attempts-1 次,最终抛 RuntimeError。
+    def test_submission_unknown_stops_after_one_attempt(self) -> None:
         _content, err, calls, sleeps = self._run(
             side_effect=ConnectionError("persistent drop"),
             retry_attempts=3,
         )
         self.assertIsInstance(err, RuntimeError)
-        self.assertEqual(calls, 3)
-        self.assertEqual(len(sleeps), 2)
+        self.assertEqual(calls, 1)
+        self.assertEqual(sleeps, [])
+
+    def test_timeout_after_send_is_never_retried(self) -> None:
+        _content, err, calls, sleeps = self._run(
+            side_effect=[APITimeoutError("after send"), _ok("duplicate")],
+            retry_attempts=3,
+        )
+        self.assertIsInstance(err, RuntimeError)
+        self.assertEqual(calls, 1)
+        self.assertEqual(sleeps, [])
 
     def test_exponential_backoff_growth(self) -> None:
         # base=1, jitter=0 → 退避 1,2,4(指数 2^(n-1),非线性 1,2,3)。
         _content, _err, _calls, sleeps = self._run(
-            side_effect=ConnectionError("drop"),
+            side_effect=RequestNotSentError("connect refused"),
             retry_attempts=4,
             retry_backoff_seconds=1,
             retry_backoff_cap_seconds=100,
@@ -136,7 +165,7 @@ class RetryLoopBehaviorTests(unittest.TestCase):
     def test_backoff_capped(self) -> None:
         # base=10, cap=15 → 10,15,15(封顶,不无限翻倍烧延时)。
         _content, _err, _calls, sleeps = self._run(
-            side_effect=ConnectionError("drop"),
+            side_effect=RequestNotSentError("connect refused"),
             retry_attempts=4,
             retry_backoff_seconds=10,
             retry_backoff_cap_seconds=15,
@@ -147,7 +176,7 @@ class RetryLoopBehaviorTests(unittest.TestCase):
     def test_jitter_added_to_delay(self) -> None:
         # 退避 = min(指数,cap) + uniform(0,jitter);抖动错峰避免多实例重试同步拥堵。
         _content, _err, _calls, sleeps = self._run(
-            side_effect=ConnectionError("drop"),
+            side_effect=RequestNotSentError("connect refused"),
             uniform_return=0.5,
             retry_attempts=2,
             retry_backoff_seconds=1,

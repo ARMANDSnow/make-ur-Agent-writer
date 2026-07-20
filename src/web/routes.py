@@ -3247,6 +3247,15 @@ def _valid_inherited_drama_setup(raw: Any, *, episode_no: int) -> bool:
             return False
     if not isinstance(raw.get("introduces_new_characters", False), bool):
         return False
+    if episode_no > 1:
+        if raw.get("parent_episode_no") != episode_no - 1:
+            return False
+        parent_revision = raw.get("parent_episode_revision")
+        if (
+            not isinstance(parent_revision, str)
+            or re.fullmatch(r"[0-9a-f]{64}", parent_revision) is None
+        ):
+            return False
     try:
         core = DramaCoreSetup(**raw.get("core_setup"))
         if not core.protagonist:
