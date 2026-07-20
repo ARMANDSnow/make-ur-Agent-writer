@@ -726,6 +726,7 @@ def run_video_job(
                     workspace,
                     episode_no=1,
                     sample_id=sample_id,
+                    allow_incomplete_submission=True,
                 )
                 reported_cost, cost_unreported = _validated_video_cost_state(local_meta)
             except (FileNotFoundError, OSError, TypeError, ValueError):
@@ -1143,6 +1144,7 @@ def read_video(
     *,
     episode_no: int = 1,
     sample_id: str | None = None,
+    allow_incomplete_submission: bool = False,
 ) -> tuple[bytes, Dict[str, Any]]:
     sample_id = _validate_video_sample_id(sample_id)
     submission = read_video_submission(
@@ -1150,7 +1152,11 @@ def read_video(
         episode_no=episode_no,
         sample_id=sample_id,
     )
-    if submission is not None and submission.get("status") in VIDEO_INCOMPLETE_STATUSES:
+    if (
+        not allow_incomplete_submission
+        and submission is not None
+        and submission.get("status") in VIDEO_INCOMPLETE_STATUSES
+    ):
         raise ValueError("video is not downloadable while submission is incomplete")
     out = video_paths(
         workspace,

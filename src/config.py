@@ -26,7 +26,11 @@ def load_dotenv_if_available() -> None:
     # settings must never survive in a direct test process.
     if _running_under_unittest_discover():
         for key in RUNTIME_ENV_KEYS:
-            os.environ.pop(key, None)
+            # Preserve an explicitly blank value used by a focused test while
+            # removing every value that could select or authenticate a real
+            # provider.
+            if os.environ.get(key) not in (None, ""):
+                os.environ.pop(key, None)
         _pin_test_environment()
         return
     # Check before importing python-dotenv or constructing the file path.

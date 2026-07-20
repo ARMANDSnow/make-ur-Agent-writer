@@ -10,7 +10,7 @@ class TestEnvIsolationTests(unittest.TestCase):
         self.assertNotIn("OPENAI_BASE_URL", os.environ)
         self.assertNotIn("PLANNER_API_KEY", os.environ)
         self.assertNotIn("PLANNER_BASE_URL", os.environ)
-        self.assertNotIn("PLANNER_MODEL", os.environ)
+        self.assertEqual(os.environ.get("PLANNER_MODEL"), "mock")
         self.assertNotIn("AI_DRAW_ENDPOINT", os.environ)
         self.assertNotIn("AI_DRAW_BASE_URL", os.environ)
         self.assertNotIn("AI_DRAW_MODEL", os.environ)
@@ -18,6 +18,7 @@ class TestEnvIsolationTests(unittest.TestCase):
         self.assertNotIn("AI_DRAW_RESULT_HOSTS", os.environ)
         self.assertNotIn("SD_API_BASE_URL", os.environ)
         self.assertNotIn("SD_API_KEY", os.environ)
+        self.assertEqual(os.environ.get("SD_VIDEO_MODE"), "mock")
         self.assertNotIn("OPENAI_STREAM", os.environ)
 
 

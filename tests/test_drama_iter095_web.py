@@ -8,6 +8,7 @@ import unittest
 from src import character_designer, drama_reviewer, drama_store, paths, storyboard_builder
 from src.cli_workspace import init_workspace
 from src.drama_schemas import character_paths, episode_paths
+from src.utils import sha256_data
 from src.web import jobs, routes
 from tests._drama_base import DramaTestBase
 
@@ -207,6 +208,28 @@ class DramaIter095WebTests(DramaTestBase):
         for episode_no in range(1, 101):
             ep = episode_paths("drama", episode_no=episode_no)
             setup = {**base_setup, "episode_no": episode_no}
+            if episode_no > 1:
+                previous_meta = json.loads(
+                    episode_paths(
+                        "drama", episode_no=episode_no - 1
+                    ).meta_path.read_text(encoding="utf-8")
+                )
+                setup.update(
+                    {
+                        "parent_episode_no": episode_no - 1,
+                        "parent_episode_revision": sha256_data(
+                            {
+                                "episode_no": episode_no - 1,
+                                "input_fingerprint": previous_meta[
+                                    "input_fingerprint"
+                                ],
+                                "episode_sha256": previous_meta[
+                                    "episode_sha256"
+                                ],
+                            }
+                        ),
+                    }
+                )
             board = {**base_board, "episode_no": episode_no, "title": f"第 {episode_no} 集"}
             ep.setup_path.write_text(json.dumps(setup, ensure_ascii=False), encoding="utf-8")
             ep.storyboard_path.write_text(json.dumps(board, ensure_ascii=False), encoding="utf-8")

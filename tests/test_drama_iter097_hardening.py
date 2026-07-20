@@ -36,7 +36,8 @@ class DramaIter097BoundaryTests(DramaTestBase):
             "timeout_minutes": 2,
         })
         for view in (jobs.public_job_summary_view(record), jobs.public_job_detail_view(record)):
-            self.assertEqual(view["params"]["budget_cny"], 5)
+            self.assertEqual(view["params"], {})
+            self.assertFalse(view["retryable"])
             self.assertFalse(any(key.startswith("confirm_") for key in view["params"]))
 
     def test_media_dotenv_load_happens_only_after_strict_authorization(self) -> None:

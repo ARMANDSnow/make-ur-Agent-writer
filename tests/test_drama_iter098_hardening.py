@@ -261,7 +261,8 @@ class Iter098DramaHardeningTests(DramaTestBase):
         })
         jobs._persist_job(job)
         row = json.loads(jobs._job_log_path("job-consent").read_text(encoding="utf-8").splitlines()[-1])
-        self.assertEqual(row["params"], {"episode_no": 1, "budget_cny": 5})
+        self.assertEqual(row["params"], {})
+        self.assertFalse(row["retryable"])
 
     def test_corrupt_web_text_attempt_ledger_fails_closed(self) -> None:
         self._make_drama_workspace("text-ledger-corrupt", "推理")
