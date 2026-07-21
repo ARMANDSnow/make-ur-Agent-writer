@@ -73,6 +73,7 @@
 | 145 | 短剧生产来源图适配与 RenderPlan 绑定 | entity/rolling-summary exact authority bytes、完整图 membership 与可重算 selection binding；source drift 精确传播为 stale/blocked |
 | 146 | 短剧可失效 Context Memory Cache | text-free recent/summary/keyword identity cache、current H2/RenderPlan/policy exact binding、删除零影响与 drift/tamper 失效 |
 | 147 | 短剧同源生产工作台投影 | current inspectors 安全聚合、list/canvas 同 fingerprint、零写入 GET 与真实 Web 闭环 |
+| 148 | 短剧可移植项目归档 | strict portable snapshot、领域身份 preflight、exact media/evidence 与原子 no-overwrite 导入 |
 
 ## Iteration Implementation Index
 
@@ -201,6 +202,7 @@
 | 145 | 绑定生产来源快照、事件图与 RenderPlan 选择 | `src/drama_source_adapter.py`、`src/drama_render_plan.py`、`src/drama_render_store.py`、`src/drama_schemas.py` |
 | 146 | 建立可失效、text-free Context Memory Cache | `src/drama_context_memory.py`、`src/drama_schemas.py`、`tests/test_drama_context_memory.py` |
 | 147 | 建立同源只读 Production Workbench | `src/drama_production_workbench.py`、`src/drama_compose_web.py`、`src/web/`、`tests/test_drama_production_workbench.py` |
+| 148 | 建立可校验项目归档与安全导入 | `src/drama_project_archive.py`、`main.py`、`tests/test_drama_project_archive.py` |
 
 ## Durable Decisions
 
@@ -233,6 +235,7 @@
 - 每轮 iteration 保留 8 段结构、验收命令、审查结论与未修风险。
 - iter112 起在原 8 段内维护结构化 Implementation/Review Context 与 Knowledge Promotion；它们只为实现和审查路由服务，不创建第二套任务状态。`must_read` 与晋升目标必须是 Git tracked 的仓库相对普通文件，accepted 前轮不能因新 active 轮出现而停止复核。
 - 聚合交付包从 canonical assembled JSON 重建；不直接归档工作目录，manifest 只公开受控字段并对成员做 SHA-256。
+- 可移植项目 archive 也不是 raw workspace backup：creative 必须经 strict allowlist 重建，selection/render/timeline/QA/delivery 除 member hash 外还要交叉绑定领域身份。导入只能原子 no-overwrite 创建新 workspace；receipt 驱动的 re-export 可证明快照内部一致，但无签名/MAC 时不证明外部 provenance，也不等于可继续 provider 任务的 runnable workspace。
 - LLM 调用、writer meta、review、driver state、style drift 和媒体 attempt 只记录排障所需的有界、脱敏数据。
 - 运行中的草稿、失败、snapshot 和 resume 状态要完整落盘；成功/拒稿/中止不能靠文件是否存在猜测。
 - 计费恢复身份要区分不可变上游输入与本次站点输出；callback/ledger 提交前崩溃时只能凭 durable receipt、provider 与产物血统零网络收尾，不能用会被本次结果改写的全量输入指纹判断 stale。

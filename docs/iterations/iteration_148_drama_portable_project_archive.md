@@ -45,7 +45,12 @@ iter147 已完成 I1 同源只读 production workbench，A-J 阶段 I 剩余的�
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- `A148-01` 通过：v1 manifest 的 member path/partition/size/SHA-256/MIME/schema 可重算，ZIP 字节确定；portable creative、typed selection、selected/reference PNG、timeline/source/delivery 与脱敏 evidence 均从 current authority 明确枚举。
+- `A148-02` 通过：zip-slip、绝对/反斜线、duplicate/case collision、symlink/特殊属性、bomb/上限、未登记 member、坏 size/hash/MIME/schema、伪 PNG/私有 chunk、重算后 selection/delivery/owner 换接均在 target 写入前拒绝。
+- `A148-03` 通过：export→preflight→import→re-export 保持 member/project/archive、selection、render、timeline、strict QA 和 MP4 identity；import 只原子 no-overwrite 创建新 workspace，并如实区分 `confirmed/commit_uncertain`。CLI 与聚焦验证均零 provider/network。
+- `A148-04` 通过：语法、harness、diff check 与 31 项聚焦回归通过。correctness、security/boundary、archive/migration 三路独立只读审查关闭全部 findings，最终无 P0-P3。
+- `A148-05` 通过：implementation commit `62f4f7ac9f6f11508e8b7504e18208686c011eb7` 上只运行一次 `bash scripts/verify.sh`，2863 tests、15 steps、440 秒、exit 0；run `48433ccc61784cb189a952c2d2bebd97`，tree `d62ed3f9c7ec8dd0fdb67b4ae4e363756d9a93d0`，`tracked_scope_clean=true`，标准结论 `mock-functional` / `canonical-mock-offline`。archive synthetic round-trip 属 `local-e2e`，`provider_validated=false`。
+- 真模型验证：`safe-blocked`。本地 `key.rtf` 仍只含脱敏占位而非可用 secret，且 iter147 已在同 endpoint 得到两次 401/0 model response；本轮不重复发送注定无效的请求。新增 0 HTTP/model call、0 图、0 TTS，无新增 token 或已知费用；未找到用户指向的 `sd_real_max.md`，因此不声称任何真 provider 结论。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

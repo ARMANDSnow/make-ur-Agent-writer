@@ -12,7 +12,7 @@
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
 - **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
-- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 本地合成/QA/exact delivery、G1-G7 持久媒体调度/计价/metrics、H1-H3 事件图/辅助记忆，以及 I1 同源只读 production workbench。
+- **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 本地合成/QA/exact delivery、G1-G7 持久媒体调度/计价/metrics、H1-H3 事件图/辅助记忆，以及 I1 同源只读 production workbench 与 I2 可校验迁移/交付快照。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -105,6 +105,7 @@ docs/iterations/           逐轮审计记录
 | `apply-advance` | 关系推进审批/自动应用 |
 | `drive-book start/status/resume/stop/report` | 长程驱动与恢复 |
 | `style-fingerprint` / `style-drift` | 文风 baseline、检测与报告 |
+| `drama-project-archive export/preflight/import` | 短剧项目可移植快照导出、安全预检与新 workspace 导入 |
 | `web --port 8765` | 本地 Web 工作台 |
 | `preflight` / `status` / `estimate-cost` | 守门、状态与成本 |
 
@@ -170,12 +171,13 @@ docs/iterations/           逐轮审计记录
 | 短剧生产来源图适配与 RenderPlan 绑定 | 145 | ✅ entity/rolling-summary exact authority bytes 构建 H1 graph；RenderPlan 冻结完整图 membership 与可重算 selection binding，source drift 精确进入 stale/blocked |
 | 短剧可失效 Context Memory Cache | 146 | ✅ text-free recent/summary/keyword identity cache 绑定 current H2 graph、RenderPlan 与 policy exact bytes；删除不影响 canonical，drift/tamper 精确 stale/blocked |
 | 短剧同源生产工作台 | 147 | ✅ strict/bounded 安全投影聚合资产、镜头、attempt/task、时间线、QA 与交付；list/canvas 同 fingerprint，真实浏览器桌面/移动验收通过 |
+| 短剧可移植项目归档 | 148 | ✅ 确定性有上限 ZIP、strict manifest/领域绑定、脱敏 creative/evidence、exact PNG/media 与原子 no-overwrite 导入形成 I2 本地闭环 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 147**（2026-07-21，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter147 新增 I1 drama-only 同源只读 production workbench：后端从 current inspectors 聚合 RenderPlan/source binding、selected assets、逐镜 image/video、attempt/task、timeline/QA/delivery，list/canvas 共享可重算 fingerprint，页面零 mutation/provider 且不泄露 prompt、路径或 paid raw state。真实本地浏览器已覆盖桌面列表/画布、键盘切换与 390px 窄屏。A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1 已形成纯本地链；I2 archive export/import 仍待实现。iter142 的 5.042 秒窄样本仍为 `provider-validated`，iter143 的 20 秒 create 不明样本仍为 `safe-blocked`且不得自动重提；TTS 仍未测试。完整目标流程来自 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)，不是已完成能力清单。总工程验收仍为 `mock-functional`，mandatory local-drama 组件与本轮真实 Web 为 `local-e2e`。
+最近一次更新：**iter 148**（2026-07-21，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。I1 drama-only 工作台继续从 current inspectors 提供同源只读 list/canvas；iter148 完成 I2 `drama-project-archive export/preflight/import`，以 strict portable creative、typed selection、exact selected/reference PNG、timeline/source/delivery 和脱敏 evidence 构建确定性快照，导入只能原子 no-overwrite 创建新 drama workspace。它是可校验的迁移/交付 snapshot，不是可继续调 provider 的 raw backup。A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 已形成纯本地链。iter142 的 5.042 秒窄样本仍为 `provider-validated`，iter143 的 20 秒 create 不明样本仍为 `safe-blocked`且不得自动重提；当前文本 key 仍是脱敏占位，TTS 未测试。完整目标流程来自 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)。总工程验收仍为 `mock-functional`，mandatory local-drama 与 archive round-trip 为 `local-e2e`，不代表当前凭据已完成真 provider 校准。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -215,7 +217,7 @@ docs/iterations/           逐轮审计记录
 | F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | 🟨 | **F1-F3 本地闭环已完成**：固定 1080×1920/25fps H.264/AAC 的 argv-only compose/QA，加同源 ASS、六轨 vendor-neutral edit project、素材 SHA/revision、completion marker、持久 E3/current gate、本地 Web compose job、durable overview 与四类 exact download；特定 NLE adapter、多 profile、更广 codec/container 与公网流式交付待完成 |
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | 🟨 | **G1-G7 已完成**：strict DAG、owner-guarded lease/capacity、代码内 registry、provider task+binding 单次原子入队、安全 get/bounded wait/cancel、explicit paid bridge/owner-context guarded execution、六类 append-only pricing facts/精确定点金额/分币种 unknown-safe Insights，以及 durable ready/first-claim/terminal lifecycle 与 terminal-denominator 成功率/known-unknown queue/run metrics 已实现；crash takeover、pricing/lifecycle evidence 仍依赖权威 paid bridge/ledger 与应用层 sidecar，generic 状态不替代 provider billing。真实 provider adapter 待实现 |
 | H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ✅ | **H1-H3 纯本地闭环已完成**：typed event graph 保留 source/invented/unknown causal/strict lineage；production adapter 绑定 entity/rolling-summary exact authority bytes；text-free recent/summary/keyword identity cache 精确绑定 current graph、selection、RenderPlan 与 policy bytes，删除不影响 canonical，drift/tamper 只使 cache stale/blocked |
-| I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | 🟨 | **I1 已完成**：strict/bounded 后端安全投影与 drama-only list/canvas Web 共享 fingerprint，零 mutation/provider，桌面/窄屏真实浏览器通过。I2 含媒体/证据的可移植 archive export/import 待完成 |
+| I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ✅ | **I1+I2 纯本地闭环已完成**：I1 strict/bounded list/canvas Web 共享 fingerprint，零 mutation/provider；I2 确定性 ZIP 在导入前完整核对 creative/selection/render/timeline/source/QA/delivery 身份，只创建新 workspace，不带完整 prompt、provider raw 或可重放付费授权。archive 是可校验 snapshot，非 runnable raw backup |
 | J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118 与 iter124 各完成一次五站真文本 + 2 张角色真图局部校准，iter123 有 synthetic 最小校准，iter125-130/133-138/140 文本协议校准通过。iter142 固定样本完成一次 5.042 秒真视频；iter143 的 20 秒机会在确认 2 个素材后 create 结果不明，任务数仍为 2、无产物、费用 unknown、0 自动重试。真语音、长时视频质量、全角色/多题材、逐镜/完整单集/多集和 SLA 仍未验证 |
 | 现有规划之外：平台发布 | 将成片上传到抖音、快手、视频号等平台 | ⏳ | A-J 没有发布 adapter、账号审核或回执状态设计；现阶段只能人工发布，后续需另行规划 |
 
