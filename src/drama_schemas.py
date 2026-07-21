@@ -9528,3 +9528,217 @@ class DramaEventProjection(BaseModel):
         if _canonical_sha256(payload) != self.projection_fingerprint:
             raise ValueError("event projection fingerprint is invalid")
         return self
+
+
+DRAMA_CONTEXT_MEMORY_MAX_RECORDS = 256
+DRAMA_CONTEXT_MEMORY_MAX_KEYWORDS = 64
+_DRAMA_CONTEXT_MEMORY_ID_PATTERN = r"^dcm_[0-9a-f]{24}$"
+DramaContextMemoryRole = Literal["keyword", "recent", "summary"]
+
+
+class DramaContextMemoryRecord(BaseModel):
+    """One text-free cache record bound to an exact H2 source event."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    event_id: str = Field(pattern=_DRAMA_EVENT_ID_PATTERN)
+    event_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    chronology_order: int = Field(ge=1, le=1_000_000)
+    roles: tuple[DramaContextMemoryRole, ...] = Field(min_length=1, max_length=3)
+    keyword_hashes: tuple[str, ...] = Field(
+        default=(), max_length=DRAMA_CONTEXT_MEMORY_MAX_KEYWORDS
+    )
+    record_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("chronology_order", mode="before")
+    @classmethod
+    def _memory_order_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("context memory chronology must be a strict integer")
+        return value
+
+    @field_validator("roles", "keyword_hashes", mode="before")
+    @classmethod
+    def _memory_sequences_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> tuple[Any, ...]:
+        if type(value) not in (list, tuple):
+            raise ValueError(f"{info.field_name} must be a list or tuple")
+        if any(type(item) is not str for item in value):
+            raise ValueError(f"{info.field_name} must contain exact strings")
+        return tuple(value)
+
+    @field_validator(
+        "event_id",
+        "event_fingerprint",
+        "source_fingerprint",
+        "record_fingerprint",
+        mode="before",
+    )
+    @classmethod
+    def _memory_record_strings_are_exact(cls, value: Any, info: Any) -> str:
+        if type(value) is not str:
+            raise ValueError(f"{info.field_name} must be an exact string")
+        return value
+
+    @model_validator(mode="after")
+    def _memory_record_is_content_addressed(self) -> "DramaContextMemoryRecord":
+        if self.event_id != f"dse_{self.event_fingerprint[:24]}":
+            raise ValueError("context memory event identity is invalid")
+        role_order = {"keyword": 0, "recent": 1, "summary": 2}
+        if (
+            list(self.roles) != sorted(self.roles, key=role_order.__getitem__)
+            or len(self.roles) != len(set(self.roles))
+            or list(self.keyword_hashes) != sorted(self.keyword_hashes)
+            or len(self.keyword_hashes) != len(set(self.keyword_hashes))
+            or any(re.fullmatch(_SHA256_PATTERN, item) is None for item in self.keyword_hashes)
+            or (("keyword" in self.roles) != bool(self.keyword_hashes))
+        ):
+            raise ValueError("context memory roles or keyword hashes are invalid")
+        payload = self.model_dump(exclude={"record_fingerprint"})
+        if self.record_fingerprint != _canonical_sha256(payload):
+            raise ValueError("context memory record fingerprint is invalid")
+        return self
+
+
+class DramaContextMemoryCache(BaseModel):
+    """Disposable H3 cache; all authority remains in H2 graph/RenderPlan."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    cache_id: str = Field(pattern=_DRAMA_CONTEXT_MEMORY_ID_PATTERN)
+    workspace_scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    season_no: int = Field(ge=1, le=999)
+    episode_no: int = Field(ge=1, le=MAX_DRAMA_EPISODE_NO)
+    graph_family_id: str = Field(pattern=_DRAMA_EVENT_ENTITY_ID_PATTERN)
+    graph_scope_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    source_snapshot_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    graph_id: str = Field(pattern=_DRAMA_EVENT_GRAPH_ID_PATTERN)
+    graph_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    graph_event_records: tuple[DramaEventGraphRecord, ...] = Field(
+        min_length=1,
+        max_length=DRAMA_EVENT_GRAPH_MAX_EVENTS,
+    )
+    selected_event_ids: tuple[str, ...] = Field(min_length=1, max_length=256)
+    source_projection_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    render_plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    policy_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    records: tuple[DramaContextMemoryRecord, ...] = Field(
+        min_length=1,
+        max_length=DRAMA_CONTEXT_MEMORY_MAX_RECORDS,
+    )
+    cache_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("season_no", "episode_no", mode="before")
+    @classmethod
+    def _memory_scope_numbers_are_strict(cls, value: Any, info: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{info.field_name} must be a strict integer")
+        return value
+
+    @field_validator(
+        "graph_event_records",
+        "selected_event_ids",
+        "records",
+        mode="before",
+    )
+    @classmethod
+    def _memory_cache_sequences_are_strict(
+        cls,
+        value: Any,
+        info: Any,
+    ) -> tuple[Any, ...]:
+        if type(value) not in (list, tuple):
+            raise ValueError(f"{info.field_name} must be a list or tuple")
+        if info.field_name == "selected_event_ids":
+            if any(type(item) is not str for item in value):
+                raise ValueError("selected_event_ids must contain exact strings")
+        elif info.field_name == "graph_event_records":
+            if any(type(item) not in (dict, DramaEventGraphRecord) for item in value):
+                raise ValueError("graph_event_records contain an invalid container")
+        elif any(type(item) not in (dict, DramaContextMemoryRecord) for item in value):
+            raise ValueError("records contain an invalid container")
+        return tuple(value)
+
+    @field_validator(
+        "cache_id",
+        "workspace_scope_fingerprint",
+        "graph_family_id",
+        "graph_scope_fingerprint",
+        "source_snapshot_fingerprint",
+        "graph_id",
+        "graph_fingerprint",
+        "source_projection_fingerprint",
+        "render_plan_fingerprint",
+        "policy_fingerprint",
+        "cache_fingerprint",
+        mode="before",
+    )
+    @classmethod
+    def _memory_cache_strings_are_exact(cls, value: Any, info: Any) -> str:
+        if type(value) is not str:
+            raise ValueError(f"{info.field_name} must be an exact string")
+        return value
+
+    @model_validator(mode="after")
+    def _memory_cache_is_content_addressed(self) -> "DramaContextMemoryCache":
+        if self.episode_no > MAX_DRAMA_EPISODE_NO:
+            raise ValueError("context memory episode is invalid")
+        if self.workspace_scope_fingerprint == self.graph_scope_fingerprint:
+            raise ValueError("context memory graph scope is invalid")
+        if self.graph_scope_fingerprint != drama_event_graph_family_scope_fingerprint(
+            workspace_scope_fingerprint=self.workspace_scope_fingerprint,
+            graph_family_id=self.graph_family_id,
+        ):
+            raise ValueError("context memory graph family binding is invalid")
+        graph_records = [item.model_dump() for item in self.graph_event_records]
+        if (
+            self.graph_id != f"deg_{self.graph_fingerprint[:24]}"
+            or [(item.chronology_order, item.event_id) for item in self.graph_event_records]
+            != sorted(
+                (item.chronology_order, item.event_id)
+                for item in self.graph_event_records
+            )
+            or len({item.event_id for item in self.graph_event_records})
+            != len(self.graph_event_records)
+            or _canonical_sha256(
+                _drama_event_graph_identity_payload(
+                    workspace_scope_fingerprint=self.workspace_scope_fingerprint,
+                    scope_fingerprint=self.graph_scope_fingerprint,
+                    records=graph_records,
+                )
+            )
+            != self.graph_fingerprint
+            or list(self.selected_event_ids) != sorted(self.selected_event_ids)
+            or len(self.selected_event_ids) != len(set(self.selected_event_ids))
+        ):
+            raise ValueError("context memory graph identity is invalid")
+        graph_by_id = {item.event_id: item for item in self.graph_event_records}
+        if not set(self.selected_event_ids).issubset(graph_by_id):
+            raise ValueError("context memory selection crosses graph membership")
+        record_ids = [item.event_id for item in self.records]
+        if (
+            [(item.chronology_order, item.event_id) for item in self.records]
+            != sorted((item.chronology_order, item.event_id) for item in self.records)
+            or len(record_ids) != len(set(record_ids))
+            or not set(record_ids).issubset(self.selected_event_ids)
+        ):
+            raise ValueError("context memory record selection is invalid")
+        for record in self.records:
+            member = graph_by_id[record.event_id]
+            if (
+                member.event_fingerprint != record.event_fingerprint
+                or member.chronology_order != record.chronology_order
+            ):
+                raise ValueError("context memory membership proof is invalid")
+        payload = self.model_dump(exclude={"cache_id", "cache_fingerprint"})
+        fingerprint = _canonical_sha256(payload)
+        if self.cache_fingerprint != fingerprint:
+            raise ValueError("context memory cache fingerprint is invalid")
+        if self.cache_id != f"dcm_{fingerprint[:24]}":
+            raise ValueError("context memory cache id is invalid")
+        return self

@@ -561,7 +561,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 - **v11** 2026-07-18 · 登记 G6 strict pricing facts 与分币种 Insights
 - **v12** 2026-07-18 · 登记 G7 durable lifecycle metrics 与成功率/等待时间 Insights
 - **v13** 2026-07-18 · 登记 H1 typed source event graph、来源与 spoiler boundary
-- **v14** 2026-07-21 · 登记 H2 production entity/summary adapter 与 RenderPlan exact graph binding（**当前版本**）
+- **v14** 2026-07-21 · 登记 H2 production entity/summary adapter 与 RenderPlan exact graph binding
+- **v15** 2026-07-21 · 登记 H3 text-free context memory cache、current binding 与失效协议（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -593,7 +594,7 @@ episode_NN.json / characters / reviews
 
 ## 11. 完整生产 SOP（实时状态）
 
-本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 125，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
+本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 146，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
 
 状态图例：
 
@@ -652,7 +653,7 @@ drama workspace
 | E. 配音、旁白、字幕与唯一时间线 | RenderPlan spoken segments、voice profiles、selected video、BGM/SFX policy | 每句独立 TTS attempt；合成 POST 与下载 GET 分账；probe 实际时长；构建 `TimelineManifest` 和 subtitle cues | overlap、越界、非有限数、台词超镜头、坏字幕 fail-closed；下载失败不重新合成；无 BGM 按 policy warning/blocked | ✅ **E1-E3 纯本地闭环已完成**：VoiceProfile、AudioManifest、once-only TTS recovery、strict TimelineManifest、optional BGM/SFX 与同源 SRT；真实 TTS/BGM/SFX 和主观音频质量未验证 |
 | F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1-F3 本地与 Web 闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程；F3 将 E3 成功结果持久化为 Web 唯一输入，提供本地 compose job、durable QA truth 与 exact MP4/SRT/ASS/edit 下载。FFmpeg 单线程、跨 workspace 单槽、总源集 128 MiB、生成/验证/交付单一 64 MiB 上限；current D4/E3、F1/F2 与返回字节在同一锁快照验证，真实本地 episode 2 已覆盖。特定 NLE 私有格式、多 profile、更广 codec/container 与真实媒体质量仍未闭环 |
 | G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1-G7 持久调度、pricing 与 lifecycle metrics 已实现**：episode-scoped strict DAG、worker lease/capacity lane、代码内 registry、provider task+frozen binding 原子入队、纯本地 queue client、owner-guarded execution loop、六类 append-only pricing facts，以及 durable ready/first-claim/terminal lifecycle 与 success/queue/run Insights 已落地。generic task/pricing 只绑定受控 evidence fingerprint，不保存 provider task/response 或替代 paid ledger/billing。真实 adapter/账单对接尚未实现 |
-| H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | 🟨 **H1+H2 本地核心已实现**：H1 提供 strict typed graph、来源/改编/因果/lineage 与 no-follow store；H2 从 named workspace 的 exact entity/rolling-summary bytes 双读重建 production graph，RenderPlan 冻结 family/snapshot/full-graph/projection/selected IDs/boundary，来源漂移 stale、缺失/损坏 blocked，旧 unbound workspace 兼容。H3 可失效 context memory、Web/UI 与真实提取仍未实现 |
+| H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ✅ **H1-H3 纯本地闭环已实现**：H1 提供 strict typed graph 与来源/改编/因果/lineage；H2 从 named workspace exact entity/rolling-summary bytes 重建 production graph 并冻结 RenderPlan binding；H3 只缓存 exact event/source identity，以 hashed keyword + recent + summary 零网络查询，绑定 workspace/season/episode/source/graph/RenderPlan/policy，current 漂移 stale/blocked，cache missing/delete 不影响 canonical。公开 Web/UI 与真实提取仍由 I/J 承接 |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
 | J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清 provider/model/account fingerprint、提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F。当前为 `mock-functional` + fake-provider `local-e2e`、`provider_validated=false` |
 
@@ -770,7 +771,7 @@ graph 对 event、source identity、causal parent 与 merge/split lineage 做全
 
 持久 graph 是 workspace-local immutable artifact：canonical envelope/bytes、8 MiB 上限、逐级 no-follow 目录、create-once hard-link commit 和 exact replay；symlink、目录、坏/重复 JSON、非 canonical bytes、scope/source splice 或 ID/hash drift 均 fail closed。graph fingerprint 由完整有序且逐条 content-addressed 的 event ID/fingerprint membership records 产生；selection 携带该安全 manifest proof，对显式 event IDs 递归加入 causal + lineage ancestors，要求结果恰好等于按 graph order 排列的最小闭包，并在返回任何内容前核对允许 chapter ID 与最大 spoiler boundary。任一 selected/ancestor/source 越界、omitted 混入、unselected/cross-graph event 注入时整体拒绝，不返回 partial graph。projection 没有专用自由文本、provider、credential 或 embedding 字段，但 opaque atom 仍是调用方可信输入，不能据此宣称它天然适合公开。
 
-这些 source hash、event/graph fingerprint 和 create-once 规则只证明 caller-trusted 结构化 assertion 的内部一致性与内容 identity；H1 不读取 chapter bytes 对账，也没有签名、MAC 或外部 source ledger，不能抵抗有本机写权限者离线重写完整原始 graph 并生成一套全新 ID。H2 已补上当前本地 entity/summary authority bytes 与 RenderPlan 的 production binding；context memory 与 UI 仍由 H3/I 后续承接。H1 单独只证明 synthetic `mock-functional` contract，H2 也不把本地 content identity 升格为签名 provenance。
+这些 source hash、event/graph fingerprint 和 create-once 规则只证明 caller-trusted 结构化 assertion 的内部一致性与内容 identity；H1 不读取 chapter bytes 对账，也没有签名、MAC 或外部 source ledger，不能抵抗有本机写权限者离线重写完整原始 graph 并生成一套全新 ID。H2 已补上当前本地 entity/summary authority bytes 与 RenderPlan 的 production binding；H3 只消费该 binding 并保持 disposable，UI 仍由 I 承接。H1 单独只证明 synthetic `mock-functional` contract，H2/H3 也不把本地 content identity 升格为签名 provenance。
 
 #### H2 Production Source Adapter 与 RenderPlan Graph Binding
 
@@ -780,7 +781,15 @@ adapter 每个章节事件只持久化 source chapter id/no/hash、opaque entity
 
 生产 RenderPlan store 不接受 caller-supplied projection 加任意 hash 自证 provenance；入口只接 graph family、selected event IDs 与 spoiler boundary，内部从当前 authority bytes 重建完整 graph 和 exact closure projection。RenderPlan 只在派生层冻结 family、source snapshot、full graph、workspace/family scope、projection、selected/allowed ids 与 boundary；创作 episode、episode SHA 和 creative fingerprint 不变，没有逐镜显式映射时 shot-level event ids 保持空。inspect 每次重读 current authority：合法 byte drift 或 full graph 变化为 stale，source 缺失/损坏/unsafe 为 blocked；写入 precommit 再重建一次，变化时不覆盖旧 plan。旧无 binding RenderPlan 继续按原 fingerprint/freshness 运行。
 
-这里的“authority”仅指当前本地 named-workspace entity/summary 文件在合作锁域和 exact double-read 下的字节身份，不是签名、MAC 或外部版权 provenance；有本机写权限者仍可整套重写来源与派生物。H3 context memory 与公开 Web projection 仍需独立实现和安全审查。
+这里的“authority”仅指当前本地 named-workspace entity/summary 文件在合作锁域和 exact double-read 下的字节身份，不是签名、MAC 或外部版权 provenance；有本机写权限者仍可整套重写来源与派生物。公开 Web projection 仍需由阶段 I 独立实现和安全审查。
+
+#### H3 Disposable Context Memory Cache
+
+H3 不增加第四层创作真源。每个 cache 固定绑定 workspace/project scope、season、episode、graph family、source snapshot、完整有序 graph membership、H2 selected event IDs/selection binding、RenderPlan fingerprint 与 context policy fingerprint；每条 record 再逐条绑定 event ID/fingerprint、source fingerprint 与 chronology。current inspect 会从 production entity/rolling-summary authority 和 current RenderPlan 重新构造 H2 closure，并逐条对账 record source；source/graph/selection/RenderPlan/policy 任一漂移都返回 stale，authority 或 RenderPlan 不可用返回 blocked。删除、缺失或损坏 cache 不会修改或遮蔽 canonical episode、RenderPlan 和 event graph，也不阻止这些权威产物独立读取。
+
+recent、summary 与 keyword 三类 memory 都只保存 event identity。keyword 在内存中做 NFKC/trim/casefold 后哈希，持久化只含 hash 与 event IDs，不保存明文查询；这减少直接泄漏但不是加密，低熵词仍可能被离线字典猜测，因此 cache 不能作为公开匿名数据。默认 policy fingerprint 绑定 `config/agents.yaml`、短剧创作规范、H3 builder 与 RenderPlan builder 的 exact bytes；策略变化会使旧 cache stale。当前没有 embedding 分支、模型下载、LLM 或 socket 调用，查询按 keyword → recent → summary 确定性去重并受限返回；未来若引入本地 embedding，必须另立显式安装/cache/零下载测试与隐私审查。
+
+持久 cache 使用 canonical strict JSON、2 MiB 上限、workspace/season/episode 隔离、逐级 no-follow 目录与 workspace lock；missing create 以 temp + fsync + hard-link no-overwrite 提交，已存在 cache 只有显式 replacement 才在合作锁域内经 target-token guard 后 replace，并在 commit/replay 前重建 current binding。duplicate/nonfinite/unknown schema、symlink/目录/特殊文件、跨 scope、full membership/selection/record tamper 均 fail closed；坏目标不会被自动覆盖。replacement 的 token guard 不是针对非合作本机写者的 OS compare-and-swap，本地 content hash 也不是签名或 MAC；cache 是可删除派生物，不能据此声称 hostile-writer 防篡改。
 
 ### 11.4 依赖顺序与完成口径
 
@@ -794,7 +803,7 @@ adapter 每个章节事件只持久化 source chapter id/no/hash、opaque entity
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 140，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，G1-G7 持久媒体任务 DAG/worker/registry/execution/pricing/lifecycle metrics，以及 H1 typed source event graph 核心已形成可恢复、可重建的纯本地工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体，G 的真实 adapter/账单，H 的 production adapter/RenderPlan/context memory，I 的工作台/归档仍有缺口，J 也只具备真文本和少量角色图的局部校准证据。
+截至 iter 146，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，G1-G7 持久媒体任务 DAG/worker/registry/execution/pricing/lifecycle metrics，以及 H1-H3 source event graph、production authority binding 与 disposable context memory 已形成可恢复、可重建的纯本地工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体，G 的真实 adapter/账单，I 的工作台/归档仍有缺口，J 也只有历史局部校准证据。
 
 ### 11.5 规划外边界
 
