@@ -135,7 +135,7 @@ def chapter_anchor(chapter_no: int) -> str:
 _ANCHOR_RE = re.compile(r"^续写第(\d+)章$")
 
 
-def _anchor_chapter_no(text: str) -> int | None:
+def parse_chapter_anchor(text: str) -> int | None:
     """反解 chapter_anchor 产出的锚点串；非本格式（源书锚点等）返回 None。"""
     match = _ANCHOR_RE.match(text.strip())
     if not match:
@@ -144,6 +144,10 @@ def _anchor_chapter_no(text: str) -> int | None:
         return int(match.group(1))
     except ValueError:
         return None
+
+
+# Backward-compatible private alias for the iter078 internal callers.
+_anchor_chapter_no = parse_chapter_anchor
 
 
 def unapplied_auto_indexes(

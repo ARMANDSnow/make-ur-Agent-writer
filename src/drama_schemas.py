@@ -741,6 +741,26 @@ def _canonical_sha256(data: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def drama_render_source_projection_fingerprint(
+    *,
+    graph_fingerprint: str,
+    selected_event_ids: List[str],
+    allowed_source_chapter_ids: List[str],
+    max_spoiler_boundary: int,
+) -> str:
+    """Fingerprint the exact H2 graph selection policy frozen in RenderPlan."""
+
+    return _canonical_sha256(
+        {
+            "schema_version": 1,
+            "graph_fingerprint": graph_fingerprint,
+            "selected_event_ids": selected_event_ids,
+            "allowed_source_chapter_ids": allowed_source_chapter_ids,
+            "max_spoiler_boundary": max_spoiler_boundary,
+        }
+    )
+
+
 class ArtDirectionRef(BaseModel):
     """Optional immutable art-direction selection supplied by a later stage."""
 
@@ -2998,6 +3018,29 @@ SpokenSegment = Annotated[
 ]
 
 
+class RenderPlanSourceEventGraphRecord(BaseModel):
+    """Safe full-graph membership proof frozen into an H2 RenderPlan."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    chronology_order: int = Field(ge=1, le=1_000_000)
+    event_id: str = Field(pattern=r"^dse_[0-9a-f]{24}$")
+    event_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("chronology_order", mode="before")
+    @classmethod
+    def _record_order_is_strict(cls, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("render source event record order must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def _record_identity_is_consistent(self) -> "RenderPlanSourceEventGraphRecord":
+        if self.event_id != f"dse_{self.event_fingerprint[:24]}":
+            raise ValueError("render source event record identity is invalid")
+        return self
+
+
 class RenderShot(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -3065,6 +3108,47 @@ class RenderPlan(BaseModel):
     shots: List[RenderShot] = Field(min_length=1, max_length=100)
     spoken_segments: List[SpokenSegment] = Field(default_factory=list, max_length=200)
     source_event_ids: List[str] = Field(default_factory=list, max_length=256)
+    source_event_graph_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^deg_[0-9a-f]{24}$",
+    )
+    source_event_graph_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    source_event_graph_records: Optional[List[RenderPlanSourceEventGraphRecord]] = Field(
+        default=None,
+        max_length=1000,
+    )
+    source_event_projection_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    source_event_workspace_scope_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    source_event_scope_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    source_event_graph_family_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$",
+    )
+    source_event_snapshot_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=_SHA256_PATTERN,
+    )
+    source_event_allowed_chapter_ids: Optional[List[str]] = Field(
+        default=None,
+        max_length=1000,
+    )
+    source_event_spoiler_boundary: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=100_000,
+    )
     plan_fingerprint: str = Field(pattern=_SHA256_PATTERN)
 
     @field_validator("episode_no", mode="before")
@@ -3098,14 +3182,111 @@ class RenderPlan(BaseModel):
     def _plan_event_ids_are_unique(cls, value: Any) -> List[str]:
         if not isinstance(value, list):
             raise ValueError("source_event_ids must be a list")
-        if any(not isinstance(item, str) or not item or len(item) > 80 for item in value):
+        if any(
+            not isinstance(item, str)
+            or re.fullmatch(r"^dse_[0-9a-f]{24}$", item) is None
+            for item in value
+        ):
             raise ValueError("source_event_ids contain an invalid id")
         if len(value) != len(set(value)):
             raise ValueError("source_event_ids must be unique")
         return value
 
+    @field_validator("source_event_allowed_chapter_ids", mode="before")
+    @classmethod
+    def _plan_source_chapter_ids_are_canonical(
+        cls,
+        value: Any,
+    ) -> Optional[List[str]]:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("source_event_allowed_chapter_ids must be a list")
+        if (
+            value != sorted(value)
+            or len(value) != len(set(value))
+            or any(
+                not isinstance(item, str)
+                or re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$", item) is None
+                for item in value
+            )
+        ):
+            raise ValueError("source_event_allowed_chapter_ids are invalid")
+        return value
+
     @model_validator(mode="after")
     def _render_plan_is_internally_consistent(self) -> "RenderPlan":
+        event_binding = (
+            self.source_event_graph_id,
+            self.source_event_graph_fingerprint,
+            self.source_event_graph_records,
+            self.source_event_projection_fingerprint,
+            self.source_event_workspace_scope_fingerprint,
+            self.source_event_scope_fingerprint,
+            self.source_event_graph_family_id,
+            self.source_event_snapshot_fingerprint,
+            self.source_event_allowed_chapter_ids,
+            self.source_event_spoiler_boundary,
+        )
+        if any(value is not None for value in event_binding):
+            if any(value is None for value in event_binding) or not self.source_event_ids:
+                raise ValueError("render plan source event binding is incomplete")
+            if self.source_event_workspace_scope_fingerprint == self.source_event_scope_fingerprint:
+                raise ValueError("render plan source event scopes must differ")
+            if self.source_event_scope_fingerprint != (
+                drama_event_graph_family_scope_fingerprint(
+                    workspace_scope_fingerprint=(
+                        self.source_event_workspace_scope_fingerprint
+                    ),
+                    graph_family_id=self.source_event_graph_family_id,
+                )
+            ):
+                raise ValueError("render plan source event family scope is invalid")
+            if self.source_event_graph_id != (
+                f"deg_{self.source_event_graph_fingerprint[:24]}"
+            ):
+                raise ValueError("render plan source event graph identity is invalid")
+            records = [item.model_dump() for item in self.source_event_graph_records]
+            record_ids = {item["event_id"] for item in records}
+            if (
+                not records
+                or [
+                    (item["chronology_order"], item["event_id"])
+                    for item in records
+                ]
+                != sorted(
+                    (item["chronology_order"], item["event_id"])
+                    for item in records
+                )
+                or len({item["event_id"] for item in records}) != len(records)
+                or _canonical_sha256(
+                    {
+                        "schema_version": 1,
+                        "workspace_scope_fingerprint": (
+                            self.source_event_workspace_scope_fingerprint
+                        ),
+                        "scope_fingerprint": self.source_event_scope_fingerprint,
+                        "event_records": records,
+                    }
+                )
+                != self.source_event_graph_fingerprint
+                or self.source_event_ids != sorted(self.source_event_ids)
+                or not set(self.source_event_ids).issubset(record_ids)
+            ):
+                raise ValueError("render plan source event graph proof is invalid")
+            if self.source_event_projection_fingerprint != (
+                drama_render_source_projection_fingerprint(
+                    graph_fingerprint=self.source_event_graph_fingerprint,
+                    selected_event_ids=self.source_event_ids,
+                    allowed_source_chapter_ids=(
+                        self.source_event_allowed_chapter_ids
+                    ),
+                    max_spoiler_boundary=self.source_event_spoiler_boundary,
+                )
+            ):
+                raise ValueError("render plan source event projection proof is invalid")
+        elif self.source_event_ids:
+            raise ValueError("render plan source events require an exact graph binding")
         if self.art_direction_resolution is not None:
             resolution = self.art_direction_resolution
             if (
@@ -3166,6 +3347,26 @@ class RenderPlan(BaseModel):
         if not valid_fingerprint and self.art_direction_resolution is None:
             legacy_payload = dict(payload)
             legacy_payload.pop("art_direction_resolution", None)
+            valid_fingerprint = (
+                _canonical_sha256(legacy_payload) == self.plan_fingerprint
+            )
+        if not valid_fingerprint and not any(value is not None for value in event_binding):
+            legacy_payload = dict(payload)
+            for key in (
+                "source_event_graph_id",
+                "source_event_graph_fingerprint",
+                "source_event_graph_records",
+                "source_event_projection_fingerprint",
+                "source_event_workspace_scope_fingerprint",
+                "source_event_scope_fingerprint",
+                "source_event_graph_family_id",
+                "source_event_snapshot_fingerprint",
+                "source_event_allowed_chapter_ids",
+                "source_event_spoiler_boundary",
+            ):
+                legacy_payload.pop(key, None)
+            if self.art_direction_resolution is None:
+                legacy_payload.pop("art_direction_resolution", None)
             valid_fingerprint = (
                 _canonical_sha256(legacy_payload) == self.plan_fingerprint
             )
@@ -8602,6 +8803,30 @@ _DRAMA_EVENT_FACT_ID_PATTERN = r"^def_[0-9a-f]{24}$"
 _DRAMA_EVENT_GRAPH_ID_PATTERN = r"^deg_[0-9a-f]{24}$"
 _DRAMA_SOURCE_CHAPTER_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
 _DRAMA_EVENT_ENTITY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+
+
+def drama_event_graph_family_scope_fingerprint(
+    *,
+    workspace_scope_fingerprint: str,
+    graph_family_id: str,
+) -> str:
+    """Derive the H2 family scope shared by adapters and bound RenderPlans."""
+
+    if (
+        not isinstance(workspace_scope_fingerprint, str)
+        or re.fullmatch(_SHA256_PATTERN, workspace_scope_fingerprint) is None
+        or not isinstance(graph_family_id, str)
+        or re.fullmatch(_DRAMA_EVENT_ENTITY_ID_PATTERN, graph_family_id) is None
+    ):
+        raise ValueError("source event graph family identity is invalid")
+    return _canonical_sha256(
+        {
+            "artifact_type": "drama_source_graph_family",
+            "schema_version": 1,
+            "workspace_scope_fingerprint": workspace_scope_fingerprint,
+            "graph_family_id": graph_family_id,
+        }
+    )
 
 
 class DramaEventSourceRef(BaseModel):

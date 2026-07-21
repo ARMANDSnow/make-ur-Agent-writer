@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Dict, Iterable
 
 from .drama_schemas import (
@@ -11,10 +12,12 @@ from .drama_schemas import (
     ArtDirectionRef,
     CameraMovement,
     DialogueSegment,
+    DramaEventProjection,
     NarrationSegment,
     RenderPlan,
     RenderShot,
     ShotSize,
+    drama_render_source_projection_fingerprint,
 )
 from .drama_store import FreshEpisodeSnapshot, _fresh_snapshot_fingerprint
 from .schemas import model_to_dict
@@ -224,6 +227,9 @@ def build_render_plan(
     art_direction_resolution: (
         ArtDirectionResolution | Dict[str, Any] | None
     ) = None,
+    source_event_projection: DramaEventProjection | Dict[str, Any] | None = None,
+    source_event_graph_family_id: str | None = None,
+    source_event_snapshot_fingerprint: str | None = None,
 ) -> RenderPlan:
     """Build a byte-stable RenderPlan without file or network access."""
 
@@ -237,6 +243,41 @@ def build_render_plan(
 
     art_ref = None
     resolution = None
+    event_projection = None
+    if source_event_projection is not None:
+        event_projection = DramaEventProjection(
+            **(
+                model_to_dict(source_event_projection)
+                if isinstance(source_event_projection, DramaEventProjection)
+                else source_event_projection
+            )
+        )
+        from .drama_event_graph import event_graph_scope_fingerprint
+
+        if event_projection.workspace_scope_fingerprint != event_graph_scope_fingerprint(
+            snapshot.workspace
+        ):
+            raise ValueError("source event projection belongs to another workspace")
+        if (
+            not isinstance(source_event_graph_family_id, str)
+            or re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9._:-]{0,79}",
+                source_event_graph_family_id,
+            )
+            is None
+        ):
+            raise ValueError("source event graph family id is invalid")
+        if (
+            not isinstance(source_event_snapshot_fingerprint, str)
+            or len(source_event_snapshot_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in source_event_snapshot_fingerprint)
+        ):
+            raise ValueError("source event snapshot fingerprint is invalid")
+    elif (
+        source_event_graph_family_id is not None
+        or source_event_snapshot_fingerprint is not None
+    ):
+        raise ValueError("source event workspace scope requires a projection")
     if art_direction_resolution is not None:
         resolution = (
             art_direction_resolution
@@ -389,10 +430,102 @@ def build_render_plan(
         "spoken_segments": spoken_segments,
         "source_event_ids": [],
     }
+    if event_projection is not None:
+        plan_payload.update(
+            {
+                "source_event_ids": list(event_projection.selected_event_ids),
+                "source_event_graph_id": event_projection.graph_id,
+                "source_event_graph_fingerprint": event_projection.graph_fingerprint,
+                "source_event_graph_records": [
+                    model_to_dict(item)
+                    for item in event_projection.graph_event_records
+                ],
+                "source_event_projection_fingerprint": (
+                    drama_render_source_projection_fingerprint(
+                        graph_fingerprint=event_projection.graph_fingerprint,
+                        selected_event_ids=list(event_projection.selected_event_ids),
+                        allowed_source_chapter_ids=list(
+                            event_projection.allowed_source_chapter_ids
+                        ),
+                        max_spoiler_boundary=event_projection.max_spoiler_boundary,
+                    )
+                ),
+                "source_event_workspace_scope_fingerprint": event_projection.workspace_scope_fingerprint,
+                "source_event_scope_fingerprint": event_projection.scope_fingerprint,
+                "source_event_graph_family_id": source_event_graph_family_id,
+                "source_event_snapshot_fingerprint": source_event_snapshot_fingerprint,
+                "source_event_allowed_chapter_ids": list(
+                    event_projection.allowed_source_chapter_ids
+                ),
+                "source_event_spoiler_boundary": event_projection.max_spoiler_boundary,
+            }
+        )
     if resolution is not None:
         plan_payload["art_direction_resolution"] = model_to_dict(resolution)
     plan_payload["plan_fingerprint"] = _strict_sha256(plan_payload)
     return RenderPlan(**plan_payload)
+
+
+def inspect_render_plan_source_events(
+    plan: RenderPlan | Dict[str, Any],
+    current_projection: DramaEventProjection | Dict[str, Any] | None,
+    current_snapshot_fingerprint: str | None = None,
+) -> str:
+    """Return ``unbound``, ``fresh``, ``stale`` or ``invalid`` for H2 lineage."""
+
+    try:
+        validated = plan if isinstance(plan, RenderPlan) else RenderPlan(**plan)
+        projection = (
+            None
+            if current_projection is None
+            else DramaEventProjection(
+                **(
+                    model_to_dict(current_projection)
+                    if isinstance(current_projection, DramaEventProjection)
+                    else current_projection
+                )
+            )
+        )
+    except (TypeError, ValueError):
+        return "invalid"
+    if validated.source_event_graph_id is None:
+        return "unbound"
+    if projection is None:
+        return "stale"
+    if current_snapshot_fingerprint is None:
+        return "stale"
+    expected = {
+        "source_event_ids": list(projection.selected_event_ids),
+        "source_event_graph_id": projection.graph_id,
+        "source_event_graph_fingerprint": projection.graph_fingerprint,
+        "source_event_graph_records": [
+            model_to_dict(item) for item in projection.graph_event_records
+        ],
+        "source_event_projection_fingerprint": (
+            drama_render_source_projection_fingerprint(
+                graph_fingerprint=projection.graph_fingerprint,
+                selected_event_ids=list(projection.selected_event_ids),
+                allowed_source_chapter_ids=list(
+                    projection.allowed_source_chapter_ids
+                ),
+                max_spoiler_boundary=projection.max_spoiler_boundary,
+            )
+        ),
+        "source_event_workspace_scope_fingerprint": projection.workspace_scope_fingerprint,
+        "source_event_scope_fingerprint": projection.scope_fingerprint,
+        "source_event_graph_family_id": validated.source_event_graph_family_id,
+        "source_event_snapshot_fingerprint": current_snapshot_fingerprint,
+        "source_event_allowed_chapter_ids": list(
+            projection.allowed_source_chapter_ids
+        ),
+        "source_event_spoiler_boundary": projection.max_spoiler_boundary,
+    }
+    actual = {key: getattr(validated, key) for key in expected}
+    actual["source_event_graph_records"] = [
+        model_to_dict(item)
+        for item in (validated.source_event_graph_records or [])
+    ]
+    return "fresh" if actual == expected else "stale"
 
 
 def spoken_segments_to_legacy(plan: RenderPlan | Dict[str, Any]) -> list[Dict[str, Any]]:

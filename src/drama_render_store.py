@@ -18,8 +18,19 @@ from .drama_art_direction_scope import (
     DramaArtDirectionScopeError,
     resolve_art_direction,
 )
+from .drama_event_graph import (
+    DramaEventGraphError,
+    select_event_projection,
+)
 from .drama_render_plan import build_render_plan
-from .drama_schemas import ArtDirectionRef, RenderPlan, episode_paths, normalize_episode_no
+from .drama_schemas import (
+    ArtDirectionRef,
+    DramaEventProjection,
+    RenderPlan,
+    episode_paths,
+    normalize_episode_no,
+)
+from .drama_source_adapter import load_production_source_event_graph
 from .drama_store import (
     FreshEpisodeSnapshot,
     _read_strict_workspace_bytes,
@@ -149,7 +160,100 @@ def _source_snapshot(workspace: str, *, episode_no: int) -> FreshEpisodeSnapshot
     return load_fresh_episode_for_render(workspace, episode_no=episode_no)
 
 
-def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanInspection:
+class _SourceEventBindingMissing(ValueError):
+    pass
+
+
+class _SourceEventBindingStale(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class _CurrentSourceEventBinding:
+    graph_family_id: str
+    projection: DramaEventProjection
+    source_snapshot_fingerprint: str
+
+
+def _current_source_event_binding(
+    workspace: str,
+    *,
+    plan: RenderPlan | None,
+    graph_family_id: str | None,
+    selected_event_ids: list[str] | tuple[str, ...] | None,
+    max_spoiler_boundary: int | None,
+) -> _CurrentSourceEventBinding | None:
+    override = any(
+        value is not None
+        for value in (graph_family_id, selected_event_ids, max_spoiler_boundary)
+    )
+    if override:
+        if (
+            graph_family_id is None
+            or selected_event_ids is None
+            or max_spoiler_boundary is None
+        ):
+            raise ValueError("source event selection inputs are incomplete")
+        if (
+            not isinstance(selected_event_ids, (list, tuple))
+            or not selected_event_ids
+        ):
+            raise ValueError("source event selection must be a non-empty list")
+        requested_family = graph_family_id
+        requested_ids = tuple(selected_event_ids)
+        requested_boundary = max_spoiler_boundary
+    elif plan is not None and plan.source_event_graph_id is not None:
+        requested_family = plan.source_event_graph_family_id
+        requested_ids = tuple(plan.source_event_ids)
+        requested_boundary = plan.source_event_spoiler_boundary
+    else:
+        return None
+    result = load_production_source_event_graph(
+        workspace=workspace,
+        graph_family_id=requested_family,
+        max_spoiler_boundary=requested_boundary,
+    )
+    if (
+        result.status != "ready"
+        or result.graph is None
+        or result.source_snapshot_fingerprint is None
+    ):
+        raise _SourceEventBindingMissing("production source events are unavailable")
+    if not override and plan is not None and (
+        plan.source_event_snapshot_fingerprint
+        != result.source_snapshot_fingerprint
+        or plan.source_event_graph_fingerprint != result.graph.graph_fingerprint
+    ):
+        raise _SourceEventBindingStale("production source event graph changed")
+    allowed_ids = sorted(
+        {
+            source.chapter_id
+            for event in result.graph.events
+            for source in event.source_chapters
+            if source.chapter_no <= requested_boundary
+        }
+    )
+    projection = select_event_projection(
+        result.graph,
+        selected_event_ids=requested_ids,
+        allowed_source_chapter_ids=allowed_ids,
+        max_spoiler_boundary=requested_boundary,
+    )
+    return _CurrentSourceEventBinding(
+        graph_family_id=requested_family,
+        projection=projection,
+        source_snapshot_fingerprint=result.source_snapshot_fingerprint,
+    )
+
+
+def inspect_render_plan(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    source_event_graph_family_id: str | None = None,
+    source_event_ids: list[str] | tuple[str, ...] | None = None,
+    source_event_max_spoiler_boundary: int | None = None,
+) -> RenderPlanInspection:
     number = normalize_episode_no(episode_no)
     try:
         plan = _read_render_plan(workspace, episode_no=number)
@@ -188,10 +292,48 @@ def inspect_render_plan(workspace: str, *, episode_no: int = 1) -> RenderPlanIns
         )
 
     try:
+        event_binding = _current_source_event_binding(
+            workspace,
+            plan=plan,
+            graph_family_id=source_event_graph_family_id,
+            selected_event_ids=source_event_ids,
+            max_spoiler_boundary=source_event_max_spoiler_boundary,
+        )
+    except _SourceEventBindingStale:
+        return RenderPlanInspection(
+            "stale",
+            ("source_event_snapshot_mismatch",),
+            plan,
+        )
+    except _SourceEventBindingMissing:
+        return RenderPlanInspection(
+            "blocked_source",
+            ("source_event_source_missing",),
+            plan,
+        )
+    except (OSError, TypeError, ValueError, DramaEventGraphError):
+        return RenderPlanInspection(
+            "blocked_source",
+            ("source_event_graph_invalid",),
+            plan,
+        )
+
+    try:
         expected = build_render_plan(
             snapshot,
             art_direction_ref=selected_art_ref,
             art_direction_resolution=art_resolution,
+            source_event_projection=(
+                event_binding.projection if event_binding is not None else None
+            ),
+            source_event_graph_family_id=(
+                event_binding.graph_family_id if event_binding is not None else None
+            ),
+            source_event_snapshot_fingerprint=(
+                event_binding.source_snapshot_fingerprint
+                if event_binding is not None
+                else None
+            ),
         )
     except (TypeError, ValueError):
         return RenderPlanInspection("blocked_source", ("source_unrenderable",), plan)
@@ -411,6 +553,9 @@ def create_render_plan(
     *,
     episode_no: int = 1,
     art_direction_ref: ArtDirectionRef | Dict[str, Any] | None = None,
+    source_event_graph_family_id: str | None = None,
+    source_event_ids: list[str] | tuple[str, ...] | None = None,
+    source_event_max_spoiler_boundary: int | None = None,
     replace_stale: bool = False,
 ) -> RenderPlan:
     if type(replace_stale) is not bool:
@@ -423,6 +568,9 @@ def create_render_plan(
             workspace,
             episode_no=number,
             art_direction_ref=art_direction_ref,
+            source_event_graph_family_id=source_event_graph_family_id,
+            source_event_ids=source_event_ids,
+            source_event_max_spoiler_boundary=source_event_max_spoiler_boundary,
             replace_stale=replace_stale,
         )
 
@@ -432,10 +580,19 @@ def _create_render_plan_locked(
     *,
     episode_no: int,
     art_direction_ref: ArtDirectionRef | Dict[str, Any] | None,
+    source_event_graph_family_id: str | None,
+    source_event_ids: list[str] | tuple[str, ...] | None,
+    source_event_max_spoiler_boundary: int | None,
     replace_stale: bool,
 ) -> RenderPlan:
     target_token = _render_plan_target_token(workspace, episode_no=episode_no)
-    inspection = inspect_render_plan(workspace, episode_no=episode_no)
+    inspection = inspect_render_plan(
+        workspace,
+        episode_no=episode_no,
+        source_event_graph_family_id=source_event_graph_family_id,
+        source_event_ids=source_event_ids,
+        source_event_max_spoiler_boundary=source_event_max_spoiler_boundary,
+    )
     if inspection.state == "invalid":
         raise RenderPlanStoreError("invalid render plan must be repaired explicitly")
     if inspection.state == "blocked_source":
@@ -463,10 +620,31 @@ def _create_render_plan_locked(
             raise RenderPlanStoreError(
                 "art direction ref does not match the selected catalog version"
             )
+    try:
+        event_binding = _current_source_event_binding(
+            workspace,
+            plan=inspection.plan,
+            graph_family_id=source_event_graph_family_id,
+            selected_event_ids=source_event_ids,
+            max_spoiler_boundary=source_event_max_spoiler_boundary,
+        )
+    except (OSError, TypeError, ValueError, DramaEventGraphError) as exc:
+        raise RenderPlanStoreError("valid production source event binding is required") from exc
     desired = build_render_plan(
         snapshot,
         art_direction_ref=selected_art_ref,
         art_direction_resolution=art_resolution,
+        source_event_projection=(
+            event_binding.projection if event_binding is not None else None
+        ),
+        source_event_graph_family_id=(
+            event_binding.graph_family_id if event_binding is not None else None
+        ),
+        source_event_snapshot_fingerprint=(
+            event_binding.source_snapshot_fingerprint
+            if event_binding is not None
+            else None
+        ),
     )
 
     if inspection.state == "fresh" and inspection.plan is not None:
@@ -515,6 +693,35 @@ def _create_render_plan_locked(
             ) from exc
         if final_resolution != art_resolution:
             raise RenderPlanStoreError("art direction source changed concurrently")
+        try:
+            final_binding = _current_source_event_binding(
+                workspace,
+                plan=desired,
+                graph_family_id=None,
+                selected_event_ids=None,
+                max_spoiler_boundary=None,
+            )
+        except (OSError, TypeError, ValueError, DramaEventGraphError) as exc:
+            raise RenderPlanStoreError(
+                "source event projection changed concurrently"
+            ) from exc
+        if build_render_plan(
+            final_snapshot,
+            art_direction_ref=(final_resolution.ref if final_resolution else None),
+            art_direction_resolution=final_resolution,
+            source_event_projection=(
+                final_binding.projection if final_binding is not None else None
+            ),
+            source_event_graph_family_id=(
+                final_binding.graph_family_id if final_binding is not None else None
+            ),
+            source_event_snapshot_fingerprint=(
+                final_binding.source_snapshot_fingerprint
+                if final_binding is not None
+                else None
+            ),
+        ).plan_fingerprint != desired.plan_fingerprint:
+            raise RenderPlanStoreError("source event projection changed concurrently")
         assert_art_direction_selectable()
 
     _write_render_plan(
