@@ -11,7 +11,7 @@
 | Canonical 基线 | **2844 tests OK** |
 | Accepted implementation commit | `ff1bd11dca99e6852368483422591b56f06700cd` |
 | 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `ff1bd11dca99e6852368483422591b56f06700cd`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、442 秒、run `29a99181da324bfc893c1fafadc0a962`；`verify.sh` exit 0；tracked scope clean |
-| 当前高风险缺口 | iter142 的固定 5 秒真视频样本成功但实际人民币费用未回报；iter143 的 20 秒质量机会在确认 2 个素材后 create 结果不明，无 task/MP4、费用 unknown 且禁止重提，因此仍无长时质量证据。逐镜 adapter、完整单集、多集、真实 TTS、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
+| 当前高风险缺口 | iter147 真文本局部校准因桌面 key 文件仅含脱敏占位而两次 HTTP 401，0 model response；真 provider 后续需完整凭据。iter142 的 5 秒真视频样本成功但人民币费用未回报；iter143 的 20 秒 create 结果不明、无 task/MP4、费用 unknown 且禁止重提。逐镜/单集/多集、真实 TTS、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
 | 当前开发轮次 | 无；iter147 已完成 I1 同源只读 production workbench，下一步是 I2 安全 archive export/import。工程验收 `mock-functional`，本轮真实 Web 为 `local-e2e`；5 秒窄样本仍为 `provider-validated`，20 秒尝试仍为 `safe-blocked` |
 
 ## Capability Map
@@ -45,6 +45,7 @@
 - iter145 H2 将 H1 source assertion 接到 production entity/rolling-summary exact bytes：完整 source graph identity 与 episode spoiler selection policy 分离，RenderPlan 冻结 workspace/family、full membership、selected/allowed IDs 与可重算 selection binding；production store 从当前 authority 重建，合法漂移 stale、坏/缺来源 blocked，旧 unbound plan 兼容且不改 canonical episode SHA。三视角最终无 P0-P3；普通 SHA 仍不宣称签名或 MAC。
 - iter146 H3 新增可删除且可确定重建的 text-free context memory：recent/summary/keyword 只保存 event/source identity、role 与规范化 query hash，并绑定 current H2 graph/selection、RenderPlan、episode 与 policy exact bytes；missing/delete 不影响 canonical，drift/tamper 精确 stale/blocked。keyword hash 对低熵输入可猜，不等于匿名化；replacement 只承诺合作 flock 写者边界。
 - iter147 I1 新增 strict/bounded production workbench：从 current RenderPlan/source binding、asset、image/video attempt、task DAG、timeline/QA/delivery 重建同源安全投影，list/canvas 共享可重算 fingerprint；GET 不创建 write lock，unknown/reconciliation/stale/invalid 不伪造 green。真实本地浏览器桌面、键盘与 390px 窄屏通过，三视角最终无 P0-P3。
+- iter147 收官后真文本局部协议校准两次均 HTTP 401，0 model response、无 token usage/协议判定，记 `safe-blocked`。当前 `key.rtf` 只含脱敏占位，未找到 `sd_real_max.md`；凭据/prompt/response body 未回显或落盘，图片/TTS 0。
 - canonical **2844 tests OK**（项目 `.venv`）；implementation commit `ff1bd11` 上 exit 0，15 steps / 442 秒，run `29a99181da324bfc893c1fafadc0a962`，tree `acb2b9b255d78058895cda4bb8b6823d8a48fcda`，`tracked_scope_clean=true`。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 与本轮真实 Web 为 `local-e2e`。
 
 ## Retained Working Memory
@@ -281,4 +282,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter147 完成短剧 I1：新增 drama-only strict/bounded production workbench，从 current RenderPlan/source binding、selected assets、逐镜 image/video、完整 attempt/task ledger、timeline/QA/delivery 重建同源安全投影，list/canvas 共享可重算 fingerprint。GET 使用 double-scan read-only compose overview，不创建 workspace lock；unknown/submitted/reconciliation/stale/invalid 向上传播，未识别 task subject 脱敏。桌面 list/canvas、键盘 tabs 与 390×844 真实 Web 验收通过，correctness、security/boundary、Web/accessibility 三视角最终无 P0-P3。accepted implementation `ff1bd11` 上 canonical 2844 tests、15 steps、442 秒，run `29a99181da324bfc893c1fafadc0a962`，`mock-functional`；本轮未运行真实 provider，I2 archive 留待下轮。
+iter147 完成短剧 I1：新增 drama-only strict/bounded production workbench，从 current RenderPlan/source binding、selected assets、逐镜 image/video、完整 attempt/task ledger、timeline/QA/delivery 重建同源安全投影，list/canvas 共享可重算 fingerprint。GET 使用 double-scan read-only compose overview，不创建 workspace lock；unknown/submitted/reconciliation/stale/invalid 向上传播，未识别 task subject 脱敏。桌面 list/canvas、键盘 tabs 与 390×844 真实 Web 验收通过，correctness、security/boundary、Web/accessibility 三视角最终无 P0-P3。accepted implementation `ff1bd11` 上 canonical 2844 tests、15 steps、442 秒，run `29a99181da324bfc893c1fafadc0a962`，`mock-functional`。收官后真文本局部校准因 key 文件只含脱敏占位而两次 401，0 model response，记 `safe-blocked`；I2 archive 留待下轮。

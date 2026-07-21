@@ -39,6 +39,7 @@ iter146 已完成 H1-H3 来源图与可失效辅助记忆。按 A-J 阶段 I，�
 - 真实本地浏览器验证通过：桌面列表→关系画布、`ArrowLeft` 键盘回切、390×844 窄屏响应式布局与空 drama workspace safe-blocked 投影均正常；临时 workspace/截图仅位于 `/private/tmp`。
 - 聚焦回归 161 tests 通过（workbench/compose/asset/image/video/Web GET），新增 workbench 文件 12 tests 通过；语法、harness 与 `git diff --check` 通过。
 - 三个独立只读审查闭合了 prop/clue kind、partial/stale asset、时长上限、task/attempt 聚合、unknown subject 脱敏、GET 锁写入与 tabs 可访问性等 findings；主线复核后无剩余 P0-P3。
+- canonical 收官后按用户授权尝试一次 I1 scope-specific 真文本协议校准并追加一次凭据解析重试；两次均在网关层 HTTP 401，0 model response、无 token usage/协议判定。当前 `key.rtf` 文本包含脱敏占位而非完整凭据，桌面三层范围也未找到 `sd_real_max.md`；因此本轮真文本局部校准记 `safe-blocked`，凭据、prompt 与 response body 均未回显/落盘，图片/TTS 调用为 0。
 
 ## Acceptance Result
 
@@ -48,7 +49,7 @@ iter146 已完成 H1-H3 来源图与可失效辅助记忆。按 A-J 阶段 I，�
 - **A147-04 通过**：12 项新测试与 161 项聚焦回归通过，py_compile、harness、diff check 通过；真实本地浏览器桌面 list/canvas、键盘切换与 390×844 窄屏通过。correctness、security/boundary、Web/accessibility 三视角最终无剩余 P0-P3。
 - **A147-05 通过**：implementation commit `ff1bd11dca99e6852368483422591b56f06700cd` 上仅运行一次 `bash scripts/verify.sh`，2844 tests / 15 steps / 442 秒，run `29a99181da324bfc893c1fafadc0a962`，tree `acb2b9b255d78058895cda4bb8b6823d8a48fcda`，`tracked_scope_clean=true`。标准级别 `mock-functional` / `canonical-mock-offline`，mandatory local-drama 组件与真实本地 Web 均记 `local-e2e`，`provider_validated=false`。
 
-结论：iter147 收官。I1 同源只读 production workbench 形成本地工程闭环；I2 archive export/import、可写画布/统一操作、真 provider/billing/TTS 仍不在本轮结论中。
+结论：iter147 收官。I1 同源只读 production workbench 形成本地工程闭环；I2 archive export/import、可写画布/统一操作、真 provider/billing/TTS 仍不在本轮结论中。独立真文本局部校准因凭据被脱敏而 `safe-blocked`，不改变 canonical `mock-functional` 结论。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
