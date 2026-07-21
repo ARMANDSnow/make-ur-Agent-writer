@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import os
@@ -315,6 +316,17 @@ def build_parser() -> argparse.ArgumentParser:
     workspace_show_cmd = sub.add_parser("workspace-show")
     workspace_show_cmd.add_argument("--name", default=None)
 
+    drama_archive = sub.add_parser("drama-project-archive")
+    drama_archive_sub = drama_archive.add_subparsers(
+        dest="drama_archive_command", required=True
+    )
+    drama_archive_sub.add_parser("export")
+    drama_archive_preflight = drama_archive_sub.add_parser("preflight")
+    drama_archive_preflight.add_argument("--archive", required=True)
+    drama_archive_import = drama_archive_sub.add_parser("import")
+    drama_archive_import.add_argument("--archive", required=True)
+    drama_archive_import.add_argument("--to", required=True, dest="to_name")
+
     run_all = sub.add_parser("run-all")
     run_all.add_argument("--chapters", type=int, default=18)
     run_all.add_argument("--extract-limit", type=int, default=None)
@@ -442,6 +454,50 @@ def main() -> None:
     if args.command == "workspace-show":
         summary = show_workspace(args.name)
         print(render_show(summary), end="")
+        return
+    if args.command == "drama-project-archive":
+        from src import drama_project_archive, paths
+
+        if args.drama_archive_command == "export":
+            workspace = paths.workspace_name()
+            if workspace is None:
+                raise SystemExit("drama-project-archive export requires --book <workspace>")
+            result = drama_project_archive.export_project_archive(workspace)
+            payload = {
+                "status": "exported",
+                "filename": result.filename,
+                "path": str(result.path.resolve(strict=True)),
+                "project_id": result.manifest.project_id,
+                "archive_fingerprint": result.manifest.archive_fingerprint,
+                "member_count": len(result.manifest.members),
+            }
+        else:
+            body = drama_project_archive.read_project_archive_file(
+                Path(args.archive).expanduser()
+            )
+            if args.drama_archive_command == "preflight":
+                manifest = drama_project_archive.preflight_project_archive(body)
+                payload = {
+                    "status": "valid",
+                    "project_id": manifest.project_id,
+                    "archive_fingerprint": manifest.archive_fingerprint,
+                    "member_count": len(manifest.members),
+                    "episode_nos": [item.episode_no for item in manifest.episodes],
+                }
+            else:
+                result = drama_project_archive.import_project_archive(
+                    body,
+                    target_workspace=args.to_name,
+                )
+                payload = {
+                    "status": "imported",
+                    "workspace": result.workspace,
+                    "project_id": result.project_id,
+                    "archive_fingerprint": result.archive_fingerprint,
+                    "member_count": result.member_count,
+                    "durability": result.durability,
+                }
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return
     if args.command == "normalize":
         normalize_all(lang=getattr(args, "lang", None))

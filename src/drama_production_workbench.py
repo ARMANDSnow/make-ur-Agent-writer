@@ -140,11 +140,13 @@ class WorkbenchQaSummary(BaseModel):
     status: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     acceptance_level: Literal["safe-blocked", "mock-functional", "local-e2e", "provider-validated"]
     profile: str = Field(min_length=1, max_length=80)
+    duration_ms: Optional[int] = Field(default=None, ge=1, le=3_600_000)
     required_shot_count: int = Field(ge=0, le=100)
     covered_shot_count: int = Field(ge=0, le=100)
     output_size_bytes: int = Field(ge=0, le=100_000_000)
     output_sha256: str = Field(pattern=_SHA256_PATTERN)
     qa_fingerprint: str = Field(pattern=_SHA256_PATTERN)
+    export_fingerprint: Optional[str] = Field(default=None, pattern=_SHA256_PATTERN)
 
 
 class WorkbenchDeliverable(BaseModel):

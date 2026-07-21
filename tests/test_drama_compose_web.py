@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import io
 import threading
 import time
+import zipfile
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,6 +17,7 @@ from src import (
     drama_compose_web,
     drama_compositor,
     drama_edit_export,
+    drama_project_archive,
     drama_render_store,
     drama_reviewer,
     drama_shot_image_candidate_store,
@@ -615,6 +618,217 @@ class DramaComposeWebTests(DramaShotVideoCandidateFixture):
                 name,
                 timeline,
                 maximum_output_bytes=drama_compose_web.MAX_WEB_COMPOSE_MP4_BYTES,
+            )
+
+    def test_project_archive_roundtrip_preserves_timeline_sources_and_mp4(self) -> None:
+        name = "compose-web-project-archive"
+        timeline = self._persist(name)
+        result = drama_compose_web.run_workspace_compose_job(
+            name, episode_no=1, progress_cb=lambda *_: None
+        )
+        self.assertTrue(result["committed"])
+
+        exported = drama_project_archive.export_project_archive(name)
+        manifest = drama_project_archive.preflight_project_archive(exported.body)
+        targets = {item.target_path: item for item in manifest.members}
+        timeline_target = drama_compose_web._timeline_path(1)
+        self.assertIn(timeline_target, targets)
+        for clip in [
+            *timeline.video_clips,
+            *timeline.audio_clips,
+            *timeline.optional_audio_clips,
+        ]:
+            self.assertIn(clip.artifact_path, targets)
+            self.assertEqual(targets[clip.artifact_path].sha256, clip.artifact_sha256)
+
+        plan = drama_compositor.build_compose_plan(timeline)
+        edit_paths = drama_edit_export._export_paths(timeline)
+        for target in (plan.output_path, plan.srt_path, edit_paths[0], edit_paths[1]):
+            self.assertIn(target, targets)
+        episode = manifest.episodes[0]
+        self.assertEqual(targets[plan.output_path].sha256, episode.output_sha256)
+        self.assertIsNotNone(episode.qa_fingerprint)
+        self.assertNotIn("render_plan_v1", {item.schema_label for item in manifest.members})
+
+        with zipfile.ZipFile(io.BytesIO(exported.body)) as source:
+            forged_members = {
+                info.filename: source.read(info) for info in source.infolist()
+            }
+        archived_evidence = json.loads(forged_members["evidence/episode_001.json"])
+        self.assertEqual(
+            archived_evidence["render"]["source_episode_sha256"],
+            episode.source_episode_sha256,
+        )
+        forged_manifest = json.loads(forged_members["manifest.json"])
+        srt_record = next(
+            item for item in forged_manifest["members"]
+            if item["target_path"] == plan.srt_path
+        )
+        forged_members[srt_record["archive_path"]] += b"forged\n"
+        srt_record["size"] = len(forged_members[srt_record["archive_path"]])
+        srt_record["sha256"] = __import__("hashlib").sha256(
+            forged_members[srt_record["archive_path"]]
+        ).hexdigest()
+        identity = [
+            {
+                "target_path": item["target_path"],
+                "size": item["size"],
+                "sha256": item["sha256"],
+            }
+            for item in forged_manifest["members"]
+        ]
+        forged_manifest["project_id"] = (
+            f"dpa_{drama_project_archive._fingerprint(identity)[:24]}"
+        )
+        forged_manifest["archive_fingerprint"] = drama_project_archive._fingerprint(
+            {
+                key: value for key, value in forged_manifest.items()
+                if key != "archive_fingerprint"
+            }
+        )
+        forged_members["manifest.json"] = drama_project_archive._json_bytes(
+            forged_manifest
+        )
+        with self.assertRaisesRegex(
+            drama_project_archive.DramaProjectArchiveError,
+            "delivery_(?:qa_member|srt)_mismatch",
+        ):
+            drama_project_archive.preflight_project_archive(
+                drama_project_archive._build_archive_zip(forged_members)
+            )
+
+        imported = drama_project_archive.import_project_archive(
+            exported.body,
+            target_workspace="compose-web-project-archive-imported",
+        )
+        for record in manifest.members:
+            installed = (imported.target / record.target_path).read_bytes()
+            self.assertEqual(
+                __import__("hashlib").sha256(installed).hexdigest(),
+                record.sha256,
+            )
+            if record.partition not in {"creative", "evidence"}:
+                self.assertEqual(
+                    installed,
+                    (paths.workspace_root(name) / record.target_path).read_bytes(),
+                )
+        reexported = drama_project_archive.export_project_archive(imported.workspace)
+        self.assertEqual(reexported.body, exported.body)
+
+    def test_project_archive_selection_identity_changes_between_image_candidates(self) -> None:
+        name = "compose-web-project-archive-selection"
+        self._timeline_sources(name)
+        first = drama_project_archive.export_project_archive(name)
+
+        inspection = (
+            drama_shot_image_candidate_store.inspect_episode_shot_image_candidates(name)
+        )
+        images = inspection.manifest
+        self.assertIsNotNone(images)
+        pool = images.shots[0]
+        previous = pool.first_binding
+        images, candidate = (
+            drama_shot_image_candidate_store.append_local_shot_image_candidate(
+                name,
+                shot_id=pool.shot_id,
+                png_bytes=self._png(rgba=bytes((211, 22, 33, 255))),
+                expected_manifest_fingerprint=images.manifest_fingerprint,
+            )
+        )
+        pool = next(item for item in images.shots if item.shot_id == pool.shot_id)
+        drama_shot_image_candidate_store.select_episode_shot_image_frame(
+            name,
+            shot_id=pool.shot_id,
+            frame="first",
+            binding={
+                "kind": "direct",
+                "candidate_id": candidate.candidate_id,
+                "candidate_fingerprint": candidate.candidate_fingerprint,
+            },
+            expected_selection_revision=pool.selection_revision,
+            expected_current_binding=(
+                previous.model_dump() if previous is not None else None
+            ),
+            expected_manifest_fingerprint=images.manifest_fingerprint,
+        )
+        second = drama_project_archive.export_project_archive(name)
+        self.assertNotEqual(
+            first.manifest.episodes[0].selection_fingerprint,
+            second.manifest.episodes[0].selection_fingerprint,
+        )
+        first_assets = {
+            item.target_path for item in first.manifest.members
+            if item.partition == "assets"
+        }
+        second_assets = {
+            item.target_path for item in second.manifest.members
+            if item.partition == "assets"
+        }
+        self.assertNotEqual(first_assets, second_assets)
+        self.assertIn(candidate.artifact.path, second_assets)
+
+    def test_project_archive_rejects_rewired_selection_artifact_owner(self) -> None:
+        name = "compose-web-project-archive-rewire"
+        self._timeline_sources(name)
+        exported = drama_project_archive.export_project_archive(name)
+        with zipfile.ZipFile(io.BytesIO(exported.body)) as source:
+            members = {info.filename: source.read(info) for info in source.infolist()}
+        manifest = json.loads(members["manifest.json"])
+        evidence_name = "evidence/episode_001.json"
+        evidence = json.loads(members[evidence_name])
+        asset_artifact = next(
+            row["artifact"] for row in evidence["selected_assets"]
+            if row["artifact"] is not None
+        )
+        image_frame = next(
+            frame
+            for shot in evidence["selected_shots"]
+            if shot["image"] is not None
+            for frame in (shot["image"]["first"], shot["image"]["tail"])
+            if frame is not None
+        )
+        image_frame["artifact"] = dict(asset_artifact)
+        selection_fingerprint = drama_project_archive._fingerprint(
+            {
+                "assets": evidence["selected_assets"],
+                "shots": evidence["selected_shots"],
+            }
+        )
+        evidence["selection_fingerprint"] = selection_fingerprint
+        manifest["episodes"][0]["selection_fingerprint"] = selection_fingerprint
+        members[evidence_name] = drama_project_archive._json_bytes(evidence)
+        evidence_record = next(
+            item for item in manifest["members"]
+            if item["archive_path"] == evidence_name
+        )
+        evidence_record["size"] = len(members[evidence_name])
+        evidence_record["sha256"] = __import__("hashlib").sha256(
+            members[evidence_name]
+        ).hexdigest()
+        identity = [
+            {
+                "target_path": item["target_path"],
+                "size": item["size"],
+                "sha256": item["sha256"],
+            }
+            for item in manifest["members"]
+        ]
+        manifest["project_id"] = (
+            f"dpa_{drama_project_archive._fingerprint(identity)[:24]}"
+        )
+        manifest["archive_fingerprint"] = drama_project_archive._fingerprint(
+            {
+                key: value for key, value in manifest.items()
+                if key != "archive_fingerprint"
+            }
+        )
+        members["manifest.json"] = drama_project_archive._json_bytes(manifest)
+        with self.assertRaisesRegex(
+            drama_project_archive.DramaProjectArchiveError,
+            "selection_artifact_mismatch",
+        ):
+            drama_project_archive.preflight_project_archive(
+                drama_project_archive._build_archive_zip(members)
             )
 
     def test_tampered_delivery_is_409_and_never_streamed(self) -> None:

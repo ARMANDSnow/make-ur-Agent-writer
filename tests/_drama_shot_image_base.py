@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import zlib
 
 from src import (
     character_designer,
@@ -57,7 +58,23 @@ class DramaShotImageFixture(DramaTestBase):
     def _write_artifact(self, workspace: str, relative: str, label: str) -> dict:
         path = paths.workspace_root(workspace) / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = f"iter111:{label}".encode("utf-8")
+        rgba = hashlib.sha256(f"iter111:{label}".encode("utf-8")).digest()[:3] + b"\xff"
+
+        def chunk(kind: bytes, content: bytes) -> bytes:
+            return (
+                len(content).to_bytes(4, "big")
+                + kind
+                + content
+                + (zlib.crc32(kind + content) & 0xFFFFFFFF).to_bytes(4, "big")
+            )
+
+        ihdr = (1).to_bytes(4, "big") * 2 + bytes([8, 6, 0, 0, 0])
+        payload = (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(b"\x00" + rgba))
+            + chunk(b"IEND", b"")
+        )
         path.write_bytes(payload)
         return {
             "path": relative,

@@ -169,3 +169,4 @@
 154. [Iteration 145 - 短剧生产来源图适配与 RenderPlan 绑定](./iteration_145_drama_source_graph_adapter_render_binding.md)
 155. [Iteration 146 - 短剧可失效 Context Memory Cache](./iteration_146_drama_context_memory_cache_invalidation.md)
 156. [Iteration 147 - 短剧同源生产工作台投影](./iteration_147_drama_production_workbench_projection.md)
+157. [Iteration 148 - 短剧可移植项目归档与安全导入](./iteration_148_drama_portable_project_archive.md)
