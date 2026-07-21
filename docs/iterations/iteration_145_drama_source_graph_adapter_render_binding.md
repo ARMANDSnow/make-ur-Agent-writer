@@ -40,7 +40,13 @@ iter140 已完成 H1 workspace/family-bound typed source event graph，但仍只
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- A145-01 ✅：synthetic entity/rolling-summary exact bytes 可确定性构建 H1 graph；exact replay 稳定，任何 authority bytes 漂移都会改变 snapshot 与 graph identity，但 family identity 保持稳定。
+- A145-02 ✅：adapter 仅冻结有界 ID/hash/fact atoms，不持久化摘要原文；坏 schema、非有限数、身份冲突、跨 scope、symlink/特殊文件/超限整体 fail closed。无 rolling summary 返回 `insufficient_source`，entity 缺失则以 degraded source 明示，全部路径零网络。
+- A145-03 ✅：RenderPlan 可选冻结 workspace/family、source snapshot、full-graph ordered membership、selected/allowed IDs、spoiler boundary 与可本地重算的 selection binding；production create/inspect/precommit 均从当前 authority 重建。合法 source drift 为 stale，坏/缺 authority 为 blocked，legacy unbound plan 兼容，canonical episode SHA 与 creative fingerprint 不变。
+- A145-04 ✅：聚焦回归 149 tests 通过；harness、语法检查与 `git diff --check` 通过。correctness/behavior、security/boundary、adaptation provenance 三个独立只读视角发现的 scope splice、未知 chapter identity 覆盖、graph membership/selection 自证等问题均已修复，最终均为 no remaining P0-P3。
+- A145-05 ✅：implementation commit `626873e0833de1cb713ff50d3b3c3d31df546849` 上仅运行一次 `bash scripts/verify.sh`：2824 tests、15 steps、442 秒、run `4848df3127bd4f019c5ce61c01f0f02d`，tree `76a9c18b14e505fa9b077c51a03bb52bcf23a6fb`，`tracked_scope_clean=true`，exit 0。总验收为 `mock-functional` / `canonical-mock-offline`，mandatory `local_drama_e2e` 子步骤通过；本轮未调用真实 provider，`provider-validated` 不成立。
+
+结论：iter145 **accepted**。残余风险：普通 SHA/content addressing 不是签名或 MAC，不能抵抗具有本机写权限者对 authority 与派生证据的整套重写；H3 context memory、I 生产工作台/归档和 J 真 provider capstone 仍未实现。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
