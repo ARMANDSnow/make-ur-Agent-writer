@@ -40,7 +40,13 @@ iter145 已完成 H2 production entity/rolling-summary authority adapter 与 Ren
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- A146-01：通过。H3 strict cache 从已验证 H2 graph/projection 确定构建，recent/summary/keyword 查询、exact replay bytes 与逐 record project/season/episode/event/source identity 均由专项测试覆盖。
+- A146-02：通过。source snapshot、graph membership、selection binding、RenderPlan、episode 与 policy drift 均返回 stale/blocked；missing/delete/invalid cache 不修改 canonical authority，production rebuild 只读取 current H2/RenderPlan/policy。
+- A146-03：通过。默认实现零 embedding/LLM/socket；持久化只含身份、role 与规范化 keyword hash，不含原文、摘要原文、明文 keyword、prompt、路径或 provider 数据。跨 scope、symlink/目录/FIFO、超限/deep/duplicate/nonfinite 与 fully-rehashed tamper 均 fail-closed。
+- A146-04：通过。H3 专项 8 tests、相关聚焦回归 157 tests、语法/harness/diff check 均通过；correctness/behavior、security/boundary、cache provenance 三个独立只读审查最终均无 P0-P3。
+- A146-05：通过。accepted implementation `b29048fef51968b914d18a504e6863396de25c14` 上仅运行一次 canonical `bash scripts/verify.sh`：2832 tests、15 steps、448 秒、run `33d5cbc717f649f6b0f9d7b39a21a4e2`、tree `836f021f93a234ef57ae9fa50cc5c22163bf67e0`、`tracked_scope_clean=true`、exit 0，结论为 `mock-functional` / `canonical-mock-offline`，mandatory `local_drama_e2e` 通过；未运行真实 provider。
+
+残余风险：keyword SHA-256 对低熵查询仍可被离线猜测，不等于匿名化；explicit replacement 的 target-token guard 只覆盖遵守 workspace flock 的合作写者，不宣称抵抗 hostile/non-cooperative 本地进程；I 的统一生产工作台/归档与 J 的 provider capstone 尚未实现。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

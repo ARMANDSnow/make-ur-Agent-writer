@@ -71,6 +71,7 @@
 | 143 | 真视频 20 秒质量样本 | 独立 sample namespace、20 秒 exact profile、prompt SHA lineage；真实 create 结果不明、无 task/MP4、费用 unknown、0 重试 |
 | 144 | 仓库体检 findings 闭环 | 七份报告逐项核验；重试、job/Insights/pricing、mock、祖先 stale、旧视频与 workflow 残余闭环并删报告 |
 | 145 | 短剧生产来源图适配与 RenderPlan 绑定 | entity/rolling-summary exact authority bytes、完整图 membership 与可重算 selection binding；source drift 精确传播为 stale/blocked |
+| 146 | 短剧可失效 Context Memory Cache | text-free recent/summary/keyword identity cache、current H2/RenderPlan/policy exact binding、删除零影响与 drift/tamper 失效 |
 
 ## Iteration Implementation Index
 
@@ -197,6 +198,7 @@
 | 143 | 建立独立 20 秒质量样本与 exact lineage | `src/drama_video.py`、`src/drama_video_smoke.py`、`scripts/drama_video_episode1_quality20_single_submit.sh` |
 | 144 | 闭环七份体检报告的仍成立问题 | `src/llm_client.py`、`src/web/jobs.py`、`src/web/drama_insights.py`、`src/drama_media_pricing.py`、`src/drama_store.py` |
 | 145 | 绑定生产来源快照、事件图与 RenderPlan 选择 | `src/drama_source_adapter.py`、`src/drama_render_plan.py`、`src/drama_render_store.py`、`src/drama_schemas.py` |
+| 146 | 建立可失效、text-free Context Memory Cache | `src/drama_context_memory.py`、`src/drama_schemas.py`、`tests/test_drama_context_memory.py` |
 
 ## Durable Decisions
 
@@ -293,6 +295,7 @@
 43. **版本标签不能单独证明质量样本可比**：应哈希实际 prompt，并用独立 namespace 隔离 artifact 与 ledger；create 返回不明、没有 task ID、只读 task 列表未变化，仍不能推出请求未到达或费用为 0，因此必须保留 unknown 且不重试。
 44. **周期体检必须维护 finding 去重闭包，而不能只看最新报告**：后续报告可能漏掉早期仍成立项；应把跨报告问题归一到代码/测试/iteration 证据，按当前 HEAD 重放。多文件聚合的“有单文件上限”也不等于请求有界，身份复核必须绑定实际 bytes，资源守门还需 collector 累计预算。
 45. **来源 authority、完整图身份与单集选择策略必须分层闭包**：生产事件图应绑定 entity/rolling-summary 的 exact bytes，但完整 source graph 不应随 episode spoiler boundary 改写；RenderPlan 必须冻结 workspace/family、完整有序 membership 与可本地重算的 selected/allowed/boundary binding，并由 store 从当前 authority 重建。普通 SHA 仍只证明自洽，不是签名或 MAC。
+46. **辅助记忆必须是可丢弃索引，而不是第二真源**：context cache 只保存可从 current authority 重建的 event/source identity、role 与有界 query hash，并同时绑定 graph、selection、RenderPlan、episode 与 policy exact bytes；missing/delete 不应影响 canonical，任何 current binding drift 都只使 cache stale/blocked。query hash 对低熵输入可猜，不等于匿名化；应用层 token/CAS 也不能冒充抵抗 hostile 本地写者的 OS 原子保证。
 
 ## Historical Evidence Notes
 
