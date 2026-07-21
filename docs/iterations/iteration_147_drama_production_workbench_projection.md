@@ -42,7 +42,13 @@ iter146 已完成 H1-H3 来源图与可失效辅助记忆。按 A-J 阶段 I，�
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- **A147-01 通过**：`DramaProductionWorkbench` 从现有 current inspectors 重建 strict/bounded 投影，source/list/canvas fingerprint 可重算且强制一致；missing/stale/blocked/busy 与当前镜头外 attempt ledger 状态都不会伪造 ready。
+- **A147-02 通过**：drama-only page/API 只消费同一服务端 projection；空/legacy workspace graceful degrade，GET 通过 double-scan compose overview 保持零 workspace lock 写入，不触发 provider。
+- **A147-03 通过**：投影字段、数量、node/edge 与 transport 有界；未识别 subject 脱敏，不含路径、prompt、provider raw response、signed URL、key/account fingerprint、paid receipt 或异常正文。坏 episode/workspace/source/ledger 显式拒绝或 fail closed。
+- **A147-04 通过**：12 项新测试与 161 项聚焦回归通过，py_compile、harness、diff check 通过；真实本地浏览器桌面 list/canvas、键盘切换与 390×844 窄屏通过。correctness、security/boundary、Web/accessibility 三视角最终无剩余 P0-P3。
+- **A147-05 通过**：implementation commit `ff1bd11dca99e6852368483422591b56f06700cd` 上仅运行一次 `bash scripts/verify.sh`，2844 tests / 15 steps / 442 秒，run `29a99181da324bfc893c1fafadc0a962`，tree `acb2b9b255d78058895cda4bb8b6823d8a48fcda`，`tracked_scope_clean=true`。标准级别 `mock-functional` / `canonical-mock-offline`，mandatory local-drama 组件与真实本地 Web 均记 `local-e2e`，`provider_validated=false`。
+
+结论：iter147 收官。I1 同源只读 production workbench 形成本地工程闭环；I2 archive export/import、可写画布/统一操作、真 provider/billing/TTS 仍不在本轮结论中。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

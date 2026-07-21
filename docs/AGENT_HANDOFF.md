@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 146，2026-07-21 收官 |
+| 更新时间 | iter 147，2026-07-21 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2832 tests OK** |
-| Accepted implementation commit | `b29048fef51968b914d18a504e6863396de25c14` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `b29048fef51968b914d18a504e6863396de25c14`，其后仅有 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、448 秒、run `33d5cbc717f649f6b0f9d7b39a21a4e2`；`verify.sh` exit 0；tracked scope clean |
+| Canonical 基线 | **2844 tests OK** |
+| Accepted implementation commit | `ff1bd11dca99e6852368483422591b56f06700cd` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `ff1bd11dca99e6852368483422591b56f06700cd`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、442 秒、run `29a99181da324bfc893c1fafadc0a962`；`verify.sh` exit 0；tracked scope clean |
 | 当前高风险缺口 | iter142 的固定 5 秒真视频样本成功但实际人民币费用未回报；iter143 的 20 秒质量机会在确认 2 个素材后 create 结果不明，无 task/MP4、费用 unknown 且禁止重提，因此仍无长时质量证据。逐镜 adapter、完整单集、多集、真实 TTS、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter146 已完成 H3 disposable context memory，H1-H3 本地闭环完成，下一步进入 I production workbench/archive。工程验收 `mock-functional`；5 秒窄样本仍为 `provider-validated`，20 秒尝试仍为 `safe-blocked` |
+| 当前开发轮次 | 无；iter147 已完成 I1 同源只读 production workbench，下一步是 I2 安全 archive export/import。工程验收 `mock-functional`，本轮真实 Web 为 `local-e2e`；5 秒窄样本仍为 `provider-validated`，20 秒尝试仍为 `safe-blocked` |
 
 ## Capability Map
 
@@ -22,7 +22,7 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、直接 unittest/IDE 全 provider mock、付费 unknown 零自动重发、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、content-token/累计预算守门的 Insights、多集编辑入口、typed retry 与脱敏任务历史 | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2 渲染/stale、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 合成/QA/交付、G1-G7 持久调度/执行/计价/lifecycle、H1-H3 production source graph/RenderPlan binding/text-free disposable context memory；四格式单集与严格季包、Insights、固定 episode 1 高光视频真实样本 | I production workbench/archive、真实 billing adapter、provider create unknown reconciliation、物理 GC、真实逐镜图片/视频 provider 与长时主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音未验证 |
+| 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2 渲染/stale、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 合成/QA/交付、G1-G7 持久调度/执行/计价/lifecycle、H1-H3 source graph/memory、I1 同源只读 production workbench；四格式单集与严格季包、Insights、固定 episode 1 高光视频真实样本 | I2 可移植 archive export/import、真实 billing adapter、provider create unknown reconciliation、物理 GC、真实逐镜图片/视频 provider 与长时主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
@@ -44,7 +44,8 @@
 - iter144 逐项核验 2026-07-14 至 07-20 七份体检报告：早期已由后续迭代闭合的项保留代码/iteration 证据；仍成立的 LLM submission-unknown、generic job 投影/持久化、Insights/pricing snapshot 与累计资源、直接测试 mock、祖先 episode stale、submitted 旧视频、`xcrun_db` 豁免和 staged whitespace 均已修复。correctness、security/boundary、Web/runner/pricing 三视角最终无 finding，七份报告在验收后删除。
 - iter145 H2 将 H1 source assertion 接到 production entity/rolling-summary exact bytes：完整 source graph identity 与 episode spoiler selection policy 分离，RenderPlan 冻结 workspace/family、full membership、selected/allowed IDs 与可重算 selection binding；production store 从当前 authority 重建，合法漂移 stale、坏/缺来源 blocked，旧 unbound plan 兼容且不改 canonical episode SHA。三视角最终无 P0-P3；普通 SHA 仍不宣称签名或 MAC。
 - iter146 H3 新增可删除且可确定重建的 text-free context memory：recent/summary/keyword 只保存 event/source identity、role 与规范化 query hash，并绑定 current H2 graph/selection、RenderPlan、episode 与 policy exact bytes；missing/delete 不影响 canonical，drift/tamper 精确 stale/blocked。keyword hash 对低熵输入可猜，不等于匿名化；replacement 只承诺合作 flock 写者边界。
-- canonical **2832 tests OK**（项目 `.venv`）；implementation commit `b29048f` 上 exit 0，15 steps / 448 秒，run `33d5cbc717f649f6b0f9d7b39a21a4e2`，tree `836f021f93a234ef57ae9fa50cc5c22163bf67e0`，`tracked_scope_clean=true`。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 为 `local-e2e`。
+- iter147 I1 新增 strict/bounded production workbench：从 current RenderPlan/source binding、asset、image/video attempt、task DAG、timeline/QA/delivery 重建同源安全投影，list/canvas 共享可重算 fingerprint；GET 不创建 write lock，unknown/reconciliation/stale/invalid 不伪造 green。真实本地浏览器桌面、键盘与 390px 窄屏通过，三视角最终无 P0-P3。
+- canonical **2844 tests OK**（项目 `.venv`）；implementation commit `ff1bd11` 上 exit 0，15 steps / 442 秒，run `29a99181da324bfc893c1fafadc0a962`，tree `acb2b9b255d78058895cda4bb8b6823d8a48fcda`，`tracked_scope_clean=true`。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama component 与本轮真实 Web 为 `local-e2e`。
 
 ## Retained Working Memory
 
@@ -233,7 +234,7 @@
 1. **短剧真实多模态后续校准**：iter142 已验证固定 Episode 1 的 5 秒视频；iter143 的独立 20 秒样本在 2 个素材确认后 create 结果不明，无 task/MP4 且授权已消费。需先做 provider task/billing/请求拒绝原因的只读 reconciliation，不能重提；全角色/多题材图像、逐镜/完整单集媒体、真实 TTS、长时质量与 SLA 仍需分别授权。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
-4. **短剧媒体、事件图与辅助记忆**：A1/A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 已完成本地闭环；I production workbench/archive、真实图片/视频/语音 provider 与 billing adapter、物理 GC、Web provider submit/poll/cancel、JPEG/WebP、staging GC/power-loss、真实 BGM/SFX、特定 NLE、公网流式交付、真实 episode 2+ 与真实多模态质量仍未验证。
+4. **短剧媒体、事件图、记忆与工作台**：A1/A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1 已完成本地闭环；I2 archive export/import、真实图片/视频/语音 provider 与 billing adapter、物理 GC、Web provider submit/poll/cancel、JPEG/WebP、staging GC/power-loss、真实 BGM/SFX、特定 NLE、公网流式交付、真实 episode 2+ 与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
 7. **严格本地对手 TOCTOU**：Insights/pricing 已使用 nofollow、实际 bytes SHA token、final rescan 与 collector 总预算；项目锁可阻止本项目 Web/runner 并发。其他旧 store 若威胁模型包含不遵守 flock 的本机进程在最终检查后竞态替换目标或父目录，仍需逐面升级统一 dirfd/事务协议。
@@ -241,7 +242,7 @@
 ## Next Candidates
 
 - 低风险工程轮：provider create unknown 的只读 task/billing/rejection reconciliation、真实 billing adapter、可靠有界 JPEG/WebP decoder、provider 幂等键调研、100 集只读扫描优化或已登记 P2 技债。
-- 低风险短剧阶段轮：H1-H3 已闭合，下一步进入 I 的同源 production workbench/归档。C 的 JPEG/WebP/staging GC 仍可独立推进。真实 adapter 另起高风险授权轮；不得把 content hash 冒充 authenticated source provenance。
+- 低风险短剧阶段轮：I1 已闭合，下一步实现 I2 安全可移植 archive export/import，优先确定 manifest/member hash、schema/version、no-follow/zip-slip、no-overwrite 导入与 round-trip 边界。C 的 JPEG/WebP/staging GC 仍可独立推进。
 - 需授权验证轮：全角色/多题材真生图、逐镜/完整单集媒体、真实 TTS 或小说 capstone。不要把这些授权合并推定；iter143 的 20 秒机会已消费且结果不明，在 reconciliation 前不得复跑或改时长重提。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 
@@ -280,4 +281,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter146 完成短剧 H3：新增 text-free disposable context memory，recent/summary/keyword 只冻结 event/source identity、role 与规范化 query hash，精确绑定 current H2 graph/selection、RenderPlan、episode 与 policy bytes；cache missing/delete 对 canonical 零影响，source/policy/render/record tamper 只返回 stale/blocked。create no-overwrite，explicit replacement 在 cooperative flock 内用 target-token 与 precommit current binding 守门；不宣称 keyword hash 匿名化或抵抗 hostile writer。correctness、security/boundary、cache provenance 三视角 findings 全部闭合，最终无 P0-P3。accepted implementation `b29048f` 上 canonical 2832 tests、15 steps、448 秒，run `33d5cbc717f649f6b0f9d7b39a21a4e2`，`mock-functional`；未运行真实 provider。
+iter147 完成短剧 I1：新增 drama-only strict/bounded production workbench，从 current RenderPlan/source binding、selected assets、逐镜 image/video、完整 attempt/task ledger、timeline/QA/delivery 重建同源安全投影，list/canvas 共享可重算 fingerprint。GET 使用 double-scan read-only compose overview，不创建 workspace lock；unknown/submitted/reconciliation/stale/invalid 向上传播，未识别 task subject 脱敏。桌面 list/canvas、键盘 tabs 与 390×844 真实 Web 验收通过，correctness、security/boundary、Web/accessibility 三视角最终无 P0-P3。accepted implementation `ff1bd11` 上 canonical 2844 tests、15 steps、442 秒，run `29a99181da324bfc893c1fafadc0a962`，`mock-functional`；本轮未运行真实 provider，I2 archive 留待下轮。
