@@ -1423,8 +1423,47 @@ html { scroll-behavior: smooth; }
   font-size: var(--fs-sm); text-align: center; padding: var(--space-3);
 }
 .check-row { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-2); font-size: var(--fs-sm); }
+.production-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-3);
+}
+.production-shot-list { display: grid; gap: var(--space-3); }
+.production-shot-row {
+  display: grid;
+  grid-template-columns: minmax(150px, .8fr) minmax(260px, 2fr) minmax(170px, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--bg-card);
+  padding: var(--space-3);
+}
+.production-canvas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+.production-node {
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--amber);
+  border-radius: var(--radius-2);
+  background: var(--bg-card);
+  padding: var(--space-3);
+  min-width: 0;
+}
+.production-node[data-state="ready"],
+.production-node[data-state="succeeded"],
+.production-node[data-state="active"] { border-left-color: var(--jade); }
+.production-node[data-state="blocked"],
+.production-node[data-state="invalid"],
+.production-node[data-state="failed"],
+.production-node[data-state="submission_unknown"] { border-left-color: var(--sienna); }
+.production-node code, .production-shot-row code { overflow-wrap: anywhere; }
+.production-view-tabs { margin-bottom: var(--space-4); }
 @media (max-width: 720px) {
   .character-card { grid-template-columns: 1fr; }
+  .production-shot-row { grid-template-columns: 1fr; }
 }
 """
 
@@ -7296,6 +7335,175 @@ JS_DASHBOARD = """\
     await load();
   }
 
+  // ---- I1 unified production workbench (iter147) -----------------------
+  function productionStateLabel(state) {
+    return ({
+      ready: "已就绪", incomplete: "尚未完整", stale: "上游已变化",
+      blocked: "已阻塞", invalid: "无效", busy: "工作区繁忙",
+      missing: "尚未建立", active: "已启用", disabled: "已停用",
+      succeeded: "成功", failed: "失败", submission_unknown: "提交结果未知",
+      needs_attempts: "尚无提交", fresh: "已对账", reconciliation_required: "需要对账",
+    })[state] || String(state || "未知");
+  }
+
+  function productionBadge(state) {
+    const good = ["ready", "active", "succeeded"].indexOf(state) >= 0;
+    const bad = ["blocked", "invalid", "failed", "submission_unknown"].indexOf(state) >= 0;
+    return '<span class="badge ' + (good ? "success" : bad ? "danger" : "warning") + '">' +
+      escapeHtml(productionStateLabel(state)) + '</span>';
+  }
+
+  function renderProductionSummary(data) {
+    const render = data.render || {};
+    const assets = data.assets || {};
+    const tasks = data.tasks || {};
+    const timeline = data.timeline || {};
+    const attempts = data.video_attempts || {};
+    const sourceCounts = render.source_event_counts || {};
+    return '<div class="card"><div class="card-body">' +
+      '<div class="section-title"><div><p class="eyebrow ornament">Episode ' +
+      Number(data.episode_no || 1) + '</p><h2>生产状态</h2></div>' + productionBadge(data.state) + '</div>' +
+      '<p class="hint">同源 fingerprint <code>' +
+      escapeHtml((data.source_projection_fingerprint || "").slice(0, 24)) + '</code></p>' +
+      '<div class="production-summary-grid">' +
+      '<div><p class="hint">RenderPlan</p>' + productionBadge(render.state) +
+      '<p>' + Number(render.shot_count || 0) + ' 镜 · ' + Number(render.spoken_segment_count || 0) + ' spoken segments</p></div>' +
+      '<div><p class="hint">来源事件 · ' + escapeHtml(render.source_event_binding_state || "unbound") +
+      '</p><p>原著 ' + Number(sourceCounts.source_derived || 0) +
+      ' · 发明 ' + Number(sourceCounts.invented || 0) + ' · 混合 ' + Number(sourceCounts.mixed || 0) + '</p></div>' +
+      '<div><p class="hint">Selected assets</p>' + productionBadge(assets.state) +
+      '<p>' + Number(assets.selected_count || 0) + ' 项 · blockers ' + Number(assets.blocker_count || 0) + '</p></div>' +
+      '<div><p class="hint">逐镜媒体</p><p>图片 ' + productionBadge(data.image_state) +
+      ' · 视频 ' + productionBadge(data.video_state) + '</p><p>attempts ' +
+      productionBadge(attempts.state) + ' · unknown ' + Number(attempts.unknown_count || 0) +
+      ' · submitted ' + Number(attempts.submitted_count || 0) + '</p></div>' +
+      '<div><p class="hint">任务 DAG</p>' + productionBadge(tasks.state) +
+      '<p>' + Number(tasks.task_count || 0) + ' 项 · unknown ' + Number(tasks.unknown_count || 0) + '</p></div>' +
+      '<div><p class="hint">时间线 / QA</p>' + productionBadge(timeline.state) +
+      '<p>' + Number(timeline.shot_count || 0) + ' 镜 · ' + Number(timeline.subtitle_count || 0) + ' 字幕</p></div>' +
+      '</div></div></div>';
+  }
+
+  function renderProductionList(data) {
+    const shots = data.shots || [];
+    const assets = data.assets || {};
+    const timeline = data.timeline || {};
+    const assetList = (assets.items || []).length
+      ? '<div class="card"><div class="card-body"><h3>Selected versions</h3><div class="cluster">' +
+        assets.items.map(function (item) {
+          return '<span class="badge no-dot">' + escapeHtml(item.kind) + ' · ' +
+            escapeHtml(item.asset_id) + ' / ' + escapeHtml(item.selected_version_id) + '</span>';
+        }).join("") + '</div>' +
+        (Number(assets.omitted_count || 0) ? '<p class="hint">另有 ' + Number(assets.omitted_count) + ' 项未投影。</p>' : '') +
+        '</div></div>'
+      : '<div class="empty-state"><p>尚无 selected asset。</p></div>';
+    const shotList = shots.length
+      ? '<div class="production-shot-list">' + shots.map(function (shot) {
+          return '<article class="production-shot-row" data-shot-id="' + escapeHtml(shot.shot_id) + '">' +
+            '<div><p class="eyebrow ornament">镜头 ' + Number(shot.sequence) + '</p><code>' +
+            escapeHtml(shot.shot_id) + '</code>' + (shot.is_highlight ? '<p><span class="badge">高光</span></p>' : '') + '</div>' +
+            '<div class="cluster"><span>首/尾帧 ' + productionBadge(shot.image_state) + '</span>' +
+            '<span>视频 ' + productionBadge(shot.video_state) + '</span>' +
+            (shot.latest_attempt_outcome ? '<span>attempt ' + productionBadge(shot.latest_attempt_outcome) + '</span>' : '') + '</div>' +
+            '<div class="hint">' + (shot.target_duration_seconds == null ? '—' : Number(shot.target_duration_seconds) + ' 秒') +
+            ' · 图片候选 ' + Number(shot.image_candidate_count || 0) +
+            ' · 视频候选 ' + Number(shot.video_candidate_count || 0) +
+            ' · spoken ' + Number(shot.spoken_segment_count || 0) + '</div></article>';
+        }).join("") + '</div>'
+      : '<div class="empty-state"><h3>尚无稳定镜头 ID</h3><p>先完成组装与 RenderPlan；工作台不会从文本或文件名猜镜头。</p></div>';
+    const qa = timeline.qa
+      ? '<div class="card"><div class="card-body"><h3>QA / Exact delivery</h3><p>' +
+        productionBadge(timeline.qa.status) + ' · ' + escapeHtml(timeline.qa.acceptance_level || '') +
+        ' · 覆盖 ' + Number(timeline.qa.covered_shot_count || 0) + ' / ' + Number(timeline.qa.required_shot_count || 0) +
+        '</p><div class="cluster">' + (timeline.deliverables || []).map(function (item) {
+          return '<a class="btn btn-secondary btn-sm" href="' + escapeHtml(item.url || '') + '">' +
+            escapeHtml(String(item.kind || '').toUpperCase()) + '</a>';
+        }).join('') + '</div></div></div>'
+      : '';
+    return '<div id="production-panel-list" role="tabpanel" aria-labelledby="production-tab-list" ' +
+      'data-production-panel="list">' + assetList + shotList + qa + '</div>';
+  }
+
+  function renderProductionCanvas(data) {
+    const nodes = data.canvas_nodes || [];
+    const edges = data.canvas_edges || [];
+    return '<div id="production-panel-canvas" role="tabpanel" aria-labelledby="production-tab-canvas" ' +
+      'data-production-panel="canvas">' +
+      '<div class="callout info"><strong>同源画布投影</strong><span>' +
+      nodes.length + ' nodes · ' + edges.length + ' typed edges' +
+      (Number(data.canvas_omitted_edge_count || 0) ? ' · 另有 ' + Number(data.canvas_omitted_edge_count) + ' 条边未投影' : '') +
+      '；只展示服务端 durable state。</span></div>' +
+      '<div class="production-canvas">' + nodes.map(function (node) {
+        return '<article class="production-node" data-production-node="' + escapeHtml(node.node_id) +
+          '" data-state="' + escapeHtml(node.state) + '"><p class="eyebrow ornament">' +
+          escapeHtml(node.kind) + '</p><code>' + escapeHtml(node.ref_id) + '</code><p>' +
+          productionBadge(node.state) + (node.selected ? ' <span class="badge no-dot">selected</span>' : '') +
+          '</p></article>';
+      }).join('') + '</div></div>';
+  }
+
+  async function initDramaProduction() {
+    const root = document.getElementById("production-page-root");
+    if (!root) return;
+    const episodeInput = document.getElementById("production-episode-no");
+    const refresh = document.getElementById("production-refresh");
+    const tabs = Array.from(document.querySelectorAll("[data-production-view]"));
+    let projection = null;
+    let view = "list";
+    function episodeNo() {
+      const value = Number(episodeInput && episodeInput.value || 1);
+      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+    }
+    function render() {
+      if (!projection) return;
+      root.innerHTML = renderProductionSummary(projection) +
+        (view === "canvas" ? renderProductionCanvas(projection) : renderProductionList(projection));
+      tabs.forEach(function (tab) {
+        const active = tab.dataset.productionView === view;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", active ? "true" : "false");
+        tab.setAttribute("tabindex", active ? "0" : "-1");
+      });
+    }
+    async function load() {
+      root.setAttribute("aria-busy", "true");
+      try {
+        projection = await fetchJson(
+          wsUrl("/drama/production?episode_no=" + encodeURIComponent(episodeNo()))
+        );
+        if (projection.list_projection_fingerprint !== projection.canvas_projection_fingerprint) {
+          throw new Error("生产工作台视图来源不一致");
+        }
+        render();
+      } catch (err) {
+        root.innerHTML = renderErrorCard(err);
+      } finally {
+        root.removeAttribute("aria-busy");
+      }
+    }
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        view = tab.dataset.productionView === "canvas" ? "canvas" : "list";
+        render();
+      });
+      tab.addEventListener("keydown", function (event) {
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].indexOf(event.key) < 0) return;
+        event.preventDefault();
+        const current = tabs.indexOf(tab);
+        const next = event.key === "Home" ? 0
+          : event.key === "End" ? tabs.length - 1
+          : event.key === "ArrowRight" ? (current + 1) % tabs.length
+          : (current - 1 + tabs.length) % tabs.length;
+        view = tabs[next].dataset.productionView === "canvas" ? "canvas" : "list";
+        render();
+        tabs[next].focus();
+      });
+    });
+    if (refresh) refresh.addEventListener("click", load);
+    if (episodeInput) episodeInput.addEventListener("change", load);
+    await load();
+  }
+
   function composeStateLabel(state) {
     return {
       needs_timeline: "等待 E3 时间线",
@@ -7456,6 +7664,7 @@ JS_DASHBOARD = """\
     if (pageKind === "insights") return initInsights();
     if (pageKind === "drama_write") return initDramaWrite();
     if (pageKind === "drama_characters") return initDramaCharacters();
+    if (pageKind === "drama_production") return initDramaProduction();
     if (pageKind === "drama_assets") return initDramaAssets();
     if (pageKind === "drama_shot_images") return initDramaShotImages();
     if (pageKind === "drama_shot_videos") return initDramaShotVideos();

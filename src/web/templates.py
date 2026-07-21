@@ -145,6 +145,7 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
 _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
     ("overview", "概览", ""),
     ("write", "创作台", "write"),
+    ("production", "生产工作台", "production"),
     ("characters", "角色库", "characters"),
     ("assets", "资产治理", "assets"),
     ("shot_images", "镜头图片", "shot-images"),
@@ -500,6 +501,52 @@ def render_workspace_characters(name: str, workspaces: Iterable[str]) -> str:
         breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("角色库", None)]),
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="characters"),
+        workspace=name,
+    )
+
+
+def render_workspace_production(name: str, workspaces: Iterable[str]) -> str:
+    main = (
+        '<header class="page-header">'
+        '<div class="titles">'
+        '<p class="eyebrow ornament">短剧 · I 阶段</p>'
+        '<h1>生产工作台</h1>'
+        '<p class="muted">在一处查看创作 revision、资产选择、逐镜覆盖、任务、时间线、QA 与交付。</p>'
+        '</div>'
+        '<div class="cluster">'
+        '<label class="field compact">集数 '
+        '<input id="production-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
+        '</label>'
+        '<button class="btn btn-secondary" id="production-refresh" type="button">刷新</button>'
+        '</div>'
+        '</header>'
+        '<section class="section">'
+        '<div class="callout info">'
+        '<strong>只读同源投影</strong>'
+        '<span>列表与画布共享服务端 fingerprint；此页不会生成媒体、提交 provider、修改选择或把节点颜色写回任务状态。</span>'
+        '</div>'
+        '<div class="tabs production-view-tabs" role="tablist" aria-label="生产工作台视图">'
+        '<button class="tab active" type="button" role="tab" id="production-tab-list" '
+        'data-production-view="list" aria-controls="production-panel-list" aria-selected="true" tabindex="0">镜头列表</button>'
+        '<button class="tab" type="button" role="tab" id="production-tab-canvas" '
+        'data-production-view="canvas" aria-controls="production-panel-canvas" aria-selected="false" tabindex="-1">关系画布</button>'
+        '</div>'
+        '<div id="production-page-root" aria-live="polite"><p class="muted">载入中…</p></div>'
+        '</section>'
+    )
+    return _render_shell(
+        title=f"{name} · 生产工作台",
+        page_kind="drama_production",
+        main_html=main,
+        breadcrumb_html=_crumbs(
+            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("生产工作台", None)]
+        ),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html=_sidebar(
+            workspaces,
+            active_workspace=name,
+            active_section="production",
+        ),
         workspace=name,
     )
 

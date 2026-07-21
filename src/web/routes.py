@@ -282,6 +282,23 @@ def render_workspace_characters_page(name: str) -> Tuple[int, str, bytes]:
     return _html(200, templates.render_workspace_characters(name, list_workspaces()))
 
 
+def render_workspace_production_page(name: str) -> Tuple[int, str, bytes]:
+    """Drama-only, read-only production workbench."""
+
+    guard = _workspace_html_guard(name)
+    if guard:
+        return guard
+    from .workspace_meta import read as _meta_read
+
+    if _meta_read(name).get("type") != "drama":
+        return _html(
+            404,
+            f'<h1>404</h1><p>this page is for drama workspaces only; '
+            f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
+        )
+    return _html(200, templates.render_workspace_production(name, list_workspaces()))
+
+
 def render_workspace_assets_page(name: str) -> Tuple[int, str, bytes]:
     """Drama-only redacted asset governance page."""
 
@@ -1757,6 +1774,27 @@ def api_drama_assets_get(
             )
         ),
     )
+
+
+def api_drama_production_get(
+    name: str,
+    raw_episode_no: Any = 1,
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    try:
+        episode_no = _parse_episode_no(raw_episode_no)
+    except (TypeError, ValueError):
+        return _json(400, {"error": "invalid episode_no"})
+    from ..drama_production_workbench import build_production_workbench
+    from ..schemas import model_to_dict
+
+    try:
+        projection = build_production_workbench(name, episode_no=episode_no)
+    except (OSError, RuntimeError, TypeError, ValueError, RecursionError):
+        return _json(409, {"error": "production workbench projection is unavailable"})
+    return _json(200, model_to_dict(projection))
 
 
 def api_drama_assets_select(
@@ -4740,6 +4778,7 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         ),
     ),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"), lambda name, **_: render_workspace_characters_page(name)),
+    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/production/?$"), lambda name, **_: render_workspace_production_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/assets/?$"), lambda name, **_: render_workspace_assets_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-images/?$"), lambda name, **_: render_workspace_shot_images_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-videos/?$"), lambda name, **_: render_workspace_shot_videos_page(name)),
@@ -4942,6 +4981,14 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/characters/(?P<cid>[^/]+)/redraw/?$"),
         lambda name, cid, _body=b"", _headers=None, **_: api_drama_character_redraw(
             name, cid, _body, _headers or {}
+        ),
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/production/?$"),
+        lambda name, _query=None, **_: api_drama_production_get(
+            name,
+            ((_query or {}).get("episode_no", ["1"])[0]),
         ),
     ),
     (

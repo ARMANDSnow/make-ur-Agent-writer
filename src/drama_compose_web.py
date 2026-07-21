@@ -627,6 +627,74 @@ def build_compose_web_overview(
         return base
 
 
+def build_compose_web_overview_readonly(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+) -> dict[str, Any]:
+    """Build the same projection without creating or updating write-lock files.
+
+    The production workbench is a strict GET surface.  It performs two exact
+    scans and only returns a snapshot when both safe projections agree.  This
+    does not claim hostile-writer atomicity, but it detects cooperating writes
+    and ordinary cross-process changes without mutating the workspace.
+    """
+
+    def scan() -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "schema_version": 1,
+            "episode_no": episode_no,
+            "state": "needs_timeline",
+            "ready_to_compose": False,
+            "timeline_fingerprint": None,
+            "duration_ms": None,
+            "shot_count": 0,
+            "subtitle_count": 0,
+            "warnings": [],
+            "qa": None,
+            "deliverables": [],
+        }
+        try:
+            with use_workspace(workspace):
+                root = paths.workspace_root(workspace)
+                timeline = _current_timeline_under_lock(
+                    workspace, root, episode_no
+                )
+                return _build_compose_web_overview_under_lock(
+                    workspace, root, timeline, base
+                )
+        except FileNotFoundError:
+            return base
+        except DramaComposeWebError as exc:
+            base["state"] = (
+                "invalid" if exc.code == "timeline_invalid" else "stale"
+            )
+            base["warnings"] = [exc.code]
+            return base
+        except (OSError, RecursionError, TypeError, ValueError):
+            base["state"] = "invalid"
+            base["warnings"] = ["timeline_projection_invalid"]
+            return base
+
+    first = scan()
+    second = scan()
+    if first != second:
+        return {
+            "schema_version": 1,
+            "episode_no": episode_no,
+            "state": "busy",
+            "ready_to_compose": False,
+            "timeline_fingerprint": None,
+            "duration_ms": None,
+            "shot_count": 0,
+            "subtitle_count": 0,
+            "warnings": ["workspace_changed_during_read"],
+            "qa": None,
+            "deliverables": [],
+        }
+    return first
+
+
 def _build_compose_web_overview_under_lock(
     workspace: str,
     root: Path,

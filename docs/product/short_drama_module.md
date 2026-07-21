@@ -2,7 +2,7 @@
 
 > **文档性质**：PM 产品定义书 + 短剧完整生产 SOP；前者保留 v1 决策背景，后者记录当前实现状态。
 >
-> **版本**：v2 状态补充 · 2026-07-15；v1 产品基线形成于 2026-06-03，当前实现基线为 iter 108，事实以 [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) 为准。
+> **版本**：v16 状态补充 · 2026-07-21；v1 产品基线形成于 2026-06-03，当前实现基线为 iter 147，事实以 [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) 为准。
 >
 > **作者**：Claude
 >
@@ -562,7 +562,8 @@ iter 035 v0 列了 D1-D6 待用户拍板；本 v1 已收到答复，固定如下
 - **v12** 2026-07-18 · 登记 G7 durable lifecycle metrics 与成功率/等待时间 Insights
 - **v13** 2026-07-18 · 登记 H1 typed source event graph、来源与 spoiler boundary
 - **v14** 2026-07-21 · 登记 H2 production entity/summary adapter 与 RenderPlan exact graph binding
-- **v15** 2026-07-21 · 登记 H3 text-free context memory cache、current binding 与失效协议（**当前版本**）
+- **v15** 2026-07-21 · 登记 H3 text-free context memory cache、current binding 与失效协议
+- **v16** 2026-07-21 · 登记 I1 同源只读 production workbench、安全聚合投影与列表/画布 Web（**当前版本**）
 
 本文档以 git commit message `docs(drama): bump short_drama_module.md to vN` 形式滚动维护。
 
@@ -594,7 +595,7 @@ episode_NN.json / characters / reviews
 
 ## 11. 完整生产 SOP（实时状态）
 
-本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 146，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
+本节回答两件事：短剧从创建 workspace 到交付成片应该怎样流转；截至 iter 147，哪些步骤已经具备工程闭环，哪些仍只是规划。它不改变第 1-10 节的历史产品决策，也不把独立阶段计划算作一次 iteration。
 
 状态图例：
 
@@ -654,7 +655,7 @@ drama workspace
 | F. 合成、媒体 QA 与可编辑导出 | C-D selected media、E 的唯一时间线 | 纯函数生成 ffprobe/ffmpeg argv 与 filter graph；标准化、混音、字幕、水印、mux；post-probe QA；导出 SRT/ASS/编辑器工程 | required shots 全覆盖；MP4/字幕/export 共享 timeline fingerprint；路径/命令注入被拒；缺 clip/FFmpeg/concat 失败不得 completed | 🟨 **F1-F3 本地与 Web 闭环已完成**：F1 生成固定 1080×1920/25fps H.264/AAC MP4、SRT 与 QA；F2 从同一 timeline 导出 UTF-8 ASS 和版本锁定的通用可编辑工程；F3 将 E3 成功结果持久化为 Web 唯一输入，提供本地 compose job、durable QA truth 与 exact MP4/SRT/ASS/edit 下载。FFmpeg 单线程、跨 workspace 单槽、总源集 128 MiB、生成/验证/交付单一 64 MiB 上限；current D4/E3、F1/F2 与返回字节在同一锁快照验证，真实本地 episode 2 已覆盖。特定 NLE 私有格式、多 profile、更广 codec/container 与真实媒体质量仍未闭环 |
 | G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1-G7 持久调度、pricing 与 lifecycle metrics 已实现**：episode-scoped strict DAG、worker lease/capacity lane、代码内 registry、provider task+frozen binding 原子入队、纯本地 queue client、owner-guarded execution loop、六类 append-only pricing facts，以及 durable ready/first-claim/terminal lifecycle 与 success/queue/run Insights 已落地。generic task/pricing 只绑定受控 evidence fingerprint，不保存 provider task/response 或替代 paid ledger/billing。真实 adapter/账单对接尚未实现 |
 | H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ✅ **H1-H3 纯本地闭环已实现**：H1 提供 strict typed graph 与来源/改编/因果/lineage；H2 从 named workspace exact entity/rolling-summary bytes 重建 production graph 并冻结 RenderPlan binding；H3 只缓存 exact event/source identity，以 hashed keyword + recent + summary 零网络查询，绑定 workspace/season/episode/source/graph/RenderPlan/policy，current 漂移 stale/blocked，cache missing/delete 不影响 canonical。公开 Web/UI 与真实提取仍由 I/J 承接 |
-| I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | ⏳ 已有剧集页、Insights、单集导出和创作层季包；统一 production workbench 与含媒体/证据的可移植归档未实现 |
+| I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；统一操作资产/镜头/任务/时间线/QA/预算；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；归档 round-trip 保持 hash/selection/timeline/MP4；拒绝路径穿越/坏 hash/未知 schema | 🟨 **I1 同源只读工作台已实现**：drama-only Web 从 current inspectors 聚合 creative/RenderPlan、selected assets、逐镜 image/video、task DAG、timeline/QA/delivery；列表与画布共享 source projection fingerprint，H 事件只投影 source-derived/invented/mixed 计数和 binding state。页面零 mutation/provider，不含路径、prompt、raw response、signed URL、credential 或 paid receipt。I2 可移植 archive export/import 尚未实现 |
 | J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清 provider/model/account fingerprint、提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 现有五站文本、全角色图片、episode 1 单视频入口可分别申请授权校准；完整单镜/单集/多集 capstone 仍依赖 B-F。当前为 `mock-functional` + fake-provider `local-e2e`、`provider_validated=false` |
 
 #### A2 stale dependency matrix v1
@@ -791,6 +792,14 @@ recent、summary 与 keyword 三类 memory 都只保存 event identity。keyword
 
 持久 cache 使用 canonical strict JSON、2 MiB 上限、workspace/season/episode 隔离、逐级 no-follow 目录与 workspace lock；missing create 以 temp + fsync + hard-link no-overwrite 提交，已存在 cache 只有显式 replacement 才在合作锁域内经 target-token guard 后 replace，并在 commit/replay 前重建 current binding。duplicate/nonfinite/unknown schema、symlink/目录/特殊文件、跨 scope、full membership/selection/record tamper 均 fail closed；坏目标不会被自动覆盖。replacement 的 token guard 不是针对非合作本机写者的 OS compare-and-swap，本地 content hash 也不是签名或 MAC；cache 是可删除派生物，不能据此声称 hostile-writer 防篡改。
 
+#### I1 同源只读 Production Workbench
+
+drama-only `/w/<name>/production` 与 `/api/workspace/<name>/drama/production` 不读取前端拼装状态，而是调用既有 current RenderPlan、asset governance、C/D candidate、G task 与 E/F compose inspectors，重建 creative revision、来源 binding、selected asset versions、逐镜 image/video coverage、latest safe attempt outcome、task dependency、timeline、QA 与 exact delivery 的统一 allowlist projection。RenderPlan 绑定 H graph 时，工作台重新读取 production entity/rolling-summary authority 并用 exact projection 对账，只公开 `source_derived / invented / mixed` 数量和 `unbound/fresh/stale/blocked` binding state，不公开事件原文、typed fact atoms 或 source path。
+
+列表和可选画布都引用同一 stable asset/shot/task/timeline ID 集，并携带完全相同的 `source_projection_fingerprint`；canvas node/typed edge 只是服务端事实的另一种有界视图，前端颜色和连线不会写回 durable task，也不能把节点变绿解释为 provider 成功。单集最多投影 100 shots、256 selected assets、256 tasks、700 nodes 与 1500 edges，超出边数确定性截断并显式报告 omitted；task unknown/failed 计数仍覆盖完整已验证 ledger，不能因 UI 截断消失。
+
+API/page 只接受 drama workspace 和 1-100 episode，GET 不包含 mutation、submit、poll、cancel 或 provider 调用。公开字段不含本地/内部路径、visual/text prompt、provider raw response、signed URL、credential、account/endpoint fingerprint、paid receipt/evidence 或未脱敏异常；可选 catalog/manifest 缺失显示 missing/incomplete，坏 source、symlink/特殊文件、坏 JSON、identity drift、submission unknown 或 inspector failure 显式 blocked/invalid，不伪造 ready。iter147 已以真实本地浏览器覆盖桌面列表、画布切换与 390px 窄屏；archive 写入、导入、canvas mutation 和操作按钮仍属于 I2/后续范围。
+
 ### 11.4 依赖顺序与完成口径
 
 创作段按 `0 → 1 → 2 → 3 → 4 → 5 → 6/7` 执行；Reject/Abstain 回到对应站修订，只有 Approve 才能写 canonical episode。
@@ -803,7 +812,7 @@ recent、summary 与 keyword 三类 memory 都只保存 event identity。keyword
 4. H 依赖 A，但不阻塞 F；I 在 B-G 的后端事实稳定后建设。
 5. J 只校准已经通过 mock/local 验证的对应链，且四类真实能力分别授权、分别取证。
 
-截至 iter 146，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，G1-G7 持久媒体任务 DAG/worker/registry/execution/pricing/lifecycle metrics，以及 H1-H3 source event graph、production authority binding 与 disposable context memory 已形成可恢复、可重建的纯本地工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体，G 的真实 adapter/账单，I 的工作台/归档仍有缺口，J 也只有历史局部校准证据。
+截至 iter 147，可以准确表述为：**创作五站、连续多集、A1/A2 渲染与精确 stale 契约、B1-B3 本地资产治理与 Web、C1-C4 逐镜图片候选 Web、D1-D5 逐镜视频候选/连续性 Web、E3→F3 的持久时间线、本地合成 job、QA 真值和 exact 四件套交付，G1-G7 持久媒体任务 DAG/worker/registry/execution/pricing/lifecycle metrics，H1-H3 source event graph/production authority/disposable memory，以及 I1 同源只读 production workbench 已形成可恢复、可重建的纯本地工程闭环**。不能据此表述为“真实短剧生产链已 provider-validated”：B 的物理 GC，C/D/F 的多格式、多 profile、真实媒体，G 的真实 adapter/账单，I2 archive export/import 仍有缺口，J 也只有历史局部校准证据。
 
 ### 11.5 规划外边界
 
