@@ -40,6 +40,7 @@
 - 本地 A-F 的取消能力从父 job 传入 creative 子 job、FFmpeg 约 250ms checkpoint、逐镜图片/视频、口播与 TTS 循环；失败或取消通过 `finally` 删除 FFmpeg 半成品。进度按 creative 20% + A-F 80% 单调缩放。
 - production、compose、逐镜图片/视频等结构性动作补 dirty 离开/覆盖确认；rewrite 成功后清除 dirty；真实文本改为一次性可读授权对话框。移动端原生 button 与 `.btn` 最小高度 44px，页面无横向溢出；production 内部术语移入折叠诊断或换成普通中文。
 - correctness 初审发现本地验收最初会写入源项目、共享角色表并固定 30 秒，已改为全新隔离 workspace 和 selected duration。security 审查发现通用 `/run` 可绕过 drama 专用门禁、PUT 预读未限长，均已关闭。最终复核又关闭 FFmpeg 取消半成品、后半段取消延迟、raw acceptance level 和内部术语残留，最终无 P0-P2。
+- 首轮 canonical 共执行 2888 项后在 unittest 阶段报告 1 failure/3 errors；可复现 failure 是新增 `drama-local-demo` 未加入全局任务中文名映射，离开保护弹窗会显示内部 step ID。补为“短剧本地 A-F 演练”后，改动面 88 项与 Web/路由高风险 123 项聚焦回归均通过；其余 error 未在对应聚焦范围复现，交由修复后的 canonical 重验确认。
 - 真实文本五站 5/5 首次成功，共 5 次模型调用，约 125.8 秒，记录成本约 ¥0.2483；两张角色图 2/2 首次成功，人工检查为完整竖版角色全身图、无明显破损/水印，按配置估算约 ¥2。未在报告保存完整 prompt、响应或凭据。
 - 真视频先做零提交 task-list 鉴权并成功读取受控投影；配置的 trycloudflare 公网素材域名已失效，callback probe 在 upload/create 前失败。因禁止把完整本地 Web 端口临时暴露公网，本轮 `safe-blocked`：create 0、视频费用 0、无重试。项目没有真实 TTS adapter，未填写/调用 TTS。
 - 真人浏览器先完成桌面五站→production→隔离 A-F→compose，隔离项目 60 秒、6/6 镜、四件套可下载；最终 390px 复验可见按钮最小 44px、无横向溢出、无 `RenderPlan/typed edges/local-e2e/revision/provider` 等普通页面内部词。
@@ -47,7 +48,7 @@
 ## Acceptance Result
 
 - `A150-01` 至 `A150-05` 已由聚焦回归、真实浏览器、限额 provider 记录与 correctness/security 两路最终只读复核确认通过；最终复核无未处理 P0-P2。
-- `A150-06` 待 canonical 验收完成后回填 accepted implementation commit、test count、steps、run ID、tree 与 duration。
+- `A150-06` 首轮 canonical 在 unittest 阶段失败（2888 项，1 failure/3 errors）；已按可复现 failure 修复任务标签并完成聚焦回归，待修复后的 canonical 重验后回填 accepted implementation commit、test count、steps、run ID、tree 与 duration。
 
 ### Knowledge Promotion
 - `decision`: `none`

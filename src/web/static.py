@@ -2551,6 +2551,7 @@ JS_DASHBOARD = """\
     "drama-plan": "短剧站①核心设定", "drama-hooks": "短剧站②钩子",
     "drama-storyboard": "短剧站③分镜", "drama-characters": "短剧站④角色",
     "drama-review-assemble": "短剧站⑤评审组装",
+    "drama-local-demo": "短剧本地 A-F 演练",
     "drama_plan": "短剧站①核心设定", "drama_hooks": "短剧站②钩子",
     "drama_storyboard": "短剧站③分镜", "drama_character": "短剧站④角色",
     "drama_review": "短剧站⑤评审组装",
