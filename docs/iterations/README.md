@@ -171,3 +171,4 @@
 156. [Iteration 147 - 短剧同源生产工作台投影](./iteration_147_drama_production_workbench_projection.md)
 157. [Iteration 148 - 短剧可移植项目归档与安全导入](./iteration_148_drama_portable_project_archive.md)
 158. [Iteration 149 - 体检报告路径、Job 与归档 CLI 问题闭环](./iteration_149_health_report_path_job_cli_closure.md)
+159. [Iteration 150 - 短剧完整 SOP 前后端真人验证与修复](./iteration_150_short_drama_sop_full_validation.md)
