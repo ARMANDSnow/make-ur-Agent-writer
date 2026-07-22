@@ -110,6 +110,10 @@ def _retime_mock_storyboard(payload: Dict[str, Any], target_duration: int) -> Di
     shots = [dict(item) for item in data.get("shots", []) if isinstance(item, dict)]
     if len(shots) < 2:
         return data
+    if sum(int(item.get("duration_seconds") or 0) for item in shots) == target_duration:
+        data["shots"] = shots
+        data["target_duration_seconds"] = target_duration
+        return data
     first_duration = min(3, max(2, target_duration - (len(shots) - 1)))
     last_duration = min(10, max(8, target_duration - first_duration - (len(shots) - 2)))
     middle_target = target_duration - first_duration - last_duration

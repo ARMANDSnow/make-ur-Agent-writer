@@ -212,6 +212,7 @@ _NON_RETRYABLE_STEPS = frozenset(
         "drama-storyboard",
         "drama-characters",
         "drama-review-assemble",
+        "drama-local-demo",
         "drama-video",
     }
 )
@@ -2491,6 +2492,24 @@ def _step_drama_compose(
         return _blocked(exc.code, "compose prerequisite is stale or invalid")
 
 
+def _step_drama_local_demo(
+    params: Dict[str, Any],
+    progress_cb: Callable[[str, float], None],
+) -> Any:
+    """Run the explicitly synthetic, zero-provider A-F local demonstration."""
+    from ..drama_local_demo import DramaLocalDemoError, run_synthetic_local_demo
+
+    episode_no = _drama_episode_no(params)
+    try:
+        # Each A-F store owns its own short lock.  Wrapping the whole chain in
+        # another workspace lock would deadlock/reject those audited seams.
+        return run_synthetic_local_demo(
+            paths.workspace_name(), episode_no=episode_no, progress_cb=progress_cb
+        )
+    except DramaLocalDemoError as exc:
+        return _blocked(exc.code, str(exc))
+
+
 # Hard-coded whitelist. Adding a step here = a code review event.
 STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]], Any]] = {
     "normalize": _step_normalize,
@@ -2514,6 +2533,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "drama-storyboard": _step_drama_storyboard,
     "drama-characters": _step_drama_characters,
     "drama-review-assemble": _step_drama_review_assemble,
+    "drama-local-demo": _step_drama_local_demo,
     "drama-video": _step_drama_video,
     "drama-compose": _step_drama_compose,
 }

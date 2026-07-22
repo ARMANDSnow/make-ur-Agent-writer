@@ -1844,6 +1844,7 @@ def api_drama_production_get(
         episode_no = _parse_episode_no(raw_episode_no)
     except (TypeError, ValueError):
         return _json(400, {"error": "invalid episode_no"})
+    from ..drama_local_demo import inspect_synthetic_local_demo
     from ..drama_production_workbench import build_production_workbench
     from ..schemas import model_to_dict
 
@@ -1851,7 +1852,54 @@ def api_drama_production_get(
         projection = build_production_workbench(name, episode_no=episode_no)
     except (OSError, RuntimeError, TypeError, ValueError, RecursionError):
         return _json(409, {"error": "production workbench projection is unavailable"})
-    return _json(200, model_to_dict(projection))
+    payload = model_to_dict(projection)
+    payload["local_demo"] = inspect_synthetic_local_demo(
+        name, episode_no=episode_no
+    )
+    return _json(200, payload)
+
+
+def api_drama_production_local_demo(
+    name: str,
+    body: bytes,
+) -> Tuple[int, str, bytes]:
+    error = _drama_endpoint_error(name)
+    if error:
+        return error
+    payload, parse_error = _parse_json_object_body(body)
+    if parse_error:
+        return parse_error
+    assert payload is not None
+    if set(payload) - {"episode_no", "confirm_synthetic_local"}:
+        return _json(400, {"error": "unknown local demo params"})
+    if payload.get("confirm_synthetic_local") is not True:
+        return _json(400, {"error": "confirm_synthetic_local must be true"})
+    try:
+        episode_no = _parse_episode_no(payload.get("episode_no", 1))
+    except (TypeError, ValueError):
+        return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
+    from ..drama_local_demo import inspect_synthetic_local_demo
+
+    readiness = inspect_synthetic_local_demo(name, episode_no=episode_no)
+    if readiness.get("can_start") is not True:
+        return _json(409, {"error": readiness.get("reason") or "local demo is unavailable"})
+    try:
+        job = jobs.start_job(name, "drama-local-demo", {"episode_no": episode_no})
+    except ValueError as exc:
+        return _json(400, errors.exception_body(exc))
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {
+                "error": "workspace already has a running job",
+                "running_job_id": msg.split(":", 1)[1],
+            })
+        raise
+    return _json(202, {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "step": "drama-local-demo",
+    })
 
 
 def api_drama_assets_select(
@@ -5087,6 +5135,11 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
             name,
             ((_query or {}).get("episode_no", ["1"])[0]),
         ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/drama/production/local-demo/?$"),
+        lambda name, _body=b"", **_: api_drama_production_local_demo(name, _body),
     ),
     (
         "GET",

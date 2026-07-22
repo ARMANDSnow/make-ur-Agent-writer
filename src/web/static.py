@@ -1464,6 +1464,10 @@ html { scroll-behavior: smooth; }
 @media (max-width: 720px) {
   .character-card { grid-template-columns: 1fr; }
   .production-shot-row { grid-template-columns: 1fr; }
+  .shot-image-compare { grid-template-columns: 1fr; }
+  .form-actions { flex-wrap: wrap; justify-content: stretch; }
+  .form-actions .btn { flex: 1 1 140px; }
+  .btn-sm { min-height: 40px; }
 }
 """
 
@@ -5171,6 +5175,65 @@ JS_DASHBOARD = """\
     return Object.assign({}, payload || {}, { episode_no: dramaEpisodeNo() });
   }
 
+  function requestRealTextAuthorization(step) {
+    const labels = {
+      "drama-plan": "核心设定", "drama-hooks": "钩子候选",
+      "drama-storyboard": "分镜表", "drama-characters": "角色表",
+      "drama-review-assemble": "评审与组装",
+    };
+    return new Promise(function (resolve) {
+      let settled = false;
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="real-text-title">' +
+        '<div class="modal-header" id="real-text-title">本次真模型授权 · ' +
+        escapeHtml(labels[step] || step) + '</div><div class="modal-body stack">' +
+        '<div class="alert warn">仅授权这一次请求。提交后可能产生费用；页面刷新不会自动重提。</div>' +
+        '<div class="form-grid-2"><div class="field"><label for="real-text-budget">预算上限（CNY）</label>' +
+        '<input id="real-text-budget" type="number" min="0.01" step="0.01" value="10" required></div>' +
+        '<div class="field"><label for="real-text-timeout">超时（分钟）</label>' +
+        '<input id="real-text-timeout" type="number" min="1" max="1440" step="1" value="10" required></div></div>' +
+        '<label class="check-row"><input id="real-text-retry" type="checkbox"> ' +
+        '这是失败后的重试；我已核对上游任务状态与账单</label>' +
+        '<div class="alert error" id="real-text-error" hidden></div>' +
+        '</div><div class="modal-footer">' +
+        '<button type="button" class="btn btn-ghost" data-real-text-cancel>取消</button>' +
+        '<button type="button" class="btn btn-primary" data-real-text-confirm>确认本次授权</button>' +
+        '</div></div>';
+      function finish(value) {
+        if (settled) return;
+        settled = true;
+        close();
+        resolve(value);
+      }
+      const close = mountModal(backdrop, {
+        initialFocus: backdrop.querySelector("#real-text-budget"),
+        onClose: function () {
+          if (!settled) { settled = true; resolve(null); }
+        },
+      });
+      backdrop.querySelector("[data-real-text-cancel]").addEventListener("click", function () {
+        finish(null);
+      });
+      backdrop.querySelector("[data-real-text-confirm]").addEventListener("click", function () {
+        const budget = Number(backdrop.querySelector("#real-text-budget").value);
+        const timeout = Number(backdrop.querySelector("#real-text-timeout").value);
+        const error = backdrop.querySelector("#real-text-error");
+        if (!Number.isFinite(budget) || budget <= 0 || !Number.isFinite(timeout) || timeout <= 0 || timeout > 1440) {
+          error.hidden = false;
+          error.textContent = "预算必须大于 0；超时必须是 1 到 1440 分钟。";
+          return;
+        }
+        finish({
+          budget_cny: budget,
+          timeout_minutes: timeout,
+          retry_checked: backdrop.querySelector("#real-text-retry").checked,
+        });
+      });
+    });
+  }
+
   async function dramaGenerationPayload(step, payload, episodeNo) {
     const targetEpisode = Number(episodeNo || dramaEpisodeNo());
     const progress = await fetchJson(dramaApiUrlFor("/drama/progress", targetEpisode));
@@ -5178,27 +5241,12 @@ JS_DASHBOARD = """\
     const out = Object.assign({}, payload || {}, { episode_no: targetEpisode });
     if (realSteps[step] !== true) return out;
 
-    const confirmed = window.confirm(
-      "当前站使用真模型，可能产生费用。是否仅授权本次生成？"
-    );
-    if (!confirmed) throw new Error("已取消本次真模型生成");
-    const budgetRaw = window.prompt("请输入本次预算上限（CNY，必须大于 0）", "10");
-    if (budgetRaw == null) throw new Error("已取消本次真模型生成");
-    const timeoutRaw = window.prompt("请输入本次超时分钟数（0 < 分钟数 <= 1440）", "10");
-    if (timeoutRaw == null) throw new Error("已取消本次真模型生成");
-    const budget = Number(budgetRaw);
-    const timeout = Number(timeoutRaw);
-    if (!Number.isFinite(budget) || budget <= 0) throw new Error("真模型预算必须大于 0");
-    if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 1440) {
-      throw new Error("真模型超时必须大于 0 且不超过 1440 分钟");
-    }
+    const authorization = await requestRealTextAuthorization(step);
+    if (!authorization) throw new Error("已取消本次真模型生成");
     out.confirm_real_text = true;
-    out.budget_cny = budget;
-    out.timeout_minutes = timeout;
-    const reconciled = window.confirm(
-      "仅当这是失败后的重试，且你已核对上游任务状态与账单时选择“确定”；首次生成请选择“取消”。"
-    );
-    if (reconciled) {
+    out.budget_cny = authorization.budget_cny;
+    out.timeout_minutes = authorization.timeout_minutes;
+    if (authorization.retry_checked) {
       out.confirm_text_retry = true;
       out.confirm_upstream_status_and_billing_checked = true;
     }
@@ -7436,7 +7484,15 @@ JS_DASHBOARD = """\
     const timeline = data.timeline || {};
     const attempts = data.video_attempts || {};
     const sourceCounts = render.source_event_counts || {};
-    return '<div class="card"><div class="card-body">' +
+    const demo = data.local_demo || {};
+    const demoClass = demo.state === "complete" ? "success" : demo.state === "ready" ? "info" : "warning";
+    const demoButton = demo.can_start === true
+      ? '<button type="button" class="btn btn-primary" id="production-local-demo">开始本地 A-F 演练</button>'
+      : '';
+    const demoCard = '<div class="callout ' + demoClass + '"><strong>' +
+      escapeHtml(demo.label || "本地制作演练") + '</strong><span>' +
+      escapeHtml(demo.reason || "") + '</span>' + demoButton + '</div>';
+    return demoCard + '<div class="card"><div class="card-body">' +
       '<div class="section-title"><div><p class="eyebrow ornament">Episode ' +
       Number(data.episode_no || 1) + '</p><h2>生产状态</h2></div>' + productionBadge(data.state) + '</div>' +
       '<p class="hint">同源 fingerprint <code>' +
@@ -7534,6 +7590,34 @@ JS_DASHBOARD = """\
       if (!projection) return;
       root.innerHTML = renderProductionSummary(projection) +
         (view === "canvas" ? renderProductionCanvas(projection) : renderProductionList(projection));
+      const demoButton = document.getElementById("production-local-demo");
+      if (demoButton) {
+        demoButton.addEventListener("click", async function () {
+          if (!window.confirm(
+            "将生成严格标注的本地合成素材、静音配音占位和交付文件；不会调用供应商，也不代表真实成片质量。是否继续？"
+          )) return;
+          demoButton.disabled = true;
+          try {
+            const data = await postJson(
+              wsUrl("/drama/production/local-demo"),
+              { episode_no: episodeNo(), confirm_synthetic_local: true }
+            );
+            await pollJob(data.job_id, root, demoButton, async function (job) {
+              if (job.status !== "succeeded") return;
+              sessionStorage.setItem("__pending_toast", JSON.stringify({
+                msg: "本地 A-F 演练已完成，可下载交付文件",
+                kind: "success",
+              }));
+              window.location.href = wsHref(
+                "/compose?episode_no=" + encodeURIComponent(String(episodeNo()))
+              );
+            });
+          } catch (err) {
+            root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
+            demoButton.disabled = false;
+          }
+        });
+      }
       tabs.forEach(function (tab) {
         const active = tab.dataset.productionView === view;
         tab.classList.toggle("active", active);

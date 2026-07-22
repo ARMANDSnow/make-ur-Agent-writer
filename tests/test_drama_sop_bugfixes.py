@@ -133,6 +133,9 @@ class DramaSopBugfixTests(DramaTestBase):
         self.assertIn("beforeunload", source)
         self.assertIn("confirmDramaRegenerate", source)
         self.assertIn("associateFormLabels", source)
+        self.assertIn("requestRealTextAuthorization", source)
+        self.assertNotIn("window.prompt", source)
+        self.assertIn("开始本地 A-F 演练", source)
 
     def test_workspace_overview_does_not_claim_ready_before_review_assembly(self) -> None:
         self._make_drama_workspace("overview-not-ready")
