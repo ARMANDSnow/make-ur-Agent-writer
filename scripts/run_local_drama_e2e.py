@@ -342,8 +342,12 @@ def _run_five_station_closure() -> dict[str, Any]:
     helper = frontend[helper_start:helper_end]
     frontend_assignments = {
         "confirm_real_text": "out.confirm_real_text = true;",
-        "budget_cny": "out.budget_cny = budget;",
-        "timeout_minutes": "out.timeout_minutes = timeout;",
+        "budget_cny": "out.budget_cny = authorization.budget_cny;",
+        "timeout_minutes": "out.timeout_minutes = authorization.timeout_minutes;",
+        "confirm_text_retry": "out.confirm_text_retry = true;",
+        "confirm_upstream_status_and_billing_checked": (
+            "out.confirm_upstream_status_and_billing_checked = true;"
+        ),
     }
     for field, assignment in frontend_assignments.items():
         if assignment not in helper:
@@ -352,6 +356,10 @@ def _run_five_station_closure() -> dict[str, Any]:
         if re.search(rf'dramaGenerationPayload\(\s*"{re.escape(step)}"', frontend) is None:
             raise AssertionError(f"frontend does not construct authorization for {step}")
     received: list[tuple[str, dict[str, Any]]] = []
+    mutation_headers = {
+        "content-type": "application/json",
+        "x-drama-mutation-intent": "mutate-v1",
+    }
 
     def real_config(_task: str) -> dict[str, str]:
         return {"model": "local/contract-only"}
@@ -376,6 +384,7 @@ def _run_five_station_closure() -> dict[str, Any]:
                     "POST",
                     f"/api/workspace/local-image-e2e/drama/{suffix}",
                     json.dumps(payload).encode("utf-8"),
+                    mutation_headers,
                 )[:3]
                 if status != 202:
                     raise AssertionError(f"route rejected one-shot authorization for {step}")
@@ -394,6 +403,7 @@ def _run_five_station_closure() -> dict[str, Any]:
                     "POST",
                     f"/api/workspace/local-image-e2e/drama/{suffix}",
                     b'{"episode_no":1}',
+                    mutation_headers,
                 )
                 if denied[0] != 400:
                     raise AssertionError(f"authorization leaked into the next {step} request")

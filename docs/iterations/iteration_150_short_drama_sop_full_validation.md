@@ -10,7 +10,7 @@
 
 ### Implementation Context
 - `must_read`: `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`, `docs/product/short_drama_module.md`, `docs/iterations/iteration_118_drama_full_sop_real_user_validation.md`, `src/web/routes.py`, `src/web/server.py`, `src/web/jobs.py`, `src/web/static.py`, `src/web/templates.py`, `src/drama_local_demo.py`, `src/drama_smoke.py`, `src/drama_video.py`
-- `expected_changes`: `src/drama_local_demo.py`, `src/drama_reviewer.py`, `src/drama_smoke.py`, `src/storyboard_builder.py`, `src/web/jobs.py`, `src/web/routes.py`, `src/web/server.py`, `src/web/static.py`, `src/web/templates.py`, `tests/test_drama_characters_api.py`, `tests/test_drama_local_demo.py`, `tests/test_drama_sop_bugfixes.py`, `docs/product/short_drama_module.md`, `docs/iterations/iteration_150_short_drama_sop_full_validation.md`, `docs/iterations/README.md`, `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`
+- `expected_changes`: `src/drama_local_demo.py`, `src/drama_reviewer.py`, `src/drama_smoke.py`, `src/storyboard_builder.py`, `src/web/jobs.py`, `src/web/routes.py`, `src/web/server.py`, `src/web/static.py`, `src/web/templates.py`, `scripts/run_local_drama_e2e.py`, `tests/test_drama_characters_api.py`, `tests/test_drama_local_demo.py`, `tests/test_drama_sop_bugfixes.py`, `tests/test_local_drama_e2e.py`, `docs/product/short_drama_module.md`, `docs/iterations/iteration_150_short_drama_sop_full_validation.md`, `docs/iterations/README.md`, `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`
 - `do_not_touch`: `.env*`、`小说txt/`、私有原文/样本；不得回显/提交 `key.rtf` 或凭据；真模型仅限用户授权额度；视频 unknown/失败不得自动重提；不 push
 
 1. 从创建、五站创作、评审组装、production、逐镜媒体到 compose/交付逐层核对代码、测试与真实浏览器行为，先修复能由 mock/本地确定复现的问题。
@@ -41,7 +41,8 @@
 - production、compose、逐镜图片/视频等结构性动作补 dirty 离开/覆盖确认；rewrite 成功后清除 dirty；真实文本改为一次性可读授权对话框。移动端原生 button 与 `.btn` 最小高度 44px，页面无横向溢出；production 内部术语移入折叠诊断或换成普通中文。
 - correctness 初审发现本地验收最初会写入源项目、共享角色表并固定 30 秒，已改为全新隔离 workspace 和 selected duration。security 审查发现通用 `/run` 可绕过 drama 专用门禁、PUT 预读未限长，均已关闭。最终复核又关闭 FFmpeg 取消半成品、后半段取消延迟、raw acceptance level 和内部术语残留，最终无 P0-P2。
 - 首轮 canonical 共执行 2888 项后在 unittest 阶段报告 1 failure/3 errors；可复现 failure 是新增 `drama-local-demo` 未加入全局任务中文名映射，离开保护弹窗会显示内部 step ID。补为“短剧本地 A-F 演练”后，改动面 88 项与 Web/路由高风险 123 项聚焦回归均通过；其余 error 未在对应聚焦范围复现，交由修复后的 canonical 重验确认。
-- 第二轮 canonical 共执行 2888 项后仅余 3 个同源 error：旧 RenderPlan 测试在构造重复镜头时把 60 秒分镜改成 55/56 秒，新时长评审按设计返回 Reject，测试却仍直接组装。保留“必须 Approve 才能组装”的生产门禁，仅让三个测试夹具把时长差补偿到末镜；RenderPlan/RenderStore 29 项聚焦回归通过。
+- 第二轮 canonical 共执行 2888 项后仅余 3 个同源 error：旧 RenderPlan 测试在构造重复镜头时把 60 秒分镜改成 55/56 秒，新时长评审按设计返回 Reject，测试却仍直接组装。保留“必须 Approve 才能组装”的生产门禁，仅让三个测试夹具把时长差补偿到中间镜头；RenderPlan/RenderStore 29 项聚焦回归通过。
+- 第三轮 canonical 的 2888 项单测已全部通过，随后 mandatory `local_drama_e2e` 失败。根因是本轮 wire mutation header 和一次性授权弹窗已经升级，本地验收脚本仍模拟旧请求且检查旧预算/超时赋值。脚本现携带 JSON + `mutate-v1`，验证弹窗授权及重试二次确认；新增单测后该模块 8 项和独立 loopback 全链均通过。
 - 真实文本五站 5/5 首次成功，共 5 次模型调用，约 125.8 秒，记录成本约 ¥0.2483；两张角色图 2/2 首次成功，人工检查为完整竖版角色全身图、无明显破损/水印，按配置估算约 ¥2。未在报告保存完整 prompt、响应或凭据。
 - 真视频先做零提交 task-list 鉴权并成功读取受控投影；配置的 trycloudflare 公网素材域名已失效，callback probe 在 upload/create 前失败。因禁止把完整本地 Web 端口临时暴露公网，本轮 `safe-blocked`：create 0、视频费用 0、无重试。项目没有真实 TTS adapter，未填写/调用 TTS。
 - 真人浏览器先完成桌面五站→production→隔离 A-F→compose，隔离项目 60 秒、6/6 镜、四件套可下载；最终 390px 复验可见按钮最小 44px、无横向溢出、无 `RenderPlan/typed edges/local-e2e/revision/provider` 等普通页面内部词。
@@ -49,7 +50,7 @@
 ## Acceptance Result
 
 - `A150-01` 至 `A150-05` 已由聚焦回归、真实浏览器、限额 provider 记录与 correctness/security 两路最终只读复核确认通过；最终复核无未处理 P0-P2。
-- `A150-06` 前两轮 canonical 均在 unittest 阶段失败：首轮 2888 项、1 failure/3 errors，第二轮 2888 项、仅余 3 个同源 error；任务标签与旧测试夹具均已修复并完成聚焦回归。待下一轮 canonical 重验后回填 accepted implementation commit、test count、steps、run ID、tree 与 duration。
+- `A150-06` 前两轮 canonical 均在 unittest 阶段失败：首轮 2888 项、1 failure/3 errors，第二轮 2888 项、仅余 3 个同源 error；第三轮 2888 项单测全过但 mandatory `local_drama_e2e` 因旧 Web 请求/授权契约失败。三类问题均已修复并聚焦回归通过，待下一轮 canonical 重验后回填 accepted implementation commit、test count、steps、run ID、tree 与 duration。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -63,6 +64,7 @@
 | `src/web/routes.py`、`server.py`、`jobs.py` | drama mutation/size/同源门禁、通用 run 拒绝、job 取消/进度/真实授权与脱敏 |
 | `src/storyboard_builder.py`、`drama_reviewer.py`、`drama_smoke.py` | 四档时长、先验本地门禁、embedded mock 与取消/环境隔离 |
 | `src/drama_local_demo.py` | 新增隔离 `localdemo_*` A-F 本地验收、exact media、取消与半成品清理 |
+| `scripts/run_local_drama_e2e.py` | 同步 Web mutation 与一次性授权弹窗契约，保持 mandatory loopback 验收可执行 |
 | `src/web/static.py`、`templates.py` | dirty/确认、移动端触控与布局、production/compose UX 和普通用户文案 |
 | `tests/` 短剧相关模块 | mutation、安全路径、时长、隔离/源项目不变、取消、UI 契约与恢复回归 |
 | `docs/product/short_drama_module.md` | v18 当前 SOP、隔离本地验收与真实校准边界 |

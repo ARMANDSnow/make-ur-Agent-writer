@@ -118,6 +118,20 @@ class LocalDramaE2ETests(unittest.TestCase):
                 base_url="http://127.0.0.1:9999", api_key="local-test-only"
             )
 
+    def test_five_station_harness_uses_current_mutation_contract(self) -> None:
+        from src import paths
+        from src.cli_workspace import init_workspace
+
+        original_workspace_dir = paths.WORKSPACE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            paths.WORKSPACE_DIR = Path(tmp)
+            try:
+                init_workspace("local-image-e2e", type="drama")
+                result = harness._run_five_station_closure()
+            finally:
+                paths.WORKSPACE_DIR = original_workspace_dir
+        self.assertEqual(result, {"station_count": 5, "worker_receive_count": 5})
+
     def test_golden_contracts_distinguish_adapters_and_disclaim_authority(self) -> None:
         image = json.loads((FIXTURES / "openai_image_request.json").read_text(encoding="utf-8"))
         video = json.loads((FIXTURES / "compatible_video_request.json").read_text(encoding="utf-8"))
