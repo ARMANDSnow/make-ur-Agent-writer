@@ -42,7 +42,12 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- `A149-01` 通过：default/quality-sample 的 submission/asset-upload 四类 ledger 统一使用逐级 dirfd no-follow；正常创建/替换/读取、`episode_no == 1` 与状态词表回归通过。祖先/final symlink、祖先 swap、特殊目标与超限文件均 fail-closed，workspace 外同名字节保持不变；两处 `RequestNotSent` 清理改走 safe unlink，unknown 仍零自动重提。
+- `A149-02` 通过：5000 位整数 JSONL 的 direct `recent_jobs()` 返回 `[]`；HTTP recent-jobs 返回 200 与 `jobs=[]`，响应不含 `digits` 或 `set_int_max_str_digits`。
+- `A149-03` 通过：export 子命令 help 与 README 均展示 `python3 main.py --book <workspace> drama-project-archive export`；help 如实说明 selector 可位于任意位置，既有 export/preflight/import round-trip 回归通过。
+- `A149-04` 通过：py_compile、harness、`git diff --check` 与 176 项聚焦回归通过。correctness/behavior、security/boundary、Web/CLI/paid-media 三路独立只读审查共关闭 P2 cleanup race、P3 help 语义与 P3 final-target/size 证据覆盖，最终无未处理 P0-P3；主线程逐项复核。
+- `A149-05` 通过：首次 canonical 在 2870 项中的旧测试 fixture seam 失败，修复并形成新 implementation commit 后按失败范围重验；accepted implementation `048beeac853afd4dbf1ad90e8fd23d904ea79b65` 上最终 `bash scripts/verify.sh` exit 0，2870 tests、15 steps、439 秒、run `63e08c4becd044bcb5bfd49acc36a34a`，tree `5b9dfd106f5d7eae6ae1f5fcc95583f336b20f6b`，`tracked_scope_clean=true`，结论 `mock-functional` / `canonical-mock-offline`，local-drama 子步骤为 `local-e2e`，`provider_validated=false`。
+- `A149-06` 通过：前三项问题、审查和 canonical 均闭环后删除两份未跟踪体检报告；README SOP、handoff、history 与 iteration 索引已同步，收官一致性检查通过。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -63,6 +68,8 @@
 | `tests/test_drama_project_archive.py` | 增加 export help/usage 回归 |
 | `tests/test_drama_paid_recovery_states.py` | 将 video ledger 状态词表测试迁移到真实 dirfd workspace fixture |
 | `docs/iterations/README.md` | 追加 iter149 索引 |
+| `docs/2026-7-21体检报告.md`、`docs/2026-7-22体检报告.md` | 对应 findings 验收闭环后删除 |
+| `docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md` | 同步 accepted evidence、当前缺口与阶段里程碑 |
 | 本文档 | 记录计划、实施选择、审查 findings 与验收证据 |
 
 ## 不在本轮范围

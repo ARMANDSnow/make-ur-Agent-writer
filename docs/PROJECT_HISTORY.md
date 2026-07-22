@@ -74,6 +74,7 @@
 | 146 | 短剧可失效 Context Memory Cache | text-free recent/summary/keyword identity cache、current H2/RenderPlan/policy exact binding、删除零影响与 drift/tamper 失效 |
 | 147 | 短剧同源生产工作台投影 | current inspectors 安全聚合、list/canvas 同 fingerprint、零写入 GET 与真实 Web 闭环 |
 | 148 | 短剧可移植项目归档 | strict portable snapshot、领域身份 preflight、exact media/evidence 与原子 no-overwrite 导入 |
+| 149 | 体检报告路径、Job 与归档 CLI 闭环 | video ledger dirfd no-follow 读写删、坏 job 空投影、archive help，并在验收后删两份报告 |
 
 ## Iteration Implementation Index
 
@@ -203,6 +204,7 @@
 | 146 | 建立可失效、text-free Context Memory Cache | `src/drama_context_memory.py`、`src/drama_schemas.py`、`tests/test_drama_context_memory.py` |
 | 147 | 建立同源只读 Production Workbench | `src/drama_production_workbench.py`、`src/drama_compose_web.py`、`src/web/`、`tests/test_drama_production_workbench.py` |
 | 148 | 建立可校验项目归档与安全导入 | `src/drama_project_archive.py`、`main.py`、`tests/test_drama_project_archive.py` |
+| 149 | 闭环 video ledger、job 巨整数与 archive help | `src/drama_video.py`、`src/web/jobs.py`、`main.py`、`tests/test_drama_video.py` |
 
 ## Durable Decisions
 

@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 148，2026-07-21 收官 |
+| 更新时间 | iter 149，2026-07-23 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2863 tests OK** |
-| Accepted implementation commit | `62f4f7ac9f6f11508e8b7504e18208686c011eb7` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `62f4f7ac9f6f11508e8b7504e18208686c011eb7`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、440 秒、run `48433ccc61784cb189a952c2d2bebd97`；`verify.sh` exit 0；tracked scope clean |
+| Canonical 基线 | **2870 tests OK** |
+| Accepted implementation commit | `048beeac853afd4dbf1ad90e8fd23d904ea79b65` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `048beeac853afd4dbf1ad90e8fd23d904ea79b65`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、439 秒、run `63e08c4becd044bcb5bfd49acc36a34a`；`verify.sh` exit 0；tracked scope clean |
 | 当前高风险缺口 | iter147 真文本局部校准因桌面 key 文件仅含脱敏占位而两次 HTTP 401，0 model response；iter148 未重复发送已知无效请求。真 provider 后续需完整凭据。iter142 的 5 秒真视频样本成功但人民币费用未回报；iter143 的 20 秒 create 结果不明、无 task/MP4、费用 unknown 且禁止重提。逐镜/单集/多集、真实 TTS、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter148 已完成 I2 可校验 project archive，A-I 当前规划的纯本地工程链已闭环。工程验收 `mock-functional`，archive round-trip 为 `local-e2e`；当前 key 为脱敏占位，J 新增校准 `safe-blocked` |
+| 当前开发轮次 | 无；iter149 已闭环两份体检报告的 ledger 路径、job 巨整数与 archive help 问题并删除报告。A-I 当前规划的纯本地工程链保持闭环；工程验收 `mock-functional`，archive round-trip 为 `local-e2e`；当前 key 为脱敏占位，J 新增校准 `safe-blocked` |
 
 ## Capability Map
 
@@ -21,8 +21,8 @@
 | 小说主链 | normalize、split、extract、compress、debate、plan、write、review、滚动摘要、关系推进、多 workspace、多语言 | 10-20 章真模型 capstone 与长期质量阈值校准 |
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、直接 unittest/IDE 全 provider mock、付费 unknown 零自动重发、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
-| Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、content-token/累计预算守门的 Insights、多集编辑入口、typed retry 与脱敏任务历史 | 仍是本地研究工具，不是公网多租户产品 |
-| 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2 渲染/stale、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 合成/QA/交付、G1-G7 持久调度/执行/计价/lifecycle、H1-H3 source graph/memory、I1 同源只读 production workbench、I2 确定性 project archive；四格式单集与严格季包、Insights、固定 episode 1 高光视频真实样本 | 真实 billing adapter、provider create unknown reconciliation、物理 GC、真实逐镜图片/视频 provider 与长时主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音未验证 |
+| Web | 本地 Beta、四步工作台、可编辑设定/大纲/细纲/正文、job 恢复、搜索、版本 diff、content-token/累计预算守门的 Insights、多集编辑入口、typed retry 与脱敏任务历史；坏 job JSONL/巨整数整体空投影且不公开解析器细节 | 仍是本地研究工具，不是公网多租户产品 |
+| 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2 渲染/stale、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 合成/QA/交付、G1-G7 持久调度/执行/计价/lifecycle、H1-H3 source graph/memory、I1 同源只读 production workbench、I2 确定性 project archive；四格式单集与严格季包、Insights、固定 episode 1 高光视频真实样本；真视频 submission/asset-upload ledger 为有界 dirfd no-follow 读写删 | 真实 billing adapter、provider create unknown reconciliation、物理 GC、真实逐镜图片/视频 provider 与长时主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
@@ -48,7 +48,8 @@
 - iter147 收官后真文本局部协议校准两次均 HTTP 401，0 model response、无 token usage/协议判定，记 `safe-blocked`。当前 `key.rtf` 只含脱敏占位，未找到 `sd_real_max.md`；凭据/prompt/response body 未回显或落盘，图片/TTS 0。
 - iter148 I2 新增确定性、有上限 project archive CLI：strict portable creative 与 typed selection 不带完整 prompt/review/provider raw，exact selected/reference PNG、timeline sources、strict QA 和 MP4/SRT/ASS/edit 通过 member hash 与领域语义双重绑定。导入只以私有 staging+fsync+OS atomic no-replace 创建新 workspace，re-export 逐字节一致；导入物是可校验交付快照，非 runnable raw backup。三视角审查关闭 selection、泄漏、symlink/TOCTOU、QA/source 与 artifact owner 换接等 findings，最终无 P0-P3。
 - iter148 真模型校准因同一脱敏占位 key 保持 `safe-blocked`；本轮不重复发送注定 401 请求，新增 0 HTTP/model call、0 图、0 TTS，无新增 token/已知费用。
-- canonical **2863 tests OK**（项目 `.venv`）；implementation commit `62f4f7a` 上 exit 0，15 steps / 440 秒，run `48433ccc61784cb189a952c2d2bebd97`，tree `d62ed3f9c7ec8dd0fdb67b4ae4e363756d9a93d0`，`tracked_scope_clean=true`。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama 与 archive round-trip 为 `local-e2e`。
+- iter149 将真视频 submission/asset-upload ledger 的 default/quality-sample namespace 统一为 64 KiB 有界、逐级 no-follow 的 dirfd read/write/delete；`RequestNotSent` 清理的祖先 swap 不再越界删除。job 巨整数坏源返回 200/空 jobs 且无解释器文案，archive export help/README 给出可复制 `--book` 命令。两份 7-21/7-22 体检报告在通过验收后删除；三视角最终无 P0-P3。
+- canonical **2870 tests OK**（项目 `.venv`）；implementation commit `048beea` 上 exit 0，15 steps / 439 秒，run `63e08c4becd044bcb5bfd49acc36a34a`，tree `5b9dfd106f5d7eae6ae1f5fcc95583f336b20f6b`，`tracked_scope_clean=true`。总级别仍是 `mock-functional` / `canonical-mock-offline`，mandatory local-drama 与 archive round-trip 为 `local-e2e`。
 
 ## Retained Working Memory
 
@@ -240,11 +241,11 @@
 4. **短剧媒体、事件图、记忆、工作台与归档**：A1/A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 已完成本地闭环；真实图片/视频/语音 provider 与 billing adapter、物理 GC、Web provider submit/poll/cancel、JPEG/WebP、archive 签名/加密、staging GC/power-loss、真实 BGM/SFX、特定 NLE、公网流式交付、真实 episode 2+ 与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
 6. **多集查询性能**：100 集时 `GET /drama/episodes` 会在状态与季包 readiness 间重复读取部分文件，可后续缓存一次请求内的扫描结果。
-7. **严格本地对手 TOCTOU**：Insights/pricing 已使用 nofollow、实际 bytes SHA token、final rescan 与 collector 总预算；项目锁可阻止本项目 Web/runner 并发。其他旧 store 若威胁模型包含不遵守 flock 的本机进程在最终检查后竞态替换目标或父目录，仍需逐面升级统一 dirfd/事务协议。
+7. **严格本地对手 TOCTOU**：Insights/pricing 已使用 nofollow、实际 bytes SHA token、final rescan 与 collector 总预算；iter149 的真视频 submission/asset-upload ledger 已覆盖 workspace-relative dirfd read/write/delete 与祖先 swap。项目锁可阻止本项目 Web/runner 并发；其他旧 store 若威胁模型包含不遵守 flock 的本机进程在最终检查后竞态替换目标或父目录，仍需逐面升级统一 dirfd/事务协议。
 
 ## Next Candidates
 
-- 低风险工程轮：provider create unknown 的只读 task/billing/rejection reconciliation、真实 billing adapter、可靠有界 JPEG/WebP decoder、provider 幂等键调研、100 集只读扫描优化或已登记 P2 技债。
+- 低风险工程轮：provider create unknown 的只读 task/billing/rejection reconciliation、真实 billing adapter、可靠有界 JPEG/WebP decoder、provider 幂等键调研或 100 集只读扫描优化。
 - 低风险短剧阶段轮：A-I 本地规划已闭合；可独立推进 C 的可靠有界 JPEG/WebP decoder、asset/archive hidden staging GC、archive 签名/加密、特定 NLE adapter 或 episode 2+ 纯本地交付覆盖。
 - 需授权验证轮：全角色/多题材真生图、逐镜/完整单集媒体、真实 TTS 或小说 capstone。不要把这些授权合并推定；iter143 的 20 秒机会已消费且结果不明，在 reconciliation 前不得复跑或改时长重提。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
@@ -284,4 +285,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter148 完成短剧 I2：新增 `drama-project-archive export/preflight/import`，以 strict portable creative、typed exact selection、metadata-minimal PNG、timeline/source/delivery 和 strict QA 构建确定性有上限 ZIP。preflight 在任何 target 写入前校验 ZIP 结构、member bytes/hash/MIME/schema 及 creative↔render↔selection↔timeline↔QA/delivery 领域身份；import 以 staging+fsync+OS atomic no-replace 只创建新 workspace，支持逐字节 re-export，明确是迁移/交付 snapshot 而非 runnable raw backup。correctness、security/boundary、archive/migration 三路审查关闭全部 findings，最终无 P0-P3。accepted implementation `62f4f7a` 上 canonical 2863 tests、15 steps、440 秒，run `48433ccc61784cb189a952c2d2bebd97`，`mock-functional`，archive round-trip `local-e2e`。当前 key 仍为脱敏占位，本轮不重复发送已知无效请求，真校准 `safe-blocked`、新增调用/图片/TTS 均为 0。
+iter149 闭环 7-21/7-22 两份体检报告的三个去重 finding：真视频 submission/asset-upload ledger 现以 workspace-relative dirfd 逐级 no-follow、有界 regular-file read、同目录原子 write 与 safe delete 覆盖 default/quality-sample；`RequestNotSent` 祖先 swap 不越界删除且 unknown 仍零自动重提；巨整数 job JSONL 整体降级为 200/空 jobs；archive export help/README 给出准确的 canonical `--book` 用法。correctness、security/boundary、Web/CLI/paid-media 三路审查关闭 P2 cleanup race 与 P3 help/coverage findings，最终无 P0-P3。accepted implementation `048beea` 上 canonical 2870 tests、15 steps、439 秒，run `63e08c4becd044bcb5bfd49acc36a34a`，`mock-functional`，local-drama `local-e2e`；两份报告已删除。未发起真实 provider/TTS/媒体请求，iter143 unknown 状态不变且不得重提。

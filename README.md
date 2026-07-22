@@ -177,7 +177,7 @@ docs/iterations/           逐轮审计记录
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 148**（2026-07-21，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。I1 drama-only 工作台继续从 current inspectors 提供同源只读 list/canvas；iter148 完成 I2 `drama-project-archive export/preflight/import`，以 strict portable creative、typed selection、exact selected/reference PNG、timeline/source/delivery 和脱敏 evidence 构建确定性快照，导入只能原子 no-overwrite 创建新 drama workspace。它是可校验的迁移/交付 snapshot，不是可继续调 provider 的 raw backup。A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 已形成纯本地链。iter142 的 5.042 秒窄样本仍为 `provider-validated`，iter143 的 20 秒 create 不明样本仍为 `safe-blocked`且不得自动重提；当前文本 key 仍是脱敏占位，TTS 未测试。完整目标流程来自 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)。总工程验收仍为 `mock-functional`，mandatory local-drama 与 archive round-trip 为 `local-e2e`，不代表当前凭据已完成真 provider 校准。
+最近一次更新：**iter 149**（2026-07-23，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。I1 drama-only 工作台与 I2 project archive 继续保持纯本地闭环；iter149 将真视频 submission/asset-upload ledger 的 default/quality-sample 读、写与 `RequestNotSent` 清理统一到有界 dirfd no-follow 边界，坏 job JSONL（含巨整数）整体降级为空公开投影，并补齐 archive export 的 canonical `--book <workspace>` 帮助。A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 已形成纯本地链。iter142 的 5.042 秒窄样本仍为 `provider-validated`，iter143 的 20 秒 create 不明样本仍为 `safe-blocked` 且不得自动重提；当前文本 key 仍是脱敏占位，TTS 未测试。完整目标流程来自 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)。总工程验收仍为 `mock-functional`，mandatory local-drama 与 archive round-trip 为 `local-e2e`，不代表当前凭据已完成真 provider 校准。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
