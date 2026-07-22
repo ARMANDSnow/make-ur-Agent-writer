@@ -192,7 +192,11 @@ class DramaRenderPlanTests(DramaTestBase):
         self._snapshot("duplicates")
 
         def duplicate(shots: list[dict]) -> None:
+            original_duration = shots[1]["duration_seconds"]
             shots[1] = copy.deepcopy(shots[0])
+            shots[2]["duration_seconds"] += (
+                original_duration - shots[1]["duration_seconds"]
+            )
 
         changed = self._mutate_and_snapshot("duplicates", duplicate)
         one = build_render_plan(changed)
@@ -207,9 +211,13 @@ class DramaRenderPlanTests(DramaTestBase):
         def duplicate_identity(shots: list[dict]) -> None:
             first = shots[0]
             second = shots[1]
+            original_duration = second["duration_seconds"]
             for key in ("beat", "visual", "narration", "dialogue"):
                 second[key] = copy.deepcopy(first[key])
             second["duration_seconds"] = min(30, first["duration_seconds"] + 1)
+            shots[2]["duration_seconds"] += (
+                original_duration - second["duration_seconds"]
+            )
 
         snapshot = self._mutate_and_snapshot(
             "ambiguous-duplicates",

@@ -71,12 +71,16 @@ class DramaRenderStoreTests(DramaTestBase):
         storyboard = read_json(storyboard_path)
         first = storyboard["shots"][0]
         second = storyboard["shots"][1]
+        original_duration = second["duration_seconds"]
         for key in ("beat", "visual", "narration", "dialogue"):
             second[key] = first[key]
         second["duration_seconds"] = (
             first["duration_seconds"] + 1
             if first["duration_seconds"] < 30
             else first["duration_seconds"] - 1
+        )
+        storyboard["shots"][2]["duration_seconds"] += (
+            original_duration - second["duration_seconds"]
         )
         write_json(storyboard_path, storyboard)
         write_json(
