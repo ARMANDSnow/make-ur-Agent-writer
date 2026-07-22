@@ -188,6 +188,11 @@ class DramaSopBugfixTests(DramaTestBase):
         template_source = Path("src/web/templates.py").read_text(encoding="utf-8")
         self.assertIn("本地 A-F 演练", template_source)
         self.assertIn("新建隔离验收项目", template_source)
+        self.assertIn("安全的状态总览", template_source)
+        self.assertIn("不会调用付费服务", template_source)
+        self.assertNotIn("创作 revision", template_source)
+        self.assertNotIn("服务端 fingerprint", template_source)
+        self.assertNotIn("不会提交 provider", template_source)
         self.assertNotIn("此页不会生成媒体", template_source)
 
     def test_workspace_overview_does_not_claim_ready_before_review_assembly(self) -> None:
