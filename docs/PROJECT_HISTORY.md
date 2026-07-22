@@ -75,6 +75,7 @@
 | 147 | 短剧同源生产工作台投影 | current inspectors 安全聚合、list/canvas 同 fingerprint、零写入 GET 与真实 Web 闭环 |
 | 148 | 短剧可移植项目归档 | strict portable snapshot、领域身份 preflight、exact media/evidence 与原子 no-overwrite 导入 |
 | 149 | 体检报告路径、Job 与归档 CLI 闭环 | video ledger dirfd no-follow 读写删、坏 job 空投影、archive help，并在验收后删两份报告 |
+| 150 | 短剧完整 SOP 前后端真人复验 | wire mutation/绕过、隔离 exact-duration A-F、取消恢复与 production UX；真文本/图窄校准，视频 create 前 safe-blocked |
 
 ## Iteration Implementation Index
 
@@ -205,6 +206,7 @@
 | 147 | 建立同源只读 Production Workbench | `src/drama_production_workbench.py`、`src/drama_compose_web.py`、`src/web/`、`tests/test_drama_production_workbench.py` |
 | 148 | 建立可校验项目归档与安全导入 | `src/drama_project_archive.py`、`main.py`、`tests/test_drama_project_archive.py` |
 | 149 | 闭环 video ledger、job 巨整数与 archive help | `src/drama_video.py`、`src/web/jobs.py`、`main.py`、`tests/test_drama_video.py` |
+| 150 | 真人复验并修复短剧现有 SOP | `src/drama_local_demo.py`、`src/web/`、`scripts/run_local_drama_e2e.py`、`tests/test_drama_*.py` |
 
 ## Durable Decisions
 

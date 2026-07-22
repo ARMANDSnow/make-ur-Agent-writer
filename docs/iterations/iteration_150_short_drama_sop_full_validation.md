@@ -49,8 +49,12 @@
 
 ## Acceptance Result
 
-- `A150-01` 至 `A150-05` 已由聚焦回归、真实浏览器、限额 provider 记录与 correctness/security 两路最终只读复核确认通过；最终复核无未处理 P0-P2。
-- `A150-06` 前两轮 canonical 均在 unittest 阶段失败：首轮 2888 项、1 failure/3 errors，第二轮 2888 项、仅余 3 个同源 error；第三轮 2888 项单测全过但 mandatory `local_drama_e2e` 因旧 Web 请求/授权契约失败。三类问题均已修复并聚焦回归通过，待下一轮 canonical 重验后回填 accepted implementation commit、test count、steps、run ID、tree 与 duration。
+- `A150-01` 通过：短剧 wire POST/PUT 统一要求 JSON、显式 mutation intent 与同源；64 KiB body cap 在解析前生效，通用 `/run` 无法绕过 drama 专用授权/参数门禁。路径、集数和公开 job/错误投影的聚焦回归通过，未发现凭据、完整 prompt、signed URL 或内部异常泄漏。
+- `A150-02` 通过：从已组装源项目启动后创建独立 `localdemo_*`，源角色表 SHA 不变且不生成源 RenderPlan；实测隔离项目精确 60 秒、6/6 镜并交付 MP4/SRT/ASS/edit。取消贯通创作子 job、逐镜/口播/TTS 循环与 FFmpeg checkpoint，异常时半成品由 `finally` 清理。
+- `A150-03` 通过：桌面真人点击完成五站→production→隔离 A-F→compose；390×844 复验无横向溢出，可见按钮均不少于 44px，普通页面不再暴露内部术语。dirty/rewrite/regenerate、真实文本一次性弹窗、进度/错误与刷新恢复均完成聚焦或浏览器验证。
+- `A150-04` 通过且边界明确：真文本五站 5/5 首次成功，共 5 次调用、约 125.8 秒、记录成本约 ¥0.2483；真角色图 2/2 首次成功，人工检查为可用竖版全身图、无明显破损/水印，按配置估算约 ¥2。真视频 task-list 只读鉴权成功，但配置的 trycloudflare 素材域名已失效，callback probe 在 upload/create 前失败；本轮 create=0、费用=0、无重试，结论 `safe-blocked`。真实 TTS adapter 尚不存在，0 调用。
+- `A150-05` 通过：correctness/behavior、security/boundary 与 Web/计费媒体视角先后关闭源项目污染、固定时长、`/run` 绕过、PUT 无上限、dirty 丢失、取消延迟/半成品和内部文案等 findings；最终两路独立只读复核无未处理 P0-P2，主线程逐项复核。
+- `A150-06` 通过：前三轮 canonical 依次暴露任务中文名遗漏、旧 RenderPlan 测试夹具时长漂移、mandatory local-e2e 请求/授权契约陈旧，均保留生产门禁后修复并按失败范围回归。accepted implementation `d382966a9ba145f547373fb896cbd16a07e534a5` 上最终 `bash scripts/verify.sh` exit 0，2889 tests、15 steps、459 秒、run `5890b7dde1794f0da8d15988a81ffcd5`，tree `949a1f1bbf435270fad3c0fee9776979b9a6b536`，`tracked_scope_clean=true`，结论 `mock-functional` / `canonical-mock-offline`；mandatory loopback 子步骤为 `local-e2e` 且 `provider_validated=false`。README、handoff、history 与 iteration 索引已同步，只做 docs-only 收官。
 
 ### Knowledge Promotion
 - `decision`: `none`
