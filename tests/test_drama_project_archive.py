@@ -522,6 +522,23 @@ class DramaProjectArchiveTests(DramaTestBase):
         )
         self.assertEqual(parsed.to_name, "new")
 
+    def test_cli_export_help_names_required_book_selector(self) -> None:
+        import main
+
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+            main.build_parser().parse_args(
+                ["drama-project-archive", "export", "--help"]
+            )
+        self.assertEqual(raised.exception.code, 0)
+        help_text = " ".join(output.getvalue().split())
+        self.assertIn(
+            "python3 main.py --book <workspace> drama-project-archive export",
+            help_text,
+        )
+        self.assertIn("Required global selector: --book <workspace>", help_text)
+        self.assertIn("may appear anywhere", help_text)
+
     def test_cli_export_preflight_and_import_roundtrip(self) -> None:
         import main
 

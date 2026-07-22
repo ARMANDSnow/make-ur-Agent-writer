@@ -320,7 +320,17 @@ def build_parser() -> argparse.ArgumentParser:
     drama_archive_sub = drama_archive.add_subparsers(
         dest="drama_archive_command", required=True
     )
-    drama_archive_sub.add_parser("export")
+    drama_archive_sub.add_parser(
+        "export",
+        description=(
+            "Export the selected drama workspace. Canonical usage: "
+            "python3 main.py --book <workspace> drama-project-archive export"
+        ),
+        epilog=(
+            "Required global selector: --book <workspace> may appear anywhere; "
+            "the canonical example places it before drama-project-archive."
+        ),
+    )
     drama_archive_preflight = drama_archive_sub.add_parser("preflight")
     drama_archive_preflight.add_argument("--archive", required=True)
     drama_archive_import = drama_archive_sub.add_parser("import")

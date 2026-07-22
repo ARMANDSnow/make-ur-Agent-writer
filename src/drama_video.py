@@ -14,7 +14,9 @@ import http.client
 import math
 import os
 import secrets
+import stat
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +62,7 @@ EPISODE1_SINGLE_SUBMIT_MAX_TIMEOUT_MINUTES = 10.0
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
 POLL_INTERVAL_SECONDS = 2.0
 MAX_REFERENCE_ASSETS = 8
+MAX_VIDEO_LEDGER_BYTES = 64 * 1024
 _TERMINAL_SUCCESS = frozenset({"success", "succeeded", "completed", "done"})
 _TERMINAL_FAILURE = frozenset({"failed", "failure", "error", "cancelled", "canceled"})
 _RUNNING = frozenset({"pending", "queued", "queueing", "processing", "running", "generating", "in_progress"})
@@ -194,30 +197,273 @@ def video_asset_upload_path(
     return paths.workspace_root(workspace) / "logs" / "drama_video_asset_upload.json"
 
 
+def _open_video_ledger_directory(
+    workspace: str,
+    *,
+    sample_id: str | None,
+    create: bool,
+) -> int | None:
+    """Open the ledger parent without following any workspace-relative link."""
+
+    root = paths.workspace_root(workspace)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise ValueError("strict no-follow video ledger access is unavailable")
+    directory_fd: int | None = None
+    workspace_parent_fd: int | None = None
+    try:
+        if root.parent == paths.WORKSPACE_DIR:
+            workspace_parent_fd = os.open(
+                str(paths.WORKSPACE_DIR),
+                os.O_RDONLY | directory | nofollow,
+            )
+            try:
+                directory_fd = os.open(
+                    root.name,
+                    os.O_RDONLY | directory | nofollow,
+                    dir_fd=workspace_parent_fd,
+                )
+            except FileNotFoundError:
+                if not create:
+                    os.close(workspace_parent_fd)
+                    return None
+                os.mkdir(root.name, 0o700, dir_fd=workspace_parent_fd)
+                directory_fd = os.open(
+                    root.name,
+                    os.O_RDONLY | directory | nofollow,
+                    dir_fd=workspace_parent_fd,
+                )
+            os.close(workspace_parent_fd)
+            workspace_parent_fd = None
+        else:
+            directory_fd = os.open(str(root), os.O_RDONLY | directory | nofollow)
+        components = ["logs"]
+        if sample_id is not None:
+            components.extend(("drama_video_samples", sample_id))
+        for part in components:
+            try:
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | directory | nofollow,
+                    dir_fd=directory_fd,
+                )
+            except FileNotFoundError:
+                if not create:
+                    os.close(directory_fd)
+                    return None
+                os.mkdir(part, 0o700, dir_fd=directory_fd)
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | directory | nofollow,
+                    dir_fd=directory_fd,
+                )
+            os.close(directory_fd)
+            directory_fd = next_fd
+        return directory_fd
+    except BaseException:
+        if workspace_parent_fd is not None:
+            try:
+                os.close(workspace_parent_fd)
+            except OSError:
+                pass
+        if directory_fd is not None:
+            try:
+                os.close(directory_fd)
+            except OSError:
+                pass
+        raise
+
+
+def _read_video_ledger(
+    workspace: str,
+    *,
+    sample_id: str | None,
+    filename: str,
+    label: str,
+) -> Dict[str, Any] | None:
+    directory_fd: int | None = None
+    file_fd: int | None = None
+    try:
+        directory_fd = _open_video_ledger_directory(
+            workspace,
+            sample_id=sample_id,
+            create=False,
+        )
+        if directory_fd is None:
+            return None
+        file_fd = os.open(
+            filename,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_fd,
+        )
+        before = os.fstat(file_fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_VIDEO_LEDGER_BYTES:
+            raise ValueError(f"{label} ledger is unreadable")
+        chunks: list[bytes] = []
+        remaining = MAX_VIDEO_LEDGER_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(file_fd, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        after = os.fstat(file_fd)
+        identity = lambda item: (
+            item.st_dev,
+            item.st_ino,
+            item.st_size,
+            item.st_mtime_ns,
+        )
+        if (
+            len(payload) > MAX_VIDEO_LEDGER_BYTES
+            or len(payload) != before.st_size
+            or identity(before) != identity(after)
+        ):
+            raise ValueError(f"{label} ledger is unreadable")
+        raw = json.loads(payload.decode("utf-8"))
+    except FileNotFoundError:
+        return None
+    except ValueError as exc:
+        if str(exc) == f"{label} ledger is unreadable":
+            raise
+        raise ValueError(f"{label} ledger is unreadable") from exc
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError(f"{label} ledger is unreadable") from exc
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        if directory_fd is not None:
+            os.close(directory_fd)
+    if not isinstance(raw, dict):
+        raise ValueError(f"{label} ledger is invalid")
+    return raw
+
+
+def _write_video_ledger(
+    workspace: str,
+    payload: Mapping[str, Any],
+    *,
+    sample_id: str | None,
+    filename: str,
+    label: str,
+) -> None:
+    body = (
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    ).encode("utf-8")
+    if len(body) > MAX_VIDEO_LEDGER_BYTES:
+        raise ValueError(f"{label} ledger exceeds its size limit")
+    directory_fd: int | None = None
+    temp_fd: int | None = None
+    temp_name = f".{filename}.tmp.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(8)}"
+    try:
+        directory_fd = _open_video_ledger_directory(
+            workspace,
+            sample_id=sample_id,
+            create=True,
+        )
+        if directory_fd is None:
+            raise OSError("video ledger directory is unavailable")
+        try:
+            existing = os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and not stat.S_ISREG(existing.st_mode):
+            raise OSError("video ledger target is not a regular file")
+        temp_fd = os.open(
+            temp_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        view = memoryview(body)
+        while view:
+            written = os.write(temp_fd, view)
+            if written <= 0:
+                raise OSError("short video ledger write")
+            view = view[written:]
+        os.fsync(temp_fd)
+        os.close(temp_fd)
+        temp_fd = None
+        os.replace(
+            temp_name,
+            filename,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        os.fsync(directory_fd)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{label} ledger could not be written safely") from exc
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if directory_fd is not None:
+            try:
+                os.unlink(temp_name, dir_fd=directory_fd)
+            except OSError:
+                pass
+            os.close(directory_fd)
+
+
+def _delete_video_ledger(
+    workspace: str,
+    *,
+    sample_id: str | None,
+    filename: str,
+    label: str,
+) -> None:
+    """Remove a proven-not-sent marker without following a replaced ancestor."""
+
+    directory_fd: int | None = None
+    try:
+        directory_fd = _open_video_ledger_directory(
+            workspace,
+            sample_id=sample_id,
+            create=False,
+        )
+        if directory_fd is None:
+            return
+        try:
+            target = os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if not stat.S_ISREG(target.st_mode):
+            raise OSError("video ledger target is not a regular file")
+        os.unlink(filename, dir_fd=directory_fd)
+        os.fsync(directory_fd)
+    except OSError as exc:
+        raise ValueError(f"{label} ledger could not be removed safely") from exc
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
+
+
 def read_video_asset_upload(
     workspace: str,
     *,
     episode_no: int = 1,
     sample_id: str | None = None,
 ) -> Dict[str, Any] | None:
+    if episode_no != 1:
+        raise DramaVideoInputError("video MVP supports episode 1 only")
     sample_id = _validate_video_sample_id(sample_id)
-    ledger_path = video_asset_upload_path(
+    raw = _read_video_ledger(
         workspace,
-        episode_no=episode_no,
         sample_id=sample_id,
+        filename="asset_upload.json" if sample_id is not None else "drama_video_asset_upload.json",
+        label="video asset upload",
     )
-    try:
-        ledger_path.lstat()
-    except FileNotFoundError:
+    if raw is None:
         return None
-    except OSError as exc:
-        raise ValueError("video asset upload ledger is unreadable") from exc
-    if ledger_path.is_symlink() or not ledger_path.is_file():
-        raise ValueError("video asset upload ledger must be a regular file")
-    try:
-        raw = json.loads(ledger_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("video asset upload ledger is unreadable") from exc
     if (
         type(raw) is not dict
         or raw.get("schema_version") != 1
@@ -273,9 +519,12 @@ def _write_video_asset_upload(
     *,
     sample_id: str | None = None,
 ) -> None:
-    write_json(
-        video_asset_upload_path(workspace, sample_id=sample_id),
+    _write_video_ledger(
+        workspace,
         {"schema_version": 1, "episode_no": 1, **dict(payload)},
+        sample_id=sample_id,
+        filename="asset_upload.json" if sample_id is not None else "drama_video_asset_upload.json",
+        label="video asset upload",
     )
 
 
@@ -285,24 +534,17 @@ def read_video_submission(
     episode_no: int = 1,
     sample_id: str | None = None,
 ) -> Dict[str, Any] | None:
+    if episode_no != 1:
+        raise DramaVideoInputError("video MVP supports episode 1 only")
     sample_id = _validate_video_sample_id(sample_id)
-    ledger_path = video_submission_path(
+    raw = _read_video_ledger(
         workspace,
-        episode_no=episode_no,
         sample_id=sample_id,
+        filename="submission.json" if sample_id is not None else "drama_video_submission.json",
+        label="video submission",
     )
-    try:
-        ledger_path.lstat()
-    except FileNotFoundError:
+    if raw is None:
         return None
-    except OSError as exc:
-        raise ValueError("video submission ledger is unreadable") from exc
-    if ledger_path.is_symlink() or not ledger_path.is_file():
-        raise ValueError("video submission ledger must be a regular file")
-    try:
-        raw = json.loads(ledger_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("video submission ledger is unreadable") from exc
     if not isinstance(raw, dict) or raw.get("schema_version") != 1 or raw.get("episode_no") != 1:
         raise ValueError("video submission ledger is invalid")
     status = raw.get("status")
@@ -405,9 +647,12 @@ def _write_video_submission(
     *,
     sample_id: str | None = None,
 ) -> None:
-    write_json(
-        video_submission_path(workspace, sample_id=sample_id),
+    _write_video_ledger(
+        workspace,
         {"schema_version": 1, "episode_no": 1, **dict(payload)},
+        sample_id=sample_id,
+        filename="submission.json" if sample_id is not None else "drama_video_submission.json",
+        label="video submission",
     )
 
 
@@ -850,10 +1095,16 @@ def run_video_job(
                             "updated_at": int(time.time()),
                         }, sample_id=sample_id)
                     else:
-                        video_asset_upload_path(
+                        _delete_video_ledger(
                             workspace,
                             sample_id=sample_id,
-                        ).unlink(missing_ok=True)
+                            filename=(
+                                "asset_upload.json"
+                                if sample_id is not None
+                                else "drama_video_asset_upload.json"
+                            ),
+                            label="video asset upload",
+                        )
                     raise
                 except Exception:
                     raise DramaVideoSubmissionUnknown(
@@ -945,10 +1196,16 @@ def run_video_job(
                 # The transport proves that no request headers/body crossed
                 # the socket.  Remove only the marker created immediately
                 # above so the single paid opportunity is not falsely spent.
-                video_submission_path(
+                _delete_video_ledger(
                     workspace,
                     sample_id=sample_id,
-                ).unlink(missing_ok=True)
+                    filename=(
+                        "submission.json"
+                        if sample_id is not None
+                        else "drama_video_submission.json"
+                    ),
+                    label="video submission",
+                )
                 raise
             except Exception:
                 raise DramaVideoSubmissionUnknown(

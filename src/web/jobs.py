@@ -567,7 +567,7 @@ def _read_job_rows_unlocked(workspace: str) -> list[Dict[str, Any]]:
                 return []
             try:
                 row = json.loads(line)
-            except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+            except (UnicodeDecodeError, ValueError, RecursionError):
                 return []
             if not isinstance(row, dict):
                 return []

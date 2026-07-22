@@ -105,7 +105,7 @@ docs/iterations/           逐轮审计记录
 | `apply-advance` | 关系推进审批/自动应用 |
 | `drive-book start/status/resume/stop/report` | 长程驱动与恢复 |
 | `style-fingerprint` / `style-drift` | 文风 baseline、检测与报告 |
-| `drama-project-archive export/preflight/import` | 短剧项目可移植快照导出、安全预检与新 workspace 导入 |
+| `drama-project-archive export/preflight/import` | 短剧项目可移植快照导出、安全预检与新 workspace 导入；导出：`python3 main.py --book <workspace> drama-project-archive export` |
 | `web --port 8765` | 本地 Web 工作台 |
 | `preflight` / `status` / `estimate-cost` | 守门、状态与成本 |
 

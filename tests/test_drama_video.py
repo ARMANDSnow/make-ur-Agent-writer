@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src import drama_video, drama_video_smoke
+from src import drama_video, drama_video_smoke, paths
 from src.drama_schemas import character_paths
 from src.utils import read_json, write_json
 from src.web import routes
@@ -583,6 +583,160 @@ class DramaVideoPipelineTests(DramaTestBase):
                     client=client,
                 )
         self.assertEqual((client.uploads, client.submissions, client.polls), (0, 0, 0))
+
+    def test_video_ledger_readers_keep_episode_one_boundary(self) -> None:
+        with self.assertRaisesRegex(
+            drama_video.DramaVideoInputError, "supports episode 1 only"
+        ):
+            drama_video.read_video_submission("video", episode_no=2)
+        with self.assertRaisesRegex(
+            drama_video.DramaVideoInputError, "supports episode 1 only"
+        ):
+            drama_video.read_video_asset_upload("video", episode_no=2)
+
+    def test_video_ledgers_reject_symlinked_ancestors_for_read_and_write(self) -> None:
+        workspace = "ledger-symlink"
+        workspace_root = paths.WORKSPACE_DIR / workspace
+        workspace_root.mkdir()
+        logs = workspace_root / "logs"
+        outside = Path(self._tmp.name) / "outside-ledgers"
+        outside.mkdir()
+        logs.symlink_to(outside, target_is_directory=True)
+        writers = (
+            (
+                drama_video._write_video_submission,
+                "drama_video_submission.json",
+            ),
+            (
+                drama_video._write_video_asset_upload,
+                "drama_video_asset_upload.json",
+            ),
+        )
+        for writer, filename in writers:
+            target = outside / filename
+            target.write_text("{}\n", encoding="utf-8")
+            before = target.read_bytes()
+            with self.assertRaisesRegex(ValueError, "written safely"):
+                writer(workspace, {"status": "sentinel"})
+            self.assertEqual(target.read_bytes(), before)
+        with self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+            drama_video.read_video_submission(workspace)
+        with self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+            drama_video.read_video_asset_upload(workspace)
+
+        logs.unlink()
+        logs.mkdir()
+        samples = logs / "drama_video_samples"
+        samples.symlink_to(outside, target_is_directory=True)
+        sample_id = drama_video.ITER143_QUALITY20_SAMPLE_ID
+        for writer, filename in (
+            (drama_video._write_video_submission, "submission.json"),
+            (drama_video._write_video_asset_upload, "asset_upload.json"),
+        ):
+            target = outside / filename
+            target.write_text("{}\n", encoding="utf-8")
+            before = target.read_bytes()
+            with self.assertRaisesRegex(ValueError, "written safely"):
+                writer(workspace, {"status": "sentinel"}, sample_id=sample_id)
+            self.assertEqual(target.read_bytes(), before)
+        with self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+            drama_video.read_video_submission(workspace, sample_id=sample_id)
+        with self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+            drama_video.read_video_asset_upload(workspace, sample_id=sample_id)
+
+        samples.unlink()
+        samples.mkdir()
+        sample_dir = samples / sample_id
+        sample_dir.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "written safely"):
+            drama_video._write_video_submission(
+                workspace, {"status": "sentinel"}, sample_id=sample_id
+            )
+        with self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+            drama_video.read_video_submission(workspace, sample_id=sample_id)
+
+    def test_video_ledger_cleanup_rejects_ancestor_swap(self) -> None:
+        workspace = "ledger-cleanup-swap"
+        root = paths.WORKSPACE_DIR / workspace
+        root.mkdir()
+        outside = Path(self._tmp.name) / "outside-cleanup"
+        outside.mkdir()
+
+        drama_video._write_video_submission(workspace, {"status": "marker"})
+        original_logs = root / "logs"
+        retained_logs = root / "logs-retained"
+        original_logs.rename(retained_logs)
+        outside_target = outside / "drama_video_submission.json"
+        outside_target.write_text("outside-owned\n", encoding="utf-8")
+        original_logs.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(ValueError, "removed safely"):
+            drama_video._delete_video_ledger(
+                workspace,
+                sample_id=None,
+                filename="drama_video_submission.json",
+                label="video submission",
+            )
+        self.assertEqual(outside_target.read_text(encoding="utf-8"), "outside-owned\n")
+        self.assertTrue((retained_logs / "drama_video_submission.json").is_file())
+
+        original_logs.unlink()
+        retained_logs.rename(original_logs)
+        sample_id = drama_video.ITER143_QUALITY20_SAMPLE_ID
+        drama_video._write_video_asset_upload(
+            workspace,
+            {"status": "marker"},
+            sample_id=sample_id,
+        )
+        samples = original_logs / "drama_video_samples"
+        retained_samples = original_logs / "drama_video_samples-retained"
+        samples.rename(retained_samples)
+        outside_target = outside / "asset_upload.json"
+        outside_target.write_text("outside-sample-owned\n", encoding="utf-8")
+        samples.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(ValueError, "removed safely"):
+            drama_video._delete_video_ledger(
+                workspace,
+                sample_id=sample_id,
+                filename="asset_upload.json",
+                label="video asset upload",
+            )
+        self.assertEqual(
+            outside_target.read_text(encoding="utf-8"), "outside-sample-owned\n"
+        )
+        self.assertTrue((retained_samples / sample_id / "asset_upload.json").is_file())
+
+    def test_video_ledger_final_symlink_and_oversize_are_rejected(self) -> None:
+        workspace = "ledger-final-boundary"
+        logs = paths.WORKSPACE_DIR / workspace / "logs"
+        logs.mkdir(parents=True)
+        outside = Path(self._tmp.name) / "outside-final-ledger.json"
+        outside.write_text("outside-owned\n", encoding="utf-8")
+        target = logs / "drama_video_submission.json"
+        target.symlink_to(outside)
+
+        with self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+            drama_video.read_video_submission(workspace)
+        with self.assertRaisesRegex(ValueError, "written safely"):
+            drama_video._write_video_submission(workspace, {"status": "sentinel"})
+        with self.assertRaisesRegex(ValueError, "removed safely"):
+            drama_video._delete_video_ledger(
+                workspace,
+                sample_id=None,
+                filename="drama_video_submission.json",
+                label="video submission",
+            )
+        self.assertEqual(outside.read_text(encoding="utf-8"), "outside-owned\n")
+
+        target.unlink()
+        target.write_bytes(b"x" * (drama_video.MAX_VIDEO_LEDGER_BYTES + 1))
+        with patch.object(
+            drama_video.os,
+            "read",
+            side_effect=AssertionError("oversize ledger must not be read"),
+        ), self.assertRaisesRegex(ValueError, "ledger is unreadable"):
+            drama_video.read_video_submission(workspace)
 
     def test_resume_rejects_provider_account_change_before_poll(self) -> None:
         self._prepare()

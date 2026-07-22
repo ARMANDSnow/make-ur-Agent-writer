@@ -631,6 +631,18 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(data["jobs"][0]["job_id"], "a" * 32)
         self.assertEqual(data["jobs"][0]["status"], "succeeded")
 
+    def test_api_recent_jobs_hides_giant_integer_parser_failure(self) -> None:
+        log = Path(self._tmp.name) / "alpha" / "logs" / "web_jobs.jsonl"
+        log.write_bytes(b'{"progress":' + (b"9" * 5000) + b"}\n")
+
+        status, data = self._get_json("/api/workspace/alpha/jobs/recent?n=5")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["jobs"], [])
+        rendered = json.dumps(data, ensure_ascii=False)
+        self.assertNotIn("digits", rendered)
+        self.assertNotIn("set_int_max_str_digits", rendered)
+
     def test_api_logs_tail(self) -> None:
         status, data = self._get_json("/api/workspace/alpha/logs/tail?n=10")
         self.assertEqual(status, 200)

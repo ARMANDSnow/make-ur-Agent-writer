@@ -550,6 +550,13 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
         self.assertEqual(jobs.recent_jobs("alpha"), [])
         self.assertEqual(outside.read_bytes(), before)
 
+    def test_job_log_with_giant_integer_fails_closed(self) -> None:
+        log = self._log_path("alpha")
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_bytes(b'{"progress":' + (b"9" * 5000) + b"}\n")
+
+        self.assertEqual(jobs.recent_jobs("alpha"), [])
+
     def test_job_log_fifo_is_rejected_without_blocking(self) -> None:
         log = self._log_path("alpha")
         log.unlink(missing_ok=True)
