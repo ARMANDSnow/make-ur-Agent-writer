@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 from src import (
@@ -196,6 +197,30 @@ class DramaLocalDemoTests(DramaTestBase):
 
             self.assertEqual(os.environ["OPENAI_MODEL"], "sentinel/model")
             self.assertEqual(os.environ["DRAMA_MODEL"], "mock")
+
+    def test_fixture_video_forwards_cancellation_checkpoint(self) -> None:
+        root = Path(self._tmp.name)
+        sentinel = RuntimeError("cancelled by test")
+        target = root / "outputs/drama/local_demo/fixture_099.mp4"
+
+        def create_partial_then_check(*_args, **kwargs):
+            target.write_bytes(b"partial")
+            kwargs["checkpoint"]()
+
+        with patch(
+            "src.drama_local_demo._run_bounded_process",
+            side_effect=create_partial_then_check,
+        ) as run_process:
+            with self.assertRaisesRegex(RuntimeError, "cancelled by test"):
+                drama_local_demo._fixture_mp4(
+                    root,
+                    duration_seconds=0.2,
+                    ordinal=99,
+                    checkpoint=lambda: (_ for _ in ()).throw(sentinel),
+                )
+
+        self.assertEqual(run_process.call_count, 1)
+        self.assertFalse(target.exists())
 
     def tearDown(self) -> None:
         jobs.reset_for_tests()

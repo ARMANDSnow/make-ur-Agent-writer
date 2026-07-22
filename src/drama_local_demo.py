@@ -98,7 +98,13 @@ def _write_artifact(root: Path, relative: str, data: bytes) -> dict[str, Any]:
     }
 
 
-def _fixture_mp4(root: Path, *, duration_seconds: float, ordinal: int) -> bytes:
+def _fixture_mp4(
+    root: Path,
+    *,
+    duration_seconds: float,
+    ordinal: int,
+    checkpoint: Callable[[], None] | None = None,
+) -> bytes:
     if (
         isinstance(duration_seconds, bool)
         or not isinstance(duration_seconds, (int, float))
@@ -108,25 +114,27 @@ def _fixture_mp4(root: Path, *, duration_seconds: float, ordinal: int) -> bytes:
         raise DramaLocalDemoError("fixture_duration_invalid", "本地样片时长无效")
     relative = f"outputs/drama/local_demo/fixture_{ordinal:03d}.mp4"
     drama_compositor._ensure_safe_parent(root, relative)
-    completed = _run_bounded_process(
-        [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-f", "lavfi", "-i",
-            f"color=c=#26344d:s=540x960:r=5:d={float(duration_seconds):.3f}",
-            "-an", "-c:v", "libx264", "-threads", "1", "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart", relative,
-        ],
-        cwd=root,
-        timeout_seconds=60,
-        stdout_limit=0,
-        stderr_limit=16_384,
-    )
-    if completed.returncode != 0:
-        raise DramaLocalDemoError("fixture_video_failed", "本地 FFmpeg 样片生成失败")
     target = root / relative
-    data = target.read_bytes()
-    target.unlink(missing_ok=True)
-    return data
+    try:
+        completed = _run_bounded_process(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                "-f", "lavfi", "-i",
+                f"color=c=#26344d:s=540x960:r=5:d={float(duration_seconds):.3f}",
+                "-an", "-c:v", "libx264", "-threads", "1", "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart", relative,
+            ],
+            cwd=root,
+            timeout_seconds=60,
+            stdout_limit=0,
+            stderr_limit=16_384,
+            checkpoint=checkpoint,
+        )
+        if completed.returncode != 0:
+            raise DramaLocalDemoError("fixture_video_failed", "本地 FFmpeg 样片生成失败")
+        return target.read_bytes()
+    finally:
+        target.unlink(missing_ok=True)
 
 
 def _require_mock_profile() -> None:
@@ -247,9 +255,16 @@ def run_synthetic_local_demo(
         start=progress_start,
         span=progress_span,
     )
+    cancel_check = getattr(emit, "check_cancelled", None)
+    checkpoint = cancel_check if callable(cancel_check) else None
+
+    def check_cancelled() -> None:
+        if checkpoint is not None:
+            checkpoint()
+
     root = paths.workspace_root(workspace)
     # Fail before creating any durable A-E state when FFmpeg is unavailable.
-    _fixture_mp4(root, duration_seconds=0.2, ordinal=0)
+    _fixture_mp4(root, duration_seconds=0.2, ordinal=0, checkpoint=checkpoint)
     emit("local-demo-character-references", 0.04)
     _ensure_character_references(workspace, number)
 
@@ -319,6 +334,7 @@ def run_synthetic_local_demo(
         )
     )
     for index, spec in enumerate(image_plan.shot_specs, start=1):
+        check_cancelled()
         image_manifest, candidate = (
             drama_shot_image_candidate_store.append_local_shot_image_candidate(
                 workspace,
@@ -355,6 +371,7 @@ def run_synthetic_local_demo(
     )
     fixture_by_duration: dict[float, bytes] = {}
     for index, spec in enumerate(video_plan.shot_specs, start=1):
+        check_cancelled()
         duration = round(float(spec.target_duration_seconds), 3)
         base_mp4 = fixture_by_duration.get(duration)
         if base_mp4 is None:
@@ -362,6 +379,7 @@ def run_synthetic_local_demo(
                 root,
                 duration_seconds=duration,
                 ordinal=index,
+                checkpoint=checkpoint,
             )
             fixture_by_duration[duration] = base_mp4
         variant = base_mp4 + (9).to_bytes(4, "big") + b"free" + bytes((index % 256,))
@@ -417,6 +435,7 @@ def run_synthetic_local_demo(
     )
     assignments = []
     for segment in render_plan.spoken_segments:
+        check_cancelled()
         narration = segment.kind == "narration"
         profile = narrator_profile if narration else character_profile
         assignments.append(
@@ -441,6 +460,7 @@ def run_synthetic_local_demo(
     wav = drama_audio.build_mock_wav_fixture(duration_milliseconds=20, sample_rate=16000)
     records = []
     for utterance in audio_manifest.utterances:
+        check_cancelled()
         authorization = drama_tts_attempts.build_tts_authorization(
             utterance,
             capability,

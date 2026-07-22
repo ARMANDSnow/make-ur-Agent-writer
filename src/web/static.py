@@ -1467,7 +1467,7 @@ html { scroll-behavior: smooth; }
   .shot-image-compare { grid-template-columns: 1fr; }
   .form-actions { flex-wrap: wrap; justify-content: stretch; }
   .form-actions .btn { flex: 1 1 140px; }
-  .btn { min-height: 44px; }
+  button, .btn { min-height: 44px; }
   .btn-sm { min-height: 44px; }
 }
 """
@@ -7498,6 +7498,15 @@ JS_DASHBOARD = """\
       escapeHtml(productionStateLabel(state)) + '</span>';
   }
 
+  function productionAcceptanceLabel(level) {
+    return ({
+      "safe-blocked": "已安全阻断",
+      "mock-functional": "模拟流程通过",
+      "local-e2e": "本地全流程通过",
+      "provider-validated": "真实服务已验证",
+    })[level] || "验收状态待确认";
+  }
+
   function renderProductionSummary(data) {
     const render = data.render || {};
     const assets = data.assets || {};
@@ -7529,7 +7538,7 @@ JS_DASHBOARD = """\
       ' · 已提交 ' + Number(attempts.submitted_count || 0) + '</p></div>' +
       '<div><p class="hint">任务编排</p>' + productionBadge(tasks.state) +
       '<p>' + Number(tasks.task_count || 0) + ' 项 · 结果未知 ' + Number(tasks.unknown_count || 0) + '</p></div>' +
-      '<div><p class="hint">时间线 / QA</p>' + productionBadge(timeline.state) +
+      '<div><p class="hint">时间线 / 质检</p>' + productionBadge(timeline.state) +
       '<p>' + Number(timeline.shot_count || 0) + ' 镜 · ' + Number(timeline.subtitle_count || 0) + ' 字幕</p></div>' +
       '</div><details><summary>诊断详情</summary><p class="hint">同源 fingerprint <code>' +
       escapeHtml((data.source_projection_fingerprint || "").slice(0, 24)) +
@@ -7563,10 +7572,10 @@ JS_DASHBOARD = """\
             ' · 视频候选 ' + Number(shot.video_candidate_count || 0) +
             ' · 口播 ' + Number(shot.spoken_segment_count || 0) + '</div></article>';
         }).join("") + '</div>'
-      : '<div class="empty-state"><h3>尚无稳定镜头 ID</h3><p>先完成组装与 RenderPlan；工作台不会从文本或文件名猜镜头。</p></div>';
+      : '<div class="empty-state"><h3>尚无稳定镜头 ID</h3><p>先完成组装与镜头制作计划；工作台不会从文本或文件名猜镜头。</p></div>';
     const qa = timeline.qa
-      ? '<div class="card"><div class="card-body"><h3>QA / Exact delivery</h3><p>' +
-        productionBadge(timeline.qa.status) + ' · ' + escapeHtml(timeline.qa.acceptance_level || '') +
+      ? '<div class="card"><div class="card-body"><h3>质检与交付</h3><p>' +
+        productionBadge(timeline.qa.status) + ' · ' + productionAcceptanceLabel(timeline.qa.acceptance_level) +
         ' · 覆盖 ' + Number(timeline.qa.covered_shot_count || 0) + ' / ' + Number(timeline.qa.required_shot_count || 0) +
         '</p><div class="cluster">' + (timeline.deliverables || []).map(function (item) {
           return '<a class="btn btn-secondary btn-sm" href="' + escapeHtml(item.url || '') + '">' +
@@ -7583,14 +7592,14 @@ JS_DASHBOARD = """\
     return '<div id="production-panel-canvas" role="tabpanel" aria-labelledby="production-tab-canvas" ' +
       'data-production-panel="canvas">' +
       '<div class="callout info"><strong>同源画布投影</strong><span>' +
-      nodes.length + ' nodes · ' + edges.length + ' typed edges' +
-      (Number(data.canvas_omitted_edge_count || 0) ? ' · 另有 ' + Number(data.canvas_omitted_edge_count) + ' 条边未投影' : '') +
-      '；只展示服务端 durable state。</span></div>' +
+      nodes.length + ' 个节点 · ' + edges.length + ' 条关系' +
+      (Number(data.canvas_omitted_edge_count || 0) ? ' · 另有 ' + Number(data.canvas_omitted_edge_count) + ' 条关系未展示' : '') +
+      '；只展示服务端已保存状态。</span></div>' +
       '<div class="production-canvas">' + nodes.map(function (node) {
         return '<article class="production-node" data-production-node="' + escapeHtml(node.node_id) +
           '" data-state="' + escapeHtml(node.state) + '"><p class="eyebrow ornament">' +
           escapeHtml(node.kind) + '</p><code>' + escapeHtml(node.ref_id) + '</code><p>' +
-          productionBadge(node.state) + (node.selected ? ' <span class="badge no-dot">selected</span>' : '') +
+          productionBadge(node.state) + (node.selected ? ' <span class="badge no-dot">已选</span>' : '') +
           '</p></article>';
       }).join('') + '</div></div>';
   }
