@@ -136,6 +136,10 @@ class DramaSopBugfixTests(DramaTestBase):
         self.assertIn("requestRealTextAuthorization", source)
         self.assertNotIn("window.prompt", source)
         self.assertIn("开始本地 A-F 演练", source)
+        template_source = Path("src/web/templates.py").read_text(encoding="utf-8")
+        self.assertIn("本地 A-F 演练", template_source)
+        self.assertIn("零供应商媒体任务", template_source)
+        self.assertNotIn("此页不会生成媒体", template_source)
 
     def test_workspace_overview_does_not_claim_ready_before_review_assembly(self) -> None:
         self._make_drama_workspace("overview-not-ready")
