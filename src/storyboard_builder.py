@@ -71,6 +71,7 @@ def run(
         payload["episode_no"] = episode_no
         payload["season_no"] = season_no
         payload["target_duration_seconds"] = target_duration
+        payload = _retime_mock_storyboard(payload, target_duration)
         payload["hook"] = _hook_snapshot(setup)
         board = DramaStoryboard(**normalize_storyboard_payload(payload))
     else:
@@ -99,6 +100,42 @@ def run(
     data = model_to_dict(board)
     data["hook"] = _hook_snapshot(setup)
     data["soft_warnings"] = validate_storyboard_soft(board)
+    return data
+
+
+def _retime_mock_storyboard(payload: Dict[str, Any], target_duration: int) -> Dict[str, Any]:
+    """Retarget the deterministic fixture without lying about total duration."""
+
+    data = dict(payload)
+    shots = [dict(item) for item in data.get("shots", []) if isinstance(item, dict)]
+    if len(shots) < 2:
+        return data
+    first_duration = min(3, max(2, target_duration - (len(shots) - 1)))
+    last_duration = min(10, max(8, target_duration - first_duration - (len(shots) - 2)))
+    middle_target = target_duration - first_duration - last_duration
+    middle = shots[1:-1]
+    if middle_target < len(middle):
+        raise ValueError("target duration is too short for storyboard fixture")
+    weights = [max(1, int(item.get("duration_seconds") or 1)) for item in middle]
+    durations = [1 for _item in middle]
+    remaining = middle_target - len(middle)
+    order = sorted(range(len(middle)), key=lambda index: weights[index], reverse=True)
+    cursor = 0
+    while remaining:
+        index = order[cursor % len(order)]
+        cursor += 1
+        if durations[index] >= 30:
+            if all(value >= 30 for value in durations):
+                raise ValueError("target duration exceeds storyboard fixture capacity")
+            continue
+        durations[index] += 1
+        remaining -= 1
+    shots[0]["duration_seconds"] = first_duration
+    shots[-1]["duration_seconds"] = last_duration
+    for item, duration in zip(middle, durations):
+        item["duration_seconds"] = duration
+    data["shots"] = shots
+    data["target_duration_seconds"] = target_duration
     return data
 
 

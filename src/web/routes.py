@@ -20,6 +20,7 @@ import json
 import math
 import os
 import re
+import stat
 import threading
 import time
 from contextlib import contextmanager
@@ -70,6 +71,19 @@ _OVERVIEW_CACHE: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
 _WORKSPACE_NAME_RE = _WORKSPACE_NAME_RE_SHARED
 _RESERVED_WORKSPACE_NAMES = _RESERVED_WORKSPACE_NAMES_SHARED
 
+_DRAMA_MUTATION_PATH_RE = re.compile(
+    r"^/api/workspace/[^/]+/drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?$"
+)
+_DRAMA_MUTATION_BODY_LIMIT = 64 * 1024
+_DRAMA_MUTATION_INTENTS = {
+    "x-drama-mutation-intent": {"mutate-v1"},
+    "x-drama-asset-intent": {"mutate-v1"},
+    "x-drama-shot-image-intent": {"mutate-v1"},
+    "x-drama-shot-video-intent": {"mutate-v1"},
+    "x-drama-compose-intent": {"run-local-v1"},
+    "x-drama-image-intent": {"generate-once-v1"},
+}
+
 
 def _json(status: int, payload: Dict[str, Any]) -> Tuple[int, str, bytes]:
     # ``collect_status`` and ``estimate_cost`` embed ``pathlib.Path`` values
@@ -115,6 +129,45 @@ def _validate_workspace_name(name: str) -> bool:
 
 def _workspace_exists(name: str) -> bool:
     return (paths.WORKSPACE_DIR / name).is_dir()
+
+
+def _drama_mutation_request_error(
+    body: bytes,
+    headers: Dict[str, str],
+) -> Optional[Tuple[int, str, bytes]]:
+    """Reject browser cross-site/simple requests before any drama mutation.
+
+    ``dispatch(..., headers=None)`` remains a trusted in-process seam for the
+    existing domain tests.  The HTTP server always supplies request headers,
+    so every wire request must carry JSON plus one explicit drama intent.
+    """
+
+    if len(body) > _DRAMA_MUTATION_BODY_LIMIT:
+        return _json(413, {"error": "drama mutation payload too large"})
+    content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        return _json(415, {"error": "Content-Type must be application/json"})
+    if not any(
+        str(headers.get(key) or "") in allowed
+        for key, allowed in _DRAMA_MUTATION_INTENTS.items()
+    ):
+        return _json(403, {"error": "explicit drama mutation intent required"})
+    fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
+        return _json(403, {"error": "cross-site drama mutation rejected"})
+    origin = str(headers.get("origin") or "").strip()
+    if origin:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }:
+            return _json(403, {"error": "cross-origin drama mutation rejected"})
+        host = str(headers.get("host") or "").strip().lower()
+        if host and parsed.netloc.lower() != host:
+            return _json(403, {"error": "cross-origin drama mutation rejected"})
+    return None
 
 
 def _workspace_error(name: str) -> Optional[Tuple[int, str, bytes]]:
@@ -673,11 +726,15 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
                     "label": station.get("label", ""),
                     "status": station.get("status", ""),
                 }
-                for idx, station in enumerate(station_list[:4], start=1)
+                for idx, station in enumerate(station_list[:5], start=1)
                 if isinstance(station, dict)
             }
+            all_done = bool(station_list) and all(
+                isinstance(station, dict) and station.get("status") in {"done", "skipped"}
+                for station in station_list
+            )
             overview["readiness"] = {
-                "status": "warn" if any(s.get("status") == "todo" for s in station_list if isinstance(s, dict)) else "ready",
+                "status": "ready" if all_done else "warn",
                 "blockers": [],
                 "warnings": [],
                 "recommended_commands": [],
@@ -3124,28 +3181,68 @@ def api_character_ref(name: str, cid: str, filename: str) -> Tuple[int, str, byt
     if not _CHARACTER_ID_RE.fullmatch(cid) or not _REF_FILENAME_RE.fullmatch(filename):
         return _json(400, {"error": "invalid character reference path"})
     from ..ai_draw_client import MAX_RESPONSE_BYTES
-    from ..drama_schemas import character_paths
-
-    root = character_paths(name).refs_dir / cid
-    target = root / filename
-    try:
-        resolved = target.resolve()
-        resolved.relative_to(root.resolve())
-    except (OSError, ValueError):
-        return _json(400, {"error": "invalid character reference path"})
-    if not resolved.is_file():
-        return _json(404, {"error": "character reference not found"})
-    suffix = resolved.suffix.lower()
+    suffix = Path(filename).suffix.lower()
     content_type = _CHARACTER_REF_CONTENT_TYPES.get(suffix)
     if not content_type:
         return _json(400, {"error": "unsupported character reference type"})
+    directory_fd: int | None = None
+    file_fd: int | None = None
     try:
-        if resolved.stat().st_size > MAX_RESPONSE_BYTES:
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        directory = getattr(os, "O_DIRECTORY", None)
+        if nofollow is None or directory is None:
+            raise OSError("strict no-follow access unavailable")
+        workspace_parent_fd = os.open(
+            str(paths.WORKSPACE_DIR), os.O_RDONLY | directory | nofollow
+        )
+        try:
+            directory_fd = os.open(
+                name,
+                os.O_RDONLY | directory | nofollow,
+                dir_fd=workspace_parent_fd,
+            )
+        finally:
+            os.close(workspace_parent_fd)
+        for part in ("data", "character_refs", cid):
+            next_fd = os.open(
+                part,
+                os.O_RDONLY | directory | nofollow,
+                dir_fd=directory_fd,
+            )
+            os.close(directory_fd)
+            directory_fd = next_fd
+        file_fd = os.open(
+            filename,
+            os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=directory_fd,
+        )
+        before = os.fstat(file_fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise OSError("character reference is not a regular file")
+        if before.st_size > MAX_RESPONSE_BYTES:
             return _json(413, {"error": "character reference exceeds size limit"})
-        with resolved.open("rb") as fh:
-            data = fh.read(MAX_RESPONSE_BYTES + 1)
-    except OSError:
+        chunks: List[bytes] = []
+        remaining = MAX_RESPONSE_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(file_fd, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        after = os.fstat(file_fd)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+        if len(data) != before.st_size or identity(before) != identity(after):
+            raise OSError("character reference changed while reading")
+    except FileNotFoundError:
         return _json(404, {"error": "character reference not found"})
+    except OSError:
+        return _json(400, {"error": "invalid character reference path"})
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        if directory_fd is not None:
+            os.close(directory_fd)
     if len(data) > MAX_RESPONSE_BYTES:
         return _json(413, {"error": "character reference exceeds size limit"})
     from ..ai_draw_client import _detect_image_type
@@ -5397,6 +5494,14 @@ def dispatch(
     # ``/`` separator survives because ``unquote`` is applied AFTER
     # ``urlsplit`` has already extracted the path component.
     decoded_path = unquote(split.path)
+    if (
+        headers is not None
+        and method in {"POST", "PUT"}
+        and _DRAMA_MUTATION_PATH_RE.fullmatch(decoded_path)
+    ):
+        request_error = _drama_mutation_request_error(body, headers)
+        if request_error:
+            return request_error
     # iter 049: opt-in bearer-token gate (no-op unless NOVEL_API_TOKEN is set).
     # Only /api/* is gated; pages + /w/ deep links stay open for the browser.
     _token = auth.required_token()

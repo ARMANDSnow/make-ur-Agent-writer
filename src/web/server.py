@@ -19,15 +19,10 @@ from urllib.parse import unquote, urlsplit
 from . import routes
 
 
-_DRAMA_ASSET_MUTATION_PATH_RE = re.compile(
-    r"^/api/workspace/[^/]+/drama/(?:"
-    r"assets/(?:select|status|art-direction-scope)"
-    r"|shot-images/select"
-    r"|shot-videos/select"
-    r"|compose"
-    r")/?$"
+_DRAMA_MUTATION_PATH_RE = re.compile(
+    r"^/api/workspace/[^/]+/drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?$"
 )
-_DRAMA_ASSET_MUTATION_BODY_LIMIT = 32 * 1024
+_DRAMA_MUTATION_BODY_LIMIT = 64 * 1024
 _DRAMA_COMPOSE_READ_PATH_RE = re.compile(
     r"^/api/workspace/[^/]+/drama/compose(?:/.*)?$"
 )
@@ -95,12 +90,12 @@ class WebHandler(BaseHTTPRequestHandler):
             decoded_path = unquote(urlsplit(path).path)
             if (
                 method == "POST"
-                and _DRAMA_ASSET_MUTATION_PATH_RE.fullmatch(decoded_path)
-                and length > _DRAMA_ASSET_MUTATION_BODY_LIMIT
+                and _DRAMA_MUTATION_PATH_RE.fullmatch(decoded_path)
+                and length > _DRAMA_MUTATION_BODY_LIMIT
             ):
-                # iter129: this cap must run before rfile.read.  The route
-                # repeats it for direct-dispatch tests and defense in depth.
-                self.send_error(413, "Asset mutation payload too large")
+                # Short-drama mutations are JSON control messages, never media
+                # uploads. Reject an oversized Content-Length before reading it.
+                self.send_error(413, "Drama mutation payload too large")
                 return
             if length > 64 * 1024 * 1024:
                 self.send_error(413, "Payload too large")

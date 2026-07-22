@@ -395,9 +395,9 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
 .badge.no-dot::before { display: none; }
-.badge.ready, .badge.succeeded, .badge.done, .badge.approve { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
+.badge.ready, .badge.succeeded, .badge.done, .badge.approve, .badge.success { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
 .badge.warn, .badge.queued, .badge.warning, .badge.abstain { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
-.badge.blocked, .badge.failed, .badge.aborted, .badge.reject, .badge.lost { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
+.badge.blocked, .badge.failed, .badge.aborted, .badge.reject, .badge.lost, .badge.danger { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
 .badge.running, .badge.pending { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
 .badge-novel { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
 .badge-drama { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber); }
@@ -1409,12 +1409,12 @@ html { scroll-behavior: smooth; }
 .character-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .character-card {
   display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--space-4);
-  padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-2);
-  background: var(--bg);
+  padding: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2);
+  background: var(--bg-card);
 }
 .character-ref-box { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .character-ref-img, .character-ref-placeholder {
-  width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: var(--radius-1);
+  width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--rule); border-radius: var(--radius-1);
   background: var(--bg-sunken);
 }
 .character-ref-img { object-fit: contain; }
@@ -1588,14 +1588,20 @@ JS_DASHBOARD = """\
   async function postJson(url, payload, opts) {
     return _fetchWrapped(url, Object.assign({
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Drama-Mutation-Intent": "mutate-v1",
+      },
       body: JSON.stringify(payload || {}),
     }, opts || {}));
   }
   async function putJson(url, payload, opts) {
     return _fetchWrapped(url, Object.assign({
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Drama-Mutation-Intent": "mutate-v1",
+      },
       body: JSON.stringify(payload || {}),
     }, opts || {}));
   }
@@ -1604,6 +1610,35 @@ JS_DASHBOARD = """\
   }
   function wsHref(suffix) {
     return "/w/" + encodeURIComponent(ws) + suffix;
+  }
+  function dramaEpisodeFromInput(input) {
+    const raw = String(input && input.value == null ? "" : input.value).trim();
+    if (!/^(?:[1-9]|[1-9][0-9]|100)$/.test(raw)) {
+      if (input) {
+        input.setAttribute("aria-invalid", "true");
+        input.setCustomValidity("集数必须是 1 到 100 的整数");
+      }
+      throw new Error("集数必须是 1 到 100 的整数；未发送任何请求");
+    }
+    const value = Number(raw);
+    if (input) {
+      input.removeAttribute("aria-invalid");
+      input.setCustomValidity("");
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("episode_no", String(value));
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    document.querySelectorAll('.sidebar a[href*="/production"],.sidebar a[href*="/assets"],.sidebar a[href*="/shot-images"],.sidebar a[href*="/shot-videos"],.sidebar a[href*="/compose"]').forEach(function (link) {
+      const target = new URL(link.href, window.location.origin);
+      target.searchParams.set("episode_no", String(value));
+      link.setAttribute("href", target.pathname + target.search);
+    });
+    return value;
+  }
+  function hydrateDramaEpisodeInput(input) {
+    if (!input) return;
+    const raw = new URL(window.location.href).searchParams.get("episode_no");
+    if (raw != null) input.value = raw;
   }
   let shellControlsBound = false;
   function initShellControls() {
@@ -1735,15 +1770,15 @@ JS_DASHBOARD = """\
   }
   function dramaProgressList(progress) {
     if (!progress || typeof progress !== "object") return [];
-    const keys = ["station1", "station2", "station3", "station4"];
+    const keys = ["station1", "station2", "station3", "station4", "station5"];
     return keys.map(function (key) { return progress[key]; }).filter(Boolean);
   }
   function dramaOverallStatus(progress) {
     const stations = dramaProgressList(progress);
-    if (!stations.length) return "warn";
-    const firstOpen = stations.find(function (s) { return s.status === "todo"; });
-    if (firstOpen) return "warn";
-    return "ready";
+    if (stations.length !== 5) return "warn";
+    return stations.every(function (s) {
+      return s.status === "done" || s.status === "skipped";
+    }) ? "ready" : "warn";
   }
   function ctaConfig(kind, fallback) {
     const base = CTA_ACTIONS[kind] || {};
@@ -5171,6 +5206,7 @@ JS_DASHBOARD = """\
   }
 
   async function initDramaWrite() {
+    bindDramaEditSafety();
     bindHashTabs();
     bindHookPickDelegate();
     if (await resumeDramaActiveJob()) return;
@@ -5179,6 +5215,35 @@ JS_DASHBOARD = """\
     await loadStationStoryboard();
     await loadStationCharacters();
     await loadDramaProgress();
+  }
+
+  let dramaEditSafetyBound = false;
+  function bindDramaEditSafety() {
+    if (dramaEditSafetyBound) return;
+    dramaEditSafetyBound = true;
+    document.addEventListener("input", function (ev) {
+      const form = ev.target && ev.target.closest ? ev.target.closest(
+        "#station-setup-form, #station-storyboard-form, [data-character-sheet-form]"
+      ) : null;
+      if (form) form.dataset.dramaDirty = "1";
+    });
+    window.addEventListener("beforeunload", function (ev) {
+      if (!document.querySelector('form[data-drama-dirty="1"]')) return;
+      ev.preventDefault();
+      ev.returnValue = "";
+    });
+  }
+
+  function clearDramaDirty(form) {
+    if (form) delete form.dataset.dramaDirty;
+  }
+
+  function confirmDramaRegenerate(form, label) {
+    const dirty = form && form.dataset.dramaDirty === "1";
+    const message = dirty
+      ? "当前有未保存修改。重新生成会丢弃这些修改并替换" + label + "，是否继续？"
+      : "重新生成会替换当前" + label + "，是否继续？";
+    return window.confirm(message);
   }
 
   async function resumeDramaActiveJob() {
@@ -5318,6 +5383,8 @@ JS_DASHBOARD = """\
     const regenBtn = document.getElementById("regenerate-setup");
     if (regenBtn) {
       regenBtn.addEventListener("click", async function () {
+        const form = document.getElementById("station-setup-form");
+        if (!confirmDramaRegenerate(form, "核心设定")) return;
         regenBtn.disabled = true;
         try {
           const data = await postJson(
@@ -5356,6 +5423,7 @@ JS_DASHBOARD = """\
         }
         try {
           await putJson(wsUrl("/drama/setup"), dramaPayload(payload));
+          clearDramaDirty(form);
           showToast("已保存，进入站 ②", "info");
           const tab = document.querySelector('.tab[data-tab="hook"]');
           if (tab) tab.click();
@@ -5649,6 +5717,7 @@ JS_DASHBOARD = """\
       try {
         const payload = collectStoryboardFromPane(pane);
         const data = await putJson(wsUrl("/drama/storyboard"), dramaPayload({ storyboard: payload }));
+        clearDramaDirty(form);
         pane.__storyboard = data.storyboard;
         pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
         bindStationStoryboardActions();
@@ -5665,6 +5734,7 @@ JS_DASHBOARD = """\
     const regenBtn = document.getElementById("regenerate-storyboard");
     if (regenBtn) {
       regenBtn.addEventListener("click", async function () {
+        if (!confirmDramaRegenerate(form, "分镜表")) return;
         regenBtn.disabled = true;
         try {
           const data = await postJson(
@@ -5818,6 +5888,7 @@ JS_DASHBOARD = """\
   }
 
   async function initDramaCharacters() {
+    bindDramaEditSafety();
     const root = document.getElementById("characters-page-root");
     if (!root) return;
     root.innerHTML = skeleton(4);
@@ -6002,6 +6073,8 @@ JS_DASHBOARD = """\
     const gen = root.querySelector("[data-generate-characters], [data-regenerate-characters]");
     if (gen) {
       gen.addEventListener("click", async function () {
+        const currentForm = root.querySelector("[data-character-sheet-form]");
+        if (gen.hasAttribute("data-regenerate-characters") && !confirmDramaRegenerate(currentForm, "角色表")) return;
         gen.disabled = true;
         try {
           const data = await postJson(
@@ -6030,6 +6103,7 @@ JS_DASHBOARD = """\
         ev.preventDefault();
         try {
           const data = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
+          clearDramaDirty(form);
           root.__characterSheet = data.sheet;
           root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped);
           bindCharacterSheetActions(root);
@@ -6046,6 +6120,7 @@ JS_DASHBOARD = """\
         try {
           const cid = btn.getAttribute("data-redraw-character") || "";
           const saved = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
+          clearDramaDirty(root.querySelector("[data-character-sheet-form]"));
           root.__characterSheet = saved.sheet;
           const data = await postJson(
             wsUrl("/drama/characters/" + encodeURIComponent(cid) + "/redraw"),
@@ -6067,6 +6142,7 @@ JS_DASHBOARD = """\
         reviewBtn.disabled = true;
         try {
           const saved = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
+          clearDramaDirty(root.querySelector("[data-character-sheet-form]"));
           root.__characterSheet = saved.sheet;
           const data = await postJson(
             wsUrl("/drama/review"),
@@ -6288,7 +6364,7 @@ JS_DASHBOARD = """\
     const labels = {
       not_ready: "待准备", ready: "可生成", pending: "待准备",
       "upload-assets": "上传素材", queued: "排队", generating: "生成中",
-      download: "下载成片", succeeded: "成功", failed: "失败",
+      download: "下载 5 秒样片", succeeded: "成功", failed: "失败",
       submitted: "已提交·可续查", submission_unknown: "提交结果待对账",
       aborted: "取消", cancelled: "取消", timeout: "超时", lost: "失败",
       budget_exceeded: "成功（超预算）",
@@ -6321,7 +6397,7 @@ JS_DASHBOARD = """\
       body += '<video controls preload="metadata" style="display:block;width:100%;max-width:420px;aspect-ratio:9/16;background:#111" src="' + src + '"></video>' +
         '<div class="kv-list compact"><div class="k">规格</div><div class="v">' + escapeHtml(String(video.duration_seconds || 5)) + ' 秒 · ' + escapeHtml(video.ratio || "9:16") + ' · ' + escapeHtml(video.resolution || "720p") + '</div>' +
         '<div class="k">文件</div><div class="v">' + escapeHtml(String(video.file_size_bytes || 0)) + ' bytes</div></div>' +
-        '<a class="btn btn-primary" download="episode_01.video.mp4" href="' + src + '">下载成片</a>';
+        '<a class="btn btn-primary" download="episode_01.highlight-sample.mp4" href="' + src + '">下载 5 秒高光样片</a>';
       if (data.latest_attempt_state && ["failed", "cancelled", "timeout", "lost"].includes(data.latest_attempt_state)) {
         body += renderErrorCard({ message: "最近一次重新生成未完成：" + dramaVideoStateLabel(data.latest_attempt_state) +
           (job && job.error ? "（" + job.error + "）" : "") });
@@ -6795,9 +6871,9 @@ JS_DASHBOARD = """\
     const episodeInput = document.getElementById("asset-episode-no");
     const refresh = document.getElementById("asset-refresh");
     let overview = null;
+    hydrateDramaEpisodeInput(episodeInput);
     function episodeNo() {
-      const value = Number(episodeInput && episodeInput.value || 1);
-      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+      return dramaEpisodeFromInput(episodeInput);
     }
     async function load() {
       root.setAttribute("aria-busy", "true");
@@ -7004,9 +7080,9 @@ JS_DASHBOARD = """\
     const refresh = document.getElementById("shot-image-refresh");
     let overview = null;
     let compared = [];
+    hydrateDramaEpisodeInput(episodeInput);
     function episodeNo() {
-      const value = Number(episodeInput && episodeInput.value || 1);
-      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+      return dramaEpisodeFromInput(episodeInput);
     }
     function findShot(shotId) {
       return (overview && overview.shots || []).find(function (shot) {
@@ -7260,9 +7336,9 @@ JS_DASHBOARD = """\
     const episodeInput = document.getElementById("shot-video-episode-no");
     const refresh = document.getElementById("shot-video-refresh");
     let overview = null;
+    hydrateDramaEpisodeInput(episodeInput);
     function episodeNo() {
-      const value = Number(episodeInput && episodeInput.value || 1);
-      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+      return dramaEpisodeFromInput(episodeInput);
     }
     function findShot(shotId) {
       return (overview && overview.shots || []).find(function (shot) {
@@ -7450,9 +7526,9 @@ JS_DASHBOARD = """\
     const tabs = Array.from(document.querySelectorAll("[data-production-view]"));
     let projection = null;
     let view = "list";
+    hydrateDramaEpisodeInput(episodeInput);
     function episodeNo() {
-      const value = Number(episodeInput && episodeInput.value || 1);
-      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+      return dramaEpisodeFromInput(episodeInput);
     }
     function render() {
       if (!projection) return;
@@ -7589,9 +7665,9 @@ JS_DASHBOARD = """\
     const episodeInput = document.getElementById("compose-episode-no");
     const refresh = document.getElementById("compose-refresh");
     let overview = null;
+    hydrateDramaEpisodeInput(episodeInput);
     function episodeNo() {
-      const value = Number(episodeInput && episodeInput.value || 1);
-      return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 1;
+      return dramaEpisodeFromInput(episodeInput);
     }
     async function load() {
       root.setAttribute("aria-busy", "true");
@@ -7636,9 +7712,34 @@ JS_DASHBOARD = """\
     await load();
   }
 
+  let accessibleControlSeq = 0;
+  function associateFormLabels(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll(".field > label:not([for])").forEach(function (label) {
+      const field = label.parentElement;
+      const control = field && field.querySelector("input, textarea, select");
+      if (!control) return;
+      if (!control.id) control.id = "form-control-" + (++accessibleControlSeq);
+      label.setAttribute("for", control.id);
+    });
+  }
+
+  function observeAccessibleLabels() {
+    associateFormLabels(document);
+    const observer = new MutationObserver(function (records) {
+      records.forEach(function (record) {
+        record.addedNodes.forEach(function (node) {
+          if (node.nodeType === 1) associateFormLabels(node);
+        });
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   // ---- dispatch ---------------------------------------------------------
   function boot() {
     initShellControls();
+    observeAccessibleLabels();
     // iter062: error cards render on every page now, so their CTA buttons
     // (data-cta-action) must be live everywhere — bind once globally, not only
     // on /continue. Idempotent (ctaActionsBound guard), document-delegated.

@@ -25,6 +25,7 @@ from .drama_schemas import (
     canonical_episode_identity,
     episode_paths,
     normalize_episode_no,
+    validate_storyboard_soft,
 )
 from .llm_client import LLMClient
 from .schemas import model_to_dict
@@ -51,7 +52,11 @@ def run(
     if track not in TRACK_PINYIN:
         raise ValueError(f"unknown track: {track!r}")
 
-    client = None if mock is True else LLMClient("drama_review")
+    duration_blockers = [
+        item for item in validate_storyboard_soft(DramaStoryboard(**storyboard))
+        if item.startswith("duration_delta:")
+    ]
+    client = None if mock is True or duration_blockers else LLMClient("drama_review")
     use_mock = client.is_mock if mock is None and client is not None else bool(mock)
     prompt = build_system_prompt(
         workspace,
@@ -64,7 +69,23 @@ def run(
     )
     _log_prompt(workspace, "drama_reviewer", prompt)
 
-    if use_mock:
+    if duration_blockers:
+        review = DramaReview(
+            episode_no=episode_no,
+            season_no=int(characters.get("season_no") or 1),
+            verdict="Reject",
+            score=0,
+            issues=duration_blockers,
+            suggestions=[{
+                "station": "storyboard",
+                "field": "shots.duration_seconds",
+                "new_value": "总时长与本集目标相差不超过 3 秒",
+                "reason": "当前镜头总时长与目标时长不一致",
+            }],
+            needs_human_review=False,
+            reject_station="storyboard",
+        )
+    elif use_mock:
         payload = _load_fixture(track, "review")
         payload["episode_no"] = episode_no
         payload["season_no"] = int(characters.get("season_no") or payload.get("season_no") or 1)

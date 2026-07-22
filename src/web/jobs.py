@@ -1569,6 +1569,157 @@ def _drama_text_attempt_path(workspace: str) -> Path:
     return paths.workspace_root(workspace) / "logs" / "drama_text_attempts.json"
 
 
+MAX_DRAMA_TEXT_LEDGER_BYTES = 512 * 1024
+
+
+def _open_strict_parent_directory(path: Path, *, create: bool) -> int | None:
+    """Open ``path.parent`` component-by-component without following links."""
+
+    target = path if path.is_absolute() else path.absolute()
+    # macOS exposes /var and /tmp as trusted top-level compatibility links.
+    # Normalize only those OS aliases; never resolve workspace-controlled
+    # descendants, which would defeat the component-wise no-follow contract.
+    if target.parts[:2] == ("/", "var"):
+        target = Path("/private").joinpath(*target.parts[1:])
+    elif target.parts[:2] == ("/", "tmp"):
+        target = Path("/private").joinpath(*target.parts[1:])
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise ValueError("strict no-follow text ledger access is unavailable")
+    current = os.open(target.anchor or "/", os.O_RDONLY | directory | nofollow)
+    try:
+        parts = target.parent.parts[1:] if target.anchor else target.parent.parts
+        for part in parts:
+            try:
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | directory | nofollow,
+                    dir_fd=current,
+                )
+            except FileNotFoundError:
+                if not create:
+                    os.close(current)
+                    return None
+                os.mkdir(part, 0o700, dir_fd=current)
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | directory | nofollow,
+                    dir_fd=current,
+                )
+            os.close(current)
+            current = next_fd
+        return current
+    except BaseException:
+        try:
+            os.close(current)
+        except OSError:
+            pass
+        raise
+
+
+def _read_drama_text_ledger_bytes(path: Path) -> bytes | None:
+    directory_fd: int | None = None
+    file_fd: int | None = None
+    try:
+        directory_fd = _open_strict_parent_directory(path, create=False)
+        if directory_fd is None:
+            return None
+        try:
+            file_fd = os.open(
+                path.name,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=directory_fd,
+            )
+        except OSError as exc:
+            if path.is_symlink():
+                raise ValueError("drama text attempt ledger must be a regular file") from exc
+            raise
+        before = os.fstat(file_fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_DRAMA_TEXT_LEDGER_BYTES:
+            raise ValueError("drama text attempt ledger is unreadable")
+        chunks: list[bytes] = []
+        remaining = MAX_DRAMA_TEXT_LEDGER_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(file_fd, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        body = b"".join(chunks)
+        after = os.fstat(file_fd)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+        if (
+            len(body) > MAX_DRAMA_TEXT_LEDGER_BYTES
+            or len(body) != before.st_size
+            or identity(before) != identity(after)
+        ):
+            raise ValueError("drama text attempt ledger is unreadable")
+        return body
+    except FileNotFoundError:
+        return None
+    except ValueError:
+        raise
+    except OSError as exc:
+        raise ValueError("drama text attempt ledger is unreadable") from exc
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        if directory_fd is not None:
+            os.close(directory_fd)
+
+
+def _write_drama_text_ledger_bytes(path: Path, body: bytes) -> None:
+    if len(body) > MAX_DRAMA_TEXT_LEDGER_BYTES:
+        raise ValueError("drama text attempt ledger exceeds its size limit")
+    directory_fd: int | None = None
+    temp_fd: int | None = None
+    temp_name = f".{path.name}.tmp.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}"
+    try:
+        directory_fd = _open_strict_parent_directory(path, create=True)
+        if directory_fd is None:
+            raise OSError("text ledger directory is unavailable")
+        try:
+            existing = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and not stat.S_ISREG(existing.st_mode):
+            raise OSError("text ledger target is not a regular file")
+        temp_fd = os.open(
+            temp_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        view = memoryview(body)
+        while view:
+            written = os.write(temp_fd, view)
+            if written <= 0:
+                raise OSError("short text ledger write")
+            view = view[written:]
+        os.fsync(temp_fd)
+        os.close(temp_fd)
+        temp_fd = None
+        os.replace(temp_name, path.name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        os.fsync(directory_fd)
+    except (OSError, ValueError) as exc:
+        raise ValueError("drama text attempt ledger could not be written safely") from exc
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if directory_fd is not None:
+            try:
+                os.unlink(temp_name, dir_fd=directory_fd)
+            except OSError:
+                pass
+            os.close(directory_fd)
+
+
 def _drama_text_provider_fingerprint(task: str) -> str:
     import hashlib
     from ..config import get_model_config
@@ -1675,21 +1826,16 @@ def _drama_text_recovery_fingerprint_matches(
 
 
 def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
-    from ..utils import read_json
-
     path = _drama_text_attempt_path(workspace)
     try:
-        path.lstat()
+        body = _read_drama_text_ledger_bytes(path)
+        if body is None:
+            return {"schema_version": 1, "attempts": {}}
+        raw = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("drama text attempt ledger is unreadable") from exc
     except FileNotFoundError:
         return {"schema_version": 1, "attempts": {}}
-    except OSError as exc:
-        raise ValueError("drama text attempt ledger is unreadable") from exc
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("drama text attempt ledger must be a regular file")
-    try:
-        raw = read_json(path)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("drama text attempt ledger is unreadable") from exc
     if not isinstance(raw, dict) or raw.get("schema_version") != 1 or not isinstance(raw.get("attempts"), dict):
         raise ValueError("drama text attempt ledger is invalid")
     for key, row in raw["attempts"].items():
@@ -1761,9 +1907,11 @@ def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
 
 
 def _save_drama_text_attempts(workspace: str, ledger: Dict[str, Any]) -> None:
-    from ..utils import write_json
-
-    write_json(_drama_text_attempt_path(workspace), ledger)
+    try:
+        body = (json.dumps(ledger, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("drama text attempt ledger is invalid") from exc
+    _write_drama_text_ledger_bytes(_drama_text_attempt_path(workspace), body)
 
 
 def _canonical_drama_text_result(

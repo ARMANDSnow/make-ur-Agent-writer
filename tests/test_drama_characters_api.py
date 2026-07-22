@@ -134,7 +134,7 @@ class DramaCharactersApiTests(DramaTestBase):
                 "POST",
                 "/api/workspace/drama/drama/characters/c001/redraw",
                 b'{}',
-                {"content-type": "application/json"},
+                {"content-type": "application/json", "x-drama-mutation-intent": "mutate-v1"},
             )
         self.assertEqual(status, 200, body.decode())
         data = json.loads(body)
@@ -156,7 +156,7 @@ class DramaCharactersApiTests(DramaTestBase):
                 "POST",
                 f"/api/workspace/drama/drama/characters/{character['id']}/redraw",
                 b'{}',
-                {"content-type": "application/json"},
+                {"content-type": "application/json", "x-drama-mutation-intent": "mutate-v1"},
             )
             self.assertEqual(status, 200, body.decode())
         review = drama_reviewer.run("drama", mock=True)
@@ -258,7 +258,7 @@ class DramaCharactersApiTests(DramaTestBase):
                 "POST",
                 "/api/workspace/drama/drama/characters/c001/redraw",
                 b"{}",
-                {"content-type": "application/json"},
+                {"content-type": "application/json", "x-drama-mutation-intent": "mutate-v1"},
             )
         self.assertEqual(status, 409, body.decode())
         self.assertEqual(json.loads(body)["error"], "real_image_would_be_overwritten")
@@ -285,7 +285,7 @@ class DramaCharactersApiTests(DramaTestBase):
                 "POST",
                 "/api/workspace/drama/drama/characters/c001/redraw",
                 b"{}",
-                {"content-type": "application/json"},
+                {"content-type": "application/json", "x-drama-mutation-intent": "mutate-v1"},
             )
         self.assertEqual(status, 409, body.decode())
         self.assertEqual(json.loads(body)["error"], "real_image_would_be_overwritten")

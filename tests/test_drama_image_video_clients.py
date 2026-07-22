@@ -288,7 +288,7 @@ class DramaImageClientTests(DramaTestBase):
                 "POST",
                 "/api/workspace/image/drama/characters/c001/redraw",
                 b'{}',
-                {"content-type": "application/json"},
+                {"content-type": "application/json", "x-drama-mutation-intent": "mutate-v1"},
             )
         self.assertEqual(status, 200, body.decode())
         self.assertIs(redraw.call_args.kwargs["mock"], True)
@@ -309,7 +309,7 @@ class DramaImageClientTests(DramaTestBase):
                 "POST",
                 "/api/workspace/image/drama/characters/c001/redraw",
                 b"{}",
-                {"content-type": "application/json"},
+                {"content-type": "application/json", "x-drama-mutation-intent": "mutate-v1"},
             )
         self.assertEqual(status, 200, body.decode())
         self.assertIs(redraw.call_args.kwargs["mock"], True)
