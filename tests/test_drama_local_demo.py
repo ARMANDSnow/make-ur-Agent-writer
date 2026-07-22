@@ -12,6 +12,7 @@ from src import (
     drama_local_demo,
     drama_reviewer,
     drama_store,
+    drama_smoke,
     storyboard_builder,
 )
 from src.drama_schemas import character_paths, episode_paths
@@ -168,6 +169,33 @@ class DramaLocalDemoTests(DramaTestBase):
                 "只能写入 localdemo_",
             ):
                 drama_local_demo.run_synthetic_local_demo(name)
+
+    def test_embedded_smoke_does_not_mutate_process_model_environment(self) -> None:
+        name = "local-demo-env"
+        self._approved_workspace(name)
+        completed = {
+            "drama-plan",
+            "drama-hooks",
+            "drama-storyboard",
+            "drama-characters",
+            "drama-review-assemble",
+        }
+        with patch.dict(
+            "os.environ",
+            {"OPENAI_MODEL": "sentinel/model", "DRAMA_MODEL": "mock"},
+            clear=False,
+        ):
+            drama_smoke.run_smoke(
+                name,
+                real_text=False,
+                create_workspace=False,
+                completed_steps=completed,
+                pin_mock_environment=False,
+            )
+            import os
+
+            self.assertEqual(os.environ["OPENAI_MODEL"], "sentinel/model")
+            self.assertEqual(os.environ["DRAMA_MODEL"], "mock")
 
     def tearDown(self) -> None:
         jobs.reset_for_tests()

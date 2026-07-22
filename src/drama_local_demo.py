@@ -53,6 +53,21 @@ class DramaLocalDemoError(ValueError):
         self.code = code
 
 
+def _scaled_progress(
+    callback: Callable[[str, float], None],
+    *,
+    start: float,
+    span: float,
+) -> Callable[[str, float], None]:
+    def emit(step: str, fraction: float) -> None:
+        callback(step, start + span * max(0.0, min(1.0, float(fraction))))
+
+    check = getattr(callback, "check_cancelled", None)
+    if callable(check):
+        emit.check_cancelled = check  # type: ignore[attr-defined]
+    return emit
+
+
 def _png(rgba: bytes) -> bytes:
     if len(rgba) != 4:
         raise ValueError("RGBA fixture must contain four bytes")
@@ -214,6 +229,8 @@ def run_synthetic_local_demo(
     *,
     episode_no: int = 1,
     progress_cb: Callable[[str, float], None] = lambda _step, _fraction: None,
+    progress_start: float = 0.0,
+    progress_span: float = 1.0,
 ) -> dict[str, Any]:
     """Materialize A-F inside one dedicated ``localdemo_*`` workspace."""
 
@@ -225,13 +242,18 @@ def run_synthetic_local_demo(
         )
     _require_mock_profile()
     _require_approved_episode(workspace, number)
+    emit = _scaled_progress(
+        progress_cb,
+        start=progress_start,
+        span=progress_span,
+    )
     root = paths.workspace_root(workspace)
     # Fail before creating any durable A-E state when FFmpeg is unavailable.
     _fixture_mp4(root, duration_seconds=0.2, ordinal=0)
-    progress_cb("local-demo-character-references", 0.04)
+    emit("local-demo-character-references", 0.04)
     _ensure_character_references(workspace, number)
 
-    progress_cb("local-demo-render-plan", 0.10)
+    emit("local-demo-render-plan", 0.10)
     drama_art_direction_store.create_art_direction_catalog(
         workspace,
         art_direction_id="season_default",
@@ -247,7 +269,7 @@ def run_synthetic_local_demo(
     )
     render_plan = drama_render_store.create_render_plan(workspace, episode_no=number)
 
-    progress_cb("local-demo-assets", 0.20)
+    emit("local-demo-assets", 0.20)
     drama_asset_versions.create_character_asset_catalog(workspace, season_no=1)
     drama_asset_versions.create_episode_asset_manifest(workspace, episode_no=number)
     scene_record = _write_artifact(
@@ -281,7 +303,7 @@ def run_synthetic_local_demo(
         shot_asset_ids={shot.shot_id: [] for shot in render_plan.shots},
     )
 
-    progress_cb("local-demo-shot-images", 0.34)
+    emit("local-demo-shot-images", 0.34)
     character_id = render_plan.frozen_character_ids[0]
     image_plan = drama_shot_image_store.create_episode_shot_image_plan(
         workspace,
@@ -322,7 +344,7 @@ def run_synthetic_local_demo(
             expected_manifest_fingerprint=image_manifest.manifest_fingerprint,
         )
 
-    progress_cb("local-demo-shot-videos", 0.50)
+    emit("local-demo-shot-videos", 0.50)
     video_plan = drama_shot_video_store.create_episode_shot_video_plan(
         workspace, episode_no=number
     )
@@ -374,7 +396,7 @@ def run_synthetic_local_demo(
     if not continuity.ready_for_compose:
         raise DramaLocalDemoError("video_continuity_blocked", "本地镜头视频连续性门禁未通过")
 
-    progress_cb("local-demo-audio", 0.65)
+    emit("local-demo-audio", 0.65)
     character_profile = drama_audio.build_voice_profile(
         scope="character",
         character_id=character_id,
@@ -448,9 +470,15 @@ def run_synthetic_local_demo(
         bgm_policy="disabled",
     )
 
-    progress_cb("local-demo-compose", 0.78)
+    emit("local-demo-compose", 0.78)
     result = drama_compose_web.run_workspace_compose_job(
-        workspace, episode_no=number, progress_cb=progress_cb
+        workspace,
+        episode_no=number,
+        progress_cb=_scaled_progress(
+            progress_cb,
+            start=progress_start + progress_span * 0.78,
+            span=progress_span * 0.22,
+        ),
     )
     return {
         **result,
@@ -490,8 +518,24 @@ def run_isolated_synthetic_local_demo(
     if requested_duration not in {30, 60, 90, 120}:
         requested_duration = 60
 
-    progress_cb("local-demo-isolated-creative", 0.02)
+    progress_cb("local-demo-isolated-creative", 0.01)
     from . import drama_smoke
+
+    creative_steps = {
+        "drama-plan": 0.02,
+        "drama-hooks": 0.05,
+        "drama-storyboard": 0.08,
+        "drama-characters": 0.11,
+        "drama-review-assemble": 0.14,
+    }
+
+    def creative_start(step: str) -> None:
+        progress_cb("local-demo-creative-" + step, creative_steps[step])
+
+    def creative_complete(step: str, _result: dict[str, Any]) -> None:
+        progress_cb("local-demo-creative-" + step, creative_steps[step] + 0.025)
+
+    cancel_check = getattr(progress_cb, "check_cancelled", None)
 
     drama_smoke.run_smoke(
         demo_workspace,
@@ -503,11 +547,17 @@ def run_isolated_synthetic_local_demo(
         reset_jobs=False,
         create_workspace=True,
         episode_duration_seconds=int(requested_duration),
+        pin_mock_environment=False,
+        cancel_check=cancel_check if callable(cancel_check) else None,
+        on_step_start=creative_start,
+        on_step_complete=creative_complete,
     )
     result = run_synthetic_local_demo(
         demo_workspace,
         episode_no=1,
         progress_cb=progress_cb,
+        progress_start=0.20,
+        progress_span=0.80,
     )
     return {
         **result,

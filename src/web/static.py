@@ -1467,6 +1467,7 @@ html { scroll-behavior: smooth; }
   .shot-image-compare { grid-template-columns: 1fr; }
   .form-actions { flex-wrap: wrap; justify-content: stretch; }
   .form-actions .btn { flex: 1 1 140px; }
+  .btn { min-height: 44px; }
   .btn-sm { min-height: 44px; }
 }
 """
@@ -5893,6 +5894,7 @@ JS_DASHBOARD = """\
           pane.__storyboard = data.storyboard;
           pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
           bindStationStoryboardActions();
+          clearDramaDirty(pane.querySelector("#station-storyboard-form"));
           updateStoryboardDuration(pane);
           showToast("本镜已重生", "info");
           await loadStationCharacters();
@@ -7514,25 +7516,25 @@ JS_DASHBOARD = """\
     return demoCard + '<div class="card"><div class="card-body">' +
       '<div class="section-title"><div><p class="eyebrow ornament">Episode ' +
       Number(data.episode_no || 1) + '</p><h2>生产状态</h2></div>' + productionBadge(data.state) + '</div>' +
-      '<p class="hint">同源 fingerprint <code>' +
-      escapeHtml((data.source_projection_fingerprint || "").slice(0, 24)) + '</code></p>' +
       '<div class="production-summary-grid">' +
-      '<div><p class="hint">RenderPlan</p>' + productionBadge(render.state) +
-      '<p>' + Number(render.shot_count || 0) + ' 镜 · ' + Number(render.spoken_segment_count || 0) + ' spoken segments</p></div>' +
-      '<div><p class="hint">来源事件 · ' + escapeHtml(render.source_event_binding_state || "unbound") +
-      '</p><p>原著 ' + Number(sourceCounts.source_derived || 0) +
+      '<div><p class="hint">镜头制作计划</p>' + productionBadge(render.state) +
+      '<p>' + Number(render.shot_count || 0) + ' 镜 · ' + Number(render.spoken_segment_count || 0) + ' 段口播</p></div>' +
+      '<div><p class="hint">故事来源</p><p>原著 ' + Number(sourceCounts.source_derived || 0) +
       ' · 发明 ' + Number(sourceCounts.invented || 0) + ' · 混合 ' + Number(sourceCounts.mixed || 0) + '</p></div>' +
-      '<div><p class="hint">Selected assets</p>' + productionBadge(assets.state) +
-      '<p>' + Number(assets.selected_count || 0) + ' 项 · blockers ' + Number(assets.blocker_count || 0) + '</p></div>' +
+      '<div><p class="hint">已选素材</p>' + productionBadge(assets.state) +
+      '<p>' + Number(assets.selected_count || 0) + ' 项 · 待处理 ' + Number(assets.blocker_count || 0) + '</p></div>' +
       '<div><p class="hint">逐镜媒体</p><p>图片 ' + productionBadge(data.image_state) +
-      ' · 视频 ' + productionBadge(data.video_state) + '</p><p>attempts ' +
-      productionBadge(attempts.state) + ' · unknown ' + Number(attempts.unknown_count || 0) +
-      ' · submitted ' + Number(attempts.submitted_count || 0) + '</p></div>' +
-      '<div><p class="hint">任务 DAG</p>' + productionBadge(tasks.state) +
-      '<p>' + Number(tasks.task_count || 0) + ' 项 · unknown ' + Number(tasks.unknown_count || 0) + '</p></div>' +
+      ' · 视频 ' + productionBadge(data.video_state) + '</p><p>生成记录 ' +
+      productionBadge(attempts.state) + ' · 结果未知 ' + Number(attempts.unknown_count || 0) +
+      ' · 已提交 ' + Number(attempts.submitted_count || 0) + '</p></div>' +
+      '<div><p class="hint">任务编排</p>' + productionBadge(tasks.state) +
+      '<p>' + Number(tasks.task_count || 0) + ' 项 · 结果未知 ' + Number(tasks.unknown_count || 0) + '</p></div>' +
       '<div><p class="hint">时间线 / QA</p>' + productionBadge(timeline.state) +
       '<p>' + Number(timeline.shot_count || 0) + ' 镜 · ' + Number(timeline.subtitle_count || 0) + ' 字幕</p></div>' +
-      '</div></div></div>';
+      '</div><details><summary>诊断详情</summary><p class="hint">同源 fingerprint <code>' +
+      escapeHtml((data.source_projection_fingerprint || "").slice(0, 24)) +
+      '</code> · 来源绑定 ' + escapeHtml(render.source_event_binding_state || "unbound") +
+      '</p></details></div></div>';
   }
 
   function renderProductionList(data) {
@@ -7540,14 +7542,14 @@ JS_DASHBOARD = """\
     const assets = data.assets || {};
     const timeline = data.timeline || {};
     const assetList = (assets.items || []).length
-      ? '<div class="card"><div class="card-body"><h3>Selected versions</h3><div class="cluster">' +
+      ? '<div class="card"><div class="card-body"><h3>已选版本</h3><div class="cluster">' +
         assets.items.map(function (item) {
           return '<span class="badge no-dot">' + escapeHtml(item.kind) + ' · ' +
             escapeHtml(item.asset_id) + ' / ' + escapeHtml(item.selected_version_id) + '</span>';
         }).join("") + '</div>' +
         (Number(assets.omitted_count || 0) ? '<p class="hint">另有 ' + Number(assets.omitted_count) + ' 项未投影。</p>' : '') +
         '</div></div>'
-      : '<div class="empty-state"><p>尚无 selected asset。</p></div>';
+      : '<div class="empty-state"><p>尚无已选素材。</p></div>';
     const shotList = shots.length
       ? '<div class="production-shot-list">' + shots.map(function (shot) {
           return '<article class="production-shot-row" data-shot-id="' + escapeHtml(shot.shot_id) + '">' +
@@ -7555,11 +7557,11 @@ JS_DASHBOARD = """\
             escapeHtml(shot.shot_id) + '</code>' + (shot.is_highlight ? '<p><span class="badge">高光</span></p>' : '') + '</div>' +
             '<div class="cluster"><span>首/尾帧 ' + productionBadge(shot.image_state) + '</span>' +
             '<span>视频 ' + productionBadge(shot.video_state) + '</span>' +
-            (shot.latest_attempt_outcome ? '<span>attempt ' + productionBadge(shot.latest_attempt_outcome) + '</span>' : '') + '</div>' +
+            (shot.latest_attempt_outcome ? '<span>生成记录 ' + productionBadge(shot.latest_attempt_outcome) + '</span>' : '') + '</div>' +
             '<div class="hint">' + (shot.target_duration_seconds == null ? '—' : Number(shot.target_duration_seconds) + ' 秒') +
             ' · 图片候选 ' + Number(shot.image_candidate_count || 0) +
             ' · 视频候选 ' + Number(shot.video_candidate_count || 0) +
-            ' · spoken ' + Number(shot.spoken_segment_count || 0) + '</div></article>';
+            ' · 口播 ' + Number(shot.spoken_segment_count || 0) + '</div></article>';
         }).join("") + '</div>'
       : '<div class="empty-state"><h3>尚无稳定镜头 ID</h3><p>先完成组装与 RenderPlan；工作台不会从文本或文件名猜镜头。</p></div>';
     const qa = timeline.qa

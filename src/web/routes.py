@@ -2498,7 +2498,12 @@ _DRAMA_STEP_TASKS = {
     "drama-characters": "drama_character",
     "drama-review-assemble": "drama_review",
 }
-_DRAMA_JOB_STEPS = frozenset((*_DRAMA_STEP_TASKS, "drama-compose"))
+_DRAMA_JOB_STEPS = frozenset((
+    *_DRAMA_STEP_TASKS,
+    "drama-compose",
+    "drama-video",
+    "drama-local-demo",
+))
 
 
 def _validated_drama_compose_params(

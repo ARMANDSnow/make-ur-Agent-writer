@@ -118,10 +118,21 @@ def _wizard_module():
     return wizard
 
 
-def _wait_job(job_id: str, timeout_seconds: float) -> Dict[str, Any]:
+def _wait_job(
+    job_id: str,
+    timeout_seconds: float,
+    *,
+    cancel_check: Callable[[], None] | None = None,
+) -> Dict[str, Any]:
     jobs = _jobs_module()
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        if cancel_check is not None:
+            try:
+                cancel_check()
+            except Exception:
+                jobs.request_cancel(job_id, "parent smoke job cancelled")
+                raise
         record = jobs.get_job(job_id)
         if record and record.get("status") in jobs.TERMINAL_STATUSES:
             return record
@@ -140,6 +151,7 @@ def _run_step(
     budget_cny: float = 0.0,
     confirm_text_retry: bool = False,
     confirm_upstream_status_and_billing_checked: bool = False,
+    cancel_check: Callable[[], None] | None = None,
 ) -> Dict[str, Any]:
     jobs = _jobs_module()
     params: Dict[str, Any] = {"episode_no": episode_no}
@@ -156,7 +168,11 @@ def _run_step(
     started_at = time.monotonic()
     started = jobs.start_job(workspace, step, params)
     try:
-        terminal = _wait_job(started["job_id"], timeout_seconds)
+        terminal = _wait_job(
+            started["job_id"],
+            timeout_seconds,
+            cancel_check=cancel_check,
+        )
     except TimeoutError as exc:
         raise DramaSmokeTimeout("text") from exc
     if terminal.get("status") != "succeeded":
@@ -211,14 +227,17 @@ def run_smoke(
     confirm_text_retry: bool = False,
     confirm_upstream_status_and_billing_checked: bool = False,
     episode_duration_seconds: int = 60,
+    pin_mock_environment: bool = True,
+    cancel_check: Callable[[], None] | None = None,
 ) -> Dict[str, Any]:
     if not math.isfinite(budget_cny) or budget_cny < 0:
         raise SystemExit("budget-cny must be finite and non-negative")
     if not real_text:
-        # Explicit process-local pin: a real-model .env can never leak into the
-        # default or image-only smoke's five text stations.
-        os.environ["OPENAI_MODEL"] = "mock"
-        os.environ["DRAMA_MODEL"] = "mock"
+        if pin_mock_environment:
+            # Explicit process-local pin: a real-model .env can never leak into
+            # the default or image-only smoke's five text stations.
+            os.environ["OPENAI_MODEL"] = "mock"
+            os.environ["DRAMA_MODEL"] = "mock"
     elif os.getenv("CONFIRM_REAL_MODEL_SMOKE") != "可以跑了":
         raise SystemExit("refusing real drama text smoke without explicit confirmation")
     elif not math.isfinite(budget_cny) or budget_cny <= 0:
@@ -264,6 +283,7 @@ def run_smoke(
             workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget,
             confirm_text_retry=confirm_text_retry,
             confirm_upstream_status_and_billing_checked=confirm_upstream_status_and_billing_checked,
+            cancel_check=cancel_check,
         ))
         actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
         steps[-1]["actual_cost_cny"] = round(actual, 6)
@@ -305,6 +325,7 @@ def run_smoke(
             workspace, step, 1, remaining_seconds, real_text=real_text, budget_cny=remaining_budget,
             confirm_text_retry=confirm_text_retry,
             confirm_upstream_status_and_billing_checked=confirm_upstream_status_and_billing_checked,
+            cancel_check=cancel_check,
         ))
         actual = max(0.0, float(collect_drama_insights(workspace)["llm_cost"]["cost_cny"] or 0) - baseline_cost)
         steps[-1]["actual_cost_cny"] = round(actual, 6)

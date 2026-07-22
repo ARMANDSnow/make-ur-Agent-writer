@@ -63,27 +63,37 @@ class DramaSopBugfixTests(DramaTestBase):
 
     def test_generic_run_cannot_start_a_drama_job(self) -> None:
         self._make_drama_workspace("guarded-run")
-        body = json.dumps({
-            "step": "drama-plan",
-            "params": {
-                "episode_no": 1,
-                "confirm_real_text": True,
-                "budget_cny": 10,
-                "timeout_minutes": 10,
-            },
-        }).encode()
         with patch("src.web.routes.jobs.start_job") as start_job:
-            status, _ct, response = routes.dispatch(
-                "POST",
-                "/api/workspace/guarded-run/run",
-                body,
-                {
-                    "content-type": "text/plain",
-                    "sec-fetch-site": "cross-site",
-                    "origin": "https://evil.example",
-                },
-            )
-        self.assertEqual(status, 400, response.decode())
+            for step in (
+                "drama-plan",
+                "drama-hooks",
+                "drama-storyboard",
+                "drama-characters",
+                "drama-review-assemble",
+                "drama-compose",
+                "drama-video",
+                "drama-local-demo",
+            ):
+                body = json.dumps({
+                    "step": step,
+                    "params": {
+                        "episode_no": 1,
+                        "confirm_real_text": True,
+                        "budget_cny": 10,
+                        "timeout_minutes": 10,
+                    },
+                }).encode()
+                status, _ct, response = routes.dispatch(
+                    "POST",
+                    "/api/workspace/guarded-run/run",
+                    body,
+                    {
+                        "content-type": "text/plain",
+                        "sec-fetch-site": "cross-site",
+                        "origin": "https://evil.example",
+                    },
+                )
+                self.assertEqual(status, 400, (step, response.decode()))
         start_job.assert_not_called()
 
     def test_character_reference_rejects_symlinked_character_directory(self) -> None:
