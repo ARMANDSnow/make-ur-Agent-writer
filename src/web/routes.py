@@ -1878,13 +1878,20 @@ def api_drama_production_local_demo(
         episode_no = _parse_episode_no(payload.get("episode_no", 1))
     except (TypeError, ValueError):
         return _json(400, {"error": "episode_no must be an integer between 1 and 100"})
-    from ..drama_local_demo import inspect_synthetic_local_demo
+    from ..drama_local_demo import (
+        allocate_synthetic_demo_workspace,
+        inspect_synthetic_local_demo,
+    )
 
     readiness = inspect_synthetic_local_demo(name, episode_no=episode_no)
     if readiness.get("can_start") is not True:
         return _json(409, {"error": readiness.get("reason") or "local demo is unavailable"})
+    demo_workspace = allocate_synthetic_demo_workspace(name, episode_no=episode_no)
     try:
-        job = jobs.start_job(name, "drama-local-demo", {"episode_no": episode_no})
+        job = jobs.start_job(name, "drama-local-demo", {
+            "episode_no": episode_no,
+            "demo_workspace": demo_workspace,
+        })
     except ValueError as exc:
         return _json(400, errors.exception_body(exc))
     except RuntimeError as exc:
@@ -1899,6 +1906,8 @@ def api_drama_production_local_demo(
         "job_id": job["job_id"],
         "status": job["status"],
         "step": "drama-local-demo",
+        "demo_workspace": demo_workspace,
+        "demo_episode_no": 1,
     })
 
 
@@ -4612,6 +4621,11 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
         return _json(400, {"error": "'params' must be an object"})
     workspace_type = _meta_read(name).get("type")
     is_drama_step = step in _DRAMA_JOB_STEPS
+    if is_drama_step:
+        return _json(400, {
+            "error": "use the dedicated drama endpoint",
+            "hint": "短剧任务必须从对应创作站或生产页发起",
+        })
     if workspace_type == "drama" and not is_drama_step:
         return _json(400, {
             "error": "drama workspace only accepts drama job steps",

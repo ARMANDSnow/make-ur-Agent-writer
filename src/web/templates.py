@@ -523,7 +523,7 @@ def render_workspace_production(name: str, workspaces: Iterable[str]) -> str:
         '<section class="section">'
         '<div class="callout info">'
         '<strong>只读同源投影</strong>'
-        '<span>列表与画布本身只读取服务端 fingerprint，不会提交 provider、修改选择或把节点颜色写回任务状态；只有下方明确标注的“本地 A-F 演练”会启动独立的零供应商媒体任务。</span>'
+        '<span>列表与画布本身只读取服务端 fingerprint，不会提交 provider、修改选择或把节点颜色写回任务状态；“本地 A-F 演练”会新建隔离验收项目，不改写当前项目。</span>'
         '</div>'
         '<div class="tabs production-view-tabs" role="tablist" aria-label="生产工作台视图">'
         '<button class="tab active" type="button" role="tab" id="production-tab-list" '

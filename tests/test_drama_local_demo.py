@@ -1,4 +1,4 @@
-"""Single-workspace A-F local production demonstration regressions."""
+"""Isolated-workspace A-F local acceptance demonstration regressions."""
 
 from __future__ import annotations
 
@@ -48,8 +48,8 @@ class DramaLocalDemoTests(DramaTestBase):
         )
         drama_store.assemble_episode(name)
 
-    def test_one_workspace_runs_a_through_f_and_commits_exact_deliverables(self) -> None:
-        name = "local-demo-full"
+    def test_isolated_workspace_runs_a_through_f_with_exact_duration_and_deliverables(self) -> None:
+        name = "localdemo_f00d_00000001"
         self._approved_workspace(name)
 
         with patch.dict("os.environ", {"OPENAI_MODEL": "mock"}, clear=False):
@@ -61,6 +61,8 @@ class DramaLocalDemoTests(DramaTestBase):
         self.assertGreaterEqual(result["shot_count"], 6)
         overview = drama_compose_web.build_compose_web_overview(name)
         self.assertEqual(overview["state"], "complete")
+        self.assertAlmostEqual(overview["duration_ms"] / 1000, 30.0, delta=0.25)
+        self.assertAlmostEqual(overview["qa"]["duration_ms"] / 1000, 30.0, delta=0.25)
         self.assertEqual(len(overview["deliverables"]), 4)
         for row in overview["deliverables"]:
             status, _content_type, body = routes.dispatch("GET", row["url"])[:3]
@@ -111,13 +113,61 @@ class DramaLocalDemoTests(DramaTestBase):
     def test_background_job_runs_without_nesting_workspace_lock(self) -> None:
         name = "local-demo-job"
         self._approved_workspace(name)
+        before_characters = character_paths(name).sheet_path.read_bytes()
+        demo_name = drama_local_demo.allocate_synthetic_demo_workspace(
+            name, episode_no=1
+        )
         with patch.dict("os.environ", {"OPENAI_MODEL": "mock"}, clear=False):
-            job = jobs.start_job(name, "drama-local-demo", {"episode_no": 1})
+            job = jobs.start_job(name, "drama-local-demo", {
+                "episode_no": 1,
+                "demo_workspace": demo_name,
+            })
             terminal = self._wait_for_job(job["job_id"])
         self.assertEqual(terminal["status"], "succeeded", terminal)
         self.assertEqual(
             terminal["result_summary"]["acceptance_level"], "local-e2e"
         )
+        self.assertEqual(character_paths(name).sheet_path.read_bytes(), before_characters)
+        self.assertFalse(
+            drama_local_demo.drama_render_store.render_plan_path(name).exists()
+        )
+        overview = drama_compose_web.build_compose_web_overview(demo_name)
+        self.assertEqual(overview["state"], "complete")
+
+    def test_user_facing_route_returns_isolated_target(self) -> None:
+        name = "local-demo-isolated-route"
+        self._approved_workspace(name)
+        before_characters = character_paths(name).sheet_path.read_bytes()
+        headers = {
+            "content-type": "application/json",
+            "x-drama-mutation-intent": "mutate-v1",
+        }
+        with patch.dict("os.environ", {"OPENAI_MODEL": "mock"}, clear=False):
+            status, _ct, body = routes.dispatch(
+                "POST",
+                f"/api/workspace/{name}/drama/production/local-demo",
+                json.dumps({
+                    "episode_no": 1,
+                    "confirm_synthetic_local": True,
+                }).encode(),
+                headers,
+            )
+            payload = json.loads(body)
+            terminal = self._wait_for_job(payload["job_id"])
+        self.assertEqual(status, 202, payload)
+        self.assertRegex(payload["demo_workspace"], r"^localdemo_[a-f0-9_]+$")
+        self.assertEqual(terminal["status"], "succeeded", terminal)
+        self.assertEqual(character_paths(name).sheet_path.read_bytes(), before_characters)
+
+    def test_direct_demo_rejects_a_normal_user_workspace(self) -> None:
+        name = "local-demo-normal-source"
+        self._approved_workspace(name)
+        with patch.dict("os.environ", {"OPENAI_MODEL": "mock"}, clear=False):
+            with self.assertRaisesRegex(
+                drama_local_demo.DramaLocalDemoError,
+                "只能写入 localdemo_",
+            ):
+                drama_local_demo.run_synthetic_local_demo(name)
 
     def tearDown(self) -> None:
         jobs.reset_for_tests()

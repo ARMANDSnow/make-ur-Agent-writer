@@ -89,7 +89,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 length = 0
             decoded_path = unquote(urlsplit(path).path)
             if (
-                method == "POST"
+                method in {"POST", "PUT"}
                 and _DRAMA_MUTATION_PATH_RE.fullmatch(decoded_path)
                 and length > _DRAMA_MUTATION_BODY_LIMIT
             ):

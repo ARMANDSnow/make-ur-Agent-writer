@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from src import character_designer, drama_reviewer, paths, storyboard_builder
 from src.drama_schemas import character_paths, episode_paths
@@ -59,6 +60,31 @@ class DramaSopBugfixTests(DramaTestBase):
             },
         )
         self.assertEqual(status, 404, body.decode())
+
+    def test_generic_run_cannot_start_a_drama_job(self) -> None:
+        self._make_drama_workspace("guarded-run")
+        body = json.dumps({
+            "step": "drama-plan",
+            "params": {
+                "episode_no": 1,
+                "confirm_real_text": True,
+                "budget_cny": 10,
+                "timeout_minutes": 10,
+            },
+        }).encode()
+        with patch("src.web.routes.jobs.start_job") as start_job:
+            status, _ct, response = routes.dispatch(
+                "POST",
+                "/api/workspace/guarded-run/run",
+                body,
+                {
+                    "content-type": "text/plain",
+                    "sec-fetch-site": "cross-site",
+                    "origin": "https://evil.example",
+                },
+            )
+        self.assertEqual(status, 400, response.decode())
+        start_job.assert_not_called()
 
     def test_character_reference_rejects_symlinked_character_directory(self) -> None:
         self._make_drama_workspace("refs")
@@ -136,9 +162,13 @@ class DramaSopBugfixTests(DramaTestBase):
         self.assertIn("requestRealTextAuthorization", source)
         self.assertNotIn("window.prompt", source)
         self.assertIn("开始本地 A-F 演练", source)
+        self.assertIn("markDramaDirty(pane)", source)
+        self.assertIn("const targetEpisode = episodeNo()", source)
+        self.assertIn('aria-label="镜头 \' + num + \' 景别"', source)
+        self.assertIn("width: 44px; min-height: 44px", source)
         template_source = Path("src/web/templates.py").read_text(encoding="utf-8")
         self.assertIn("本地 A-F 演练", template_source)
-        self.assertIn("零供应商媒体任务", template_source)
+        self.assertIn("新建隔离验收项目", template_source)
         self.assertNotIn("此页不会生成媒体", template_source)
 
     def test_workspace_overview_does_not_claim_ready_before_review_assembly(self) -> None:

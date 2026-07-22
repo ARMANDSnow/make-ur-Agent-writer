@@ -275,8 +275,8 @@ class DramaJobTests(DramaTestBase):
             "POST", "/api/workspace/drama_run/run",
             json.dumps({"step": "drama-plan", "params": {"episode_no": 1}}).encode(),
         )
-        self.assertEqual(status, 202, body.decode())
-        self._wait(json.loads(body)["job_id"])
+        self.assertEqual(status, 400, body.decode())
+        self.assertIn(b"dedicated drama endpoint", body)
         status, _ct, _body = routes.dispatch(
             "POST", "/api/workspace/drama_run/run",
             json.dumps({"step": "drama-plan", "params": {"episode_no": 1, "extra": 1}}).encode(),

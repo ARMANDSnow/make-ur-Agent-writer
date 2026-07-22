@@ -171,14 +171,19 @@ def _run_step(
     }
 
 
-def _create_workspace(workspace: str, track: str) -> None:
+def _create_workspace(
+    workspace: str,
+    track: str,
+    *,
+    episode_duration_seconds: int = 60,
+) -> None:
     wizard = _wizard_module()
     payload = {
         "workspace": workspace,
         "topic": "原创都市悬疑：失忆调香师发现每瓶香水都封存一段未来记忆",
         "track": track,
         "episode_count": 2,
-        "episode_duration_seconds": 60,
+        "episode_duration_seconds": episode_duration_seconds,
         "budget_cny": 0,
         "timeout_minutes": 10,
     }
@@ -205,6 +210,7 @@ def run_smoke(
     create_workspace: bool = True,
     confirm_text_retry: bool = False,
     confirm_upstream_status_and_billing_checked: bool = False,
+    episode_duration_seconds: int = 60,
 ) -> Dict[str, Any]:
     if not math.isfinite(budget_cny) or budget_cny < 0:
         raise SystemExit("budget-cny must be finite and non-negative")
@@ -230,7 +236,11 @@ def run_smoke(
         )
 
     if create_workspace:
-        _create_workspace(workspace, track)
+        _create_workspace(
+            workspace,
+            track,
+            episode_duration_seconds=episode_duration_seconds,
+        )
     if reset_jobs:
         jobs = _jobs_module()
         jobs.reset_for_tests()

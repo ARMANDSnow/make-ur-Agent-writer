@@ -2497,14 +2497,21 @@ def _step_drama_local_demo(
     progress_cb: Callable[[str, float], None],
 ) -> Any:
     """Run the explicitly synthetic, zero-provider A-F local demonstration."""
-    from ..drama_local_demo import DramaLocalDemoError, run_synthetic_local_demo
+    from ..drama_local_demo import (
+        DramaLocalDemoError,
+        run_isolated_synthetic_local_demo,
+    )
 
     episode_no = _drama_episode_no(params)
+    demo_workspace = params.get("demo_workspace")
+    if not isinstance(demo_workspace, str):
+        return _blocked("local_demo_target_missing", "isolated demo workspace is missing")
     try:
-        # Each A-F store owns its own short lock.  Wrapping the whole chain in
-        # another workspace lock would deadlock/reject those audited seams.
-        return run_synthetic_local_demo(
-            paths.workspace_name(), episode_no=episode_no, progress_cb=progress_cb
+        return run_isolated_synthetic_local_demo(
+            paths.workspace_name(),
+            demo_workspace=demo_workspace,
+            source_episode_no=episode_no,
+            progress_cb=progress_cb,
         )
     except DramaLocalDemoError as exc:
         return _blocked(exc.code, str(exc))

@@ -1,14 +1,18 @@
-"""One-workspace, zero-provider A-F short-drama production demonstration.
+"""Isolated-workspace, zero-provider A-F short-drama acceptance demonstration.
 
 This is deliberately a local acceptance profile, not a production media
-generator.  It may run only while the text model is ``mock`` and labels every
-artifact as synthetic.  The normal production inspectors and compose gates
-still validate all durable stores, fingerprints and media bytes.
+generator.  User-facing runs always create a ``localdemo_*`` workspace so
+synthetic artifacts can never contaminate the source project's production
+state.  Normal inspectors and compose gates still validate the isolated
+workspace's durable stores, fingerprints and media bytes.
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
+import re
+import secrets
 import zlib
 from pathlib import Path
 from typing import Any, Callable
@@ -79,13 +83,21 @@ def _write_artifact(root: Path, relative: str, data: bytes) -> dict[str, Any]:
     }
 
 
-def _fixture_mp4(root: Path) -> bytes:
-    relative = "outputs/drama/local_demo/fixture.mp4"
+def _fixture_mp4(root: Path, *, duration_seconds: float, ordinal: int) -> bytes:
+    if (
+        isinstance(duration_seconds, bool)
+        or not isinstance(duration_seconds, (int, float))
+        or not math.isfinite(float(duration_seconds))
+        or not 0.2 <= float(duration_seconds) <= 120.0
+    ):
+        raise DramaLocalDemoError("fixture_duration_invalid", "本地样片时长无效")
+    relative = f"outputs/drama/local_demo/fixture_{ordinal:03d}.mp4"
     drama_compositor._ensure_safe_parent(root, relative)
     completed = _run_bounded_process(
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-f", "lavfi", "-i", "color=c=#26344d:s=540x960:r=25:d=1",
+            "-f", "lavfi", "-i",
+            f"color=c=#26344d:s=540x960:r=5:d={float(duration_seconds):.3f}",
             "-an", "-c:v", "libx264", "-threads", "1", "-pix_fmt", "yuv420p",
             "-movflags", "+faststart", relative,
         ],
@@ -144,32 +156,24 @@ def inspect_synthetic_local_demo(workspace: str, *, episode_no: int = 1) -> dict
             "label": "完成创作后继续制作",
             "reason": str(exc),
         }
-    try:
-        compose = drama_compose_web.build_compose_web_overview_readonly(
-            workspace, episode_no=number
-        )
-        if compose.get("state") == "complete":
-            return {
-                "state": "complete",
-                "can_start": False,
-                "label": "本地 A-F 演练已完成",
-                "reason": "可在合成交付页下载 MP4、字幕和剪辑工程",
-            }
-    except (OSError, RuntimeError, TypeError, ValueError):
-        pass
-    if drama_render_store.render_plan_path(workspace, episode_no=number).exists():
-        return {
-            "state": "partial",
-            "can_start": False,
-            "label": "本地演练已有中间产物",
-            "reason": "请在资产、镜头图片、镜头视频和合成交付页检查当前状态",
-        }
     return {
         "state": "ready",
         "can_start": True,
-        "label": "一键完成本地 A-F 演练",
-        "reason": "生成合成素材、静音配音占位与本地交付；不会调用任何供应商",
+        "label": "新建隔离项目完成 A-F 演练",
+        "reason": "当前项目保持不变；隔离项目只生成合成占位和本地交付，不调用供应商",
     }
+
+
+def allocate_synthetic_demo_workspace(source_workspace: str, *, episode_no: int) -> str:
+    """Allocate a bounded, visibly synthetic workspace name without writing it."""
+
+    number = normalize_episode_no(episode_no)
+    source_hash = hashlib.sha256(source_workspace.encode("utf-8")).hexdigest()[:8]
+    for _attempt in range(16):
+        candidate = f"localdemo_{source_hash}_{number}_{secrets.token_hex(4)}"
+        if not paths.workspace_root(candidate).exists():
+            return candidate
+    raise DramaLocalDemoError("local_demo_name_exhausted", "无法分配隔离验收项目名称")
 
 
 def _ensure_character_references(workspace: str, episode_no: int) -> CharacterSheet:
@@ -211,14 +215,19 @@ def run_synthetic_local_demo(
     episode_no: int = 1,
     progress_cb: Callable[[str, float], None] = lambda _step, _fraction: None,
 ) -> dict[str, Any]:
-    """Materialize A-F in one existing approved workspace and compose it."""
+    """Materialize A-F inside one dedicated ``localdemo_*`` workspace."""
 
     number = normalize_episode_no(episode_no)
+    if not re.fullmatch(r"localdemo_[a-f0-9_]+", workspace):
+        raise DramaLocalDemoError(
+            "local_demo_workspace_required",
+            "本地 A-F 演练只能写入 localdemo_ 隔离验收项目",
+        )
     _require_mock_profile()
     _require_approved_episode(workspace, number)
     root = paths.workspace_root(workspace)
     # Fail before creating any durable A-E state when FFmpeg is unavailable.
-    base_mp4 = _fixture_mp4(root)
+    _fixture_mp4(root, duration_seconds=0.2, ordinal=0)
     progress_cb("local-demo-character-references", 0.04)
     _ensure_character_references(workspace, number)
 
@@ -322,7 +331,17 @@ def run_synthetic_local_demo(
             workspace, episode_no=number
         )
     )
-    for index, spec in enumerate(video_plan.shot_specs):
+    fixture_by_duration: dict[float, bytes] = {}
+    for index, spec in enumerate(video_plan.shot_specs, start=1):
+        duration = round(float(spec.target_duration_seconds), 3)
+        base_mp4 = fixture_by_duration.get(duration)
+        if base_mp4 is None:
+            base_mp4 = _fixture_mp4(
+                root,
+                duration_seconds=duration,
+                ordinal=index,
+            )
+            fixture_by_duration[duration] = base_mp4
         variant = base_mp4 + (9).to_bytes(4, "big") + b"free" + bytes((index % 256,))
         video_manifest, candidate = (
             drama_shot_video_candidate_store.append_local_shot_video_candidate(
@@ -439,4 +458,60 @@ def run_synthetic_local_demo(
         "provider_validated": False,
         "shot_count": len(render_plan.shots),
         "timeline_fingerprint": timeline.timeline_fingerprint,
+    }
+
+
+def run_isolated_synthetic_local_demo(
+    source_workspace: str,
+    *,
+    demo_workspace: str,
+    source_episode_no: int = 1,
+    progress_cb: Callable[[str, float], None] = lambda _step, _fraction: None,
+) -> dict[str, Any]:
+    """Create a fresh mock creative baseline, then run A-F in isolation."""
+
+    source_number = normalize_episode_no(source_episode_no)
+    _require_mock_profile()
+    _require_approved_episode(source_workspace, source_number)
+    if not re.fullmatch(r"localdemo_[a-f0-9_]+", demo_workspace):
+        raise DramaLocalDemoError("local_demo_target_invalid", "隔离验收项目名称无效")
+    if paths.workspace_root(demo_workspace).exists():
+        raise DramaLocalDemoError("local_demo_target_exists", "隔离验收项目已存在")
+
+    wizard_input = read_json_optional(
+        paths.workspace_root(source_workspace) / "data" / "wizard_input.json",
+        {},
+    )
+    requested_duration = (
+        wizard_input.get("episode_duration_seconds")
+        if isinstance(wizard_input, dict)
+        else 60
+    )
+    if requested_duration not in {30, 60, 90, 120}:
+        requested_duration = 60
+
+    progress_cb("local-demo-isolated-creative", 0.02)
+    from . import drama_smoke
+
+    drama_smoke.run_smoke(
+        demo_workspace,
+        track="推理",
+        real_text=False,
+        real_image=False,
+        timeout_seconds=300,
+        budget_cny=0,
+        reset_jobs=False,
+        create_workspace=True,
+        episode_duration_seconds=int(requested_duration),
+    )
+    result = run_synthetic_local_demo(
+        demo_workspace,
+        episode_no=1,
+        progress_cb=progress_cb,
+    )
+    return {
+        **result,
+        "workspace": demo_workspace,
+        "source_episode_no": source_number,
+        "profile": "synthetic-local-a-f-isolated",
     }

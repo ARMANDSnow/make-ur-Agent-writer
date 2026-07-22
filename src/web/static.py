@@ -365,7 +365,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   border-color: var(--sienna);
 }
 .btn-icon {
-  width: 36px; padding: 0;
+  width: 44px; min-height: 44px; padding: 0;
   background: var(--bg-card);
   border-color: var(--rule);
   color: var(--ink-2);
@@ -1467,7 +1467,7 @@ html { scroll-behavior: smooth; }
   .shot-image-compare { grid-template-columns: 1fr; }
   .form-actions { flex-wrap: wrap; justify-content: stretch; }
   .form-actions .btn { flex: 1 1 140px; }
-  .btn-sm { min-height: 40px; }
+  .btn-sm { min-height: 44px; }
 }
 """
 
@@ -5273,21 +5273,36 @@ JS_DASHBOARD = """\
       const form = ev.target && ev.target.closest ? ev.target.closest(
         "#station-setup-form, #station-storyboard-form, [data-character-sheet-form]"
       ) : null;
-      if (form) form.dataset.dramaDirty = "1";
+      if (form) markDramaDirty(form);
     });
     window.addEventListener("beforeunload", function (ev) {
-      if (!document.querySelector('form[data-drama-dirty="1"]')) return;
+      if (!document.querySelector('[data-drama-dirty="1"]')) return;
       ev.preventDefault();
       ev.returnValue = "";
     });
   }
 
+  function markDramaDirty(node) {
+    if (!node) return;
+    const form = node.matches && node.matches("form") ? node :
+      (node.closest ? node.closest("form") : null);
+    const pane = node.closest ? node.closest('[data-station-pane="storyboard"]') : null;
+    if (form) form.dataset.dramaDirty = "1";
+    if (pane) pane.dataset.dramaDirty = "1";
+  }
+
   function clearDramaDirty(form) {
     if (form) delete form.dataset.dramaDirty;
+    const pane = form && form.closest ? form.closest('[data-station-pane="storyboard"]') : null;
+    if (pane) delete pane.dataset.dramaDirty;
   }
 
   function confirmDramaRegenerate(form, label) {
-    const dirty = form && form.dataset.dramaDirty === "1";
+    const pane = form && form.closest ? form.closest('[data-station-pane="storyboard"]') : null;
+    const dirty = Boolean(
+      (form && form.dataset.dramaDirty === "1") ||
+      (pane && pane.dataset.dramaDirty === "1")
+    );
     const message = dirty
       ? "当前有未保存修改。重新生成会丢弃这些修改并替换" + label + "，是否继续？"
       : "重新生成会替换当前" + label + "，是否继续？";
@@ -5669,17 +5684,17 @@ JS_DASHBOARD = """\
     const num = idx + 1;
     return '<tr data-shot-row="' + idx + '">' +
       '<td><strong>' + num + '</strong><input type="hidden" data-field="beat" value="' + escapeHtml(shot.beat || "") + '"></td>' +
-      '<td><select data-field="shot_size">' + storyboardOptions(["特写", "近景", "中景", "全景", "远景"], shot.shot_size) + '</select></td>' +
-      '<td><select data-field="camera_movement">' + storyboardOptions(["固定", "推", "拉", "摇", "移", "跟", "升降"], shot.camera_movement) + '</select></td>' +
-      '<td><input type="number" min="1" max="30" data-field="duration_seconds" value="' + Number(shot.duration_seconds || 1) + '"></td>' +
-      '<td><textarea rows="3" data-field="visual">' + escapeHtml(shot.visual || "") + '</textarea>' +
-      '<textarea rows="2" data-field="ai_draw_prompt" placeholder="AI 绘画 prompt">' + escapeHtml(shot.ai_draw_prompt || "") + '</textarea></td>' +
-      '<td><textarea rows="3" data-field="narration">' + escapeHtml(shot.narration || "") + '</textarea></td>' +
-      '<td><textarea rows="3" data-field="dialogue">' + escapeHtml(shot.dialogue || "") + '</textarea></td>' +
-      '<td><input type="radio" name="storyboard-highlight" data-field="is_highlight" ' + (shot.is_highlight ? "checked" : "") + '></td>' +
+      '<td><select data-field="shot_size" aria-label="镜头 ' + num + ' 景别">' + storyboardOptions(["特写", "近景", "中景", "全景", "远景"], shot.shot_size) + '</select></td>' +
+      '<td><select data-field="camera_movement" aria-label="镜头 ' + num + ' 运镜">' + storyboardOptions(["固定", "推", "拉", "摇", "移", "跟", "升降"], shot.camera_movement) + '</select></td>' +
+      '<td><input type="number" min="1" max="30" data-field="duration_seconds" aria-label="镜头 ' + num + ' 时长（秒）" value="' + Number(shot.duration_seconds || 1) + '"></td>' +
+      '<td><textarea rows="3" data-field="visual" aria-label="镜头 ' + num + ' 画面">' + escapeHtml(shot.visual || "") + '</textarea>' +
+      '<textarea rows="2" data-field="ai_draw_prompt" aria-label="镜头 ' + num + ' 绘画提示" placeholder="AI 绘画 prompt">' + escapeHtml(shot.ai_draw_prompt || "") + '</textarea></td>' +
+      '<td><textarea rows="3" data-field="narration" aria-label="镜头 ' + num + ' 旁白">' + escapeHtml(shot.narration || "") + '</textarea></td>' +
+      '<td><textarea rows="3" data-field="dialogue" aria-label="镜头 ' + num + ' 台词">' + escapeHtml(shot.dialogue || "") + '</textarea></td>' +
+      '<td><input type="radio" name="storyboard-highlight" data-field="is_highlight" aria-label="将镜头 ' + num + ' 设为高光" ' + (shot.is_highlight ? "checked" : "") + '></td>' +
       '<td><div class="storyboard-actions">' +
-      '<button type="button" class="btn btn-icon" title="上移" data-shot-move="up">↑</button>' +
-      '<button type="button" class="btn btn-icon" title="下移" data-shot-move="down">↓</button>' +
+      '<button type="button" class="btn btn-icon" title="上移" aria-label="上移镜头 ' + num + '" data-shot-move="up">↑</button>' +
+      '<button type="button" class="btn btn-icon" title="下移" aria-label="下移镜头 ' + num + '" data-shot-move="down">↓</button>' +
       '<button type="button" class="btn btn-secondary btn-sm" data-shot-rewrite="' + num + '">重生</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-shot-delete="' + idx + '"' + (allShots.length <= 6 ? ' disabled title="至少保留 6 个镜头"' : '') + '>删除</button>' +
       '</div></td></tr>';
@@ -5814,6 +5829,7 @@ JS_DASHBOARD = """\
         board.shots[idx] = board.shots[next];
         board.shots[next] = tmp;
         pane.__storyboard = board;
+        markDramaDirty(pane);
         pane.innerHTML = renderStationStoryboard(board, []);
         bindStationStoryboardActions();
         updateStoryboardDuration(pane);
@@ -5841,6 +5857,7 @@ JS_DASHBOARD = """\
           is_highlight: false,
         });
         pane.__storyboard = board;
+        markDramaDirty(pane);
         pane.innerHTML = renderStationStoryboard(board, []);
         bindStationStoryboardActions();
         updateStoryboardDuration(pane);
@@ -5858,6 +5875,7 @@ JS_DASHBOARD = """\
         board.shots.splice(idx, 1);
         board.shots.forEach(function (shot, shotIdx) { shot.shot_no = shotIdx + 1; });
         pane.__storyboard = board;
+        markDramaDirty(pane);
         pane.innerHTML = renderStationStoryboard(board, []);
         bindStationStoryboardActions();
         updateStoryboardDuration(pane);
@@ -5888,6 +5906,7 @@ JS_DASHBOARD = """\
     if (clearBtn) {
       clearBtn.addEventListener("click", function () {
         pane.querySelectorAll('[data-field="is_highlight"]').forEach(function (el) { el.checked = false; });
+        markDramaDirty(pane);
         updateStoryboardDuration(pane);
       });
     }
@@ -7593,24 +7612,28 @@ JS_DASHBOARD = """\
       const demoButton = document.getElementById("production-local-demo");
       if (demoButton) {
         demoButton.addEventListener("click", async function () {
+          const targetEpisode = episodeNo();
           if (!window.confirm(
-            "将生成严格标注的本地合成素材、静音配音占位和交付文件；不会调用供应商，也不代表真实成片质量。是否继续？"
+            "将新建一个名称以 localdemo_ 开头的隔离验收项目，并在其中生成色块镜头、静音配音占位和交付文件。当前项目不会被改写，也不会调用供应商；结果只验证工程流程，不代表真实成片质量。是否继续？"
           )) return;
           demoButton.disabled = true;
           try {
             const data = await postJson(
               wsUrl("/drama/production/local-demo"),
-              { episode_no: episodeNo(), confirm_synthetic_local: true }
+              { episode_no: targetEpisode, confirm_synthetic_local: true }
             );
+            const demoWorkspace = String(data.demo_workspace || "");
+            if (!/^localdemo_[a-f0-9_]+$/.test(demoWorkspace)) {
+              throw new Error("隔离验收项目创建失败");
+            }
             await pollJob(data.job_id, root, demoButton, async function (job) {
               if (job.status !== "succeeded") return;
               sessionStorage.setItem("__pending_toast", JSON.stringify({
-                msg: "本地 A-F 演练已完成，可下载交付文件",
+                msg: "隔离的本地 A-F 演练已完成，可下载交付文件",
                 kind: "success",
               }));
-              window.location.href = wsHref(
-                "/compose?episode_no=" + encodeURIComponent(String(episodeNo()))
-              );
+              window.location.href = "/w/" + encodeURIComponent(demoWorkspace) +
+                "/compose?episode_no=" + encodeURIComponent(String(data.demo_episode_no || 1));
             });
           } catch (err) {
             root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
