@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src import drama_multimodal_smoke as multimodal
-from src import drama_video
+from src import drama_video, paths
 from src.paid_recovery_states import (
     IMAGE_ATTEMPT_STATUSES,
     IMAGE_RECEIPT_STATUSES,
@@ -181,8 +181,10 @@ class PaidRecoveryValidatorBoundaryTests(unittest.TestCase):
 
     def test_video_ledger_validator_accepts_every_declared_status_and_rejects_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            ledger_path = Path(tmp) / "video-submission.json"
-            with patch.object(drama_video, "video_submission_path", return_value=ledger_path):
+            workspace = "synthetic"
+            with patch.object(paths, "WORKSPACE_DIR", Path(tmp)):
+                ledger_path = drama_video.video_submission_path(workspace)
+                ledger_path.parent.mkdir(parents=True)
                 for status in VIDEO_LEDGER_STATUSES:
                     payload = {
                         "schema_version": 1,
@@ -198,13 +200,13 @@ class PaidRecoveryValidatorBoundaryTests(unittest.TestCase):
                         payload["result_hosts_fingerprint"] = self._SHA
                     ledger_path.write_text(json.dumps(payload), encoding="utf-8")
                     self.assertEqual(
-                        drama_video.read_video_submission("synthetic")["status"],
+                        drama_video.read_video_submission(workspace)["status"],
                         status,
                     )
                 payload["status"] = "unknown"
                 ledger_path.write_text(json.dumps(payload), encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, "ledger status is invalid"):
-                    drama_video.read_video_submission("synthetic")
+                    drama_video.read_video_submission(workspace)
 
 
 if __name__ == "__main__":

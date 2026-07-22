@@ -38,6 +38,7 @@
 - correctness 初审发现 archive help 将 `--book` 误写为必须前置；实际 `_consume_book_pre_arg` 允许任意位置。最终文案保留前置 canonical 示例并明确 `may appear anywhere`。
 - 主线程迁移 reader 后及时补回原先由 path helper 隐式提供的 `episode_no == 1` 校验，并加入直接回归。
 - job JSONL 在 `json.loads()` 边界捕获其普通 `ValueError` 子类，保持整份坏源空投影；未扩张为 schema 重构。
+- 首次 canonical 在 2870 项中的 paid-recovery vocabulary 测试失败：该测试 patch 旧 path helper 将 ledger 路由到临时文件，新安全 reader 按设计只走 workspace dirfd，因此返回缺失。生产行为无异常；将测试 fixture 改为 patch `paths.WORKSPACE_DIR` 并通过真实 workspace-relative ledger 路径验证所有声明状态，作为实现后合理范围变化。
 
 ## Acceptance Result
 
@@ -60,6 +61,7 @@
 | `tests/test_web_jobs_recent.py` | 增加 5000 位整数 direct reader 回归 |
 | `tests/test_web_routes_get.py` | 增加 recent-jobs HTTP 200、空 jobs 与无解析器泄漏回归 |
 | `tests/test_drama_project_archive.py` | 增加 export help/usage 回归 |
+| `tests/test_drama_paid_recovery_states.py` | 将 video ledger 状态词表测试迁移到真实 dirfd workspace fixture |
 | `docs/iterations/README.md` | 追加 iter149 索引 |
 | 本文档 | 记录计划、实施选择、审查 findings 与验收证据 |
 
