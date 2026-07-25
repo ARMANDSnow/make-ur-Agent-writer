@@ -27,6 +27,7 @@ import threading
 import time
 import uuid
 import json
+import hashlib
 import math
 import fcntl
 import os
@@ -66,6 +67,8 @@ _WORKSPACE_LOCK = threading.Lock()
 _JOBS: Dict[str, Dict[str, Any]] = {}
 _JOBS_LOCK = threading.Lock()
 _JOB_LOG_LOCK = threading.Lock()
+_WORKER_THREADS: Dict[str, threading.Thread] = {}
+_WORKER_THREADS_LOCK = threading.Lock()
 TERMINAL_STATUSES = {"succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"}
 _MAX_JOB_LOG_BYTES = 4 * 1024 * 1024
 _MAX_JOB_LOG_LINE_BYTES = 64 * 1024
@@ -144,7 +147,9 @@ _PUBLIC_JOB_FIELDS = (
 
 def public_job_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project a job record down to the allowlisted public fields."""
-    return {key: job.get(key) for key in _PUBLIC_JOB_FIELDS}
+    projected = {key: job.get(key) for key in _PUBLIC_JOB_FIELDS}
+    projected.update(_public_local_demo_context(job))
+    return projected
 
 
 # iter073 (codex D2/D3): explicit allowlists for the list + detail endpoints,
@@ -439,6 +444,7 @@ def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
     projected["result_summary"] = _public_result_summary(job.get("result_summary"))
+    projected.update(_public_local_demo_context(job))
     return projected
 
 
@@ -449,11 +455,48 @@ def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
     projected["result_summary"] = _public_result_summary(job.get("result_summary"))
+    projected.update(_public_local_demo_context(job))
     return projected
 
 
-def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def _public_local_demo_context(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the non-replayable, server-derived local-demo target identity.
+
+    The target deliberately stays outside ``params``: local demos are one-shot
+    jobs and a historical confirmation must never become reusable consent.
+    Persisted rows are untrusted input, so every read revalidates the source
+    workspace hash and the exact allocator grammar before projecting a link.
+    """
+
+    if job.get("step") != "drama-local-demo":
+        return {}
+    source = job.get("workspace")
+    target = job.get("target_workspace")
+    source_episode = job.get("source_episode_no")
+    target_episode = job.get("target_episode_no")
+    if (
+        not isinstance(source, str)
+        or not isinstance(target, str)
+        or isinstance(source_episode, bool)
+        or not isinstance(source_episode, int)
+        or not 1 <= source_episode <= 100
+        or isinstance(target_episode, bool)
+        or target_episode != 1
+    ):
+        return {}
+    source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()[:8]
+    expected = rf"localdemo_{source_hash}_{source_episode}_[a-f0-9]{{8}}"
+    if re.fullmatch(expected, target) is None:
+        return {}
     return {
+        "target_workspace": target,
+        "source_episode_no": source_episode,
+        "target_episode_no": target_episode,
+    }
+
+
+def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    record = {
         "job_id": uuid.uuid4().hex,
         "workspace": workspace,
         "step": step,
@@ -469,6 +512,17 @@ def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[s
         "cancel_requested": False,
         "cancel_reason": None,
     }
+    if step == "drama-local-demo":
+        record.update(
+            {
+                "target_workspace": params.get("demo_workspace"),
+                "source_episode_no": params.get("episode_no", 1),
+                "target_episode_no": 1,
+            }
+        )
+        if not _public_local_demo_context(record):
+            raise ValueError("invalid local demo target identity")
+    return record
 
 
 def _job_log_path(workspace: str) -> Path:
@@ -593,6 +647,7 @@ def _persist_job(job: Dict[str, Any]) -> None:
         durable["retryable"] = _job_retryable(job)
         durable["error"] = _public_error(job.get("error"))
         durable["result_summary"] = _public_result_summary(job.get("result_summary"))
+        durable.update(_public_local_demo_context(job))
         payload = (
             json.dumps(
                 _finite_json_safe(durable),
@@ -653,7 +708,7 @@ def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
         return None
     for workspace in sorted(names):
         for row in _read_job_rows(workspace):
-            if row.get("job_id") == job_id:
+            if row.get("workspace") == workspace and row.get("job_id") == job_id:
                 latest = row
     return latest
 
@@ -2570,7 +2625,7 @@ def _cleanup_extract_sample(workspace: str, params: Dict[str, Any]) -> None:
         pass
 
 
-def _worker(job_id: str) -> None:
+def _worker(job_id: str, expected_identity: Any = None) -> None:
     """Thread body. Runs the step inside ``use_workspace``, surfaces
     progress + final status / error via ``_update``, and clears the
     per-workspace lock when finished."""
@@ -2589,6 +2644,24 @@ def _worker(job_id: str) -> None:
             error=f"unknown step: {step}",
             finished_at=_now(),
         )
+        with _WORKSPACE_LOCK:
+            _WORKSPACE_JOBS.pop(workspace, None)
+        return
+
+    if expected_identity is not None and not paths.workspace_identity_matches(
+        expected_identity
+    ):
+        # The workspace no longer names the directory approved by start_job.
+        # Keep the terminal state in memory only: persisting it through the
+        # replaced path would itself be an unauthorized write.
+        with _JOBS_LOCK:
+            current = _JOBS.get(job_id)
+            if current is not None:
+                current.update(
+                    status="failed",
+                    error="RuntimeError: job failed",
+                    finished_at=_now(),
+                )
         with _WORKSPACE_LOCK:
             _WORKSPACE_JOBS.pop(workspace, None)
         return
@@ -2668,6 +2741,16 @@ def _worker(job_id: str) -> None:
             _cleanup_extract_sample(workspace, params)
         with _WORKSPACE_LOCK:
             _WORKSPACE_JOBS.pop(workspace, None)
+
+
+def _worker_entry(job_id: str, expected_identity: Any) -> None:
+    """Own one worker handle until all job and workspace cleanup is complete."""
+
+    try:
+        _worker(job_id, expected_identity)
+    finally:
+        with _WORKER_THREADS_LOCK:
+            _WORKER_THREADS.pop(job_id, None)
 
 
 def _summarize_result(step: str, result: Any) -> Any:
@@ -2810,7 +2893,8 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
         if workspace in _WORKSPACE_JOBS:
             existing = _WORKSPACE_JOBS[workspace]
             raise RuntimeError(f"workspace_busy:{existing}")
-        if not (paths.WORKSPACE_DIR / workspace).is_dir():
+        identity = paths.probe_workspace_identity(workspace)
+        if identity is None:
             raise RuntimeError(f"workspace_not_found:{workspace}")
         record = _new_job_record(workspace, step, params)
         # iter072 (#3): register in _JOBS *before* reserving the workspace
@@ -2826,7 +2910,27 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
             _JOBS[record["job_id"]] = record
         _WORKSPACE_JOBS[workspace] = record["job_id"]
 
+    # Close the deterministic probe-to-persist replacement window.  The
+    # persistence call may legitimately create a previously absent logs/
+    # directory, so capture a refreshed identity afterwards while requiring
+    # the root and every pre-existing canonical directory to be unchanged.
+    if not paths.workspace_identity_matches(identity):
+        with _WORKSPACE_LOCK:
+            _WORKSPACE_JOBS.pop(workspace, None)
+        with _JOBS_LOCK:
+            _JOBS.pop(record["job_id"], None)
+        raise RuntimeError(f"workspace_not_found:{workspace}")
     _persist_job(record)
+    worker_identity = paths.probe_workspace_identity(workspace)
+    if (
+        worker_identity is None
+        or not paths.workspace_identity_preserves(identity, worker_identity)
+    ):
+        with _WORKSPACE_LOCK:
+            _WORKSPACE_JOBS.pop(workspace, None)
+        with _JOBS_LOCK:
+            _JOBS.pop(record["job_id"], None)
+        raise RuntimeError(f"workspace_not_found:{workspace}")
 
     # Iter 027 P2 (review #8 fix): if thread.start() fails (OS thread
     # limit reached, fork restrictions, etc.), the _WORKSPACE_JOBS entry
@@ -2836,11 +2940,18 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
     # Roll back both tables on failure and re-raise so the caller
     # surfaces the underlying error.
     thread = threading.Thread(
-        target=_worker, args=(record["job_id"],), daemon=True, name=f"job-{record['job_id'][:8]}"
+        target=_worker_entry,
+        args=(record["job_id"], worker_identity),
+        daemon=True,
+        name=f"job-{record['job_id'][:8]}",
     )
     try:
-        thread.start()
+        with _WORKER_THREADS_LOCK:
+            _WORKER_THREADS[record["job_id"]] = thread
+            thread.start()
     except RuntimeError:
+        with _WORKER_THREADS_LOCK:
+            _WORKER_THREADS.pop(record["job_id"], None)
         with _WORKSPACE_LOCK:
             _WORKSPACE_JOBS.pop(workspace, None)
         with _JOBS_LOCK:
@@ -2849,10 +2960,43 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
     return dict(record)
 
 
-def reset_for_tests() -> None:
-    """Test helper: wipe in-memory job tables between tests so state
-    from one test doesn't leak into the next. Not used by production
-    code."""
+def reset_for_tests(*, timeout_seconds: float = 5.0) -> None:
+    """Drain test workers before clearing state.
+
+    Tests patch the process-global workspace root.  Clearing the tables while
+    an old daemon still runs lets that worker resolve paths inside the next
+    fixture.  Cancellation is cooperative; if a worker ignores it beyond the
+    bounded deadline we fail closed and preserve the tables for diagnosis.
+    """
+
+    timeout = float(timeout_seconds)
+    if not math.isfinite(timeout) or timeout < 0:
+        raise ValueError("timeout_seconds must be finite and non-negative")
+    with _WORKER_THREADS_LOCK:
+        workers = list(_WORKER_THREADS.items())
+    for job_id, thread in workers:
+        alive = getattr(thread, "is_alive", lambda: False)()
+        if alive:
+            request_cancel(job_id, "test reset requested cancel")
+    deadline = time.monotonic() + timeout
+    for _job_id, thread in workers:
+        alive = getattr(thread, "is_alive", lambda: False)()
+        if not alive:
+            continue
+        if thread is threading.current_thread():
+            raise RuntimeError("test job workers did not stop")
+        join = getattr(thread, "join", None)
+        if callable(join):
+            join(timeout=max(0.0, deadline - time.monotonic()))
+    with _WORKER_THREADS_LOCK:
+        live = [
+            job_id
+            for job_id, thread in _WORKER_THREADS.items()
+            if getattr(thread, "is_alive", lambda: False)()
+        ]
+        if live:
+            raise RuntimeError("test job workers did not stop")
+        _WORKER_THREADS.clear()
     with _WORKSPACE_LOCK:
         _WORKSPACE_JOBS.clear()
     with _JOBS_LOCK:

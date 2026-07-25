@@ -128,7 +128,7 @@ def _validate_workspace_name(name: str) -> bool:
 
 
 def _workspace_exists(name: str) -> bool:
-    return (paths.WORKSPACE_DIR / name).is_dir()
+    return paths.probe_workspace_identity(name) is not None
 
 
 def _drama_mutation_request_error(
@@ -188,9 +188,14 @@ def _workspace_write_guard(name: str, source: str):
     """
     from ..workspace_lock import acquire_write_lock
 
+    identity = paths.probe_workspace_identity(name)
+    if identity is None:
+        raise RuntimeError(f"workspace_not_found:{name}")
     with jobs.workspace_reserved(name):
         with use_workspace(name):
             with acquire_write_lock(source=source):
+                if not paths.workspace_identity_matches(identity):
+                    raise RuntimeError(f"workspace_not_found:{name}")
                 yield
 
 
@@ -207,6 +212,8 @@ def _write_conflict_response(exc: RuntimeError) -> Optional[Tuple[int, str, byte
         if since_match:
             holder["started_at"] = since_match.group(1)
         return _json(409, {"error": "workspace locked", "workspace_locked": True, "holder": holder})
+    if msg.startswith("workspace_not_found:"):
+        return _json(404, {"error": "workspace not found"})
     return None
 
 
@@ -658,6 +665,12 @@ def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
     root = paths.WORKSPACE_DIR
     stamps = []
     for name in names:
+        # The selector may have observed a safe workspace immediately before
+        # this call.  Re-probe before any stat so a symlink/replacement cannot
+        # turn the cache key itself into an external-path metadata reader.
+        if paths.probe_workspace_identity(name) is None:
+            stamps.append((name, "unsafe"))
+            continue
         ws = root / name
         ep = episode_paths(name)
         stamps.append(
@@ -694,13 +707,46 @@ def _clear_overview_cache() -> None:
 def _workspace_overview(name: str) -> Dict[str, Any]:
     from .workspace_meta import read as _meta_read
 
-    meta = _meta_read(name)
     root = paths.WORKSPACE_DIR / name
+    identity = paths.probe_workspace_identity(name)
+    if identity is None:
+        return {
+            "name": name,
+            "type": "novel",
+            "path": str(root),
+            "exists": False,
+            "chapter_count": 0,
+            "draft_count": 0,
+            "review_total": 0,
+            "review_accepted": 0,
+            "review_blocked": 0,
+            "start_point": {"has_start_point": False, "start_chapter_id": ""},
+            "plan": {"exists": False, "chapters": 0, "has_fingerprint": False},
+            "readiness": {"status": "blocked", "blockers": ["workspace_missing"], "warnings": [], "recommended_commands": []},
+            "recent_job": None,
+        }
+    if not paths.workspace_identity_matches(identity):
+        return {
+            "name": name,
+            "type": "novel",
+            "path": str(root),
+            "exists": False,
+            "chapter_count": 0,
+            "draft_count": 0,
+            "review_total": 0,
+            "review_accepted": 0,
+            "review_blocked": 0,
+            "start_point": {"has_start_point": False, "start_chapter_id": ""},
+            "plan": {"exists": False, "chapters": 0, "has_fingerprint": False},
+            "readiness": {"status": "blocked", "blockers": ["workspace_missing"], "warnings": [], "recommended_commands": []},
+            "recent_job": None,
+        }
+    meta = _meta_read(name)
     overview: Dict[str, Any] = {
         "name": name,
         "type": meta["type"],
         "path": str(root),
-        "exists": root.is_dir(),
+        "exists": True,
         "chapter_count": 0,
         "draft_count": 0,
         "review_total": 0,
@@ -711,8 +757,6 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
         "readiness": {"status": "blocked", "blockers": ["workspace_missing"], "warnings": [], "recommended_commands": []},
         "recent_job": None,
     }
-    if not root.is_dir():
-        return overview
     if meta["type"] == "drama":
         try:
             from .drama_view import collect_drama_progress
@@ -1901,6 +1945,8 @@ def api_drama_production_local_demo(
                 "error": "workspace already has a running job",
                 "running_job_id": msg.split(":", 1)[1],
             })
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
         raise
     return _json(202, {
         "job_id": job["job_id"],
@@ -4863,8 +4909,9 @@ def _bool_param(params: Dict[str, Any], key: str, default: bool) -> Tuple[Option
 def api_job_status(name: str, job_id: str) -> Tuple[int, str, bytes]:
     """GET /api/workspace/<name>/job/<job_id> — poll job state."""
 
-    if not _validate_workspace_name(name):
-        return _json(400, {"error": "invalid workspace name"})
+    error = _workspace_error(name)
+    if error:
+        return error
     job = jobs.get_job(job_id)
     if job is None:
         return _json(404, {"error": "job not found"})

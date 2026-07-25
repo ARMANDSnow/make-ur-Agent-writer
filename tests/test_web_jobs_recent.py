@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -332,6 +333,71 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
         else:
             os.environ["WORKSPACE_NAME"] = self._saved_env
         self._tmp.cleanup()
+
+    def test_local_demo_target_context_is_persisted_but_not_retryable(self) -> None:
+        source_hash = hashlib.sha256(b"alpha").hexdigest()[:8]
+        target = f"localdemo_{source_hash}_2_deadbeef"
+        record = jobs._new_job_record(
+            "alpha",
+            "drama-local-demo",
+            {"episode_no": 2, "demo_workspace": target},
+        )
+        record.update(status="succeeded", started_at=10.0, finished_at=11.0)
+        jobs._persist_job(record)
+        jobs.reset_for_tests()
+
+        restored = jobs.recent_jobs("alpha", limit=5)[0]
+        for view in (
+            jobs.public_job_view(restored),
+            jobs.public_job_summary_view(restored),
+            jobs.public_job_detail_view(restored),
+        ):
+            self.assertEqual(view["target_workspace"], target)
+            self.assertEqual(view["source_episode_no"], 2)
+            self.assertEqual(view["target_episode_no"], 1)
+        summary = jobs.public_job_summary_view(restored)
+        self.assertEqual(summary["params"], {})
+        self.assertFalse(summary["retryable"])
+
+    def test_local_demo_target_context_rejects_tampered_persisted_values(self) -> None:
+        record = {
+            **jobs._new_job_record(
+                "alpha",
+                "drama-local-demo",
+                {
+                    "episode_no": 1,
+                    "demo_workspace": "localdemo_8ed3f6ad_1_deadbeef",
+                },
+            ),
+            "target_workspace": "../../outside",
+            "source_episode_no": 1,
+            "target_episode_no": 1,
+        }
+        for view in (
+            jobs.public_job_view(record),
+            jobs.public_job_summary_view(record),
+            jobs.public_job_detail_view(record),
+        ):
+            self.assertNotIn("target_workspace", view)
+            self.assertNotIn("source_episode_no", view)
+            self.assertNotIn("target_episode_no", view)
+
+    def test_global_job_lookup_rejects_row_claiming_another_workspace(self) -> None:
+        _stub_workspace(paths.WORKSPACE_DIR, "zzz")
+        job_id = "c" * 32
+        forged = {
+            "job_id": job_id,
+            "workspace": "alpha",
+            "step": "drama-local-demo",
+            "status": "succeeded",
+            "target_workspace": "localdemo_8ed3f6ad_1_deadbeef",
+            "source_episode_no": 1,
+            "target_episode_no": 1,
+        }
+        (paths.WORKSPACE_DIR / "zzz" / "logs" / "web_jobs.jsonl").write_text(
+            json.dumps(forged) + "\n", encoding="utf-8"
+        )
+        self.assertIsNone(jobs.get_job(job_id))
 
     def _log_path(self, workspace: str) -> Path:
         return paths.WORKSPACE_DIR / workspace / "logs" / "web_jobs.jsonl"

@@ -32,22 +32,33 @@
 
 ## Implementation Notes
 
-待实施后回填。
+- A151-01：在 `src/paths.py` 建立 nofollow dirfd workspace identity 与“保留既有 identity、允许新增可选 canonical 目录”的复核语义；CLI、Web selector/guard/overview、写锁和 job worker 统一接入。`start_job()` 在持久写前复核，持久写可能创建 `logs/` 后刷新 worker identity，既关闭可确定替换写入，也保持部分初始化 workspace 兼容。
+- A151-02：Local Demo job 增加经 source hash、episode、随机后缀严格验证的安全 target 字段；JSONL、active/recent/detail 同口径公开，旧日志不猜 target。前端 localStorage 只存 source+episode scoped 32 位 job ID；服务端恢复 target，成功单次跳转，历史成功显式打开，失败/取消不跳转。
+- A151-03：FFmpeg/FFprobe 各自执行 5 秒、4096 bytes 有界 version probe；GET/POST/worker 三层门禁，`DramaMediaQaError` 与真实 compositor `DramaComposeError` 都收敛为安全 `local_demo_media_failed` blocker，取消仍原样传播。
+- A151-04：worker handle 在启动前登记、wrapper finally 清理；test reset cooperative cancel 后在锁外按统一 deadline join，timeout 保留状态并抛错。全仓审计并修正直接 teardown 与 `addCleanup` 的 drain-before-restore 顺序。
+- 聚焦回归：288 项相关 unittest 通过；`py_compile` 与 `git diff --check` 通过。Playwright 桌面与 390×844 均实测运行中刷新恢复同一 job；390px 证据 job `87c0bcbc39fc47f78629b3a3f8110faa` 从 72% 恢复并进入 `localdemo_da2868e8_1_ef4dc295` compose，QA 为 `local-e2e`、30.000s、6/6；另一个 job `7fc3b1f9a1914adeb12230168cff7a4c` 实测 `aborted` 后仍停源页且 pending key 清除。
+- 三个独立只读审查视角为 correctness、security/boundary、Web/runner/multi-workspace/media；去重后 findings 已全部修复并完成聚焦回归，最终复核结果记录于 Acceptance Result。
 
 ## Acceptance Result
 
 待 `iter-finish` 回填。
 
 ### Knowledge Promotion
-- `decision`: `<iter-finish 回填：none|promoted>`
-- `destination`: `<iter-finish 回填：none|既有长期权威文档>`
-- `reason`: `<iter-finish 回填人工判断>`
+- `decision`: `promoted`
+- `destination`: `docs/PROJECT_HISTORY.md`
+- `reason`: workspace identity 的“持久写前复核 + 可选目录创建后刷新”与 test worker 的 drain-before-global-restore 是跨模块长期工程约束，应压缩为阶段级教训；具体逐测证据仍只留在本 iteration。
 
 ## 文件变更汇总
 
 | 文件 | 改动 |
 |---|---|
-| 待回填 | 待实施后汇总 |
+| `src/paths.py`, `src/cli_workspace.py` | 统一 workspace identity、nofollow 探针、CLI 隔离与替换复核 |
+| `src/web/routes.py`, `src/web/jobs.py` | Web/API/write/job guard、Local Demo 安全持久字段、worker registry 与 reset drain |
+| `src/web/static.py` | Local Demo 刷新恢复、历史找回、episode 隔离与终态导航 |
+| `src/drama_local_demo.py` | FFmpeg/FFprobe 有界预检与运行期安全 blocker |
+| `tests/test_paths.py`, `tests/test_cli_integration.py`, `tests/test_web_hardening.py`, `tests/test_web_routes_get.py`, `tests/test_web_routes_post.py` | symlink、identity replacement、零外部读写与 Web guard 回归 |
+| `tests/test_drama_local_demo.py`, `tests/test_web_jobs_recent.py`, `tests/test_web_jobs_dispatch.py` | 媒体门禁、target 持久投影、跨 workspace 伪造、worker 生命周期回归 |
+| 17 个既有 Web/runner fixture 测试文件 | 统一 teardown/addCleanup 为 drain worker 后恢复全局 workspace/env |
 
 ## 不在本轮范围
 
@@ -58,3 +69,4 @@
 
 - 三份报告当前未被 Git 跟踪，删除不会形成 deletion diff；删除事实与验收证据由本 iteration 的 Acceptance Result 记录。
 - 立项 commit message 草稿：`docs(iter151): 迭代计划 151 立项（体检报告问题闭环）`。
+- 实际实现额外修改 17 个既有 fixture 测试文件，仅用于落实 A151-04 已批准的全调用方 teardown 顺序审计，不扩展生产功能范围。

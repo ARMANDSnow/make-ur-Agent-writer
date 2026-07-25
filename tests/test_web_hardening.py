@@ -110,6 +110,17 @@ class ListWorkspacesFilterTests(unittest.TestCase):
     def test_empty_workspace_dir(self) -> None:
         self.assertEqual(list_workspaces(), [])
 
+    def test_symlink_workspace_and_canonical_dir_are_hidden(self) -> None:
+        outside = Path(self._tmp.name) / ".outside"
+        (outside / "data").mkdir(parents=True)
+        (paths.WORKSPACE_DIR / "root_link").symlink_to(
+            outside, target_is_directory=True
+        )
+        bad_child = paths.WORKSPACE_DIR / "child_link"
+        bad_child.mkdir()
+        (bad_child / "data").symlink_to(outside / "data", target_is_directory=True)
+        self.assertEqual(list_workspaces(), [])
+
 
 class DispatchExceptionMaskingTests(unittest.TestCase):
     """#7 — dispatch catch-all must NOT leak str(exc) to the client.

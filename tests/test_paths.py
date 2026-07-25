@@ -17,7 +17,9 @@ Covers:
 """
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 
 from src import paths
 from src.config import ROOT
@@ -137,6 +139,66 @@ class WorkspaceRootTests(unittest.TestCase):
         with _EnvSandbox():
             os.environ["WORKSPACE_NAME"] = "alpha"
             self.assertEqual(paths.workspace_root("legacy"), ROOT)
+
+
+class WorkspaceIdentityTests(unittest.TestCase):
+    def test_real_root_and_optional_canonical_dirs_are_identified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            (root / "data").mkdir(parents=True)
+            identity = paths.probe_workspace_identity(root)
+            self.assertIsNotNone(identity)
+            assert identity is not None
+            self.assertEqual([row[0] for row in identity.canonical_dirs], ["data"])
+            self.assertTrue(paths.workspace_identity_matches(identity))
+
+    def test_root_and_canonical_symlinks_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            outside = base / "outside"
+            outside.mkdir()
+            root_link = base / "root-link"
+            root_link.symlink_to(outside, target_is_directory=True)
+            self.assertIsNone(paths.probe_workspace_identity(root_link))
+
+            root = base / "workspace"
+            root.mkdir()
+            (root / "data").symlink_to(outside, target_is_directory=True)
+            self.assertIsNone(paths.probe_workspace_identity(root))
+
+            dangling_root = base / "dangling-workspace"
+            dangling_root.mkdir()
+            (dangling_root / "outputs").symlink_to(
+                base / "missing", target_is_directory=True
+            )
+            self.assertIsNone(paths.probe_workspace_identity(dangling_root))
+
+    def test_replacement_invalidates_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            (root / "data").mkdir(parents=True)
+            identity = paths.probe_workspace_identity(root)
+            self.assertIsNotNone(identity)
+            root.rename(Path(tmp) / "original-workspace")
+            (root / "data").mkdir(parents=True)
+            assert identity is not None
+            self.assertFalse(paths.workspace_identity_matches(identity))
+
+    def test_identity_preserves_allows_only_new_canonical_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            (root / "data").mkdir(parents=True)
+            before = paths.probe_workspace_identity(root)
+            self.assertIsNotNone(before)
+            (root / "logs").mkdir()
+            after = paths.probe_workspace_identity(root)
+            self.assertIsNotNone(after)
+            self.assertTrue(paths.workspace_identity_preserves(before, after))
+            (root / "data").rename(root / "data.old")
+            (root / "data").mkdir()
+            replaced = paths.probe_workspace_identity(root)
+            self.assertIsNotNone(replaced)
+            self.assertFalse(paths.workspace_identity_preserves(before, replaced))
 
 
 class PathHelperDerivationTests(unittest.TestCase):

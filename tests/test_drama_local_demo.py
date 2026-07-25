@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +18,8 @@ from src import (
     storyboard_builder,
 )
 from src.drama_schemas import character_paths, episode_paths
+from src.drama_compositor import DramaComposeError
+from src.drama_media_qa import DramaMediaQaError
 from src.utils import write_json
 from src.web import jobs, routes
 from tests._drama_base import DramaTestBase
@@ -111,6 +114,145 @@ class DramaLocalDemoTests(DramaTestBase):
         payload = json.loads(body)
         self.assertEqual(payload["local_demo"]["state"], "ready")
         self.assertTrue(payload["local_demo"]["can_start"])
+
+    def test_media_toolchain_preflight_is_bounded_and_checks_both_tools(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, b"version", b"")
+        with patch(
+            "src.drama_local_demo._run_bounded_process",
+            return_value=completed,
+        ) as run_process:
+            drama_local_demo.require_local_media_toolchain()
+
+        self.assertEqual(
+            [call.args[0] for call in run_process.call_args_list],
+            [["ffmpeg", "-version"], ["ffprobe", "-version"]],
+        )
+        for call in run_process.call_args_list:
+            self.assertEqual(call.kwargs["timeout_seconds"], 5)
+            self.assertEqual(call.kwargs["stdout_limit"], 4096)
+            self.assertEqual(call.kwargs["stderr_limit"], 4096)
+
+    def test_media_toolchain_preflight_maps_all_probe_failures_to_safe_error(self) -> None:
+        failures = (
+            DramaMediaQaError("secret executable path"),
+            subprocess.CompletedProcess([], 7, b"", b"secret stderr"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                effect = failure if isinstance(failure, Exception) else None
+                with patch(
+                    "src.drama_local_demo._run_bounded_process",
+                    side_effect=effect,
+                    return_value=None if effect else failure,
+                ):
+                    with self.assertRaises(drama_local_demo.DramaLocalDemoError) as raised:
+                        drama_local_demo.require_local_media_toolchain()
+                self.assertEqual(raised.exception.code, "media_toolchain_unavailable")
+                self.assertNotIn("secret", str(raised.exception))
+
+    def test_production_projection_blocks_when_media_toolchain_is_unavailable(self) -> None:
+        name = "local-demo-no-media-tools"
+        self._approved_workspace(name)
+        unavailable = drama_local_demo.DramaLocalDemoError(
+            "media_toolchain_unavailable", "固定安全提示"
+        )
+        with patch.dict("os.environ", {"OPENAI_MODEL": "mock"}, clear=False), patch(
+            "src.drama_local_demo.require_local_media_toolchain",
+            side_effect=unavailable,
+        ):
+            status, _ct, body = routes.dispatch(
+                "GET", f"/api/workspace/{name}/drama/production?episode_no=1"
+            )
+
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload["local_demo"]["state"], "blocked")
+        self.assertFalse(payload["local_demo"]["can_start"])
+        self.assertEqual(payload["local_demo"]["reason"], "固定安全提示")
+
+    def test_local_demo_post_does_not_allocate_job_when_tools_are_unavailable(self) -> None:
+        name = "local-demo-post-no-tools"
+        self._approved_workspace(name)
+        headers = {
+            "content-type": "application/json",
+            "x-drama-mutation-intent": "mutate-v1",
+        }
+        with patch.dict("os.environ", {"OPENAI_MODEL": "mock"}, clear=False), patch(
+            "src.drama_local_demo.require_local_media_toolchain",
+            side_effect=drama_local_demo.DramaLocalDemoError(
+                "media_toolchain_unavailable", "固定安全提示"
+            ),
+        ), patch("src.web.routes.jobs.start_job") as start_job:
+            status, _ct, body = routes.dispatch(
+                "POST",
+                f"/api/workspace/{name}/drama/production/local-demo",
+                b'{"episode_no":1,"confirm_synthetic_local":true}',
+                headers,
+            )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(body)["error"], "固定安全提示")
+        start_job.assert_not_called()
+
+    def test_isolated_worker_rechecks_tools_before_creating_workspace(self) -> None:
+        source = "local-demo-preflight-source"
+        target = "localdemo_deadbeef_1_00000000"
+        self._approved_workspace(source)
+        with patch.dict("os.environ", {"OPENAI_MODEL": "mock"}, clear=False), patch(
+            "src.drama_local_demo.require_local_media_toolchain",
+            side_effect=drama_local_demo.DramaLocalDemoError(
+                "media_toolchain_unavailable", "固定安全提示"
+            ),
+        ), patch("src.drama_smoke.run_smoke") as run_smoke:
+            with self.assertRaises(drama_local_demo.DramaLocalDemoError) as raised:
+                drama_local_demo.run_isolated_synthetic_local_demo(
+                    source, demo_workspace=target
+                )
+
+        self.assertEqual(raised.exception.code, "media_toolchain_unavailable")
+        run_smoke.assert_not_called()
+        self.assertFalse(drama_local_demo.paths.workspace_root(target).exists())
+
+    def test_runtime_media_error_is_safe_but_job_cancellation_propagates(self) -> None:
+        with patch(
+            "src.drama_local_demo.require_local_media_toolchain"
+        ), patch(
+            "src.drama_local_demo._run_synthetic_local_demo_impl",
+            side_effect=DramaMediaQaError("secret stderr"),
+        ):
+            with self.assertRaises(drama_local_demo.DramaLocalDemoError) as raised:
+                drama_local_demo.run_synthetic_local_demo("localdemo_f00d_1_deadbeef")
+        self.assertEqual(raised.exception.code, "local_demo_media_failed")
+        self.assertNotIn("secret", str(raised.exception))
+
+        cancellation = jobs.JobCancelled("cancelled by test")
+        with patch(
+            "src.drama_local_demo.require_local_media_toolchain"
+        ), patch(
+            "src.drama_local_demo._run_synthetic_local_demo_impl",
+            side_effect=cancellation,
+        ):
+            with self.assertRaises(jobs.JobCancelled) as raised_cancel:
+                drama_local_demo.run_synthetic_local_demo("localdemo_f00d_1_deadbeef")
+        self.assertIs(raised_cancel.exception, cancellation)
+
+    def test_wrapped_compose_media_error_becomes_safe_blocked_job(self) -> None:
+        name = "local-demo-compose-error"
+        self._approved_workspace(name)
+        target = drama_local_demo.allocate_synthetic_demo_workspace(name, episode_no=1)
+        with patch(
+            "src.drama_local_demo._run_synthetic_local_demo_impl",
+            side_effect=DramaComposeError("secret stderr /private/tool"),
+        ):
+            record = jobs.start_job(name, "drama-local-demo", {
+                "episode_no": 1,
+                "demo_workspace": target,
+            })
+            terminal = self._wait_for_job(record["job_id"])
+        self.assertEqual(terminal["status"], "blocked")
+        blocked = terminal["result_summary"]["first_blocked"]
+        self.assertEqual(blocked["reason"], "local_demo_media_failed")
+        self.assertNotIn("secret", json.dumps(jobs.public_job_detail_view(terminal)))
 
     def test_background_job_runs_without_nesting_workspace_lock(self) -> None:
         name = "local-demo-job"

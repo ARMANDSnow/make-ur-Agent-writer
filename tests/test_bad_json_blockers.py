@@ -353,8 +353,8 @@ class WebReadSurfaceCorruptTests(unittest.TestCase):
         paths.WORKSPACE_DIR = Path(self._tmp.name)
         os.environ["WORKSPACE_NAME"] = "alpha"
         jobs.reset_for_tests()
-        self.addCleanup(jobs.reset_for_tests)
         self.addCleanup(self._restore)
+        self.addCleanup(jobs.reset_for_tests)
         for sub in ("小说txt", "data", "outputs/drafts", "outputs/reviews", "logs"):
             (paths.WORKSPACE_DIR / "alpha" / sub).mkdir(parents=True, exist_ok=True)
 

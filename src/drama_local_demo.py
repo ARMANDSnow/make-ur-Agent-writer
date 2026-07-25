@@ -15,7 +15,7 @@ import re
 import secrets
 import zlib
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
 from . import (
     drama_art_direction_store,
@@ -37,7 +37,8 @@ from . import (
     paths,
 )
 from .config import get_model_config
-from .drama_media_qa import _run_bounded_process
+from .drama_compositor import DramaComposeError
+from .drama_media_qa import DramaMediaQaError, _run_bounded_process
 from .drama_schemas import CharacterSheet, character_paths, episode_paths, normalize_episode_no
 from .drama_tts_attempt_store import (
     LocalFakeTtsAdapter,
@@ -51,6 +52,38 @@ class DramaLocalDemoError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+
+
+_MEDIA_TOOLCHAIN_ERROR_CODE = "media_toolchain_unavailable"
+_MEDIA_TOOLCHAIN_ERROR_MESSAGE = "本地媒体工具不可用，请安装 FFmpeg 和 FFprobe 后重试"
+
+
+def require_local_media_toolchain() -> None:
+    """Verify the local FFmpeg toolchain without exposing process details."""
+
+    try:
+        for executable in ("ffmpeg", "ffprobe"):
+            completed = _run_bounded_process(
+                [executable, "-version"],
+                cwd=Path(__file__).resolve().parent,
+                timeout_seconds=5,
+                stdout_limit=4096,
+                stderr_limit=4096,
+            )
+            if completed.returncode != 0:
+                raise DramaMediaQaError("media tool version probe failed")
+    except DramaMediaQaError:
+        raise DramaLocalDemoError(
+            _MEDIA_TOOLCHAIN_ERROR_CODE,
+            _MEDIA_TOOLCHAIN_ERROR_MESSAGE,
+        ) from None
+
+
+def _raise_safe_media_error() -> NoReturn:
+    raise DramaLocalDemoError(
+        "local_demo_media_failed",
+        "本地媒体处理失败，请检查 FFmpeg 和 FFprobe 后重试",
+    ) from None
 
 
 def _scaled_progress(
@@ -179,6 +212,15 @@ def inspect_synthetic_local_demo(workspace: str, *, episode_no: int = 1) -> dict
             "label": "完成创作后继续制作",
             "reason": str(exc),
         }
+    try:
+        require_local_media_toolchain()
+    except DramaLocalDemoError as exc:
+        return {
+            "state": "blocked",
+            "can_start": False,
+            "label": "安装本地媒体工具后继续",
+            "reason": str(exc),
+        }
     return {
         "state": "ready",
         "can_start": True,
@@ -232,7 +274,7 @@ def _ensure_character_references(workspace: str, episode_no: int) -> CharacterSh
     return sheet
 
 
-def run_synthetic_local_demo(
+def _run_synthetic_local_demo_impl(
     workspace: str,
     *,
     episode_no: int = 1,
@@ -250,6 +292,7 @@ def run_synthetic_local_demo(
         )
     _require_mock_profile()
     _require_approved_episode(workspace, number)
+    require_local_media_toolchain()
     emit = _scaled_progress(
         progress_cb,
         start=progress_start,
@@ -509,6 +552,28 @@ def run_synthetic_local_demo(
     }
 
 
+def run_synthetic_local_demo(
+    workspace: str,
+    *,
+    episode_no: int = 1,
+    progress_cb: Callable[[str, float], None] = lambda _step, _fraction: None,
+    progress_start: float = 0.0,
+    progress_span: float = 1.0,
+) -> dict[str, Any]:
+    """Materialize A-F after a bounded toolchain check."""
+
+    try:
+        return _run_synthetic_local_demo_impl(
+            workspace,
+            episode_no=episode_no,
+            progress_cb=progress_cb,
+            progress_start=progress_start,
+            progress_span=progress_span,
+        )
+    except (DramaMediaQaError, DramaComposeError):
+        _raise_safe_media_error()
+
+
 def run_isolated_synthetic_local_demo(
     source_workspace: str,
     *,
@@ -525,6 +590,10 @@ def run_isolated_synthetic_local_demo(
         raise DramaLocalDemoError("local_demo_target_invalid", "隔离验收项目名称无效")
     if paths.workspace_root(demo_workspace).exists():
         raise DramaLocalDemoError("local_demo_target_exists", "隔离验收项目已存在")
+
+    # Re-check in the worker immediately before any isolated workspace can be
+    # created.  The route's readiness projection is deliberately not trusted.
+    require_local_media_toolchain()
 
     wizard_input = read_json_optional(
         paths.workspace_root(source_workspace) / "data" / "wizard_input.json",

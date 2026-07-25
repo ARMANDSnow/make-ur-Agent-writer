@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -35,6 +36,110 @@ from .config import ROOT
 WORKSPACE_DIR = ROOT / "workspaces"
 
 _LEGACY_SENTINEL = "legacy"
+_CANONICAL_WORKSPACE_SUBDIRS = ("小说txt", "data", "outputs", "logs")
+
+
+@dataclass(frozen=True)
+class WorkspaceIdentity:
+    """Stable identity of a workspace and its canonical directories.
+
+    Paths deliberately remain lexical.  Device/inode pairs come from file
+    descriptors opened with ``O_NOFOLLOW`` so callers can remember an
+    approved workspace and cheaply reject a later symlink/replacement before
+    reading or writing it.
+    """
+
+    root: Path
+    root_device: int
+    root_inode: int
+    canonical_dirs: tuple[tuple[str, int, int], ...]
+
+
+def _directory_open_flags() -> int:
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise OSError("no-follow directory probing is unavailable")
+    return os.O_RDONLY | directory | nofollow
+
+
+def probe_workspace_identity(workspace: Path | str) -> Optional[WorkspaceIdentity]:
+    """Return a no-follow identity for a workspace, or ``None`` if unsafe.
+
+    A string is a validated workspace name resolved beneath ``WORKSPACE_DIR``;
+    a :class:`Path` is treated as an explicit lexical root (used by legacy
+    mode and CLI test sandboxes).  The root must exist as a real directory.
+    Each canonical workspace
+    subdirectory is optional for backwards compatibility, but an existing
+    entry must itself be a real directory (never a symlink or regular file).
+    No directory contents are read.
+    """
+
+    if isinstance(workspace, str):
+        try:
+            lexical_root = workspace_root(workspace)
+        except ValueError:
+            return None
+    else:
+        lexical_root = Path(workspace)
+    try:
+        root_fd = os.open(lexical_root, _directory_open_flags())
+    except (OSError, TypeError, ValueError):
+        return None
+    try:
+        root_stat = os.fstat(root_fd)
+        canonical: list[tuple[str, int, int]] = []
+        for name in _CANONICAL_WORKSPACE_SUBDIRS:
+            try:
+                child_fd = os.open(name, _directory_open_flags(), dir_fd=root_fd)
+            except FileNotFoundError:
+                continue
+            except (OSError, TypeError, ValueError):
+                return None
+            try:
+                child_stat = os.fstat(child_fd)
+                canonical.append((name, child_stat.st_dev, child_stat.st_ino))
+            finally:
+                os.close(child_fd)
+        return WorkspaceIdentity(
+            root=lexical_root,
+            root_device=root_stat.st_dev,
+            root_inode=root_stat.st_ino,
+            canonical_dirs=tuple(canonical),
+        )
+    finally:
+        os.close(root_fd)
+
+
+def workspace_identity_matches(identity: WorkspaceIdentity) -> bool:
+    """Return whether ``identity.root`` is still the approved workspace."""
+
+    current = probe_workspace_identity(identity.root)
+    return current == identity
+
+
+def workspace_identity_preserves(
+    before: WorkspaceIdentity,
+    after: WorkspaceIdentity,
+) -> bool:
+    """Return whether ``after`` keeps every directory approved in ``before``.
+
+    A legitimate first write may create an optional canonical directory such
+    as ``logs``.  Root and already-existing canonical directories must retain
+    their device/inode identity; newly added canonical directories are allowed.
+    """
+
+    if (
+        before.root != after.root
+        or before.root_device != after.root_device
+        or before.root_inode != after.root_inode
+    ):
+        return False
+    after_dirs = {name: (device, inode) for name, device, inode in after.canonical_dirs}
+    return all(
+        after_dirs.get(name) == (device, inode)
+        for name, device, inode in before.canonical_dirs
+    )
 
 
 # Iter 026 code-review #1: per-thread workspace override.

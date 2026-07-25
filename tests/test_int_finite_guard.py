@@ -121,8 +121,8 @@ class RunEndpointIntGuardTests(unittest.TestCase):
         paths.WORKSPACE_DIR = Path(self._tmp.name)
         _stub_workspace(paths.WORKSPACE_DIR, "alpha")
         jobs.reset_for_tests()
-        self.addCleanup(jobs.reset_for_tests)
         self.addCleanup(self._restore_env)
+        self.addCleanup(jobs.reset_for_tests)
 
     def _restore_env(self) -> None:
         paths.WORKSPACE_DIR = self._saved_ws_dir

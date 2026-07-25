@@ -298,6 +298,64 @@ class CliIntegrationTests(unittest.TestCase):
                 finally:
                     paths.WORKSPACE_DIR = saved_root_ws
 
+    def test_workspace_show_does_not_follow_unsafe_canonical_dir(self) -> None:
+        from src import cli_workspace, paths
+
+        saved_root_ws = paths.WORKSPACE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            paths.WORKSPACE_DIR = base / "workspaces"
+            target = paths.WORKSPACE_DIR / "unsafe"
+            outside = base / "outside"
+            target.mkdir(parents=True)
+            outside.mkdir()
+            marker = outside / "chapter_manifest.json"
+            marker.write_text("outside", encoding="utf-8")
+            (target / "data").symlink_to(outside, target_is_directory=True)
+            try:
+                summary = cli_workspace.show_workspace("unsafe")
+                self.assertFalse(summary["exists"])
+                self.assertEqual(marker.read_text(encoding="utf-8"), "outside")
+            finally:
+                paths.WORKSPACE_DIR = saved_root_ws
+
+    def test_workspace_init_rejects_dangling_target_symlink(self) -> None:
+        from src import cli_workspace, paths
+
+        saved_root_ws = paths.WORKSPACE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            paths.WORKSPACE_DIR = Path(tmp)
+            target = paths.WORKSPACE_DIR / "unsafe"
+            target.symlink_to(paths.WORKSPACE_DIR / "missing", target_is_directory=True)
+            try:
+                with self.assertRaises(FileExistsError):
+                    cli_workspace.init_workspace("unsafe")
+                self.assertTrue(target.is_symlink())
+            finally:
+                paths.WORKSPACE_DIR = saved_root_ws
+
+    def test_workspace_import_rejects_legacy_canonical_symlink(self) -> None:
+        from src import cli_workspace, paths
+
+        saved_root_ws = paths.WORKSPACE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            paths.WORKSPACE_DIR = base / "workspaces"
+            paths.WORKSPACE_DIR.mkdir()
+            outside = base / "outside"
+            outside.mkdir()
+            marker = outside / "marker.json"
+            marker.write_text("outside", encoding="utf-8")
+            (base / "data").symlink_to(outside, target_is_directory=True)
+            try:
+                with patch.object(cli_workspace, "ROOT", base):
+                    with self.assertRaisesRegex(ValueError, "missing or unsafe"):
+                        cli_workspace.import_current("target", dry_run=True)
+                self.assertEqual(marker.read_text(encoding="utf-8"), "outside")
+                self.assertFalse((paths.WORKSPACE_DIR / "target").exists())
+            finally:
+                paths.WORKSPACE_DIR = saved_root_ws
+
 
 if __name__ == "__main__":
     unittest.main()

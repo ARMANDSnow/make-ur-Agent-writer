@@ -511,6 +511,62 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["chapters"][0]["chapter_id"], "alpha_ch001")
 
+    def test_symlink_workspace_is_hidden_and_never_read(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_tmp:
+            outside = Path(outside_tmp)
+            marker = outside / "data" / "chapter_manifest.json"
+            marker.parent.mkdir()
+            marker.write_text('[{"chapter_id":"external-marker"}]', encoding="utf-8")
+            (paths.WORKSPACE_DIR / "linked").symlink_to(outside, target_is_directory=True)
+
+            status, data = self._get_json("/api/workspace/linked/manifest")
+            self.assertEqual(status, 404)
+            self.assertNotIn("external-marker", json.dumps(data))
+            status, _ct, body = routes.dispatch("GET", "/w/linked/")
+            self.assertEqual(status, 404)
+            self.assertNotIn(b"external-marker", body)
+            status, data = self._get_json("/api/workspaces")
+            self.assertNotIn("linked", data["workspaces"])
+
+    def test_symlink_canonical_subdirs_are_rejected_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_tmp:
+            outside = Path(outside_tmp)
+            (outside / "chapter_manifest.json").write_text(
+                '[{"chapter_id":"external-marker"}]', encoding="utf-8"
+            )
+            alpha = paths.WORKSPACE_DIR / "alpha"
+            original_data = alpha / "data"
+            saved_data = alpha / "data.safe"
+            original_data.rename(saved_data)
+            original_data.symlink_to(outside, target_is_directory=True)
+            try:
+                status, data = self._get_json("/api/workspace/alpha/manifest")
+                self.assertEqual(status, 404)
+                self.assertNotIn("external-marker", json.dumps(data))
+                status, data = self._get_json("/api/workspaces")
+                self.assertNotIn("alpha", data["workspaces"])
+            finally:
+                original_data.unlink()
+                saved_data.rename(original_data)
+
+            outside_outputs = outside / "outputs"
+            outside_outputs.mkdir()
+            (outside_outputs / "drafts").mkdir()
+            (outside_outputs / "drafts" / "chapter_01.md").write_text(
+                "external-marker", encoding="utf-8"
+            )
+            original_outputs = alpha / "outputs"
+            saved_outputs = alpha / "outputs.safe"
+            original_outputs.rename(saved_outputs)
+            original_outputs.symlink_to(outside_outputs, target_is_directory=True)
+            try:
+                status, data = self._get_json("/api/workspace/alpha/drafts")
+                self.assertEqual(status, 404)
+                self.assertNotIn("external-marker", json.dumps(data))
+            finally:
+                original_outputs.unlink()
+                saved_outputs.rename(original_outputs)
+
     def test_api_start_point_can_be_set_and_rejects_invalid_id(self) -> None:
         status, _ct, body = routes.dispatch(
             "POST",
@@ -1119,6 +1175,20 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("setPendingToastAndNavigate", js)
         self.assertIn('sessionStorage.removeItem("__pending_toast")', js)
         self.assertIn('msg: "已删除 《" + name + "》', js)
+
+    def test_static_js_restores_local_demo_from_server_validated_target(self) -> None:
+        status, _ct, body = routes.dispatch("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        js = body.decode("utf-8")
+        self.assertIn("function restoreLocalDemoJob", js)
+        self.assertIn("function localDemoTargetHref", js)
+        self.assertIn("__local_demo_job_v1:", js)
+        self.assertIn('wsUrl("/jobs/active")', js)
+        self.assertIn('wsUrl("/jobs/recent?n=20")', js)
+        self.assertIn("root.__localDemoHistory = null;\n      render();", js)
+        self.assertIn("target_workspace", js)
+        self.assertIn("打开演练交付", js)
+        self.assertNotIn("localStorage.setItem(localDemoPendingKey(targetEpisode), demoWorkspace", js)
 
     def test_static_js_has_type_badge(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")

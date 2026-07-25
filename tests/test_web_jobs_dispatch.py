@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
+import threading
 import time
 import unittest
 import unittest.mock
@@ -35,12 +37,12 @@ class JobsDispatchTests(unittest.TestCase):
         jobs.reset_for_tests()
 
     def tearDown(self) -> None:
+        jobs.reset_for_tests()
         paths.WORKSPACE_DIR = self._saved_ws_dir
         if self._saved_env is None:
             os.environ.pop("WORKSPACE_NAME", None)
         else:
             os.environ["WORKSPACE_NAME"] = self._saved_env
-        jobs.reset_for_tests()
         self._tmp.cleanup()
 
     def _post_run(self, workspace: str, payload: dict) -> tuple[int, dict]:
@@ -65,6 +67,100 @@ class JobsDispatchTests(unittest.TestCase):
         status, data = self._post_run("alpha", {"step": "no-such-step"})
         self.assertEqual(status, 400)
         self.assertIn("unknown step", data["error"])
+
+    def test_start_job_rejects_symlink_workspace_without_allocating(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_tmp:
+            outside = Path(outside_tmp)
+            _stub_workspace(outside, "target")
+            (paths.WORKSPACE_DIR / "linked").symlink_to(
+                outside / "target", target_is_directory=True
+            )
+            with self.assertRaisesRegex(RuntimeError, "workspace_not_found"):
+                jobs.start_job("linked", "normalize", {})
+            self.assertIsNone(jobs.workspace_busy("linked"))
+            self.assertFalse(jobs._WORKER_THREADS)
+
+    def test_start_job_rechecks_before_persist_and_does_not_write_replacement(self) -> None:
+        workspace = paths.WORKSPACE_DIR / "alpha"
+        original = paths.WORKSPACE_DIR / "alpha.original"
+        real_matches = paths.workspace_identity_matches
+
+        def replace_then_check(identity):
+            workspace.rename(original)
+            _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+            return real_matches(identity)
+
+        try:
+            with unittest.mock.patch(
+                "src.web.jobs.paths.workspace_identity_matches",
+                side_effect=replace_then_check,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "workspace_not_found"):
+                    jobs.start_job("alpha", "normalize", {})
+            self.assertFalse((workspace / "logs" / "web_jobs.jsonl").exists())
+            self.assertIsNone(jobs.workspace_busy("alpha"))
+            self.assertFalse(jobs._JOBS)
+        finally:
+            if workspace.exists():
+                shutil.rmtree(workspace)
+            original.rename(workspace)
+
+    def test_start_job_allows_missing_optional_logs_directory(self) -> None:
+        workspace = paths.WORKSPACE_DIR / "alpha"
+        shutil.rmtree(workspace / "logs")
+        called = threading.Event()
+
+        def handler(_params, _progress):
+            called.set()
+            return {"status": "succeeded"}
+
+        jobs.STEP_HANDLERS["_iter151-partial"] = handler
+        try:
+            record = jobs.start_job("alpha", "_iter151-partial", {})
+            terminal = self._wait_for_done("alpha", record["job_id"])
+            self.assertEqual(terminal["status"], "succeeded")
+            self.assertTrue(called.is_set())
+            self.assertTrue((workspace / "logs" / "web_jobs.jsonl").is_file())
+        finally:
+            jobs.STEP_HANDLERS.pop("_iter151-partial", None)
+
+    def test_worker_rechecks_identity_before_handler_after_root_swap(self) -> None:
+        workspace = paths.WORKSPACE_DIR / "alpha"
+        identity = paths.probe_workspace_identity("alpha")
+        self.assertIsNotNone(identity)
+        original = paths.WORKSPACE_DIR / "alpha.original"
+        outside_marker = Path(self._tmp.name) / "handler-was-called"
+        seeded = jobs._new_job_record("alpha", "normalize", {})
+        job_id = seeded["job_id"]
+        jobs._JOBS[job_id] = seeded
+        jobs._WORKSPACE_JOBS["alpha"] = job_id
+        workspace.rename(original)
+        _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+        try:
+            with unittest.mock.patch.dict(
+                jobs.STEP_HANDLERS,
+                {"normalize": lambda _params: outside_marker.write_text("called", encoding="utf-8")},
+            ):
+                jobs._worker(job_id, identity)
+            self.assertFalse(outside_marker.exists())
+            public = jobs.public_job_detail_view(jobs.get_job(job_id))
+            self.assertEqual(public["status"], "failed")
+            self.assertNotIn("inode", json.dumps(public))
+            self.assertNotIn(str(original), json.dumps(public))
+        finally:
+            if workspace.exists():
+                shutil.rmtree(workspace)
+            original.rename(workspace)
+
+    def test_write_guard_rechecks_identity_after_lock_before_body(self) -> None:
+        marker = paths.WORKSPACE_DIR / "guard-body-ran"
+        with unittest.mock.patch(
+            "src.web.routes.paths.workspace_identity_matches", return_value=False
+        ):
+            with self.assertRaisesRegex(RuntimeError, "workspace_not_found"):
+                with routes._workspace_write_guard("alpha", "test-identity-swap"):
+                    marker.write_text("unsafe", encoding="utf-8")
+        self.assertFalse(marker.exists())
 
     def test_generic_auto_pipeline_not_in_web_production_whitelist(self) -> None:
         status, data = self._post_run("alpha", {"step": "auto-pipeline"})
@@ -201,6 +297,25 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(json.loads(body)["error"], "job not found")
 
+    def test_job_status_404_when_workspace_becomes_unsafe(self) -> None:
+        record = jobs._new_job_record("alpha", "normalize", {})
+        jobs._JOBS[record["job_id"]] = record
+        data = paths.WORKSPACE_DIR / "alpha" / "data"
+        saved = paths.WORKSPACE_DIR / "alpha" / "data.safe"
+        outside = Path(self._tmp.name) / "outside-data"
+        outside.mkdir()
+        data.rename(saved)
+        data.symlink_to(outside, target_is_directory=True)
+        try:
+            status, _ct, body = routes.dispatch(
+                "GET", f"/api/workspace/alpha/job/{record['job_id']}"
+            )
+            self.assertEqual(status, 404)
+            self.assertEqual(json.loads(body)["error"], "workspace not found: alpha")
+        finally:
+            data.unlink()
+            saved.rename(data)
+
     def test_job_status_restores_persisted_jsonl_under_patched_workspace_dir(self) -> None:
         job = {
             "job_id": "b" * 32,
@@ -248,6 +363,7 @@ class JobsDispatchTests(unittest.TestCase):
             self.assertIsNone(jobs.workspace_busy("alpha"))
             # Job record cleaned too.
             self.assertEqual(jobs._JOBS, {})
+            self.assertEqual(jobs._WORKER_THREADS, {})
         finally:
             threading.Thread.start = original_start
 
@@ -257,6 +373,78 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(jobs.workspace_busy("alpha"), record["job_id"])
         self._wait_for_done("alpha", record["job_id"], timeout=10.0)
         self.assertIsNone(jobs.workspace_busy("alpha"))
+
+    def test_reset_for_tests_drains_worker_before_workspace_root_changes(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        reset_done = threading.Event()
+        errors = []
+        marker = "late_worker_marker"
+
+        def blocking_handler(_params, progress):
+            started.set()
+            release.wait(timeout=2.0)
+            progress("after-release", 0.5)
+            (paths.workspace_root() / marker).write_text("late", encoding="utf-8")
+            return {"status": "succeeded"}
+
+        jobs.STEP_HANDLERS["_iter151-blocking"] = blocking_handler
+        try:
+            jobs.start_job("alpha", "_iter151-blocking", {})
+            self.assertTrue(started.wait(timeout=1.0))
+
+            def do_reset() -> None:
+                try:
+                    jobs.reset_for_tests(timeout_seconds=2.0)
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    errors.append(exc)
+                finally:
+                    reset_done.set()
+
+            reset_thread = threading.Thread(target=do_reset)
+            reset_thread.start()
+            time.sleep(0.05)
+            self.assertFalse(reset_done.is_set())
+            release.set()
+            reset_thread.join(timeout=2.0)
+            self.assertTrue(reset_done.is_set())
+            self.assertEqual(errors, [])
+
+            next_root = Path(self._tmp.name) / "next"
+            next_root.mkdir()
+            paths.WORKSPACE_DIR = next_root
+            _stub_workspace(next_root, "alpha")
+            time.sleep(0.05)
+            self.assertFalse((next_root / "alpha" / marker).exists())
+        finally:
+            release.set()
+            jobs.STEP_HANDLERS.pop("_iter151-blocking", None)
+            jobs.reset_for_tests()
+
+    def test_reset_timeout_preserves_live_worker_state(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        def uncooperative_handler(_params, _progress):
+            started.set()
+            release.wait(timeout=2.0)
+            return {"status": "succeeded"}
+
+        jobs.STEP_HANDLERS["_iter151-uncooperative"] = uncooperative_handler
+        try:
+            record = jobs.start_job("alpha", "_iter151-uncooperative", {})
+            self.assertTrue(started.wait(timeout=1.0))
+            with self.assertRaisesRegex(RuntimeError, "workers did not stop"):
+                jobs.reset_for_tests(timeout_seconds=0.01)
+            self.assertIn(record["job_id"], jobs._JOBS)
+            self.assertIn(record["job_id"], jobs._WORKER_THREADS)
+        finally:
+            release.set()
+            deadline = time.time() + 2.0
+            while jobs._WORKER_THREADS and time.time() < deadline:
+                time.sleep(0.01)
+            jobs.STEP_HANDLERS.pop("_iter151-uncooperative", None)
+            jobs.reset_for_tests()
 
     def test_job_404_when_workspace_mismatch(self) -> None:
         """Jobs are namespaced by workspace; asking for a job under the

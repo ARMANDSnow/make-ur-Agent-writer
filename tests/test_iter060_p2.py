@@ -38,8 +38,8 @@ class _IsolatedWorkspaceCase(unittest.TestCase):
         paths.WORKSPACE_DIR = Path(self._tmp.name)
         os.environ["WORKSPACE_NAME"] = self.workspace
         jobs.reset_for_tests()
-        self.addCleanup(jobs.reset_for_tests)
         self.addCleanup(self._restore_env)
+        self.addCleanup(jobs.reset_for_tests)
         for sub in ("小说txt", "data", "outputs/drafts", "outputs/episodes", "logs"):
             (paths.WORKSPACE_DIR / self.workspace / sub).mkdir(parents=True, exist_ok=True)
 

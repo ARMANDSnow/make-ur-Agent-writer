@@ -18,6 +18,7 @@ Design contract:
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List
@@ -41,14 +42,20 @@ def list_workspaces() -> List[str]:
     ``init_workspace`` so a real workspace always has one, and tooling
     caches never do.
     """
-    if not paths.WORKSPACE_DIR.exists():
+    try:
+        children = list(paths.WORKSPACE_DIR.iterdir())
+    except OSError:
         return []
     names: List[str] = []
-    for child in paths.WORKSPACE_DIR.iterdir():
-        if not child.is_dir() or child.name.startswith("."):
+    for child in children:
+        if child.name.startswith("."):
+            continue
+        identity = paths.probe_workspace_identity(child)
+        if identity is None:
             continue
         # Filter out dev/tool cache dirs that share the parent.
-        if not ((child / "data").is_dir() or (child / "outputs").is_dir()):
+        present = {item[0] for item in identity.canonical_dirs}
+        if not ({"data", "outputs"} & present):
             continue
         names.append(child.name)
     return sorted(names)
@@ -62,9 +69,21 @@ def init_workspace(name: str, type: str = "novel") -> Dict[str, Any]:
     if type not in _meta.VALID_TYPES:
         raise ValueError(f"invalid workspace type: {type!r}")
     target = paths.WORKSPACE_DIR / name
-    if target.exists():
+    try:
+        target.lstat()
+    except FileNotFoundError:
+        pass
+    else:
         raise FileExistsError(f"workspace already exists: {target}")
-    ensure_dir(target)
+    _require_real_directory(paths.WORKSPACE_DIR, "workspace parent")
+    parent_fd = os.open(paths.WORKSPACE_DIR, _directory_open_flags())
+    try:
+        os.mkdir(name, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)
+    created_identity = paths.probe_workspace_identity(target)
+    if created_identity is None or not paths.workspace_identity_matches(created_identity):
+        raise ValueError(f"workspace '{name}' changed during initialization")
     created: List[str] = []
     for sub in WORKSPACE_SUBDIRS:
         sub_path = target / sub
@@ -102,7 +121,18 @@ def import_current(to_name: str, dry_run: bool = False) -> Dict[str, Any]:
     """
     _validate_name(to_name)
     target = paths.WORKSPACE_DIR / to_name
-    if target.exists():
+    source_identity = paths.probe_workspace_identity(ROOT)
+    if source_identity is None:
+        raise ValueError("legacy workspace is missing or unsafe")
+    target_identity = paths.probe_workspace_identity(target)
+    try:
+        target.lstat()
+        target_entry_exists = True
+    except FileNotFoundError:
+        target_entry_exists = False
+    if target_entry_exists and target_identity is None:
+        raise ValueError(f"workspace '{to_name}' is missing or unsafe")
+    if target_identity is not None:
         # Allow importing into an existing workspace only if its subdirs are
         # all empty — otherwise we'd overwrite real data silently.
         for sub in WORKSPACE_SUBDIRS:
@@ -128,7 +158,22 @@ def import_current(to_name: str, dry_run: bool = False) -> Dict[str, Any]:
     if dry_run:
         return {"to": to_name, "dry_run": True, "operations": operations}
 
-    ensure_dir(target)
+    if not paths.workspace_identity_matches(source_identity):
+        raise ValueError("legacy workspace changed during import planning")
+    if target_identity is not None and not paths.workspace_identity_matches(target_identity):
+        raise ValueError(f"workspace '{to_name}' changed during import planning")
+    if target_identity is None:
+        _require_real_directory(paths.WORKSPACE_DIR, "workspace parent")
+        parent_fd = os.open(paths.WORKSPACE_DIR, _directory_open_flags())
+        try:
+            os.mkdir(to_name, dir_fd=parent_fd)
+        finally:
+            os.close(parent_fd)
+        target_identity = paths.probe_workspace_identity(target)
+        if target_identity is None:
+            raise ValueError(f"workspace '{to_name}' changed during import creation")
+    if not paths.workspace_identity_matches(target_identity):
+        raise ValueError(f"workspace '{to_name}' changed before import")
     for op in operations:
         if op["action"] != "move":
             continue
@@ -168,10 +213,12 @@ def show_workspace(name: str | None = None) -> Dict[str, Any]:
     summary: Dict[str, Any] = {
         "name": label,
         "root": str(root),
-        "exists": root.exists(),
+        "exists": False,
     }
-    if not root.exists():
+    identity = paths.probe_workspace_identity(root)
+    if identity is None:
         return summary
+    summary["exists"] = True
 
     raw = root / "小说txt"
     data = root / "data"
@@ -198,6 +245,23 @@ def _validate_name(name: str) -> None:
         raise ValueError(f"workspace name must not contain path separators: {name!r}")
     if name.startswith("."):
         raise ValueError(f"workspace name must not start with '.': {name!r}")
+
+
+def _directory_open_flags() -> int:
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise OSError("no-follow directory probing is unavailable")
+    return os.O_RDONLY | directory | nofollow
+
+
+def _require_real_directory(path: Path, label: str) -> None:
+    try:
+        fd = os.open(path, _directory_open_flags())
+    except OSError as exc:
+        raise ValueError(f"{label} is missing or unsafe") from exc
+    else:
+        os.close(fd)
 
 
 def render_list(names: List[str]) -> str:

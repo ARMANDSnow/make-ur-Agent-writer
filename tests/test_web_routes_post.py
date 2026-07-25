@@ -36,12 +36,12 @@ class RoutesPostTests(unittest.TestCase):
         jobs.reset_for_tests()
 
     def tearDown(self) -> None:
+        jobs.reset_for_tests()
         paths.WORKSPACE_DIR = self._saved_ws_dir
         if self._saved_env is None:
             os.environ.pop("WORKSPACE_NAME", None)
         else:
             os.environ["WORKSPACE_NAME"] = self._saved_env
-        jobs.reset_for_tests()
         self._tmp.cleanup()
 
     def _wait_job(self, job_id: str, timeout: float = 5.0) -> dict:

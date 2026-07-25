@@ -4123,6 +4123,10 @@ JS_DASHBOARD = """\
     if (job.status === "succeeded" && chapter) {
       actions.push('<a class="btn btn-secondary btn-sm" href="' + wsHref("/chapter/" + chapter) + '">查看章节</a>');
     }
+    const localDemoHref = localDemoTargetHref(job);
+    if (job.status === "succeeded" && localDemoHref) {
+      actions.push('<a class="btn btn-primary btn-sm" href="' + localDemoHref + '">打开演练交付</a>');
+    }
     if (actionKind) actions.push(renderJobPageCta(actionKind));
     if (job.retryable === true && job.status !== "running" && job.status !== "pending") {
       actions.push('<button type="button" class="btn btn-primary btn-sm" data-job-retry="' + escapeHtml(job.job_id || "") + '">用相同参数重试</button>');
@@ -7605,6 +7609,37 @@ JS_DASHBOARD = """\
       }).join('') + '</div></div>';
   }
 
+  function localDemoPendingKey(sourceEpisodeNo) {
+    return "__local_demo_job_v1:" + String(window.WORKSPACE_NAME || "") + ":" +
+      String(Number(sourceEpisodeNo || 1));
+  }
+
+  function localDemoTarget(job) {
+    if (!job || job.step !== "drama-local-demo") return null;
+    const target = String(job.target_workspace || "");
+    const sourceEpisode = Number(job.source_episode_no);
+    const targetEpisode = Number(job.target_episode_no);
+    if (!/^localdemo_[a-f0-9]{8}_[1-9][0-9]{0,2}_[a-f0-9]{8}$/.test(target)) return null;
+    if (!Number.isInteger(sourceEpisode) || sourceEpisode < 1 || sourceEpisode > 100) return null;
+    if (targetEpisode !== 1) return null;
+    return { workspace: target, sourceEpisode: sourceEpisode, targetEpisode: targetEpisode };
+  }
+
+  function localDemoTargetHref(job) {
+    const target = localDemoTarget(job);
+    if (!target) return "";
+    return "/w/" + encodeURIComponent(target.workspace) + "/compose?episode_no=" +
+      encodeURIComponent(String(target.targetEpisode));
+  }
+
+  function renderLocalDemoHistory(job) {
+    const href = localDemoTargetHref(job);
+    if (!href || !job || job.status !== "succeeded") return "";
+    return '<div class="callout info" data-local-demo-history><strong>最近一次本地 A-F 演练已完成</strong>' +
+      '<span>目标项目 <code>' + escapeHtml(job.target_workspace) + '</code></span>' +
+      '<a class="btn btn-secondary btn-sm" href="' + href + '">打开演练交付</a></div>';
+  }
+
   async function initDramaProduction() {
     const root = document.getElementById("production-page-root");
     if (!root) return;
@@ -7619,7 +7654,7 @@ JS_DASHBOARD = """\
     }
     function render() {
       if (!projection) return;
-      root.innerHTML = renderProductionSummary(projection) +
+      root.innerHTML = renderLocalDemoHistory(root.__localDemoHistory) + renderProductionSummary(projection) +
         (view === "canvas" ? renderProductionCanvas(projection) : renderProductionList(projection));
       const demoButton = document.getElementById("production-local-demo");
       if (demoButton) {
@@ -7634,18 +7669,14 @@ JS_DASHBOARD = """\
               wsUrl("/drama/production/local-demo"),
               { episode_no: targetEpisode, confirm_synthetic_local: true }
             );
-            const demoWorkspace = String(data.demo_workspace || "");
-            if (!/^localdemo_[a-f0-9_]+$/.test(demoWorkspace)) {
-              throw new Error("隔离验收项目创建失败");
-            }
+            if (!/^[a-f0-9]{32}$/.test(String(data.job_id || ""))) throw new Error("隔离验收任务创建失败");
+            try { localStorage.setItem(localDemoPendingKey(targetEpisode), String(data.job_id)); } catch (_ignored) {}
             await pollJob(data.job_id, root, demoButton, async function (job) {
-              if (job.status !== "succeeded") return;
-              sessionStorage.setItem("__pending_toast", JSON.stringify({
-                msg: "隔离的本地 A-F 演练已完成，可下载交付文件",
-                kind: "success",
-              }));
-              window.location.href = "/w/" + encodeURIComponent(demoWorkspace) +
-                "/compose?episode_no=" + encodeURIComponent(String(data.demo_episode_no || 1));
+              try { localStorage.removeItem(localDemoPendingKey(targetEpisode)); } catch (_ignored) {}
+              const target = localDemoTarget(job);
+              if (job.status !== "succeeded" || !target || target.sourceEpisode !== targetEpisode) return;
+              sessionStorage.setItem("__pending_toast", JSON.stringify({ msg: "隔离的本地 A-F 演练已完成，可下载交付文件", kind: "success" }));
+              window.location.href = localDemoTargetHref(job);
             });
           } catch (err) {
             root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
@@ -7676,6 +7707,72 @@ JS_DASHBOARD = """\
         root.removeAttribute("aria-busy");
       }
     }
+
+    async function restoreLocalDemoJob() {
+      const targetEpisode = episodeNo();
+      const storageKey = localDemoPendingKey(targetEpisode);
+      root.__localDemoHistory = null;
+      render();
+      let pendingId = "";
+      try {
+        pendingId = String(localStorage.getItem(storageKey) || "");
+      } catch (_err) {
+        pendingId = "";
+      }
+      let job = null;
+      if (/^[a-f0-9]{32}$/.test(pendingId)) {
+        try {
+          job = await fetchJson(wsUrl("/job/" + pendingId));
+        } catch (_err) {
+          try { localStorage.removeItem(storageKey); } catch (_ignored) {}
+        }
+      }
+      if (!job) {
+        try {
+          const active = await fetchJson(wsUrl("/jobs/active"));
+          job = (active.jobs || []).find(function (row) {
+            const target = localDemoTarget(row);
+            return target && target.sourceEpisode === targetEpisode;
+          }) || null;
+          if (job && job.job_id) {
+            try { localStorage.setItem(storageKey, String(job.job_id)); } catch (_ignored) {}
+          }
+        } catch (_err) {
+          job = null;
+        }
+      }
+      if (job && (job.status === "pending" || job.status === "running")) {
+        await pollJob(job.job_id, root, null, async function (terminal) {
+          try { localStorage.removeItem(storageKey); } catch (_ignored) {}
+          const target = localDemoTarget(terminal);
+          if (terminal.status === "succeeded" && target && target.sourceEpisode === targetEpisode) {
+            sessionStorage.setItem("__pending_toast", JSON.stringify({ msg: "隔离的本地 A-F 演练已完成，可下载交付文件", kind: "success" }));
+            window.location.href = localDemoTargetHref(terminal);
+          }
+        });
+        return;
+      }
+      if (job) {
+        try { localStorage.removeItem(storageKey); } catch (_ignored) {}
+        const target = localDemoTarget(job);
+        if (pendingId && job.status === "succeeded" && target && target.sourceEpisode === targetEpisode) {
+          sessionStorage.setItem("__pending_toast", JSON.stringify({ msg: "隔离的本地 A-F 演练已完成，可下载交付文件", kind: "success" }));
+          window.location.href = localDemoTargetHref(job);
+          return;
+        }
+      }
+      try {
+        const recent = await fetchJson(wsUrl("/jobs/recent?n=20"));
+        root.__localDemoHistory = (recent.jobs || []).find(function (row) {
+          const target = localDemoTarget(row);
+          return row.status === "succeeded" && target && target.sourceEpisode === targetEpisode;
+        }) || null;
+        render();
+      } catch (_err) {
+        root.__localDemoHistory = null;
+        render();
+      }
+    }
     tabs.forEach(function (tab) {
       tab.addEventListener("click", function () {
         view = tab.dataset.productionView === "canvas" ? "canvas" : "list";
@@ -7694,9 +7791,10 @@ JS_DASHBOARD = """\
         tabs[next].focus();
       });
     });
-    if (refresh) refresh.addEventListener("click", load);
-    if (episodeInput) episodeInput.addEventListener("change", load);
+    if (refresh) refresh.addEventListener("click", async function () { await load(); await restoreLocalDemoJob(); });
+    if (episodeInput) episodeInput.addEventListener("change", async function () { await load(); await restoreLocalDemoJob(); });
     await load();
+    await restoreLocalDemoJob();
   }
 
   function composeStateLabel(state) {
