@@ -41,7 +41,13 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- **A151-01 通过**：workspace root 与现存 canonical 子目录统一经过 nofollow identity 探针；selector、CLI、Web/API、写锁和 job worker 对 symlink、特殊文件及可确定 identity replacement 均 fail closed。外部 marker 回归证明零读取、零写入；缺少可选 `logs/` 的部分初始化 workspace 保持兼容。
+- **A151-02 通过**：`drama-local-demo` 的 `target_workspace`、`source_episode_no`、`target_episode_no` 以专用安全字段进入 JSONL 与 active/recent/detail 投影，旧记录不猜 target，`params={}`、`retryable=false` 不变。浏览器桌面与 390×844 均从运行中刷新恢复同一 job；成功只进入对应 compose 一次，历史成功提供手动入口，`aborted` 实测不跳转、不重跑。
+- **A151-03 通过**：FFmpeg/FFprobe 各自 5 秒、4096 bytes 有界预检接入 GET、POST 与 worker；缺工具/启动异常在创建 job/workspace 前阻断，检查后失效和合成期错误收敛为固定安全 blocker，不公开 stderr、系统路径或 provider 信息。
+- **A151-04 通过**：worker handle 在启动前登记并由 wrapper `finally` 清理；`reset_for_tests()` cooperative cancel 后按统一 deadline 在锁外 join，timeout 保留状态并抛错。全仓 fixture 已统一为 drain worker 后恢复全局 workspace/env，再清理临时目录。
+- **A151-05 通过**：聚焦回归共 **288 tests OK**，`py_compile`、agent harness 与 `git diff --check` 通过。correctness、security/boundary、Web/runner/multi-workspace/media 三个独立只读审查共确认 8 个去重有效 finding，修复后分别复核为全部 CLOSED、无未处理 finding。Playwright 桌面与 390×844 刷新恢复、历史找回、取消不误跳转均通过，浏览器证据等级为 `local-e2e`。
+- **A151-06 通过**：implementation commit `6ba71fa970d76d9368f78b40dc65d79b6395dbe5` 上唯一一次 `bash scripts/verify.sh` exit 0；receipt status=`passed`、acceptance_level=`mock-functional`、**2918 tests / 15 steps / 473 秒**、run `508c129255a54d31a536671a6bb312e4`、`tracked_scope_clean=true`。通过后已删除三份未跟踪报告：`docs/2026-7-23体检报告.md`、`docs/2026-7-24体检报告.md`、`docs/2026-7-25体检报告.md`。
+- **边界结论**：四项正式 finding 已闭环；报告所列长期残余风险不在本轮范围。canonical 仅证明 `mock-functional`，本地浏览器/隔离 A-F 证明 `local-e2e`，本轮未调用真实 provider，不能宣称 `provider-validated`。最后一次 identity 复核后的 hostile、非合作本机 writer 竞态仍不作完全 TOCTOU 安全承诺。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

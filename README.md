@@ -173,12 +173,13 @@ docs/iterations/           逐轮审计记录
 | 短剧同源生产工作台 | 147 | ✅ strict/bounded 安全投影聚合资产、镜头、attempt/task、时间线、QA 与交付；list/canvas 同 fingerprint，真实浏览器桌面/移动验收通过 |
 | 短剧可移植项目归档 | 148 | ✅ 确定性有上限 ZIP、strict manifest/领域绑定、脱敏 creative/evidence、exact PNG/media 与原子 no-overwrite 导入形成 I2 本地闭环 |
 | 短剧完整 SOP 前后端真人复验 | 150 | ✅ wire mutation/绕过、源项目污染、时长、取消/恢复与 production UX 已收口；隔离 A-F 为 local-e2e，真文本/角色图窄校准通过，真视频因公网素材域名失效在 create 前 safe-blocked |
+| Workspace、Local Demo 与 Worker 体检闭环 | 151 | ✅ nofollow workspace identity、刷新恢复安全 target、FFmpeg/FFprobe 预检与 test worker drain 已收口；三份报告在 canonical 通过后删除 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 150**（2026-07-23，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter150 以真人点击与后端边界复验收口短剧现有 SOP：wire mutation 强制 JSON/显式 intent/同源，通用 `/run` 不得绕过；本地 A-F 从源项目派生独立 `localdemo_*`，精确按选定时长生成 MP4/SRT/ASS/edit，取消贯通到 FFmpeg 并清理半成品；production/compose 等页面完成 dirty guard、移动端 44px 与普通用户文案。A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 继续保持纯本地闭环。真文本五站 5 calls 与 2 张角色图本次窄校准通过；真视频因公网素材域名失效在 upload/create 前 `safe-blocked`，create=0、费用=0，真实 TTS 未实现。iter142 的 5.042 秒窄样本仍有效，iter143 的 20 秒 create 不明样本仍不得自动重提。完整目标流程来自 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)。总工程验收为 `mock-functional`，mandatory local-drama 和隔离 A-F 为 `local-e2e`；这些均不等于完整 `provider-validated`。
+最近一次更新：**iter 151**（2026-07-25，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter151 将 workspace root/现存 canonical 子目录纳入统一 nofollow identity 守门，Local A-F 持久保存经验证的 target/source/episode 并支持刷新恢复，FFmpeg/FFprobe 在 GET、POST、worker 三层有界预检，测试 worker reset 必须 drain 后才能恢复全局状态。桌面与 390×844 的运行中刷新、历史找回和取消不误跳转均通过；三份 7/23-7/25 体检报告在 canonical 验收通过后删除。iter150 的 wire mutation、隔离 exact-duration A-F、取消与 production UX 能力继续有效；A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 继续保持纯本地闭环。iter142 的 5.042 秒窄样本仍有效，iter143 的 20 秒 create 不明样本仍不得自动重提。完整目标流程来自 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)。总工程验收为 `mock-functional`，mandatory local-drama 和隔离 A-F 为 `local-e2e`；这些均不等于完整 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 

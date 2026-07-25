@@ -76,6 +76,7 @@
 | 148 | 短剧可移植项目归档 | strict portable snapshot、领域身份 preflight、exact media/evidence 与原子 no-overwrite 导入 |
 | 149 | 体检报告路径、Job 与归档 CLI 闭环 | video ledger dirfd no-follow 读写删、坏 job 空投影、archive help，并在验收后删两份报告 |
 | 150 | 短剧完整 SOP 前后端真人复验 | wire mutation/绕过、隔离 exact-duration A-F、取消恢复与 production UX；真文本/图窄校准，视频 create 前 safe-blocked |
+| 151 | Workspace、Local Demo 与 Worker 体检闭环 | nofollow workspace identity、持久安全 target、FFmpeg/FFprobe 三层预检、test worker drain；验收后删除三份报告 |
 
 ## Iteration Implementation Index
 
@@ -207,6 +208,7 @@
 | 148 | 建立可校验项目归档与安全导入 | `src/drama_project_archive.py`、`main.py`、`tests/test_drama_project_archive.py` |
 | 149 | 闭环 video ledger、job 巨整数与 archive help | `src/drama_video.py`、`src/web/jobs.py`、`main.py`、`tests/test_drama_video.py` |
 | 150 | 真人复验并修复短剧现有 SOP | `src/drama_local_demo.py`、`src/web/`、`scripts/run_local_drama_e2e.py`、`tests/test_drama_*.py` |
+| 151 | 闭环 workspace、Local Demo、媒体预检与 test worker | `src/paths.py`、`src/drama_local_demo.py`、`src/web/`、`tests/test_*.py` |
 
 ## Durable Decisions
 
@@ -306,9 +308,11 @@
 45. **来源 authority、完整图身份与单集选择策略必须分层闭包**：生产事件图应绑定 entity/rolling-summary 的 exact bytes，但完整 source graph 不应随 episode spoiler boundary 改写；RenderPlan 必须冻结 workspace/family、完整有序 membership 与可本地重算的 selected/allowed/boundary binding，并由 store 从当前 authority 重建。普通 SHA 仍只证明自洽，不是签名或 MAC。
 46. **辅助记忆必须是可丢弃索引，而不是第二真源**：context cache 只保存可从 current authority 重建的 event/source identity、role 与有界 query hash，并同时绑定 graph、selection、RenderPlan、episode 与 policy exact bytes；missing/delete 不应影响 canonical，任何 current binding drift 都只使 cache stale/blocked。query hash 对低熵输入可猜，不等于匿名化；应用层 token/CAS 也不能冒充抵抗 hostile 本地写者的 OS 原子保证。
 47. **工作台必须是当前事实的投影，不是新真源**：资产、镜头、attempt/task、timeline 和 QA 应由后端 current inspectors 在同一安全模型中重建，list/canvas 只是同一 fingerprint 的不同视图。顶层状态必须包含完整 ledger 汇总，不能因当前镜头或 UI 截断漏掉 retired unknown/submitted；声称 read-only 的 GET 连 lock/holder 也不应创建，并可用 double-scan 在无写锁下显式暴露并发变化。
+48. **身份复核与测试清理都必须覆盖实际写入窗口**：workspace 守门不能只在 selector 或请求入口检查，应在持久写前复核，并在写入新增可选 canonical 目录后刷新 identity，兼容部分初始化项目；test worker 必须 cooperative cancel 并 join 完成后才能恢复全局 workspace/env 或删除临时目录，timeout 应保留状态并明确失败。两者都不外推为抵抗最后复核后的非合作本机写者。
 
 ## Historical Evidence Notes
 
+- iter151 在 implementation `6ba71fa` 上 canonical 2918 tests / 15 steps / 473 秒通过，run `508c129255a54d31a536671a6bb312e4`，等级 `mock-functional`；桌面与 390×844 Local Demo 恢复为 `local-e2e`，本轮未调用真实 provider。
 - 早期阶段测试数、调用数、成本估算与具体 snapshot 是当时证据，不代表当前值；需要时读对应 iteration 001-019。
 - 真模型小说路径曾完成 extract、debate、write/review、原创 premise 多章和深起点续写样本；最新生产证据与仍待授权项以 handoff 为准。
 - Aeloon 的 PR、部署方式和 vendored 同步状态由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护，不在这里复制。
