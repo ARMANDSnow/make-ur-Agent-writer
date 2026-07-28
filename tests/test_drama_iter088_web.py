@@ -337,7 +337,7 @@ class DramaIter088WebTests(DramaTestBase):
         self.assertIn('window.PAGE_KIND = "drama_insights"', html)
         self.assertIn('id="drama-insights-cost"', html)
         self.assertIn('id="drama-insights-media-metrics"', html)
-        self.assertIn('/w/drama/insights', html)
+        self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 数据</span></span>', html)
 
         status, _ct, body = routes.dispatch("GET", "/api/workspace/drama/insights")
         self.assertEqual(status, 200, body.decode())

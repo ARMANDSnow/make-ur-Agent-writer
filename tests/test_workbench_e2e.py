@@ -82,7 +82,7 @@ class WorkbenchE2ETests(unittest.TestCase):
         html = body.decode("utf-8")
         self.assertIn('window.PAGE_KIND = "workbench"', html)
         self.assertIn("四阶段写书台", html)
-        self.assertIn("/w/pagebook/workbench", html)  # sidebar entry present
+        self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 工作台</span></span>', html)
 
     def test_workbench_page_is_novel_only(self) -> None:
         routes.dispatch(

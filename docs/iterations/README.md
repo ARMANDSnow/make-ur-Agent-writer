@@ -174,3 +174,4 @@
 159. [Iteration 150 - 短剧完整 SOP 前后端真人验证与修复](./iteration_150_short_drama_sop_full_validation.md)
 160. [Iteration 151 - 体检报告 Workspace、Local Demo 与 Worker 闭环](./iteration_151_health_report_workspace_local_demo_worker_closure.md)
 161. [Iteration 152 - 小说续写 Web UIUX 全量重设计规范](./iteration_152_novel_web_uiux_redesign_spec.md)
+162. [Iteration 153 - 小说 Web 浅色设计系统与共享组件落地](./iteration_153_novel_web_light_design_system_components.md)

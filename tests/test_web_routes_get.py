@@ -202,9 +202,10 @@ class RoutesGetTests(unittest.TestCase):
         # iter069: panel-type subtitle now lists three workflows, not two
         self.assertIn("三类工作流", html)
         self.assertNotIn("两类工作流", html)
-        # real-model discoverability link (honest about key + restart cost)
-        self.assertIn("想用真实模型", html)
-        self.assertIn("配置 API key 并重启服务", html)
+        # 真实生成入口说明使用面向用户的中文，不暴露配置字段名。
+        self.assertIn("需要使用真实生成服务时", html)
+        self.assertIn("完成连接配置并重启", html)
+        self.assertNotIn("API key", html)
         self.assertIn('href="/settings"', html)
         # both error containers exist, each scoped to its own panel
         self.assertIn('id="upload-error"', html)    # stays in upload panel (novelForm uses it)
@@ -282,13 +283,14 @@ class RoutesGetTests(unittest.TestCase):
         html = body.decode("utf-8")
         self.assertIn("准备续写", html)
         self.assertIn("继续写书", html)
-        self.assertIn("重生成并覆盖计划", html)
+        self.assertIn("重新生成并覆盖计划", html)
+        self.assertIn('id="plan-submit" class="btn btn-paid"', html)
         self.assertIn("start-point-form", html)
         self.assertIn("write-book-form", html)
         self.assertIn("plan-form", html)
         self.assertIn("write-preset-toggle", html)
         self.assertIn('name="tier"', html)
-        self.assertIn("本次最多花费 CNY", html)
+        self.assertIn("本次人民币额度上限", html)
         self.assertIn("高级参数", html)
         self.assertNotIn("draft-once-dev", html)
 
@@ -299,7 +301,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('data-plan-pane="chapters"', html)
         self.assertIn('data-plan-pane="outline"', html)
         self.assertIn('data-plan-pane="decisions"', html)
-        self.assertIn('href="/w/alpha/plan"', html)
+        self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 计划</span></span>', html)
         self.assertIn('window.PAGE_KIND = "plan"', html)
 
     def test_workspace_chapters_renders(self) -> None:
@@ -668,7 +670,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("function jobFailureLine", js)
         self.assertIn("result_summary.partial", js)
         self.assertIn("variant=partial", js)
-        self.assertIn("partial draft saved", js)
+        self.assertIn("已保留临时草稿", js)
 
     def test_api_recent_jobs_reads_persisted_jsonl(self) -> None:
         job = {
@@ -1174,7 +1176,7 @@ class RoutesGetTests(unittest.TestCase):
         js = body.decode("utf-8")
         self.assertIn("setPendingToastAndNavigate", js)
         self.assertIn('sessionStorage.removeItem("__pending_toast")', js)
-        self.assertIn('msg: "已删除 《" + name + "》', js)
+        self.assertIn('msg: "已将《" + name + "》移到回收站"', js)
 
     def test_static_js_restores_local_demo_from_server_validated_target(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
@@ -1225,7 +1227,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("renderWizardActions", js)
         self.assertIn("data-back-to-type", js)
         self.assertIn("window.setPendingToastAndNavigate", js)
-        self.assertIn('msg: "短剧 workspace 已创建：" + data.name', js)
+        self.assertIn('msg: "短剧作品已创建：" + data.name', js)
 
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must

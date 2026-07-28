@@ -72,7 +72,8 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self.assertIn("isPlainObject(rewriteMeta.style_drift_before)", static.JS_DASHBOARD)
         self.assertIn("isPlainObject(rewriteMeta.style_drift_after)", static.JS_DASHBOARD)
         self.assertIn("finiteStyleNumber(rewriteMeta.style_drift_improvement)", static.JS_DASHBOARD)
-        self.assertIn("escapeHtml(rewriteStatus)", static.JS_DASHBOARD)
+        self.assertIn('rewriteMeta.style_drift_unresolved === true ? "仍需调整" : "已完成"', static.JS_DASHBOARD)
+        self.assertNotIn("escapeHtml(rewriteStatus)", static.JS_DASHBOARD)
         audit_pos = static.JS_DASHBOARD.index("function renderStyleRewriteAudit")
         panel_pos = static.JS_DASHBOARD.index("function renderStyleDriftPanel")
         self.assertLess(audit_pos, panel_pos)
@@ -81,14 +82,14 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self.assertIn("+ rewriteHtml +", panel_block)
 
     def test_advisor_renderer_filters_entries_and_escapes_source_projection(self) -> None:
-        start = static.JS_DASHBOARD.index("// advisor tab")
+        start = static.JS_DASHBOARD.index("// 修改建议 tab")
         end = static.JS_DASHBOARD.index("// history tab", start)
         block = static.JS_DASHBOARD[start:end]
         self.assertIn("meta.rewrite_suggestions.filter(isPlainObject)", block)
-        self.assertIn('escapeHtml(s.type || "rewrite")', block)
-        self.assertIn('escapeHtml(s._advisor)', block)
         self.assertIn('escapeHtml(s.section || "(整段)")', block)
         self.assertIn('escapeHtml(s.guidance || "")', block)
+        self.assertNotIn("s.type", block)
+        self.assertNotIn("s._advisor", block)
         self.assertNotIn("target_range", block)
         self.assertNotIn("baseline", block)
 
@@ -102,7 +103,7 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self.assertIn("drift.top_dimensions.filter(isPlainObject)", js)
         self.assertIn("drift.skipped_dimensions.filter(isPlainObject)", js)
         self.assertIn("文风未检测", js)
-        self.assertIn("文风已跳过", js)
+        self.assertIn('drift.status === "skipped" ? "未检查" : "已检查"', js)
 
     def test_style_hash_deep_link_is_allowlisted(self) -> None:
         js = static.JS_DASHBOARD

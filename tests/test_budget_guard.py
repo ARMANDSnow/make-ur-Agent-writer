@@ -275,7 +275,7 @@ class PreflightBudgetWarnTests(unittest.TestCase):
             os.environ.pop("NOVEL_DEFAULT_BUDGET_CNY", None)
             html = templates.render_workspace_workbench("formws", ["formws"])
             self.assertIn('value="10"', html)
-        self.assertIn("0 = 不设上限", html)
+        self.assertIn("填 0 表示不设上限", html)
 
 
 if __name__ == "__main__":

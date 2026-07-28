@@ -21,6 +21,33 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
+USER_STATUS_LABELS = {
+    "pending": "等待中",
+    "queued": "等待中",
+    "running": "处理中",
+    "generating": "处理中",
+    "succeeded": "已完成",
+    "completed": "已完成",
+    "ok": "已完成",
+    "ready": "已就绪",
+    "blocked": "需要补充",
+    "failed": "未完成",
+    "error": "未完成",
+    "retry_error": "未完成",
+    "aborted": "已取消",
+    "cancelled": "已取消",
+    "canceled": "已取消",
+    "budget_exceeded": "额度不足",
+    "stale": "内容已更新",
+    "lost": "状态待确认",
+}
+
+
+def user_status_label(status: object) -> str:
+    """Return a user-facing status and fail closed for new enum values."""
+    return USER_STATUS_LABELS.get(str(status or "").lower(), "状态待确认")
+
+
 def job_actionable_summary(job: Mapping[str, Any]) -> str:
     status = str(job.get("status") or "?")
     icons = {
@@ -33,20 +60,10 @@ def job_actionable_summary(job: Mapping[str, Any]) -> str:
         "aborted": "!",
         "budget_exceeded": "¥",
     }
-    result = job.get("result_summary")
-    summary = result if isinstance(result, Mapping) else {}
-    first_blocked = summary.get("first_blocked")
-    blocked = first_blocked if isinstance(first_blocked, Mapping) else {}
-    reason = str(blocked.get("reason") or "")
-    line = _job_failure_line(job)
     icon = icons.get(status, "•")
     if status == "succeeded":
-        return icon + " succeeded" + (" · snapshot ready" if summary.get("snapshot_path") else "")
-    if reason:
-        return icon + " " + status + " · " + reason
-    if line:
-        return icon + " " + status + " · " + line
-    return icon + " " + status
+        return icon + " 已完成"
+    return icon + " " + user_status_label(status)
 
 
 def jobActionableSummary(job: Mapping[str, Any]) -> str:
@@ -103,6 +120,18 @@ CSS_BODY = """\
   --sienna-soft: #F4DCD2;
   --gold: #B89249;
   --gold-soft: #F4E7C7;
+
+  /* iter153 public/novel semantic aliases (Phase A) */
+  --ui-page-bg: #FBF7F0;
+  --ui-card-bg: #FFFEFB;
+  --ui-primary-bg: #E6EFE9;
+  --ui-paid-bg: #F8E7D3;
+  --ui-danger-bg: #F4DCD2;
+  --ui-text: #2A2520;
+  --ui-text-muted: #5C544A;
+  --ui-brand-text: #2E5343;
+  --ui-danger-text: #A8533D;
+  --ui-focus-ring: #3F6B5A;
 
   /* lines & shadows */
   --rule: #E7DFD2;
@@ -1470,6 +1499,165 @@ html { scroll-behavior: smooth; }
   button, .btn { min-height: 44px; }
   .btn-sm { min-height: 44px; }
 }
+
+/* ====================================================================== *
+ * iter153 Phase A/B: production public + novel component layer.
+ * Drama keeps its established production styling under `.ui-drama`; only
+ * structural base rules remain shared. The namespace makes future page work
+ * explicit and prevents visual changes from leaking into the drama cockpit.
+ * ====================================================================== */
+:where(.ui-public, .ui-novel) {
+  background: var(--ui-page-bg);
+  color: var(--ui-text);
+}
+:where(.ui-public, .ui-novel) .card,
+:where(.ui-public, .ui-novel) .sidebar,
+:where(.ui-public, .ui-novel) .modal,
+:where(.ui-public, .ui-novel) .toast {
+  background: var(--ui-card-bg);
+}
+:where(.ui-public, .ui-novel) .btn {
+  min-height: 44px;
+  min-width: 44px;
+  color: var(--ui-text);
+  border-radius: var(--radius-2);
+}
+:where(.ui-public, .ui-novel) button {
+  min-height: 44px;
+  min-width: 44px;
+}
+:where(.ui-public, .ui-novel) .btn-primary {
+  background: var(--ui-primary-bg);
+  color: var(--ui-brand-text);
+  border-color: #B8CEC1;
+}
+:where(.ui-public, .ui-novel) .btn-primary:hover:not(:disabled) {
+  background: #D8E8DE;
+  color: var(--ui-brand-text);
+  border-color: var(--ui-focus-ring);
+}
+:where(.ui-public, .ui-novel) .btn-secondary {
+  background: var(--ui-card-bg);
+  color: var(--ui-text);
+  border-color: var(--rule-strong);
+}
+:where(.ui-public, .ui-novel) .btn-secondary:hover:not(:disabled) {
+  background: var(--ui-primary-bg);
+  border-color: #B8CEC1;
+}
+:where(.ui-public, .ui-novel) .btn-ghost {
+  background: transparent;
+  color: var(--ui-text-muted);
+  border-color: transparent;
+}
+:where(.ui-public, .ui-novel) .btn-paid {
+  background: var(--ui-paid-bg);
+  color: var(--ui-text);
+  border-color: #D8AE7E;
+}
+:where(.ui-public, .ui-novel) .btn-paid:hover:not(:disabled) {
+  background: #F3DBC0;
+  color: var(--ui-text);
+  border-color: #B97B43;
+}
+:where(.ui-public, .ui-novel) .btn-danger {
+  background: var(--ui-danger-bg);
+  color: var(--ui-danger-text);
+  border-color: #D8A18F;
+}
+:where(.ui-public, .ui-novel) .btn-danger:hover:not(:disabled) {
+  background: #EFCFC2;
+  color: #7F3D2E;
+  border-color: var(--ui-danger-text);
+}
+:where(.ui-public, .ui-novel) .btn:focus-visible,
+:where(.ui-public, .ui-novel) .tab:focus-visible,
+:where(.ui-public, .ui-novel) .sidebar-item:focus-visible,
+:where(.ui-public, .ui-novel) a:focus-visible,
+:where(.ui-public, .ui-novel) input:focus-visible,
+:where(.ui-public, .ui-novel) select:focus-visible,
+:where(.ui-public, .ui-novel) textarea:focus-visible {
+  outline: 3px solid var(--ui-focus-ring);
+  outline-offset: 2px;
+}
+:where(.ui-public, .ui-novel) .btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+:where(.ui-public, .ui-novel) .btn[disabled],
+:where(.ui-public, .ui-novel) .btn[aria-disabled="true"] {
+  opacity: .52;
+  cursor: not-allowed;
+  transform: none;
+}
+:where(.ui-public, .ui-novel) .btn[aria-busy="true"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ui-busy-spin .75s linear infinite;
+}
+@keyframes ui-busy-spin { to { transform: rotate(360deg); } }
+:where(.ui-public, .ui-novel) .btn-icon {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+:where(.ui-public, .ui-novel) .field input,
+:where(.ui-public, .ui-novel) .field select,
+:where(.ui-public, .ui-novel) .field textarea {
+  min-height: 44px;
+}
+:where(.ui-public, .ui-novel) .field [aria-invalid="true"] {
+  border-color: var(--ui-danger-text);
+  box-shadow: 0 0 0 2px var(--ui-danger-bg);
+}
+:where(.ui-public, .ui-novel) .field :disabled {
+  background: var(--bg-sunken);
+  color: var(--ui-text-muted);
+}
+:where(.ui-public, .ui-novel) .field [readonly] {
+  background: #F8F3EA;
+  border-style: dashed;
+}
+:where(.ui-public, .ui-novel) .required-note {
+  color: var(--ui-danger-text);
+  margin-left: var(--space-1);
+  font-weight: 500;
+}
+:where(.ui-public, .ui-novel) .field-error {
+  color: var(--ui-danger-text);
+  min-height: 1.4em;
+}
+:where(.ui-public, .ui-novel) .sidebar-item,
+:where(.ui-public, .ui-novel) .tab {
+  min-height: 44px;
+}
+:where(.ui-public, .ui-novel) .sidebar-item.active {
+  box-shadow: inset 4px 0 0 var(--ui-focus-ring);
+  cursor: default;
+}
+:where(.ui-public, .ui-novel) .stage-card,
+:where(.ui-public, .ui-novel) .workbench-stage-card {
+  background: var(--ui-card-bg);
+  border-color: var(--rule);
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-public, .ui-novel) .btn[aria-busy="true"]::before { animation: none; }
+}
+@media (max-width: 600px) {
+  :where(.ui-public, .ui-novel) .workbench-stage-card > .card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  :where(.ui-public, .ui-novel) .workbench-stage-card > .card-header h3 {
+    white-space: nowrap;
+  }
+}
 """
 
 
@@ -1506,6 +1694,20 @@ JS_DASHBOARD = """\
   const CTA_ACTIONS = (function () {
     const out = {};
     const cat = window.READINESS_CATALOG || {};
+    const hints = {
+      start_point_missing: "先选择从原作哪一章之后开始续写。",
+      kb_missing: "先在工作台生成作品知识与角色设定。",
+      extraction_coverage_missing: "起点附近的设定提取待补充，请重建续写底座。",
+      outline_missing: "先生成或检查全书走向，再进入章节续写。",
+      outline_stale: "大纲与当前起点不一致，请重新生成；已写正文不受影响。",
+      outline_drift_severe: "近期剧情与大纲差异明显，建议重新生成大纲后再续写。",
+      chapter_plan_missing: "续写前需要先生成本章计划。",
+      chapter_plan_invalid: "章节计划无法读取，重新生成即可；已写正文不受影响。",
+      retry_exhausted: "已有草稿未达通过门槛，可查看后重新开始。",
+      preflight_failed: "当前运行条件尚未通过检查，请先查看待办。",
+      foreshadowing_overdue: "有必须回收的伏笔尚未处理。",
+      unknown: "续写条件尚未满足，请查看检查详情。",
+    };
     for (const kind in cat) {
       if (!Object.prototype.hasOwnProperty.call(cat, kind)) continue;
       const spec = cat[kind] || {};
@@ -1513,7 +1715,7 @@ JS_DASHBOARD = """\
         label: spec.label,
         action: spec.cta_action,
         cta_label: spec.cta_label,
-        hint: spec.cause,
+        hint: hints[kind] || "请检查当前作品状态后再继续。",
       };
     }
     // iter 050 (B3-hint): the whole fingerprint failure family
@@ -1538,6 +1740,34 @@ JS_DASHBOARD = """\
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
     });
+  }
+  function setControlBusy(control, busy, label) {
+    if (!control) return;
+    if (busy) {
+      if (control.getAttribute("aria-busy") !== "true") {
+        control.dataset.uiIdleLabel = control.textContent.trim();
+        control.dataset.uiWasDisabled = control.disabled ? "1" : "0";
+      }
+      control.disabled = true;
+      control.setAttribute("aria-busy", "true");
+      if (label) control.textContent = label;
+    } else {
+      control.disabled = control.dataset.uiWasDisabled === "1";
+      control.removeAttribute("aria-busy");
+      if (control.dataset.uiIdleLabel) control.textContent = control.dataset.uiIdleLabel;
+      delete control.dataset.uiIdleLabel;
+      delete control.dataset.uiWasDisabled;
+    }
+  }
+  function setFormSubmitBusy(form, busy, label) {
+    if (!form) return;
+    const controls = Array.prototype.slice.call(form.querySelectorAll('button[type="submit"], input[type="submit"]'));
+    if (form.id) {
+      document.querySelectorAll('[form="' + CSS.escape(form.id) + '"]').forEach(function (control) {
+        if (controls.indexOf(control) < 0) controls.push(control);
+      });
+    }
+    controls.forEach(function (control) { setControlBusy(control, busy, label); });
   }
   // iter 050 (D1): keep status + payload on the thrown error and translate
   // the bare "workspace busy" 409 into an actionable message. Every caller
@@ -1707,21 +1937,25 @@ JS_DASHBOARD = """\
     return '<span class="badge ' + escapeHtml(cls) + '">' + escapeHtml(statusLabel(raw)) + "</span>";
   }
   const STATUS_LABELS = {
-    succeeded: "已完成", completed: "已完成", ok: "成功", ready: "已就绪",
-    pending: "等待中", queued: "排队中", running: "进行中", generating: "生成中",
-    failed: "失败", error: "失败", retry_error: "本次失败", blocked: "已阻断",
-    cancelled: "已取消", canceled: "已取消", unknown: "未知",
+    succeeded: "已完成", completed: "已完成", ok: "已完成", ready: "已就绪",
+    pending: "等待中", queued: "等待中", running: "处理中", generating: "处理中",
+    failed: "未完成", error: "未完成", retry_error: "未完成", blocked: "需要补充",
+    aborted: "已取消", cancelled: "已取消", canceled: "已取消",
+    budget_exceeded: "额度不足", stale: "内容已更新", lost: "状态待确认",
   };
   function statusLabel(status) {
-    const raw = String(status || "unknown");
-    return STATUS_LABELS[raw.toLowerCase()] || raw;
+    const raw = String(status || "").toLowerCase();
+    return STATUS_LABELS[raw] || "状态待确认";
   }
   function verdictBadge(verdict) {
     if (!verdict) return '<span class="badge no-dot">—</span>';
     const v = String(verdict).toLowerCase();
     const cls = v === "approve" ? "approve" : v === "reject" ? "reject" : "abstain";
-    const labels = { approve: "通过", reject: "驳回", abstain: "待定" };
-    return '<span class="badge ' + cls + '">' + escapeHtml(labels[v] || verdict) + "</span>";
+    return '<span class="badge ' + cls + '">' + escapeHtml(verdictLabel(v)) + "</span>";
+  }
+  function verdictLabel(verdict) {
+    const labels = { approve: "通过", reject: "驳回", abstain: "待定", failure: "未完成" };
+    return labels[String(verdict || "").toLowerCase()] || "状态待确认";
   }
   function finiteStyleNumber(value) {
     if (value == null || typeof value === "boolean") return null;
@@ -1740,9 +1974,9 @@ JS_DASHBOARD = """\
     const severity = drift.severity ? String(drift.severity).toLowerCase() : "skipped";
     const score = finiteStyleNumber(drift.style_drift_score);
     const cls = severity === "ok" ? "approve" : severity === "warn" ? "warn" : severity === "red" ? "reject" : "no-dot badge-muted";
-    const label = severity === "skipped"
-      ? "文风已跳过"
-      : "文风 " + severity + (Number.isFinite(score) ? " " + score.toFixed(2) : "");
+    const severityLabels = { ok: "文风稳定", warn: "文风需留意", red: "文风偏离明显", skipped: "文风未检查" };
+    const label = (severityLabels[severity] || "文风状态待确认") +
+      (severity !== "skipped" && Number.isFinite(score) ? " " + score.toFixed(2) : "");
     return '<span class="badge ' + cls + '">' + escapeHtml(label) + "</span>";
   }
   function styleRewriteBadge(meta) {
@@ -1756,7 +1990,7 @@ JS_DASHBOARD = """\
     return '<span class="badge no-dot badge-novel">小说</span>';
   }
   function mutedStatusBadge(status) {
-    return '<span class="badge no-dot badge-muted">' + escapeHtml(status || "?") + "</span>";
+    return '<span class="badge no-dot badge-muted">' + escapeHtml(statusLabel(status)) + "</span>";
   }
   function tableScroll(html) {
     return '<div class="table-scroll">' + html + "</div>";
@@ -1791,7 +2025,7 @@ JS_DASHBOARD = """\
       label: fallback && fallback.label || base.label || "需要处理",
       action: fallback && fallback.cta_action || base.action || "show_diagnostics",
       cta_label: fallback && fallback.cta_label || base.cta_label || "查看诊断",
-      hint: base.hint || (fallback && fallback.raw) || "",
+      hint: base.hint || "请检查当前作品状态后再继续。",
     };
   }
   function renderCtaButton(kind, fallback, cls) {
@@ -1917,9 +2151,12 @@ JS_DASHBOARD = """\
     if (p && p.payload && p.payload.card) return p.payload.card;
     if (p && p.card) return p.card;
     if (p && p.code && FRONT_ERROR_CATALOG[p.code]) return FRONT_ERROR_CATALOG[p.code];
-    var msg = (p && p.payload && p.payload.error) || (p && p.message) ||
-      (p && p.error) || (typeof p === "string" ? p : "") || "未知错误";
-    return { code: "client_error", title: "出错了", cause: msg, actions: [], trace_id: "", technical: "" };
+    return {
+      code: "client_error",
+      title: "操作没有完成",
+      cause: "当前内容已保留。请检查页面提示后重试；如果问题持续出现，可刷新页面再查看任务记录。",
+      actions: [], trace_id: "", technical: "",
+    };
   }
   function renderErrorCard(payload) {
     var card = _normalizeErrorCard(payload);
@@ -1933,7 +2170,7 @@ JS_DASHBOARD = """\
       '<p class="error-card-cause">' + escapeHtml(card.cause || "") + "</p></div></div>" +
       (actions ? '<div class="error-card-actions cluster">' + actions + "</div>" : "") +
       (card.trace_id ? '<p class="error-card-trace">编号 <code>' + escapeHtml(card.trace_id) + "</code> " + copyButton(card.trace_id) + "</p>" : "") +
-      (card.technical ? '<details class="details-fold error-card-tech"><summary>技术详情</summary><pre>' + escapeHtml(card.technical) + "</pre></details>" : "") +
+      (document.querySelector(".ui-drama") && card.technical ? '<details class="details-fold error-card-tech"><summary>技术详情</summary><pre>' + escapeHtml(card.technical) + "</pre></details>" : "") +
       "</div>";
   }
   // iter063 A2: prefer the backend card's friendly title for one-line error
@@ -1942,16 +2179,18 @@ JS_DASHBOARD = """\
   function errTitle(err) {
     if (err && err.payload && err.payload.card && err.payload.card.title) return err.payload.card.title;
     if (err && err.card && err.card.title) return err.card.title;
+    if (err && err.code && FRONT_ERROR_CATALOG[err.code]) return FRONT_ERROR_CATALOG[err.code].title;
     const raw = err && err.payload && err.payload.error;
     const friendly = {
       real_image_would_be_overwritten: "已有付费生成的参考图，本地预览不会覆盖它",
       paid_image_state_requires_repair: "付费生图记录需要修复，已停止覆盖参考图",
     };
     if (raw && friendly[raw]) return friendly[raw];
-    return (err && err.message) || "出错了";
+    if (document.querySelector(".ui-drama")) return (err && err.message) || "出错了";
+    return "操作没有完成";
   }
-  // Translate a raw readiness blocker code into human text for the diagnostic
-  // list (reuses CTA_ACTIONS; raw code still shown folded in the details).
+  // Translate readiness codes into bounded user copy. Unknown codes fail
+  // closed instead of exposing enum names, exception types, or path fragments.
   function readinessReasonText(code) {
     var k = String(code || "").split(":")[0];
     var cfg = CTA_ACTIONS[k];
@@ -1963,7 +2202,19 @@ JS_DASHBOARD = """\
       chapter_plan_invalid: "章节计划文件损坏",
       preflight_failed: "工程预检未通过",
     };
-    return named[k] || code || "未知阻断项";
+    return named[k] || "有一项续写条件需要补充";
+  }
+  function readinessWarningText(code) {
+    const raw = String(code || "");
+    if (raw.startsWith("preflight:")) return "运行检查有一项建议需要确认";
+    if (raw.startsWith("outline_")) return "大纲与近期剧情存在差异，建议先复核";
+    if (raw.startsWith("extraction:")) return "起点附近的设定提取待补充";
+    if (raw.startsWith("rolling_summary_gap:")) return "部分前文摘要待补充";
+    if (raw.startsWith("entity_proposal_gap:")) return "部分实体变更待确认";
+    if (raw.startsWith("chapter_")) return "有一章需要额外确认";
+    if (raw.startsWith("foreshadowing_boundary_overdue:")) return "有伏笔接近或超过建议回收时间";
+    if (raw.includes("knowledge_index")) return "作品知识库索引待补充，可能影响起点过滤";
+    return "有一项建议需要确认";
   }
   function copyButton(text) {
     return (
@@ -2313,9 +2564,8 @@ JS_DASHBOARD = """\
     if (nextAction) {
       const status = readiness.status || "blocked";
       const blockers = readiness.blockers || [];
-      const commands = readiness.recommended_commands || [];
       const start = item.start_point && item.start_point.has_start_point
-        ? (item.start_point.start_chapter_id || "（已设置）")
+        ? "已设置"
         : "未设置";
       let hint = "";
       let cta = '<a class="btn btn-primary" href="/w/' + encodeURIComponent(ws) + '/continue">▸ 进入续写</a>';
@@ -2331,35 +2581,25 @@ JS_DASHBOARD = """\
         '<p class="eyebrow ornament">下一步</p>' +
         '<h2>' + escapeHtml(hint) + '</h2>' +
         '<p class="hint">起点：' + escapeHtml(start) + '　·　计划：' + ((item.plan || {}).chapters || 0) + ' 章</p>' +
-        '<div class="cta-row">' + cta +
-        (commands.length ? '<a class="btn btn-ghost" href="#commands">查看建议命令</a>' : "") + '</div>';
+        '<div class="cta-row">' + cta + '</div>';
     }
     const blockersBox = document.getElementById("overview-blockers");
     if (blockersBox) {
       const blockers = readiness.blockers || [];
       const warnings = readiness.warnings || [];
-      const commands = readiness.recommended_commands || [];
       const parts = [];
       if (blockers.length) {
         parts.push(
           '<div class="alert error"><strong>阻断：</strong>' +
           blockers.map(function (b) {
-            return escapeHtml(readinessReasonText(b)) + ' <span class="muted">(' + escapeHtml(b) + ')</span>';
+            return escapeHtml(readinessReasonText(b));
           }).join("<br>") + "</div>"
         );
       }
       if (warnings.length) {
         parts.push(
           '<div class="alert warn"><strong>警示：</strong>' +
-          warnings.map(escapeHtml).join("<br>") + "</div>"
-        );
-      }
-      if (commands.length) {
-        parts.push(
-          '<div id="commands" class="command-list">' +
-          '<p class="eyebrow">建议命令</p>' +
-          commands.map((c) => "<code>" + escapeHtml(c) + "</code>").join("") +
-          "</div>"
+          warnings.map(function (warning) { return escapeHtml(readinessWarningText(warning)); }).join("<br>") + "</div>"
         );
       }
       blockersBox.innerHTML = parts.join("") ||
@@ -2372,24 +2612,39 @@ JS_DASHBOARD = """\
     if (statusBox) {
       statusBox.innerHTML = skeleton(4);
       fetchJson(wsUrl("/status"))
-        .then((d) => { statusBox.innerHTML = renderKV(d); })
+        .then((d) => { statusBox.innerHTML = renderNovelStatusDetails(d); })
         .catch((e) => { statusBox.innerHTML = renderErrorCard(e); });
     }
     if (costBox) {
       costBox.innerHTML = skeleton(3);
       fetchJson(wsUrl("/cost"))
-        .then((d) => { costBox.innerHTML = renderKV(d); })
+        .then((d) => { costBox.innerHTML = renderNovelUsageDetails(d); })
         .catch((e) => { costBox.innerHTML = renderErrorCard(e); });
     }
   }
-  function renderKV(obj) {
-    if (!obj || typeof obj !== "object") return '<p class="muted">(empty)</p>';
-    const rows = [];
-    for (const [k, v] of Object.entries(obj)) {
-      const val = typeof v === "object" ? JSON.stringify(v) : String(v);
-      rows.push('<div class="k">' + escapeHtml(k) + '</div><div class="v">' + escapeHtml(val) + "</div>");
-    }
-    return rows.length ? '<div class="kv-list compact">' + rows.join("") + "</div>" : '<p class="muted">(empty)</p>';
+  function renderNovelStatusDetails(data) {
+    const rows = [
+      ["原文整理", data && data.normalize && data.normalize.done ? "已完成" : "未开始"],
+      ["章节切分", data && data.split && data.split.done ? "已完成" : "未开始"],
+      ["设定整理", data && data.compress && data.compress.done ? "已完成" : "未开始"],
+      ["故事大纲", data && data.debate && data.debate.done ? "已完成" : "未开始"],
+      ["续写草稿", Number(data && data.write && data.write.drafts || 0) + " 章"],
+      ["评审记录", Number(data && data.review && data.review.review_reports || 0) + " 份"],
+    ];
+    return '<div class="kv-list compact">' + rows.map(function (row) {
+      return '<div class="k">' + row[0] + '</div><div class="v">' + escapeHtml(row[1]) + '</div>';
+    }).join("") + '</div>';
+  }
+  function renderNovelUsageDetails(data) {
+    const rows = [
+      ["原文章节", Number(data && data.chapters || 0) + " 章"],
+      ["原文字数", Number(data && data.source_chars || 0) + " 字"],
+      ["已记录生成调用", Number(data && data.llm_logged_calls || 0) + " 次"],
+      ["设定抽取任务", Number(data && data.extract_calls || 0) + " 次"],
+    ];
+    return '<div class="kv-list compact">' + rows.map(function (row) {
+      return '<div class="k">' + row[0] + '</div><div class="v">' + escapeHtml(row[1]) + '</div>';
+    }).join("") + '</div>';
   }
 
   async function loadDramaOverview() {
@@ -2475,6 +2730,10 @@ JS_DASHBOARD = """\
       // this internal close directly). Backward-compatible: unset = no-op.
       if (typeof opts.onClose === "function") opts.onClose();
     }
+    const app = document.querySelector(".app");
+    if (app && app.classList.contains("ui-public")) backdrop.classList.add("ui-public");
+    if (app && app.classList.contains("ui-novel")) backdrop.classList.add("ui-novel");
+    if (app && app.classList.contains("ui-drama")) backdrop.classList.add("ui-drama");
     document.body.appendChild(backdrop);
     document.addEventListener("keydown", onKeyDown);
     _activeModalTeardown = close;
@@ -2484,6 +2743,40 @@ JS_DASHBOARD = """\
     }, 0);
     return close;
   }
+  function confirmPaidAction(options) {
+    options = options || {};
+    return new Promise(function (resolve) {
+      let settled = false;
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="paid-action-title">' +
+        '<div class="modal-header" id="paid-action-title">' + escapeHtml(options.title || "确认生成") + '</div>' +
+        '<div class="modal-body"><p>' + escapeHtml(options.action || "将开始一次生成操作。") + '</p>' +
+        '<div class="alert warn">启用真实生成服务时，本次操作可能使用人民币额度；离线模式不会使用真实额度。</div>' +
+        '<p>' + escapeHtml(options.preservation || "已有内容会保留；开始后可在任务记录中查看进度或请求取消。") + '</p>' +
+        (options.scope ? '<p><strong>本次范围：</strong>' + escapeHtml(options.scope) + '</p>' : '') +
+        '</div><div class="modal-footer">' +
+        '<button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
+        '<button type="button" class="btn btn-paid" data-paid-action-confirm>确认并开始</button>' +
+        '</div></div>';
+      function finish(value) {
+        if (settled) return;
+        settled = true;
+        close();
+        resolve(value);
+      }
+      const close = mountModal(backdrop, {
+        initialFocus: backdrop.querySelector("[data-modal-close]"),
+        onClose: function () { if (!settled) { settled = true; resolve(false); } },
+      });
+      backdrop.addEventListener("click", function (ev) {
+        if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) finish(false);
+      });
+      backdrop.querySelector("[data-paid-action-confirm]").addEventListener("click", function () { finish(true); });
+    });
+  }
+  window.uiConfirmPaidAction = confirmPaidAction;
 
   function showDeleteModal(name) {
     const backdrop = document.createElement("div");
@@ -2492,11 +2785,10 @@ JS_DASHBOARD = """\
       '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">' +
       '<div class="modal-header" id="modal-title">删除作品 《' + escapeHtml(name) + '》</div>' +
       '<div class="modal-body">' +
-      '<p>这一步会把整个工作区移动到 <code>workspaces/_trash/</code>，' +
-      '并不会立即从磁盘 rm。要彻底清理需要你手动删除 trash 目录。</p>' +
+      '<p>这一步会把整个作品移到回收站，已有内容会保留，之后仍可恢复。</p>' +
       '<p>为了避免误删，请在下方输入 <strong>' + escapeHtml(name) + '</strong> 以确认。</p>' +
       '<div class="field">' +
-      '<label>workspace 名</label>' +
+      '<label>作品名称</label>' +
       '<input type="text" id="modal-confirm-input" autocomplete="off" placeholder="' +
       escapeHtml(name) + '">' +
       '</div>' +
@@ -2521,17 +2813,18 @@ JS_DASHBOARD = """\
     });
     confirmBtn.addEventListener("click", async function () {
       confirmBtn.disabled = true;
-      errBox.innerHTML = '<div class="alert info">正在移动到 trash…</div>';
+      setControlBusy(confirmBtn, true, "正在移除");
+      errBox.innerHTML = '<div class="alert info">正在移到回收站；已有内容会保留。</div>';
       try {
         const data = await postJson("/api/workspace/" + encodeURIComponent(name) + "/delete",
           { confirm: name });
         window.setPendingToastAndNavigate(
-          { kind: "info", msg: "已删除 《" + name + "》 → " + data.trashed_to },
+          { kind: "info", msg: "已将《" + name + "》移到回收站" },
           "/library"
         );
       } catch (err) {
         errBox.innerHTML = renderErrorCard(err);
-        confirmBtn.disabled = false;
+        setControlBusy(confirmBtn, false);
       }
     });
   }
@@ -2539,13 +2832,14 @@ JS_DASHBOARD = """\
   // iter071: map internal step ids (jobs.py STEP_HANDLERS keys) to the Chinese
   // the user should actually see — raw ids like "write-book" must never leak
   // into user-facing copy (the leave-guard modal surfaced this). Unknown ids
-  // fall back to the id so a new backend step is still legible, not blank.
+  // fail closed for unknown ids so a new backend step cannot leak into UI.
   const STEP_LABELS = {
     "normalize": "规范化原文", "split": "切分章节", "extract": "抽取设定",
     "compress": "构建知识库", "bootstrap": "生成实体提案", "apply-bootstrap": "应用实体提案",
     "debate": "生成大纲", "plan-chapters": "规划章节", "write-book": "续写正文",
     "review-chapter": "评审章节", "draft-once-dev": "试写一章",
-    "auto-pipeline-greenfield": "一键开新书", "prepare-greenfield": "准备开新书",
+    "auto-pipeline": "导入并初始化作品", "auto-pipeline-greenfield": "一键开新书",
+    "prepare-greenfield": "准备开新书",
     "rebuild-for-start": "重建续写底座", "expand-premise": "扩写设定",
     "extract-style": "提取文风",
     "drama-plan": "短剧站①核心设定", "drama-hooks": "短剧站②钩子",
@@ -2559,7 +2853,15 @@ JS_DASHBOARD = """\
     "drama-compose": "短剧本地合成交付",
   };
   function stepLabel(step) {
-    return STEP_LABELS[step] || step || "任务";
+    return STEP_LABELS[step] || "未识别步骤";
+  }
+  const PAID_NOVEL_JOB_STEPS = new Set([
+    "extract", "compress", "bootstrap", "debate", "plan-chapters", "write-book",
+    "review-chapter", "draft-once-dev", "auto-pipeline-greenfield",
+    "auto-pipeline", "prepare-greenfield", "rebuild-for-start", "expand-premise", "extract-style",
+  ]);
+  function isPaidNovelJobStep(step) {
+    return PAID_NOVEL_JOB_STEPS.has(String(step || ""));
   }
 
   // iter072 (#2): the leave-guard's primary button must name where it goes.
@@ -2841,20 +3143,19 @@ JS_DASHBOARD = """\
     if (!box) return;
     const votes = Array.isArray(decisions && decisions.votes) ? decisions.votes : [];
     if (!votes.length) {
-      box.innerHTML = '<p class="muted">decisions.json 不存在或没有 votes。</p>';
+      box.innerHTML = '<p class="muted">尚无创作讨论记录。</p>';
       return;
     }
     const head =
       '<div class="alert info" style="margin-bottom:16px">' +
       '<strong>主题：</strong>' + escapeHtml(decisions.topic || "(未命名)") +
-      '　·　<strong>聚合：</strong>' + escapeHtml(decisions.aggregation_method || "—") +
-      '　·　<strong>transcript 段：</strong>' + escapeHtml(String(decisions.transcript_items || 0)) +
+      '　·　<strong>讨论片段：</strong>' + escapeHtml(String(decisions.transcript_items || 0)) +
       '</div>';
     const cards = votes.map(function (v) {
       const fors = (v["for"] || []).join("；") || "—";
       const againsts = (v.against || []).join("；") || "—";
-      const agents = (Array.isArray(v.agent_votes) ? v.agent_votes : []).map(function (a) {
-        return '<li><strong>' + escapeHtml(a.agent_name || "?") + '</strong> · ' +
+      const agents = (Array.isArray(v.agent_votes) ? v.agent_votes : []).map(function (a, index) {
+        return '<li><strong>参与角色 ' + (index + 1) + '</strong> · ' +
           escapeHtml(a.position || "—") + '：' + escapeHtml(a.reason || "—") + '</li>';
       }).join("");
       return (
@@ -2864,7 +3165,7 @@ JS_DASHBOARD = """\
         '<p><strong>裁决：</strong>' + escapeHtml(v.result || "—") + '</p>' +
         '<p><strong>支持：</strong>' + escapeHtml(fors) + '</p>' +
         '<p><strong>反对：</strong>' + escapeHtml(againsts) + '</p>' +
-        (agents ? '<details><summary class="muted">agent_votes (' + (v.agent_votes || []).length + ')</summary><ul>' + agents + '</ul></details>' : '') +
+        (agents ? '<details><summary class="muted">参与角色（' + (v.agent_votes || []).length + '）</summary><ul>' + agents + '</ul></details>' : '') +
         '</div></div>'
       );
     }).join("");
@@ -2891,21 +3192,21 @@ JS_DASHBOARD = """\
       const rows = entries.map(function (e) {
         return (
           '<tr>' +
-          '<td><code>' + escapeHtml(e.entry) + '</code></td>' +
           '<td>' + escapeHtml(e.original_name) + '</td>' +
           '<td><span class="muted">' + escapeHtml(e.deleted_at) + '</span></td>' +
           '<td>' + escapeHtml(String(e.size_mb)) + ' MB</td>' +
           '<td>' + escapeHtml(String(e.file_count)) + '</td>' +
           '<td class="cluster">' +
-          '<button class="btn btn-secondary btn-sm" data-trash-restore="' + escapeHtml(e.entry) + '">restore</button>' +
-          '<button class="btn btn-danger btn-sm" data-trash-purge="' + escapeHtml(e.entry) + '">purge</button>' +
+          '<button class="btn btn-secondary btn-sm" data-trash-restore="' + escapeHtml(e.entry) + '">恢复</button>' +
+          '<button class="btn btn-danger btn-sm" data-trash-purge="' + escapeHtml(e.entry) +
+          '" data-trash-name="' + escapeHtml(e.original_name) + '">永久删除</button>' +
           '</td>' +
           '</tr>'
         );
       }).join("");
       box.innerHTML =
         '<table class="table"><thead><tr>' +
-        '<th>entry</th><th>原 name</th><th>删除时间</th><th>大小</th><th>文件</th><th></th>' +
+        '<th>作品</th><th>删除时间</th><th>大小</th><th>文件</th><th>操作</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table>';
     } catch (err) {
       box.innerHTML = renderErrorCard(err);
@@ -2916,33 +3217,33 @@ JS_DASHBOARD = """\
     if (r) {
       ev.preventDefault();
       const entry = r.getAttribute("data-trash-restore");
-      r.disabled = true;
+      setControlBusy(r, true, "正在恢复");
       try {
         const data = await postJson("/api/trash/" + encodeURIComponent(entry) + "/restore", {});
-        showToast("已 restore：" + data.restored_to, "info");
+        showToast("已恢复作品：《" + data.restored_to + "》", "info");
         await reloadTrashList();
       } catch (err) {
-        showToast("restore 失败：" + errTitle(err), "error");
-        r.disabled = false;
+        showToast("恢复没有完成：" + errTitle(err), "error");
+        setControlBusy(r, false);
       }
       return;
     }
     const p = ev.target.closest("[data-trash-purge]");
     if (p) {
       ev.preventDefault();
-      showPurgeModal(p.getAttribute("data-trash-purge"));
+      showPurgeModal(p.getAttribute("data-trash-purge"), p.getAttribute("data-trash-name") || "作品");
     }
   });
-  function showPurgeModal(entry) {
+  function showPurgeModal(entry, originalName) {
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML =
-      '<div class="modal" role="dialog" aria-modal="true">' +
-      '<div class="modal-header">永久删除 <code>' + escapeHtml(entry) + '</code></div>' +
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="purge-title">' +
+      '<div class="modal-header" id="purge-title">永久删除作品</div>' +
       '<div class="modal-body">' +
-      '<p>这一步会从磁盘 <code>shutil.rmtree</code> 这个条目，<strong>无法恢复</strong>。</p>' +
-      '<p>输入 <strong>' + escapeHtml(entry) + '</strong> 以确认。</p>' +
-      '<div class="field"><label>entry 名</label>' +
+      '<p>这一步会永久移除作品及其本地内容，<strong>完成后无法恢复</strong>。</p>' +
+      '<p>请输入作品名称 <strong>' + escapeHtml(originalName) + '</strong> 以继续。</p>' +
+      '<div class="field"><label>确认名称</label>' +
       '<input type="text" id="modal-purge-input" autocomplete="off">' +
       '</div>' +
       '<div id="modal-purge-error"></div>' +
@@ -2956,22 +3257,22 @@ JS_DASHBOARD = """\
     const err = backdrop.querySelector("#modal-purge-error");
     const close = mountModal(backdrop, { initialFocus: input });
     input.addEventListener("input", function () {
-      btn.disabled = input.value !== entry;
+      btn.disabled = input.value !== originalName;
     });
     backdrop.addEventListener("click", function (ev) {
       if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
     });
     btn.addEventListener("click", async function () {
-      btn.disabled = true;
-      err.innerHTML = '<div class="alert info">正在 purge…</div>';
+      setControlBusy(btn, true, "正在删除");
+      err.innerHTML = '<div class="alert info">正在永久删除；完成前请不要关闭页面。</div>';
       try {
         await postJson("/api/trash/" + encodeURIComponent(entry) + "/purge", { confirm: entry });
         close();
-        showToast("已永久删除：" + entry, "info");
+        showToast("已永久删除作品：《" + originalName + "》", "info");
         await reloadTrashList();
       } catch (e) {
         err.innerHTML = renderErrorCard(e);
-        btn.disabled = false;
+        setControlBusy(btn, false);
       }
     });
   }
@@ -3051,7 +3352,7 @@ JS_DASHBOARD = """\
         }
         loaded = true;
       } catch (err) {
-        kbArea.placeholder = "知识库尚未生成（" + err.message + "）";
+        kbArea.placeholder = "知识库尚未生成；请检查当前步骤后重试。";
       }
       await loadExpansionPanel();
       await renderEntityPanel();
@@ -3172,7 +3473,7 @@ JS_DASHBOARD = """\
       try {
         await putJson(wsUrl("/premise-expansion"), { fields: fields });
         for (const f of EXPANSION_FIELDS) delete els[f.key].dataset.dirty;
-        showToast("扩写稿已保存；需重新生成设定（KB / 实体）才会生效", "info");
+        showToast("扩写稿已保存；需重新生成作品知识与角色设定才会生效", "info");
         await refreshWorkbench();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
@@ -3181,8 +3482,12 @@ JS_DASHBOARD = """\
       }
     });
     regen.addEventListener("click", async function () {
-      if (!window.confirm("重新扩写会覆盖当前扩写稿（含手工修改），确定？")) return;
-      regen.disabled = true;
+      if (!await confirmPaidAction({
+        title: "确认重新扩写",
+        action: "将重新生成立意扩写稿，并覆盖当前扩写稿（包括手工修改）。",
+        preservation: "作品其它内容会保留；开始后可在任务记录中查看进度或请求取消。",
+      })) return;
+      setControlBusy(regen, true, "处理中");
       if (box) box.innerHTML = '<div class="alert info">正在重新扩写…</div>';
       try {
         const data = await postJson(wsUrl("/run"), { step: "expand-premise", params: { force: true } });
@@ -3193,7 +3498,7 @@ JS_DASHBOARD = """\
         });
       } catch (err) {
         if (box) box.innerHTML = renderErrorCard(err);
-        regen.disabled = false;
+        setControlBusy(regen, false);
       }
     });
   }
@@ -3326,7 +3631,12 @@ JS_DASHBOARD = """\
       if (fileEl && fileEl.files && fileEl.files[0]) fd.append("sample", fileEl.files[0]);
       if (textEl && textEl.value.trim()) fd.append("text", textEl.value);
       if (!fd.has("sample") && !fd.has("text")) { showToast("请粘贴样本或选择文件", "error"); return; }
-      extractBtn.disabled = true;
+      if (!await confirmPaidAction({
+        title: "确认提取写作风格",
+        action: "将从你提供的样本中提取写作风格。",
+        preservation: "样本文本不会覆盖作品正文；开始后可在任务记录中查看进度。",
+      })) return;
+      setControlBusy(extractBtn, true, "处理中");
       if (box) box.innerHTML = '<div class="alert info">正在提取风格特征…</div>';
       try {
         const resp = await fetch(wsUrl("/writer-style/extract"), { method: "POST", body: fd });
@@ -3339,7 +3649,7 @@ JS_DASHBOARD = """\
         });
       } catch (err) {
         if (box) box.innerHTML = renderErrorCard(err);
-        extractBtn.disabled = false;
+        setControlBusy(extractBtn, false);
       }
     });
   }
@@ -3453,14 +3763,19 @@ JS_DASHBOARD = """\
     const box = document.getElementById(boxId);
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      if (submit) submit.disabled = true;
       // iter068 (Cluster A): step may be a function so the same form can dispatch
       // a different job by current state — stage ① runs rebuild-for-start for an
       // existing book (has_start_point) but prepare-greenfield for a greenfield
       // premise. Resolved here at submit time, after refreshWorkbench populated
       // lastWorkbenchStatus.
       const stepName = typeof step === "function" ? step() : step;
-      if (box) box.innerHTML = '<div class="alert info">正在运行 ' + escapeHtml(stepName) + "…</div>";
+      if (!await confirmPaidAction({
+        title: "确认" + stepLabel(stepName),
+        action: "将开始“" + stepLabel(stepName) + "”。",
+        preservation: "已有作品内容会保留；开始后可在任务记录中查看进度或请求取消。",
+      })) return;
+      setControlBusy(submit, true, "处理中");
+      if (box) box.innerHTML = '<div class="alert info">正在启动“' + escapeHtml(stepLabel(stepName)) + "”…</div>";
       try {
         const params = paramsFn ? paramsFn(form) : {};
         const data = await postJson(wsUrl("/run"), { step: stepName, params: params });
@@ -3473,7 +3788,7 @@ JS_DASHBOARD = """\
         });
       } catch (err) {
         if (box) box.innerHTML = renderErrorCard(err);
-        if (submit) submit.disabled = false;
+        setControlBusy(submit, false);
       }
     });
   }
@@ -3512,11 +3827,26 @@ JS_DASHBOARD = """\
     const bar = document.getElementById("workbench-stepbar");
     if (!bar) return;
     const steps = [
-      { key: "prepare", label: "① 设定", target: "stage-prepare-card", done: !!st.has_kb, locked: false },
-      { key: "outline", label: "② 大纲", target: "stage-outline-card", done: !!st.has_outline, locked: !st.has_kb },
-      { key: "plan", label: "③ 细纲", target: "stage-plan-card", done: !!st.has_plan, locked: !st.has_outline },
-      { key: "write", label: "④ 正文", target: "stage-write-card", done: st.stage === "done", locked: !st.has_plan },
+      { key: "prepare", label: "① 准备设定", target: "stage-prepare-card", done: !!st.has_kb, locked: false },
+      { key: "outline", label: "② 生成大纲", target: "stage-outline-card", done: !!st.has_outline, locked: !st.has_kb },
+      { key: "plan", label: "③ 生成细纲", target: "stage-plan-card", done: !!st.has_plan, locked: !st.has_outline },
+      { key: "write", label: "④ 撰写正文", target: "stage-write-card", done: st.stage === "done", locked: !st.has_plan },
     ];
+    steps.forEach(function (s) {
+      const card = document.getElementById(s.target);
+      const header = card && card.querySelector(".card-header");
+      if (!card || !header) return;
+      const current = st.stage === s.key;
+      const state = s.done ? "已完成" : current ? "当前阶段" : s.locked ? "未开始" : "可开始";
+      card.dataset.stageState = s.done ? "completed" : current ? "current" : s.locked ? "not-started" : "ready";
+      let marker = header.querySelector(".stage-state-label");
+      if (!marker) {
+        marker = document.createElement("span");
+        marker.className = "badge no-dot stage-state-label";
+        header.appendChild(marker);
+      }
+      marker.textContent = state;
+    });
     bar.innerHTML = steps.map(function (s) {
       const current = st.stage === s.key;
       const cls = "step" + (s.locked ? " locked" : s.done ? " done" : current ? " current" : "");
@@ -3538,7 +3868,7 @@ JS_DASHBOARD = """\
     }
     const pill = document.getElementById("workbench-stage-pill");
     if (pill) {
-      const labels = { prepare: "① 设定", outline: "② 大纲", plan: "③ 细纲", write: "④ 正文", done: "✓ 已出稿" };
+      const labels = { prepare: "① 准备设定", outline: "② 生成大纲", plan: "③ 生成细纲", write: "④ 撰写正文", done: "✓ 已出稿" };
       // iter062: surface a single "next step" primary CTA next to the badge.
       const next = !st.has_kb ? { l: st.has_start_point ? "重建续写底座" : "生成设定", t: "stage-prepare-card" }
         : !st.has_outline ? { l: "生成大纲", t: "stage-outline-card" }
@@ -3548,7 +3878,7 @@ JS_DASHBOARD = """\
       const cta = next
         ? ' <a class="btn btn-primary btn-sm" href="#' + next.t + '">下一步：' + escapeHtml(next.l) + "</a>"
         : ' <a class="btn btn-secondary btn-sm" href="' + wsHref("/chapters") + '">查看章节</a>';
-      pill.innerHTML = '<span class="badge">当前：' + escapeHtml(labels[st.stage] || st.stage || "?") + "</span>" + cta;
+      pill.innerHTML = '<span class="badge">当前：' + escapeHtml(labels[st.stage] || "状态待确认") + "</span>" + cta;
     }
     renderStepbar(st);
     // iter 051a: KB older than the (edited) expansion → tell the user to
@@ -3556,7 +3886,7 @@ JS_DASHBOARD = """\
     const expansionStaleHint = document.getElementById("expansion-stale-hint");
     if (expansionStaleHint) {
       expansionStaleHint.innerHTML = st.expansion_stale
-        ? '<div class="alert warn">扩写稿已更新：请重新「生成设定」（KB / 实体），下游大纲 / 细纲会随之提示重建。</div>'
+        ? '<div class="alert warn">扩写稿已更新：请重新生成作品知识与角色设定，后续大纲与细纲会提示重建。</div>'
         : "";
     }
     // Gate each stage on its prerequisite artifact (mtime-validated server-side).
@@ -3585,12 +3915,12 @@ JS_DASHBOARD = """\
     const prepareHint = document.getElementById("prepare-hint");
     if (st.has_start_point) {
       if (prepareSubmit) prepareSubmit.textContent = "重建续写底座";
-      if (prepareSubtitle) prepareSubtitle.textContent = "已有续写起点：补提取起点窗口并重建 KB / 实体图 / 锚点";
+      if (prepareSubtitle) prepareSubtitle.textContent = "已有续写起点：补充起点附近设定并重建续写底座";
       if (prepareHint) prepareHint.textContent = "将对起点前最近章节补齐提取，并据此重建续写底座（补齐底座，不强制全量重提）。";
     } else {
       if (prepareSubmit) prepareSubmit.textContent = "生成设定";
       if (prepareSubtitle) prepareSubtitle.textContent = "从开书的一句话立意提取知识库与实体设定";
-      if (prepareHint) prepareHint.textContent = "开书时填写的一句话已写入 seed.txt；点右侧生成设定（KB / 实体）。";
+      if (prepareHint) prepareHint.textContent = "开书时填写的立意已保存；点右侧生成作品知识与角色设定。";
     }
     if (st.has_outline) {
       // iter 050 (D4): explicit loading placeholder on first paint so an
@@ -3843,10 +4173,16 @@ JS_DASHBOARD = """\
     const box = document.getElementById("plan-status");
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      submit.disabled = true;
+      const target = Number(form.elements.target_chapters.value || 5);
+      if (!await confirmPaidAction({
+        title: "确认重新生成计划",
+        action: "将生成并覆盖未来章节计划。",
+        scope: "计划 " + target + " 章",
+        preservation: "已有正文会保留；新计划生成后请复核再继续写作。",
+      })) return;
+      setControlBusy(submit, true, "处理中");
       box.innerHTML = '<div class="alert info">正在生成计划…</div>';
       try {
-        const target = Number(form.elements.target_chapters.value || 5);
         const data = await postJson(wsUrl("/run"), {
           step: "plan-chapters",
           params: { target_chapters: target },
@@ -3856,7 +4192,7 @@ JS_DASHBOARD = """\
         });
       } catch (err) {
         box.innerHTML = renderErrorCard(err);
-        submit.disabled = false;
+        setControlBusy(submit, false);
       }
     });
   }
@@ -3894,9 +4230,6 @@ JS_DASHBOARD = """\
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       if (readinessTimer) { clearTimeout(readinessTimer); readinessTimer = null; }
-      writeBookJobRunning = true;
-      submit.disabled = true;
-      jobBox.innerHTML = '<div class="alert info">starting…</div>';
       const params = {
         chapters: Number(form.elements.chapters.value || 1),
         resume_from: Number(form.elements.resume_from.value || 1),
@@ -3910,17 +4243,33 @@ JS_DASHBOARD = """\
         require_plan: true,
         require_external_review: true,
       };
+      if (!await confirmPaidAction({
+        title: "确认开始续写",
+        action: "将按当前写作与评审设置生成正文。",
+        scope: "从第 " + params.resume_from + " 章开始，共 " + params.chapters + " 章；人民币额度上限 " + params.budget_cny + " 元",
+        preservation: "已有正文和任务记录会保留；开始后可查看进度或请求取消。",
+      })) return;
+      writeBookJobRunning = true;
+      setFormSubmitBusy(form, true, "处理中");
+      jobBox.innerHTML = '<div class="alert info">正在启动任务；已有设置会保留。</div>';
       try {
         const data = await postJson(wsUrl("/run"), { step: "write-book", params });
         await pollJob(data.job_id, jobBox, submit, async () => {
           writeBookJobRunning = false;
+          setFormSubmitBusy(form, false);
           await refreshReadiness();
           await refreshRecentJobsSidebar();
         });
       } catch (err) {
         writeBookJobRunning = false;
         jobBox.innerHTML = renderErrorCard(err);
-        submit.disabled = false;
+        setFormSubmitBusy(form, false);
+      } finally {
+        // pollJob deliberately renders and returns on polling transport errors.
+        // Always release every submit control (including readiness CTAs using
+        // form="write-book-form") even when no terminal job reached afterDone.
+        writeBookJobRunning = false;
+        setFormSubmitBusy(form, false);
       }
     });
   }
@@ -3957,8 +4306,13 @@ JS_DASHBOARD = """\
       }
       panel.innerHTML = renderReadinessPanel(data);
       if (pill) pill.innerHTML = statusBadge(data.status || "blocked");
-      if (submit) submit.disabled = writeBookJobRunning || data.status === 'blocked';
-      if (submit) submit.title = writeBookJobRunning ? "有任务进行中，请等待完成" : (data.status === 'blocked' ? "前置未就绪，请先处理上方阻断项" : "");
+      const submitControls = Array.prototype.slice.call(form.querySelectorAll('button[type="submit"]'));
+      panel.querySelectorAll('[form="write-book-form"]').forEach(function (control) { submitControls.push(control); });
+      submitControls.forEach(function (control) {
+        control.disabled = writeBookJobRunning || data.status === "blocked";
+        control.title = writeBookJobRunning ? "有任务进行中，请等待完成" : (data.status === "blocked" ? "前置未就绪，请先处理上方阻断项" : "");
+        if (writeBookJobRunning) setControlBusy(control, true, "处理中");
+      });
     } catch (err) {
       if (requestSeq !== readinessRequestSeq) return;
       panel.innerHTML = renderErrorCard(err);
@@ -3968,7 +4322,6 @@ JS_DASHBOARD = """\
   function renderReadinessPanel(data) {
     const blockers = data.blockers || [];
     const warnings = data.warnings || [];
-    const commands = data.recommended_commands || [];
     const status = data.status || "?";
     const primary = data.primary_blocker || null;
     const kind = primary ? primary.kind : "";
@@ -3980,26 +4333,24 @@ JS_DASHBOARD = """\
       '<p>' + escapeHtml(status === "blocked" ? (cfg.hint || primary.raw || "请先处理阻断项。") : status === "warn" ? "建议看一眼诊断提示，但不影响开始写作。" : "参数与前置产物都已通过检查。") + "</p>" +
       "</div>" +
       '<div class="cluster">' +
-      (status === "blocked" ? renderCtaButton(kind, primary || {}, "btn-primary") : '<button type="submit" form="write-book-form" class="btn btn-primary">开始续写</button>') +
+      (status === "blocked" ? renderCtaButton(kind, primary || {}, "btn-primary") : '<button type="submit" form="write-book-form" class="btn btn-paid" data-ui-action="paid">确认并开始续写</button>') +
       "</div>" +
       "</div>";
     html += '<div class="kv-list compact readiness-status-row">' +
-      '<div class="k">status</div><div class="v">' + statusBadge(status) + "</div>" +
-      '<div class="k">chapters</div><div class="v">' + escapeHtml(String(data.chapters || "?")) + "</div>" +
-      '<div class="k">resume_from</div><div class="v">' + escapeHtml(String(data.resume_from || "?")) + "</div>" +
-      '<div class="k">next</div><div class="v">' + escapeHtml(String(data.next_unapproved_chapter || "—")) + "</div>" +
-      '<div class="k">plan_window</div><div class="v">' + escapeHtml(String(data.plan_window || "?")) + "</div>" +
+      '<div class="k">状态</div><div class="v">' + statusBadge(status) + "</div>" +
+      '<div class="k">本次章节数</div><div class="v">' + escapeHtml(String(data.chapters || "?")) + "</div>" +
+      '<div class="k">开始章节</div><div class="v">' + escapeHtml(String(data.resume_from || "?")) + "</div>" +
+      '<div class="k">下一章</div><div class="v">' + escapeHtml(String(data.next_unapproved_chapter || "—")) + "</div>" +
+      '<div class="k">细纲覆盖</div><div class="v">' + escapeHtml(String(data.plan_window || "?")) + "</div>" +
       "</div>";
     const details = [];
     if (blockers.length) details.push('<div class="alert error">' + blockers.map(function (b) {
-      return escapeHtml(readinessReasonText(b)) + ' <span class="muted">(' + escapeHtml(b) + ')</span>';
+      return escapeHtml(readinessReasonText(b));
     }).join("<br>") + "</div>");
-    if (warnings.length) details.push('<div class="alert warn">' + warnings.map(escapeHtml).join("<br>") + "</div>");
-    if (commands.length) {
-      details.push('<div class="command-list">' +
-        commands.map((c) => "<code>" + escapeHtml(c) + "</code>").join("") + "</div>");
-    }
-    html += '<details class="details-fold readiness-diagnostics"><summary>诊断详情</summary>' +
+    if (warnings.length) details.push('<div class="alert warn">' + warnings.map(function (warning) {
+      return escapeHtml(readinessWarningText(warning));
+    }).join("<br>") + "</div>");
+    html += '<details class="details-fold readiness-diagnostics"><summary>检查详情</summary>' +
       (details.join("") || '<div class="alert info">没有阻断项也没有警示。</div>') +
       "</details>";
     return html;
@@ -4031,10 +4382,10 @@ JS_DASHBOARD = """\
   function renderSidebarJob(job) {
     const isHistory = historicalJobStatus(job.status);
     return '<div class="kv-list compact sidebar-job' + (isHistory ? " history" : "") + '">' +
-      '<div class="k">step</div><div class="v">' + escapeHtml(job.step || "?") + "</div>" +
-      '<div class="k">status</div><div class="v">' + (isHistory ? mutedStatusBadge(job.status || "?") : statusBadge(job.status || "?")) + "</div>" +
-      '<div class="k">job</div><div class="v"><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code></div>" +
-      (jobActionableSummary(job) ? '<div class="k">note</div><div class="v">' + escapeHtml(jobActionableSummary(job).slice(0, 120)) + "</div>" : "") +
+      '<div class="k">步骤</div><div class="v">' + escapeHtml(stepLabel(job.step)) + "</div>" +
+      '<div class="k">状态</div><div class="v">' + (isHistory ? mutedStatusBadge(job.status || "?") : statusBadge(job.status || "?")) + "</div>" +
+      '<div class="k">任务编号</div><div class="v"><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code></div>" +
+      (jobActionableSummary(job) ? '<div class="k">说明</div><div class="v">' + escapeHtml(jobActionableSummary(job).slice(0, 120)) + "</div>" : "") +
       "</div>";
   }
   function jobBlockedDetail(job) {
@@ -4069,8 +4420,6 @@ JS_DASHBOARD = """\
     const line = jobFailureLine(job);
     const icon = icons[status] || "•";
     if (status === "succeeded") return icon + " 已完成" + (job.result_summary && job.result_summary.snapshot_path ? " · 快照已就绪" : "");
-    if (reason) return icon + " " + statusLabel(status) + " · " + reason;
-    if (line) return icon + " " + statusLabel(status) + " · " + line;
     return icon + " " + statusLabel(status);
   }
   function jobActionKind(job) {
@@ -4118,7 +4467,7 @@ JS_DASHBOARD = """\
     const actionKind = jobActionKind(job);
     const actions = [];
     if (partial && partial.chapter) {
-      actions.push('<button type="button" class="btn btn-secondary btn-sm" data-job-partial="' + escapeHtml(String(partial.chapter)) + '">查看 partial draft</button>');
+      actions.push('<button type="button" class="btn btn-secondary btn-sm" data-job-partial="' + escapeHtml(String(partial.chapter)) + '">查看临时草稿</button>');
     }
     if (job.status === "succeeded" && chapter) {
       actions.push('<a class="btn btn-secondary btn-sm" href="' + wsHref("/chapter/" + chapter) + '">查看章节</a>');
@@ -4129,30 +4478,32 @@ JS_DASHBOARD = """\
     }
     if (actionKind) actions.push(renderJobPageCta(actionKind));
     if (job.retryable === true && job.status !== "running" && job.status !== "pending") {
-      actions.push('<button type="button" class="btn btn-primary btn-sm" data-job-retry="' + escapeHtml(job.job_id || "") + '">用相同参数重试</button>');
+      const paidRetry = isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama");
+      actions.push('<button type="button" class="btn ' + (paidRetry ? "btn-paid" : "btn-secondary") +
+        ' btn-sm"' + (paidRetry ? ' data-ui-action="paid"' : "") + ' data-job-retry="' +
+        escapeHtml(job.job_id || "") + '">重新开始</button>');
     }
     return '<div class="job-drawer">' +
       '<div class="drawer-grid">' +
       '<div class="kv-list compact">' +
-      '<div class="k">summary</div><div class="v">' + escapeHtml(jobActionableSummary(job)) + '</div>' +
-      '<div class="k">trace_id</div><div class="v">' + escapeHtml(job.trace_id || "—") + (job.trace_id ? " " + copyButton(job.trace_id) : "") + '</div>' +
-      '<div class="k">snapshot_path</div><div class="v">' + escapeHtml(summary.snapshot_path || "—") + '</div>' +
-      '<div class="k">partial</div><div class="v">' + (partial && partial.chapter ? '<button type="button" class="copy-btn" data-job-partial="' + escapeHtml(String(partial.chapter)) + '">chapter_' + String(partial.chapter).padStart(2, "0") + ".partial.md</button>" : "—") + '</div>' +
+      '<div class="k">结果</div><div class="v">' + escapeHtml(jobActionableSummary(job)) + '</div>' +
+      '<div class="k">问题编号</div><div class="v">' + escapeHtml(job.trace_id || "—") + (job.trace_id ? " " + copyButton(job.trace_id) : "") + '</div>' +
+      '<div class="k">已保存内容</div><div class="v">' + (summary.snapshot_path ? "已保留快照" : "—") + '</div>' +
+      '<div class="k">临时草稿</div><div class="v">' + (partial && partial.chapter ? '<button type="button" class="copy-btn" data-job-partial="' + escapeHtml(String(partial.chapter)) + '">第 ' + escapeHtml(String(partial.chapter)) + " 章临时草稿</button>" : "—") + '</div>' +
       '</div>' +
       '<div class="stack">' +
       '<p class="eyebrow">恢复动作</p>' +
       '<div class="cluster">' + (actions.join("") || '<span class="muted">暂无动作</span>') + '</div>' +
       '</div>' +
       '</div>' +
-      '<details class="details-fold"><summary>完整 result_summary</summary>' + resultSummaryRows(summary) + '</details>' +
       '</div>';
   }
   function openPartialPreview(chapter) {
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML =
-      '<div class="modal" role="dialog" aria-modal="true">' +
-      '<div class="modal-header">partial draft · chapter ' + escapeHtml(chapter) + '</div>' +
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="partial-title">' +
+      '<div class="modal-header" id="partial-title">第 ' + escapeHtml(chapter) + ' 章临时草稿</div>' +
       '<div class="modal-body"><div class="alert info">正在载入…</div></div>' +
       '<div class="modal-footer">' +
       '<button type="button" class="btn btn-ghost" data-modal-close>关闭</button>' +
@@ -4172,22 +4523,55 @@ JS_DASHBOARD = """\
       const href = URL.createObjectURL(blob);
       body.innerHTML = '<pre>' + escapeHtml(preview || "（空）") + "</pre>";
       footer.innerHTML =
-        '<a class="btn btn-secondary" download="chapter_' + String(data.chapter || chapter).padStart(2, "0") + '.partial.md" href="' + href + '">下载完整</a>' +
+      '<a class="btn btn-secondary" download="chapter_' + String(data.chapter || chapter).padStart(2, "0") + '.partial.md" href="' + href + '">下载完整草稿</a>' +
         '<button type="button" class="btn btn-ghost" data-modal-close>关闭</button>';
     }).catch(function (err) {
       body.innerHTML = renderErrorCard(err);
     });
   }
+  function confirmPaidRetry(job) {
+    return new Promise(function (resolve) {
+      let settled = false;
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="paid-retry-title">' +
+        '<div class="modal-header" id="paid-retry-title">确认重新开始</div>' +
+        '<div class="modal-body">' +
+        '<p>将按原任务范围重新开始“' + escapeHtml(stepLabel(job && job.step)) + '”。</p>' +
+        '<div class="alert warn">如果当前启用了真实生成服务，这次操作可能使用人民币额度；原任务和已有内容会保留。</div>' +
+        '<p>开始后可在任务记录中查看进度或请求取消。</p>' +
+        '</div><div class="modal-footer">' +
+        '<button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
+        '<button type="button" class="btn btn-paid" data-paid-retry-confirm>确认重新开始</button>' +
+        '</div></div>';
+      function finish(value) {
+        if (settled) return;
+        settled = true;
+        close();
+        resolve(value);
+      }
+      const close = mountModal(backdrop, {
+        initialFocus: backdrop.querySelector("[data-modal-close]"),
+        onClose: function () { if (!settled) { settled = true; resolve(false); } },
+      });
+      backdrop.addEventListener("click", function (ev) {
+        if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) finish(false);
+      });
+      backdrop.querySelector("[data-paid-retry-confirm]").addEventListener("click", function () { finish(true); });
+    });
+  }
   async function retryJob(job, btn) {
     if (!job) return;
-    if (btn) btn.disabled = true;
+    if (isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama") && !await confirmPaidRetry(job)) return;
+    setControlBusy(btn, true, "处理中");
     try {
       const data = await postJson(wsUrl("/run"), { step: job.step, params: job.params || {} });
-      showToast("已重新启动：" + (job.step || "job"), "info");
+      showToast("已重新启动：" + stepLabel(job.step), "info");
       if (data && data.job_id) setTimeout(function () { initJobs(); }, 500);
     } catch (err) {
       showToast("重试失败：" + errTitle(err), "error");
-      if (btn) btn.disabled = false;
+      setControlBusy(btn, false);
     }
   }
   // iter063 A1: render a terminal job failure / blocked state as a friendly
@@ -4211,12 +4595,12 @@ JS_DASHBOARD = """\
     // failed / aborted / budget_exceeded / blocked-with-unrecognized-reason:
     // surface the REAL error line as the cause (don't mask it with a generic
     // retry hint), and offer a retry CTA via jobActionKind where it fits.
-    const titles = { aborted: "任务已取消", budget_exceeded: "预算已用尽", lost: "任务状态丢失", blocked: "续写入口受阻" };
+    const titles = { aborted: "任务已取消", budget_exceeded: "额度不足", lost: "任务状态待确认", blocked: "需要补充内容" };
     const fallback = CTA_ACTIONS[jobActionKind(job)];
     return renderErrorCard({ card: {
       code: job.status || "client_error",
       title: titles[job.status] || "任务未成功",
-      cause: line || (fallback && fallback.hint) || "",
+      cause: (fallback && fallback.hint) || "当前内容已保留。请检查页面提示后调整设置，再由你决定是否重新开始。",
       actions: fallback && fallback.action ? [{ label: fallback.cta_label, action: fallback.action }] : [],
       trace_id: job.trace_id || "",
     }});
@@ -4253,7 +4637,7 @@ JS_DASHBOARD = """\
         job = await fetchJson(wsUrl("/job/" + jobId));
       } catch (err) {
         box.innerHTML = renderErrorCard(err);
-        if (submit) submit.disabled = false;
+        setControlBusy(submit, false);
         return;
       }
       const pct = Math.round((job.progress || 0) * 100);
@@ -4268,10 +4652,10 @@ JS_DASHBOARD = """\
       }
       box.innerHTML =
         '<div class="kv-list compact">' +
-        '<div class="k">job</div><div class="v"><code>' + escapeHtml(jobId) + "</code></div>" +
-        '<div class="k">status</div><div class="v">' + statusBadge(job.status || "?") + "</div>" +
-        '<div class="k">step</div><div class="v">' + escapeHtml(job.current_step || "?") + "</div>" +
-        '<div class="k">progress</div><div class="v">' + pct + "%</div>" +
+        '<div class="k">任务编号</div><div class="v"><code>' + escapeHtml(jobId) + "</code></div>" +
+        '<div class="k">状态</div><div class="v">' + statusBadge(job.status || "?") + "</div>" +
+        '<div class="k">当前步骤</div><div class="v">' + escapeHtml(stepLabel(job.current_step || job.step)) + "</div>" +
+        '<div class="k">进度</div><div class="v">' + pct + "%</div>" +
         "</div>" +
         '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
         '<div class="form-actions" style="margin-top:8px">' +
@@ -4279,21 +4663,21 @@ JS_DASHBOARD = """\
         ' <a class="btn btn-ghost btn-sm" href="' + wsHref("/jobs") + '">任务页</a>' +
         "</div>" +
         (cancelPending
-          ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(job.current_step || "?") + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
+          ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(stepLabel(job.current_step || job.step)) + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
           : "");
       const terminal = ["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"];
       if (terminal.indexOf(job.status) >= 0) {
         const partial = job.result_summary && job.result_summary.partial;
         if (partial && partial.chapter) {
-          const label = "chapter_" + String(partial.chapter).padStart(2, "0") + ".partial.md";
-          box.innerHTML += '<div class="alert warn" style="margin-top:8px">partial draft saved: ' +
+          const label = "第 " + String(partial.chapter) + " 章临时草稿";
+          box.innerHTML += '<div class="alert warn" style="margin-top:8px">已保留临时草稿：' +
             '<a href="' + wsUrl("/draft/" + partial.chapter + "?variant=partial") + '">' +
             escapeHtml(label) + "</a></div>";
         }
-        if (submit) submit.disabled = false;
-        const stepLabel = job.step || job.current_step || "task";
+        setControlBusy(submit, false);
+        const finishedStepLabel = stepLabel(job.step || job.current_step);
         if (job.status === "succeeded") {
-          showToast(stepLabel + " 已完成", "info");
+          showToast(finishedStepLabel + "已完成", "info");
         } else {
           // iter063 A1: friendly card (incl. CTA) instead of a raw reason dump.
           box.innerHTML += renderJobFailureCard(job);
@@ -4301,7 +4685,7 @@ JS_DASHBOARD = """\
           // the bare status (don't claim a fallback kind the card doesn't show).
           const d = jobBlockedDetail(job);
           const direct = CTA_ACTIONS[(d && d.reason) || ""];
-          showToast(stepLabel + " · " + (direct ? direct.label : job.status), "error");
+          showToast(finishedStepLabel + " · " + (direct ? direct.label : statusLabel(job.status)), "error");
         }
         if (afterDone) await afterDone(job);
         return job;
@@ -4344,7 +4728,7 @@ JS_DASHBOARD = """\
     head.className = "search-hit-head";
     const badge = document.createElement("span");
     badge.className = "badge source-" + String(hit.source);
-    badge.textContent = SEARCH_SOURCE_LABELS[hit.source] || String(hit.source || "");
+    badge.textContent = SEARCH_SOURCE_LABELS[hit.source] || "来源待确认";
     head.appendChild(badge);
     let titleEl;
     if (hit.source === "draft" && hit.chapter_no != null) {
@@ -4507,8 +4891,8 @@ JS_DASHBOARD = """\
     const rows = [];
     rows.push(
       '<table class="table table-wide" id="chapters-data-table"><thead><tr>' +
-      "<th>#</th><th>类型</th><th>章节 ID</th><th>标题</th>" +
-      "<th>verdict</th><th>review</th><th>rewrite</th><th>字数</th><th></th>" +
+      "<th>#</th><th>类型</th><th>标题</th>" +
+      "<th>正文结果</th><th>评审结果</th><th>重写次数</th><th>字数</th><th></th>" +
       "</tr></thead><tbody>"
     );
     for (const d of drafts) {
@@ -4518,14 +4902,13 @@ JS_DASHBOARD = """\
       const isPartial = d.variant === "partial";
       const detailHref = isPartial ? wsUrl("/draft/" + d.chapter + "?variant=partial") : "/w/" + encodeURIComponent(ws) + "/chapter/" + d.chapter;
       const typeCell = isPartial
-        ? '<span class="badge warn">partial</span> <span class="badge reject">failure</span>'
+        ? '<span class="badge warn">临时草稿</span> <span class="badge reject">未完成</span>'
         : "续写";
       rows.push(
         '<tr class="chapter-row" data-title="' + escapeHtml(title) + '" data-id="' + escapeHtml(id) +
         '" data-status="' + escapeHtml(d.verdict || "") + '">' +
         "<td>" + d.chapter + "</td>" +
         "<td>" + typeCell + "</td>" +
-        "<td><code>" + escapeHtml(id + (isPartial ? ".partial" : "")) + "</code></td>" +
         "<td>" + escapeHtml(title) + "</td>" +
         "<td>" + verdictBadge(d.verdict) + "</td>" +
         "<td>" + verdictBadge(d.review_verdict) + "</td>" +
@@ -4541,10 +4924,8 @@ JS_DASHBOARD = """\
         escapeHtml(ch.chapter_id || "") + '">' +
         "<td>—</td>" +
         '<td><span class="badge no-dot">原文</span></td>' +
-        "<td><code>" + escapeHtml(ch.chapter_id || "") + "</code></td>" +
         "<td>" + escapeHtml(ch.title || "") + "</td>" +
-        '<td colspan="4" class="muted">' +
-        escapeHtml(ch.volume_id || "") + " · " + escapeHtml(String(ch.char_count || "")) + " 字" + "</td>" +
+        '<td colspan="4" class="muted">' + escapeHtml(String(ch.char_count || "")) + " 字" + "</td>" +
         "<td></td>" +
         "</tr>"
       );
@@ -4650,6 +5031,12 @@ JS_DASHBOARD = """\
       }
     });
     saveReviewBtn.addEventListener("click", async function () {
+      if (!await confirmPaidAction({
+        title: "确认保存并重新评审",
+        action: "将保存当前正文并重新生成本章评审。",
+        scope: "第 " + num + " 章",
+        preservation: "当前正文会先保存；原评审记录不会覆盖正文。",
+      })) return;
       saveBtn.disabled = saveReviewBtn.disabled = true;
       try {
         const res = await saveDraft();
@@ -4740,18 +5127,17 @@ JS_DASHBOARD = """\
     const before = rewriteMeta && isPlainObject(rewriteMeta.style_drift_before) ? rewriteMeta.style_drift_before : null;
     const after = rewriteMeta && isPlainObject(rewriteMeta.style_drift_after) ? rewriteMeta.style_drift_after : null;
     const improvement = rewriteMeta ? finiteStyleNumber(rewriteMeta.style_drift_improvement) : null;
-    const rewriteStatus = rewriteMeta && typeof rewriteMeta.style_rewrite_status === "string"
-      ? rewriteMeta.style_rewrite_status : "unknown";
     if (!rewriteTriggered && !(rewriteMeta && rewriteMeta.style_drift_unresolved === true)) return "";
     return '<h4>定向改写复测</h4>' +
       '<div class="kv-list compact">' +
-      '<div class="k">result</div><div class="v">' + escapeHtml(rewriteStatus) +
+      '<div class="k">结果</div><div class="v">' +
+        (rewriteMeta && rewriteMeta.style_drift_unresolved === true ? "仍需调整" : "已完成") +
         (rewriteMeta && rewriteMeta.style_rewrite_applied === true ? " · 已采用" : " · 已回退") + "</div>" +
-      '<div class="k">before</div><div class="v">' + (before ? styleDriftBadge(before) : "—") + "</div>" +
-      '<div class="k">after</div><div class="v">' + (after ? styleDriftBadge(after) : "—") + "</div>" +
-      '<div class="k">improvement</div><div class="v">' +
+      '<div class="k">调整前</div><div class="v">' + (before ? styleDriftBadge(before) : "—") + "</div>" +
+      '<div class="k">调整后</div><div class="v">' + (after ? styleDriftBadge(after) : "—") + "</div>" +
+      '<div class="k">改善幅度</div><div class="v">' +
         (Number.isFinite(improvement) ? escapeHtml(improvement.toFixed(3)) : "—") + "</div>" +
-      '<div class="k">unresolved</div><div class="v">' +
+      '<div class="k">是否仍需调整</div><div class="v">' +
         (rewriteMeta && rewriteMeta.style_drift_unresolved === true ? "是" : "否") + "</div>" +
       "</div>";
   }
@@ -4760,14 +5146,12 @@ JS_DASHBOARD = """\
     if (!isPlainObject(drift) || !drift.status) {
       return '<div class="stack"><p class="muted">本章暂无文风漂移检测记录。</p>' + rewriteHtml + "</div>";
     }
-    const basis = drift.basis || {};
     const score = drift.style_drift_score == null ? "—" : fmtStyleNumber(drift.style_drift_score, 3);
-    const hash = basis.baseline_hash || (drift.status !== "skipped" ? baselineHash : "") || "";
     const top = Array.isArray(drift.top_dimensions) ? drift.top_dimensions.filter(isPlainObject) : [];
     const skipped = Array.isArray(drift.skipped_dimensions) ? drift.skipped_dimensions.filter(isPlainObject) : [];
-    const rows = top.map((d) => (
+    const rows = top.map((d, index) => (
       "<tr>" +
-      "<td>" + escapeHtml(d.dimension || "") + "</td>" +
+      "<td>写作特征 " + (index + 1) + "</td>" +
       "<td>" + fmtStyleNumber(d.current_value, 3) + "</td>" +
       "<td>" + fmtStyleNumber(d.baseline_value, 3) + "</td>" +
       "<td>" + fmtStyleNumber(d.tolerance, 3) + "</td>" +
@@ -4776,20 +5160,17 @@ JS_DASHBOARD = """\
       "</tr>"
     )).join("");
     const skippedHtml = skipped.length
-      ? '<div class="muted">跳过维度：' + skipped.slice(0, 8).map((d) => (
-          escapeHtml((d.dimension || "?") + "(" + (d.reason || "skipped") + ")")
-        )).join("，") + (skipped.length > 8 ? "…" : "") + "</div>"
+      ? '<div class="muted">有 ' + skipped.length + ' 项写作特征暂未比较。</div>'
       : "";
     const table = rows
-      ? tableScroll('<table><thead><tr><th>维度</th><th>当前</th><th>Baseline</th><th>Tolerance</th><th>Delta</th><th>Score</th></tr></thead><tbody>' + rows + '</tbody></table>')
+      ? tableScroll('<table><thead><tr><th>特征</th><th>当前</th><th>参考</th><th>容差</th><th>偏差</th><th>评分</th></tr></thead><tbody>' + rows + '</tbody></table>')
       : '<p class="muted">暂无可比较维度。</p>';
     return '<div class="stack">' +
       '<div class="kv-list compact">' +
-      '<div class="k">severity</div><div class="v">' + styleDriftBadge(drift) + "</div>" +
-      '<div class="k">score</div><div class="v">' + escapeHtml(score) + "</div>" +
-      '<div class="k">baseline_hash</div><div class="v"><code>' + escapeHtml(hash ? String(hash).slice(0, 16) : "—") + "</code></div>" +
-      '<div class="k">status</div><div class="v">' + escapeHtml(drift.status || "skipped") + (drift.reason ? " · " + escapeHtml(drift.reason) : "") + "</div>" +
-      '<div class="k">fingerprint</div><div class="v">' + escapeHtml((fingerprint && fingerprint.status) || "—") + "</div>" +
+      '<div class="k">偏离程度</div><div class="v">' + styleDriftBadge(drift) + "</div>" +
+      '<div class="k">综合评分</div><div class="v">' + escapeHtml(score) + "</div>" +
+      '<div class="k">检查状态</div><div class="v">' + (drift.status === "skipped" ? "未检查" : "已检查") + "</div>" +
+      '<div class="k">参考风格</div><div class="v">' + (fingerprint ? "已建立" : "未建立") + "</div>" +
       '</div>' +
       '<h4>偏离最高维度</h4>' +
       table +
@@ -4818,7 +5199,7 @@ JS_DASHBOARD = """\
         verdictBadge(meta.verdict || review.verdict) +
         styleDriftBadge(meta.style_drift) +
         styleRewriteBadge(meta) +
-        '<span class="badge no-dot">rewrite ×' + (meta.rewrite_count || 0) + "</span>" +
+        '<span class="badge no-dot">重写 ' + (meta.rewrite_count || 0) + " 次</span>" +
         '<span class="badge no-dot">' + (meta.chinese_char_count || 0) + " 字</span>" +
         '<span class="badge no-dot">' + escapeHtml(cost) + "</span>" +
         (meta.needs_human_review ? '<span class="badge warn">需复核</span>' : "");
@@ -4851,12 +5232,12 @@ JS_DASHBOARD = """\
         reviewsBox.innerHTML = agents.map(renderAgentReview).join("");
       }
     }
-    // lint tab
+    // 文字检查 tab
     const lintBox = document.getElementById("tab-lint");
     if (lintBox) {
       const issues = meta.lint_issues || [];
       if (!issues.length) {
-        lintBox.innerHTML = '<p class="muted">无 lint 提示。</p>';
+        lintBox.innerHTML = '<p class="muted">没有文字检查提示。</p>';
       } else {
         const byRule = new Map();
         for (const it of issues) {
@@ -4865,18 +5246,18 @@ JS_DASHBOARD = """\
           byRule.get(k).push(it);
         }
         const groups = [];
-        for (const [rule, list] of byRule.entries()) {
+        for (const [_rule, list] of byRule.entries()) {
           groups.push(
             '<div class="lint-group">' +
-            '<h4>' + escapeHtml(rule) + " · " + list.length + "</h4>" +
+            '<h4>检查项 · ' + list.length + "</h4>" +
             "<ul>" +
             list.map((it) => {
               const anchorLine = _extractIssueLine(it);
               return '<li' + (anchorLine != null ? ' class="link-cell" data-jump-line="' + anchorLine + '"' : "") + '>' +
                 '<span class="severity ' + escapeHtml((it.severity || "").toLowerCase()) + '">' +
-                escapeHtml(it.severity || "info") + '</span>' +
-                '<span>' + escapeHtml(it.message || JSON.stringify(it)) + '</span>' +
-                (it.anchor ? '<span class="anchor">@ ' + escapeHtml(JSON.stringify(it.anchor)) + '</span>' : '') +
+                escapeHtml({ low: "提示", info: "提示", mid: "注意", warn: "注意", high: "重要", error: "重要" }[String(it.severity || "").toLowerCase()] || "状态待确认") + '</span>' +
+                '<span>' + escapeHtml(typeof it.message === "string" ? it.message : "此处需要检查") + '</span>' +
+                (anchorLine != null ? '<span class="anchor">第 ' + anchorLine + ' 行</span>' : '') +
                 '</li>';
             }).join("") +
             "</ul>" +
@@ -4891,19 +5272,18 @@ JS_DASHBOARD = """\
     if (styleBox) {
       styleBox.innerHTML = renderStyleDriftPanel(meta.style_drift, meta.style_fingerprint, meta.baseline_hash, meta);
     }
-    // advisor tab
+    // 修改建议 tab
     const advBox = document.getElementById("tab-advisor");
     if (advBox) {
       const suggestions = Array.isArray(meta.rewrite_suggestions)
         ? meta.rewrite_suggestions.filter(isPlainObject)
         : [];
       if (!suggestions.length) {
-        advBox.innerHTML = '<p class="muted">advisor 未提出改写建议。</p>';
+        advBox.innerHTML = '<p class="muted">暂无改写建议。</p>';
       } else {
         advBox.innerHTML = '<div class="stack">' + suggestions.map((s) => (
           '<div class="advisor-item">' +
-          '<span class="type">' + escapeHtml(s.type || "rewrite") + "</span>" +
-          (s._advisor ? '<span class="muted">来源：' + escapeHtml(s._advisor) + "</span>" : "") +
+          '<span class="type">修改建议</span>' +
           '<div class="section">' + escapeHtml(s.section || "(整段)") + "</div>" +
           '<div class="guidance">' + escapeHtml(s.guidance || "") + "</div>" +
           "</div>"
@@ -4915,11 +5295,10 @@ JS_DASHBOARD = """\
     if (histBox) {
       histBox.innerHTML =
         '<div class="kv-list compact">' +
-        '<div class="k">rewrite_count</div><div class="v">' + (meta.rewrite_count || 0) + "</div>" +
-        '<div class="k">rewrite_round</div><div class="v">' + (meta.rewrite_round || 0) + "</div>" +
-        '<div class="k">polish_applied</div><div class="v">' + String(meta.polish_applied || false) + "</div>" +
-        '<div class="k">snapshot_path</div><div class="v"><code>' + escapeHtml(meta.snapshot_path || "(无)") + "</code></div>" +
-        '<div class="k">path</div><div class="v"><code>' + escapeHtml(data.path || "") + "</code></div>" +
+        '<div class="k">重写次数</div><div class="v">' + (meta.rewrite_count || 0) + "</div>" +
+        '<div class="k">重写轮次</div><div class="v">' + (meta.rewrite_round || 0) + "</div>" +
+        '<div class="k">是否润色</div><div class="v">' + (meta.polish_applied ? "是" : "否") + "</div>" +
+        '<div class="k">历史快照</div><div class="v">' + (meta.snapshot_path ? "已保留" : "无") + "</div>" +
         "</div>" +
         '<div class="diff-panel">' +
         '<h4>多版本对比</h4>' +
@@ -4967,7 +5346,7 @@ JS_DASHBOARD = """\
     if (controls) controls.style.display = "";
     const optHtml = versions.map(function (v) {
       return '<option value="' + escapeHtml(v.id) + '">' + escapeHtml(v.label) +
-        (v.verdict ? "（" + escapeHtml(v.verdict) + "）" : "") + "</option>";
+        (v.verdict ? "（" + escapeHtml(verdictLabel(v.verdict)) + "）" : "") + "</option>";
     }).join("");
     s1.innerHTML = optHtml;
     s2.innerHTML = optHtml;
@@ -5023,23 +5402,31 @@ JS_DASHBOARD = """\
     // iter042 schema evolution: current reviewer output writes `scores`;
     // older artifacts used `sub_scores`, so the UI accepts both.
     const sub = (a.scores && Object.keys(a.scores).length ? a.scores : a.sub_scores) || {};
+    const scoreLabels = { plot: "剧情", prose: "文笔", fidelity: "设定一致性" };
     const bars = ["plot", "prose", "fidelity"].map((k) => {
       const v = sub[k];
       const pct = (v == null ? 0 : Math.max(0, Math.min(10, Number(v))) * 10);
-      return '<div class="subscore-bar"><span class="label">' + k + "</span>" +
+      return '<div class="subscore-bar"><span class="label">' + scoreLabels[k] + "</span>" +
         '<div class="track"><i style="width:' + pct + '%"></i></div>' +
         '<span class="val">' + (v == null ? "—" : v) + "</span></div>";
     }).join("");
-    const issues = (a.issues || []).slice(0, 6).map((it) =>
-      "<li>" + escapeHtml(typeof it === "string" ? it : JSON.stringify(it)) + "</li>"
-    ).join("");
+    const issues = (a.issues || []).slice(0, 6).map(function (it) {
+      if (typeof it === "string" && it.trim()) return "<li>" + escapeHtml(it.trim()) + "</li>";
+      if (it && typeof it === "object") {
+        const text = [it.guidance, it.description, it.issue].find(function (value) {
+          return typeof value === "string" && value.trim();
+        });
+        return "<li>" + escapeHtml(text ? text.trim() : "有一项评审建议需要处理") + "</li>";
+      }
+      return "<li>有一项评审建议需要处理</li>";
+    }).join("");
     return (
       '<div class="review-card">' +
-      '<div><div class="name">' + escapeHtml(a.agent_name || "?") + "</div>" +
+      '<div><div class="name">评审角色</div>' +
       '<div class="verdict">' + verdictBadge(a.verdict) +
-      '<span class="muted" style="margin-left:6px">score=' + (a.score == null ? "—" : a.score) + "</span></div></div>" +
+      '<span class="muted" style="margin-left:6px">评分 ' + (a.score == null ? "—" : a.score) + "</span></div></div>" +
       '<div class="stack">' + bars +
-      (issues ? '<details><summary class="muted">issues (' + (a.issues || []).length + ")</summary><ul>" + issues + "</ul></details>" : "") +
+      (issues ? '<details><summary class="muted">问题（' + (a.issues || []).length + "）</summary><ul>" + issues + "</ul></details>" : "") +
       "</div></div>"
     );
   }
@@ -5061,12 +5448,12 @@ JS_DASHBOARD = """\
         '<div class="cluster" style="margin-bottom:16px">' +
         '<span class="badge no-dot">共 ' + (stats.total || 0) + " 章</span>" +
         '<span class="badge ready">通过 ' + (stats.accepted || 0) + "</span>" +
-        '<span class="badge no-dot">rewrite_max ' + (stats.rewrite_max || 0) + "</span>" +
-        '<span class="badge no-dot">advisor ' + (stats.advisor_suggestions_total || 0) + "</span>" +
+        '<span class="badge no-dot">最多重写 ' + (stats.rewrite_max || 0) + " 次</span>" +
+        '<span class="badge no-dot">修改建议 ' + (stats.advisor_suggestions_total || 0) + " 条</span>" +
         "</div>";
       const head =
         '<table class="table table-wide"><thead><tr>' +
-        "<th>ch</th><th>verdict</th><th>rewrite</th><th>字数</th><th>agents</th><th>advisor</th><th></th>" +
+        "<th>章节</th><th>结果</th><th>重写次数</th><th>字数</th><th>评审角色</th><th>修改建议</th><th></th>" +
         "</tr></thead><tbody>";
       const rows = chs.map((c) => {
         const detail = "/w/" + encodeURIComponent(ws) + "/chapter/" + c.chapter;
@@ -5108,14 +5495,14 @@ JS_DASHBOARD = """\
   }
 
   function renderCostByChapter(box, rows) {
-    if (!rows.length) { box.innerHTML = '<p class="muted">尚无 llm_calls 记录。</p>'; return; }
+    if (!rows.length) { box.innerHTML = '<p class="muted">尚无生成调用记录。</p>'; return; }
     const max = Math.max.apply(null, rows.map((r) => r.cost_cny || 0)) || 1;
     const lines = rows.map((r) => {
       const cost = Number(r.cost_cny || 0);
       const pct = Math.round((cost / max) * 100);
       return (
         '<div style="display:grid;grid-template-columns:56px 1fr 80px;gap:8px;align-items:center;margin-bottom:6px">' +
-        '<span class="muted" style="text-align:right">ch ' + r.chapter + '</span>' +
+        '<span class="muted" style="text-align:right">第 ' + r.chapter + ' 章</span>' +
         '<div class="progress" style="height:14px"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
         '<span style="font-family:var(--font-mono);font-size:var(--fs-xs)">¥' + cost.toFixed(3) +
         ' · ' + r.calls + ' 次</span>' +
@@ -5126,16 +5513,14 @@ JS_DASHBOARD = """\
   }
 
   function renderCacheByModel(box, rows) {
-    if (!rows.length) { box.innerHTML = '<p class="muted">尚无 llm_calls 记录。</p>'; return; }
-    const lines = rows.map((r) => {
+    if (!rows.length) { box.innerHTML = '<p class="muted">尚无生成调用记录。</p>'; return; }
+    const lines = rows.map((r, index) => {
       const pct = Math.round((r.hit_ratio || 0) * 100);
       return (
         '<div class="kv-list compact" style="margin-bottom:8px">' +
-        '<div class="k">model</div><div class="v"><code>' + escapeHtml(r.model) + '</code></div>' +
-        '<div class="k">calls</div><div class="v">' + r.calls + '</div>' +
-        '<div class="k">cache_read</div><div class="v">' + r.cache_read_tokens + '</div>' +
-        '<div class="k">cache_write</div><div class="v">' + r.cache_write_tokens + '</div>' +
-        '<div class="k">hit_ratio</div><div class="v">' +
+        '<div class="k">生成配置</div><div class="v">配置 ' + (index + 1) + '</div>' +
+        '<div class="k">调用次数</div><div class="v">' + r.calls + '</div>' +
+        '<div class="k">缓存复用比例</div><div class="v">' +
         '<div class="progress" style="display:inline-block;width:120px;vertical-align:middle">' +
         '<div class="progress-fill" style="width:' + pct + '%"></div></div> ' + pct + '%</div>' +
         '</div>'
@@ -5153,9 +5538,9 @@ JS_DASHBOARD = """\
       const cls = n >= 7 ? "subscore-cell-approve" : n >= 5 ? "subscore-cell-warn" : "subscore-cell-fail";
       return '<td class="subscore-cell ' + cls + '">' + n.toFixed(2) + '</td>';
     };
-    const head = '<tr><th>章</th><th>plot</th><th>prose</th><th>fidelity</th><th>total</th><th>agents</th></tr>';
+    const head = '<tr><th>章节</th><th>剧情</th><th>文笔</th><th>设定一致性</th><th>总分</th><th>评审角色</th></tr>';
     const body = rows.map((r) =>
-      '<tr><td>ch ' + r.chapter + '</td>' +
+      '<tr><td>第 ' + r.chapter + ' 章</td>' +
       cell(r.plot) + cell(r.prose) + cell(r.fidelity) + cell(r.total) +
       '<td class="subscore-cell subscore-cell-empty">' + r.agents + '</td></tr>'
     ).join("");
@@ -6675,7 +7060,7 @@ JS_DASHBOARD = """\
     }
   }
   function renderLlmCallSummary(rows) {
-    if (!rows.length) return '<p class="muted">llm_calls.jsonl 尚无内容。</p>';
+    if (!rows.length) return '<p class="muted">尚无生成调用记录。</p>';
     const body = rows.map(function (call) {
       const prompt = Number(call.prompt_tokens) || 0;
       const response = Number(call.response_tokens) || 0;
@@ -6683,14 +7068,13 @@ JS_DASHBOARD = """\
       return '<tr>' +
         '<td>' + escapeHtml(stepLabel(call.task || call.operation || "")) + '</td>' +
         '<td>' + statusBadge(call.status || "unknown") + '</td>' +
-        '<td><code>' + escapeHtml(call.model || "—") + '</code></td>' +
         '<td>' + (isFinite(duration) ? escapeHtml((duration / 1000).toFixed(1) + " 秒") : "—") + '</td>' +
         '<td>' + escapeHtml(String(prompt)) + ' / ' + escapeHtml(String(response)) + '</td>' +
         '<td>' + escapeHtml(String(call.attempt || 1)) + '</td>' +
         '</tr>';
     }).join("");
     return tableScroll('<table class="table table-wide"><thead><tr>' +
-      '<th>任务</th><th>状态</th><th>模型</th><th>耗时</th><th>输入 / 输出 tokens</th><th>尝试</th>' +
+      '<th>任务</th><th>状态</th><th>耗时</th><th>输入 / 输出文字用量</th><th>尝试</th>' +
       '</tr></thead><tbody>' + body + '</tbody></table>');
   }
   async function initJobs() {
@@ -6712,7 +7096,7 @@ JS_DASHBOARD = """\
           const rowId = "job-drawer-" + escapeHtml(job.job_id || "");
           return (
             '<tr class="job-row">' +
-            '<td><button type="button" class="btn btn-icon btn-sm job-toggle" aria-expanded="false" aria-controls="' + rowId + '" data-job-toggle="' + escapeHtml(job.job_id || "") + '">▸</button></td>' +
+            '<td><button type="button" class="btn btn-icon btn-sm job-toggle" aria-label="展开任务详情" aria-expanded="false" aria-controls="' + rowId + '" data-job-toggle="' + escapeHtml(job.job_id || "") + '">▸</button></td>' +
             "<td>" + escapeHtml(stepLabel(job.step)) + "</td>" +
             "<td>" + statusBadge(job.status || "?") + "</td>" +
             '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code> " + copyButton(job.job_id || "") + "</td>" +
@@ -6725,7 +7109,7 @@ JS_DASHBOARD = """\
         }).join("");
         recentBox.innerHTML =
           tableScroll('<table class="table table-wide jobs-table"><thead><tr>' +
-          "<th></th><th>任务</th><th>状态</th><th>任务编号</th><th>追踪编号</th><th>开始时间</th><th>结果</th>" +
+          "<th>详情</th><th>任务</th><th>状态</th><th>任务编号</th><th>问题编号</th><th>开始时间</th><th>结果</th>" +
           "</tr></thead><tbody>" + rows + "</tbody></table>");
         recentBox.onclick = function (ev) {
           const toggle = ev.target.closest("[data-job-toggle]");
@@ -6736,6 +7120,7 @@ JS_DASHBOARD = """\
               const open = !drawer.classList.contains("open");
               drawer.classList.toggle("open", open);
               toggle.setAttribute("aria-expanded", open ? "true" : "false");
+              toggle.setAttribute("aria-label", open ? "收起任务详情" : "展开任务详情");
               toggle.textContent = open ? "▾" : "▸";
             }
             return;
@@ -7932,17 +8317,30 @@ JS_DASHBOARD = """\
   let accessibleControlSeq = 0;
   function associateFormLabels(root) {
     const scope = root && root.querySelectorAll ? root : document;
-    scope.querySelectorAll(".field > label:not([for])").forEach(function (label) {
+    const scoped = scope.matches && scope.matches(".ui-public, .ui-novel")
+      ? scope
+      : (scope.closest && scope.closest(".ui-public, .ui-novel"));
+    if (!scoped && scope !== document) return;
+    scope.querySelectorAll(".field > label").forEach(function (label) {
       const field = label.parentElement;
-      const control = field && field.querySelector("input, textarea, select");
+      const targetId = label.getAttribute("for");
+      const control = targetId ? document.getElementById(targetId) : (field && field.querySelector("input, textarea, select"));
       if (!control) return;
       if (!control.id) control.id = "form-control-" + (++accessibleControlSeq);
-      label.setAttribute("for", control.id);
+      if (!targetId) label.setAttribute("for", control.id);
+      if (control.required && !label.querySelector(".required-note")) {
+        const note = document.createElement("span");
+        note.className = "required-note";
+        note.textContent = "（必填）";
+        label.appendChild(note);
+      }
     });
   }
 
   function observeAccessibleLabels() {
-    associateFormLabels(document);
+    const app = document.querySelector(".ui-public, .ui-novel");
+    if (!app) return;
+    associateFormLabels(app);
     const observer = new MutationObserver(function (records) {
       records.forEach(function (record) {
         record.addedNodes.forEach(function (node) {
@@ -7951,6 +8349,34 @@ JS_DASHBOARD = """\
       });
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("invalid", function (ev) {
+        const control = ev.target;
+        if (!control || !control.closest || !control.closest(".field")) return;
+        control.setAttribute("aria-invalid", "true");
+        const field = control.closest(".field");
+        let error = field.querySelector(".field-error");
+        if (!error) {
+          error = document.createElement("small");
+          error.className = "field-error";
+          error.id = control.id + "-error";
+          error.setAttribute("role", "alert");
+          field.appendChild(error);
+        }
+        error.textContent = "请检查这一项后再继续。";
+        const described = new Set((control.getAttribute("aria-describedby") || "").split(/\\s+/).filter(Boolean));
+        described.add(error.id);
+        control.setAttribute("aria-describedby", Array.from(described).join(" "));
+    }, true);
+    document.addEventListener("input", function (ev) {
+        const control = ev.target;
+        if (!control || !control.matches || !control.matches(".field input, .field textarea, .field select")) return;
+        if (control.checkValidity()) {
+          control.removeAttribute("aria-invalid");
+          const field = control.closest(".field");
+          const error = field && field.querySelector(".field-error");
+          if (error) error.textContent = "";
+        }
+    });
   }
 
   // ---- dispatch ---------------------------------------------------------
@@ -8017,8 +8443,8 @@ JS_WIZARD = """\
   const cancelRequestedJobs = new Set();
   const CTA_ACTIONS = {
     running: {
-      title: "任务进行中",
-      hint: "可以离开此页继续浏览；取消会在 worker 下一个检查点生效。",
+      title: "任务处理中",
+      hint: "可以离开此页继续浏览；取消会在当前步骤完成后生效。",
     },
     succeeded: {
       title: "导入完成",
@@ -8026,13 +8452,40 @@ JS_WIZARD = """\
     },
     failed: {
       title: "任务未完成",
-      hint: "查看失败详情后，可以回到 wizard 重新开始。",
+      hint: "当前输入已保留。查看任务说明后，可以回到创建向导重新开始。",
     },
     aborted: {
       title: "任务已取消",
       hint: "取消请求已生效；可以重新开始或返回书架。",
     },
   };
+  const WIZARD_STATUS_LABELS = {
+    pending: "等待中", running: "处理中", succeeded: "已完成",
+    blocked: "需要补充", failed: "未完成", aborted: "已取消",
+    cancelled: "已取消", canceled: "已取消", budget_exceeded: "额度不足",
+    stale: "内容已更新", lost: "状态待确认",
+  };
+  function wizardStatusLabel(status) {
+    return WIZARD_STATUS_LABELS[String(status || "").toLowerCase()] || "状态待确认";
+  }
+  function wizardSetBusy(control, busy, label) {
+    if (!control) return;
+    if (busy) {
+      if (control.getAttribute("aria-busy") !== "true") {
+        control.dataset.uiIdleLabel = control.textContent.trim();
+        control.dataset.uiWasDisabled = control.disabled ? "1" : "0";
+      }
+      control.disabled = true;
+      control.setAttribute("aria-busy", "true");
+      if (label) control.textContent = label;
+    } else {
+      control.disabled = control.dataset.uiWasDisabled === "1";
+      control.removeAttribute("aria-busy");
+      if (control.dataset.uiIdleLabel) control.textContent = control.dataset.uiIdleLabel;
+      delete control.dataset.uiIdleLabel;
+      delete control.dataset.uiWasDisabled;
+    }
+  }
 
   // iter062: self-contained friendly error card for the wizard bundle (the
   // dashboard bundle has its own richer renderErrorCard; this one renders the
@@ -8046,9 +8499,7 @@ JS_WIZARD = """\
     var card = (p && p.payload && p.payload.card) || (p && p.card) ||
       (p && p.code && FRONT_ERROR_CATALOG[p.code]) || null;
     if (!card) {
-      var msg = (p && p.payload && p.payload.error) || (p && p.error) || (p && p.message) ||
-        (typeof p === "string" ? p : "") || "请稍后重试";
-      card = { title: "出错了", cause: msg };
+      card = { title: "操作没有完成", cause: "当前输入已保留。请检查页面提示后重试。" };
     }
     return '<div class="error-card" role="alert">' +
       '<div class="error-card-head"><span class="error-card-icon" aria-hidden="true">⚠</span>' +
@@ -8088,12 +8539,12 @@ JS_WIZARD = """\
       const data = await res.json().catch(() => ({}));
       const model = String(data.model || "mock");
       const isMock = !!data.is_mock;
-      modeCard.innerHTML = '<strong>当前 server 模式：' + (isMock ? "mock" : "real") + '</strong>' +
-        '<br><span class="muted">OPENAI_MODEL=' + escapeHtml(model || "mock") +
-        (isMock ? "，本次不会消耗真实 token。" : "，请确认已授权真实模型运行。") + "</span>";
+      modeCard.innerHTML = '<strong>当前运行方式：' + (isMock ? "离线模式" : "真实生成") + '</strong>' +
+        '<br><span class="muted">' +
+        (isMock ? "本次不会发送真实请求，也不会使用真实额度。" : "开始前请确认本次范围与人民币额度。") + "</span>";
     } catch (err) {
-      modeCard.innerHTML = '<strong>当前 server 模式：mock</strong>' +
-        '<br><span class="muted">未读取到设置，按默认 mock-only 展示。</span>';
+      modeCard.innerHTML = '<strong>当前运行方式：离线模式</strong>' +
+        '<br><span class="muted">未读取到设置，按默认离线方式展示。</span>';
     }
   }
 
@@ -8154,13 +8605,19 @@ JS_WIZARD = """\
       errBox.innerHTML = "";
       const fd = new FormData(novelForm);
       const submitBtn = novelForm.querySelector("button[type=submit]");
-      submitBtn.disabled = true;
+      if (!await window.uiConfirmPaidAction({
+        title: "确认导入并创建",
+        action: "将导入作品并生成初始设定与首章内容。",
+        scope: "本次抽取 " + String(fd.get("extract_limit") || 5) + " 章；人民币额度上限 " + String(fd.get("budget_cny") || 0) + " 元",
+        preservation: "上传文件会保留在新作品中；开始后可查看进度或请求取消。",
+      })) return;
+      wizardSetBusy(submitBtn, true, "处理中");
       try {
         const res = await fetch("/api/wizard/start", { method: "POST", body: fd });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           errBox.innerHTML = renderErrorCard(data);
-          submitBtn.disabled = false;
+          wizardSetBusy(submitBtn, false);
           return;
         }
         show(panelProgress);
@@ -8168,12 +8625,23 @@ JS_WIZARD = """\
       } catch (err) {
         err.code = err.code || "network";
         errBox.innerHTML = renderErrorCard(err);
-        submitBtn.disabled = false;
+        wizardSetBusy(submitBtn, false);
       }
     });
   }
 
   if (premiseForm) {
+    const premiseExpand = premiseForm.elements.expand;
+    const premiseSubmit = premiseForm.querySelector("button[type=submit]");
+    function syncPremiseSubmitKind() {
+      const paid = !premiseExpand || premiseExpand.checked;
+      premiseSubmit.classList.toggle("btn-paid", paid);
+      premiseSubmit.classList.toggle("btn-primary", !paid);
+      if (paid) premiseSubmit.setAttribute("data-ui-action", "paid");
+      else premiseSubmit.removeAttribute("data-ui-action");
+    }
+    if (premiseExpand) premiseExpand.addEventListener("change", syncPremiseSubmitKind);
+    syncPremiseSubmitKind();
     premiseForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       if (premiseErrBox) premiseErrBox.innerHTML = "";
@@ -8185,7 +8653,13 @@ JS_WIZARD = """\
         expand: fd.get("expand") != null,
       };
       const submitBtn = premiseForm.querySelector("button[type=submit]");
-      submitBtn.disabled = true;
+      if (payload.expand && !await window.uiConfirmPaidAction({
+        title: "确认从立意创建作品",
+        action: "将根据当前立意生成作品设定。",
+        scope: payload.expand ? "生成结构化立意扩写稿" : "仅创建作品并保存立意",
+        preservation: "当前输入会保留；开始后可在工作台查看和编辑结果。",
+      })) return;
+      wizardSetBusy(submitBtn, true, "处理中");
       try {
         const res = await fetch("/api/wizard/premise-start", {
           method: "POST",
@@ -8195,7 +8669,7 @@ JS_WIZARD = """\
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           if (premiseErrBox) premiseErrBox.innerHTML = renderErrorCard(data);
-          submitBtn.disabled = false;
+          wizardSetBusy(submitBtn, false);
           return;
         }
         window.setPendingToastAndNavigate(
@@ -8205,7 +8679,7 @@ JS_WIZARD = """\
       } catch (err) {
         err.code = err.code || "network";
         if (premiseErrBox) premiseErrBox.innerHTML = renderErrorCard(err);
-        submitBtn.disabled = false;
+        wizardSetBusy(submitBtn, false);
       }
     });
   }
@@ -8239,7 +8713,7 @@ JS_WIZARD = """\
           return;
         }
         window.setPendingToastAndNavigate(
-          { kind: "info", msg: "短剧 workspace 已创建：" + data.name },
+          { kind: "info", msg: "短剧作品已创建：" + data.name },
           "/w/" + encodeURIComponent(data.name) + "/write?step=setup"
         );
       } catch (err) {
@@ -8274,10 +8748,10 @@ JS_WIZARD = """\
     const pct = Math.round((job.progress || 0) * 100);
     progressBody.innerHTML =
       '<div class="kv-list compact">' +
-      '<div class="k">status</div><div class="v">' + escapeHtml(job.status) + "</div>" +
-      '<div class="k">current step</div><div class="v">' + escapeHtml(job.current_step || "?") + "</div>" +
-      '<div class="k">progress</div><div class="v">' + pct + "%</div>" +
-      '<div class="k">job_id</div><div class="v"><code>' + escapeHtml(job.job_id) + "</code></div>" +
+      '<div class="k">状态</div><div class="v">' + escapeHtml(wizardStatusLabel(job.status)) + "</div>" +
+      '<div class="k">当前步骤</div><div class="v">任务处理中</div>' +
+      '<div class="k">进度</div><div class="v">' + pct + "%</div>" +
+      '<div class="k">任务编号</div><div class="v"><code>' + escapeHtml(job.job_id) + "</code></div>" +
       "</div>" +
       '<div class="progress" style="margin-top:12px"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
       renderWizardActions(job, name, jobId);
@@ -8292,8 +8766,7 @@ JS_WIZARD = """\
     const jobsHref = workspaceHref + "jobs";
     const continueHref = workspaceHref + "continue";
     const chaptersHref = workspaceHref + "chapters";
-    const trace = job.trace_id ? ' <code>trace=' + escapeHtml(job.trace_id) + '</code>' : "";
-    const err = job.error ? '<div class="alert error">详情: ' + escapeHtml(job.error) + trace + "</div>" : "";
+    const err = job.error ? '<div class="alert error">任务没有完成；当前输入和已生成内容会保留。请查看任务记录后重试。</div>' : "";
     let buttons = "";
     if (group === "running") {
       buttons =
@@ -8314,13 +8787,13 @@ JS_WIZARD = """\
     } else {
       buttons =
         '<a class="btn btn-secondary" href="' + jobsHref + '">查看失败详情</a>' +
-        '<a class="btn btn-primary" href="/wizard">回到 wizard 重试</a>';
+        '<a class="btn btn-primary" href="/wizard">回到创建向导重试</a>';
     }
     return '<div class="wizard-progress-actions">' +
       '<div class="alert ' + (group === "failed" ? "error" : group === "aborted" ? "warn" : "info") + '">' +
       '<strong>' + escapeHtml(cfg.title) + '</strong><br>' + escapeHtml(cfg.hint) + "</div>" +
       '<div id="cancel-notice">' +
-      (cancelRequestedJobs.has(jobId) && group === "running" ? '<div class="alert info">取消请求已发送，等待 worker 响应。</div>' : "") +
+      (cancelRequestedJobs.has(jobId) && group === "running" ? '<div class="alert info">取消请求已发送，等待当前步骤结束。</div>' : "") +
       "</div>" +
       err +
       '<div class="cluster">' + buttons + "</div>" +
@@ -8342,6 +8815,20 @@ JS_SETTINGS = """\
   const banner = document.getElementById("restart-banner");
   if (!form) return;
   let initial = {};
+  const uiInitial = {};
+  const secretKeys = new Set(["OPENAI_API_KEY", "PLANNER_API_KEY", "AI_DRAW_API_KEY", "SD_API_KEY"]);
+  const labels = {
+    OPENAI_MODEL: "默认文字生成方式", OPENAI_API_KEY: "默认文字生成密钥",
+    OPENAI_BASE_URL: "默认文字生成地址", MODEL_PROFILE: "生成配置方案",
+    PLANNER_MODEL: "规划生成方式", PLANNER_API_KEY: "规划生成密钥",
+    PLANNER_BASE_URL: "规划生成地址", DRAMA_MODEL: "短剧文字生成方式",
+    AI_DRAW_ENDPOINT: "图片生成入口", AI_DRAW_BASE_URL: "图片生成地址",
+    AI_DRAW_MODEL: "图片生成方式", AI_DRAW_API_KEY: "图片生成密钥",
+    AI_DRAW_RESULT_HOSTS: "允许的图片结果地址", SD_API_BASE_URL: "视频生成地址",
+    SD_API_KEY: "视频生成密钥", OPENAI_STREAM: "流式显示",
+    DISABLE_PROMPT_CACHE: "关闭内容复用", WRITE_MAX_TOKENS: "单章文字用量上限",
+    WRITE_PROMPT_PROFILE: "正文提示方案",
+  };
   try {
     const res = await fetch("/api/settings");
     const data = await res.json();
@@ -8351,12 +8838,18 @@ JS_SETTINGS = """\
     return;
   }
   for (const [k, v] of Object.entries(initial)) {
+    if (!Object.prototype.hasOwnProperty.call(labels, k)) continue;
     const row = document.createElement("div");
     row.className = "field";
+    const secret = secretKeys.has(k);
+    const uiValue = secret ? "" : v;
+    uiInitial[k] = uiValue;
+    const helpId = "setting-help-" + k.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     row.innerHTML =
-      '<label>' + escapeHtml(k) + "</label>" +
-      '<input name="' + escapeHtml(k) + '" type="text" value="' + escapeHtml(v) +
-      '" placeholder="(empty)" autocomplete="off">';
+      '<label>' + escapeHtml(labels[k]) + "</label>" +
+      '<input name="' + escapeHtml(k) + '" type="' + (secret ? "password" : "text") + '" value="' + escapeHtml(uiValue) +
+      '" placeholder="' + (secret && v ? "已配置；留空保持不变" : "未设置") + '" autocomplete="off" aria-describedby="' + helpId + '">' +
+      '<small id="' + helpId + '">' + (secret ? "页面不会回显已保存的秘密；仅在需要替换时输入新值。" : "保存后重启本地服务生效。") + '</small>';
     form.appendChild(row);
   }
   form.addEventListener("submit", async (ev) => {
@@ -8365,7 +8858,7 @@ JS_SETTINGS = """\
     if (banner) banner.hidden = true;
     const payload = {};
     for (const input of form.querySelectorAll("input")) {
-      if (input.value === initial[input.name]) continue;
+      if (input.value === uiInitial[input.name]) continue;
       payload[input.name] = input.value;
     }
     if (Object.keys(payload).length === 0) {
@@ -8380,14 +8873,12 @@ JS_SETTINGS = """\
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = '<div class="alert error">保存失败 (' + res.status + "): " +
-          escapeHtml(data.error || "") + "</div>";
+        errBox.innerHTML = '<div class="alert error">设置没有保存；当前输入已保留。请检查填写内容后重试。</div>';
         return;
       }
       if (banner) {
         banner.hidden = false;
-        banner.innerHTML = '<div class="alert info">已保存 ' +
-          escapeHtml((data.updated_keys || []).join(", ")) + "，请重启 web 服务以让新模型生效</div>";
+        banner.innerHTML = '<div class="alert info">设置已保存。请重启本地服务，让新的运行方式生效。</div>';
       }
     } catch (err) {
       errBox.innerHTML = '<div class="alert error">保存失败，请确认网络与本地服务后重试。</div>';
