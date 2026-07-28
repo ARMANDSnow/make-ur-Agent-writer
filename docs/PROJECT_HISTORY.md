@@ -78,6 +78,7 @@
 | 150 | 短剧完整 SOP 前后端真人复验 | wire mutation/绕过、隔离 exact-duration A-F、取消恢复与 production UX；真文本/图窄校准，视频 create 前 safe-blocked |
 | 151 | Workspace、Local Demo 与 Worker 体检闭环 | nofollow workspace identity、持久安全 target、FFmpeg/FFprobe 三层预检、test worker drain；验收后删除三份报告 |
 | 152 | 小说续写 Web UI/UX 全量重设计 | 浅色中文设计系统、15 个桌面页、3 个平板页、6 个手机页、全操作/异常状态/API 映射与分期前端重构依据 |
+| 153 | 小说 Web 浅色系统与共享组件落地 | Phase A/B 生产命名空间、中文失败关闭、44px 组件与实际 step 计费确认；24 组本地浏览器验证 |
 
 ## Iteration Implementation Index
 
@@ -211,6 +212,7 @@
 | 150 | 真人复验并修复短剧现有 SOP | `src/drama_local_demo.py`、`src/web/`、`scripts/run_local_drama_e2e.py`、`tests/test_drama_*.py` |
 | 151 | 闭环 workspace、Local Demo、媒体预检与 test worker | `src/paths.py`、`src/drama_local_demo.py`、`src/web/`、`tests/test_*.py` |
 | 152 | 建立小说续写 Web UI/UX 重构规范与 Figma 交付 | `docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`、Figma、iteration 文档 |
+| 153 | 落地小说 Web 浅色变量、中文层与共享组件 | `src/web/templates.py`、`src/web/static.py`、`tests/test_web_ui_design_system.py` |
 
 ## Durable Decisions
 
@@ -315,7 +317,7 @@
 
 ## Historical Evidence Notes
 
-- iter152 在 implementation `099e625` 上 canonical 2918 tests / 15 steps / 472 秒通过，run `774dd16f5e464244ad4c6dbd78e71a9f`，等级 `mock-functional`；mandatory loopback 为 `local-e2e`。Figma 与规范的 correctness、security/boundary、Web/UIUX 回归均 PASS，本轮未修改生产 Web 代码、未调用真实 provider。
+- iter153 在 implementation `082f0d7` 上 canonical 2926 tests / 15 steps / 474 秒通过，run `f3d7e4e81805499c998b724351c399b3`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 8 路由 × 3 视口浏览器证据为 `local-e2e`。Phase A/B 已落到生产 Web，Phase C–E 页面级布局待续；三视角复审无剩余代码 finding，未调用真实 provider。
 - 早期阶段测试数、调用数、成本估算与具体 snapshot 是当时证据，不代表当前值；需要时读对应 iteration 001-019。
 - 真模型小说路径曾完成 extract、debate、write/review、原创 premise 多章和深起点续写样本；最新生产证据与仍待授权项以 handoff 为准。
 - Aeloon 的 PR、部署方式和 vendored 同步状态由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护，不在这里复制。

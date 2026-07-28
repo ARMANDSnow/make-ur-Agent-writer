@@ -46,12 +46,19 @@ iter152 已完成小说续写 Web 的 Figma 浅色设计稿与可实施 UI/UX �
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- **A153-01 / A153-02：PASS。** `ui-public`、`ui-novel`、`ui-drama` 明确隔离；公共与小说 CSS 使用指定浅色语义值，Primary / Paid / Danger 均为浅底深字。集中 Python/JS 映射覆盖规定状态与旧技术词，未知状态统一为“状态待确认”，动态 blocker、异常、路径与对象型评审信息不再原样进入用户页面。
+- **A153-03 / A153-04：PASS。** 文字按钮、44×44 图标按钮、中文状态、字段/错误关联、toast、三类确认语义、导航与固定四阶段卡已统一；处理中设置 `aria-busy` 并阻止重复提交。小说真实生成、重新生成与真实重试按显式 step allowlist 使用 Paid，并在发请求前确认人民币额度、覆盖范围和内容保留；本地/短剧重试不误分类。
+- **A153-05：PASS。** `data-leave-guard`、标签页、任务轮询/取消/恢复、readiness、toast、既有 DOM hook 与 `/static/app.css`、`/static/app.js` 服务契约通过聚焦回归；短剧页面行为合同未回归。
+- **A153-06：PASS（`local-e2e`）。** isolated synthetic workspace、`OPENAI_MODEL=mock`、`DRAGON_RAJA_SKIP_DOTENV=1` 下，`/`、`/library`、`/wizard`、`/settings`、`/trash`、`/w/synthetic/workbench`、`/w/synthetic/continue`、`/w/synthetic/jobs` 在 `1440×1024`、`1199×900`、`390×844` 共 24 组均无横向溢出、小于 44px 的可见操作、无标签图标按钮、禁用英文词命中或控制台错误。三档键盘抽查均显示 3px 焦点环；Paid/Danger 弹窗的浅底深字、44px、Escape 和焦点恢复通过。截图保存在 `/tmp/iter153-browser-evidence/final-*.png`，仅代表本地 UI/E2E。
+- **A153-07：PASS。** 聚焦 Web 套件 403 tests OK；最终补充的 164 项目标回归与 11 项历史合同回归通过，`py_compile`、Node `--check`、`git diff --check` 通过。correctness/behavior、security/boundary、Web/UIUX/响应式三路独立只读复审最终无剩余代码 finding。
+- **Implementation commit：** `082f0d7abd37b2e84e0e3e4e7e9352854b1468d5`（`feat(web): 落地小说浅色设计系统与共享组件`）。
+- **Canonical：** 首次全量在 implementation 修订前暴露 5 failures + 1 error，均为旧测试仍断言英文/旧 active-link/raw 状态的合同漂移；修正测试合同并以 11 项聚焦回归确认后，按失败范围重验。最终在上述 implementation commit 的隔离 clean worktree 运行 `bash scripts/verify.sh`：**2926 tests OK / 15 steps / 474 秒 / exit 0**，run `f3d7e4e81805499c998b724351c399b3`，tree `bfe36226304a9ffd161515c65e4bc5afdd1a704d`，`tracked_scope_clean=true`，等级 `mock-functional` / `canonical-mock-offline`；mandatory `local_drama_e2e` 通过。
+- 全程未读取 `.env`，未调用真实文本、图片、视频、TTS 或任何计费 provider；未触碰小说原文、私有 workspace、`data/`、`logs/` 或用户既有未跟踪文件。Phase C–E 的 15 页完整内容布局仍不在本轮范围。
 
 ### Knowledge Promotion
-- `decision`: `promoted`
-- `destination`: `docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`
-- `reason`: Phase A/B 的生产落地状态、实际组件契约与后续 Phase C–E 边界属于跨轮有效的产品实施事实。
+- `decision`: `not-promoted`
+- `destination`: `none`
+- `reason`: 本轮没有形成超出 iter152 规范的新长期设计规则；Phase A/B 当前实施状态已就地同步至 README、handoff 与项目历史，避免在 accepted implementation commit 后修改非收官白名单文档。
 
 ## 文件变更汇总
 
@@ -62,6 +69,7 @@ iter152 已完成小说续写 Web 的 Figma 浅色设计稿与可实施 UI/UX �
 | `tests/test_web_ui_design_system.py` | 新增 iter153 设计系统、中文映射、Paid 分类、44px、旧 hook 和短剧隔离合同测试 |
 | `tests/test_web_routes_get.py` | 更新向导中文文案契约 |
 | `tests/test_jobs_drawer.py` | 更新任务抽屉的中文状态与操作契约 |
+| `tests/test_budget_guard.py`、`tests/test_drama_iter088_web.py`、`tests/test_static_subscore_compat.py`、`tests/test_workbench_e2e.py` | 更新旧英文、active-link 与 raw 状态的历史前端合同 |
 | `docs/iterations/iteration_153_novel_web_light_design_system_components.md` | 本轮实施、审查、验收与边界记录 |
 | `docs/iterations/README.md` | 追加 iter153 索引（仅本轮单行） |
 
