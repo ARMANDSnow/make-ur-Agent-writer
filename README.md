@@ -11,7 +11,7 @@
 - **小说续写**：normalize → split → extract → compress → debate → plan → write → review → rolling/advance。
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
-- **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights。
+- **本地 Web**：四步工作台、设定/大纲/细纲/正文编辑、job 恢复、全文搜索、版本 diff、Insights；后续界面重构以浅色、中文优先的 [`NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) 为依据。
 - **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 本地合成/QA/exact delivery、G1-G7 持久媒体调度/计价/metrics、H1-H3 事件图/辅助记忆，以及 I1 同源只读 production workbench 与 I2 可校验迁移/交付快照。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
@@ -69,7 +69,7 @@ python3 main.py web              # 127.0.0.1:8765
 python3 main.py web --port 9999
 ```
 
-Web 可管理小说与短剧 workspace，显示 readiness、job、草稿、review、章节历史和 Insights。它基于标准库 `http.server` 与原生 JS，默认只绑定本机；当前定位是个人研究工具，不是公网多租户服务。
+Web 可管理小说与短剧 workspace，显示 readiness、job、草稿、review、章节历史和 Insights。它基于标准库 `http.server` 与原生 JS，默认只绑定本机；当前定位是个人研究工具，不是公网多租户服务。iter152 已交付小说续写 Web 的完整 UI/UX 重构依据，但生产页面尚未按新稿实施。
 
 ## 目录结构
 
@@ -174,12 +174,13 @@ docs/iterations/           逐轮审计记录
 | 短剧可移植项目归档 | 148 | ✅ 确定性有上限 ZIP、strict manifest/领域绑定、脱敏 creative/evidence、exact PNG/media 与原子 no-overwrite 导入形成 I2 本地闭环 |
 | 短剧完整 SOP 前后端真人复验 | 150 | ✅ wire mutation/绕过、源项目污染、时长、取消/恢复与 production UX 已收口；隔离 A-F 为 local-e2e，真文本/角色图窄校准通过，真视频因公网素材域名失效在 create 前 safe-blocked |
 | Workspace、Local Demo 与 Worker 体检闭环 | 151 | ✅ nofollow workspace identity、刷新恢复安全 target、FFmpeg/FFprobe 预检与 test worker drain 已收口；三份报告在 canonical 通过后删除 |
+| 小说续写 Web UI/UX 全量重设计 | 152 | ✅ 浅色中文设计系统、15 个桌面页、3 个平板页、6 个手机页、完整按钮/异常状态/API 对照与分期重构规范已交付；本轮未改生产 Web 代码 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 151**（2026-07-25，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter151 将 workspace root/现存 canonical 子目录纳入统一 nofollow identity 守门，Local A-F 持久保存经验证的 target/source/episode 并支持刷新恢复，FFmpeg/FFprobe 在 GET、POST、worker 三层有界预检，测试 worker reset 必须 drain 后才能恢复全局状态。桌面与 390×844 的运行中刷新、历史找回和取消不误跳转均通过；三份 7/23-7/25 体检报告在 canonical 验收通过后删除。iter150 的 wire mutation、隔离 exact-duration A-F、取消与 production UX 能力继续有效；A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 继续保持纯本地闭环。iter142 的 5.042 秒窄样本仍有效，iter143 的 20 秒 create 不明样本仍不得自动重提。完整目标流程来自 [A-J 阶段计划](docs/iterations/stage_plan_drama_full_production_pipeline.md)。总工程验收为 `mock-functional`，mandatory local-drama 和隔离 A-F 为 `local-e2e`；这些均不等于完整 `provider-validated`。
+最近一次更新：**iter 152**（2026-07-28，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter152 在不修改生产 Web 代码的前提下，交付小说续写域浅色、中文优先的全量 UI/UX：15 个桌面页、3 个 `1199×900` 平板关键页、6 个 `390×844` 手机核心页，以及组件状态、全部操作能力、异常恢复、费用确认、安全边界和 API/DOM hook 映射。后续前端重构以 [`docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) 为依据；当前页面行为仍以代码和测试为准。iter151 的 workspace identity、Local A-F 刷新恢复、媒体工具预检和 worker drain 能力继续有效；A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 继续保持纯本地闭环。iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 为 `local-e2e`；这些均不等于完整 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -231,6 +232,7 @@ docs/iterations/           逐轮审计记录
 | 历史架构与工程教训 | [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md) |
 | 每轮计划、验收、审查 | [`docs/iterations/README.md`](docs/iterations/README.md) |
 | 上手操作 | [`docs/product/GETTING_STARTED.md`](docs/product/GETTING_STARTED.md) |
+| 小说续写 Web UI/UX 重构依据 | [`docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) |
 | Aeloon 集成 | [`docs/AELOON_INTEGRATION.md`](docs/AELOON_INTEGRATION.md) |
 | 短剧完整 SOP 与产品协议 | [`docs/product/short_drama_module.md`](docs/product/short_drama_module.md#11-完整生产-sop实时状态) |
 

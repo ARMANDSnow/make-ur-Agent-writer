@@ -46,12 +46,18 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- **A152-01 通过**：规范覆盖 5 个公共页面与 10 个小说工作区页面，明确 `/workbench` 与 `/continue` 职责；短剧生产页保持在本轮外。无后端契约的作品重命名、章节删除、检查项处理和采用建议均标为 v1 隐藏。
+- **A152-02 通过**：Figma 新增 `07–12` 页面组与 6 组本地组件集；完成 15 个 `1440×1024` 桌面页、3 个 `1199×900` 平板页、6 个 `390×844` 手机页。三个平板画板的根尺寸与内容边界复核均无溢出，桌面/平板/手机用户文案扫描未发现需暴露的内部英文词。
+- **A152-03 通过**：[`NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](../product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) 已提供精确浅色色值、中文文案映射、路由规格、逐页异常态、组件与状态机、30+ 项操作能力矩阵、确认/恢复链、API/现有与待迁移 DOM hook、响应式、无障碍和五阶段重构建议。
+- **A152-04 通过**：真实生成按钮使用浅杏色并逐次确认范围与额度，危险动作使用浅桃色并强确认；凭据零片段回显、技术详情安全白名单、模块不匹配停止小说域请求、原始错误不直出等边界已写入规范。security/boundary 最终复核 PASS。
+- **A152-05 通过**：agent harness、`git diff --check` 与聚焦结构检查通过。correctness、security/boundary、Web/UIUX 三个独立只读视角最终均 PASS，无未处理 P1/P2。implementation commit `099e625f2d1f2655580eef2eabe45f5ac3247f6d` 上标准验收 exit 0：**2918 tests / 15 steps / 472 秒**，run `774dd16f5e464244ad4c6dbd78e71a9f`，`tracked_scope_clean=true`，等级 `mock-functional`；mandatory loopback 子步骤为 `local-e2e`。
+- **验收过程说明**：首次临时 worktree 启动在 `repository_state` 前置检查即因 `.venv` 解释器软链接未忽略而安全阻断，没有进入单测或流水线。随后仅用进程级 Git 忽略规则隐藏该临时链接，干净 implementation commit 上的完整标准验收通过；没有修改验收脚本或降低清洁要求。
+- **边界结论**：本轮仅交付 Figma 与设计/实施文档，未修改生产 Web 代码；新界面尚未上线。标准验收只证明 `mock-functional`，本轮没有真实 provider 请求，不能宣称 `provider-validated`。
 
 ### Knowledge Promotion
-- `decision`: `<iter-finish 回填：none|promoted>`
-- `destination`: `<iter-finish 回填：none|既有长期权威文档>`
-- `reason`: `<iter-finish 回填人工判断>`
+- `decision`: `promoted`
+- `destination`: `docs/PROJECT_HISTORY.md`
+- `reason`: “界面规范不能发明后端能力、用户语言不能泄漏实现词汇、视觉示例必须落在声明断点内”是跨页面和后续重构阶段都需遵守的长期约束；逐页节点与按钮证据仍留在本 iteration 和产品规范。
 
 ## 文件变更汇总
 
@@ -59,6 +65,7 @@
 |---|---|
 | `docs/iterations/iteration_152_novel_web_uiux_redesign_spec.md` | 建立本轮设计与验收记录 |
 | `docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md` | 新增小说续写 Web UI/UX 前端实施规范 |
+| `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md` | 同步当前设计交付、前端缺口、验收基线与长期 UI/UX 约束 |
 | Figma `续写工作台 · Web UIUX 重设计` | 新增浅色变量、组件状态、15 个桌面页、3 个平板页、6 个手机页、交互状态与开发映射 |
 
 ## 不在本轮范围
