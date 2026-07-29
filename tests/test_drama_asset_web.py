@@ -85,7 +85,7 @@ class DramaAssetWebTests(DramaTestBase):
         self.assertIn("if (err && err.status === 409)", js)
         self.assertIn("await load();", js)
         self.assertIn("跨季不可选择", js)
-        self.assertIn("当前季 lifecycle 已停用", js)
+        self.assertIn("当前季已停用", js)
 
         status, data = self._decode(
             routes.dispatch(

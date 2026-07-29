@@ -34,7 +34,14 @@ iter158 已完成短剧响应式 11 项导航壳、概览与 production，iter15
 
 ## Implementation Notes
 
-<实施后回填。>
+- 读取 Figma D11 `40:269`、D12 `40:336`、D13 `40:416`、T04 `45:148`、M04 `46:117`，将桌面主从分栏、平板横向选择器和移动单列“需处理优先”映射到既有 `ui-drama` 壳；未复制 token，也未触碰 `ui-public`/`ui-novel`。
+- `/assets` 改为角色、场景、道具/线索、美术方向四组入口和六段服务端治理投影，展示当前版本、作用域、冻结引用数量、切换影响、启用/停用与 stale/blocked 原因；mutation 继续使用 JSON、intent、same-origin、workspace lock 与原有 revision 校验。
+- `/shot-images` 改为镜头主从浏览、首尾帧关系、当前/历史候选、对比与 CAS 选择/清除；“只看需处理”仍保留当前已选镜头，空状态返回链接保留 episode 2+ 上下文。
+- `/shot-videos` 分层展示候选、attempt、coverage、continuity、降级预览与 exact selection/clear；当前安全投影未包含具体 first/tail/previous-tail 绑定时明确不在前端推断，SubmissionUnknown/Lost 仍保持零自动重提。
+- 只把 section/item/version/shot/candidate 的序号写入 DOM，真实 ID 与 revision 仅保留在内存投影中；图片和视频预览经同源 endpoint 读取后以 `blob:` URL 挂载，页面 DOM 不出现内部 ID、fingerprint 前缀或预览路径。
+- 聚焦回归：Phase A/B/C、assets、shot image、shot video、GET routes、web server、image/video clients 与 production workbench 共 207 项通过，11 项按既有条件跳过；另有 Phase C 聚焦 50 项通过。JS 语法、Python 语法与 `git diff --check` 通过。
+- 浏览器复核覆盖 1440×1024、1024×900、390×844 三视口的 assets、shot-images、shot-videos：9 组均无横向溢出且无小于 44×44 的可见交互目标；桌面为 `330px + detail`，平板/移动为单列；键盘 ArrowDown 同步焦点、`aria-selected` 与唯一详情面板，focus ring 为 3px solid；图片自动安全预览与视频按需预览均只挂载 `blob:` URL。
+- 三路只读审查结论：correctness 指出 episode 空状态上下文和已选图片筛选问题；security/boundary 指出 DOM ID/preview URL 暴露风险；Web/UIUX/媒体预览指出 category tab 语义不完整、视频输入关系存在前端推断和 continuity 缺少公共镜头定位。上述 findings 均已修复并完成聚焦回归；主线程复核未发现遗留高风险项。
 
 ## Acceptance Result
 
