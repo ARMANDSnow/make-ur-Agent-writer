@@ -44,6 +44,7 @@ iter158-160 已完成短剧响应式页面壳、概览、production、五站创�
 - 审查后修复：unknown compose state fail-closed；Running 禁止重复启动；历史失败不覆盖 current Complete；任务筛选同步可见详情并增加 `aria-controls`/live region；下载名称与空状态去除内部阶段术语；通用 poll/reconcile 链接补 leave guard。
 - 聚焦验收：Phase D + Web GET 100 tests 通过；Phase A-D、production、shot image/video、compose、episodes、jobs 兼容集通过；JS `node --check`、Python compile 与 `git diff --check` 通过。真实浏览器在 1440×1024、1024×900、390×844 覆盖 compose/episodes/insights/jobs 及 Empty/Ready/Running/Stale/Complete、Lost/Unknown，均无横向溢出、无小于 44×44 的可见控件、focus ring 为 3px、公开 DOM 无内部 ID/路径/hash/prompt；移动 Ready 固定主操作与键盘筛选/详情同步通过。
 - 四路独立只读审查：correctness/behavior、security/boundary、Web/UIUX、runner/recovery 均完成；有效 findings 已由主线程复核、修复并聚焦回归，未保留已知高/中风险 finding。审查未运行真实 provider，未读取受限目录。
+- 首次 canonical 在 3001 项中暴露 2 个 legacy 静态合同漂移：任务详情按钮缺少共享无障碍标签、iter095 剧集页仍断言旧表格文案。实现补回 `aria-label="展开任务详情"`，并将 legacy 测试同步到新卡片的“集可交付”语义；两项失败范围聚焦回归通过后再形成修复提交并重验。
 
 ## Acceptance Result
 
@@ -59,6 +60,7 @@ iter158-160 已完成短剧响应式页面壳、概览、production、五站创�
 - `src/web/templates.py`：Phase D compose、episodes、insights、jobs 页面语义结构与 leave guard。
 - `src/web/static.py`：Phase D 响应式样式、四页安全渲染、交互、取消/恢复、ARIA 与 exact delivery 绑定。
 - `tests/test_drama_web_uiux_phase_d.py`：Phase D 页面壳、响应式、安全投影、known/unknown、任务恢复与 ARIA 合同测试。
+- `tests/test_drama_iter095_web.py`：同步剧集页从旧表格到 Phase D 季进度卡的可交付文案合同。
 - `tests/test_web_routes_get.py`：同步 Phase D episodes/jobs 的公开页面断言。
 - `docs/iterations/iteration_161_drama_web_uiux_phase_d_delivery_episodes_insights_jobs.md`：实现、审查、验收与知识晋升记录。
 

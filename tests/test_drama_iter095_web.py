@@ -322,7 +322,7 @@ class DramaIter095WebTests(DramaTestBase):
         self.assertIn("继续第 ", js)
         self.assertIn("导出整季母包", js)
         self.assertIn("导出阶段快照", js)
-        self.assertIn("可交付 ", js)
+        self.assertIn("集可交付", js)
         self.assertIn("当前也没有可导出的阶段快照", js)
         self.assertIn("修复第 ", js)
 

@@ -8834,7 +8834,7 @@ JS_DASHBOARD = """\
           const status = String(job.status || "unknown").toLowerCase();
           const tone = status === "failed" || status === "blocked" ? "danger" : group === "attention" ? "warning" : group;
           return '<article class="drama-job-card" data-job-card data-job-group="' + group + '" data-tone="' + tone + '">' +
-            '<button type="button" class="drama-job-select" data-drama-job-index="' + index + '" aria-controls="drama-job-detail" aria-label="查看' + escapeHtml(stepLabel(job.step)) + '详情"><span class="drama-job-dot" aria-hidden="true"></span><span><strong>' + escapeHtml(stepLabel(job.step)) + '</strong><small>' + escapeHtml(formatJobTimestamp(job.finished_at || job.started_at)) + '</small></span></button>' +
+            '<button type="button" class="drama-job-select" data-drama-job-index="' + index + '" aria-controls="drama-job-detail" aria-label="展开任务详情"><span class="drama-job-dot" aria-hidden="true"></span><span><strong>' + escapeHtml(stepLabel(job.step)) + '</strong><small>' + escapeHtml(formatJobTimestamp(job.finished_at || job.started_at)) + '</small></span></button>' +
             '<div class="drama-job-state">' + statusBadge(status) + '<p>' + escapeHtml(safeNote(job)) + '</p></div>' +
             '<div class="drama-job-action">' + actionFor(job, index) + '</div></article>';
         }).join("");
