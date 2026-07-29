@@ -51,7 +51,23 @@ Phase A-D 已完成小说 Web 规范、浅色共享设计系统、公共页面�
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- A156-01：批量续写的高级入口、完整设置、readiness→Paid 顺序、busy 与失败保留输入通过。
+- A156-02：章节计划编辑/保存/取消及离开保护通过；全局大纲与创作决定保持只读。
+- A156-03：三类搜索、组合筛选、空输入零请求、安全结果、清除与重试语义通过。
+- A156-04：内容检查仅展示白名单问题、严重程度、状态和位置，没有无契约处理动作。
+- A156-05：创作数据严格只读，只聚合已保存记录，未知费用不伪造为零。
+- A156-06：五页复用 `ui-novel` 与共享组件，三视口导航、44px、焦点、遮挡和溢出检查通过。
+- A156-07：旧样式与兼容选择器完成调用方审计，只删除三个证明确无调用方的条目。
+- A156-08：聚焦测试、静态检查与四个独立只读审查通过，findings 全部闭环。
+- A156-09：五页三视口真实浏览器操作及 Phase C/D、短剧抽查通过，证据等级 `local-e2e`。
+- A156-10：implementation commit 上 canonical mock/offline 验收通过，文档已同步；未 push、未调用真实 provider。
+- **结论**：以上十项全部通过。验收等级为 `mock-functional` / `canonical-mock-offline`；真实本地浏览器与 mandatory loopback 证据为 `local-e2e`，不构成 `provider-validated`。
+- **聚焦验证**：Web 全发现 433 tests OK（13 skipped），额外静态/短剧兼容 40 tests OK，共 473 个聚焦测试；Python 语法检查、前端 JavaScript 语法检查、harness 与 `git diff --check` 均通过。
+- **多视角审查**：correctness/behavior、security/boundary、Web/UIUX/响应式、compatibility/cleanup 四个独立只读视角完成；readiness 递归、类型隔离、计划 XSS/坏行、未知费用、焦点恢复、表单关联、移动统计等 findings 均已修复，最终无未修 P1/P2。
+- **浏览器验收**：isolated synthetic workspace 下真实 Chromium 覆盖五页 × `1440×1024`、`1199×900`、`390×844`。完成 readiness 阻断与 synthetic ready、Paid 确认、mock 任务、计划保存/取消/离开保护、空搜索零请求与三类结果、检查定位、只读统计，并抽查 Phase C/D 与短剧页；无横向溢出、遮挡、重复当前导航或控制台错误，可见控件有效点击目标不少于 44px。
+- **兼容清理**：仅删除 `a.search-hit-title:hover`、`.search-hit-title.muted-link` 与无消费者的 `data-leave-guard-scope="plan"`；仍有生产、测试或规范调用的旧 hook、`data-ui-*`、`data-leave-guard` 与短剧共享样式全部保留。
+- **Canonical**：implementation commit `cd01ebe214d495d4f8be894ba15f022f763618b2` 的隔离 clean worktree 上 `bash scripts/verify.sh` exit 0；2956 tests OK（13 skipped），15 steps、466 秒，run `b289f10090de435f9174dc1ab54d3d15`，`tracked_scope_clean=true`。首次沙箱运行因本地回环 socket 权限产生环境性失败，按失败面获批在同一 commit 上重验通过。
+- **边界**：全程 `OPENAI_MODEL=mock`；未调用真实 provider、生图、视频、TTS 或计费入口，未读取 `.env`、小说原文、私有 workspace、`data/`、`logs/` 或用户运行产物。用户原有 iteration 索引、短剧阶段计划、体检报告及其他改动均保留且未暂存。
 
 ### Knowledge Promotion
 - `decision`: `none`
