@@ -6,14 +6,14 @@
 
 | Acceptance ID | Finding | 起始状态 | 本轮处置 | 报告删除门槛 |
 |---|---|---|---|---|
-| A157-01 | 嵌套 KB/draft symlink 越界 | open | workspace-relative dirfd/no-follow 文件层 | 路径回归与审查闭合 |
-| A157-02 | stderr 原始异常/traceback 泄漏 | open | 统一安全异常记录器 | 注入 marker 的 body/stderr 回归闭合 |
-| A157-03 | Wizard 5xx/降级回显异常 | open | 固定错误卡、trace ID 与 202 固定降级文案 | Wizard 回归闭合 |
-| A157-04 | 首条 job 持久化失败仍启动 worker | open | 首条持久化升级为启动准入门 | 零 worker/handler 与回滚回归闭合 |
-| A157-05 | unknown/404 job 无限轮询 | open | 严格状态分类并释放 busy | Dashboard/Wizard 行为回归闭合 |
-| A157-06 | `xcrun_db` 破坏 harness 测试 | reproduced | 平台临时文件导向 owned run root | 两个既有失败转绿并通过边界回归 |
-| A157-07 | Paid 按钮缺少 `aria-busy` | iter155 closed | 只补明确回归证据 | 回归通过，不重复改实现 |
-| A157-08 | iteration 索引复制旧“当前基线” | open | 改为历史快照，当前事实只链接 handoff | 文档审查闭合 |
+| A157-01 | 嵌套 KB/draft symlink 越界 | closed | workspace-relative dirfd/no-follow 文件层 | 路径回归与审查闭合 |
+| A157-02 | stderr 原始异常/traceback 泄漏 | closed | 统一安全异常记录器 | 注入 marker 的 body/stderr 回归闭合 |
+| A157-03 | Wizard 5xx/降级回显异常 | closed | 固定错误卡、trace ID 与 202 固定降级文案 | Wizard 回归闭合 |
+| A157-04 | 首条 job 持久化失败仍启动 worker | closed | 首条持久化升级为启动准入门 | 零 worker/handler 与回滚回归闭合 |
+| A157-05 | unknown/404 job 无限轮询 | closed | 严格状态分类并释放 busy | Dashboard/Wizard 行为回归闭合 |
+| A157-06 | `xcrun_db` 破坏 harness 测试 | closed | 平台临时文件导向 owned run root | 两个既有失败转绿并通过边界回归 |
+| A157-07 | Paid 按钮缺少 `aria-busy` | iter155 closed / regression passed | 只补明确回归证据 | 回归通过，不重复改实现 |
+| A157-08 | iteration 索引复制旧“当前基线” | closed | 改为历史快照，当前事实只链接 handoff | 文档审查闭合 |
 
 只有所有 Acceptance、只读审查和 schema v2 canonical `mock-functional` 全部闭合，才删除四份未跟踪报告；否则报告继续保留。
 
@@ -59,8 +59,18 @@
 
 ## Acceptance Result
 
-- 聚焦实现、对抗测试、静态检查与三路只读审查已闭合；最终 canonical 结果待 implementation commit 后唯一一次 `bash scripts/verify.sh` 回填。
-- 聚焦回归最终为 201 tests OK（11 skipped）；Python/JavaScript 语法、shell 语法、agent harness 与 `git diff --check HEAD` 通过。
+- A157-01：KB/draft 正常与多字节上限兼容；ancestor/final symlink、特殊/超限文件及原子失败均失败关闭，外部字节不变。
+- A157-02：routes、server、wizard、degraded/storyboard 与 draft-meta 的 HTTP body/stderr marker 注入回归通过，日志只保留 event/type/trace ID。
+- A157-03：Wizard drama/novel/pipeline 5xx 使用固定通用错误卡；premise expansion 保持 202 且只返回固定错误与 `expansion_trace_id`。
+- A157-04：首条 job 持久化的 FIFO、symlink、超限、short write 与 fsync 失败均为零 worker/handler；后续失败投影 `persistence_degraded=true`。
+- A157-05：Dashboard/Wizard 对终态、404、空对象、坏 JSON、缺失或未知状态均单次停止、释放 busy 并显示核对入口。
+- A157-06：两个既有 harness 失败转绿；owned temp 清理、unowned sibling 保留、evidence 失败清理及 `xcrun_db` 无豁免回归通过。
+- A157-07：iter155 Paid draft-save-review 按钮 `aria-busy` 回归通过，未重复修改实现。
+- A157-08：两份既有规划文档保留用户内容并将旧基线标为 2026-07-28 历史快照，当前事实只链接 handoff。
+- 聚焦回归最终为 201 tests OK（11 skipped），Python/JavaScript 语法、shell 语法、agent harness 与 `git diff --check HEAD` 通过。
+- correctness/behavior、security/boundary、Web/runner/harness 三路独立只读审查完成；7 个去重后的有效 finding 全部修复，三路最终复核均为 no remaining findings。
+- implementation commit `3c953fd46c93ed7fd916e65112a230a341337f4e` 上 schema v2 canonical 通过：2976 tests、15 steps、467 秒，run `d2b1f5f4ea8445809f03e75603f08f47`，`status=passed`、`mock-functional` / `canonical-mock-offline`、`tracked_scope_clean=true`、`mock_offline=true`。
+- 首次沙箱运行的 23 个 error 均为本地回环 `socket.bind` 被 `EPERM` 拒绝，没有断言失败；按同一 implementation commit 非沙箱复验后 exit 0。验收门槛满足后，四份未跟踪体检报告已删除。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -81,6 +91,8 @@
 | `scripts/verify.sh` | owned run root 前置初始化和平台/Python 临时文件重定向。 |
 | `tests/test_web_iter157_health_closure.py` | 新增路径、日志、Wizard、job、Node/DOM 和 Paid busy 对抗回归。 |
 | `tests/test_agent_harness.py` | 覆盖 xcrun、owned cleanup、unowned sibling 与 evidence 失败路径。 |
+| `README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md` | 同步 iter157 当前状态、canonical 证据与历史里程碑。 |
+| `docs/2026-7-{26,27,28,29}体检报告.md` | schema v2 canonical 与审查全部闭合后删除四份未跟踪报告。 |
 
 ## 不在本轮范围
 

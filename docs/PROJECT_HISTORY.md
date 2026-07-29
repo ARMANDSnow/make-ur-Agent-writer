@@ -321,6 +321,7 @@
 
 ## Historical Evidence Notes
 
+- iter157 在 implementation `3c953fd` 上 canonical 2976 tests / 15 steps / 467 秒通过，run `d2b1f5f4ea8445809f03e75603f08f47`，等级 `mock-functional` / `canonical-mock-offline`。2026-07-26 至 07-29 四份报告的 KB/draft no-follow、异常脱敏、Wizard 错误投影、job 持久化准入/轮询终止与 owned verify temp findings 全部闭合；三路审查无剩余 finding，报告在验收后删除。首次沙箱运行仅因本地回环 socket `EPERM` 失败，同提交非沙箱复验通过；未调用真实 provider。
 - iter156 在 implementation `cd01ebe` 上 canonical 2956 tests / 15 steps / 466 秒通过，run `b289f10090de435f9174dc1ab54d3d15`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 Phase E 5 路由 × 3 视口、Phase C/D/短剧回归浏览器证据为 `local-e2e`。小说 Web Phase A-E 已全部落到生产 Web；四视角 findings 全部修复，无剩余 P1/P2，未调用真实 provider。
 - 早期阶段测试数、调用数、成本估算与具体 snapshot 是当时证据，不代表当前值；需要时读对应 iteration 001-019。
 - 真模型小说路径曾完成 extract、debate、write/review、原创 premise 多章和深起点续写样本；最新生产证据与仍待授权项以 handoff 为准。

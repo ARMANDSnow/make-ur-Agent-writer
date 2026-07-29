@@ -179,12 +179,13 @@ docs/iterations/           逐轮审计记录
 | 小说 Web 公共页面重构 | 154 | ✅ Phase C 的首页、作品列表、创建向导、设置与回收站已完成生产级结构、响应式与恢复路径 |
 | 小说 Web 单章主流程重构 | 155 | ✅ Phase D 的作品概览、四阶段工作台、章节列表/详情与任务记录已完成安全投影、任务恢复、编辑保护和三视口验收 |
 | 小说 Web 高级与辅助页面重构 | 156 | ✅ Phase E 的批量续写、故事规划、内容搜索、内容检查与创作数据已完成高级操作边界、只读区分、安全投影、兼容清理和三视口验收；Phase A-E 全部完成 |
+| 近期体检报告安全与可靠性闭环 | 157 | ✅ KB/draft no-follow 文件层、安全异常投影、job 持久化准入与轮询终止、owned verify 临时根已收口；四份报告在 canonical 通过后删除 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 156**（2026-07-29，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter156 完成 Phase E：`continue` 保持 readiness 后逐次计费确认，`plan` 仅编辑章节计划且保留离开保护，`search` 空查询不请求，`reviews` 仅提供安全定位，`insights` 严格只读且未知费用不归零；五页与 Phase C/D、短剧抽查均通过三视口 synthetic/mock 浏览器验收。小说 Web Phase A-E 至此全部完成。短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
+最近一次更新：**iter 157**（2026-07-29，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter157 闭合四份近期体检报告：KB/draft 使用 workspace-relative dirfd/no-follow 有界普通文件能力，Web 异常只投影固定错误与 trace ID，首条 job 持久化成为 worker 启动准入门，Dashboard/Wizard 对未知或缺失状态立即停止轮询，canonical 临时文件统一归入 ownership-marked run root。小说 Web Phase A-E 与短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与既有浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
