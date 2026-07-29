@@ -47,7 +47,16 @@ iter152 已形成小说 Web UI/UX 规范，iter153 已落地浅色设计系统�
 
 ## Acceptance Result
 
-最终 canonical `verify.sh` 待 implementation commit 后唯一一次执行并回填；A155-01 至 A155-09 的实现、聚焦验证、三视角审查与 `local-e2e` 浏览器证据已完成，无未修 P1/P2。
+- A155-01：作品概览的可继续状态、最近保存、待处理问题、下一步和最近章节入口完成。
+- A155-02：工作台严格四阶段、readiness、完成态打开章节、持久运行态和 Paid 确认保持。
+- A155-03：章节列表的标题、文字来源、状态、更新时间、筛选/排序/空态和 390px 卡片完成。
+- A155-04：章节详情七类内容区、保存四态、失败保留、续写编辑和三选项离开保护完成。
+- A155-05：任务四类筛选、持久恢复/取消、unknown 刷新不重启和 Paid 重试完成。
+- A155-06：动态状态/错误/路径/未知对象安全投影与小说/短剧类型隔离通过。
+- A155-07：五页复用 `ui-novel` 共享组件，三视口导航、44px、焦点、toast/modal 与无溢出检查通过。
+- A155-08：correctness/behavior、security/boundary、Web/UIUX/响应式三个独立只读审查完成；发现的侧栏离开保护、完成态、readiness、busy、最近章节、类型隔离、安全数值投影、空筛选和保存状态 findings 均修复，无未修 P1/P2。聚焦主回归 176 tests OK，追加 canonical 失败面 19 tests OK；Python/JavaScript 语法、harness 与 diff check 通过。
+- A155-09：isolated synthetic workspace 的真实 Chromium 在 `1440×1024`、`1199×900`、`390×844` 覆盖五页。15 组合均无横向溢出、当前导航唯一、可见目标不小于 44×44px、控制台 0 error/0 warning；规定交互路径通过，证据等级 `local-e2e`。
+- A155-10：implementation commit `6c6a3c8e160f86d4b1bf57b92739140f2344e2e1` 的 clean detached worktree 上 canonical `bash scripts/verify.sh` 通过：2946 tests、15 steps、461 秒、run `468e99294f5a4b918af59c7a39500ca1`、`tracked_scope_clean=true`、exit 0，等级 `mock-functional` / `canonical-mock-offline`。主 worktree 首次启动因用户必须保留的 tracked 改动被 clean gate 拒绝，随后 clean worktree 首轮暴露 3 个过期静态断言，定点修复后重验通过；没有调用真实 provider，也没有 push 或触碰用户文件。
 
 ### Knowledge Promotion
 - `decision`: `none`

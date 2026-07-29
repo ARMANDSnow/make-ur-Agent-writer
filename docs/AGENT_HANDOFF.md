@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 154，2026-07-29 收官 |
+| 更新时间 | iter 155，2026-07-29 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2940 tests OK** |
-| Accepted implementation commit | `99501fa0bae8e06c927f0b72d676fed05db5fe96` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；隔离 clean worktree 实际运行 HEAD `99501fa0bae8e06c927f0b72d676fed05db5fe96`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、420 秒、run `7d43dbd67c134887a198bde574f01bf5`；`verify.sh` exit 0；tracked scope clean |
+| Canonical 基线 | **2946 tests OK** |
+| Accepted implementation commit | `6c6a3c8e160f86d4b1bf57b92739140f2344e2e1` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；隔离 clean worktree 实际运行 HEAD `6c6a3c8e160f86d4b1bf57b92739140f2344e2e1`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、461 秒、run `468e99294f5a4b918af59c7a39500ca1`；`verify.sh` exit 0；tracked scope clean |
 | 当前高风险缺口 | iter150 真文本五站与 2 张角色图窄校准成功，但配置的 trycloudflare 公网素材域名已失效，真视频在 upload/create 前 `safe-blocked`，create=0、费用=0；真实 TTS adapter 尚不存在。iter142 的 5 秒真视频样本成功但人民币费用未回报；iter143 的 20 秒 create 结果不明、无 task/MP4、费用 unknown 且禁止重提。真实逐镜/完整单集/多集、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter154 已在 Phase A/B 共享基础上完成小说 Web Phase C 五个公共页面，Phase D 四阶段主流程与 Phase E 高级/辅助页仍待实施。工程验收 `mock-functional`，mandatory loopback 与浏览器证据为 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
+| 当前开发轮次 | 无；小说 Web Phase A-D 已完成，iter155 已交付 Phase D 五个单章主流程页面，Phase E 高级/辅助页仍待实施。工程验收 `mock-functional`，mandatory loopback 与浏览器证据为 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
 
 ## Capability Map
 
@@ -21,7 +21,7 @@
 | 小说主链 | normalize、split、extract、compress、debate、plan、write、review、滚动摘要、关系推进、多 workspace、多语言 | 10-20 章真模型 capstone 与长期质量阈值校准 |
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、直接 unittest/IDE 全 provider mock、付费 unknown 零自动重发、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
-| Web | 本地研究版、四阶段工作台、可编辑设定/大纲/细纲/正文、任务恢复、搜索、版本比较、创作数据、多集编辑入口与脱敏任务历史；公共/小说页已落地浅色语义变量、集中中文失败关闭映射、共享组件和按真实 step 分类的计费确认；Phase C 五个公共页已完成生产级内容结构、响应式和恢复路径 | Phase D 四阶段主流程、Phase E 高级/辅助页及旧兼容选择器的后续清理尚未逐页完成；仍是本地研究工具，不是公网多租户产品 |
+| Web | 本地研究版、四阶段工作台、可编辑设定/大纲/细纲/正文、任务恢复、搜索、版本比较、创作数据、多集编辑入口与脱敏任务历史；Phase A/B 共享层、Phase C 公共页和 Phase D 单章主流程均已完成生产级内容结构、安全投影、响应式与恢复路径 | Phase E 高级/辅助页及旧兼容选择器的调用方审计/清理尚未完成；仍是本地研究工具，不是公网多租户产品 |
 | 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2 渲染/stale、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 合成/QA/交付、G1-G7 持久调度/执行/计价/lifecycle、H1-H3 source graph/memory、I1 同源 production workbench、I2 project archive；wire mutation 同源/intent/body cap，隔离 `localdemo_*` exact-duration A-F 与 MP4/SRT/ASS/edit，贯通取消/半成品清理；固定 episode 1 高光视频真实样本 | 真实 billing adapter、provider create unknown reconciliation、物理 GC、真实逐镜图片/视频 provider 与长时主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
@@ -50,8 +50,8 @@
 - iter148 真模型校准因同一脱敏占位 key 保持 `safe-blocked`；本轮不重复发送注定 401 请求，新增 0 HTTP/model call、0 图、0 TTS，无新增 token/已知费用。
 - iter149 将真视频 submission/asset-upload ledger 的 default/quality-sample namespace 统一为 64 KiB 有界、逐级 no-follow 的 dirfd read/write/delete；`RequestNotSent` 清理的祖先 swap 不再越界删除。job 巨整数坏源返回 200/空 jobs 且无解释器文案，archive export help/README 给出可复制 `--book` 命令。两份 7-21/7-22 体检报告在通过验收后删除；三视角最终无 P0-P3。
 - iter150 重新以真人用户走通五站→production→隔离 A-F→compose：新 `localdemo_*` 精确 60 秒、6/6 镜，源角色表 SHA 不变且无源 RenderPlan，MP4/SRT/ASS/edit 四件套完成；390×844 无横向溢出、可见按钮不少于 44px。wire POST/PUT 统一 JSON/intent/same-origin/64 KiB，通用 `/run` 绕过关闭，取消贯通 creative/FFmpeg/逐镜/口播/TTS 并清理半成品。真文本 5 calls、约 ¥0.2483，真角色图 2/2 首次成功；真视频因公网素材域名失效在 upload/create 前阻断，create=0、费用=0、无重试；TTS 0。correctness/security 最终无 P0-P2。
-- iter154 在 Phase A/B 共享层上完成 `/`、`/library`、`/wizard`、`/settings`、`/trash`：入口、卡片、三模式创建、用户设置和恢复/永久删除均使用中文任务语义与可恢复失败状态；动态类型/状态/异常/路径及 secret 零片段失败关闭，原 endpoint、字段、hook、readiness、leave guard 与内部删除标识保持。五页 × 三视口共 15 组真实本地浏览器检查无横向溢出、小点击目标、禁用技术词或控制台错误，并走通 synthetic/mock 创建、进入、恢复、删除确认取消和设置保存；Phase D/E 尚未实施。
-- canonical **2940 tests OK**（项目 `.venv`）；implementation commit `99501fa0` 的隔离 clean worktree 上 exit 0，15 steps / 420 秒，run `7d43dbd67c134887a198bde574f01bf5`，`tracked_scope_clean=true`。总级别为 `mock-functional` / `canonical-mock-offline`，mandatory loopback 与浏览器证据为 `local-e2e`；首轮受限沙箱环境阻止 loopback 与系统临时状态写入，同 commit 解除环境限制复验通过；iter154 未调用真实 provider。
+- iter155 完成 `/w/:name/`、`workbench`、`chapters`、`chapter/:n`、`jobs`：概览最近章节、严格四阶段/readiness、完成态打开章节、持久任务恢复/取消、章节卡片/编辑保存和三选项离开保护均落地；动态检查/任务数值、unknown type、路径与异常失败关闭，短剧任务 legacy 分支保持。五页 × 三视口 15 组真实 Chromium 均无溢出、小目标、重复当前导航或控制台错误，并走通 synthetic/mock 主路径；Phase E 尚未实施。
+- canonical **2946 tests OK**（项目 `.venv`）；implementation commit `6c6a3c8` 的隔离 clean worktree 上 exit 0，15 steps / 461 秒，run `468e99294f5a4b918af59c7a39500ca1`，`tracked_scope_clean=true`。总级别为 `mock-functional` / `canonical-mock-offline`，mandatory loopback 与浏览器证据为 `local-e2e`；主 worktree clean gate 与首轮 3 个过期断言均按失败面处理后重验通过，iter155 未调用真实 provider。
 
 ## Retained Working Memory
 
@@ -251,7 +251,7 @@
 - 低风险短剧阶段轮：A-I 本地规划已闭合；可独立推进 C 的可靠有界 JPEG/WebP decoder、asset/archive hidden staging GC、archive 签名/加密、特定 NLE adapter 或 episode 2+ 纯本地交付覆盖。
 - 需授权验证轮：全角色/多题材真生图、逐镜/完整单集媒体、真实 TTS 或小说 capstone。不要把这些授权合并推定；iter143 的 20 秒机会已消费且结果不明，在 reconciliation 前不得复跑或改时长重提。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
-- 小说 Web 产品轮：Phase A/B 与 Phase C 五个公共页已完成；按 [`product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) 继续 Phase D 四阶段主流程与 Phase E 高级/辅助页的逐页内容布局和信息架构重构。每阶段仍须用真实本地浏览器在桌面、1199px 平板与 390px 手机验证。
+- 小说 Web 产品轮：Phase A-D 已完成；按 [`product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) 继续 Phase E 高级/辅助页，并在调用方审计证明后收敛无用旧样式/选择器。仍须用真实本地浏览器在桌面、1199px 平板与 390px 手机验证。
 
 ## Recovery Commands
 
@@ -289,4 +289,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter154 在 iter153 的 Phase A/B 共享层上完成小说 Web Phase C：`/` 提供小说创建、已有作品与短剧创建三个清晰入口；`/library` 采用类型/更新时间/进度明确的响应式卡片；`/wizard` 完整关联三种模式的标签、帮助、错误、readiness 与整表 busy；`/settings` 区分普通偏好和中文高级连接设置并将 secret 投影收紧为零片段；`/trash` 区分恢复与强确认永久删除、锁定不可逆请求并恢复弹窗焦点。动态 workspace 类型、状态、异常、路径和未知对象均失败关闭，原 endpoint、字段、DOM hook、leave guard、workspace 隔离和内部删除标识保持。correctness/behavior、security/boundary、Web/UIUX/响应式三路独立只读复审最终均为 P1/P2 none。五页在 `1440×1024`、`1199×900`、`390×844` 共 15 组真实本地浏览器检查与 synthetic/mock 操作通过，等级仅为 `local-e2e`；Phase D/E 尚未实施。accepted implementation `99501fa0bae8e06c927f0b72d676fed05db5fe96` 上 canonical 2940 tests、15 steps、420 秒，run `7d43dbd67c134887a198bde574f01bf5`，`mock-functional` / `canonical-mock-offline`。全程未调用真实 provider，也未读取 `.env`、私有 workspace 或用户运行产物。
+iter155 完成小说 Web Phase D 五页：作品概览回答能否继续、最近保存与下一步；工作台严格保持准备设定、生成大纲、生成细纲、撰写正文四阶段，并以 readiness 与持久任务为真源；章节列表/详情提供文字来源、响应式卡片、续写编辑保存和三选项离开保护；任务记录只显示安全任务名、状态、时间和单一恢复/取消操作，unknown 不自动重启。correctness/behavior、security/boundary、Web/UIUX/响应式三路独立只读审查 findings 全部修复，无未修 P1/P2。五页在 `1440×1024`、`1199×900`、`390×844` 共 15 组真实 Chromium 与 synthetic/mock 操作通过，等级仅为 `local-e2e`；Phase E 尚未实施。accepted implementation `6c6a3c8e160f86d4b1bf57b92739140f2344e2e1` 上 canonical 2946 tests、15 steps、461 秒，run `468e99294f5a4b918af59c7a39500ca1`，`mock-functional` / `canonical-mock-offline`。全程未调用真实 provider，也未读取 `.env`、私有 workspace 或用户运行产物。

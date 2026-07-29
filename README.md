@@ -11,7 +11,7 @@
 - **小说续写**：normalize → split → extract → compress → debate → plan → write → review → rolling/advance。
 - **质量守门**：起点安全视图、指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与一次受控重写。
 - **长跑恢复**：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁、断点续跑。
-- **本地 Web**：四阶段工作台、设定/大纲/细纲/正文编辑、任务恢复、全文搜索、版本比较与创作数据；公共/小说页面已落地浅色语义变量、中文文案层和共享组件，首页、作品列表、创建向导、设置与回收站已完成 Phase C 生产级重构，后续 Phase D/E 以 [`NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) 为依据。
+- **本地 Web**：四阶段工作台、设定/大纲/细纲/正文编辑、任务恢复、全文搜索、版本比较与创作数据；公共/小说页面已落地浅色语义变量、中文文案层和共享组件，Phase C 公共页面与 Phase D 单章续写主流程已完成生产级重构，Phase E 以 [`NOVEL_WEB_UIUX_REDESIGN_SPEC.md`](docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md) 为依据。
 - **短剧**：五站 job、分镜 grid、角色库、review/assembly、连续多集、单集四导出、整季母包/阶段快照、A1/A2 RenderPlan/visual override/stale matrix、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 本地合成/QA/exact delivery、G1-G7 持久媒体调度/计价/metrics、H1-H3 事件图/辅助记忆，以及 I1 同源只读 production workbench 与 I2 可校验迁移/交付快照。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
@@ -69,7 +69,7 @@ python3 main.py web              # 127.0.0.1:8765
 python3 main.py web --port 9999
 ```
 
-Web 可管理小说与短剧工作区，显示准备情况、任务、草稿、检查结果、章节历史和创作数据。它基于标准库 `http.server` 与原生 JS，默认只绑定本机；当前定位是个人研究工具，不是公网多租户服务。iter153 已完成小说 Web Phase A/B 的浅色设计变量、失败关闭中文文案层与共享组件；iter154 已完成 Phase C 五个公共页面的信息架构、任务引导、响应式与异常恢复，Phase D/E 页面仍待实施。
+Web 可管理小说与短剧工作区，显示准备情况、任务、草稿、检查结果、章节历史和创作数据。它基于标准库 `http.server` 与原生 JS，默认只绑定本机；当前定位是个人研究工具，不是公网多租户服务。iter153 已完成 Phase A/B 共享层，iter154 完成 Phase C 五个公共页面，iter155 完成 Phase D 五个单章主流程页面；Phase E 高级与辅助页面仍待实施。
 
 ## 目录结构
 
@@ -175,14 +175,15 @@ docs/iterations/           逐轮审计记录
 | 短剧完整 SOP 前后端真人复验 | 150 | ✅ wire mutation/绕过、源项目污染、时长、取消/恢复与 production UX 已收口；隔离 A-F 为 local-e2e，真文本/角色图窄校准通过，真视频因公网素材域名失效在 create 前 safe-blocked |
 | Workspace、Local Demo 与 Worker 体检闭环 | 151 | ✅ nofollow workspace identity、刷新恢复安全 target、FFmpeg/FFprobe 预检与 test worker drain 已收口；三份报告在 canonical 通过后删除 |
 | 小说续写 Web UI/UX 全量重设计 | 152 | ✅ 浅色中文设计系统、15 个桌面页、3 个平板页、6 个手机页、完整按钮/异常状态/API 对照与分期重构规范已交付；本轮未改生产 Web 代码 |
-| 小说 Web 浅色设计系统与共享组件 | 153 | ✅ Phase A/B 已落地生产 CSS/JS/模板；公共与小说页中文失败关闭、共享组件与计费确认完成，Phase C–E 待逐页重构 |
-| 小说 Web 公共页面重构 | 154 | ✅ Phase C 的首页、作品列表、创建向导、设置与回收站已完成生产级结构、响应式与恢复路径；Phase D/E 待实施 |
+| 小说 Web 浅色设计系统与共享组件 | 153 | ✅ Phase A/B 已落地生产 CSS/JS/模板；公共与小说页中文失败关闭、共享组件与计费确认完成 |
+| 小说 Web 公共页面重构 | 154 | ✅ Phase C 的首页、作品列表、创建向导、设置与回收站已完成生产级结构、响应式与恢复路径 |
+| 小说 Web 单章主流程重构 | 155 | ✅ Phase D 的作品概览、四阶段工作台、章节列表/详情与任务记录已完成安全投影、任务恢复、编辑保护和三视口验收；Phase E 待实施 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 154**（2026-07-29，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter154 在 iter153 的 Phase A/B 基础上完成 Phase C：`/`、`/library`、`/wizard`、`/settings`、`/trash` 统一为生产级中文任务入口、响应式卡片/表单和可恢复失败状态；动态 workspace 类型、状态、错误、路径与设置凭据继续失败关闭，原 endpoint、字段、DOM hook、readiness、离开保护和危险操作强确认保持。五页在 `1440×1024`、`1199×900`、`390×844` 共 15 组本地浏览器检查及真实 mock 操作通过；Phase D 四阶段主流程与 Phase E 高级/辅助页仍待实施。短剧 A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 继续保持纯本地闭环；iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
+最近一次更新：**iter 155**（2026-07-29，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。iter155 完成 Phase D：`/w/:name/`、`workbench`、`chapters`、`chapter/:n`、`jobs` 统一为生产级中文主流程；四阶段、readiness、持久任务恢复/取消、Paid 逐次确认、未保存三选项和 workspace 类型隔离保持，动态检查/任务数据严格安全投影。五页在 `1440×1024`、`1199×900`、`390×844` 共 15 组本地浏览器检查及 synthetic/mock 操作通过；Phase E 高级/辅助页仍待实施。短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 

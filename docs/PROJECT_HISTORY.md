@@ -80,6 +80,7 @@
 | 152 | 小说续写 Web UI/UX 全量重设计 | 浅色中文设计系统、15 个桌面页、3 个平板页、6 个手机页、全操作/异常状态/API 映射与分期前端重构依据 |
 | 153 | 小说 Web 浅色系统与共享组件落地 | Phase A/B 生产命名空间、中文失败关闭、44px 组件与实际 step 计费确认；24 组本地浏览器验证 |
 | 154 | 小说 Web 公共页面 Phase C | 五个公共页生产级信息架构、响应式、异常恢复与安全动态投影；15 组真实浏览器验证 |
+| 155 | 小说 Web 单章主流程 Phase D | 五个工作区主流程页、严格四阶段/readiness、持久任务恢复、编辑保护与三视口真实浏览器验证 |
 
 ## Iteration Implementation Index
 
@@ -319,7 +320,7 @@
 
 ## Historical Evidence Notes
 
-- iter154 在 implementation `99501fa0` 上 canonical 2940 tests / 15 steps / 420 秒通过，run `7d43dbd67c134887a198bde574f01bf5`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 5 路由 × 3 视口浏览器证据为 `local-e2e`。Phase C 五个公共页已落到生产 Web，Phase D/E 待续；三视角复审无剩余 P1/P2，未调用真实 provider。
+- iter155 在 implementation `6c6a3c8` 上 canonical 2946 tests / 15 steps / 461 秒通过，run `468e99294f5a4b918af59c7a39500ca1`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 5 路由 × 3 视口浏览器证据为 `local-e2e`。Phase D 五个单章主流程页已落到生产 Web，Phase E 待续；三视角 findings 全部修复，无剩余 P1/P2，未调用真实 provider。
 - 早期阶段测试数、调用数、成本估算与具体 snapshot 是当时证据，不代表当前值；需要时读对应 iteration 001-019。
 - 真模型小说路径曾完成 extract、debate、write/review、原创 premise 多章和深起点续写样本；最新生产证据与仍待授权项以 handoff 为准。
 - Aeloon 的 PR、部署方式和 vendored 同步状态由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护，不在这里复制。
