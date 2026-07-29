@@ -478,7 +478,9 @@ class RoutesGetTests(unittest.TestCase):
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
         status, _ct, body = routes.dispatch("GET", "/w/beta/jobs")
         self.assertEqual(status, 200)
-        self.assertIn("任务历史", body.decode("utf-8"))
+        html = body.decode("utf-8")
+        self.assertIn("<h1>任务</h1>", html)
+        self.assertIn('class="jobs-filter drama-jobs-filter"', html)
 
     def test_drama_episode_pages_render(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
@@ -1351,9 +1353,9 @@ class DramaUserFacingCopyTests(unittest.TestCase):
         source = Path("src/web/static.py").read_text(encoding="utf-8")
         self.assertIn('const statusLabel = { done: "已完成"', source)
         self.assertIn('const labels = { approve: "通过"', source)
-        self.assertIn('class="table drama-episode-table"', source)
+        self.assertIn('class="drama-episode-card"', source)
         self.assertIn("/write?episode=", source)
-        self.assertIn('>编辑</a>', source)
+        self.assertIn('编辑本集', source)
         self.assertIn(".sidebar-library-list", source)
         self.assertNotIn('<span class="badge ready">fresh</span>', source)
         self.assertIn('return /[.]png$/i.test', source)

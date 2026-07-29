@@ -426,7 +426,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
 .badge.no-dot::before { display: none; }
 .badge.ready, .badge.succeeded, .badge.done, .badge.approve, .badge.success { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
-.badge.warn, .badge.queued, .badge.warning, .badge.abstain { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
+.badge.warn, .badge.queued, .badge.warning, .badge.abstain, .badge.unknown { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
 .badge.blocked, .badge.failed, .badge.aborted, .badge.reject, .badge.lost, .badge.danger { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
 .badge.running, .badge.pending { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
 .badge-novel { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
@@ -2376,6 +2376,109 @@ html { scroll-behavior: smooth; }
 .ui-drama .character-ref-img { width: 100%; height: 220px; object-fit: cover; border-radius: var(--radius-2); }
 .ui-drama .character-ref-placeholder { min-height: 220px; display: grid; place-items: center; border-radius: var(--radius-2); background: var(--bg-sunken); color: var(--ui-text-muted); }
 
+/* Iteration 161 · short-drama Phase D delivery, episodes, insights and jobs. */
+.ui-drama .drama-compose-header { align-items: flex-end; }
+.ui-drama .drama-compose-header input { width: 84px; }
+.ui-drama .drama-compose-boundary { margin-bottom: var(--space-4); }
+.ui-drama .drama-compose-summary {
+  min-height: 116px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--amber);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-drama .drama-compose-summary[data-state="complete"] { border-left-color: var(--jade); background: var(--jade-soft); }
+.ui-drama .drama-compose-summary[data-state="ready"] { border-left-color: var(--jade); }
+.ui-drama .drama-compose-summary[data-state="running"] { border-left-color: var(--jade); }
+.ui-drama .drama-compose-summary[data-state="stale"],
+.ui-drama .drama-compose-summary[data-state="invalid"],
+.ui-drama .drama-compose-summary[data-state="error"],
+.ui-drama .drama-compose-summary[data-state="failed"],
+.ui-drama .drama-compose-summary[data-state="blocked"],
+.ui-drama .drama-compose-summary[data-state="lost"],
+.ui-drama .drama-compose-summary[data-state="unknown"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
+.ui-drama .drama-compose-summary h2,
+.ui-drama .drama-compose-summary p { margin: 0; }
+.ui-drama .drama-compose-facts { display: grid; grid-template-columns: repeat(3, minmax(92px, 1fr)); gap: var(--space-2); }
+.ui-drama .drama-compose-facts span { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-1); background: var(--bg-sunken); text-align: center; }
+.ui-drama .drama-compose-facts small { color: var(--ui-text-muted); }
+.ui-drama .drama-compose-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(290px, .75fr); gap: var(--space-4); align-items: start; }
+.ui-drama .drama-compose-layout .card { margin: 0; }
+.ui-drama .drama-compose-timeline { min-height: 326px; }
+.ui-drama .drama-timeline-track { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: var(--space-3); min-height: 70px; color: var(--ui-text-muted); font: var(--fs-xs)/1 var(--font-mono); text-transform: uppercase; }
+.ui-drama .drama-timeline-track i { display: block; height: 28px; border-radius: var(--radius-1); background: var(--jade-soft); }
+.ui-drama .drama-timeline-track.voice i { width: 92%; background: var(--gold-soft); }
+.ui-drama .drama-timeline-track.subtitle i { width: 96%; background: var(--bg-sunken); }
+.ui-drama .drama-compose-qa { background: var(--bg-sunken); }
+.ui-drama .drama-qa-facts { display: grid; gap: var(--space-3); margin: 0; }
+.ui-drama .drama-qa-facts div { display: flex; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--rule); }
+.ui-drama .drama-qa-facts dt { color: var(--ui-text-muted); }
+.ui-drama .drama-qa-facts dd { margin: 0; text-align: right; }
+.ui-drama .drama-compose-downloads { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.ui-drama .drama-compose-action { align-items: center; }
+.ui-drama .drama-compose-page > .drama-mobile-primary { display: none; }
+
+.ui-drama .drama-season-card {
+  min-height: 126px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--bg-sunken);
+}
+.ui-drama .drama-season-card h2,
+.ui-drama .drama-season-card p { margin: 0; }
+.ui-drama .drama-season-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.ui-drama .drama-episode-list { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
+.ui-drama .drama-episode-card { min-height: 96px; display: grid; grid-template-columns: 48px minmax(180px, 1fr) auto auto; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--rule); border-left: 4px solid var(--jade); border-radius: var(--radius-2); background: var(--ui-card-bg); }
+.ui-drama .drama-episode-card[data-state="stale"] { border-left-color: var(--amber); background: var(--gold-soft); }
+.ui-drama .drama-episode-number { color: var(--ui-brand-text); font: var(--fs-xl)/1 var(--font-serif); }
+.ui-drama .drama-episode-copy h3,
+.ui-drama .drama-episode-copy p { margin: 0; }
+.ui-drama .drama-episode-copy p { color: var(--ui-text-muted); font-size: var(--fs-sm); }
+.ui-drama .drama-episode-verdict,
+.ui-drama .drama-episode-actions { display: flex; align-items: center; gap: var(--space-2); }
+.ui-drama .drama-season-delivery { margin-top: var(--space-4); }
+
+.ui-drama .drama-insights-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-4); }
+.ui-drama .drama-insights-summary .drama-summary-card.unknown { border-color: var(--amber); background: var(--gold-soft); }
+.ui-drama .drama-insights-summary small { color: var(--ui-text-muted); }
+.ui-drama .drama-insights-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.ui-drama .drama-insights-grid .card { margin: 0; min-width: 0; }
+
+.ui-drama .drama-jobs-filter { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-2); margin-bottom: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--bg-sunken); }
+.ui-drama .drama-jobs-filter .btn { flex: 1 1 128px; }
+.ui-drama .drama-jobs-filter .btn.active { border-color: var(--jade); background: var(--ui-primary-bg); color: var(--ui-brand-text); }
+.ui-drama .drama-jobs-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .7fr); gap: var(--space-4); align-items: start; }
+.ui-drama .drama-job-list { display: grid; gap: var(--space-2); }
+.ui-drama .drama-job-card { min-height: 92px; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--rule); border-left: 4px solid var(--jade); border-radius: var(--radius-2); background: var(--ui-card-bg); }
+.ui-drama .drama-job-card[data-job-group="attention"] { border-left-color: var(--amber); background: var(--gold-soft); }
+.ui-drama .drama-job-card[data-tone="danger"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
+.ui-drama .drama-job-select { width: 100%; display: grid; grid-template-columns: 12px minmax(0, 1fr); align-items: center; gap: var(--space-3); padding: var(--space-2); border: 0; border-radius: var(--radius-1); background: transparent; color: inherit; text-align: left; font: inherit; }
+.ui-drama .drama-job-select[aria-current="true"] { background: var(--ui-primary-bg); }
+.ui-drama .drama-job-select span:last-child { display: grid; gap: var(--space-1); }
+.ui-drama .drama-job-select small,
+.ui-drama .drama-job-state p { color: var(--ui-text-muted); }
+.ui-drama .drama-job-state p { margin: var(--space-1) 0 0; }
+.ui-drama .drama-job-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--jade); }
+.ui-drama .drama-job-card[data-job-group="attention"] .drama-job-dot { background: var(--amber); }
+.ui-drama .drama-job-detail { position: sticky; top: 80px; min-height: 280px; padding: var(--space-4); border: 1px solid var(--amber); border-radius: var(--radius-2); background: var(--gold-soft); }
+.ui-drama .drama-job-detail h2 { margin-top: 0; overflow-wrap: anywhere; }
+.ui-drama .drama-job-facts { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
+.ui-drama .drama-job-facts div { display: flex; justify-content: space-between; gap: var(--space-2); }
+.ui-drama .drama-job-facts dt { color: var(--ui-text-muted); }
+.ui-drama .drama-job-facts dd { margin: 0; text-align: right; }
+
 @media (min-width: 768px) and (max-width: 1199px) {
   .ui-drama { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .ui-drama .drama-tablet-nav {
@@ -2411,6 +2514,12 @@ html { scroll-behavior: smooth; }
   .ui-drama .drama-station-summary,
   .ui-drama .drama-station-workbench > .tab-panel { grid-column: 1; }
   .ui-drama .drama-review-layout { grid-template-columns: 1fr; }
+  .ui-drama .drama-compose-layout { grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); }
+  .ui-drama .drama-episode-card { grid-template-columns: 48px minmax(180px, 1fr) auto; }
+  .ui-drama .drama-episode-actions { grid-column: 2 / -1; }
+  .ui-drama .drama-insights-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-drama .drama-jobs-layout { grid-template-columns: 1fr; }
+  .ui-drama .drama-job-detail { position: static; }
 }
 
 @media (max-width: 767px) {
@@ -2498,6 +2607,32 @@ html { scroll-behavior: smooth; }
   .ui-drama .character-library-section { padding: var(--space-3); }
   .ui-drama .character-grid { grid-template-columns: 1fr; }
   .ui-drama .character-card { grid-template-columns: 1fr; }
+  .ui-drama .drama-compose-header { align-items: stretch; }
+  .ui-drama .drama-compose-header .cluster { width: 100%; align-items: flex-end; }
+  .ui-drama .drama-compose-header .field { flex: 1; }
+  .ui-drama .drama-compose-boundary { display: none; }
+  .ui-drama .drama-compose-summary { align-items: flex-start; flex-direction: column; }
+  .ui-drama .drama-compose-facts { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-drama .drama-compose-layout { display: flex; flex-direction: column; }
+  .ui-drama .drama-compose-layout > * { width: 100%; }
+  .ui-drama .drama-compose-action { display: none; }
+  .ui-drama .drama-compose-page > .drama-mobile-primary { display: flex; }
+  .ui-drama .drama-compose-downloads { grid-template-columns: 1fr; }
+  .ui-drama .drama-season-card { align-items: stretch; flex-direction: column; }
+  .ui-drama .drama-season-actions { justify-content: stretch; }
+  .ui-drama .drama-season-actions .btn { flex: 1 1 100%; }
+  .ui-drama .drama-episode-card { grid-template-columns: 44px minmax(0, 1fr); }
+  .ui-drama .drama-episode-verdict,
+  .ui-drama .drama-episode-actions { grid-column: 2; flex-wrap: wrap; }
+  .ui-drama .drama-episode-actions .btn { flex: 1 1 132px; }
+  .ui-drama .drama-insights-summary,
+  .ui-drama .drama-insights-grid { grid-template-columns: 1fr; }
+  .ui-drama .drama-jobs-layout { display: flex; flex-direction: column; }
+  .ui-drama .drama-jobs-layout > * { width: 100%; }
+  .ui-drama .drama-job-card { grid-template-columns: 1fr; }
+  .ui-drama .drama-job-card[data-job-group="attention"] { order: -1; }
+  .ui-drama .drama-job-detail { order: -1; position: static; min-height: 0; }
+  .ui-drama .drama-job-action .btn { width: 100%; }
 }
 """
 
@@ -2795,7 +2930,8 @@ JS_DASHBOARD = """\
   }
   function statusBadge(status) {
     const raw = String(status || "blocked");
-    const cls = raw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) || "blocked";
+    const token = raw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) || "blocked";
+    const cls = token === "submission_unknown" ? "unknown" : token;
     return '<span class="badge ' + escapeHtml(cls) + '">' + escapeHtml(statusLabel(raw)) + "</span>";
   }
   const STATUS_LABELS = {
@@ -2803,7 +2939,8 @@ JS_DASHBOARD = """\
     pending: "等待中", queued: "等待中", running: "处理中", generating: "处理中",
     failed: "未完成", error: "未完成", retry_error: "未完成", blocked: "需要补充", warn: "需要留意",
     aborted: "已取消", cancelled: "已取消", canceled: "已取消",
-    budget_exceeded: "额度不足", stale: "需要更新", lost: "状态待确认",
+    budget_exceeded: "额度不足", stale: "需要更新", lost: "状态丢失",
+    submission_unknown: "提交状态未知",
   };
   function statusLabel(status) {
     const raw = String(status || "").toLowerCase();
@@ -5899,7 +6036,7 @@ JS_DASHBOARD = """\
         '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
         '<div class="form-actions" style="margin-top:8px">' +
         '<button type="button" class="btn btn-ghost btn-sm" data-cancel-job="' + escapeHtml(jobId) + '"' + (cancelPending ? " disabled" : "") + ">取消任务</button>" +
-        ' <a class="btn btn-ghost btn-sm" href="' + wsHref("/jobs") + '">任务页</a>' +
+        ' <a class="btn btn-ghost btn-sm" data-leave-guard href="' + wsHref("/jobs") + '">任务页</a>' +
         "</div>" +
         (cancelPending
           ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(stepLabel(job.current_step || job.step)) + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
@@ -5941,7 +6078,7 @@ JS_DASHBOARD = """\
   }
   function renderJobReconcile(box) {
     box.innerHTML = '<div class="alert warn">任务状态无法确认，已停止自动刷新。请刷新或前往任务页核对。</div>' +
-      '<div class="cluster"><a class="btn btn-secondary btn-sm" href="' + wsHref("/jobs") + '">打开任务页</a>' +
+      '<div class="cluster"><a class="btn btn-secondary btn-sm" data-leave-guard href="' + wsHref("/jobs") + '">打开任务页</a>' +
       '<a class="btn btn-ghost btn-sm" href="">刷新页面</a></div>';
   }
 
@@ -8191,33 +8328,33 @@ JS_DASHBOARD = """\
       const data = await fetchJson(wsUrl("/drama/episodes"));
       const episodes = data.episodes || [];
       const rows = episodes.map(function (ep) {
-        return '<tr>' +
-          '<td>第 ' + escapeHtml(String(ep.episode_no || "")) + ' 集</td>' +
-          '<td>' + escapeHtml(ep.title || "") + '</td>' +
-          '<td>' + verdictBadge(ep.verdict || "") + '</td>' +
-          '<td>' + escapeHtml(String(ep.estimated_duration_seconds || 0)) + ' 秒</td>' +
-          '<td>' + (ep.stale ? '<span class="badge warn">需重新组装</span>' : '<span class="badge ready">已就绪</span>') + '</td>' +
-          '<td><div class="cluster">' +
-          '<a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(ep.episode_no || 1)) + '">查看</a>' +
-          '<a class="btn btn-ghost btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(ep.episode_no || 1)) + '">编辑</a>' +
-          '</div></td>' +
-          '</tr>';
+        const no = Number(ep.episode_no || 1);
+        const state = ep.stale ? "stale" : "complete";
+        return '<article class="drama-episode-card" data-state="' + state + '">' +
+          '<div class="drama-episode-number" aria-hidden="true">' + String(no).padStart(2, "0") + '</div>' +
+          '<div class="drama-episode-copy"><h3>' + escapeHtml(ep.title || ("第 " + no + " 集")) + '</h3>' +
+          '<p>' + escapeHtml(String(ep.estimated_duration_seconds || 0)) + ' 秒 · ' +
+          (ep.stale ? '内容已变化，需要重新评审并组装' : '当前组装结果可用') + '</p></div>' +
+          '<div class="drama-episode-verdict">' + verdictBadge(ep.verdict || "") +
+          (ep.stale ? '<span class="badge warn">需更新</span>' : '<span class="badge ready">已就绪</span>') + '</div>' +
+          '<div class="drama-episode-actions"><a class="btn btn-secondary" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(no)) + '">查看与导出</a>' +
+          '<a class="btn btn-ghost" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(no)) + '">' + (ep.stale ? '重新处理' : '编辑本集') + '</a></div></article>';
       }).join("");
       const episodeList = episodes.length
-        ? tableScroll('<table class="table drama-episode-table"><thead><tr><th>集数</th><th>标题</th><th>评审</th><th>时长</th><th>状态</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>')
+        ? '<div class="drama-episode-list">' + rows + '</div>'
         : emptyState("尚无已组装剧集", "从第 1 集创作台开始；完成评审并组装后，可导出的剧集数据会出现在这里。", "");
       const nextNo = Number(data.next_episode_no || 0);
       let nextAction = "";
       if (Number.isSafeInteger(nextNo) && nextNo === 1 && !data.next_episode_blocked_reason) {
         const label = data.next_episode_initialized ? "继续第 1 集" : "开始第 1 集";
-        nextAction = '<div class="form-actions"><a class="btn btn-primary" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=1">' + label + ' →</a></div>';
+        nextAction = '<div class="form-actions"><a class="btn btn-primary" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=1">' + label + ' →</a></div>';
       } else if (data.can_start_next && Number.isSafeInteger(nextNo)) {
         const label = data.next_episode_initialized ? "继续第 " : "开始第 ";
         nextAction = '<div class="form-actions"><button type="button" class="btn btn-primary" data-start-next-episode="' + escapeHtml(String(nextNo)) + '">' + label + escapeHtml(String(nextNo)) + ' 集 →</button></div>';
       } else {
         const repairNo = Number(data.next_episode_repair_no || 0);
         const repairLink = Number.isSafeInteger(repairNo) && repairNo > 0
-          ? ' <a class="btn btn-secondary btn-sm" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(repairNo)) + '">修复第 ' + escapeHtml(String(repairNo)) + ' 集</a>'
+          ? ' <a class="btn btn-secondary btn-sm" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(repairNo)) + '">修复第 ' + escapeHtml(String(repairNo)) + ' 集</a>'
           : '';
         nextAction = '<div class="alert info"><span>' + escapeHtml(dramaNextEpisodeReason(data)) + '</span>' + repairLink + '</div>';
       }
@@ -8244,8 +8381,8 @@ JS_DASHBOARD = """\
         seasonHint = "母包未就绪：" + (reasons.length ? reasons.join("，") : "等待完整剧集或角色引用") + "。";
         seasonHint += season.snapshot_ready ? " 可先导出阶段快照。" : " 当前也没有可导出的阶段快照。";
       }
-      const exportCard = '<div class="card" style="margin-top:16px"><div class="card-header"><h3 class="ornament">整季交付</h3><span class="badge">可交付 ' + escapeHtml(String(eligible)) + '/' + escapeHtml(String(planned)) + ' 集</span></div><div class="card-body stack"><p class="muted">' + escapeHtml(seasonHint) + '</p><div class="cluster">' + masterButton + snapshotButton + '</div></div></div>';
-      box.innerHTML = episodeList + nextAction + exportCard;
+      const seasonCard = '<section class="drama-season-card"><div><p class="eyebrow">第 1 季</p><h2>' + escapeHtml(String(eligible)) + ' / ' + escapeHtml(String(planned || episodes.length)) + ' 集可交付</h2><p class="muted">' + escapeHtml(seasonHint) + '</p></div><div class="drama-season-actions">' + snapshotButton + masterButton + '</div></section>';
+      box.innerHTML = seasonCard + '<div class="section-title"><h2>剧集列表</h2><span class="hint">状态与入口均按单集当前事实显示</span></div>' + episodeList + nextAction;
       const nextBtn = box.querySelector("[data-start-next-episode]");
       if (nextBtn) {
         nextBtn.addEventListener("click", async function () {
@@ -8467,11 +8604,13 @@ JS_DASHBOARD = """\
   }
 
   async function initDramaInsights() {
+    const summaryBox = document.getElementById("drama-insights-summary");
     const costBox = document.getElementById("drama-insights-cost");
     const metricsBox = document.getElementById("drama-insights-media-metrics");
     const durationBox = document.getElementById("drama-insights-duration");
     const hooksBox = document.getElementById("drama-insights-hooks");
-    if (!costBox || !metricsBox || !durationBox || !hooksBox) return;
+    if (!summaryBox || !costBox || !metricsBox || !durationBox || !hooksBox) return;
+    summaryBox.innerHTML = skeleton(4);
     costBox.innerHTML = skeleton(3);
     metricsBox.innerHTML = skeleton(3);
     durationBox.innerHTML = skeleton(2);
@@ -8482,6 +8621,21 @@ JS_DASHBOARD = """\
       const meta = data.episode_meta_cost || {};
       const mediaPricing = data.media_pricing || {};
       const mediaMetrics = data.media_metrics || {};
+      const duration = data.duration || {};
+      const textCostsKnown = llm.status === "ok" && meta.status === "ok";
+      const knownCost = Number(llm.cost_cny || 0) + Number(meta.cost_cny || 0);
+      const mediaKnownCurrencies = Array.isArray(mediaPricing.currencies)
+        ? mediaPricing.currencies.filter(function (row) { return row.actual_known != null; }).length
+        : 0;
+      const unknownTasks = Number(mediaMetrics.unknown_submission_count || 0);
+      summaryBox.innerHTML = [
+        ["创作费用", textCostsKnown ? "¥" + knownCost.toFixed(2) : "—", textCostsKnown ? String(llm.calls || 0) + " 次已记录调用" : "部分来源不可验证"],
+        ["媒体费用", mediaKnownCurrencies ? String(mediaKnownCurrencies) + " 种币种" : "—", mediaKnownCurrencies ? "分币种列示，不跨币种合并" : "暂无可确认金额"],
+        ["已组装剧集", String(duration.total || 0), "未知或无效记录不纳入"],
+        ["待核对任务", String(unknownTasks), unknownTasks ? "需人工查询状态" : "当前没有未知样本"]
+      ].map(function (item, index) {
+        return '<article class="drama-summary-card' + ((index === 0 && !textCostsKnown) || (index === 1 && !mediaKnownCurrencies) ? ' unknown' : '') + '"><span class="k">' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong><small>' + escapeHtml(item[2]) + '</small></article>';
+      }).join("");
       const mediaCurrencies = Array.isArray(mediaPricing.currencies) ? mediaPricing.currencies.slice(0, 16) : [];
       const hiddenMediaCurrencies = Array.isArray(mediaPricing.currencies) ? Math.max(0, mediaPricing.currencies.length - mediaCurrencies.length) : 0;
       const mediaCostRows = mediaCurrencies.map(function (row) {
@@ -8495,9 +8649,11 @@ JS_DASHBOARD = """\
           escapeHtml(row.actual_known == null ? "—" : String(row.actual_known)) + ' · ' +
           escapeHtml(state) + '</div>';
       }).join("");
+      const llmCostDetail = llm.status === "ok" ? "¥" + Number(llm.cost_cny || 0).toFixed(4) + " · " + String(llm.calls || 0) + " 次" : "— · 来源待核对";
+      const metaCostDetail = meta.status === "ok" ? "¥" + Number(meta.cost_cny || 0).toFixed(4) + " · " + String(meta.episodes || 0) + " 集" : "— · 来源待核对";
       costBox.innerHTML = '<div class="kv-list compact">' +
-        '<div class="k">LLM 日志</div><div class="v">¥' + escapeHtml(Number(llm.cost_cny || 0).toFixed(4)) + ' · ' + escapeHtml(String(llm.calls || 0)) + ' 次</div>' +
-        '<div class="k">Episode meta</div><div class="v">¥' + escapeHtml(Number(meta.cost_cny || 0).toFixed(4)) + ' · ' + escapeHtml(String(meta.episodes || 0)) + ' 集</div>' +
+        '<div class="k">文本调用</div><div class="v">' + escapeHtml(llmCostDetail) + '</div>' +
+        '<div class="k">剧集记录</div><div class="v">' + escapeHtml(metaCostDetail) + '</div>' +
         (mediaCostRows || '<div class="k">媒体任务</div><div class="v">尚无 pricing fact</div>') +
         (hiddenMediaCurrencies ? '<div class="k">更多币种</div><div class="v">另有 ' + escapeHtml(String(hiddenMediaCurrencies)) + ' 种，请查看 API 明细</div>' : '') +
         (mediaPricing.status === "degraded" ? '<div class="k">媒体账本</div><div class="v">存在 ' + escapeHtml(String(mediaPricing.invalid_ledgers || 0)) + ' 个无效来源，未计入金额</div>' : '') +
@@ -8531,15 +8687,18 @@ JS_DASHBOARD = """\
           ? '<div class="k">指标来源</div><div class="v">存在无效或超限 task ledger，未返回部分指标</div>'
           : '') +
         '</div>';
-      const duration = data.duration || {};
-      const rate = Number(duration.rate || 0);
+      const durationKnown = duration.status === "ok";
+      const rate = durationKnown ? Number(duration.rate || 0) : 0;
       const pct = Math.max(0, Math.min(100, Math.round(rate * 100)));
-      durationBox.innerHTML = '<div class="stack"><div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div><p><strong>' + pct + '%</strong> · ' + escapeHtml(String(duration.within_tolerance || 0)) + ' / ' + escapeHtml(String(duration.total || 0)) + ' 集在目标 ±' + escapeHtml(String(duration.tolerance_seconds || 3)) + ' 秒内</p></div>';
+      durationBox.innerHTML = durationKnown
+        ? '<div class="stack"><div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div><p><strong>' + pct + '%</strong> · ' + escapeHtml(String(duration.within_tolerance || 0)) + ' / ' + escapeHtml(String(duration.total || 0)) + ' 集在目标 ±' + escapeHtml(String(duration.tolerance_seconds || 3)) + ' 秒内</p></div>'
+        : '<p class="muted">— · 时长来源待核对，未知记录不纳入统计。</p>';
       const hookRows = data.hook_types || [];
       hooksBox.innerHTML = hookRows.length
         ? tableScroll('<table class="table"><thead><tr><th>类型</th><th>集数</th></tr></thead><tbody>' + hookRows.map(function (row) { return '<tr><td>' + escapeHtml(row.type || "(unknown)") + '</td><td>' + escapeHtml(String(row.count || 0)) + '</td></tr>'; }).join("") + '</tbody></table>')
-        : '<p class="muted">尚无已组装剧集。</p>';
+        : '<p class="muted">' + (durationKnown ? '尚无已组装剧集。' : '来源待核对，暂不展示确定性分布。') + '</p>';
     } catch (err) {
+      summaryBox.innerHTML = renderErrorCard(err);
       costBox.innerHTML = renderErrorCard(err);
       metricsBox.innerHTML = "";
       durationBox.innerHTML = "";
@@ -8625,53 +8784,98 @@ JS_DASHBOARD = """\
       '</tr></thead><tbody>' + body + '</tbody></table>');
   }
   async function initDramaJobsLegacy() {
+    ensureJobCancelDelegate();
     const recentBox = document.getElementById("jobs-recent");
     const logsBox = document.getElementById("jobs-logs");
     if (recentBox) recentBox.innerHTML = skeleton(4);
-    if (logsBox) logsBox.innerHTML = skeleton(4);
+    if (logsBox) logsBox.innerHTML = "";
     try {
       const data = await fetchJson(wsUrl("/jobs/recent?n=20"));
-      const items = data.jobs || [];
+      const items = Array.isArray(data.jobs) ? data.jobs : [];
       if (!items.length) {
-        recentBox.innerHTML = emptyState("尚无任务历史", "发起第一个生成任务后会出现在这里。", "");
+        recentBox.innerHTML = emptyState("还没有任务记录", "从创作台开始一个阶段后，任务会按已保存状态出现在这里。", '<a class="btn btn-primary" data-leave-guard href="' + wsHref("/write") + '">进入创作台</a>');
       } else {
-        const byId = new Map();
-        const rows = items.map(function (job) {
-          byId.set(job.job_id || "", job);
-          const trace = job.trace_id || "";
-          const rowId = "job-drawer-" + escapeHtml(job.job_id || "");
-          return '<tr class="job-row"><td><button type="button" class="btn btn-icon btn-sm job-toggle" aria-label="展开任务详情" aria-expanded="false" aria-controls="' + rowId + '" data-job-toggle="' + escapeHtml(job.job_id || "") + '">▸</button></td>' +
-            '<td>' + escapeHtml(stepLabel(job.step)) + '</td><td>' + statusBadge(job.status || "?") + '</td>' +
-            '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + '…</code></td>' +
-            '<td><span class="trace">' + escapeHtml(trace || "—") + '</span></td><td>' + escapeHtml(formatJobTimestamp(job.started_at)) + '</td>' +
-            '<td>' + escapeHtml(jobActionableSummary(job).slice(0, 120)) + '</td></tr>' +
-            '<tr class="job-drawer-row" id="' + rowId + '"><td colspan="7">' + renderJobDrawer(job) + '</td></tr>';
+        function groupFor(job) {
+          const status = String(job.status || "unknown").toLowerCase();
+          return status === "running" || status === "pending" ? "active" : status === "succeeded" ? "done" : "attention";
+        }
+        function safeNote(job) {
+          const status = String(job.status || "unknown").toLowerCase();
+          if (job.persistence_degraded === true) return "任务记录未完整保存；请停留此页并刷新核对，重启后可能无法恢复。";
+          if (status === "lost" || status === "submission_unknown" || !STATUS_LABELS[status]) return "先查询已提交任务与账单；系统不会自动重试。";
+          if (status === "blocked") return "当前条件未满足；已保存内容保持不变。";
+          if (status === "failed") return "任务未完成；请先查看对应页面的公开原因。";
+          if (["aborted", "cancelled", "canceled"].indexOf(status) >= 0) return "取消已生效；已有结果不会被清除。";
+          if (status === "error" || status === "retry_error") return "任务已结束但未完成；请核对公开状态后再决定。";
+          if (status === "budget_exceeded") return "授权额度不足；不会继续提交。";
+          if (status === "succeeded") return "结果已保存，可前往对应页面查看。";
+          return status === "running" ? "正在处理，可请求取消。" : "已进入队列，刷新后可恢复状态。";
+        }
+        function resultHref(job) {
+          const ep = Number(job.params && job.params.episode_no) || 1;
+          const suffix = job.step === "drama-compose" ? "/compose" :
+            job.step === "drama-video" ? "/shot-videos" :
+            job.step === "drama-local-demo" ? "/production" :
+            job.step && job.step.indexOf("drama-") === 0 ? "/write" : "/";
+          const episodeParam = suffix === "/write" ? "episode" : "episode_no";
+          return wsHref(suffix) + (suffix === "/" ? "" : "?" + episodeParam + "=" + encodeURIComponent(String(ep)));
+        }
+        function actionFor(job, index) {
+          const status = String(job.status || "unknown").toLowerCase();
+          if (status === "running" || status === "pending") return '<button type="button" class="btn btn-secondary" data-drama-cancel-index="' + index + '">请求取消</button>';
+          if (status === "lost" || status === "submission_unknown" || !STATUS_LABELS[status]) return '<button type="button" class="btn btn-primary" data-refresh-jobs>查询状态</button>';
+          if (status === "succeeded") return '<a class="btn btn-primary" data-leave-guard href="' + escapeHtml(resultHref(job)) + '">查看结果</a>';
+          if (job.retryable === true && job.step === "drama-compose") return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(resultHref(job)) + '">前往合成页恢复</a>';
+          if (job.retryable === true) return '<button type="button" class="btn btn-secondary" data-drama-retry-index="' + index + '">重新开始</button>';
+          return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(resultHref(job)) + '">查看处理条件</a>';
+        }
+        const rows = items.map(function (job, index) {
+          const group = groupFor(job);
+          const status = String(job.status || "unknown").toLowerCase();
+          const tone = status === "failed" || status === "blocked" ? "danger" : group === "attention" ? "warning" : group;
+          return '<article class="drama-job-card" data-job-card data-job-group="' + group + '" data-tone="' + tone + '">' +
+            '<button type="button" class="drama-job-select" data-drama-job-index="' + index + '" aria-controls="drama-job-detail" aria-label="查看' + escapeHtml(stepLabel(job.step)) + '详情"><span class="drama-job-dot" aria-hidden="true"></span><span><strong>' + escapeHtml(stepLabel(job.step)) + '</strong><small>' + escapeHtml(formatJobTimestamp(job.finished_at || job.started_at)) + '</small></span></button>' +
+            '<div class="drama-job-state">' + statusBadge(status) + '<p>' + escapeHtml(safeNote(job)) + '</p></div>' +
+            '<div class="drama-job-action">' + actionFor(job, index) + '</div></article>';
         }).join("");
-        recentBox.innerHTML = tableScroll('<table class="table table-wide jobs-table"><thead><tr><th>详情</th><th>任务</th><th>状态</th><th>任务编号</th><th>问题编号</th><th>开始时间</th><th>结果</th></tr></thead><tbody>' + rows + '</tbody></table>');
+        let initialIndex = items.findIndex(function (job) { return ["lost", "submission_unknown"].indexOf(String(job.status || "").toLowerCase()) >= 0; });
+        if (initialIndex < 0) initialIndex = items.findIndex(function (job) { return groupFor(job) === "attention"; });
+        if (initialIndex < 0) initialIndex = 0;
+        recentBox.innerHTML = '<div class="drama-jobs-layout"><div class="drama-job-list">' + rows + '<div id="jobs-empty-filter" hidden></div></div><aside class="drama-job-detail" id="drama-job-detail" aria-live="polite"></aside></div>';
+        function showDetail(index) {
+          const job = items[index] || items[0];
+          if (!job) return;
+          const detail = document.getElementById("drama-job-detail");
+          if (!detail) return;
+          const group = groupFor(job);
+          detail.innerHTML = '<p class="eyebrow">当前任务</p><h2>' + escapeHtml(stepLabel(job.step)) + '</h2>' + statusBadge(job.status || "unknown") + '<p>' + escapeHtml(safeNote(job)) + '</p><dl class="drama-job-facts"><div><dt>阶段</dt><dd>' + (group === "active" ? "进行中" : group === "done" ? "已结束" : "需要处理") + '</dd></div><div><dt>最近更新</dt><dd>' + escapeHtml(formatJobTimestamp(job.finished_at || job.started_at)) + '</dd></div></dl><div class="form-actions">' + actionFor(job, index) + '</div>';
+          recentBox.querySelectorAll("[data-drama-job-index]").forEach(function (button) { button.setAttribute("aria-current", button.dataset.dramaJobIndex === String(index) ? "true" : "false"); });
+        }
+        showDetail(initialIndex);
         recentBox.onclick = function (ev) {
-          const toggle = ev.target.closest("[data-job-toggle]");
-          if (toggle) {
-            const drawer = document.getElementById("job-drawer-" + (toggle.getAttribute("data-job-toggle") || ""));
-            if (drawer) {
-              const open = !drawer.classList.contains("open");
-              drawer.classList.toggle("open", open);
-              toggle.setAttribute("aria-expanded", open ? "true" : "false");
-              toggle.setAttribute("aria-label", open ? "收起任务详情" : "展开任务详情");
-              toggle.textContent = open ? "▾" : "▸";
-            }
+          const select = ev.target.closest("[data-drama-job-index]");
+          if (select) { showDetail(Number(select.dataset.dramaJobIndex)); return; }
+          if (ev.target.closest("[data-refresh-jobs]")) { initDramaJobsLegacy(); return; }
+          const cancel = ev.target.closest("[data-drama-cancel-index]");
+          if (cancel) {
+            const job = items[Number(cancel.dataset.dramaCancelIndex)];
+            if (!job || !job.job_id) return;
+            cancel.disabled = true;
+            postJson(wsUrl("/job/" + encodeURIComponent(job.job_id) + "/cancel")).then(initDramaJobsLegacy).catch(function (err) { cancel.disabled = false; showToast("取消失败：" + errTitle(err), "error"); });
             return;
           }
-          const partial = ev.target.closest("[data-job-partial]");
-          if (partial) { openPartialPreview(partial.getAttribute("data-job-partial") || ""); return; }
-          const retry = ev.target.closest("[data-job-retry]");
-          if (retry) retryJob(byId.get(retry.getAttribute("data-job-retry") || ""), retry);
+          const retry = ev.target.closest("[data-drama-retry-index]");
+          if (retry) retryJob(items[Number(retry.dataset.dramaRetryIndex)], retry);
         };
+        bindJobFilters();
       }
-    } catch (err) { recentBox.innerHTML = renderErrorCard(err); }
-    try {
-      const data = await fetchJson(wsUrl("/logs/tail?n=30"));
-      logsBox.innerHTML = renderLlmCallSummary(data.lines || []);
-    } catch (err) { logsBox.innerHTML = renderErrorCard(err); }
+    } catch (err) {
+      recentBox.innerHTML = publicLoadError("任务状态没有读取成功", "已保存内容不受影响；不会自动重新开始任何任务。", '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button>');
+      recentBox.onclick = function (ev) { if (ev.target.closest("[data-refresh-jobs]")) initDramaJobsLegacy(); };
+    }
+    document.querySelectorAll(".drama-jobs-header [data-refresh-jobs]").forEach(function (button) {
+      button.onclick = initDramaJobsLegacy;
+    });
   }
   async function initJobs() {
     if (document.querySelector(".ui-drama")) return initDramaJobsLegacy();
@@ -8744,13 +8948,27 @@ JS_DASHBOARD = """\
         card.hidden = !visible;
         if (visible) shown += 1;
       });
-      buttons.forEach(function (button) { button.classList.toggle("active", button.dataset.jobFilter === filter); });
+      buttons.forEach(function (button) {
+        const active = button.dataset.jobFilter === filter;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
       const empty = document.getElementById("jobs-empty-filter");
       if (empty) {
         empty.hidden = shown !== 0;
         empty.innerHTML = shown ? "" : emptyState("当前筛选没有任务", "切换到其他分类，或刷新已保存状态。", '<button type="button" class="btn btn-secondary" data-job-filter="all">查看全部</button>');
       }
       if (live) live.textContent = "显示 " + shown + " 项任务。";
+      const selected = cards.find(function (card) { return !card.hidden && card.querySelector('[aria-current="true"]'); });
+      if (!selected) {
+        const firstVisible = cards.find(function (card) { return !card.hidden; });
+        const selector = firstVisible && firstVisible.querySelector("[data-drama-job-index]");
+        if (selector) selector.click();
+        else {
+          const detail = document.getElementById("drama-job-detail");
+          if (detail) detail.innerHTML = '<p class="muted">当前筛选没有可显示的任务。</p>';
+        }
+      }
     }
     buttons.forEach(function (button) { button.addEventListener("click", function () { apply(button.dataset.jobFilter || "all"); }); });
     const recentBox = document.getElementById("jobs-recent");
@@ -10159,81 +10377,82 @@ JS_DASHBOARD = """\
 
   function composeStateLabel(state) {
     return {
-      needs_timeline: "等待 E3 时间线",
+      needs_timeline: "等待合成时间线",
       ready: "可以合成",
       partial: "交付不完整",
       complete: "QA 通过",
       stale: "时间线已过期",
       invalid: "产物无效",
       busy: "工作区繁忙",
-    }[state] || state || "未知";
+    }[state] || "状态待确认";
   }
 
   function renderComposeOverview(data) {
     const state = data.state || "needs_timeline";
     const good = state === "complete";
     const actionable = data.ready_to_compose === true;
-    const warnings = (data.warnings || []).length
-      ? '<div class="callout warning"><strong>门禁提示</strong><span><code>' +
-        escapeHtml(data.warnings.join(", ")) + '</code></span></div>'
+    const job = data.job || null;
+    const jobActive = job && (job.status === "pending" || job.status === "running");
+    const composeUiStates = {
+      needs_timeline: "empty",
+      ready: "ready",
+      partial: "blocked",
+      complete: "complete",
+      stale: "stale",
+      invalid: "error",
+      busy: "blocked",
+    };
+    const displayState = good ? "complete" : (jobActive ? "running" : (job && job.status === "submission_unknown" ? "unknown" : (job && ["failed", "blocked", "lost"].indexOf(job.status) >= 0 ? job.status : (composeUiStates[state] || "unknown"))));
+    const warningLabels = {
+      workspace_busy: "工作区正由另一项写任务占用，请稍后刷新。",
+      workspace_changed_during_read: "读取期间内容发生变化，请刷新确认当前结果。",
+      timeline_invalid: "当前时间线无法安全读取，请回到生产工作台重新生成。",
+      timeline_projection_invalid: "当前时间线投影无效，请回到生产工作台检查。",
+      deliverable_namespace_invalid: "交付文件集合无效，需要重新合成。",
+      deliverable_set_incomplete: "交付文件不完整，需要重新合成。",
+      deliverable_verification_failed: "交付文件未通过当前字节校验，需要重新合成。"
+    };
+    const warnings = !good && !actionable && (data.warnings || []).length
+      ? '<div class="callout warning drama-compose-blocker"><strong>当前阻断</strong><span>' +
+        escapeHtml((data.warnings || []).map(function (code) { return warningLabels[code] || "当前结果需要重新验证。"; }).join(" ")) + '</span></div>'
       : "";
-    const summary =
-      '<div class="card"><div class="card-body">' +
-      '<div class="section-title"><div><h2>Episode ' +
-      Number(data.episode_no || 1) + '</h2><p class="hint">时间线 <code>' +
-      escapeHtml((data.timeline_fingerprint || "尚未落盘").slice(0, 24)) +
-      '</code></p></div><span class="badge ' + (good ? "success" : actionable ? "warning" : "") +
-      '">' + escapeHtml(composeStateLabel(state)) + '</span></div>' +
-      '<div class="kv-list compact">' +
-      '<div class="k">时长</div><div class="v">' +
-      (data.duration_ms == null ? "—" : (Number(data.duration_ms) / 1000).toFixed(3) + " s") +
-      '</div><div class="k">镜头</div><div class="v">' + Number(data.shot_count || 0) +
-      '</div><div class="k">字幕</div><div class="v">' + Number(data.subtitle_count || 0) +
-      '</div></div></div></div>';
+    const summary = '<section class="drama-compose-summary" data-state="' + escapeHtml(displayState) + '" role="status"><div><p class="eyebrow">第 ' + Number(data.episode_no || 1) + ' 集</p><h2>' + escapeHtml(jobActive ? "正在本地合成" : composeStateLabel(state)) + '</h2><p>' + (good ? "当前时间线与 QA 已通过 exact 校验。" : actionable ? "当前时间线已验证，可以开始本地合成。" : "历史结果不会替代当前时间线。") + '</p></div><div class="drama-compose-facts"><span><strong>' + (data.duration_ms == null ? "—" : (Number(data.duration_ms) / 1000).toFixed(1) + " 秒") + '</strong><small>总时长</small></span><span><strong>' + Number(data.shot_count || 0) + '</strong><small>镜头</small></span><span><strong>' + Number(data.subtitle_count || 0) + '</strong><small>字幕</small></span></div></section>';
     let action = "";
     if (state === "needs_timeline") {
       action =
-        '<div class="empty-state"><h3>尚无可消费的 E3 时间线</h3>' +
-        '<p>请先由音频/时间线流程提交经过服务端验证的 TimelineManifest。此页不接受手工 JSON 上传。</p></div>';
+        '<div class="empty-state"><h3>尚无可消费的合成时间线</h3>' +
+        '<p>请先完成声音与时间线阶段。此页只接受经过验证的当前结果，不接受手工文件上传。</p></div>';
     } else if (state === "stale") {
       action =
         '<div class="empty-state"><h3>上游事实已变化</h3>' +
-        '<p>重新完成 D4/E3 后再合成；历史交付不会冒充当前结果。</p></div>';
+        '<p>重新完成媒体与时间线阶段后再合成；历史交付不会冒充当前结果。</p></div>';
     } else if (state === "busy") {
       action = '<div class="alert info">另一个写任务正在占用工作区，请稍后刷新。</div>';
+    } else if (jobActive) {
+      action = '<div class="form-actions drama-compose-action"><button type="button" class="btn btn-secondary" data-compose-cancel>请求取消</button><span class="hint">任务状态会自动刷新；取消在当前不可中断子进程结束后生效。</span></div>';
     } else if (actionable) {
       action =
-        '<div class="form-actions"><button type="button" class="btn btn-primary" id="compose-start">' +
+        '<div class="form-actions drama-compose-action"><button type="button" class="btn btn-primary" id="compose-start">' +
         (state === "ready" ? "开始本地合成" : "重新生成完整交付") +
         '</button><span class="hint">FFmpeg 最长 180 秒；取消会在当前不可中断子进程结束后生效。</span></div>';
     }
+    const timeline = state === "needs_timeline" ? "" : '<section class="card drama-compose-timeline"><div class="card-header"><div><p class="eyebrow">当前时间线</p><h3>唯一可消费结果</h3></div><span class="badge ' + (state === "complete" ? "ready" : "") + '">' + escapeHtml(composeStateLabel(state)) + '</span></div><div class="card-body"><div class="drama-timeline-track"><span>视频</span><i></i></div><div class="drama-timeline-track voice"><span>声音</span><i></i></div><div class="drama-timeline-track subtitle"><span>字幕</span><i></i></div><p class="muted">所有轨道与下载共用当前时间线；字幕修订会生成新的当前版本。</p></div></section>';
     const qa = data.qa
-      ? '<div class="card"><div class="card-body"><h3>QA 证据</h3>' +
-        '<div class="kv-list compact"><div class="k">等级</div><div class="v">' +
-        escapeHtml(data.qa.acceptance_level || "") +
-        '</div><div class="k">规格</div><div class="v">' +
-        escapeHtml(data.qa.profile || "") +
-        '</div><div class="k">覆盖</div><div class="v">' +
-        Number(data.qa.covered_shot_count || 0) + " / " +
-        Number(data.qa.required_shot_count || 0) +
-        '</div><div class="k">MP4 SHA-256</div><div class="v"><code>' +
-        escapeHtml(data.qa.output_sha256 || "") +
-        '</code></div></div></div></div>'
-      : "";
+      ? '<section class="card drama-compose-qa"><div class="card-header"><h3>QA 与 Exact 交付</h3><span class="badge ready">校验通过</span></div><div class="card-body"><dl class="drama-qa-facts"><div><dt>视频规格</dt><dd>竖屏交付规格已验证</dd></div><div><dt>字幕</dt><dd>SRT / ASS 可重建</dd></div><div><dt>来源覆盖</dt><dd>' + Number(data.qa.covered_shot_count || 0) + ' / ' + Number(data.qa.required_shot_count || 0) + ' 镜</dd></div><div><dt>当前字节</dt><dd>下载时重新验证</dd></div></dl></div></section>'
+      : '<section class="card drama-compose-qa"><div class="card-header"><h3>QA 与交付</h3><span class="badge">等待验证</span></div><div class="card-body"><p class="muted">完成本地合成并通过当前字节校验后，四类下载会在这里开放。</p></div></section>';
+    const deliverableLabels = { mp4: "成片 MP4", srt: "SRT 字幕", ass: "ASS 字幕", edit: "剪辑工程" };
     const downloads = (data.deliverables || []).length
-      ? '<div class="card"><div class="card-body"><h3>Exact 交付</h3><div class="cluster">' +
-        data.deliverables.map(function (item) {
-          return '<a class="btn btn-secondary" href="' + escapeHtml(item.url || "") +
-            '" download="' + escapeHtml(item.filename || "") + '">' +
-            escapeHtml(String(item.kind || "").toUpperCase()) + '</a>';
-        }).join("") + '</div></div></div>'
+      ? '<div class="drama-compose-downloads" aria-label="Exact 交付下载">' +
+        data.deliverables.map(function (item, index) {
+          return '<button type="button" class="btn btn-secondary" data-compose-download-index="' + index + '">' +
+            '下载' + escapeHtml(deliverableLabels[item.kind] || "当前交付") + '</button>';
+        }).join("") + '</div>'
       : "";
-    const job = data.job;
-    const jobNote = job && ["blocked", "failed", "aborted", "lost"].indexOf(job.status) >= 0
-      ? '<div class="alert warn">最近一次合成任务：' +
-        escapeHtml(job.status) + '。页面状态仍以磁盘上的 exact 产物为准。</div>'
+    const jobNote = job && ["blocked", "failed", "aborted", "lost", "submission_unknown"].indexOf(job.status) >= 0
+      ? '<div class="alert warn">最近一次合成任务' + escapeHtml(statusLabel(job.status)) + '。已保存内容不受影响；未知或丢失状态不会自动重试。</div>'
       : "";
-    return summary + warnings + action + qa + downloads + jobNote;
+    const mobileAction = actionable && !jobActive ? '<div class="drama-mobile-primary"><span>' + escapeHtml(composeStateLabel(state)) + '</span><button type="button" class="btn btn-primary" data-compose-mobile-start>' + (state === "ready" ? "开始合成" : "重新合成") + '</button></div>' : "";
+    return summary + warnings + '<div class="drama-compose-layout"><div class="stack">' + timeline + jobNote + action + '</div><aside class="stack">' + qa + downloads + '</aside></div>' + mobileAction;
   }
 
   async function initDramaCompose() {
@@ -10242,35 +10461,67 @@ JS_DASHBOARD = """\
     const episodeInput = document.getElementById("compose-episode-no");
     const refresh = document.getElementById("compose-refresh");
     let overview = null;
+    let refreshTimer = null;
+    let loadGeneration = 0;
     hydrateDramaEpisodeInput(episodeInput);
     function episodeNo() {
       return dramaEpisodeFromInput(episodeInput);
     }
     async function load() {
+      const generation = ++loadGeneration;
+      if (refreshTimer) clearTimeout(refreshTimer);
       root.setAttribute("aria-busy", "true");
       try {
-        overview = await fetchJson(
+        const nextOverview = await fetchJson(
           wsUrl("/drama/compose?episode_no=" + encodeURIComponent(episodeNo()))
         );
+        if (generation !== loadGeneration) return;
+        overview = nextOverview;
         root.innerHTML = renderComposeOverview(overview);
         const job = overview.job;
         if (job && (job.status === "pending" || job.status === "running") && job.job_id) {
-          await pollJob(job.job_id, root, null, load);
+          refreshTimer = setTimeout(load, 1000);
         }
       } catch (err) {
-        root.innerHTML = renderErrorCard(err);
+        if (generation === loadGeneration) root.innerHTML = renderErrorCard(err);
       } finally {
-        root.removeAttribute("aria-busy");
+        if (generation === loadGeneration) root.removeAttribute("aria-busy");
       }
     }
     if (refresh) refresh.addEventListener("click", load);
     if (episodeInput) episodeInput.addEventListener("change", load);
     root.addEventListener("click", async function (ev) {
-      const start = ev.target.closest("#compose-start");
+      const download = ev.target.closest("[data-compose-download-index]");
+      if (download) {
+        const item = overview && Array.isArray(overview.deliverables)
+          ? overview.deliverables[Number(download.dataset.composeDownloadIndex)]
+          : null;
+        if (!item || !item.url) return;
+        const anchor = document.createElement("a");
+        anchor.href = item.url;
+        anchor.download = item.filename || "delivery";
+        anchor.click();
+        return;
+      }
+      const cancel = ev.target.closest("[data-compose-cancel]");
+      if (cancel) {
+        const job = overview && overview.job;
+        if (!job || !job.job_id || ["pending", "running"].indexOf(job.status) < 0) return;
+        cancel.disabled = true;
+        try {
+          await postJson(wsUrl("/job/" + encodeURIComponent(job.job_id) + "/cancel"));
+          await load();
+        } catch (err) {
+          showToast("取消失败：" + errTitle(err), "error");
+          cancel.disabled = false;
+        }
+        return;
+      }
+      const start = ev.target.closest("#compose-start, [data-compose-mobile-start]");
       if (!start) return;
       start.disabled = true;
       try {
-        const data = await postJson(
+        await postJson(
           wsUrl("/drama/compose"),
           { episode_no: episodeNo() },
           {
@@ -10280,7 +10531,7 @@ JS_DASHBOARD = """\
             },
           }
         );
-        await pollJob(data.job_id, root, start, load);
+        await load();
       } catch (err) {
         root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
         start.disabled = false;

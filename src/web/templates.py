@@ -789,11 +789,11 @@ def render_workspace_shot_videos(name: str, workspaces: Iterable[str]) -> str:
 
 def render_workspace_compose(name: str, workspaces: Iterable[str]) -> str:
     main = (
-        '<header class="page-header">'
+        '<header class="page-header drama-page-header drama-compose-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">短剧 · F 阶段</p>'
         '<h1>本地合成与交付</h1>'
-        '<p class="muted">从已验证的 E3 时间线生成竖屏 MP4、SRT、ASS 与通用剪辑工程。</p>'
+        '<p class="muted">时间线、QA 与四类下载始终绑定同一个当前结果。</p>'
         '</div>'
         '<div class="cluster">'
         '<label class="field compact">集数 '
@@ -802,8 +802,8 @@ def render_workspace_compose(name: str, workspaces: Iterable[str]) -> str:
         '<button class="btn btn-secondary" id="compose-refresh" type="button">刷新</button>'
         '</div>'
         '</header>'
-        '<section class="section">'
-        '<div class="callout info">'
+        '<section class="section drama-compose-page">'
+        '<div class="callout info drama-compose-boundary">'
         '<strong>合成只在本机执行</strong>'
         '<span>此页不会调用文本、图片、视频或 TTS provider；下载只开放当前时间线经 QA 验证的 exact 产物。</span>'
         '</div>'
@@ -831,15 +831,15 @@ def render_workspace_compose(name: str, workspaces: Iterable[str]) -> str:
 
 def render_workspace_episodes(name: str, workspaces: Iterable[str]) -> str:
     main = (
-        '<header class="page-header">'
+        '<header class="page-header drama-page-header drama-episodes-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">短剧</p>'
         '<h1>剧集</h1>'
-        '<p class="muted">继续连续创作，并从已组装 JSON 真源导出单集或整季交付包。</p>'
+        '<p class="muted">查看整季进度、单集新鲜度与当前可交付范围。</p>'
         '</div>'
         '</header>'
-        '<section class="section">'
-        '<div id="episodes-panel"><p class="muted">载入中…</p></div>'
+        '<section class="section drama-episodes-page">'
+        '<div id="episodes-panel" aria-live="polite"><p class="muted">载入中…</p></div>'
         '</section>'
     )
     return _render_shell(
@@ -865,7 +865,7 @@ def render_workspace_episode_detail(name: str, workspaces: Iterable[str], episod
         '</div>'
         '<div class="cluster">'
         f'<a class="btn btn-primary" href="/w/{escape(name)}/write?episode={episode_no}">编辑本集</a>'
-        f'<a class="btn btn-secondary" href="/w/{escape(name)}/episodes">返回剧集</a>'
+        f'<a class="btn btn-secondary" data-leave-guard href="/w/{escape(name)}/episodes">返回剧集</a>'
         '</div>'
         '</header>'
         '<section class="tabs">'
@@ -899,21 +899,24 @@ def render_workspace_episode_detail(name: str, workspaces: Iterable[str], episod
 
 def render_workspace_drama_insights(name: str, workspaces: Iterable[str]) -> str:
     main = (
-        '<header class="page-header">'
+        '<header class="page-header drama-page-header drama-insights-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">短剧</p>'
         '<h1>数据 Insights</h1>'
-        '<p class="muted">查看短剧调用成本、媒体任务分币种事实、单集时长达标率与钩子类型分布。</p>'
+        '<p class="muted">区分创作、媒体、任务与费用事实；未知数据不会进入确定性统计。</p>'
         '</div>'
         '<div class="cluster">'
-        f'<a class="btn btn-secondary" href="/w/{escape(name)}/episodes">返回剧集</a>'
+        f'<a class="btn btn-secondary" data-leave-guard href="/w/{escape(name)}/episodes">返回剧集</a>'
         '</div>'
         '</header>'
-        '<section class="section stack">'
-        '<div class="card"><div class="card-header"><h3>成本口径</h3></div><div class="card-body" id="drama-insights-cost"></div></div>'
-        '<div class="card"><div class="card-header"><h3>媒体任务</h3></div><div class="card-body" id="drama-insights-media-metrics"></div></div>'
-        '<div class="card"><div class="card-header"><h3>时长达标率</h3></div><div class="card-body" id="drama-insights-duration"></div></div>'
-        '<div class="card"><div class="card-header"><h3>钩子类型</h3></div><div class="card-body" id="drama-insights-hooks"></div></div>'
+        '<section class="section drama-insights-page">'
+        '<div class="drama-insights-summary" id="drama-insights-summary" aria-live="polite"></div>'
+        '<div class="drama-insights-grid">'
+        '<div class="card"><div class="card-header"><h3>费用事实</h3></div><div class="card-body" id="drama-insights-cost"></div></div>'
+        '<div class="card"><div class="card-header"><h3>媒体与任务</h3></div><div class="card-body" id="drama-insights-media-metrics"></div></div>'
+        '<div class="card"><div class="card-header"><h3>创作与时长</h3></div><div class="card-body" id="drama-insights-duration"></div></div>'
+        '<div class="card"><div class="card-header"><h3>钩子分布</h3></div><div class="card-body" id="drama-insights-hooks"></div></div>'
+        '</div>'
         '</section>'
     )
     return _render_shell(
@@ -1551,11 +1554,17 @@ def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
     is_drama = _meta_read(name).get("type", "novel") == "drama"
     if is_drama:
         main = (
-            '<header class="page-header"><div class="titles"><p class="eyebrow ornament">任务</p>'
-            '<h1>任务历史</h1><p class="muted">查看最近任务与经过保护的调用摘要。</p></div></header>'
-            '<section class="section"><div class="card flush"><div class="card-body" id="jobs-recent"></div></div></section>'
-            '<section class="section"><div class="section-title"><h2 class="ornament">最近生成调用</h2>'
-            '<span class="hint">已隐藏请求与生成服务错误详情</span></div><div id="jobs-logs"></div></section>'
+            '<header class="page-header drama-page-header drama-jobs-header"><div class="titles"><p class="eyebrow ornament">任务</p>'
+            '<h1>任务</h1><p class="muted">查看异步任务、取消与安全恢复；未知和丢失状态不会自动重试。</p></div>'
+            '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button></header>'
+            '<section class="jobs-filter drama-jobs-filter" role="group" aria-label="筛选任务">'
+            '<button type="button" class="btn btn-ghost active" aria-pressed="true" data-job-filter="all">全部</button>'
+            '<button type="button" class="btn btn-ghost" aria-pressed="false" data-job-filter="active">进行中</button>'
+            '<button type="button" class="btn btn-ghost" aria-pressed="false" data-job-filter="attention">需处理</button>'
+            '<button type="button" class="btn btn-ghost" aria-pressed="false" data-job-filter="done">已完成</button>'
+            '</section><div id="jobs-filter-status" class="sr-status" role="status" aria-live="polite"></div>'
+            '<section class="section drama-jobs-page"><div id="jobs-recent" aria-live="polite"></div></section>'
+            '<div id="jobs-logs" hidden aria-hidden="true"></div>'
         )
     else:
         main = (

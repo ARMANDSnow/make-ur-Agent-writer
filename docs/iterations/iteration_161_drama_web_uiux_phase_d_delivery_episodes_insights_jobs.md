@@ -36,7 +36,14 @@ iter158-160 已完成短剧响应式页面壳、概览、production、五站创�
 
 ## Implementation Notes
 
-<实施后回填。>
+- 依据 Figma D14-D18、T05、M05-M06 节点完成 Phase D 映射：desktop 使用主内容/详情分层，tablet 使用双栏或收敛详情，mobile 使用单列卡、需处理优先与固定主操作区；继续复用 iter158 的 `ui-drama` 壳、11 项导航、token、共享组件及 1200/768 断点。
+- `/compose` 重构为 current timeline、compose job、QA、四类 exact delivery 三层结构。下载按钮只在内存中按序关联现有 safe URL，最终仍由服务端重新验证 timeline、QA 与当前字节；Running 使用专用安全轮询，不再被 legacy job 卡覆盖或显示 job ID，并提供 cooperative cancel、刷新恢复及 active leave guard。
+- `/episodes` 改为整季 readiness + 单集响应式卡，保留 freshness、评审、时长、episode-scoped 入口、下一集、snapshot 与 master；移除重复的季交付操作组。
+- `/insights` 将创作、媒体、任务、时长与钩子分区。degraded 文本/剧集来源显示未知，不把 fail-closed `0` 当作确定费用；媒体金额始终按币种列示，不跨币种合计，degraded 时长/钩子不生成确定性 `0%` 或空分布。
+- `/jobs` 改为响应式 master-detail 卡，公开 DOM 仅使用 ordinal index；Lost、SubmissionUnknown 与未知状态只允许查询，drama-compose 恢复引导到专用合成入口，取消/持久化降级/terminal 文案和 episode 2+ 参数均保持安全语义，页面不读取 raw logs。
+- 审查后修复：unknown compose state fail-closed；Running 禁止重复启动；历史失败不覆盖 current Complete；任务筛选同步可见详情并增加 `aria-controls`/live region；下载名称与空状态去除内部阶段术语；通用 poll/reconcile 链接补 leave guard。
+- 聚焦验收：Phase D + Web GET 100 tests 通过；Phase A-D、production、shot image/video、compose、episodes、jobs 兼容集通过；JS `node --check`、Python compile 与 `git diff --check` 通过。真实浏览器在 1440×1024、1024×900、390×844 覆盖 compose/episodes/insights/jobs 及 Empty/Ready/Running/Stale/Complete、Lost/Unknown，均无横向溢出、无小于 44×44 的可见控件、focus ring 为 3px、公开 DOM 无内部 ID/路径/hash/prompt；移动 Ready 固定主操作与键盘筛选/详情同步通过。
+- 四路独立只读审查：correctness/behavior、security/boundary、Web/UIUX、runner/recovery 均完成；有效 findings 已由主线程复核、修复并聚焦回归，未保留已知高/中风险 finding。审查未运行真实 provider，未读取受限目录。
 
 ## Acceptance Result
 
@@ -45,11 +52,15 @@ iter158-160 已完成短剧响应式页面壳、概览、production、五站创�
 ### Knowledge Promotion
 - `decision`: `none`
 - `destination`: `none`
-- `reason`: 待收官复核。
+- `reason`: 本轮 findings 均是 Phase D 前端投影与恢复实现细节；仓库现有 AGENTS/workflow/product 文档已覆盖 known/unknown、逐次授权、零重提、exact identity 与审查边界，无需新增长期规则。
 
 ## 文件变更汇总
 
-<实施后回填。>
+- `src/web/templates.py`：Phase D compose、episodes、insights、jobs 页面语义结构与 leave guard。
+- `src/web/static.py`：Phase D 响应式样式、四页安全渲染、交互、取消/恢复、ARIA 与 exact delivery 绑定。
+- `tests/test_drama_web_uiux_phase_d.py`：Phase D 页面壳、响应式、安全投影、known/unknown、任务恢复与 ARIA 合同测试。
+- `tests/test_web_routes_get.py`：同步 Phase D episodes/jobs 的公开页面断言。
+- `docs/iterations/iteration_161_drama_web_uiux_phase_d_delivery_episodes_insights_jobs.md`：实现、审查、验收与知识晋升记录。
 
 ## 不在本轮范围
 
@@ -60,4 +71,3 @@ iter158-160 已完成短剧响应式页面壳、概览、production、五站创�
 ## Notes
 
 - 计划提交信息：`docs(iter161): 迭代计划 161 立项（短剧 Web UIUX Phase D）`。
-
