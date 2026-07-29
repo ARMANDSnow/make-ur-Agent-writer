@@ -9,7 +9,14 @@
 - [iter 039 plan draft](./iteration_039_PLAN_DRAFT.md)、[iter 040 plan draft](./iteration_040_PLAN_DRAFT.md)、[iter 042 plan draft](./iteration_042_PLAN_DRAFT.md)、[iter 043B plan draft](./iteration_043B_PLAN_DRAFT.md)、[iter 044 plan draft](./iteration_044_PLAN_DRAFT.md)：外部计划快照，与最终执行档不同，保留供追溯。
 - [iter 043 UX audit](./iteration_043_UX_AUDIT.md)：UX 专项取证。
 - [drama 079-083 roadmap](./iteration_079_083_drama_module_roadmap.md)、[style 083-086 roadmap](./iteration_083_086_style_fingerprint_roadmap.md)：批次路线图；实际编号与结果以各轮文档为准。
-- [短剧完整生产链阶段计划](./stage_plan_drama_full_production_pipeline.md)：基于固定 GitHub commit 的文件级调研与 A-J 阶段嫁接路线图；是独立规划记录，不占 iteration 编号。
+- [短剧完整生产链阶段计划](./stage_plan_drama_full_production_pipeline.md)：基于固定 GitHub commit 的文件级调研与 A-J 阶段嫁接路线图；是独立规划记录，不占 iteration 编号。**其 2026-07-28 / iter151 内容是历史复盘快照：当时 A-H 的本地工程闭环已完成，I 的只读同源工作台与安全归档已完成但可写生产操作仍缺，J 仅完成真文本、角色图与单镜真视频窄样本。**当前事实只以 handoff 为准。
+
+## 2026-07-28 历史规划复盘快照
+
+- 本节记录 2026-07-28 当时的规划复盘，不是当前状态；当前 canonical 基线、缺口与下一步只以 [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) 为准。当时 accepted 基线为 iter151、2918 tests、`mock-functional`；隔离 A-F 与本地浏览器路径为 `local-e2e`，不能外推为真实 provider 全链通过。
+- 旧 A-J 路线图不再继续扩建基础抽象：RenderPlan、资产版本/选择、逐镜图片/视频、声音/时间线、FFmpeg/QA/交付、媒体 DAG/worker/pricing、事件图/记忆均已有本地闭环。
+- 下一阶段暂定为“**J-1 真实单镜可校准闭环**”：先处理 iter143 unknown、素材可达性和 billing/task inspect 硬门，再补工作台受控操作与真 TTS adapter，最后按媒体分别校准单镜图片、视频、语音和本地合成；完整单集/多集留到 J-1 通过之后。
+- 推荐下一轮优先做 **iter143 unknown 对账与零提交素材回调 preflight**：只允许 read-only inspect 与 synthetic exact-byte callback 验证，`upload/create=0`；若缺当次授权或上游查询能力，就保持 `safe-blocked/still-unknown`，不得重提。实际开工时再用 `iter-start` 取得当时下一个编号。
 
 ## Index
 
@@ -178,3 +185,4 @@
 163. [Iteration 154 - 小说 Web Phase C 公共页面重构](./iteration_154_novel_web_public_pages_phase_c.md)
 164. [Iteration 155 - 小说 Web Phase D 单章续写主流程重构](./iteration_155_novel_web_phase_d_single_chapter_flow.md)
 165. [Iteration 156 - 小说 Web Phase E 高级与辅助页面重构](./iteration_156_novel_web_phase_e_advanced_auxiliary_pages.md)
+166. [Iteration 157 - 近期体检报告安全、Job 与 Harness 问题闭环](./iteration_157_health_report_security_job_harness_closure.md)

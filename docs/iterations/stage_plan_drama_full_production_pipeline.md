@@ -4,11 +4,105 @@
 >
 > **形成日期**：2026-07-14。
 >
+> **最近复盘**：2026-07-28，基于 iter151 accepted 状态与原调研会话 `019f5f89-8779-73f0-a028-2c9233167f7f` 的固定项目快照更新兑现度和下一阶段草案。原始 A-J 设计与外部链接仍保留为历史决策证据。
+>
 > **调研范围**：基于 ArcReel、LumenX、LocalMiniDrama、Toonflow、NarratoAI、ShortGPT、MoneyPrinterTurbo、DramAI 的固定 Git commit 做只读研究，并与本仓当前代码、测试、handoff 对照。本文中的 GitHub 链接均固定到调研 commit，避免未来主分支变化造成“文件还叫这个名字、语义已经变了”的误读。
 >
 > **验证边界**：本文只规划，不运行真文本、真生图、真语音或真视频，不读取 `.env`、私有原文、`data/`、`outputs/`、`logs/`。路线图中的 provider-validated 只能由未来获得逐次授权后的真实证据产生。
 
-## 1. 执行摘要
+## 0. 2026-07-28 进度复盘与下一阶段草案
+
+### 0.1 如何理解本次标注
+
+- `✅ 本地工程闭环`：对应计划已由代码、聚焦测试和 canonical `verify.sh` 证明为 `mock-functional`，必要的人类操作路径另有 `local-e2e`；不代表真实生成质量。
+- `🟨 主干已完成`：核心数据/投影已落地，但计划中的可写操作或产品化适配仍有明确缺口。
+- `🟧 真实证据局部成立`：只对明确 provider、媒体类型和样本范围成立，不能外推整集、多集、费用或 SLA。
+
+本节固定记录 2026-07-28 的历史复盘快照：当时 accepted 基线为 iter151、2918 tests、`mock-functional`，隔离 A-F 与本地浏览器路径为 `local-e2e`。当前 canonical 真相、缺口和下一步只以 `docs/AGENT_HANDOFF.md` 为准；本复盘不运行 provider，也不改写任何历史验收等级。
+
+### 0.2 原 A-J 路线图兑现度
+
+| 阶段 | 当前标记 | 已完成证据 | 仍保留的边界 |
+|---|---|---|---|
+| A 渲染契约/stale | ✅ 本地工程闭环 | iter106 建立 RenderPlan 与 stale；iter126 补 visual override 和精确依赖矩阵 | 无真实 provider 结论，本阶段本来也不要求 |
+| B 视觉资产圣经 | ✅ 本地工程闭环 | iter107-110 完成角色、美术方向、场景、道具/线索版本冻结；iter127-129 完成 Used-By、Scope 与 Web 治理 | `disabled` 不等于物理 GC；更广真实图片格式未验证 |
+| C 逐镜图片 | ✅ 本地工程闭环 | iter111/113/114 完成逐镜规格、候选/首尾帧与可恢复 attempt；iter130 完成候选比较/选择 Web | 真 provider 只验证过角色图窄样本，未验证整集逐镜图片 |
+| D 逐镜视频 | ✅ 本地工程闭环 | iter115-117/119 完成视频计划、候选/attempt/coverage/连续性；iter131 完成候选与连续性 Web | 真实证据仅含单个约 5 秒样本；20 秒样本状态 unknown，逐镜整集未验证 |
+| E 声音与唯一时间线 | ✅ 本地工程闭环 | iter120-122 完成 Voice Profile、可恢复 TTS attempt、TimelineManifest/SRT；iter125 补 ASS/可编辑工程 | 真实 TTS adapter 与真人声样本尚不存在 |
+| F 合成/QA/交付 | ✅ 本地工程闭环 | iter123 完成本地 FFmpeg 成片；iter125/132 完成 ASS/edit、Web compose、durable QA 与 exact delivery；iter150 复验隔离 A-F | 只证明本地 fixture/工具链；特定 NLE 版本适配、真实整集观感与更广 codec 未验证 |
+| G 媒体调度/成本 | ✅ 本地工程闭环 | iter133-139 完成 task DAG、lease/capacity、registry/binding、paid bridge、pricing facts 与 lifecycle metrics | 真实 billing adapter、provider rate/SLA 与 unknown 对账仍缺 |
+| H 事件图/辅助记忆 | ✅ 本地工程闭环 | iter140 完成 typed event graph；iter145 绑定生产来源；iter146 完成可失效 text-free memory | 尚无 10-20 章真实小说改编 capstone；普通 hash 不是签名/MAC |
+| I 工作台/归档 | 🟨 主干已完成 | iter147 完成同源只读 list/canvas 投影；iter148 完成可校验 archive export/import | 工作台仍缺统一 typed submit/poll/cancel/reconcile 操作；archive 不是 runnable raw backup，也无签名/MAC |
+| J provider 校准/capstone | 🟧 局部成立 | 真文本五站与 2 张角色图有窄样本；iter142 完成一次约 5 秒真视频 upload/create/poll/download/QA | iter143 20 秒 create 结果与费用 unknown；iter150 公网素材域名失效后 create=0；真实 TTS、逐镜图片/视频、完整单集、多集与 SLA 均未完成 |
+
+结论：原路线图的基础架构不再是主要缺口。与原调研项目相比，本仓已经补齐它们最值得借鉴的资产版本、候选择优、首尾帧、时间线、TTS 契约、FFmpeg、任务队列、工作台投影和归档，同时保留了更严格的付费恢复与证据边界。下一阶段应把重心从“继续增加抽象”转到“受控操作、provider 对账和小步真实成片”。
+
+### 0.3 下一阶段目标：J-1 真实单镜可校准闭环
+
+目标不是一次跑完整集/整季，也不是同时接入多个 provider，而是先解除 iter143 unknown、素材可达性和真实 TTS adapter 三个硬阻塞，再让一个受控 shot 依次取得图片、视频、语音和本地合成证据。媒体、费用、质量和归档结论必须互不冒充。
+
+本阶段继续采用原调研里已经证明有价值、且没有削弱本仓边界的流程思想：
+
+- ArcReel 的分模态 task/backend、阶段确认和费用视图，落到本仓时必须继续服从 paid ledger 与 unknown 零重试。
+- LumenX 与 LocalMiniDrama 的多候选、人工择优、首尾帧和只补缺失节点，落到本仓时必须由 exact fingerprint/receipt 判断是否可复用，不能只看文件存在。
+- NarratoAI 的时间线校验、音轨策略和成片后核验，继续由同一 TimelineManifest、QA 与人工质量记录承载。
+- ShortGPT/MoneyPrinterTurbo 的可见阶段与本地合成体验可以借鉴，但不采用“上次跑到哪一步”或笼统 retry 代替 durable task/attempt 证据。
+
+建议保持原调研中有效的人工确认节奏：
+
+```text
+同源工作台投影
+  → 明确选择候选与当前 revision
+  → preflight / capability / budget / authorization
+  → submit（一次性外部写边界）
+  → poll / download / validate / reconcile
+  → 人工择优
+  → TimelineManifest / compose / QA
+  → 费用事实 + 人工质量结论 + archive
+```
+
+### 0.4 候选实施单元与推荐顺序
+
+这些单元不预占 `iter152` 或任何编号；每次真正开工仍用 `iter-start` 取得当时编号，并保持一个 iteration 只闭合一个窄缝。
+
+| 顺序 | 候选单元 | 主要范围 | 该轮最高证据 | 授权边界 |
+|---|---|---|---|---|
+| 1 | iter143 unknown 对账与零提交 callback preflight | 只读检查上游 task/billing/rejection；把结果记为 resolved/safe-blocked/still-unknown；用 synthetic 素材验证 exact-byte callback reachability，严格 `upload/create=0` | `safe-blocked` 或 read-only reconciliation evidence；callback 最多 `local-e2e` | **推荐下一轮**；provider 只读凭据、公网 callback/tunnel 也需当次授权，任何外部写另行授权 |
+| 2 | Production Workbench 受控操作面 | 在 iter147 同源投影上补 typed submit/poll/cancel/reconcile；绑定 projection fingerprint、revision/CAS、预算/授权摘要和安全 job 投影，用 fake provider 做刷新/恢复/重复点击 E2E | `mock-functional` + `local-e2e` | 不发真请求；客户端不得自行推断 ready/succeeded |
+| 3 | 单一真 TTS adapter 的本地接线 | 用户选定一个 provider 后接入 static registry/frozen binding、synthesis/download 分账、严格音频 probe 与 fake-provider crash/recovery | `mock-functional` + `local-e2e` | 不读 `.env`、不发真请求、不做 voice cloning/多 provider |
+| 4 | 单句真 TTS 校准 | 一条 synthetic 或用户批准的短中文 utterance，一次 synthesis + download；记录 codec/duration/SHA、费用事实与人工读音结论 | 仅 exact provider/model/voice/utterance 的 `provider-validated` | TTS 独立授权：1 次上限、预算、timeout；unknown 零重发 |
+| 5 | 单镜真图片候选校准 | 一个不含私有原文的 shot image candidate，冻结 refs/input fingerprint，校验 artifact 并由人显式选为 first frame | 仅 exact 图片 provider/model/sample 的 `provider-validated` | 图片单独授权；首次失败先 inspect task/billing，再决定是否申请重试 |
+| 6 | 单镜真视频校准 | 前置为第 1 单元已解除 unknown 且素材可达、第 5 单元 first frame 可用；走 ShotVideoAttempt 单次 submit→poll→download→validate | 仅 exact 视频 provider/model/profile/shot 的 `provider-validated` | 视频一次 submit、明确预算/timeout；任何不明结果都进入 `submission_unknown`，绝不自动重试 |
+| 7 | 真实素材单镜合成与证据包 | 只消费第 4-6 单元已完成 artifact，生成 TimelineManifest、MP4/SRT/ASS/edit、QA、费用摘要和人工质量记录；零新增 provider 调用 | 合成本身为 `local-e2e`；引用各媒体窄 `provider-validated` receipt | 缺任一真实 artifact 就 blocked，不补提交；完整单集/多集另立后续阶段 |
+
+### 0.5 推荐下一轮的验收重点
+
+第一候选单元只闭合“对账与素材可达性，但零外部写”的硬门：
+
+1. iter143 旧 attempt 只能走只读 inspect，任何结论都必须有 append-only reconciliation receipt；没有权威证据就保持 `still-unknown`。
+2. callback preflight 只允许 synthetic exact-byte GET 与到达性/回收验证；provider asset upload 和 video create 计数必须为 0。
+3. task、billing、rejection、素材 URL 和 callback token 只保留有界脱敏证据；不得公开 raw body、签名 URL、路径、凭据或可重放授权。
+4. 没有用户当次授权、没有可用凭据或没有上游只读接口时，必须 `safe-blocked`，不能把本地 fake callback 当作 provider readiness。
+5. 若该轮只做代码/本地 fake 接线，最终仍按项目 SOP 做聚焦检查、多视角只读审查和一次 canonical `verify.sh`；canonical 结论最多为 `mock-functional`/`local-e2e`。
+
+### 0.6 本阶段明确不做
+
+- 不再重写 task DAG、registry、RenderPlan、TimelineManifest 或 archive 基础模型。
+- 不为“覆盖面”一次接多个图片/视频/TTS provider，也不在浏览器保存 API key。
+- 不把 iter142 单镜成功、iter143 unknown 或本地 A-F MP4 拼成“真实整集已通过”。
+- 不自动重试未知付费提交，不把费用 unknown 记作 0，不让旧 job/旧授权跨 run 复用。
+- 不优先做平台自动发布、无限画布重构、物理 GC、加密/签名归档或多 profile/全 codec；除非后续 capstone 证明它们成为真实 blocker。
+
+### 0.7 下一阶段完成定义
+
+只有同时满足以下条件，才可认为“J-1 真实单镜可校准闭环”完成：
+
+- iter143 的旧 attempt 有权威 resolved 证据，或被明确封存为不可再提交的 `still-unknown`；后续样本不复用其提交机会。
+- 素材回调/交付路径在新授权前通过零提交 preflight，且 asset upload/create 仍为 0。
+- 至少一个真 TTS 单句和一个单镜 image/video/audio/compose 竖切有逐媒体证据；unknown、费用、人工质量结论分列。
+- `mock-functional`、`local-e2e`、逐媒体 `provider-validated` 与人工质量结论保持四条独立证据线；完整单集、多集、长来源、SLA 和其它 provider 明确留给后续阶段。
+
+## 1. 执行摘要（2026-07-14 原始基线）
 
 当前项目已经完成“文本五站 → review/assembly → 单集/整季导出 → episode 1 单镜视频 → 可恢复多模态验证”的工程闭环，但距离面向创作者的完整生产链还差四块核心能力：
 
@@ -34,11 +128,11 @@ episode_NN.json（创作真源）
   → local MP4 + QA report + editable export（派生产物）
 ```
 
-## 2. 当前基线与不可破坏的约束
+## 2. 形成时基线与不可破坏的约束
 
-### 2.1 已有能力
+### 2.1 当时已有能力
 
-以 `docs/AGENT_HANDOFF.md` 当前快照为准，短剧已经具备：
+以本文 2026-07-14 形成时基线为准，短剧当时已经具备（当前能力以 `docs/AGENT_HANDOFF.md` 为准）：
 
 - 五站文本 job、显式文本 revision、review 血统与 Approve 后组装。
 - 连续多集、季角色库、单集冻结阵容、最多 8 人的 provider 投影边界。
@@ -46,7 +140,7 @@ episode_NN.json（创作真源）
 - Insights、episode 1 视频 job、图片/视频/callback/五站授权的本地 fake-provider E2E。
 - 文本、图片、视频的 crash/restart 状态矩阵，以及 `submission_unknown`、纯 poll resume、receipt/hash/fingerprint 等付费恢复边界。
 
-### 2.2 已知缺口
+### 2.2 当时已知缺口
 
 - 真文本、全角色真生图、真视频只具备入口与本地证据，尚未逐类授权验证质量。
 - 真图片入口目前严格 PNG；更广图片格式和 codec 尚未定义。
@@ -286,22 +380,22 @@ ArcReel 的重要修正：它并非“遇错就通用重试”。其视频链已
 
 ## 7. 阶段总览与依赖
 
-| 阶段 | 目标 | 主要结果 | 依赖 | 建议拆分 |
+| 阶段 | 原目标 | 2026-07-28 状态 | 主要兑现迭代 | 仍保留的边界 |
 |---|---|---|---|---|
-| A | 固化渲染契约 | RenderPlan、asset/timeline schema、stale 规则 | 当前 assembled episode | 1-2 轮 |
-| B | 建立视觉资产圣经 | 角色/场景/道具/线索、美术方向、版本/选择/引用 | A | 2-3 轮 |
-| C | 逐镜图片生产 | 首帧/尾帧、候选/比较/选择、跨镜绑定 | A-B | 2-3 轮 |
-| D | 逐镜视频生产 | I2V/R2V、多引用、逐镜恢复、连续性 | C | 2-3 轮 |
-| E | 声音与唯一时间线 | 角色配音、旁白、字幕、BGM/SFX、timeline validation | A，可与 C-D 部分并行 | 2-4 轮 |
-| F | 合成、QA、可编辑导出 | 本地完整 MP4、SRT/ASS、QA、剪映类导出 | C-E | 2-3 轮 |
-| G | 通用媒体调度与成本 | backend registry、依赖 DAG、并发槽、pricing/Insights | C-F 的真实重复模式 | 3-5 轮 |
-| H | 小说事件图与辅助记忆 | typed event graph、来源边界、可失效检索 | A；不阻塞本地 MP4 | 2-4 轮 |
-| I | 生产工作台与归档 | 画布/列表双视图、资产/任务/时间线统一投影、可移植归档 | B-G | 3-5 轮 |
-| J | provider 校准与 capstone | 四类独立授权、真实证据、质量人工评审 | A-I 中对应链已 mock/local 验证 | 多轮、逐次授权 |
+| A | 固化渲染契约 | ✅ 本地工程闭环 | 106、126 | 无真实 provider 含义 |
+| B | 建立视觉资产圣经 | ✅ 本地工程闭环 | 107-110、127-129 | 真实资产质量、物理 GC 与更广格式未验证 |
+| C | 逐镜图片生产 | ✅ 本地工程闭环 | 111、113、114、130 | 真实逐镜图片与 JPEG/WebP 未验证 |
+| D | 逐镜视频生产 | ✅ 本地工程闭环 | 115-117、119、131 | 真实证据仍只是固定单镜短样本 |
+| E | 声音与唯一时间线 | ✅ 本地工程闭环 | 120-122、125 | 无真实 TTS adapter/样本 |
+| F | 合成、QA、可编辑导出 | ✅ 本地工程闭环 | 123、125、132、150 | 特定 NLE、真实整集观感与更广 codec 未验证 |
+| G | 通用媒体调度与成本 | ✅ 本地工程闭环 | 133-139 | 真实 billing/rate/SLA 与 unknown 对账未验证 |
+| H | 小说事件图与辅助记忆 | ✅ 本地工程闭环 | 140、145、146 | 无长来源真实 capstone；hash 非签名 |
+| I | 生产工作台与归档 | 🟨 部分完成 | 147、148 | 只读 list/canvas 与 CLI archive 已完成；typed 可写操作和 archive Web UI 未完成 |
+| J | provider 校准与 capstone | 🟧 局部成立 / 🔒 其余待授权 | 118、124、142、143、150 的窄证据 | 真 TTS、逐镜/整集/多集与 SLA 未完成 |
 
 阶段字母不是 iteration 编号；不预留任何编号。
 
-## 8. 阶段 A：渲染契约与 stale 边界
+## 8. 阶段 A：渲染契约与 stale 边界（✅ 本地工程闭环）
 
 ### 目标
 
@@ -341,7 +435,7 @@ ArcReel 的重要修正：它并非“遇错就通用重试”。其视频链已
 
 不生成图片/视频/音频，不改现有 episode 1 视频成功路径，不做通用队列。
 
-## 9. 阶段 B：视觉资产圣经与版本血统
+## 9. 阶段 B：视觉资产圣经与版本血统（✅ 本地工程闭环）
 
 ### 目标
 
@@ -389,7 +483,7 @@ ArcReel 的重要修正：它并非“遇错就通用重试”。其视频链已
 - 场景、道具、线索可从 RenderPlan 引用，source hash 变化正确 stale。
 - 资产 URL 路径穿越、非法 id、软链接、越界文件均被拒绝。
 
-## 10. 阶段 C：逐镜图片、首尾帧与候选选择
+## 10. 阶段 C：逐镜图片、首尾帧与候选选择（✅ 本地工程闭环）
 
 ### 目标
 
@@ -426,7 +520,7 @@ ArcReel 的重要修正：它并非“遇错就通用重试”。其视频链已
 - crash 发生在 submit 前、response loss、provider id 持久后、下载中、下载后落账前等窗口时，遵守现有 paid state matrix。
 - 现有 episode 1 高光路径回归通过。
 
-## 11. 阶段 D：逐镜视频与跨镜连续性
+## 11. 阶段 D：逐镜视频与跨镜连续性（✅ 本地工程闭环）
 
 ### 目标
 
@@ -463,7 +557,7 @@ ArcReel 的重要修正：它并非“遇错就通用重试”。其视频链已
 - 任一 required shot stale/failed 时 production compose blocked，并列出 shot ids。
 - episode 2+ 的 shot id、asset projection、task path 无 episode 1 字面量泄漏。
 
-## 12. 阶段 E：角色配音、旁白、字幕与唯一时间线
+## 12. 阶段 E：角色配音、旁白、字幕与唯一时间线（✅ 本地工程闭环）
 
 ### 目标
 
@@ -500,7 +594,7 @@ ArcReel 的重要修正：它并非“遇错就通用重试”。其视频链已
 - Timeline validator 对 overlap、越界、负时长、NaN/Inf、bool 冒充数值、台词超镜头、字幕空/超长 fail closed。
 - 无 BGM 时按 policy 产出 warning 或 blocked，状态明确。
 
-## 13. 阶段 F：FFmpeg 合成、媒体 QA 与可编辑导出
+## 13. 阶段 F：FFmpeg 合成、媒体 QA 与可编辑导出（✅ 本地工程闭环）
 
 ### 目标
 
@@ -541,7 +635,7 @@ ArcReel 的重要修正：它并非“遇错就通用重试”。其视频链已
 
 阶段 F 是第一个产品级里程碑：**在不引入通用队列大重构的前提下，本地完整 MP4 竖切成立**。
 
-## 14. 阶段 G：通用媒体调度、能力注册与成本
+## 14. 阶段 G：通用媒体调度、能力注册与成本（✅ 本地工程闭环）
 
 ### 目标
 
@@ -585,7 +679,7 @@ ArcReel 6.1 中 queue/task repo/worker/backend assembly/config/pricing/cost esti
 - Web 只见安全投影；取消和恢复刷新后仍以持久状态为准。
 - estimate 与 actual 差异可审计，unknown 不被当 0 元。
 
-## 15. 阶段 H：小说事件图、来源边界与辅助记忆
+## 15. 阶段 H：小说事件图、来源边界与辅助记忆（✅ 本地工程闭环）
 
 ### 目标
 
@@ -628,7 +722,7 @@ ArcReel 6.1 中 queue/task repo/worker/backend assembly/config/pricing/cost esti
 - memory cache 删除或失效不影响 canonical 可读性；无 embedding 零网络跑通。
 - invented event 与 source-derived event 在 UI/导出中明确区分。
 
-## 16. 阶段 I：生产工作台、画布投影与项目归档
+## 16. 阶段 I：生产工作台、画布投影与项目归档（🟨 部分完成）
 
 ### 目标
 
@@ -674,7 +768,7 @@ ArcReel 6.1 中 queue/task repo/worker/backend assembly/config/pricing/cost esti
 - 导入拒绝路径穿越、重复 member、超尺寸、坏 hash、未知 schema；不信压缩包内绝对路径。
 - 默认归档不包含 provider raw response、完整 prompt、签名 URL、私有原文或 `.env`。
 
-## 17. 阶段 J：真实 provider 校准与 capstone
+## 17. 阶段 J：真实 provider 校准与 capstone（🟧 局部成立 / 🔒 其余待授权）
 
 ### 目标
 
@@ -770,23 +864,25 @@ ArcReel 6.1 中 queue/task repo/worker/backend assembly/config/pricing/cost esti
 - 每轮默认 mock；真 provider 校准单独成轮且需要用户当次明确授权。
 - 每轮仍执行项目 SOP：`iter-start` → 聚焦实现/测试 → correctness 与 security/boundary 只读审查（按 Web/runner/media 风险加视角）→ 修复 → 最终一次 `verify.sh` → `iter-finish` → commit 不 push。
 
-建议最先落地的三个候选单元：
+原计划建议最先落地的三个候选单元，现均已完成本地工程闭环：
 
-1. **RenderPlan 与 spoken timeline schema**：纯本地、低外部风险，为全部后续能力定真源。
-2. **资产版本与 selected reference**：先迁角色，再加场景/道具；解决“生成了很多图但不知道哪张算数”。
-3. **本地 compositor vertical slice**：先用 fixture clip/WAV 证明唯一时间线能生成完整 MP4，再接逐镜真生成。
+1. ✅ **RenderPlan 与 spoken timeline schema**：iter106、120、122、126 已闭环。
+2. ✅ **资产版本与 selected reference**：iter107-110、127-130 已闭环。
+3. ✅ **本地 compositor vertical slice**：iter123、125、132、150 已闭环，并以隔离 A-F 证明 `local-e2e`。
 
-这个顺序允许在不等待任何真实 provider 的情况下尽早发现 schema、时长和合成问题。
+新的接力顺序以本文 0.4 的 J-1 候选单元为准，不再从上述三个已完成单元重新开工。
+
+这个顺序已经在不等待真实 provider 的情况下提前暴露并闭合了 schema、时长和合成问题；它现在是历史实施证据，不再是待办。
 
 ## 22. 开工前需由用户确认的产品决策
 
 以下问题不阻碍本文成立，但会影响对应阶段的具体 iteration：
 
-1. 首个 production target 是否固定为 `9:16 / 1080×1920 / 25或30fps`，还是要同时支持横屏；默认建议先单一 9:16 profile。
-2. 第一版配音是否只做“旁白 + 主要角色”，还是所有有台词角色；默认建议全角色 schema、主要角色先提供 voice profile，缺失角色明确 blocked/人工分配。
-3. 第一版编辑器导出优先剪映草稿、通用 EDL，还是只交付 TimelineManifest + SRT；默认建议先内部 TimelineManifest/SRT，再加一个版本锁定的剪映 exporter。
-4. 场景/道具/线索是否允许跨 season 全局复用；默认建议 global/series/episode 三层，但 episode 必须冻结具体 version。
-5. 真实 provider 优先级与预算；到阶段 J 再逐次确认，本文不预先选择或授权。
+1. 🟨 当前本地链已采用单一竖屏 production profile；更多 profile、横屏与更广 codec 仍未立项，继续默认先守住 9:16。
+2. 🟨 全角色 Voice Profile/TTS schema 已有，但真实 adapter/音色选择未完成；真实轮仍需确定 provider、主要角色与缺失角色处置。
+3. 🟨 TimelineManifest、SRT、ASS 与 vendor-neutral edit 已完成；版本锁定的特定 NLE adapter 仍待后续产品决策。
+4. ✅ Global/Series/Episode 三层资产 Scope 与 episode exact version 冻结已由 iter128 等轮次闭环。
+5. 🔒 真实 provider、模型、预算、提交数与 timeout 继续逐次确认；本文和本次复盘都不预先授权。
 
 在用户没有另行拍板时，后续计划可以采用上述默认值，但涉及真实调用、商业分发许可或新增外部依赖时仍必须停下确认。
 
@@ -800,3 +896,5 @@ ArcReel 6.1 中 queue/task repo/worker/backend assembly/config/pricing/cost esti
 - 阶段 A-J 均有目标、实施步骤、验收门槛、依赖与非目标。
 - 明确当前项目强于外部项目的 paid recovery、安全与 canonical 边界，不因“参考开源”而倒退。
 - 下一轮实施仍由用户选择候选单元，并通过 `iter-start` 获取当时真实编号。
+
+上述定义只说明“路线图文档在 2026-07-14 已形成并可执行”，不等于 A-J 的真实生产验证全部完成；当前兑现度和下一阶段以本文第 0 节为准。
