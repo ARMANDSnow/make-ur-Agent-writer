@@ -45,7 +45,16 @@ iter158 已完成短剧响应式 11 项导航壳、概览与 production 工作�
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- A159-01：通过。`/write` 在三档壳内保留五站领域顺序、episode/step 刷新恢复、五站任务、保存/重生成、离开守卫及 stale/readiness；站⑤评审与组装已与站④角色设计分离。
+- A159-02：通过。五站使用 roving `tabindex`、`aria-selected` 与 `aria-current="step"`，方向键可切站；桌面为阶段侧轨、平板为横向阶段轨、移动为单列步骤流和固定主操作区。
+- A159-03：通过。`/characters` 按当前集与季角色库分区，显示锁定、手工覆盖、引用图片、出场集数和生成状态；episode-specific job 恢复、手工字段保留、逐次授权与 paid receipt 防覆盖语义未改变。
+- A159-04：通过。Loading、Empty、Ready、Dirty、Running、Stale、Blocked、Error 均有中文非颜色投影和恢复动作；页面 DOM 不展示 prompt、LoRA、绝对路径、provider response、签名 URL或内部枚举。
+- A159-05：通过。Phase A/B、角色 API、iter088 Web、storyboard grid 与前端 bundle 聚焦回归共 56 tests 通过；另对第五站兼容契约做 10 项定向回归。覆盖 episode/step、leave guard、任务恢复、手工编辑与付费图片保护、unknown/lost 零自动重试。
+- A159-06：通过。synthetic mock 链覆盖 Empty/Blocked、Editing、Running、Stale、Error 与最终 Ready；1440×1024、1024×900、390×844 均无横向溢出，可见交互目标不小于 44px，focus ring 为 3px，键盘切站后 ARIA 同步。该浏览器证据记为 `local-e2e`。
+- A159-07：通过。correctness、security/boundary、Web/UIUX 三路独立只读审查分别发现 3、2、5 项有效 finding；主线程全部复核修复并完成聚焦回归，无剩余已知高风险 finding。
+- Canonical：accepted implementation commit `9ffbb13f23d4a9b46ca58a4795be4a91cd210321` 上 `bash scripts/verify.sh` exit 0；schema v2，15 steps，**2989 tests OK**，487 秒，run `5fdb0c215e0e44a09104e7f61465649b`，`tracked_scope_clean=true`，`verification_profile=canonical-mock-offline`。
+- 验收运行说明：首次受限沙箱运行的 24 个 error 均为 loopback `socket.bind` EPERM，同时捕获 2 个旧四站文案契约；第二次获批运行再捕获 1 个旧“站④后直接评审”兼容契约。更新 implementation commit 后按相同 mock/offline 配置完整重验通过；这些均未触发真实 provider。
+- 最终结论：工程验收为 `mock-functional`；三视口浏览器证据为 `local-e2e`。本轮未调用真实文本、图片、视频或 TTS provider，不是 `provider-validated`。
 
 ### Knowledge Promotion
 - `decision`: `none`

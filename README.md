@@ -181,12 +181,13 @@ docs/iterations/           逐轮审计记录
 | 小说 Web 高级与辅助页面重构 | 156 | ✅ Phase E 的批量续写、故事规划、内容搜索、内容检查与创作数据已完成高级操作边界、只读区分、安全投影、兼容清理和三视口验收；Phase A-E 全部完成 |
 | 近期体检报告安全与可靠性闭环 | 157 | ✅ KB/draft no-follow 文件层、安全异常投影、job 持久化准入与轮询终止、owned verify 临时根已收口；四份报告在 canonical 通过后删除 |
 | 短剧 Web UIUX Phase A | 158 | ✅ 短剧响应式导航壳、概览六态与同源 production 列表/画布完成；三视口浏览器、键盘/触控/ARIA 与隔离 local demo 验收通过 |
+| 短剧 Web UIUX Phase B | 159 | ✅ 五站创作台与角色库完成桌面/平板/移动重构；episode/step、任务恢复、编辑与付费图片保护、键盘/触控/ARIA 保持 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 158**（2026-07-29，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web Phase A 已完成：桌面侧栏、平板顶部导航、移动底部导航共享现有 11 项路由；概览与生产工作台在不改变 API/领域真值的前提下完成响应式重构，列表/画布继续共享 production projection，`localdemo_*` 仍为零 provider 隔离演练。小说 Web Phase A-E 与短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
+最近一次更新：**iter 159**（2026-07-29，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web Phase A-B 已完成：响应式 11 项页面壳、概览、production、五站创作台与角色库均复用同一 `ui-drama` 语义变量和断点；五站 episode/step、任务恢复、离开守卫、手工编辑和付费图片保护保持。小说 Web Phase A-E 与短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -215,8 +216,8 @@ docs/iterations/           逐轮审计记录
 | 1. 核心设定 | 站①生成赛道、主线与人物核心设定，用户可编辑 | ✅ | 五站 job 的 `drama-plan` |
 | 2. 钩子选择 | 站②生成钩子候选，选择并锁定本集钩子 | ✅ | 五站 job 的 `drama-hooks` |
 | 3. 叙事与分镜 | 站③生成叙事和镜头 grid，支持编辑、排序和局部重生 | ✅ | 镜头结构/字段有本地硬校验，时长等软规则显式告警；30/60/90/120 秒 mock 分镜均精确重定时，本轮真人链实测 60 秒 |
-| 4. 角色与季角色库 | 站④生成角色卡、合并季角色库并登记本集 appearances（最多 8 人） | ✅ | 五站 job 的 `drama-characters`；角色不可变资产版本与 selected reference 由阶段 B 的独立目录承接 |
-| 5. 评审与组装 | 站⑤五维评审，revision 后仅从 Approve 血统组装 canonical episode，并将本集角色 IDs 冻结进 meta | ✅ | `episode_NN.json` 是创作事实真源；解析失败/血统不一致 fail-closed |
+| 4. 角色与季角色库 | 站④生成角色卡、合并季角色库并登记本集 appearances（最多 8 人） | ✅ | 五站 job 的 `drama-characters`；iter159 Web 清晰分出当前集与季角色库，并保留手工覆盖、锁定、引用图片与付费图片保护 |
+| 5. 评审与组装 | 站⑤五维评审，revision 后仅从 Approve 血统组装 canonical episode，并将本集角色 IDs 冻结进 meta | ✅ | `episode_NN.json` 是创作事实真源；iter159 将站⑤独立呈现并保持 verdict/assembly 与 stale/readiness fail-closed |
 | 6. 连续多集与创作交付 | 只从最新连续、完整、fresh 前集创建 N+1；导出 JSON/MD/CSV/Comfy、严格季包/快照与 Insights | ✅ | 当前仅 season 1、计划上限 100 集；多季模型未闭环；Comfy 仅为 workflow 导出 |
 | A. 渲染契约与 stale | canonical episode → strict `RenderPlan`、稳定镜头 ID、有序 spoken segments、visual-only override 与五态检查 | ✅ | **A1+A2 纯本地闭环已完成**：camera movement、lighting、negative prompt、剪辑 transition 使用不可变候选、revision/current-ID 双 CAS、effective manifest、可恢复 receipt ledger；creative/override/BGM/first-frame 变化按 v1 矩阵精确传播到 A-F 节点 |
 | B. 视觉资产圣经 | 角色/场景/道具/线索、美术方向、不可变版本与显式 selected reference | 🟨 | **B1-B3 本地治理与 Web 闭环已完成**：四类 exact-version 跨集 used-by、source blocker、active/disabled ledger 与 selection/materialization guard，ArtDirection Episode > Series > Global、显式 clear、revision freeze/ABA stale，以及 strict allowlist 资产总览和 CAS mutation 已实现。物理 GC 待实现 |
@@ -226,7 +227,7 @@ docs/iterations/           逐轮审计记录
 | F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | 🟨 | **F1-F3 本地闭环已完成**：固定 1080×1920/25fps H.264/AAC 的 argv-only compose/QA，加同源 ASS、六轨 vendor-neutral edit project、素材 SHA/revision、completion marker、持久 E3/current gate、本地 Web compose job、durable overview 与四类 exact download；特定 NLE adapter、多 profile、更广 codec/container 与公网流式交付待完成 |
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | 🟨 | **G1-G7 已完成**：strict DAG、owner-guarded lease/capacity、代码内 registry、provider task+binding 单次原子入队、安全 get/bounded wait/cancel、explicit paid bridge/owner-context guarded execution、六类 append-only pricing facts/精确定点金额/分币种 unknown-safe Insights，以及 durable ready/first-claim/terminal lifecycle 与 terminal-denominator 成功率/known-unknown queue/run metrics 已实现；crash takeover、pricing/lifecycle evidence 仍依赖权威 paid bridge/ledger 与应用层 sidecar，generic 状态不替代 provider billing。真实 provider adapter 待实现 |
 | H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ✅ | **H1-H3 纯本地闭环已完成**：typed event graph 保留 source/invented/unknown causal/strict lineage；production adapter 绑定 entity/rolling-summary exact authority bytes；text-free recent/summary/keyword identity cache 精确绑定 current graph、selection、RenderPlan 与 policy bytes，删除不影响 canonical，drift/tamper 只使 cache stale/blocked |
-| I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ✅ | **I1+I2 纯本地闭环已完成**：I1 strict/bounded list/canvas Web 共享 fingerprint，零 mutation/provider；iter158 已将导航壳、概览六态和 production 列表/画布重构为桌面/平板/移动响应式 Phase A，保留 episode、恢复与 local demo hook；I2 确定性 ZIP 在导入前完整核对 creative/selection/render/timeline/source/QA/delivery 身份，只创建新 workspace，不带完整 prompt、provider raw 或可重放付费授权。archive 是可校验 snapshot，非 runnable raw backup |
+| I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ✅ | **I1+I2 纯本地闭环已完成**：I1 strict/bounded list/canvas Web 共享 fingerprint，零 mutation/provider；iter158-159 已完成响应式壳、概览、production、五站创作台与角色库的 Phase A-B 重构，保留 episode、恢复、leave guard 与 local demo hook；I2 确定性 ZIP 在导入前完整核对 creative/selection/render/timeline/source/QA/delivery 身份，只创建新 workspace，不带完整 prompt、provider raw 或可重放付费授权。archive 是可校验 snapshot，非 runnable raw backup |
 | J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118、124、150 均完成五站真文本 + 2 张角色真图局部校准；iter150 为 5 calls、约 ¥0.2483，角色图 2/2 首次成功。iter142 固定样本完成一次 5.042 秒真视频；iter143 的 20 秒机会 create 结果不明且 0 自动重试；iter150 因公网素材域名失效在 upload/create 前阻断，create=0、费用=0。真语音、长时视频质量、全角色/多题材、逐镜/完整单集/多集和 SLA 仍未验证 |
 | 现有规划之外：平台发布 | 将成片上传到抖音、快手、视频号等平台 | ⏳ | A-J 没有发布 adapter、账号审核或回执状态设计；现阶段只能人工发布，后续需另行规划 |
 

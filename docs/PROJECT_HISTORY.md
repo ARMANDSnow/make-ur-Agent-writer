@@ -84,6 +84,7 @@
 | 156 | 小说 Web 高级与辅助页面 Phase E | 五个高级/辅助页、readiness/Paid 边界、只读区分、安全投影、兼容收口与三视口真实浏览器验证；Phase A-E 完成 |
 | 157 | 近期体检报告安全与可靠性闭环 | KB/draft no-follow、安全异常投影、job 持久化准入/轮询终止与 owned verify 临时根 |
 | 158 | 短剧 Web UIUX Phase A | 响应式 11 项导航壳、概览六态、同源 production 列表/六阶段画布与三视口 local-e2e |
+| 159 | 短剧 Web UIUX Phase B | 五站创作台、当前集/季角色库、任务与编辑保护及三视口 local-e2e |
 
 ## Iteration Implementation Index
 
@@ -325,6 +326,7 @@
 
 ## Historical Evidence Notes
 
+- iter159 在 implementation `9ffbb13` 上 canonical 2989 tests / 15 steps / 487 秒通过，run `5fdb0c215e0e44a09104e7f61465649b`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase B 五站创作台和角色库三视口证据为 `local-e2e`。correctness、security/boundary、Web/UIUX 三路 findings 全部修复。受限沙箱 loopback EPERM 与 3 个旧四站兼容测试契约在最终获批重验前分别解决；未调用真实 provider。
 - iter157 在 implementation `3c953fd` 上 canonical 2976 tests / 15 steps / 467 秒通过，run `d2b1f5f4ea8445809f03e75603f08f47`，等级 `mock-functional` / `canonical-mock-offline`。2026-07-26 至 07-29 四份报告的 KB/draft no-follow、异常脱敏、Wizard 错误投影、job 持久化准入/轮询终止与 owned verify temp findings 全部闭合；三路审查无剩余 finding，报告在验收后删除。首次沙箱运行仅因本地回环 socket `EPERM` 失败，同提交非沙箱复验通过；未调用真实 provider。
 - iter156 在 implementation `cd01ebe` 上 canonical 2956 tests / 15 steps / 466 秒通过，run `b289f10090de435f9174dc1ab54d3d15`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 Phase E 5 路由 × 3 视口、Phase C/D/短剧回归浏览器证据为 `local-e2e`。小说 Web Phase A-E 已全部落到生产 Web；四视角 findings 全部修复，无剩余 P1/P2，未调用真实 provider。
 - 早期阶段测试数、调用数、成本估算与具体 snapshot 是当时证据，不代表当前值；需要时读对应 iteration 001-019。
