@@ -1954,11 +1954,11 @@ html { scroll-behavior: smooth; }
 .ui-drama .sidebar,
 .ui-drama .next-action,
 .ui-drama .toast { background: var(--ui-card-bg); }
-.ui-drama :is(a, button, input, [tabindex]):focus-visible {
+.ui-drama :is(a, button, input, select, textarea, [tabindex]):focus-visible {
   outline: 3px solid var(--ui-focus-ring);
   outline-offset: 3px;
 }
-.ui-drama :is(.btn, button, input, .sidebar-item, .drama-responsive-nav-item) {
+.ui-drama :is(.btn, button, input, select, textarea, .sidebar-item, .drama-responsive-nav-item) {
   box-sizing: border-box;
   min-height: 44px;
   min-width: 44px;
@@ -2115,6 +2115,96 @@ html { scroll-behavior: smooth; }
 }
 .ui-drama .production-stage-arrow { display: grid; place-items: center; color: var(--ui-text-muted); font-size: var(--fs-xl); }
 
+/* Iteration 159 · short-drama Phase B creation workbench and character library. */
+.ui-drama .drama-write-header,
+.ui-drama .drama-characters-header { align-items: flex-end; }
+.ui-drama .drama-write-tools,
+.ui-drama .drama-character-tools { display: flex; align-items: flex-end; gap: var(--space-3); }
+.ui-drama .drama-write-tools input,
+.ui-drama .drama-character-tools input { width: 84px; }
+.ui-drama .drama-write-status {
+  min-height: 64px;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--amber);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-drama .drama-write-status[data-ui-state="dirty"] { background: var(--gold-soft); border-left-color: var(--amber); }
+.ui-drama .drama-write-status[data-ui-state="ready"] { border-left-color: var(--jade); }
+.ui-drama .drama-write-status[data-ui-state="running"] { background: var(--jade-soft); border-left-color: var(--jade); }
+.ui-drama .drama-write-status[data-ui-state="blocked"],
+.ui-drama .drama-write-status[data-ui-state="error"] { background: var(--ui-danger-bg); border-left-color: var(--sienna); }
+.ui-drama .drama-station-workbench { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.ui-drama .drama-station-nav {
+  display: grid;
+  gap: var(--space-2);
+  position: sticky;
+  top: 80px;
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-drama .drama-station-nav .tab {
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  text-align: left;
+  white-space: normal;
+}
+.ui-drama .drama-station-nav .tab span { font-family: var(--font-mono); color: var(--ui-text-muted); }
+.ui-drama .drama-station-nav .tab.active { border-color: var(--jade); background: var(--ui-primary-bg); color: var(--ui-brand-text); }
+.ui-drama .drama-station-summary { grid-column: 2; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); }
+.ui-drama .drama-station-summary-item {
+  min-width: 0;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  padding: var(--space-2);
+  color: var(--ui-text);
+  text-align: left;
+  font: inherit;
+  border: 1px solid var(--rule);
+  border-top: 3px solid var(--amber);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-drama .drama-station-summary-item[data-state="ready"] { border-top-color: var(--jade); }
+.ui-drama .drama-station-summary-item[data-state="blocked"] { border-top-color: var(--sienna); background: var(--ui-danger-bg); }
+.ui-drama .drama-station-summary-item > span { grid-row: 1 / span 2; font-family: var(--font-mono); color: var(--ui-text-muted); }
+.ui-drama .drama-station-summary-item small { color: var(--ui-text-muted); }
+.ui-drama .drama-station-workbench > .tab-panel { grid-column: 2; min-width: 0; }
+.ui-drama .drama-station-workbench .card { margin: 0; }
+.ui-drama .drama-review-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(260px, .7fr); gap: var(--space-4); align-items: start; }
+.ui-drama .drama-readiness-list { display: grid; gap: var(--space-2); padding: 0; margin: 0; list-style: none; }
+.ui-drama .drama-readiness-list li { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--rule); }
+.ui-drama .drama-readiness-list li[data-state="ready"] strong { color: var(--ui-brand-text); }
+.ui-drama .drama-readiness-list li[data-state="blocked"] strong { color: var(--ui-danger-text); }
+.ui-drama .drama-mobile-primary { display: none; }
+.ui-drama .drama-character-boundary { margin-bottom: var(--space-4); }
+.ui-drama .character-library-section { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--ui-card-bg); }
+.ui-drama .character-library-section.current { border-left: 4px solid var(--jade); }
+.ui-drama .character-library-section.season { border-left: 4px solid var(--amber); }
+.ui-drama .character-library-section .section-title { margin: 0; }
+.ui-drama .character-facts { display: flex; flex-wrap: wrap; gap: var(--space-2); color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-drama .character-facts span { padding: var(--space-1) var(--space-2); border-radius: 999px; background: var(--bg-sunken); }
+.ui-drama .character-ref-img { width: 100%; height: 220px; object-fit: cover; border-radius: var(--radius-2); }
+.ui-drama .character-ref-placeholder { min-height: 220px; display: grid; place-items: center; border-radius: var(--radius-2); background: var(--bg-sunken); color: var(--ui-text-muted); }
+
 @media (min-width: 768px) and (max-width: 1199px) {
   .ui-drama { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .ui-drama .drama-tablet-nav {
@@ -2144,6 +2234,12 @@ html { scroll-behavior: smooth; }
   .ui-drama .production-list-layout { grid-template-columns: 1fr; }
   .ui-drama .production-shot-detail { position: static; }
   .ui-drama .production-shot-row { grid-template-columns: minmax(140px, .7fr) minmax(220px, 1fr) minmax(200px, 1fr); }
+  .ui-drama .drama-station-workbench { grid-template-columns: 1fr; }
+  .ui-drama .drama-station-nav { grid-column: 1; position: static; display: flex; overflow-x: auto; scroll-snap-type: x proximity; }
+  .ui-drama .drama-station-nav .tab { flex: 0 0 190px; scroll-snap-align: start; }
+  .ui-drama .drama-station-summary,
+  .ui-drama .drama-station-workbench > .tab-panel { grid-column: 1; }
+  .ui-drama .drama-review-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 767px) {
@@ -2194,6 +2290,43 @@ html { scroll-behavior: smooth; }
   .ui-drama .production-stage-canvas { display: flex; flex-direction: column; overflow: visible; }
   .ui-drama .production-stage-canvas .production-node { width: 100%; min-height: 132px; }
   .ui-drama .production-stage-arrow { transform: rotate(90deg); min-height: 32px; }
+  .ui-drama .drama-write-header,
+  .ui-drama .drama-characters-header { align-items: stretch; }
+  .ui-drama .drama-write-tools,
+  .ui-drama .drama-character-tools { width: 100%; align-items: flex-end; flex-wrap: wrap; }
+  .ui-drama .drama-write-tools .field,
+  .ui-drama .drama-character-tools .field { flex: 1; }
+  .ui-drama .drama-write-status { align-items: flex-start; flex-direction: column; }
+  .ui-drama .drama-station-workbench { display: flex; flex-direction: column; }
+  .ui-drama .drama-station-nav { position: static; width: 100%; display: grid; grid-template-columns: 1fr; overflow: visible; }
+  .ui-drama .drama-station-nav .tab { width: 100%; }
+  .ui-drama .drama-station-summary { width: 100%; grid-template-columns: 1fr; }
+  .ui-drama .drama-station-summary-item { min-height: 64px; }
+  .ui-drama .drama-station-workbench > .tab-panel { width: 100%; }
+  .ui-drama .drama-review-layout { grid-template-columns: 1fr; }
+  .ui-drama .drama-mobile-primary {
+    display: flex;
+    position: fixed;
+    z-index: 25;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    min-height: 64px;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius-2);
+    background: var(--ui-card-bg);
+    box-shadow: var(--shadow-2);
+  }
+  .ui-drama .drama-mobile-primary span { min-width: 0; color: var(--ui-text-muted); font-size: var(--fs-xs); }
+  .ui-drama .drama-mobile-primary .btn { flex: 0 0 auto; }
+  .ui-drama:has(.drama-mobile-primary) .page { padding-bottom: calc(172px + env(safe-area-inset-bottom)); }
+  .ui-drama .character-library-section { padding: var(--space-3); }
+  .ui-drama .character-grid { grid-template-columns: 1fr; }
+  .ui-drama .character-card { grid-template-columns: 1fr; }
 }
 """
 
@@ -2408,7 +2541,7 @@ JS_DASHBOARD = """\
     if (!Number.isInteger(value) || value < 1 || value > 100) return;
     document.querySelectorAll('.sidebar a,.drama-tablet-nav a,.drama-mobile-nav a').forEach(function (link) {
       const target = new URL(link.href, window.location.origin);
-      if (target.pathname.endsWith("/write")) {
+      if (target.pathname.endsWith("/write") || target.pathname.endsWith("/characters")) {
         target.searchParams.set("episode", String(value));
       } else if (["/production", "/assets", "/shot-images", "/shot-videos", "/compose"].some(function (suffix) {
         return target.pathname.endsWith(suffix);
@@ -2885,7 +3018,7 @@ JS_DASHBOARD = """\
     // which broke the /chapter/N#edit deep-link (it IS implemented). Restore it.
     "body", "edit", "review", "lint", "style", "advisor", "history",
     "chapters", "outline", "decisions",
-    "setup", "hook", "storyboard", "characters",
+    "setup", "hook", "storyboard", "characters", "review",
     "script", "storyboard-view", "characters-view", "export", "video",
   ];
   function bindHashTabs() {
@@ -2904,6 +3037,10 @@ JS_DASHBOARD = """\
         }
         const selected = tab.classList.contains("active");
         tab.setAttribute("aria-selected", selected ? "true" : "false");
+        if (list.classList.contains("drama-station-nav")) {
+          if (selected) tab.setAttribute("aria-current", "step");
+          else tab.removeAttribute("aria-current");
+        }
         tab.tabIndex = selected ? 0 : -1;
         if (target) target.hidden = !selected;
       });
@@ -2917,6 +3054,10 @@ JS_DASHBOARD = """\
         const selected = t === tab;
         t.classList.toggle("active", selected);
         t.setAttribute("aria-selected", selected ? "true" : "false");
+        if (list.classList.contains("drama-station-nav")) {
+          if (selected) t.setAttribute("aria-current", "step");
+          else t.removeAttribute("aria-current");
+        }
         t.tabIndex = selected ? 0 : -1;
         const panel = tabsRoot.querySelector("#tab-" + t.dataset.tab);
         if (panel) {
@@ -2943,6 +3084,7 @@ JS_DASHBOARD = """\
         replaceActiveTabLocation(tab.dataset.tab);
       }
       loadTabPanel(tab.dataset.tab);
+      updateDramaMobilePrimary(tab.dataset.tab);
     });
     document.addEventListener("keydown", function (ev) {
       const tab = ev.target.closest && ev.target.closest('.tab[role="tab"]');
@@ -2968,6 +3110,7 @@ JS_DASHBOARD = """\
       next.focus();
       if (next.dataset.tab) replaceActiveTabLocation(next.dataset.tab);
       loadTabPanel(next.dataset.tab);
+      updateDramaMobilePrimary(next.dataset.tab);
     });
     const params = new URLSearchParams(location.search || "");
     const initialFromQuery = params.get("step") || "";
@@ -2977,6 +3120,7 @@ JS_DASHBOARD = """\
       const t = document.querySelector('.tab[data-tab="' + initial + '"]');
       if (t) activate(t);
       replaceActiveTabLocation(initial);
+      updateDramaMobilePrimary(initial);
     }
   }
 
@@ -3620,6 +3764,11 @@ JS_DASHBOARD = """\
       const seq = ++leaveGuardSeq;
       checkLeaveGuard(href, seq);
     });
+  }
+  function guardedNavigate(href) {
+    if (leaveGuardModalOpen) return;
+    const seq = ++leaveGuardSeq;
+    checkLeaveGuard(href, seq);
   }
   function showDraftLeaveModal(href, area) {
     const isPlan = area && area.id === "plan-page-editor";
@@ -6678,12 +6827,65 @@ JS_DASHBOARD = """\
     bindDramaEditSafety();
     bindHashTabs();
     bindHookPickDelegate();
+    bindDramaWriteToolbar();
     if (await resumeDramaActiveJob()) return;
     await loadStationSetup();
     await loadStationHooks();
     await loadStationStoryboard();
     await loadStationCharacters();
+    await loadStationReview();
     await loadDramaProgress();
+  }
+
+  function bindDramaWriteToolbar() {
+    const episode = document.getElementById("drama-write-episode");
+    const refresh = document.getElementById("drama-write-refresh");
+    if (episode) episode.addEventListener("change", function () {
+      const value = Number(episode.value);
+      if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
+        showToast("集数必须是 1 到 100 的整数", "error");
+        episode.value = String(dramaEpisodeNo());
+        return;
+      }
+      const target = new URL(location.href);
+      target.searchParams.set("episode", String(value));
+      guardedNavigate(target.pathname + target.search + target.hash);
+    });
+    if (refresh) refresh.addEventListener("click", async function () {
+      refresh.disabled = true;
+      try {
+        await loadStationSetup();
+        await loadStationHooks();
+        await loadStationStoryboard();
+        await loadStationCharacters();
+        await loadStationReview();
+        await loadDramaProgress();
+        showToast("已重新读取保存状态", "info");
+      } finally {
+        refresh.disabled = false;
+      }
+    });
+    const primary = document.getElementById("drama-mobile-primary-action");
+    if (primary) primary.addEventListener("click", function () {
+      const active = document.querySelector(".drama-station-nav .tab.active");
+      const pane = active ? document.getElementById("tab-" + active.dataset.tab) : null;
+      const action = pane && pane.querySelector('.form-actions .btn-primary, .empty-state .btn-primary, [data-review-assemble]');
+      if (action && !action.disabled) action.click();
+      else if (action) { action.focus(); action.scrollIntoView({ block: "center" }); }
+      else if (pane) pane.scrollIntoView({ block: "start" });
+    });
+    const active = document.querySelector(".drama-station-nav .tab.active");
+    updateDramaMobilePrimary(active && active.dataset.tab);
+  }
+
+  function updateDramaMobilePrimary(step) {
+    const labels = {
+      setup: "第 1 站 · 故事设定", hook: "第 2 站 · 钩子设计",
+      storyboard: "第 3 站 · 分镜脚本", characters: "第 4 站 · 角色设计",
+      review: "第 5 站 · 评审与组装",
+    };
+    const label = document.getElementById("drama-mobile-step-label");
+    if (label) label.textContent = labels[step] || labels.setup;
   }
 
   let dramaEditSafetyBound = false;
@@ -6710,12 +6912,24 @@ JS_DASHBOARD = """\
     const pane = node.closest ? node.closest('[data-station-pane="storyboard"]') : null;
     if (form) form.dataset.dramaDirty = "1";
     if (pane) pane.dataset.dramaDirty = "1";
+    const status = document.getElementById("drama-write-status");
+    if (status) {
+      status.dataset.uiState = "dirty";
+      status.innerHTML = "<strong>有未保存修改</strong><span>保存后再离开或重新生成，避免覆盖当前编辑。</span>";
+    }
   }
 
   function clearDramaDirty(form) {
     if (form) delete form.dataset.dramaDirty;
     const pane = form && form.closest ? form.closest('[data-station-pane="storyboard"]') : null;
     if (pane) delete pane.dataset.dramaDirty;
+    if (!document.querySelector('[data-drama-dirty="1"]')) {
+      const status = document.getElementById("drama-write-status");
+      if (status && status.dataset.uiState === "dirty") {
+        status.dataset.uiState = "ready";
+        status.innerHTML = "<strong>修改已保存</strong><span>可继续进入下一站。</span>";
+      }
+    }
   }
 
   function confirmDramaRegenerate(form, label) {
@@ -6741,20 +6955,28 @@ JS_DASHBOARD = """\
       if (Number(params.episode_no || 1) !== dramaEpisodeNo()) return false;
       const stationByStep = {
         "drama-plan": "setup", "drama-hooks": "hook", "drama-storyboard": "storyboard",
-        "drama-characters": "characters", "drama-review-assemble": "characters",
+        "drama-characters": "characters", "drama-review-assemble": "review",
       };
       const station = stationByStep[detail.step];
       const pane = station ? document.querySelector('[data-station-pane="' + station + '"]') : null;
       if (!pane) return false;
+      const stationTab = document.querySelector('.drama-station-nav .tab[data-tab="' + station + '"]');
+      if (stationTab) stationTab.click();
+      const writeStatus = document.getElementById("drama-write-status");
+      if (writeStatus) {
+        writeStatus.dataset.uiState = "running";
+        writeStatus.innerHTML = "<strong>正在恢复任务</strong><span>" + escapeHtml(stepLabel(detail.step)) + "仍在运行，可取消或等待完成。</span>";
+      }
       await pollJob(job.job_id, pane, null, async function (done) {
         if (done.status === "succeeded" && detail.step === "drama-review-assemble") {
-          window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(dramaEpisodeNo()));
+          guardedNavigate("/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(dramaEpisodeNo())));
           return;
         }
         await loadStationSetup();
         await loadStationHooks();
         await loadStationStoryboard();
         await loadStationCharacters();
+        await loadStationReview();
         await loadDramaProgress();
       });
       return true;
@@ -6768,15 +6990,42 @@ JS_DASHBOARD = """\
     if (!box) return;
     try {
       const data = await fetchJson(dramaApiUrl("/drama/progress"));
-      box.innerHTML = (data.stations || []).map(function (s) {
-        const cls = s.status === "done" ? "ready" :
+      const stations = Array.isArray(data.stations) ? data.stations : [];
+      box.innerHTML = stations.map(function (s, index) {
+        const cls = (s.status === "done" || s.status === "skipped") ? "ready" :
           s.status === "locked" ? "blocked" : "warn";
-        const statusLabel = { done: "已完成", locked: "待前置步骤", todo: "待处理" }[s.status] || s.status;
-        return '<span class="badge ' + cls + '">' + escapeHtml(s.label) +
-          " · " + escapeHtml(statusLabel) + "</span>";
+        const statusLabel = { done: "已完成", skipped: "沿用季角色", locked: "待前置步骤", todo: "待处理", stale: "内容已变化，需重做" }[s.status] || "状态待确认";
+        return '<button type="button" class="drama-station-summary-item" data-progress-step="' + escapeHtml(s.id || "") +
+          '" data-state="' + cls + '"><span>' + String(index + 1).padStart(2, "0") + '</span><strong>' +
+          escapeHtml(s.label) + '</strong><small>' + escapeHtml(statusLabel) + "</small></button>";
       }).join("");
+      box.querySelectorAll("[data-progress-step]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          const tab = document.querySelector('.drama-station-nav .tab[data-tab="' + button.dataset.progressStep + '"]');
+          if (tab) tab.click();
+        });
+      });
+      const status = document.getElementById("drama-write-status");
+      if (status && !document.querySelector('[data-drama-dirty="1"]')) {
+        const blocked = stations.find(function (row) { return row.status === "locked"; });
+        const todo = stations.find(function (row) { return row.status === "todo" || row.status === "stale"; });
+        const complete = stations.length === 5 && stations.every(function (row) { return row.status === "done" || row.status === "skipped"; });
+        status.dataset.uiState = complete ? "ready" : blocked && !todo ? "blocked" : "editing";
+        status.innerHTML = complete
+          ? "<strong>本集五站已完成</strong><span>可从剧集页检查组装结果。</span>"
+          : todo
+            ? (todo.status === "stale"
+              ? "<strong>已有内容需要更新</strong><span>" + escapeHtml(todo.label || "当前步骤") + "的上游输入发生变化，请重新处理。</span>"
+              : "<strong>正在编辑：" + escapeHtml(todo.label || "下一站") + "</strong><span>所有状态来自已保存的五站事实。</span>")
+            : "<strong>后续步骤尚未解锁</strong><span>完成当前可用步骤后即可继续。</span>";
+      }
     } catch (err) {
       box.innerHTML = renderErrorCard(err);
+      const status = document.getElementById("drama-write-status");
+      if (status) {
+        status.dataset.uiState = "error";
+        status.innerHTML = "<strong>五站状态读取失败</strong><span>已保存内容不受影响，请刷新状态。</span>";
+      }
     }
   }
 
@@ -7108,8 +7357,7 @@ JS_DASHBOARD = """\
       '<td><select data-field="shot_size" aria-label="镜头 ' + num + ' 景别">' + storyboardOptions(["特写", "近景", "中景", "全景", "远景"], shot.shot_size) + '</select></td>' +
       '<td><select data-field="camera_movement" aria-label="镜头 ' + num + ' 运镜">' + storyboardOptions(["固定", "推", "拉", "摇", "移", "跟", "升降"], shot.camera_movement) + '</select></td>' +
       '<td><input type="number" min="1" max="30" data-field="duration_seconds" aria-label="镜头 ' + num + ' 时长（秒）" value="' + Number(shot.duration_seconds || 1) + '"></td>' +
-      '<td><textarea rows="3" data-field="visual" aria-label="镜头 ' + num + ' 画面">' + escapeHtml(shot.visual || "") + '</textarea>' +
-      '<textarea rows="2" data-field="ai_draw_prompt" aria-label="镜头 ' + num + ' 绘画提示" placeholder="AI 绘画 prompt">' + escapeHtml(shot.ai_draw_prompt || "") + '</textarea></td>' +
+      '<td><textarea rows="3" data-field="visual" aria-label="镜头 ' + num + ' 画面">' + escapeHtml(shot.visual || "") + '</textarea></td>' +
       '<td><textarea rows="3" data-field="narration" aria-label="镜头 ' + num + ' 旁白">' + escapeHtml(shot.narration || "") + '</textarea></td>' +
       '<td><textarea rows="3" data-field="dialogue" aria-label="镜头 ' + num + ' 台词">' + escapeHtml(shot.dialogue || "") + '</textarea></td>' +
       '<td><input type="radio" name="storyboard-highlight" data-field="is_highlight" aria-label="将镜头 ' + num + ' 设为高光" ' + (shot.is_highlight ? "checked" : "") + '></td>' +
@@ -7135,7 +7383,7 @@ JS_DASHBOARD = """\
     if (text === "last_shot_duration") return "末镜建议 8-10 秒";
     if (text.indexOf("duration_delta:") === 0) return "总时长偏离目标 " + text.split(":")[1] + " 秒";
     if (text.indexOf("dialogue_too_long:") === 0) return "有台词单句超过 15 字";
-    return text;
+    return "分镜需要人工检查";
   }
 
   function collectStoryboardFromPane(pane) {
@@ -7143,6 +7391,7 @@ JS_DASHBOARD = """\
     const form = document.getElementById("station-storyboard-form");
     const rows = Array.from(pane.querySelectorAll("[data-shot-row]"));
     const shots = rows.map(function (tr, idx) {
+      const source = (base.shots || [])[idx] || {};
       const get = function (field) {
         const el = tr.querySelector('[data-field="' + field + '"]');
         return el ? el.value : "";
@@ -7157,7 +7406,7 @@ JS_DASHBOARD = """\
         visual: get("visual"),
         narration: get("narration"),
         dialogue: get("dialogue"),
-        ai_draw_prompt: get("ai_draw_prompt"),
+        ai_draw_prompt: source.ai_draw_prompt || "",
         is_highlight: !!(high && high.checked),
       };
     });
@@ -7364,11 +7613,11 @@ JS_DASHBOARD = """\
       if (!data.exists || !data.sheet) {
         pane.__characterSheet = null;
         pane.__characterSkipped = false;
-        pane.innerHTML = renderCharactersEmpty("站 ④ 角色", "站 ④ 会把主角、反派和 AI 绘画 prompt 整理成角色表。");
+        pane.innerHTML = renderCharactersEmpty("站 ④ 角色", "站 ④ 会把主角、反派和关键视觉特征整理成角色表。");
       } else {
         pane.__characterSheet = data.sheet;
         pane.__characterSkipped = !!data.skipped;
-        pane.innerHTML = renderCharacterSheet(data.sheet, "站 ④ 角色", !!data.skipped);
+        pane.innerHTML = renderCharacterSheet(data.sheet, "站 ④ 角色", !!data.skipped, dramaEpisodeNo());
       }
       bindCharacterSheetActions(pane);
     } catch (err) {
@@ -7376,24 +7625,93 @@ JS_DASHBOARD = """\
     }
   }
 
+  async function loadStationReview() {
+    const pane = document.querySelector('[data-station-pane="review"]');
+    if (!pane) return;
+    pane.innerHTML = skeleton(3);
+    try {
+      const progress = await fetchJson(dramaApiUrl("/drama/progress"));
+      const stations = Array.isArray(progress.stations) ? progress.stations : [];
+      const station = stations.find(function (row) { return row.id === "review"; });
+      const upstream = stations.slice(0, 4);
+      if (!station || station.status === "locked") {
+        const waiting = upstream.find(function (row) { return row.status !== "done" && row.status !== "skipped"; });
+        pane.innerHTML = '<div class="drama-review-layout"><div class="card"><div class="card-header"><h3 class="ornament">站 ⑤ 评审与组装</h3><span class="badge blocked">等待前置</span></div>' +
+          '<div class="card-body"><div class="empty-state"><span class="ornament">✦</span><h3>暂时不能开始评审</h3><p class="muted">请先完成' +
+          escapeHtml(waiting ? waiting.label : "前四站") + '；已保存内容不会被修改。</p></div></div></div></div>';
+        return;
+      }
+      const completed = station.status === "done";
+      const stale = station.status === "stale";
+      pane.innerHTML = '<div class="drama-review-layout"><section class="card"><div class="card-header"><h3 class="ornament">站 ⑤ 评审与组装</h3>' +
+        '<span class="badge ' + (completed ? "ready" : "warn") + '">' + (completed ? "已完成" : stale ? "内容已变化" : "可以开始") + '</span></div>' +
+        '<div class="card-body stack"><p>' + (completed ? "本集已通过评审并完成组装。" : stale ? "前四站内容已变化，需要重新评审并生成新的组装结果。" : "系统将按当前已保存的四站内容执行评审；通过后生成本集组装结果。") + '</p>' +
+        (completed
+          ? '<a class="btn btn-primary" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(dramaEpisodeNo())) + '">查看本集结果</a>'
+          : '<button type="button" class="btn btn-primary" data-review-assemble>开始评审并组装</button>') +
+        '</div></section><aside class="card"><div class="card-header"><h3>评审输入</h3></div><div class="card-body"><ol class="drama-readiness-list">' +
+        upstream.map(function (row) { return '<li data-state="' + (row.status === "done" || row.status === "skipped" ? "ready" : "blocked") + '"><span>' + escapeHtml(row.label || "步骤") + '</span><strong>' + (row.status === "skipped" ? "沿用季角色" : row.status === "done" ? "已保存" : "待完成") + '</strong></li>'; }).join("") +
+        '</ol></div></aside></div>';
+      bindReviewAssembleAction(pane);
+    } catch (err) {
+      pane.innerHTML = renderErrorCard(err);
+    }
+  }
+
+  function bindReviewAssembleAction(root) {
+    const reviewBtn = root.querySelector("[data-review-assemble]");
+    if (!reviewBtn) return;
+    reviewBtn.addEventListener("click", async function () {
+      reviewBtn.disabled = true;
+      try {
+        const data = await postJson(
+          wsUrl("/drama/review"),
+          await dramaGenerationPayload("drama-review-assemble", { confirm_new_text_revision: true }, Number(root.__dramaEpisodeNo || dramaEpisodeNo()))
+        );
+        await pollJob(data.job_id, root, reviewBtn, async function (job) {
+          if (job.status !== "succeeded") return;
+          window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(Number(root.__dramaEpisodeNo || dramaEpisodeNo())));
+        });
+      } catch (err) {
+        showToast("组装失败：" + errTitle(err), "error");
+        reviewBtn.disabled = false;
+      }
+    });
+  }
+
   async function initDramaCharacters() {
     bindDramaEditSafety();
     const root = document.getElementById("characters-page-root");
     if (!root) return;
+    const episodeInput = document.getElementById("characters-episode-no");
+    if (episodeInput) episodeInput.addEventListener("change", function () {
+      const value = Number(episodeInput.value);
+      if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
+        showToast("集数必须是 1 到 100 的整数", "error");
+        episodeInput.value = String(dramaEpisodeNo());
+        return;
+      }
+      const target = new URL(location.href);
+      target.searchParams.set("episode", String(value));
+      guardedNavigate(target.pathname + target.search);
+    });
     root.innerHTML = skeleton(4);
     try {
       const active = await fetchJson(wsUrl("/jobs/active"));
+      const requestedEpisode = dramaEpisodeNo();
       const job = (active.jobs || []).find(function (row) {
         return row.step === "drama-characters";
       });
       if (job && job.job_id) {
         const detail = await fetchJson(wsUrl("/job/" + job.job_id));
         const episodeNo = Number((detail.params || {}).episode_no || 1);
-        root.__dramaEpisodeNo = episodeNo;
-        await pollJob(job.job_id, root, null, async function () {
-          await loadDramaCharactersPage(root, episodeNo);
-        });
-        return;
+        if (episodeNo === requestedEpisode) {
+          root.__dramaEpisodeNo = episodeNo;
+          await pollJob(job.job_id, root, null, async function () {
+            await loadDramaCharactersPage(root, episodeNo);
+          });
+          return;
+        }
       }
     } catch (err) {
       // A stale/lost active-job record must not hide the persisted character sheet.
@@ -7413,11 +7731,18 @@ JS_DASHBOARD = """\
       } else {
         root.__characterSheet = data.sheet;
         root.__characterSkipped = !!data.skipped;
-        root.innerHTML = renderCharacterSheet(data.sheet, "角色库", !!data.skipped);
+        root.innerHTML = renderCharacterSheet(data.sheet, "角色库", !!data.skipped, targetEpisode);
       }
       bindCharacterSheetActions(root);
     } catch (err) {
-      root.innerHTML = renderErrorCard(err);
+      if (err && (err.status === 400 || err.status === 409)) {
+        root.__characterSheet = null;
+        root.__characterSkipped = false;
+        root.innerHTML = renderCharactersBlocked(targetEpisode);
+        bindCharacterSheetActions(root);
+      } else {
+        root.innerHTML = renderErrorCard(err);
+      }
     }
   }
 
@@ -7431,22 +7756,39 @@ JS_DASHBOARD = """\
       '</div></div></div>';
   }
 
-  function renderCharacterSheet(sheet, title, skipped) {
+  function renderCharactersBlocked(targetEpisode) {
+    return '<div class="card"><div class="card-header"><h3 class="ornament">角色库</h3>' +
+      '<span class="badge danger">暂不可用</span></div><div class="card-body">' +
+      '<div class="empty-state"><span class="ornament">✦</span><h3>请先完成分镜脚本</h3>' +
+      '<p class="muted">角色设计需要读取本集分镜。回到创作台完成前序步骤后即可继续，当前内容不会被改动。</p>' +
+      '<a class="btn btn-primary" data-leave-guard href="' + wsHref('/write?episode=' + Number(targetEpisode || dramaEpisodeNo()) + '&step=storyboard#storyboard') + '">返回分镜脚本</a>' +
+      '</div></div></div>';
+  }
+
+  function renderCharacterSheet(sheet, title, skipped, requestedEpisode) {
     const chars = sheet.characters || [];
-    const cards = chars.map(renderCharacterCard).join("");
+    const episodeNo = Number(requestedEpisode || sheet.episode_no || dramaEpisodeNo());
+    const current = [];
+    const season = [];
+    chars.forEach(function (character, index) {
+      const row = renderCharacterCard(character, index);
+      if ((character.appearances || []).map(Number).includes(episodeNo)) current.push(row);
+      else season.push(row);
+    });
+    const currentHtml = current.length ? current.join("") : '<div class="empty-state compact"><h3>本集暂无出场角色</h3><p class="muted">完成角色生成或沿用季角色后，这里会显示本集人物。</p></div>';
+    const seasonHtml = season.length ? season.join("") : '<div class="empty-state compact"><h3>暂无其他季角色</h3><p class="muted">当前季角色都已在本集出场。</p></div>';
     return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
       '<span class="badge ' + (skipped ? "warn" : "ready") + '">' + (skipped ? "沿用季角色" : "已完成") + '</span></div><div class="card-body stack">' +
       (skipped ? '<div class="alert info">本集未引入新角色，沿用本季角色设定；可直接评审并组装。</div>' : '') +
       '<form data-character-sheet-form class="stack">' +
-      '<div class="kv-list compact">' +
-      '<div class="k">季数</div><div class="v">第 ' + escapeHtml(String(sheet.season_no || 1)) + ' 季</div>' +
-      '<div class="k">来源分镜</div><div class="v">' + escapeHtml(sheet.source_storyboard_title || "") + '</div>' +
-      '</div>' +
-      '<div class="character-grid">' + cards + '</div>' +
+      '<section class="character-library-section current"><div class="section-title"><div><p class="eyebrow">当前集</p><h2>当前集角色 · 第 ' + escapeHtml(String(episodeNo)) + ' 集</h2></div><span class="hint">' + current.length + ' 人出场</span></div>' +
+      '<div class="character-grid">' + currentHtml + '</div></section>' +
+      '<section class="character-library-section season"><div class="section-title"><div><p class="eyebrow">季角色库</p><h2>第 ' + escapeHtml(String(sheet.season_no || 1)) + ' 季其他角色</h2></div><span class="hint">' + season.length + ' 人</span></div>' +
+      '<div class="character-grid">' + seasonHtml + '</div></section>' +
       '<div class="form-actions">' +
       (skipped ? '' : '<button type="button" class="btn btn-secondary" data-regenerate-characters>重新生成</button>') +
       '<button type="submit" class="btn btn-primary">保存角色表</button>' +
-      '<button type="button" class="btn btn-primary" data-review-assemble>评审并组装</button>' +
+      '<button type="button" class="btn btn-primary" data-review-assemble>保存并进入评审</button>' +
       '</div></form></div></div>';
   }
 
@@ -7457,30 +7799,32 @@ JS_DASHBOARD = """\
       ? '<img class="character-ref-img" src="' + escapeHtml(characterRefUrl(character.id, img.path)) + '" alt="' + escapeHtml(character.name || character.id) + '">'
       : '<div class="character-ref-placeholder">未生成参考图</div>';
     const canRedrawLocal = !img || isLocalPreviewImage(img);
+    const appearances = (character.appearances || []).filter(function (value) { return Number.isSafeInteger(Number(value)); });
+    const generationLabel = img ? (canRedrawLocal ? "本地预览已生成" : "真实参考图已保护") : "尚无参考图";
     return '<section class="character-card" data-character-card="' + idx + '">' +
       '<div class="character-ref-box">' + imageHtml +
       (canRedrawLocal ? '<button type="button" class="btn btn-secondary btn-sm" data-redraw-character="' + escapeHtml(character.id || "") + '">重画本地预览</button>' : '<span class="badge ready">真实参考图</span>') + '</div>' +
       '<div class="stack">' +
       '<div class="cluster" style="justify-content:space-between">' +
-      '<strong><code>' + escapeHtml(character.id || "") + '</code> · ' + escapeHtml(character.name || "") + '</strong>' +
-      '<label class="check-row"><input type="checkbox" data-char-field="manual_override" ' + (character.manual_override ? "checked" : "") + '> 锁定</label>' +
+      '<strong>' + escapeHtml(character.name || "未命名角色") + '</strong>' +
+      '<label class="check-row"><input type="checkbox" data-char-field="manual_override" ' + (character.manual_override ? "checked" : "") + '> 锁定手工修改</label>' +
       '</div>' +
+      '<div class="character-facts"><span>出场集数：' + escapeHtml(appearances.length ? appearances.map(function (value) { return "第 " + value + " 集"; }).join("、") : "暂无") + '</span>' +
+      '<span>生成状态：' + escapeHtml(generationLabel) + '</span><span>手工覆盖：' + (character.manual_override ? "已锁定" : "未锁定") + '</span></div>' +
       '<div class="form-grid-2">' +
       charInput("name", "姓名", character.name || "") +
       charInput("role", "角色", character.role || "") +
       charInput("age_range", "年龄段", character.age_range || "") +
       charInput("gender", "性别", character.gender || "") +
-      charInput("lora_token", "LoRA token", character.lora_token || "") +
       charInput("wardrobe_default", "默认服装", character.wardrobe_default || "") +
       '</div>' +
       charTextarea("visual_signature", "视觉签名", character.visual_signature || "", 2) +
       '<div class="form-grid-2">' +
-      charTextarea("vf_face", "face", vf.face || "", 2) +
-      charTextarea("vf_hair", "hair", vf.hair || "", 2) +
-      charTextarea("vf_body", "body", vf.body || "", 2) +
+      charTextarea("vf_face", "面部特征", vf.face || "", 2) +
+      charTextarea("vf_hair", "发型特征", vf.hair || "", 2) +
+      charTextarea("vf_body", "体态特征", vf.body || "", 2) +
       charTextarea("expression_keywords", "表情关键词", (character.expression_keywords || []).join("，"), 2) +
       '</div>' +
-      charTextarea("prompt_template_sd", "SD Prompt", character.prompt_template_sd || "", 4) +
       renderSuggestionCount(character) +
       '</div></section>';
   }
@@ -7495,7 +7839,7 @@ JS_DASHBOARD = """\
 
   function renderSuggestionCount(character) {
     const count = (character.agent_suggestions || []).length;
-    return count ? '<div class="alert info">已有 ' + count + ' 条 agent 建议待人工查看。</div>' : "";
+    return count ? '<div class="alert info">已有 ' + count + ' 条创作建议待人工查看。</div>' : "";
   }
 
   function firstCharacterImage(character) {
@@ -7519,25 +7863,26 @@ JS_DASHBOARD = """\
     const base = root.__characterSheet || { schema_version: 1, season_no: 1, episode_no: 1, characters: [] };
     const oldChars = base.characters || [];
     const cards = Array.from(root.querySelectorAll("[data-character-card]"));
-    const characters = cards.map(function (card, idx) {
-      const old = oldChars[idx] || {};
-      const get = function (field) {
+    const characters = cards.map(function (card) {
+      const sourceIndex = Number(card.getAttribute("data-character-card"));
+      const old = oldChars[sourceIndex] || {};
+      const get = function (field, fallback) {
         const el = card.querySelector('[data-char-field="' + field + '"]');
-        return el ? el.value : "";
+        return el ? el.value : (fallback || "");
       };
       const checked = function (field) {
         const el = card.querySelector('[data-char-field="' + field + '"]');
         return !!(el && el.checked);
       };
-      return Object.assign({}, old, {
+      const updated = Object.assign({}, old, {
         name: get("name"),
         role: get("role"),
         age_range: get("age_range"),
         gender: get("gender"),
-        lora_token: get("lora_token"),
+        lora_token: get("lora_token", old.lora_token),
         wardrobe_default: get("wardrobe_default"),
         visual_signature: get("visual_signature"),
-        prompt_template_sd: get("prompt_template_sd"),
+        prompt_template_sd: get("prompt_template_sd", old.prompt_template_sd),
         manual_override: checked("manual_override"),
         expression_keywords: splitKeywords(get("expression_keywords")),
         visual_features: Object.assign({}, old.visual_features || {}, {
@@ -7546,7 +7891,10 @@ JS_DASHBOARD = """\
           body: get("vf_body"),
         }),
       });
-    });
+      return { sourceIndex: sourceIndex, character: updated };
+    }).sort(function (left, right) {
+      return left.sourceIndex - right.sourceIndex;
+    }).map(function (entry) { return entry.character; });
     return Object.assign({}, base, { characters: characters });
   }
 
@@ -7594,7 +7942,7 @@ JS_DASHBOARD = """\
           const data = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
           clearDramaDirty(form);
           root.__characterSheet = data.sheet;
-          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped);
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped, targetEpisode);
           bindCharacterSheetActions(root);
           await loadDramaProgress();
           showToast("角色表已保存", "info");
@@ -7616,7 +7964,7 @@ JS_DASHBOARD = """\
             characterPayload({})
           );
           root.__characterSheet = data.sheet;
-          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped);
+          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped, targetEpisode);
           bindCharacterSheetActions(root);
           showToast("参考图已更新", "info");
         } catch (err) {
@@ -7626,27 +7974,25 @@ JS_DASHBOARD = """\
       });
     });
     const reviewBtn = root.querySelector("[data-review-assemble]");
-    if (reviewBtn) {
-      reviewBtn.addEventListener("click", async function () {
-        reviewBtn.disabled = true;
-        try {
-          const saved = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
-          clearDramaDirty(root.querySelector("[data-character-sheet-form]"));
-          root.__characterSheet = saved.sheet;
-          const data = await postJson(
-            wsUrl("/drama/review"),
-            await dramaGenerationPayload("drama-review-assemble", { confirm_new_text_revision: true }, targetEpisode)
-          );
-          await pollJob(data.job_id, root, reviewBtn, async function (job) {
-            if (job.status !== "succeeded") return;
-            window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(targetEpisode));
-          });
-        } catch (err) {
-          showToast("组装失败：" + errTitle(err), "error");
-          reviewBtn.disabled = false;
+    if (reviewBtn) reviewBtn.addEventListener("click", async function () {
+      reviewBtn.disabled = true;
+      try {
+        const saved = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
+        clearDramaDirty(root.querySelector("[data-character-sheet-form]"));
+        root.__characterSheet = saved.sheet;
+        if (root.id !== "characters-page-root") {
+          const tab = document.querySelector('.drama-station-nav .tab[data-tab="review"]');
+          if (tab) tab.click();
+          await loadStationReview();
+        } else {
+          const target = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/write?episode=" + encodeURIComponent(String(targetEpisode)) + "&step=review#review";
+          guardedNavigate(target);
         }
-      });
-    }
+      } catch (err) {
+        showToast("保存失败：" + errTitle(err), "error");
+        reviewBtn.disabled = false;
+      }
+    });
   }
 
   // ===== page: drama episodes =============================================
@@ -9454,9 +9800,9 @@ JS_DASHBOARD = """\
   let accessibleControlSeq = 0;
   function associateFormLabels(root) {
     const scope = root && root.querySelectorAll ? root : document;
-    const scoped = scope.matches && scope.matches(".ui-public, .ui-novel")
+    const scoped = scope.matches && scope.matches(".ui-public, .ui-novel, .ui-drama")
       ? scope
-      : (scope.closest && scope.closest(".ui-public, .ui-novel"));
+      : (scope.closest && scope.closest(".ui-public, .ui-novel, .ui-drama"));
     if (!scoped && scope !== document) return;
     scope.querySelectorAll(".field > label").forEach(function (label) {
       const field = label.parentElement;
@@ -9475,7 +9821,7 @@ JS_DASHBOARD = """\
   }
 
   function observeAccessibleLabels() {
-    const app = document.querySelector(".ui-public, .ui-novel");
+    const app = document.querySelector(".ui-public, .ui-novel, .ui-drama");
     if (!app) return;
     associateFormLabels(app);
     const observer = new MutationObserver(function (records) {

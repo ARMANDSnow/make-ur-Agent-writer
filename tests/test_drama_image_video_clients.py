@@ -318,8 +318,9 @@ class DramaImageClientTests(DramaTestBase):
         self.assertIn("查看 SD Prompt", source)
         review_pos = source.index('const reviewBtn = root.querySelector("[data-review-assemble]")')
         review_save = source.index('const saved = await putJson(wsUrl("/drama/characters")', review_pos)
-        review_post = source.index('wsUrl("/drama/review")', review_save)
-        self.assertLess(review_save, review_post)
+        review_tab = source.index('.tab[data-tab="review"]', review_save)
+        self.assertLess(review_save, review_tab)
+        self.assertIn('wsUrl("/drama/review")', source)
         self.assertIn("real_image_would_be_overwritten", source)
         self.assertIn("返回创作台重新评审并组装", source)
 

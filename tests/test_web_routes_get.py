@@ -433,16 +433,17 @@ class RoutesGetTests(unittest.TestCase):
         ):
             self.assertNotIn(f'id="{element_id}"', html)
 
-    def test_drama_write_page_renders_four_station_tabs(self) -> None:
+    def test_drama_write_page_renders_five_station_tabs(self) -> None:
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
         status, _ct, body = routes.dispatch("GET", "/w/beta/write")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
         self.assertIn('window.PAGE_KIND = "drama_write"', html)
-        for tab in ("setup", "hook", "storyboard", "characters"):
+        for tab in ("setup", "hook", "storyboard", "characters", "review"):
             self.assertIn(f'data-tab="{tab}"', html)
             self.assertIn(f'data-station-pane="{tab}"', html)
-        self.assertIn("③ 分镜", html)
+        self.assertIn("分镜脚本", html)
+        self.assertIn("评审与组装", html)
         self.assertNotIn("分镜表尚未开放", html)
         self.assertNotIn("角色设定表尚未开放", html)
 
@@ -450,7 +451,7 @@ class RoutesGetTests(unittest.TestCase):
         workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
         status, _ct, body = routes.dispatch("GET", "/w/beta/write?step=storyboard")
         self.assertEqual(status, 200)
-        self.assertIn("③ 分镜", body.decode("utf-8"))
+        self.assertIn("分镜脚本", body.decode("utf-8"))
 
     def test_novel_workspace_write_page_404(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/w/alpha/write")

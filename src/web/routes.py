@@ -320,7 +320,7 @@ def render_workspace_write_page(name: str, episode: Any = 1) -> Tuple[int, str, 
     return _html(200, templates.render_workspace_write(name, list_workspaces(), episode_no))
 
 
-def render_workspace_characters_page(name: str) -> Tuple[int, str, bytes]:
+def render_workspace_characters_page(name: str, episode: Any = 1) -> Tuple[int, str, bytes]:
     """Drama-only character library page."""
 
     guard = _workspace_html_guard(name)
@@ -334,7 +334,11 @@ def render_workspace_characters_page(name: str) -> Tuple[int, str, bytes]:
             f'<h1>404</h1><p>this page is for drama workspaces only; '
             f'<a href="/w/{escape_html(name)}/">go back to overview</a></p>',
         )
-    return _html(200, templates.render_workspace_characters(name, list_workspaces()))
+    try:
+        episode_no = _parse_episode_no(episode)
+    except (TypeError, ValueError):
+        return _html(400, "<h1>400</h1><p>invalid episode number</p>")
+    return _html(200, templates.render_workspace_characters(name, list_workspaces(), episode_no))
 
 
 def render_workspace_production_page(name: str) -> Tuple[int, str, bytes]:
@@ -5222,7 +5226,14 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
             ((_query or {}).get("episode", ["1"])[0]),
         ),
     ),
-    ("GET", re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"), lambda name, **_: render_workspace_characters_page(name)),
+    (
+        "GET",
+        re.compile(r"^/w/(?P<name>[^/]+)/characters/?$"),
+        lambda name, _query=None, **_: render_workspace_characters_page(
+            name,
+            (_query or {}).get("episode", (_query or {}).get("episode_no", ["1"]))[0],
+        ),
+    ),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/production/?$"), lambda name, **_: render_workspace_production_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/assets/?$"), lambda name, **_: render_workspace_assets_page(name)),
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/shot-images/?$"), lambda name, **_: render_workspace_shot_images_page(name)),

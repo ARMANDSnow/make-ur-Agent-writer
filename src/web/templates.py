@@ -531,21 +531,28 @@ def _drama_overview_main(name: str, meta: dict) -> str:
 
 def render_workspace_write(name: str, workspaces: Iterable[str], episode_no: int = 1) -> str:
     main = (
-        '<header class="page-header">'
+        '<header class="page-header drama-page-header drama-write-header">'
         '<div class="titles">'
-        '<p class="eyebrow ornament">短剧创作</p>'
+        '<p class="eyebrow ornament">短剧 · 五站创作</p>'
         f'<h1>第 {episode_no} 集 · 短剧创作台</h1>'
-        '<p class="muted">核心设定 → 钩子 → 分镜 → 角色 → 评审组装；每步均可检查和修改。</p>'
+        '<p class="muted">故事设定 → 钩子设计 → 分镜脚本 → 角色设计 → 评审与组装；保存后再进入下游。</p>'
         '</div>'
-        '<div id="drama-write-progress" class="cluster"></div>'
+        '<div class="drama-write-tools">'
+        f'<label class="field compact" for="drama-write-episode">当前集 <input id="drama-write-episode" type="number" min="1" max="100" value="{episode_no}" inputmode="numeric"></label>'
+        '<button class="btn btn-secondary" id="drama-write-refresh" type="button">刷新状态</button>'
+        '</div>'
         '</header>'
-        '<section class="tabs">'
-        '<div class="tab-list">'
-        '<button class="tab active" data-tab="setup">① 核心设定</button>'
-        '<button class="tab" data-tab="hook">② 钩子</button>'
-        '<button class="tab" data-tab="storyboard">③ 分镜</button>'
-        '<button class="tab" data-tab="characters">④ 角色</button>'
+        '<section id="drama-write-status" class="drama-write-status" data-ui-state="loading" aria-live="polite">'
+        '<strong>正在读取五站进度</strong><span>已保存内容不会被修改。</span></section>'
+        '<section class="tabs drama-station-workbench">'
+        '<div class="tab-list drama-station-nav" aria-label="五站创作步骤">'
+        '<button class="tab active" data-tab="setup" aria-current="step"><span>01</span>故事设定</button>'
+        '<button class="tab" data-tab="hook"><span>02</span>钩子设计</button>'
+        '<button class="tab" data-tab="storyboard"><span>03</span>分镜脚本</button>'
+        '<button class="tab" data-tab="characters"><span>04</span>角色设计</button>'
+        '<button class="tab" data-tab="review"><span>05</span>评审与组装</button>'
         '</div>'
+        '<div id="drama-write-progress" class="drama-station-summary" aria-live="polite"></div>'
         '<div class="tab-panel active" id="tab-setup" data-station-pane="setup">'
         '<p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-hook" data-station-pane="hook">'
@@ -554,7 +561,13 @@ def render_workspace_write(name: str, workspaces: Iterable[str], episode_no: int
         '<p class="muted">载入中…</p></div>'
         '<div class="tab-panel" id="tab-characters" data-station-pane="characters">'
         '<p class="muted">载入中…</p></div>'
+        '<div class="tab-panel" id="tab-review" data-station-pane="review">'
+        '<p class="muted">载入中…</p></div>'
         '</section>'
+        '<div class="drama-mobile-primary" aria-label="当前步骤主操作">'
+        '<span id="drama-mobile-step-label">第 1 站 · 故事设定</span>'
+        '<button type="button" class="btn btn-primary" id="drama-mobile-primary-action">执行当前主操作</button>'
+        '</div>'
     )
     return _render_shell(
         title=f"{name} · 短剧创作",
@@ -568,20 +581,23 @@ def render_workspace_write(name: str, workspaces: Iterable[str], episode_no: int
     )
 
 
-def render_workspace_characters(name: str, workspaces: Iterable[str]) -> str:
+def render_workspace_characters(name: str, workspaces: Iterable[str], episode_no: int = 1) -> str:
     main = (
-        '<header class="page-header">'
+        '<header class="page-header drama-page-header drama-characters-header">'
         '<div class="titles">'
-        '<p class="eyebrow ornament">短剧</p>'
-        '<h1>角色库</h1>'
-        '<p class="muted">查看和维护本季角色设定、AI 绘画 prompt 与参考图。</p>'
+        '<p class="eyebrow ornament">短剧 · 角色资产</p>'
+        '<h1>第 1 季 · 角色库</h1>'
+        '<p class="muted">先处理当前集角色，再维护季级设定；锁定与真实参考图不会被普通重生成静默替换。</p>'
         '</div>'
-        '<div class="cluster">'
-        f'<a class="btn btn-secondary" href="/w/{escape(name)}/write#characters">回到站④</a>'
+        '<div class="cluster drama-character-tools">'
+        f'<label class="field compact" for="characters-episode-no">当前集 <input id="characters-episode-no" type="number" min="1" max="100" value="{episode_no}" inputmode="numeric"></label>'
+        f'<a class="btn btn-secondary" data-leave-guard href="/w/{escape(name)}/write?episode={episode_no}&step=characters#characters">回到角色设计</a>'
         '</div>'
         '</header>'
-        '<section id="characters-page-root">'
-        '<p class="muted">载入中…</p>'
+        '<section class="callout info drama-character-boundary"><strong>生成边界</strong>'
+        '<span>本地预览可安全重画；真实绘图仍需逐次授权。已存在的付费参考图与生成凭据受服务端保护。</span></section>'
+        '<section id="characters-page-root" data-ui-state="loading" aria-live="polite">'
+        '<div class="character-loading"><p class="muted">正在读取当前集与季角色库…</p></div>'
         '</section>'
     )
     return _render_shell(
@@ -592,6 +608,7 @@ def render_workspace_characters(name: str, workspaces: Iterable[str]) -> str:
         topbar_actions_html=_topbar_actions(),
         sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="characters"),
         workspace=name,
+        chapter_no=episode_no,
     )
 
 
