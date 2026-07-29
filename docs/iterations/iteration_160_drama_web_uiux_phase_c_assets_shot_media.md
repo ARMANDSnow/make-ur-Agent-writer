@@ -45,7 +45,19 @@ iter158 已完成短剧响应式 11 项导航壳、概览与 production，iter15
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- A160-01：通过。`/assets` 按角色、场景、道具/线索与三层美术方向呈现 selected version、scope、used-by、impact、active/disabled 及 stale/blocked 原因，判断均来自既有服务端投影。
+- A160-02：通过。`/shot-images` 按镜头呈现首尾帧、当前/历史候选、stale lineage 与缺失候选；exact preview、两图比较、CAS selection/clear 保持，stale 只读且需处理筛选仍保留 selected。
+- A160-03：通过。`/shot-videos` 分层呈现 candidate、attempt、coverage、continuity 与 degraded preview；安全投影未提供的具体输入绑定不在前端推断，exact selection/clear、恢复与安全预览保持。
+- A160-04：通过。episode、selection revision/current binding、unknown/lost 零重提和资产 mutation 的 JSON/intent/same-origin/workspace lock 均经聚焦回归；未修改 schema、manifest、receipt、capability、计价或授权语义。
+- A160-05：通过。synthetic workspace 覆盖资产 Empty/Ready/Stale/Blocked、图片 Missing/Selected/Stale/Blocked、视频 Missing/Selected/Degraded/Unknown/Blocked；状态均使用中文非颜色原因与安全动作。
+- A160-06：通过。1440×1024、1024×900、390×844 的三页共 9 组均无横向溢出、无小于 44×44 的可见交互目标；3px focus ring、方向键/ARIA/唯一详情面板同步通过。DOM 不含内部 ID、hash 前缀、绝对路径、provider task ID、签名 URL或 raw preview URL，图片/视频只挂载 `blob:` URL。
+- A160-07：通过。correctness、security/boundary、Web/UIUX/媒体预览三路独立只读审查 findings 全部修复并完成聚焦回归，主线程未发现遗留 P0-P2 风险。
+- 最终结论：工程等级为 `mock-functional`；mandatory `local_drama_e2e` 与本轮三视口真实浏览器验证为 `local-e2e`，不构成 `provider-validated`。
+- accepted implementation：`38661f3d83fa7ec0fa93c56d3cfcfe9b3cff712f`。
+- canonical：`bash scripts/verify.sh` 在同一 implementation commit 上 exit 0；2994 tests OK、13 skipped，15 steps、478 秒，run `18e89d1666b94d5cacc249188369bcae`，schema v2、`canonical-mock-offline`、`tracked_scope_clean=true`。
+- 首次受限沙箱验收完整执行但 23 个 loopback server 测试因 `socket.bind` 被系统以 EPERM 拒绝；关闭浏览器验收服务器后，同一 commit 获批非沙箱重验全绿。没有为该环境失败修改产品代码。
+- correctness、security/boundary、Web/UIUX/媒体预览三路只读审查 findings 已全部修复并由主线程复核；未发现遗留 P0-P2 风险。
+- 未调用真实文本、图片、视频或 TTS provider；未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -54,7 +66,11 @@ iter158 已完成短剧响应式 11 项导航壳、概览与 production，iter15
 
 ## 文件变更汇总
 
-<实施后回填。>
+- `src/web/templates.py`：Phase C 三页标题、说明、状态入口与安全用户文案。
+- `src/web/static.py`：资产/媒体主从布局、响应式样式、键盘语义、治理与候选渲染、安全 `blob:` 预览及原 mutation/recovery 接线。
+- `tests/test_drama_asset_web.py`：资产页新结构兼容断言。
+- `tests/test_drama_web_uiux_phase_c.py`：Phase C 页面壳、交互、安全投影、响应式与回归契约。
+- `docs/iterations/iteration_160_drama_web_uiux_phase_c_assets_shot_media.md`：计划、实施、审查与验收证据。
 
 ## 不在本轮范围
 

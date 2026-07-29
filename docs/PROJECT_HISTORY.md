@@ -85,6 +85,7 @@
 | 157 | 近期体检报告安全与可靠性闭环 | KB/draft no-follow、安全异常投影、job 持久化准入/轮询终止与 owned verify 临时根 |
 | 158 | 短剧 Web UIUX Phase A | 响应式 11 项导航壳、概览六态、同源 production 列表/六阶段画布与三视口 local-e2e |
 | 159 | 短剧 Web UIUX Phase B | 五站创作台、当前集/季角色库、任务与编辑保护及三视口 local-e2e |
+| 160 | 短剧 Web UIUX Phase C | 资产治理、逐镜图片/视频候选、安全 blob 预览与三视口 local-e2e |
 
 ## Iteration Implementation Index
 
@@ -221,6 +222,8 @@
 | 153 | 落地小说 Web 浅色变量、中文层与共享组件 | `src/web/templates.py`、`src/web/static.py`、`tests/test_web_ui_design_system.py` |
 | 154-157 | 完成小说 Web Phase C-E 与近期体检闭环 | `src/web/`、`tests/test_web_*.py`、`scripts/verify.sh` |
 | 158 | 重构短剧导航壳、概览与生产工作台 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_a.py` |
+| 159 | 重构五站创作台与角色库 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_b.py` |
+| 160 | 重构资产治理与逐镜媒体候选 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_c.py` |
 
 ## Durable Decisions
 
@@ -326,6 +329,7 @@
 
 ## Historical Evidence Notes
 
+- iter160 在 implementation `38661f3` 上 canonical 2994 tests / 15 steps / 478 秒通过，run `18e89d1666b94d5cacc249188369bcae`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase C 资产治理与逐镜图片/视频三视口证据为 `local-e2e`。correctness、security/boundary、Web/UIUX/媒体预览三路 findings 全部修复；DOM 只留公共序号，媒体预览挂载 `blob:` URL。首次沙箱运行仅因 23 个 loopback bind EPERM 失败，同一 commit 非沙箱复验通过；未调用真实 provider。
 - iter159 在 implementation `9ffbb13` 上 canonical 2989 tests / 15 steps / 487 秒通过，run `5fdb0c215e0e44a09104e7f61465649b`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase B 五站创作台和角色库三视口证据为 `local-e2e`。correctness、security/boundary、Web/UIUX 三路 findings 全部修复。受限沙箱 loopback EPERM 与 3 个旧四站兼容测试契约在最终获批重验前分别解决；未调用真实 provider。
 - iter157 在 implementation `3c953fd` 上 canonical 2976 tests / 15 steps / 467 秒通过，run `d2b1f5f4ea8445809f03e75603f08f47`，等级 `mock-functional` / `canonical-mock-offline`。2026-07-26 至 07-29 四份报告的 KB/draft no-follow、异常脱敏、Wizard 错误投影、job 持久化准入/轮询终止与 owned verify temp findings 全部闭合；三路审查无剩余 finding，报告在验收后删除。首次沙箱运行仅因本地回环 socket `EPERM` 失败，同提交非沙箱复验通过；未调用真实 provider。
 - iter156 在 implementation `cd01ebe` 上 canonical 2956 tests / 15 steps / 466 秒通过，run `b289f10090de435f9174dc1ab54d3d15`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 Phase E 5 路由 × 3 视口、Phase C/D/短剧回归浏览器证据为 `local-e2e`。小说 Web Phase A-E 已全部落到生产 Web；四视角 findings 全部修复，无剩余 P1/P2，未调用真实 provider。
