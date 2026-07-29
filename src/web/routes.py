@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .. import paths, review_tier, run_params, search as search_mod, start_point
+from .. import paths, review_tier, run_params, search as search_mod, start_point, workspace_files
 from ..book_runner import check_write_readiness
 from ..cli_workspace import list_workspaces
 from ..config import get_model_config
@@ -37,6 +37,7 @@ from ..cost_estimator import estimate_cost
 from ..observability import collect_status
 from ..utils import read_json, read_json_optional
 from . import auth, chapter_diff as chapter_diff_mod, diag, errors, jobs, settings as settings_mod, static, templates, wizard
+from .safe_log import log_exception as _safe_log_exception
 from ._naming import RESERVED_NAMES as _RESERVED_WORKSPACE_NAMES_SHARED  # noqa: F401
 from ._naming import (
     WORKSPACE_NAME_RE as _WORKSPACE_NAME_RE_SHARED,  # noqa: F401
@@ -76,6 +77,9 @@ _DRAMA_MUTATION_PATH_RE = re.compile(
     r"^/api/workspace/[^/]+/drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?$"
 )
 _DRAMA_MUTATION_BODY_LIMIT = 64 * 1024
+_KB_FILE_MAX_BYTES = 500_000 * 4
+_DRAFT_FILE_MAX_BYTES = 1_000_000 * 4 + 1
+_DRAFT_JSON_MAX_BYTES = 1_000_000
 _DRAMA_MUTATION_INTENTS = {
     "x-drama-mutation-intent": {"mutate-v1"},
     "x-drama-asset-intent": {"mutate-v1"},
@@ -105,22 +109,9 @@ def _html(status: int, html: str) -> Tuple[int, str, bytes]:
 
 
 def _log_degraded(where: str, exc: BaseException) -> None:
-    """iter062: degraded-path handlers used to embed ``str(exc)`` in the
-    response (a raw-traceback leak the user couldn't read). We now return a
-    friendly ``errors`` card instead — so log the real exception to stderr
-    here so debug detail isn't silently dropped."""
-    import sys
-    import traceback as _tb
-
-    try:
-        from ..llm_client import _sanitize_error_text
-
-        detail = _sanitize_error_text(exc, max_chars=1000)
-    except Exception:
-        detail = f"{type(exc).__name__}: {exc}"
-    sys.stderr.write(f"[web] degraded path '{where}': {detail}\n")
-    for line in _tb.format_tb(exc.__traceback__):
-        sys.stderr.write(line)
+    """Record only bounded metadata for a degraded Web path."""
+    event = f"degraded.{where}" if re.fullmatch(r"[a-z0-9_.-]{1,48}", where) else "degraded.invalid"
+    _safe_log_exception(event, exc)
 
 
 def _validate_workspace_name(name: str) -> bool:
@@ -1370,26 +1361,41 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
     if _contains_control_chars(content):
         return _json(400, {"error": "'content' must not contain control characters"})
 
-    from ..state import write_text_atomic
-    from ..utils import sha256_text, write_json
+    from ..utils import sha256_text
 
     # Normalize to the writer's on-disk shape (text + single trailing \n)
     # so the meta sha follows writer._draft_file_sha256's convention.
     draft = content.rstrip("\n")
     try:
         with _workspace_write_guard(name, "web-manual-draft"):
-            drafts_dir = paths.drafts_dir()
-            md_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
-            if not md_path.exists():
+            md_relative = f"outputs/drafts/chapter_{chapter_no:02d}.md"
+            meta_relative = f"outputs/drafts/chapter_{chapter_no:02d}.meta.json"
+            try:
+                workspace_files.read_bytes(name, md_relative, max_bytes=_DRAFT_FILE_MAX_BYTES)
+            except FileNotFoundError:
                 return _json(404, {"error": f"chapter_{chapter_no:02d}.md not found"})
-            meta_path = drafts_dir / f"chapter_{chapter_no:02d}.meta.json"
-            meta = read_json_optional(meta_path, {})
+            except workspace_files.WorkspaceFileError as exc:
+                _safe_log_exception("draft.read_target", exc)
+                return _json(409, {"error": "workspace draft layout is unsafe"})
+            try:
+                meta = workspace_files.read_json_optional(
+                    name, meta_relative, {}, max_bytes=_DRAFT_JSON_MAX_BYTES
+                )
+            except workspace_files.WorkspaceFileError as exc:
+                _safe_log_exception("draft.read_meta", exc)
+                return _json(409, {"error": "workspace draft layout is unsafe"})
             if not isinstance(meta, dict):
                 meta = {}
             try:
-                write_text_atomic(md_path, draft + "\n")
-            except OSError as exc:
-                return _json(500, errors.error_body(errors.card_for_exception(exc)))
+                workspace_files.write_text_atomic(
+                    name, md_relative, draft + "\n", max_bytes=_DRAFT_FILE_MAX_BYTES
+                )
+            except workspace_files.WorkspaceFileError as exc:
+                trace_id = _safe_log_exception("draft.write", exc)
+                return _json(
+                    500,
+                    errors.error_body(errors.build_card("server_error", trace_id=trace_id)),
+                )
             meta["chapter_no"] = chapter_no
             meta["draft_sha256"] = sha256_text(draft + "\n")
             meta["edited"] = True
@@ -1414,20 +1420,17 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
             ):
                 meta.pop(key, None)
             try:
-                write_json(meta_path, meta)
-            except OSError as exc:
+                workspace_files.write_json_atomic(
+                    name, meta_relative, meta, max_bytes=_DRAFT_JSON_MAX_BYTES
+                )
+            except (OSError, ValueError) as exc:
                 # iter 050d (M-1): the md IS saved at this point; saying
                 # "保存失败" would be a lie. The chapter sits at
                 # draft_hash_mismatch (fail-safe) until a re-save lands
                 # the meta sync.
-                # iter063 A2: return the friendly card (was a raw English
-                # sentence with `{exc}` appended); log the raw exc to stderr
-                # so the leak-free guarantee holds without losing detail.
-                import sys as _sys
-                _sys.stderr.write(
-                    f"[routes] draft meta sync failed (ch={chapter_no}): "
-                    f"{type(exc).__name__}: {exc}\n"
-                )
+                # iter063 A2 / iter157: return the friendly card and emit only
+                # bounded exception metadata plus a trace ID.
+                _safe_log_exception("draft.meta_sync", exc)
                 return _json(500, errors.error_body(errors.build_card("draft_meta_unsynced")))
     except RuntimeError as exc:
         conflict = _write_conflict_response(exc)
@@ -1454,14 +1457,17 @@ def api_workspace_kb_get(name: str) -> Tuple[int, str, bytes]:
     error = _workspace_error(name)
     if error:
         return error
-    with use_workspace(name):
-        kb_path = paths.kb_path()
-        if not kb_path.exists():
-            return _json(404, {"error": "knowledge base not found; run prepare first"})
-        try:
-            content = kb_path.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            return _json(500, errors.error_body(errors.card_for_exception(exc)))
+    try:
+        content = workspace_files.read_text(
+            name,
+            "data/knowledge_base/global_knowledge.md",
+            max_bytes=_KB_FILE_MAX_BYTES,
+        )
+    except FileNotFoundError:
+        return _json(404, {"error": "knowledge base not found; run prepare first"})
+    except workspace_files.WorkspaceFileError as exc:
+        _safe_log_exception("kb.read", exc)
+        return _json(409, {"error": "workspace knowledge-base layout is unsafe"})
     return _json(200, {"content": content})
 
 
@@ -1487,14 +1493,21 @@ def api_workspace_kb_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
         return _json(400, {"error": "'content' too long (max 500000 chars)"})
     if _contains_control_chars(content):
         return _json(400, {"error": "'content' must not contain control characters"})
-    from ..state import write_text_atomic
-
     try:
         with _workspace_write_guard(name, "web-manual-kb"):
             try:
-                write_text_atomic(paths.kb_path(), content)
-            except OSError as exc:
-                return _json(500, errors.error_body(errors.card_for_exception(exc)))
+                workspace_files.write_text_atomic(
+                    name,
+                    "data/knowledge_base/global_knowledge.md",
+                    content,
+                    max_bytes=_KB_FILE_MAX_BYTES,
+                )
+            except workspace_files.WorkspaceFileError as exc:
+                trace_id = _safe_log_exception("kb.write", exc)
+                return _json(
+                    500,
+                    errors.error_body(errors.build_card("server_error", trace_id=trace_id)),
+                )
     except RuntimeError as exc:
         conflict = _write_conflict_response(exc)
         if conflict:
@@ -3048,13 +3061,8 @@ def _storyboard_hard_error(storyboard: Dict[str, Any]) -> Optional[Tuple[int, st
 
 
 def _drama_storyboard_runtime_error(exc: RuntimeError) -> Tuple[int, str, bytes]:
-    import sys
-    import traceback as _tb
-
-    sys.stderr.write(f"[web] degraded path 'drama_storyboard_runtime': {type(exc).__name__}: suppressed\n")
-    for line in _tb.format_tb(exc.__traceback__):
-        sys.stderr.write(line)
-    return _json(500, errors.error_body(errors.build_card("server_error")))
+    trace_id = _safe_log_exception("drama.storyboard_runtime", exc)
+    return _json(500, errors.error_body(errors.build_card("server_error", trace_id=trace_id)))
 
 
 def api_drama_storyboard_get(name: str, raw_episode_no: Any = 1) -> Tuple[int, str, bytes]:
@@ -4508,8 +4516,16 @@ def api_workspace_drafts(name: str) -> Tuple[int, str, bytes]:
     error = _workspace_error(name)
     if error:
         return error
-    with use_workspace(name):
-        drafts = [_draft_summary(path) for path in sorted(paths.drafts_dir().glob("chapter_*.md"))]
+    try:
+        names = workspace_files.list_regular_names(
+            name,
+            "outputs/drafts",
+            accept=lambda value: bool(re.fullmatch(r"chapter_\d+(?:\.partial)?\.md", value)),
+        )
+        drafts = [_draft_summary(name, filename) for filename in names]
+    except workspace_files.WorkspaceFileError as exc:
+        _safe_log_exception("draft.list", exc)
+        return _json(409, {"error": "workspace draft layout is unsafe"})
     return _json(200, {"drafts": [item for item in drafts if item]})
 
 
@@ -4526,34 +4542,51 @@ def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int
     variant = (variant or "").strip().lower()
     if variant not in {"", "final", "partial"}:
         return _json(400, {"error": "unknown draft variant"})
-    with use_workspace(name):
-        filename = f"chapter_{chapter_no:02d}.partial.md" if variant == "partial" else f"chapter_{chapter_no:02d}.md"
-        md_path = paths.drafts_dir() / filename
-        if not md_path.exists():
+    filename = f"chapter_{chapter_no:02d}.partial.md" if variant == "partial" else f"chapter_{chapter_no:02d}.md"
+    relative = f"outputs/drafts/{filename}"
+    try:
+        try:
+            text = workspace_files.read_text(name, relative, max_bytes=_DRAFT_FILE_MAX_BYTES)
+        except FileNotFoundError:
             return _json(404, {"error": f"draft not found: {filename}"})
-        text = md_path.read_text(encoding="utf-8", errors="replace")
         if variant == "partial":
-            meta = read_json_optional(paths.drafts_dir() / f"chapter_{chapter_no:02d}.failure.json", {})
+            meta = workspace_files.read_json_optional(
+                name,
+                f"outputs/drafts/chapter_{chapter_no:02d}.failure.json",
+                {},
+                max_bytes=_DRAFT_JSON_MAX_BYTES,
+            )
             review = {}
         else:
-            meta = read_json_optional(paths.drafts_dir() / f"chapter_{chapter_no:02d}.meta.json", {})
-            review = read_json_optional(paths.reviews_dir() / f"chapter_{chapter_no:02d}.review.json", {})
-        # iter076（codex 审查低风险项 + 审查 B L1）：path 类字段相对化投影——meta
-        # 只浅拷贝改投影字段，磁盘上的 meta.json 原样不动。必须在 use_workspace
-        # 块**内**做：_ws_relative 依赖线程上下文的 workspace_root()，出块后对
-        # 非当前 workspace 的书会 relative_to 失败而原样返回绝对路径（泄露复活）。
+            meta = workspace_files.read_json_optional(
+                name,
+                f"outputs/drafts/chapter_{chapter_no:02d}.meta.json",
+                {},
+                max_bytes=_DRAFT_JSON_MAX_BYTES,
+            )
+            review = workspace_files.read_json_optional(
+                name,
+                f"outputs/reviews/chapter_{chapter_no:02d}.review.json",
+                {},
+                max_bytes=_DRAFT_JSON_MAX_BYTES,
+            )
+        # iter076 / iter157：path 类字段只做显式 workspace 相对投影；外部绝对
+        # 路径失败关闭为 null，磁盘上的 meta.json 原样不动。
         meta_out = dict(meta) if isinstance(meta, dict) else {}
         for key in ("snapshot_path", "failure_path"):
             if meta_out.get(key):
-                meta_out[key] = _ws_relative(meta_out[key])
+                meta_out[key] = _workspace_relative_projection(name, meta_out[key])
         payload = {
             "chapter": chapter_no,
             "variant": variant or "final",
-            "path": _ws_relative(str(md_path)),
+            "path": relative,
             "content": text,
             "meta": meta_out,
             "review": review if isinstance(review, dict) else {},
         }
+    except workspace_files.WorkspaceFileError as exc:
+        _safe_log_exception("draft.get", exc)
+        return _json(409, {"error": "workspace draft layout is unsafe"})
     return _json(200, payload)
 
 
@@ -4663,19 +4696,43 @@ def _ws_relative(p: Any) -> Any:
         return p
 
 
-def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
-    match = re.match(r"chapter_(\d+)(\.partial)?\.md$", path.name)
+def _workspace_relative_projection(workspace: str, value: Any) -> Any:
+    """Project a stored path without ever returning an outside absolute path."""
+    if not value:
+        return value
+    try:
+        candidate = Path(str(value))
+        if candidate.is_absolute():
+            root = Path(os.path.abspath(paths.workspace_root(workspace)))
+            candidate = Path(os.path.abspath(candidate)).relative_to(root)
+        if any(part in {"", ".", ".."} for part in candidate.parts):
+            return None
+        return candidate.as_posix()
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def _draft_summary(workspace: str, filename: str) -> Optional[Dict[str, Any]]:
+    match = re.match(r"chapter_(\d+)(\.partial)?\.md$", filename)
     if not match:
         return None
     chapter_no = int(match.group(1))
     is_partial = bool(match.group(2))
+    text = workspace_files.read_text(
+        workspace, f"outputs/drafts/{filename}", max_bytes=_DRAFT_FILE_MAX_BYTES
+    )
     if is_partial:
-        failure = read_json_optional(path.parent / f"chapter_{chapter_no:02d}.failure.json", {})
+        failure = workspace_files.read_json_optional(
+            workspace,
+            f"outputs/drafts/chapter_{chapter_no:02d}.failure.json",
+            {},
+            max_bytes=_DRAFT_JSON_MAX_BYTES,
+        )
         return {
             "chapter": chapter_no,
             "variant": "partial",
-            "path": _ws_relative(str(path)),
-            "chars": len(path.read_text(encoding="utf-8", errors="replace")),
+            "path": f"outputs/drafts/{filename}",
+            "chars": len(text),
             "verdict": "failure",
             "needs_human_review": True,
             "rewrite_count": None,
@@ -4683,18 +4740,28 @@ def _draft_summary(path: Path) -> Optional[Dict[str, Any]]:
             "failure_stage": failure.get("stage") if isinstance(failure, dict) else None,
             "failure_error": failure.get("last_error") if isinstance(failure, dict) else None,
         }
-    meta = read_json_optional(path.with_suffix(".meta.json"), {})
-    review = read_json_optional(path.parent.parent / "reviews" / f"chapter_{chapter_no:02d}.review.json", {})
+    meta = workspace_files.read_json_optional(
+        workspace,
+        f"outputs/drafts/chapter_{chapter_no:02d}.meta.json",
+        {},
+        max_bytes=_DRAFT_JSON_MAX_BYTES,
+    )
+    review = workspace_files.read_json_optional(
+        workspace,
+        f"outputs/reviews/chapter_{chapter_no:02d}.review.json",
+        {},
+        max_bytes=_DRAFT_JSON_MAX_BYTES,
+    )
     return {
         "chapter": chapter_no,
         "variant": "final",
-        "path": _ws_relative(str(path)),
-        "chars": len(path.read_text(encoding="utf-8", errors="replace")),
+        "path": f"outputs/drafts/{filename}",
+        "chars": len(text),
         "verdict": meta.get("verdict") if isinstance(meta, dict) else None,
         "needs_human_review": bool(meta.get("needs_human_review")) if isinstance(meta, dict) else False,
         "rewrite_count": meta.get("rewrite_count") if isinstance(meta, dict) else None,
         "review_verdict": review.get("verdict") if isinstance(review, dict) else None,
-        "snapshot_path": _ws_relative(meta.get("snapshot_path")) if isinstance(meta, dict) else None,
+        "snapshot_path": _workspace_relative_projection(workspace, meta.get("snapshot_path")) if isinstance(meta, dict) else None,
     }
 
 
@@ -5811,20 +5878,14 @@ def dispatch(
             return _json(404, errors.exception_body(exc))
         except ValueError as exc:
             return _json(400, errors.exception_body(exc))
-        except Exception:
+        except Exception as exc:
             # Iter 026 code-review #7 hardening: don't leak ``str(exc)``
             # to the client. Log the full exception server-side with a
             # trace_id the user can quote when reporting bugs.
             # iter062: also hand the client a friendly ``card`` (title +
             # next step + the same trace_id) — the ``error`` string stays
             # "internal server error" for backward compatibility.
-            import sys
-            import traceback as _tb
-            import uuid as _uuid
-
-            trace_id = _uuid.uuid4().hex
-            sys.stderr.write(f"[web] dispatch trace_id={trace_id}\n")
-            _tb.print_exc(file=sys.stderr)
+            trace_id = _safe_log_exception("routes.dispatch", exc)
             return _json(
                 500,
                 {

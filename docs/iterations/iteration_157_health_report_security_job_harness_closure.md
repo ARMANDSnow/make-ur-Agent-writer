@@ -21,7 +21,7 @@
 
 ### Implementation Context
 - `must_read`: `src/paths.py`, `src/state.py`, `src/web/routes.py`, `src/web/server.py`, `src/web/wizard.py`, `src/web/jobs.py`, `src/web/static.py`, `scripts/verify.sh`, `tests/test_agent_harness.py`, `tests/test_web_phase_d.py`
-- `expected_changes`: `src/workspace_files.py`, `src/web/routes.py`, `src/web/server.py`, `src/web/wizard.py`, `src/web/jobs.py`, `src/web/static.py`, `scripts/verify.sh`, `tests/test_agent_harness.py`, `tests/test_web_iter157_health_closure.py`, `docs/iterations/iteration_157_health_report_security_job_harness_closure.md`, `docs/iterations/README.md`, `docs/iterations/stage_plan_drama_full_production_pipeline.md`, `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`
+- `expected_changes`: `src/workspace_files.py`, `src/web/safe_log.py`, `src/web/routes.py`, `src/web/server.py`, `src/web/wizard.py`, `src/web/jobs.py`, `src/web/static.py`, `scripts/verify.sh`, `tests/test_agent_harness.py`, `tests/test_web_iter157_health_closure.py`, `docs/iterations/iteration_157_health_report_security_job_harness_closure.md`, `docs/iterations/README.md`, `docs/iterations/stage_plan_drama_full_production_pipeline.md`, `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`
 - `do_not_touch`: `.env`、真实 provider/计费入口、`小说txt/`、私有 workspace、`data/`、`outputs/`、`logs/`；不扩展到未复现的全仓 Path I/O。
 
 1. 引入 workspace-relative、逐分量 no-follow 的有界普通文件读写能力，并迁移本轮 KB/draft HTTP 表面。
@@ -50,20 +50,37 @@
 
 ## Implementation Notes
 
-待实施后回填。
+- 新增 `src/workspace_files.py`：named workspace 根下逐分量 `O_DIRECTORY|O_NOFOLLOW` 打开，最终文件要求 regular 且有界；原子写在同一父 dirfd 下独占建临时文件、完整写入、fsync、relative replace，并在失败时清理临时文件。KB 与 draft 的列表、GET、正文/meta PUT 已迁移；字符合同对应的 UTF-8 最坏 4-byte 上限保持兼容。
+- 新增 `src/web/safe_log.py`：stderr 只输出有界 event、exception type、32 位 trace ID。routes/server/wizard/degraded/storyboard/draft-meta 不再打印异常正文、traceback 或 frame；Wizard 5xx 使用通用错误卡，premise 202 使用固定降级文案和 `expansion_trace_id`。
+- `_persist_job()` 改为布尔准入：首条 append、short write、fsync、FIFO/symlink/容量失败会回退原长度、清除内存 slot/registry，并在创建 thread 前抛出有限领域错误。后续 append 失败只在内存 detail/recent 投影中标记 `persistence_degraded=true`，active 最小投影不扩字段。
+- Dashboard/Wizard 统一只轮询 `pending/running`；终态停止，404、坏 JSON、空对象、缺失/未知状态统一停止、释放 busy，并呈现任务页/刷新核对入口。Node 回归实际抽取并执行生产 `pollJob`/`poll`，对四类异常逐项验证单次 fetch、零 timer、busy 释放和 DOM 链接；iter155 Paid busy 回归保留。
+- `verify.sh` 在 evidence、Python、Git/Apple 工具运行前建立 ownership-marked run root；`TMPDIR` 与 `PYTHONPYCACHEPREFIX` 均指向其内部。trap 只删除验证过 marker 的 root，start/finish evidence 失败也清理 owned root 并保留未拥有 sibling；未增加任何 `xcrun_db` 名称豁免。
+- 三路独立只读审查完成：correctness/behavior 与 Web/runner/harness 共提出 7 个去重后的有效 finding（显式路径投影、多字节兼容、Dashboard 404、pycache 归属、Node 行为覆盖、evidence 失败清理、drama overview 异常变量），全部修复并经复核确认为 no remaining findings；security/boundary 初审和复核均 no findings。
 
 ## Acceptance Result
 
-待验收后回填。
+- 聚焦实现、对抗测试、静态检查与三路只读审查已闭合；最终 canonical 结果待 implementation commit 后唯一一次 `bash scripts/verify.sh` 回填。
+- 聚焦回归最终为 201 tests OK（11 skipped）；Python/JavaScript 语法、shell 语法、agent harness 与 `git diff --check HEAD` 通过。
 
 ### Knowledge Promotion
 - `decision`: `none`
 - `destination`: `none`
-- `reason`: 收官审查后如发现可晋升的长期规则再更新。
+- `reason`: 本轮 dirfd/no-follow、安全异常投影、持久化准入和 owned-root 清理都是既有安全、隔离与 graceful-degrade 铁律在具体入口的实现，没有新增需要晋升到长期权威文档的通用规则。
 
 ## 文件变更汇总
 
-待实施后回填。
+| 文件 | 改动 |
+|---|---|
+| `src/workspace_files.py` | 新增 workspace-relative dirfd/no-follow 有界读写与原子 replace 能力。 |
+| `src/web/safe_log.py` | 新增 metadata-only 安全异常记录器。 |
+| `src/web/routes.py` | 迁移 KB/draft 文件面、替换原始异常 sink、显式安全路径投影。 |
+| `src/web/server.py` | last-resort dispatch 使用安全 trace 记录。 |
+| `src/web/wizard.py` | 固定 5xx 卡片与 premise 202 降级投影。 |
+| `src/web/jobs.py` | 首条持久化准入、回滚与后续 degraded 投影。 |
+| `src/web/static.py` | 严格 job 状态分类、停止轮询/释放 busy 与核对入口。 |
+| `scripts/verify.sh` | owned run root 前置初始化和平台/Python 临时文件重定向。 |
+| `tests/test_web_iter157_health_closure.py` | 新增路径、日志、Wizard、job、Node/DOM 和 Paid busy 对抗回归。 |
+| `tests/test_agent_harness.py` | 覆盖 xcrun、owned cleanup、unowned sibling 与 evidence 失败路径。 |
 
 ## 不在本轮范围
 

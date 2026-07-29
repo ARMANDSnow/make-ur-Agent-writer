@@ -31,6 +31,7 @@ from ..cli_workspace import init_workspace
 from ..epub_to_txt import extract_epub
 from . import errors
 from . import jobs
+from .safe_log import log_exception as _safe_log_exception
 # Iter 027 P2 (review #7): name validation lives in src/web/_naming.py
 # so routes.py and wizard.py share one source of truth.
 from ._naming import validate_workspace_name as _validate_name
@@ -94,8 +95,8 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
         return _json(413, {"error": f"upload exceeds {MAX_UPLOAD_BYTES} bytes"})
     try:
         fields = _parse_multipart(body, content_type)
-    except ValueError as exc:
-        return _json(400, {"error": f"multipart parse failed: {exc}"})
+    except ValueError:
+        return _json(400, {"error": "multipart parse failed"})
 
     name_field = fields.get("workspace")
     file_field = fields.get("upload")
@@ -204,16 +205,7 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
             return _json(400, errors.error_body(errors.build_card(exc.code)))
         return _json(400, {"error": str(exc)})
     except Exception as exc:
-        # Log full traceback server-side; tell the user the file looked
-        # bad without leaking internal paths or stack frames.
-        import sys
-        import traceback as _tb
-
-        sys.stderr.write(
-            f"[wizard] upload processing failed for workspace={name!r}: "
-            f"{type(exc).__name__}: {exc}\n"
-        )
-        _tb.print_exc(file=sys.stderr)
+        trace_id = _safe_log_exception("wizard.upload", exc)
         shutil.rmtree(target_root, ignore_errors=True)
         # Don't leak the staging temp file even when the failure is in
         # the write itself.
@@ -224,7 +216,10 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
                 pass
         return _json(
             400,
-            {"error": "failed to process upload (file may be corrupt or unreadable)"},
+            {
+                "error": "failed to process upload (file may be corrupt or unreadable)",
+                "trace_id": trace_id,
+            },
         )
     finally:
         # Happy-path cleanup of the staging temp file.
@@ -258,7 +253,7 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
         # with the same name; otherwise they'd hit "already exists"
         # forever.
         shutil.rmtree(target_root, ignore_errors=True)
-        return _json(500, {"error": f"failed to start pipeline: {exc}"})
+        return _safe_server_error("wizard.pipeline_start", exc)
 
     return _json(202, {"name": name, "job_id": job["job_id"]})
 
@@ -321,7 +316,7 @@ def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, byt
     except ValueError as exc:
         return _json(400, {"error": str(exc)})
     except OSError as exc:
-        return _json(500, {"error": f"failed to create workspace: {exc}"})
+        return _safe_server_error("wizard.drama_init", exc)
 
     target_root = paths.WORKSPACE_DIR / name
     try:
@@ -343,7 +338,7 @@ def start_drama_workspace(body: bytes, content_type: str) -> Tuple[int, str, byt
         _snapshot_creation_standard(name)
     except OSError as exc:
         shutil.rmtree(target_root, ignore_errors=True)
-        return _json(500, {"error": f"failed to create workspace: {exc}"})
+        return _safe_server_error("wizard.drama_write", exc)
 
     return _json(200, {"name": result["name"], "type": result["type"]})
 
@@ -424,7 +419,7 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
     except ValueError as exc:
         return _json(400, {"error": str(exc)})
     except OSError as exc:
-        return _json(500, {"error": f"failed to create workspace: {exc}"})
+        return _safe_server_error("wizard.premise_init", exc)
 
     target_root = paths.WORKSPACE_DIR / name
     raw_dir = target_root / "小说txt"
@@ -450,7 +445,7 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
         (raw_dir / "seed.txt").write_text(seed_text, encoding="utf-8")
     except OSError as exc:
         shutil.rmtree(target_root, ignore_errors=True)
-        return _json(500, {"error": f"failed to write premise: {exc}"})
+        return _safe_server_error("wizard.premise_write", exc)
 
     # iter 051a: fire the expansion job after the seed is durably on disk.
     # Best-effort: the workspace is brand-new so a busy collision is
@@ -458,6 +453,7 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
     # still trigger「扩写设定」manually from stage ① — never fail the 202.
     expansion_job_id = None
     expansion_error = None
+    expansion_trace_id = None
     if expand:
         from . import jobs
 
@@ -465,11 +461,13 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
             job = jobs.start_job(name, "expand-premise", {})
             expansion_job_id = job["job_id"]
         except RuntimeError as exc:
-            expansion_error = str(exc)
+            expansion_error = "设定扩写暂未启动，可稍后在工作台重试。"
+            expansion_trace_id = _safe_log_exception("wizard.premise_expansion", exc)
 
     body: dict = {"name": result["name"], "expansion_job_id": expansion_job_id}
     if expansion_error:
         body["expansion_error"] = expansion_error
+        body["expansion_trace_id"] = expansion_trace_id
     return _json(202, body)
 
 
@@ -518,6 +516,14 @@ def _optional_float(
 def _json(status: int, payload: Dict[str, Any]) -> Tuple[int, str, bytes]:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     return status, "application/json; charset=utf-8", body
+
+
+def _safe_server_error(event: str, exc: BaseException) -> Tuple[int, str, bytes]:
+    trace_id = _safe_log_exception(event, exc)
+    return _json(
+        500,
+        errors.error_body(errors.build_card("server_error", trace_id=trace_id)),
+    )
 
 
 _BOUNDARY_RE = re.compile(r"boundary=([^\s;]+)", re.IGNORECASE)

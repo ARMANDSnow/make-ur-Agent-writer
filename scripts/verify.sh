@@ -57,7 +57,6 @@ fi
 # calls.  Do not source with_proxy.sh here: its localhost probe is itself a
 # network attempt and is only relevant to separately-authorized real runs.
 
-export PYTHONPYCACHEPREFIX="$ROOT/.pycache"
 umask 077
 
 START_EPOCH="$(date +%s)"
@@ -66,7 +65,7 @@ TEST_COUNT=0
 COMPLETED_STEPS=""
 RUN_DIR=""
 COUNT_FILE=""
-RUN_ID="$("$EVIDENCE_PYTHON" scripts/write_acceptance.py start --root "$ROOT" --python-runtime "$PYTHON_RUNTIME")"
+RUN_ID=""
 
 on_exit() {
   local exit_code="$?"
@@ -81,18 +80,20 @@ on_exit() {
     failed_step=""
   fi
   evidence_ok=1
-  if ! "$EVIDENCE_PYTHON" scripts/write_acceptance.py finish \
-    --root "$ROOT" \
-    --run-id "$RUN_ID" \
-    --status "$evidence_status" \
-    --exit-code "$exit_code" \
-    --test-count "$TEST_COUNT" \
-    --duration-seconds "$duration" \
-    --completed-steps "$COMPLETED_STEPS" \
-    --failed-step "$failed_step"; then
-    evidence_ok=0
-    echo "[FATAL] failed to finalize outputs/harness/acceptance.json" >&2
-    [[ "$exit_code" -ne 0 ]] || exit_code=1
+  if [[ -n "$RUN_ID" ]]; then
+    if ! "$EVIDENCE_PYTHON" scripts/write_acceptance.py finish \
+      --root "$ROOT" \
+      --run-id "$RUN_ID" \
+      --status "$evidence_status" \
+      --exit-code "$exit_code" \
+      --test-count "$TEST_COUNT" \
+      --duration-seconds "$duration" \
+      --completed-steps "$COMPLETED_STEPS" \
+      --failed-step "$failed_step"; then
+      evidence_ok=0
+      echo "[FATAL] failed to finalize outputs/harness/acceptance.json" >&2
+      [[ "$exit_code" -ne 0 ]] || exit_code=1
+    fi
   fi
   if [[ -n "$COUNT_FILE" ]]; then
     rm -f "$COUNT_FILE"
@@ -110,6 +111,25 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# Create and mark the sole owned run root before Python, Git or Apple tooling
+# can allocate platform temp files.  Everything spawned below inherits the
+# internal TMPDIR; cleanup validates and removes only this marked root.
+CALLER_TMPDIR="${TMPDIR:-/tmp}"
+RUN_DIR="$(mktemp -d "$CALLER_TMPDIR/dragon-raja-verify.XXXXXX")"
+chmod 700 "$RUN_DIR"
+touch "$RUN_DIR/.dragon-raja-verify-owned"
+chmod 600 "$RUN_DIR/.dragon-raja-verify-owned"
+PLATFORM_TMPDIR="$RUN_DIR/platform-tmp"
+mkdir -p "$PLATFORM_TMPDIR"
+chmod 700 "$PLATFORM_TMPDIR"
+export TMPDIR="$PLATFORM_TMPDIR"
+PYTHON_CACHE_ROOT="$RUN_DIR/pycache"
+mkdir -p "$PYTHON_CACHE_ROOT"
+chmod 700 "$PYTHON_CACHE_ROOT"
+export PYTHONPYCACHEPREFIX="$PYTHON_CACHE_ROOT"
+COUNT_FILE="$RUN_DIR/unittest-count"
+RUN_ID="$("$EVIDENCE_PYTHON" scripts/write_acceptance.py start --root "$ROOT" --python-runtime "$PYTHON_RUNTIME")"
+
 if [[ ! -x "$PYTHON_BIN" ]]; then
   CURRENT_STEP="project_interpreter"
   echo "[FATAL] missing project interpreter: $PYTHON_BIN" >&2
@@ -117,11 +137,6 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   exit 2
 fi
 
-RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dragon-raja-verify.XXXXXX")"
-chmod 700 "$RUN_DIR"
-touch "$RUN_DIR/.dragon-raja-verify-owned"
-chmod 600 "$RUN_DIR/.dragon-raja-verify-owned"
-COUNT_FILE="$RUN_DIR/unittest-count"
 VERIFY_WORKSPACE_ROOT="$RUN_DIR/workspaces"
 VERIFY_BOOK_ROOT="$VERIFY_WORKSPACE_ROOT/verify"
 VERIFY_DRAMA_ROOT="$RUN_DIR/drama-e2e"

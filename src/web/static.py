@@ -5061,6 +5061,9 @@ JS_DASHBOARD = """\
         escapeHtml(job.job_id || "") + '">重新开始</button>');
     }
     return '<div class="job-drawer">' +
+      (job.persistence_degraded === true
+        ? '<div class="alert warn">任务状态的持久化记录不完整；请刷新任务页核对，服务重启后可能显示为状态丢失。</div>'
+        : '') +
       '<div class="drawer-grid">' +
       '<div class="kv-list compact">' +
       '<div class="k">结果</div><div class="v">' + escapeHtml(jobActionableSummary(job)) + '</div>' +
@@ -5213,9 +5216,15 @@ JS_DASHBOARD = """\
       try {
         job = await fetchJson(wsUrl("/job/" + jobId));
       } catch (err) {
-        box.innerHTML = renderErrorCard(err);
+        renderJobReconcile(box);
         setControlBusy(submit, false);
         return;
+      }
+      const disposition = jobPollDisposition(job && job.status);
+      if (disposition === "invalid") {
+        renderJobReconcile(box);
+        setControlBusy(submit, false);
+        return null;
       }
       const pct = Math.round((job.progress || 0) * 100);
       // iter068 (Cluster C): a cancel control + jobs-page link on the live card,
@@ -5241,9 +5250,11 @@ JS_DASHBOARD = """\
         "</div>" +
         (cancelPending
           ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(stepLabel(job.current_step || job.step)) + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
+          : "") +
+        (job.persistence_degraded === true
+          ? '<div class="alert warn" style="margin-top:6px">任务状态的持久化记录不完整；请打开任务页核对。</div>'
           : "");
-      const terminal = ["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"];
-      if (terminal.indexOf(job.status) >= 0) {
+      if (disposition === "terminal") {
         const partial = job.result_summary && job.result_summary.partial;
         if (partial && partial.chapter) {
           const label = "第 " + String(partial.chapter) + " 章临时草稿";
@@ -5269,6 +5280,16 @@ JS_DASHBOARD = """\
       }
       await new Promise((r) => setTimeout(r, 1000));
     }
+  }
+  function jobPollDisposition(status) {
+    if (status === "pending" || status === "running") return "active";
+    if (["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"].indexOf(status) >= 0) return "terminal";
+    return "invalid";
+  }
+  function renderJobReconcile(box) {
+    box.innerHTML = '<div class="alert warn">任务状态无法确认，已停止自动刷新。请刷新或前往任务页核对。</div>' +
+      '<div class="cluster"><a class="btn btn-secondary btn-sm" href="' + wsHref("/jobs") + '">打开任务页</a>' +
+      '<a class="btn btn-ghost btn-sm" href="">刷新页面</a></div>';
   }
 
   // ===== page: full-text search (iter075) =================================
@@ -9476,21 +9497,41 @@ JS_WIZARD = """\
     while (true) {
       try {
         const res = await fetch("/api/workspace/" + encodeURIComponent(name) + "/job/" + jobId);
-        const job = await res.json();
-        renderProgress(job, name, jobId);
-        if (job.status === "succeeded") {
+        const job = await res.json().catch(() => null);
+        if (!res.ok || !job || typeof job !== "object") {
+          renderWizardReconcile(name);
+          wizardSetFormBusy(novelForm, false);
           return;
         }
-        if (["blocked", "failed", "aborted", "lost", "budget_exceeded"].indexOf(job.status) >= 0) {
+        const disposition = wizardJobPollDisposition(job.status);
+        if (disposition === "invalid") {
+          renderWizardReconcile(name);
+          wizardSetFormBusy(novelForm, false);
+          return;
+        }
+        renderProgress(job, name, jobId);
+        if (disposition === "terminal") {
+          wizardSetFormBusy(novelForm, false);
           return;
         }
       } catch (err) {
-        if (!err.status && !err.code) err.code = "network";
-        progressBody.innerHTML = renderErrorCard(err);
+        renderWizardReconcile(name);
+        wizardSetFormBusy(novelForm, false);
         return;
       }
       await new Promise((r) => setTimeout(r, 1000));
     }
+  }
+  function wizardJobPollDisposition(status) {
+    if (status === "pending" || status === "running") return "active";
+    if (["succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"].indexOf(status) >= 0) return "terminal";
+    return "invalid";
+  }
+  function renderWizardReconcile(name) {
+    const jobsHref = "/w/" + encodeURIComponent(name) + "/jobs";
+    progressBody.innerHTML = '<div class="alert warn">任务状态无法确认，已停止自动刷新。请刷新或前往任务页核对。</div>' +
+      '<div class="cluster"><a class="btn btn-secondary" href="' + jobsHref + '">查看任务页</a>' +
+      '<a class="btn btn-ghost" href="">刷新页面</a></div>';
   }
   function renderProgress(job, name, jobId) {
     const pct = Math.round((job.progress || 0) * 100);

@@ -874,6 +874,70 @@ class VerifyHarnessTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 self.assert_only_known_platform_tmp_entries(Path(tmp))
 
+    def test_verify_cleanup_preserves_unowned_tmp_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            root.mkdir()
+            self.make_fixture(root)
+            tmpdir = Path(tmp) / "caller-tmp"
+            tmpdir.mkdir()
+            sibling = tmpdir / "unowned-sibling"
+            sibling.mkdir()
+            (sibling / "sentinel").write_text("keep", encoding="utf-8")
+            env = os.environ.copy()
+            env["TMPDIR"] = str(tmpdir)
+            result = subprocess.run(
+                ["bash", "scripts/verify.sh"],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((sibling / "sentinel").read_text(encoding="utf-8"), "keep")
+            self.assertEqual(list(tmpdir.iterdir()), [sibling])
+
+    def test_acceptance_start_failure_cleans_owned_root_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            root.mkdir()
+            self.make_fixture(root)
+            tmpdir = Path(tmp) / "caller-tmp"
+            tmpdir.mkdir()
+            sibling = tmpdir / "unowned-sibling"
+            sibling.mkdir()
+            env = os.environ.copy()
+            env["TMPDIR"] = str(tmpdir)
+            env["FAKE_ACCEPTANCE_START_FAIL"] = "1"
+            result = subprocess.run(
+                ["bash", "scripts/verify.sh"], cwd=root, env=env,
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(list(tmpdir.iterdir()), [sibling])
+            self.assertFalse((root / "outputs/harness/acceptance.json").exists())
+
+    def test_acceptance_finish_failure_cleans_owned_root_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            root.mkdir()
+            self.make_fixture(root)
+            tmpdir = Path(tmp) / "caller-tmp"
+            tmpdir.mkdir()
+            sibling = tmpdir / "unowned-sibling"
+            sibling.mkdir()
+            env = os.environ.copy()
+            env["TMPDIR"] = str(tmpdir)
+            env["FAKE_ACCEPTANCE_FINISH_FAIL"] = "1"
+            result = subprocess.run(
+                ["bash", "scripts/verify.sh"], cwd=root, env=env,
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("failed to finalize", result.stderr)
+            self.assertEqual(list(tmpdir.iterdir()), [sibling])
+
     def make_fixture(self, root: Path) -> None:
         (root / "scripts").mkdir()
         (root / ".venv/bin").mkdir(parents=True)
@@ -914,6 +978,8 @@ class VerifyHarnessTests(unittest.TestCase):
             "set -eu\n"
             f"REAL_PYTHON={real_python}\n"
             "if [[ \"${1:-}\" == 'scripts/write_acceptance.py' ]]; then\n"
+            "  if [[ \"${FAKE_ACCEPTANCE_START_FAIL:-}\" == '1' && \"${2:-}\" == 'start' ]]; then exit 17; fi\n"
+            "  if [[ \"${FAKE_ACCEPTANCE_FINISH_FAIL:-}\" == '1' && \"${2:-}\" == 'finish' ]]; then exit 18; fi\n"
             "  exec \"$REAL_PYTHON\" \"$@\"\n"
             "fi\n"
             "if [[ \"${1:-}\" == 'scripts/run_local_drama_e2e.py' ]]; then\n"

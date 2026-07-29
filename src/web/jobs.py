@@ -80,6 +80,10 @@ class JobCancelled(RuntimeError):
     """Raised inside a worker when a cooperative cancel checkpoint fires."""
 
 
+class JobPersistenceError(RuntimeError):
+    """Raised when the initial pending row cannot be durably admitted."""
+
+
 class JobTimeout(JobCancelled):
     """Raised when a job crosses its cooperative timeout deadline."""
 
@@ -168,6 +172,7 @@ _PUBLIC_JOB_SUMMARY_FIELDS = _PUBLIC_JOB_FIELDS + (
     "trace_id",
     "result_summary",
     "params",
+    "persistence_degraded",
 )
 _PUBLIC_JOB_DETAIL_FIELDS = _PUBLIC_JOB_SUMMARY_FIELDS + (
     "cancel_requested",
@@ -444,6 +449,8 @@ def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
     projected["result_summary"] = _public_result_summary(job.get("result_summary"))
+    if not isinstance(job.get("persistence_degraded"), bool):
+        projected.pop("persistence_degraded", None)
     projected.update(_public_local_demo_context(job))
     return projected
 
@@ -455,6 +462,8 @@ def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
     projected["result_summary"] = _public_result_summary(job.get("result_summary"))
+    if not isinstance(job.get("persistence_degraded"), bool):
+        projected.pop("persistence_degraded", None)
     projected.update(_public_local_demo_context(job))
     return projected
 
@@ -636,10 +645,13 @@ def _read_job_rows_unlocked(workspace: str) -> list[Dict[str, Any]]:
         os.close(directory_fd)
 
 
-def _persist_job(job: Dict[str, Any]) -> None:
+def _persist_job(job: Dict[str, Any]) -> bool:
+    """Append one durable job row, restoring the prior length on failure."""
     try:
         workspace = str(job.get("workspace") or "")
         durable = {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
+        if not isinstance(job.get("persistence_degraded"), bool):
+            durable.pop("persistence_degraded", None)
         durable["params"] = _public_retry_params(
             job.get("params"),
             step=job.get("step"),
@@ -658,12 +670,13 @@ def _persist_job(job: Dict[str, Any]) -> None:
             + b"\n"
         )
         if len(payload) > _MAX_JOB_LOG_LINE_BYTES:
-            return
+            return False
         with _JOB_LOG_LOCK:
             directory_fd = _open_job_logs_directory(workspace, create=True)
             if directory_fd is None:
-                return
+                return False
             file_fd: Optional[int] = None
+            original_size: Optional[int] = None
             try:
                 file_fd = os.open(
                     "web_jobs.jsonl",
@@ -678,19 +691,36 @@ def _persist_job(job: Dict[str, Any]) -> None:
                 fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 info = os.fstat(file_fd)
                 if not stat.S_ISREG(info.st_mode):
-                    return
+                    return False
                 if info.st_size + len(payload) > _MAX_JOB_LOG_BYTES:
-                    return
+                    return False
+                original_size = info.st_size
                 written = os.write(file_fd, payload)
                 if written != len(payload):
-                    return
+                    raise OSError("short job persistence write")
                 os.fsync(file_fd)
+                return True
+            except OSError:
+                if file_fd is not None and original_size is not None:
+                    try:
+                        os.ftruncate(file_fd, original_size)
+                        os.fsync(file_fd)
+                    except OSError:
+                        pass
+                return False
             finally:
                 if file_fd is not None:
                     os.close(file_fd)
                 os.close(directory_fd)
-    except (OSError, TypeError, ValueError):
-        return
+    except (OSError, TypeError, ValueError, RecursionError, OverflowError):
+        return False
+
+
+def _mark_persistence_degraded(job_id: str) -> None:
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is not None:
+            job["persistence_degraded"] = True
 
 
 def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
@@ -798,7 +828,8 @@ def _update(job_id: str, **fields: Any) -> None:
             return
         job.update(fields)
         snapshot = dict(job)
-    _persist_job(snapshot)
+    if snapshot is not None and not _persist_job(snapshot):
+        _mark_persistence_degraded(job_id)
 
 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
@@ -833,7 +864,9 @@ def request_cancel(job_id: str, reason: str = "user requested cancel") -> Option
         job["cancel_requested"] = True
         job["cancel_reason"] = reason
         snapshot = dict(job)
-    _persist_job(snapshot)
+    if snapshot is not None and not _persist_job(snapshot):
+        _mark_persistence_degraded(job_id)
+        snapshot["persistence_degraded"] = True
     return snapshot
 
 
@@ -906,7 +939,8 @@ def _complete_job(job_id: str, terminal: str, step: str, result: Any) -> None:
                 }
             )
         snapshot = dict(job)
-    _persist_job(snapshot)
+    if snapshot is not None and not _persist_job(snapshot):
+        _mark_persistence_degraded(job_id)
 
 
 def workspace_busy(workspace: str) -> Optional[str]:
@@ -2920,7 +2954,14 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
         with _JOBS_LOCK:
             _JOBS.pop(record["job_id"], None)
         raise RuntimeError(f"workspace_not_found:{workspace}")
-    _persist_job(record)
+    if not _persist_job(record):
+        with _WORKSPACE_LOCK:
+            _WORKSPACE_JOBS.pop(workspace, None)
+        with _JOBS_LOCK:
+            _JOBS.pop(record["job_id"], None)
+        with _WORKER_THREADS_LOCK:
+            _WORKER_THREADS.pop(record["job_id"], None)
+        raise JobPersistenceError("job_persistence_failed")
     worker_identity = paths.probe_workspace_identity(workspace)
     if (
         worker_identity is None

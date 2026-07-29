@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from . import routes
+from .safe_log import log_exception as _safe_log_exception
 
 
 _DRAMA_MUTATION_PATH_RE = re.compile(
@@ -112,20 +113,20 @@ class WebHandler(BaseHTTPRequestHandler):
                 status, content_type, body, response_headers = response
             else:
                 status, content_type, body = response
-        except Exception:  # pragma: no cover - last-resort guard
+        except Exception as exc:  # pragma: no cover - last-resort guard
             # iter 025 had a bug: building the 500 JSON body from
             # ``str(exc)`` produces invalid JSON if the message contains
             # newlines or backslashes (code-review #7 / server.py:41).
             # Use a fixed body here; the real exception is already on
             # the dispatch path which now uses trace_id + server log.
-            import sys
-            import traceback as _tb
-
-            sys.stderr.write("[web] handler dispatch crashed:\n")
-            _tb.print_exc(file=sys.stderr)
+            trace_id = _safe_log_exception("server.dispatch", exc)
             status = 500
             content_type = "application/json; charset=utf-8"
-            body = b'{"error": "internal server error"}'
+            body = (
+                '{"error":"internal server error","trace_id":"'
+                + trace_id
+                + '"}'
+            ).encode("ascii")
             response_headers = {}
         self.send_response(status)
         self.send_header("Content-Type", content_type)
