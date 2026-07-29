@@ -47,7 +47,17 @@ iter152 已形成小说 Web UI/UX 规范，iter153 已将浅色设计变量、�
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- A154-01 — **PASS**：首页以中文说明小说续写与短剧创作能力，三个主入口分别指向小说创建、已有作品和短剧创建；空态/初始化失败提供恢复动作，未把真实能力描述为已授权或已验证。
+- A154-02 — **PASS**：作品列表改为响应式卡片，名称、显式类型、更新时间、进度和唯一主操作层级清楚；空列表与读取失败均说明本地内容不受影响及下一步，未知类型、路径和异常失败关闭。
+- A154-03 — **PASS**：向导区分本地原文、原创故事和短剧，字段标签/help/error 关联完整；保留三个既有 endpoint、字段与 hook，readiness 失败关闭；浏览器与测试证明提交期间整表 `aria-busy`、控件锁定和重复提交拦截成立，失败路径保留输入。
+- A154-04 — **PASS**：设置页首屏只呈现创作偏好，既有连接字段收进中文高级设置且 secret 为零片段投影；离线、未开始、未修改、保存成功/失败及读取失败状态可辨，GET/PUT 契约和验证逻辑保持。
+- A154-05 — **PASS**：回收站恢复使用次级动作，永久删除使用文字危险动作与强确认；输入可见作品名后仍提交内部安全标识，请求发出后锁定取消/Escape/遮罩，取消和 Escape 恢复触发器焦点，失败明确内容仍保留。
+- A154-06 — **PASS**：五页统一使用 `ui-public` 与 iter153 按钮、表单、badge、toast、modal、导航能力；15 个页面/视口组合均只有一个不可点击的当前导航项，无横向溢出，所有可见目标至少 `44×44px`，手机核心操作、toast 和确认窗口无遮挡。
+- A154-07 — **PASS**：聚焦回归 **215 tests OK**；Python 编译、三段前端 JS 语法、harness 和 `git diff --check` 通过。correctness/behavior、security/boundary、Web/UIUX/响应式三路独立只读复审最终均为 P1/P2 none；未修高优风险为 none。
+- A154-08 — **PASS (`local-e2e`)**：isolated synthetic workspace 下真实本地浏览器覆盖 `/`、`/library`、`/wizard`、`/settings`、`/trash` × `1440×1024`、`1199×900`、`390×844` 共 15 组；完成首页进入向导、三模式切换、一次 mock 原创创建、列表进入 synthetic 作品、恢复确认、永久删除名称匹配/Escape/取消/焦点恢复（未执行 purge）及设置未修改/保存。全部组合横向溢出为 0、控制台无错误、无禁用技术词或小点击目标；该证据不外推真实 provider。
+- A154-09 — **PASS (`mock-functional`)**：implementation commit `99501fa0bae8e06c927f0b72d676fed05db5fe96` 的 clean detached worktree 上 canonical `bash scripts/verify.sh` 通过：**2940 tests、15 steps、420 秒**，run `7d43dbd67c134887a198bde574f01bf5`，`tracked_scope_clean=true`、exit 0。首轮在受限沙箱中因 loopback bind 与 `xcrun_db` 临时状态写入限制产生环境失败；未改代码、测试或验收脚本，在同一 commit 上解除该环境限制后复验通过。全程 `OPENAI_MODEL=mock`，未读取 `.env`、未调用真实文本/图片/视频/TTS/provider、未 push；用户已有 iteration 索引修改、短剧阶段计划、体检报告及其他文件均未覆盖、删除或暂存。
+
+验收等级：工程为 `mock-functional`；真实本地浏览器和 canonical mandatory loopback 子步骤为 `local-e2e`；本轮没有 `provider-validated` 证据。小说 Web Phase C 五个公共页面已完成，Phase D 四阶段主流程与 Phase E 高级/辅助页仍未实施。
 
 ### Knowledge Promotion
 - `decision`: `none`

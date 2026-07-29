@@ -79,6 +79,7 @@
 | 151 | Workspace、Local Demo 与 Worker 体检闭环 | nofollow workspace identity、持久安全 target、FFmpeg/FFprobe 三层预检、test worker drain；验收后删除三份报告 |
 | 152 | 小说续写 Web UI/UX 全量重设计 | 浅色中文设计系统、15 个桌面页、3 个平板页、6 个手机页、全操作/异常状态/API 映射与分期前端重构依据 |
 | 153 | 小说 Web 浅色系统与共享组件落地 | Phase A/B 生产命名空间、中文失败关闭、44px 组件与实际 step 计费确认；24 组本地浏览器验证 |
+| 154 | 小说 Web 公共页面 Phase C | 五个公共页生产级信息架构、响应式、异常恢复与安全动态投影；15 组真实浏览器验证 |
 
 ## Iteration Implementation Index
 
@@ -314,10 +315,11 @@
 47. **工作台必须是当前事实的投影，不是新真源**：资产、镜头、attempt/task、timeline 和 QA 应由后端 current inspectors 在同一安全模型中重建，list/canvas 只是同一 fingerprint 的不同视图。顶层状态必须包含完整 ledger 汇总，不能因当前镜头或 UI 截断漏掉 retired unknown/submitted；声称 read-only 的 GET 连 lock/holder 也不应创建，并可用 double-scan 在无写锁下显式暴露并发变化。
 48. **身份复核与测试清理都必须覆盖实际写入窗口**：workspace 守门不能只在 selector 或请求入口检查，应在持久写前复核，并在写入新增可选 canonical 目录后刷新 identity，兼容部分初始化项目；test worker 必须 cooperative cancel 并 join 完成后才能恢复全局 workspace/env 或删除临时目录，timeout 应保留状态并明确失败。两者都不外推为抵抗最后复核后的非合作本机写者。
 49. **界面规范不能发明后端能力，用户语言也不能泄漏实现词汇**：每个按钮都应绑定当前接口、现有或待迁移 hook、确认条件、处理中状态、成功去向和失败恢复；没有写入契约的操作应明确隐藏。内部枚举、模型、provider、job 字段和原始错误只留在开发映射，用户界面统一翻译为直白中文。视觉示例还必须落在声明的响应式断点内，否则不能作为前端验收依据。
+50. **公共列表投影必须同时约束身份、类型与文件读取边界**：仅从目录名或未验证 metadata 猜 workspace 类型，会把损坏/替换对象送入错误域页面；公开更新时间也不能靠递归跟随路径。应从已验证 root fd 逐级 no-follow、有界读取权威产物，legacy 缺 metadata 可显式兼容，存在但损坏/未知的类型必须失败关闭。设置 secret 即使做掩码也仍泄漏片段，普通用户投影只应返回 configured 布尔和零片段值。
 
 ## Historical Evidence Notes
 
-- iter153 在 implementation `082f0d7` 上 canonical 2926 tests / 15 steps / 474 秒通过，run `f3d7e4e81805499c998b724351c399b3`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 8 路由 × 3 视口浏览器证据为 `local-e2e`。Phase A/B 已落到生产 Web，Phase C–E 页面级布局待续；三视角复审无剩余代码 finding，未调用真实 provider。
+- iter154 在 implementation `99501fa0` 上 canonical 2940 tests / 15 steps / 420 秒通过，run `7d43dbd67c134887a198bde574f01bf5`，等级 `mock-functional` / `canonical-mock-offline`；mandatory loopback 与 5 路由 × 3 视口浏览器证据为 `local-e2e`。Phase C 五个公共页已落到生产 Web，Phase D/E 待续；三视角复审无剩余 P1/P2，未调用真实 provider。
 - 早期阶段测试数、调用数、成本估算与具体 snapshot 是当时证据，不代表当前值；需要时读对应 iteration 001-019。
 - 真模型小说路径曾完成 extract、debate、write/review、原创 premise 多章和深起点续写样本；最新生产证据与仍待授权项以 handoff 为准。
 - Aeloon 的 PR、部署方式和 vendored 同步状态由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护，不在这里复制。
