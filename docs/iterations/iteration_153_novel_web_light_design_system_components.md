@@ -56,7 +56,7 @@ iter152 已完成小说续写 Web 的 Figma 浅色设计稿与可实施 UI/UX �
 - 全程未读取 `.env`，未调用真实文本、图片、视频、TTS 或任何计费 provider；未触碰小说原文、私有 workspace、`data/`、`logs/` 或用户既有未跟踪文件。Phase C–E 的 15 页完整内容布局仍不在本轮范围。
 
 ### Knowledge Promotion
-- `decision`: `not-promoted`
+- `decision`: `none`
 - `destination`: `none`
 - `reason`: 本轮没有形成超出 iter152 规范的新长期设计规则；Phase A/B 当前实施状态已就地同步至 README、handoff 与项目历史，避免在 accepted implementation commit 后修改非收官白名单文档。
 

@@ -23,6 +23,7 @@ import re
 import stat
 import threading
 import time
+from fnmatch import fnmatchcase
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -290,9 +291,10 @@ def _workspace_html_guard_novel_only(name: str) -> Optional[Tuple[int, str, byte
     base = _workspace_html_guard(name)
     if base:
         return base
-    from .workspace_meta import read as _meta_read
-
-    if _meta_read(name).get("type") != "novel":
+    workspace_type = _public_workspace_type(name)
+    if workspace_type == "unknown":
+        return _html(200, templates.render_workspace_type_unknown(name, list_workspaces()))
+    if workspace_type != "novel":
         return _html(200, templates.render_workspace_novel_only_empty(name, list_workspaces()))
     return None
 
@@ -301,6 +303,8 @@ def render_workspace_overview(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard(name)
     if guard:
         return guard
+    if _public_workspace_type(name) == "unknown":
+        return _html(200, templates.render_workspace_type_unknown(name, list_workspaces()))
     return _html(200, templates.render_workspace_overview(name, list_workspaces()))
 
 
@@ -509,9 +513,10 @@ def render_workspace_insights_page(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard(name)
     if guard:
         return guard
-    from .workspace_meta import read as _meta_read
-
-    if _meta_read(name).get("type") == "drama":
+    workspace_type = _public_workspace_type(name)
+    if workspace_type == "unknown":
+        return _html(200, templates.render_workspace_type_unknown(name, list_workspaces()))
+    if workspace_type == "drama":
         return _html(200, templates.render_workspace_drama_insights(name, list_workspaces()))
     return _html(200, templates.render_workspace_insights(name, list_workspaces()))
 
@@ -699,53 +704,181 @@ def _mtime_ns(path: Path) -> int:
         return 0
 
 
+def _open_public_subdir(root_fd: int, parts: Tuple[str, ...]) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    current_fd = os.dup(root_fd)
+    try:
+        for part in parts:
+            next_fd = os.open(part, flags, dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = next_fd
+        return current_fd
+    except Exception:
+        os.close(current_fd)
+        raise
+
+
+def _public_relative_mtime_ns(root_fd: int, parts: Tuple[str, ...]) -> int:
+    if not parts:
+        return os.fstat(root_fd).st_mtime_ns
+    parent_fd = -1
+    try:
+        parent_fd = _open_public_subdir(root_fd, parts[:-1])
+        info = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+        return 0 if stat.S_ISLNK(info.st_mode) else info.st_mtime_ns
+    except (OSError, TypeError, ValueError):
+        return 0
+    finally:
+        if parent_fd >= 0:
+            os.close(parent_fd)
+
+
+def _workspace_updated_at(root: Path) -> str:
+    """Return a bounded, path-free timestamp for the public library view."""
+    candidates = (
+        (),
+        ("data",),
+        ("data", "workspace.json"),
+        ("data", "chapter_manifest.json"),
+        ("data", "entity_graph.json"),
+        ("data", "premise_expansion.json"),
+        ("data", "writer_style.json"),
+        ("data", "manual_overrides", "start_chapter.json"),
+        ("data", "manual_overrides", "global_facts.json"),
+        ("data", "manual_overrides", "continuation_anchor.txt"),
+        ("data", "manual_overrides", "personas.json"),
+        ("outputs",),
+        ("outputs", "debate", "outline.md"),
+        ("outputs", "debate", "chapter_plan.json"),
+        ("outputs", "debate", "decisions.json"),
+        ("outputs", "drafts", "rolling_chapter_summary.json"),
+        ("outputs", "reviews", "review_summary.md"),
+        ("logs", "web_jobs.jsonl"),
+    )
+    try:
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except (OSError, TypeError, ValueError):
+        return ""
+    try:
+        latest_ns = max((_public_relative_mtime_ns(root_fd, parts) for parts in candidates), default=0)
+        # Existing-file edits do not advance the parent directory mtime.  Scan
+        # only direct, named artifact families through no-follow directory fds.
+        for directory, patterns in (
+            (("outputs", "drafts"), ("chapter_*.md", "chapter_*.meta.json")),
+            (("outputs", "reviews"), ("chapter_*.json", "chapter_*.md")),
+            (("outputs", "episodes"), ("*.json",)),
+        ):
+            directory_fd = -1
+            try:
+                directory_fd = _open_public_subdir(root_fd, directory)
+                matched = 0
+                inspected = 0
+                with os.scandir(directory_fd) as entries:
+                    for entry in entries:
+                        inspected += 1
+                        if inspected > 2048 or matched >= 512:
+                            break
+                        if not any(fnmatchcase(entry.name, pattern) for pattern in patterns):
+                            continue
+                        info = entry.stat(follow_symlinks=False)
+                        if stat.S_ISLNK(info.st_mode):
+                            continue
+                        matched += 1
+                        latest_ns = max(latest_ns, info.st_mtime_ns)
+            except (OSError, TypeError, ValueError):
+                continue
+            finally:
+                if directory_fd >= 0:
+                    os.close(directory_fd)
+    finally:
+        os.close(root_fd)
+    if latest_ns <= 0:
+        return ""
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(latest_ns / 1_000_000_000))
+
+
+def _public_workspace_type(name: str) -> str:
+    """Distinguish valid legacy novels from corrupt or unknown metadata."""
+    from .workspace_meta import VALID_TYPES
+
+    identity = paths.probe_workspace_identity(name)
+    if identity is None:
+        return "unknown"
+    root_fd = data_fd = file_fd = -1
+    try:
+        root_fd = os.open(identity.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            data_fd = _open_public_subdir(root_fd, ("data",))
+        except FileNotFoundError:
+            return "novel" if paths.workspace_identity_matches(identity) else "unknown"
+        try:
+            file_fd = os.open(
+                "workspace.json",
+                os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=data_fd,
+            )
+        except FileNotFoundError:
+            return "novel" if paths.workspace_identity_matches(identity) else "unknown"
+        info = os.fstat(file_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 64 * 1024:
+            return "unknown"
+        raw = os.read(file_fd, 64 * 1024 + 1)
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return "unknown"
+    finally:
+        for fd in (file_fd, data_fd, root_fd):
+            if fd >= 0:
+                os.close(fd)
+    if (
+        not paths.workspace_identity_matches(identity)
+        or not isinstance(payload, dict)
+        or payload.get("type") not in VALID_TYPES
+    ):
+        return "unknown"
+    return str(payload["type"])
+
+
 def _clear_overview_cache() -> None:
     with _OVERVIEW_CACHE_LOCK:
         _OVERVIEW_CACHE.clear()
 
 
-def _workspace_overview(name: str) -> Dict[str, Any]:
-    from .workspace_meta import read as _meta_read
+def _unavailable_workspace_overview(name: str) -> Dict[str, Any]:
+    return {
+        "name": name,
+        "type": "unknown",
+        "updated_at": "",
+        "exists": False,
+        "chapter_count": 0,
+        "draft_count": 0,
+        "review_total": 0,
+        "review_accepted": 0,
+        "review_blocked": 0,
+        "start_point": {"has_start_point": False, "start_chapter_id": ""},
+        "plan": {"exists": False, "chapters": 0, "has_fingerprint": False},
+        "readiness": {"status": "unknown", "blockers": [], "warnings": [], "recommended_commands": []},
+        "recent_job": None,
+    }
 
+
+def _workspace_overview(name: str) -> Dict[str, Any]:
     root = paths.WORKSPACE_DIR / name
     identity = paths.probe_workspace_identity(name)
     if identity is None:
-        return {
-            "name": name,
-            "type": "novel",
-            "path": str(root),
-            "exists": False,
-            "chapter_count": 0,
-            "draft_count": 0,
-            "review_total": 0,
-            "review_accepted": 0,
-            "review_blocked": 0,
-            "start_point": {"has_start_point": False, "start_chapter_id": ""},
-            "plan": {"exists": False, "chapters": 0, "has_fingerprint": False},
-            "readiness": {"status": "blocked", "blockers": ["workspace_missing"], "warnings": [], "recommended_commands": []},
-            "recent_job": None,
-        }
+        return _unavailable_workspace_overview(name)
     if not paths.workspace_identity_matches(identity):
-        return {
-            "name": name,
-            "type": "novel",
-            "path": str(root),
-            "exists": False,
-            "chapter_count": 0,
-            "draft_count": 0,
-            "review_total": 0,
-            "review_accepted": 0,
-            "review_blocked": 0,
-            "start_point": {"has_start_point": False, "start_chapter_id": ""},
-            "plan": {"exists": False, "chapters": 0, "has_fingerprint": False},
-            "readiness": {"status": "blocked", "blockers": ["workspace_missing"], "warnings": [], "recommended_commands": []},
-            "recent_job": None,
-        }
-    meta = _meta_read(name)
+        return _unavailable_workspace_overview(name)
+    public_type = _public_workspace_type(name)
+    if not paths.workspace_identity_matches(identity):
+        return _unavailable_workspace_overview(name)
+    updated_at = _workspace_updated_at(root)
+    if not paths.workspace_identity_matches(identity):
+        return _unavailable_workspace_overview(name)
     overview: Dict[str, Any] = {
         "name": name,
-        "type": meta["type"],
-        "path": str(root),
+        "type": public_type,
+        "updated_at": updated_at,
         "exists": True,
         "chapter_count": 0,
         "draft_count": 0,
@@ -757,7 +890,15 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
         "readiness": {"status": "blocked", "blockers": ["workspace_missing"], "warnings": [], "recommended_commands": []},
         "recent_job": None,
     }
-    if meta["type"] == "drama":
+    if public_type == "unknown":
+        overview["readiness"] = {
+            "status": "unknown",
+            "blockers": [],
+            "warnings": [],
+            "recommended_commands": [],
+        }
+        return overview if paths.workspace_identity_matches(identity) else _unavailable_workspace_overview(name)
+    if public_type == "drama":
         try:
             from .drama_view import collect_drama_progress
 
@@ -794,7 +935,7 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
                 "warnings": [],
                 "recommended_commands": [],
             }
-        return overview
+        return overview if paths.workspace_identity_matches(identity) else _unavailable_workspace_overview(name)
     with use_workspace(name):
         try:
             manifest = read_json_optional(paths.chapter_manifest_path(), [])
@@ -839,7 +980,7 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
                 "warnings": [],
                 "recommended_commands": ["inspect workspace data and rerun the failing preparation step"],
             }
-    return overview
+    return overview if paths.workspace_identity_matches(identity) else _unavailable_workspace_overview(name)
 
 
 def api_workspace_status(name: str) -> Tuple[int, str, bytes]:
@@ -931,9 +1072,18 @@ def api_workspace_insights(name: str) -> Tuple[int, str, bytes]:
         return _json(400, {"error": "invalid workspace name"})
     if not _workspace_exists(name):
         return _json(404, {"error": f"workspace not found: {name}"})
-    from .workspace_meta import read as _meta_read
-
-    if _meta_read(name).get("type") == "drama":
+    workspace_type = _public_workspace_type(name)
+    if workspace_type == "unknown":
+        return _json(
+            409,
+            errors.error_body(
+                errors.build_card(
+                    "invalid_value",
+                    detail="作品类型待确认；没有读取小说或短剧内容，请返回作品列表后重新尝试。",
+                )
+            ),
+        )
+    if workspace_type == "drama":
         from .drama_insights import collect_drama_insights
 
         return _json(200, collect_drama_insights(name))

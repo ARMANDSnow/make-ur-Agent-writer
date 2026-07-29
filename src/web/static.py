@@ -30,6 +30,7 @@ USER_STATUS_LABELS = {
     "completed": "已完成",
     "ok": "已完成",
     "ready": "已就绪",
+    "warn": "需要留意",
     "blocked": "需要补充",
     "failed": "未完成",
     "error": "未完成",
@@ -1658,6 +1659,137 @@ html { scroll-behavior: smooth; }
     white-space: nowrap;
   }
 }
+
+/* iter154 Phase C: shared public-page structure. */
+.ui-public .sr-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.ui-public .public-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-public .public-search { flex: 1 1 360px; max-width: 520px; }
+.ui-public .public-toolbar-actions { justify-content: flex-end; }
+.ui-public .workspace-list,
+.ui-public .trash-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.ui-public .public-work-card,
+.ui-public .trash-card {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.15fr) minmax(320px, 2fr) auto;
+  gap: var(--space-5);
+  align-items: center;
+  padding: var(--space-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-public .public-work-card h2,
+.ui-public .trash-card h2 { font-size: var(--fs-h2); overflow-wrap: anywhere; }
+.ui-public .public-work-meta,
+.ui-public .trash-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+}
+.ui-public .public-work-meta div,
+.ui-public .trash-meta div { min-width: 0; }
+.ui-public .public-work-meta dt,
+.ui-public .trash-meta dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-public .public-work-meta dd,
+.ui-public .trash-meta dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.ui-public .public-work-actions,
+.ui-public .trash-actions { justify-content: flex-end; }
+.ui-public .public-notice,
+.ui-public .public-mode-summary,
+.ui-public .public-next-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--ui-primary-bg);
+}
+.ui-public .public-next-step { background: var(--ui-card-bg); }
+.ui-public .public-next-step ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+.ui-public .wizard-choice {
+  min-height: 72px;
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-public .field-check {
+  min-height: 44px;
+  cursor: pointer;
+}
+.ui-public .breadcrumb a,
+.ui-public .wizard-mode-help a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding-inline: var(--space-1);
+}
+.ui-public .wizard-mode-help { margin: calc(-1 * var(--space-1)) 0 var(--space-1); }
+.ui-public .wizard-choice input { margin-top: 4px; }
+.ui-public .wizard-choice span { display: flex; flex-direction: column; gap: var(--space-1); }
+.ui-public .wizard-choice small { color: var(--ui-text-muted); font-weight: 400; }
+.ui-public form[aria-busy="true"] { opacity: .78; }
+
+@media (max-width: 1199px) {
+  .ui-public .public-work-card,
+  .ui-public .trash-card { grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.5fr); }
+  .ui-public .public-work-actions,
+  .ui-public .trash-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .ui-public .public-next-step ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .ui-public .public-toolbar,
+  .ui-public .public-work-card,
+  .ui-public .trash-card { display: flex; flex-direction: column; align-items: stretch; }
+  .ui-public .public-search { max-width: none; width: 100%; flex-basis: auto; }
+  .ui-public .public-toolbar-actions,
+  .ui-public .public-work-actions,
+  .ui-public .trash-actions { justify-content: stretch; width: 100%; }
+  .ui-public .public-toolbar-actions .btn,
+  .ui-public .public-work-actions .btn,
+  .ui-public .trash-actions .btn { flex: 1 1 100%; width: 100%; }
+  .ui-public .public-work-meta,
+  .ui-public .trash-meta { grid-template-columns: 1fr; }
+  .ui-public .public-next-step ol { grid-template-columns: 1fr; }
+  .ui-public .slim-shell { padding: var(--space-4) 0 var(--space-6); }
+  .ui-public .lp-hero { padding: var(--space-5); }
+  .ui-public .modal { max-height: calc(100vh - 24px); overflow-y: auto; }
+  .ui-public .toast-stack { bottom: calc(var(--space-4) + env(safe-area-inset-bottom)); }
+}
 """
 
 
@@ -1939,7 +2071,7 @@ JS_DASHBOARD = """\
   const STATUS_LABELS = {
     succeeded: "已完成", completed: "已完成", ok: "已完成", ready: "已就绪",
     pending: "等待中", queued: "等待中", running: "处理中", generating: "处理中",
-    failed: "未完成", error: "未完成", retry_error: "未完成", blocked: "需要补充",
+    failed: "未完成", error: "未完成", retry_error: "未完成", blocked: "需要补充", warn: "需要留意",
     aborted: "已取消", cancelled: "已取消", canceled: "已取消",
     budget_exceeded: "额度不足", stale: "内容已更新", lost: "状态待确认",
   };
@@ -1987,7 +2119,8 @@ JS_DASHBOARD = """\
     if (type === "drama") {
       return '<span class="badge no-dot badge-drama">🎬 短剧</span>';
     }
-    return '<span class="badge no-dot badge-novel">小说</span>';
+    if (type === "novel") return '<span class="badge no-dot badge-novel">小说</span>';
+    return '<span class="badge no-dot badge-muted">类型待确认</span>';
   }
   function mutedStatusBadge(status) {
     return '<span class="badge no-dot badge-muted">' + escapeHtml(statusLabel(status)) + "</span>";
@@ -2444,59 +2577,104 @@ JS_DASHBOARD = """\
   async function initIndex() {
     const shelf = document.getElementById("workspace-shelf");
     const stats = document.getElementById("shelf-stats");
+    const search = document.getElementById("library-search");
+    const live = document.getElementById("library-status");
     if (!shelf) return;
     shelf.innerHTML = skeleton(4);
     try {
       const data = await fetchJson("/api/workspaces/overview");
-      const items = data.workspaces || [];
+      const items = Array.isArray(data.workspaces) ? data.workspaces.filter(function (item) {
+        return item && typeof item === "object" && typeof item.name === "string";
+      }) : [];
       if (!items.length) {
         shelf.innerHTML = emptyState(
           "书架还是空的",
           shelf.dataset.empty || "从一句话开新书、导入小说续写或新建短剧，开始你的第一部作品。",
-          '<a class="btn btn-primary" href="/wizard">＋ 新建作品</a>'
+          '<div class="cluster"><a class="btn btn-primary" href="/wizard?type=novel">创建小说作品</a>' +
+          '<a class="btn btn-secondary" href="/wizard?type=drama">创建短剧作品</a></div>'
         );
         if (stats) stats.innerHTML = "";
+        if (live) live.textContent = "当前没有作品。";
         return;
       }
-      const ready = items.filter((w) => (w.readiness || {}).status === "ready").length;
-      const warn = items.filter((w) => (w.readiness || {}).status === "warn").length;
-      const blocked = items.filter((w) => (w.readiness || {}).status === "blocked").length;
+      const novels = items.filter((w) => w.type === "novel").length;
+      const dramas = items.filter((w) => w.type === "drama").length;
+      const unknownTypes = items.length - novels - dramas;
       if (stats) {
         stats.innerHTML = [
-          '<span class="badge no-dot">共 ' + items.length + " 本</span>",
-          '<span class="badge ready">就绪 ' + ready + "</span>",
-          '<span class="badge warn">警示 ' + warn + "</span>",
-          '<span class="badge blocked">受阻 ' + blocked + "</span>",
+          '<span class="badge no-dot">共 ' + items.length + " 部作品</span>",
+          '<span class="badge no-dot badge-novel">小说 ' + novels + "</span>",
+          '<span class="badge no-dot badge-drama">短剧 ' + dramas + "</span>",
+          unknownTypes ? '<span class="badge no-dot badge-muted">类型待确认 ' + unknownTypes + "</span>" : "",
         ].join("");
       }
-      shelf.innerHTML = items.map(renderWorkspaceCard).join("");
+      function renderItems(query) {
+        const normalized = String(query || "").trim().toLocaleLowerCase("zh-CN");
+        const visible = normalized ? items.filter(function (item) {
+          return item.name.toLocaleLowerCase("zh-CN").includes(normalized);
+        }) : items;
+        shelf.innerHTML = visible.length ? visible.map(renderWorkspaceCard).join("") : emptyState(
+          "没有找到作品", "换一个名称试试，现有作品没有被修改。", ""
+        );
+        if (live) live.textContent = "显示 " + visible.length + " 部作品。";
+      }
+      renderItems("");
+      if (search) search.addEventListener("input", function () { renderItems(search.value); });
     } catch (err) {
-      shelf.innerHTML = renderErrorCard(err);
+      shelf.innerHTML = publicLoadError(
+        "作品列表没有读取成功",
+        "已有本地作品不会因此改变。可以重新加载，或继续创建新作品。",
+        '<button type="button" class="btn btn-secondary" data-cta-action="reload">重新加载</button>' +
+        '<a class="btn btn-primary" href="/wizard?type=novel">创建小说作品</a>'
+      );
+      if (live) live.textContent = "作品列表没有读取成功。";
     }
   }
+  function publicLoadError(title, explanation, actions) {
+    return '<div class="error-card" role="alert"><div class="error-card-head">' +
+      '<span class="error-card-icon" aria-hidden="true">!</span><div class="error-card-copy">' +
+      '<p class="error-card-title">' + escapeHtml(title) + '</p>' +
+      '<p class="error-card-cause">' + escapeHtml(explanation) + '</p></div></div>' +
+      '<div class="cluster error-card-actions">' + (actions || "") + '</div></div>';
+  }
+  function safePublicCount(value) {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+  }
+  function publicDateLabel(value) {
+  if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$/.test(value)) return "尚无更新记录";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "尚无更新记录";
+    return new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+    }).format(date);
+  }
   function renderWorkspaceCard(w) {
-    const type = w.type || "novel";
-    const readiness = w.readiness || {};
-    const status = type === "drama" ? dramaOverallStatus(w.drama_progress) : (readiness.status || "blocked");
-    const blockers = readiness.blockers || [];
-    const start = w.start_point && w.start_point.has_start_point
-      ? (w.start_point.start_chapter_id || "已设置")
-      : "未设置";
-    const plan = w.plan && w.plan.exists ? (w.plan.chapters || 0) + " 章" : "缺失";
+    const type = w.type === "drama" ? "drama" : (w.type === "novel" ? "novel" : "unknown");
+    const readiness = w.readiness && typeof w.readiness === "object" ? w.readiness : {};
+    const status = type === "unknown" ? "unknown" : (type === "drama" ? dramaOverallStatus(w.drama_progress) : readiness.status);
+    const progress = type === "unknown" ? "作品类型待确认" : (type === "drama"
+      ? (status === "ready" ? "创作步骤已完成" : "继续短剧创作")
+      : statusLabel(status));
+    const detail = type === "unknown" ? "请重新加载；确认前不会打开作品" : (type === "drama"
+      ? "短剧创作流程"
+      : (safePublicCount(w.draft_count) ? "已有 " + safePublicCount(w.draft_count) + " 章续写草稿" :
+        (safePublicCount(w.chapter_count) ? "已导入 " + safePublicCount(w.chapter_count) + " 章原文" : "等待准备故事内容")));
     const url = "/w/" + encodeURIComponent(w.name) + "/";
-    const body = type === "drama" ? renderDramaWorkspaceMetrics(w) : renderNovelWorkspaceMetrics(w, start, plan);
+    const action = type === "unknown"
+      ? '<button type="button" class="btn btn-secondary" data-cta-action="reload">重新加载</button>'
+      : '<a class="btn btn-primary" href="' + url + '">打开作品</a>';
     return (
-      '<a class="workspace-card" href="' + url + '">' +
-      '<div class="card-head">' +
-      '<div><p class="eyebrow ornament">作品</p><h3>' + escapeHtml(w.name) + "</h3></div>" +
-      '<div class="cluster">' +
-      typeBadge(type) +
-      statusBadge(status) +
-      '</div>' +
-      "</div>" +
-      body +
-      (type !== "drama" && blockers.length ? '<p class="alert error" style="margin-top:12px">' + escapeHtml(readinessReasonText(blockers[0])) + "</p>" : "") +
-      "</a>"
+      '<article class="public-work-card">' +
+      '<div><p class="eyebrow ornament">作品</p><h2>' + escapeHtml(w.name) + '</h2>' +
+      '<div class="cluster" style="margin-top:8px">' + typeBadge(type) + statusBadge(status || "unknown") + '</div></div>' +
+      '<dl class="public-work-meta">' +
+      '<div><dt>最近更新</dt><dd>' + escapeHtml(publicDateLabel(w.updated_at)) + '</dd></div>' +
+      '<div><dt>当前进度</dt><dd>' + escapeHtml(progress) + '</dd></div>' +
+      '<div><dt>内容概况</dt><dd>' + escapeHtml(detail) + '</dd></div>' +
+      '<div><dt>作品类型</dt><dd>' + (type === "drama" ? "短剧" : (type === "novel" ? "小说" : "待确认")) + '</dd></div>' +
+      '</dl>' +
+      '<div class="cluster public-work-actions">' + action + '</div>' +
+      '</article>'
     );
   }
   function renderNovelWorkspaceMetrics(w, start, plan) {
@@ -2718,6 +2896,7 @@ JS_DASHBOARD = """\
     let closed = false;
     function close() {
       if (closed) return;
+      if (typeof opts.canClose === "function" && !opts.canClose()) return;
       closed = true;
       document.removeEventListener("keydown", onKeyDown);
       backdrop.remove();
@@ -3184,32 +3363,37 @@ JS_DASHBOARD = """\
     if (!box) return;
     try {
       const data = await fetchJson("/api/trash");
-      const entries = data.entries || [];
+      const entries = Array.isArray(data.entries) ? data.entries.filter(function (entry) {
+        return entry && typeof entry === "object" && typeof entry.entry === "string" &&
+          typeof entry.original_name === "string";
+      }) : [];
       if (!entries.length) {
         box.innerHTML = emptyState("回收站是空的", "目前没有已删除的作品。", "");
         return;
       }
       const rows = entries.map(function (e) {
         return (
-          '<tr>' +
-          '<td>' + escapeHtml(e.original_name) + '</td>' +
-          '<td><span class="muted">' + escapeHtml(e.deleted_at) + '</span></td>' +
-          '<td>' + escapeHtml(String(e.size_mb)) + ' MB</td>' +
-          '<td>' + escapeHtml(String(e.file_count)) + '</td>' +
-          '<td class="cluster">' +
-          '<button class="btn btn-secondary btn-sm" data-trash-restore="' + escapeHtml(e.entry) + '">恢复</button>' +
+          '<article class="trash-card">' +
+          '<div><p class="eyebrow ornament">已删除作品</p><h2>' + escapeHtml(e.original_name) + '</h2></div>' +
+          '<dl class="trash-meta">' +
+          '<div><dt>移入回收站</dt><dd>' + escapeHtml(publicDateLabel(e.deleted_at)) + '</dd></div>' +
+          '<div><dt>当前状态</dt><dd>仍可恢复</dd></div>' +
+          '</dl>' +
+          '<div class="cluster trash-actions">' +
+          '<button class="btn btn-secondary" data-trash-restore="' + escapeHtml(e.entry) +
+          '" data-trash-name="' + escapeHtml(e.original_name) + '">恢复作品</button>' +
           '<button class="btn btn-danger btn-sm" data-trash-purge="' + escapeHtml(e.entry) +
           '" data-trash-name="' + escapeHtml(e.original_name) + '">永久删除</button>' +
-          '</td>' +
-          '</tr>'
+          '</div></article>'
         );
       }).join("");
-      box.innerHTML =
-        '<table class="table"><thead><tr>' +
-        '<th>作品</th><th>删除时间</th><th>大小</th><th>文件</th><th>操作</th>' +
-        '</tr></thead><tbody>' + rows + '</tbody></table>';
+      box.innerHTML = rows;
     } catch (err) {
-      box.innerHTML = renderErrorCard(err);
+      box.innerHTML = publicLoadError(
+        "回收站没有读取成功",
+        "回收站中的内容仍然保留，没有执行恢复或删除。请重新加载后再试。",
+        '<button type="button" class="btn btn-secondary" data-cta-action="reload">重新加载</button>'
+      );
     }
   }
   document.addEventListener("click", async function (ev) {
@@ -3217,15 +3401,7 @@ JS_DASHBOARD = """\
     if (r) {
       ev.preventDefault();
       const entry = r.getAttribute("data-trash-restore");
-      setControlBusy(r, true, "正在恢复");
-      try {
-        const data = await postJson("/api/trash/" + encodeURIComponent(entry) + "/restore", {});
-        showToast("已恢复作品：《" + data.restored_to + "》", "info");
-        await reloadTrashList();
-      } catch (err) {
-        showToast("恢复没有完成：" + errTitle(err), "error");
-        setControlBusy(r, false);
-      }
+      showRestoreModal(entry, r.getAttribute("data-trash-name") || "作品");
       return;
     }
     const p = ev.target.closest("[data-trash-purge]");
@@ -3234,6 +3410,37 @@ JS_DASHBOARD = """\
       showPurgeModal(p.getAttribute("data-trash-purge"), p.getAttribute("data-trash-name") || "作品");
     }
   });
+  function showRestoreModal(entry, originalName) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="restore-title">' +
+      '<div class="modal-header" id="restore-title">恢复作品</div>' +
+      '<div class="modal-body"><p>将把《' + escapeHtml(originalName) + '》恢复到作品列表。</p>' +
+      '<p class="muted">作品内容会保持原样，其他作品不会受到影响。</p><div id="modal-restore-error"></div></div>' +
+      '<div class="modal-footer"><button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
+      '<button type="button" class="btn btn-secondary" id="modal-restore-btn">确认恢复</button></div></div>';
+    const btn = backdrop.querySelector("#modal-restore-btn");
+    const err = backdrop.querySelector("#modal-restore-error");
+    const close = mountModal(backdrop, { initialFocus: btn });
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
+    });
+    btn.addEventListener("click", async function () {
+      setControlBusy(btn, true, "正在恢复");
+      try {
+        const data = await postJson("/api/trash/" + encodeURIComponent(entry) + "/restore", {});
+        close();
+        showToast("已恢复作品：《" + data.restored_to + "》", "info");
+        await reloadTrashList();
+      } catch (error) {
+        err.innerHTML = publicLoadError(
+          "恢复没有完成", "作品仍在回收站中。请检查是否已有同名作品，再重新尝试。", ""
+        );
+        setControlBusy(btn, false);
+      }
+    });
+  }
   function showPurgeModal(entry, originalName) {
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
@@ -3241,12 +3448,13 @@ JS_DASHBOARD = """\
       '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="purge-title">' +
       '<div class="modal-header" id="purge-title">永久删除作品</div>' +
       '<div class="modal-body">' +
-      '<p>这一步会永久移除作品及其本地内容，<strong>完成后无法恢复</strong>。</p>' +
+      '<p>将永久删除《' + escapeHtml(originalName) + '》及其中保存的本地内容，<strong>完成后无法恢复</strong>。</p>' +
+      '<p class="muted">只会删除这一部作品，其他作品不会受到影响。</p>' +
       '<p>请输入作品名称 <strong>' + escapeHtml(originalName) + '</strong> 以继续。</p>' +
-      '<div class="field"><label>确认名称</label>' +
-      '<input type="text" id="modal-purge-input" autocomplete="off">' +
+      '<div class="field"><label for="modal-purge-input">确认名称</label>' +
+      '<input type="text" id="modal-purge-input" autocomplete="off" aria-describedby="modal-purge-error">' +
       '</div>' +
-      '<div id="modal-purge-error"></div>' +
+      '<div id="modal-purge-error" role="status" aria-live="polite"></div>' +
       '</div>' +
       '<div class="modal-footer">' +
       '<button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
@@ -3254,8 +3462,10 @@ JS_DASHBOARD = """\
       '</div></div>';
     const input = backdrop.querySelector("#modal-purge-input");
     const btn = backdrop.querySelector("#modal-purge-btn");
+    const cancel = backdrop.querySelector("[data-modal-close]");
     const err = backdrop.querySelector("#modal-purge-error");
-    const close = mountModal(backdrop, { initialFocus: input });
+    let committed = false;
+    const close = mountModal(backdrop, { initialFocus: input, canClose: function () { return !committed; } });
     input.addEventListener("input", function () {
       btn.disabled = input.value !== originalName;
     });
@@ -3263,15 +3473,24 @@ JS_DASHBOARD = """\
       if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
     });
     btn.addEventListener("click", async function () {
+      committed = true;
+      input.disabled = true;
+      cancel.disabled = true;
       setControlBusy(btn, true, "正在删除");
       err.innerHTML = '<div class="alert info">正在永久删除；完成前请不要关闭页面。</div>';
       try {
         await postJson("/api/trash/" + encodeURIComponent(entry) + "/purge", { confirm: entry });
+        committed = false;
         close();
         showToast("已永久删除作品：《" + originalName + "》", "info");
         await reloadTrashList();
       } catch (e) {
-        err.innerHTML = renderErrorCard(e);
+        committed = false;
+        input.disabled = false;
+        cancel.disabled = false;
+        err.innerHTML = publicLoadError(
+          "永久删除没有完成", "作品内容仍保留在回收站中。请保持页面打开并重新尝试。", ""
+        );
         setControlBusy(btn, false);
       }
     });
@@ -8486,6 +8705,13 @@ JS_WIZARD = """\
       delete control.dataset.uiWasDisabled;
     }
   }
+  function wizardSetFormBusy(form, busy, label) {
+    if (!form) return;
+    form.setAttribute("aria-busy", busy ? "true" : "false");
+    form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(function (control) {
+      wizardSetBusy(control, busy, label);
+    });
+  }
 
   // iter062: self-contained friendly error card for the wizard bundle (the
   // dashboard bundle has its own richer renderErrorCard; this one renders the
@@ -8537,14 +8763,14 @@ JS_WIZARD = """\
     try {
       const res = await fetch("/api/preflight");
       const data = await res.json().catch(() => ({}));
-      const model = String(data.model || "mock");
+      if (!res.ok || typeof data.is_mock !== "boolean") throw new Error("mode_unavailable");
       const isMock = !!data.is_mock;
       modeCard.innerHTML = '<strong>当前运行方式：' + (isMock ? "离线模式" : "真实生成") + '</strong>' +
         '<br><span class="muted">' +
         (isMock ? "本次不会发送真实请求，也不会使用真实额度。" : "开始前请确认本次范围与人民币额度。") + "</span>";
     } catch (err) {
-      modeCard.innerHTML = '<strong>当前运行方式：离线模式</strong>' +
-        '<br><span class="muted">未读取到设置，按默认离线方式展示。</span>';
+      modeCard.innerHTML = '<strong>当前运行方式：暂时无法确认</strong>' +
+        '<br><span class="muted">没有开始创建，也不会自动发起请求。请重新加载页面后再试。</span>';
     }
   }
 
@@ -8611,13 +8837,13 @@ JS_WIZARD = """\
         scope: "本次抽取 " + String(fd.get("extract_limit") || 5) + " 章；人民币额度上限 " + String(fd.get("budget_cny") || 0) + " 元",
         preservation: "上传文件会保留在新作品中；开始后可查看进度或请求取消。",
       })) return;
-      wizardSetBusy(submitBtn, true, "处理中");
+      wizardSetFormBusy(novelForm, true, "正在导入并创建");
       try {
         const res = await fetch("/api/wizard/start", { method: "POST", body: fd });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           errBox.innerHTML = renderErrorCard(data);
-          wizardSetBusy(submitBtn, false);
+          wizardSetFormBusy(novelForm, false);
           return;
         }
         show(panelProgress);
@@ -8625,7 +8851,7 @@ JS_WIZARD = """\
       } catch (err) {
         err.code = err.code || "network";
         errBox.innerHTML = renderErrorCard(err);
-        wizardSetBusy(submitBtn, false);
+        wizardSetFormBusy(novelForm, false);
       }
     });
   }
@@ -8659,7 +8885,7 @@ JS_WIZARD = """\
         scope: payload.expand ? "生成结构化立意扩写稿" : "仅创建作品并保存立意",
         preservation: "当前输入会保留；开始后可在工作台查看和编辑结果。",
       })) return;
-      wizardSetBusy(submitBtn, true, "处理中");
+      wizardSetFormBusy(premiseForm, true, "正在创建原创故事");
       try {
         const res = await fetch("/api/wizard/premise-start", {
           method: "POST",
@@ -8669,7 +8895,7 @@ JS_WIZARD = """\
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           if (premiseErrBox) premiseErrBox.innerHTML = renderErrorCard(data);
-          wizardSetBusy(submitBtn, false);
+          wizardSetFormBusy(premiseForm, false);
           return;
         }
         window.setPendingToastAndNavigate(
@@ -8679,7 +8905,7 @@ JS_WIZARD = """\
       } catch (err) {
         err.code = err.code || "network";
         if (premiseErrBox) premiseErrBox.innerHTML = renderErrorCard(err);
-        wizardSetBusy(submitBtn, false);
+        wizardSetFormBusy(premiseForm, false);
       }
     });
   }
@@ -8699,7 +8925,7 @@ JS_WIZARD = """\
         timeout_minutes: Number(fd.get("timeout_minutes") || 0),
       };
       const submitBtn = dramaForm.querySelector("button[type=submit]");
-      submitBtn.disabled = true;
+      wizardSetFormBusy(dramaForm, true, "正在创建短剧作品");
       try {
         const res = await fetch("/api/wizard/drama-start", {
           method: "POST",
@@ -8709,7 +8935,7 @@ JS_WIZARD = """\
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           dramaErrBox.innerHTML = renderErrorCard(data);
-          submitBtn.disabled = false;
+          wizardSetFormBusy(dramaForm, false);
           return;
         }
         window.setPendingToastAndNavigate(
@@ -8719,7 +8945,7 @@ JS_WIZARD = """\
       } catch (err) {
         err.code = err.code || "network";
         dramaErrBox.innerHTML = renderErrorCard(err);
-        submitBtn.disabled = false;
+        wizardSetFormBusy(dramaForm, false);
       }
     });
   }
@@ -8813,58 +9039,105 @@ JS_SETTINGS = """\
   const form = document.getElementById("settings-form");
   const errBox = document.getElementById("settings-error");
   const banner = document.getElementById("restart-banner");
+  const modeBox = document.getElementById("settings-mode");
+  const submit = document.querySelector('button[form="settings-form"]');
   if (!form) return;
   let initial = {};
+  let configured = {};
   const uiInitial = {};
-  const secretKeys = new Set(["OPENAI_API_KEY", "PLANNER_API_KEY", "AI_DRAW_API_KEY", "SD_API_KEY"]);
-  const labels = {
-    OPENAI_MODEL: "默认文字生成方式", OPENAI_API_KEY: "默认文字生成密钥",
-    OPENAI_BASE_URL: "默认文字生成地址", MODEL_PROFILE: "生成配置方案",
-    PLANNER_MODEL: "规划生成方式", PLANNER_API_KEY: "规划生成密钥",
-    PLANNER_BASE_URL: "规划生成地址", DRAMA_MODEL: "短剧文字生成方式",
-    AI_DRAW_ENDPOINT: "图片生成入口", AI_DRAW_BASE_URL: "图片生成地址",
-    AI_DRAW_MODEL: "图片生成方式", AI_DRAW_API_KEY: "图片生成密钥",
-    AI_DRAW_RESULT_HOSTS: "允许的图片结果地址", SD_API_BASE_URL: "视频生成地址",
-    SD_API_KEY: "视频生成密钥", OPENAI_STREAM: "流式显示",
-    DISABLE_PROMPT_CACHE: "关闭内容复用", WRITE_MAX_TOKENS: "单章文字用量上限",
-    WRITE_PROMPT_PROFILE: "正文提示方案",
-  };
+  const editable = [
+    { key: "OPENAI_STREAM", label: "逐步显示生成内容", help: "开启后，生成中的文字会逐步显示。", kind: "checkbox", group: "basic" },
+    { key: "DISABLE_PROMPT_CACHE", label: "每次重新准备上下文", help: "开启后不复用已准备的上下文，通常会增加等待时间。", kind: "checkbox", group: "basic" },
+    { key: "WRITE_MAX_TOKENS", label: "单章文字量上限", help: "留空时使用项目默认值；只填写正整数。", kind: "number", group: "basic" },
+    { key: "WRITE_PROMPT_PROFILE", label: "正文写作方案", help: "留空时使用项目默认方案。", kind: "text", group: "advanced" },
+    { key: "OPENAI_MODEL", label: "默认文字生成服务", help: "填写服务要求的完整标识。", kind: "text", group: "advanced" },
+    { key: "OPENAI_BASE_URL", label: "默认文字生成地址", help: "仅在所用服务要求自定义地址时填写。", kind: "text", group: "advanced" },
+    { key: "OPENAI_API_KEY", label: "默认文字生成凭据", help: "页面不会回显已保存内容；留空保持不变。", kind: "secret", group: "advanced" },
+    { key: "MODEL_PROFILE", label: "生成配置方案", help: "留空时沿用项目默认方案。", kind: "text", group: "advanced" },
+    { key: "PLANNER_MODEL", label: "故事规划生成服务", help: "留空时沿用默认文字生成服务。", kind: "text", group: "advanced" },
+    { key: "PLANNER_BASE_URL", label: "故事规划生成地址", help: "仅在规划服务使用独立地址时填写。", kind: "text", group: "advanced" },
+    { key: "PLANNER_API_KEY", label: "故事规划生成凭据", help: "页面不会回显已保存内容；留空保持不变。", kind: "secret", group: "advanced" },
+    { key: "DRAMA_MODEL", label: "短剧文字生成服务", help: "留空时沿用默认文字生成服务。", kind: "text", group: "advanced" },
+    { key: "AI_DRAW_ENDPOINT", label: "图片任务入口", help: "仅在图片服务要求独立入口时填写。", kind: "text", group: "advanced" },
+    { key: "AI_DRAW_BASE_URL", label: "图片生成地址", help: "留空时沿用项目默认地址。", kind: "text", group: "advanced" },
+    { key: "AI_DRAW_MODEL", label: "图片生成服务", help: "填写图片服务要求的完整标识。", kind: "text", group: "advanced" },
+    { key: "AI_DRAW_API_KEY", label: "图片生成凭据", help: "页面不会回显已保存内容；留空保持不变。", kind: "secret", group: "advanced" },
+    { key: "AI_DRAW_RESULT_HOSTS", label: "允许接收图片结果的地址", help: "多个地址按现有服务约定填写。", kind: "text", group: "advanced" },
+    { key: "SD_API_BASE_URL", label: "视频生成地址", help: "仅在视频服务要求独立地址时填写。", kind: "text", group: "advanced" },
+    { key: "SD_API_KEY", label: "视频生成凭据", help: "页面不会回显已保存内容；留空保持不变。", kind: "secret", group: "advanced" },
+  ];
   try {
-    const res = await fetch("/api/settings");
-    const data = await res.json();
-    initial = data.settings || {};
+    const responses = await Promise.all([fetch("/api/settings"), fetch("/api/preflight")]);
+    const settingsData = await responses[0].json().catch(() => ({}));
+    const modeData = await responses[1].json().catch(() => ({}));
+    if (!responses[0].ok || !responses[1].ok || typeof modeData.is_mock !== "boolean") throw new Error("load_failed");
+    initial = settingsData.settings && typeof settingsData.settings === "object" ? settingsData.settings : {};
+    configured = settingsData.configured && typeof settingsData.configured === "object" ? settingsData.configured : {};
+    if (modeBox) {
+      modeBox.innerHTML = modeData.is_mock
+        ? '<strong>离线模式</strong><span>当前不会发起真实生成请求，也不会使用真实额度。</span>'
+        : '<strong>真实生成方式已选择</strong><span>这不代表已经授权；每次使用前仍需确认范围与人民币额度。</span>';
+    }
   } catch (err) {
-    errBox.innerHTML = '<div class="alert error">读取设置失败，请确认本地服务在运行后刷新重试。</div>';
+    if (modeBox) modeBox.innerHTML = '<strong>运行方式未能读取</strong><span>没有修改任何设置。请重新加载页面后再试。</span>';
+    errBox.innerHTML = '<div class="alert error">设置没有读取成功；已有设置没有改变。</div>' +
+      '<button type="button" class="btn btn-secondary" data-cta-action="reload">重新加载</button>';
+    if (submit) submit.disabled = true;
     return;
   }
-  for (const [k, v] of Object.entries(initial)) {
-    if (!Object.prototype.hasOwnProperty.call(labels, k)) continue;
+  const advanced = document.createElement("details");
+  advanced.className = "details-fold settings-advanced";
+  advanced.innerHTML = '<summary>连接设置（高级）</summary><p class="muted">仅在需要连接你自己的生成服务时修改；保存不代表已经授权使用。</p><div class="stack" data-settings-advanced></div>';
+  const advancedBody = advanced.querySelector("[data-settings-advanced]");
+  editable.forEach(function (spec) {
+    const v = typeof initial[spec.key] === "string" ? initial[spec.key] : "";
     const row = document.createElement("div");
     row.className = "field";
-    const secret = secretKeys.has(k);
-    const uiValue = secret ? "" : v;
-    uiInitial[k] = uiValue;
-    const helpId = "setting-help-" + k.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    row.innerHTML =
-      '<label>' + escapeHtml(labels[k]) + "</label>" +
-      '<input name="' + escapeHtml(k) + '" type="' + (secret ? "password" : "text") + '" value="' + escapeHtml(uiValue) +
-      '" placeholder="' + (secret && v ? "已配置；留空保持不变" : "未设置") + '" autocomplete="off" aria-describedby="' + helpId + '">' +
-      '<small id="' + helpId + '">' + (secret ? "页面不会回显已保存的秘密；仅在需要替换时输入新值。" : "保存后重启本地服务生效。") + '</small>';
-    form.appendChild(row);
-  }
+    const helpId = "setting-help-" + spec.key.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const inputId = "setting-" + spec.key.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    if (spec.kind === "checkbox") {
+      const checked = /^(?:1|true|yes|on)$/i.test(v);
+      uiInitial[spec.key] = checked ? "1" : "0";
+      row.innerHTML = '<label class="field-check" for="' + inputId + '">' +
+        '<input id="' + inputId + '" name="' + spec.key + '" type="checkbox" value="1"' + (checked ? " checked" : "") +
+        ' aria-describedby="' + helpId + '"> <span>' + escapeHtml(spec.label) + '</span></label>' +
+        '<small id="' + helpId + '">' + escapeHtml(spec.help) + '</small>';
+    } else if (spec.kind === "number") {
+      const safeValue = /^\\d*$/.test(v) ? v : "";
+      uiInitial[spec.key] = safeValue;
+      row.innerHTML = '<label for="' + inputId + '">' + escapeHtml(spec.label) + '</label>' +
+        '<input id="' + inputId + '" name="' + spec.key + '" type="number" min="1" step="1" value="' +
+        escapeHtml(safeValue) + '" inputmode="numeric" aria-describedby="' + helpId + '">' +
+        '<small id="' + helpId + '">' + escapeHtml(spec.help) + '</small>';
+    } else {
+      const secret = spec.kind === "secret";
+      const safeValue = secret ? "" : v;
+      uiInitial[spec.key] = safeValue;
+      const configuredText = secret && configured[spec.key] ? "已配置；留空保持不变。" : spec.help;
+      row.innerHTML = '<label for="' + inputId + '">' + escapeHtml(spec.label) + '</label>' +
+        '<input id="' + inputId + '" name="' + spec.key + '" type="' + (secret ? "password" : "text") +
+        '" value="' + escapeHtml(safeValue) + '" autocomplete="off" aria-describedby="' + helpId + '">' +
+        '<small id="' + helpId + '">' + escapeHtml(configuredText) + '</small>';
+    }
+    (spec.group === "advanced" ? advancedBody : form).appendChild(row);
+  });
+  form.appendChild(advanced);
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     errBox.innerHTML = "";
     if (banner) banner.hidden = true;
     const payload = {};
     for (const input of form.querySelectorAll("input")) {
-      if (input.value === uiInitial[input.name]) continue;
-      payload[input.name] = input.value;
+      const value = input.type === "checkbox" ? (input.checked ? "1" : "0") : input.value.trim();
+      if (value === uiInitial[input.name]) continue;
+      payload[input.name] = value;
     }
     if (Object.keys(payload).length === 0) {
-      errBox.innerHTML = '<div class="alert warn">(没有改动)</div>';
+      errBox.innerHTML = '<div class="alert info">没有需要保存的修改。</div>';
       return;
     }
+    form.setAttribute("aria-busy", "true");
+    if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true"); submit.textContent = "正在保存"; }
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
@@ -8876,12 +9149,25 @@ JS_SETTINGS = """\
         errBox.innerHTML = '<div class="alert error">设置没有保存；当前输入已保留。请检查填写内容后重试。</div>';
         return;
       }
+      Object.keys(payload).forEach(function (key) {
+        const spec = editable.find(function (item) { return item.key === key; });
+        const input = form.querySelector('[name="' + key + '"]');
+        if (spec && spec.kind === "secret") {
+          if (input) input.value = "";
+          uiInitial[key] = "";
+        } else {
+          uiInitial[key] = payload[key];
+        }
+      });
       if (banner) {
         banner.hidden = false;
-        banner.innerHTML = '<div class="alert info">设置已保存。请重启本地服务，让新的运行方式生效。</div>';
+        banner.innerHTML = '<div class="alert info">设置已保存。请重启本地服务，让新设置生效。</div>';
       }
     } catch (err) {
-      errBox.innerHTML = '<div class="alert error">保存失败，请确认网络与本地服务后重试。</div>';
+      errBox.innerHTML = '<div class="alert error">设置没有保存；当前输入已保留。请确认本地服务仍在运行后重试。</div>';
+    } finally {
+      form.setAttribute("aria-busy", "false");
+      if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy"); submit.textContent = "保存设置"; }
     }
   });
   function escapeHtml(s) {

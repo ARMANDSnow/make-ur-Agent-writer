@@ -115,6 +115,10 @@ def _render_shell(
         from .workspace_meta import read as _meta_read
 
         ui_scope = "ui-drama" if _meta_read(workspace).get("type", "novel") == "drama" else "ui-novel"
+    if ui_scope == "ui-public":
+        breadcrumb_html = breadcrumb_html.replace(
+            'class="here"', 'class="here" aria-current="page"', 1
+        )
     return _BASE_TPL.substitute(
         TITLE=escape(title),
         APP_CLASS=(
@@ -232,18 +236,21 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
     )
 
 
-def _topbar_actions(extra: str = "") -> str:
+def _topbar_actions(extra: str = "", *, current: str = "") -> str:
     # iter071 (codex F1): 回收站/设置/新建 also LEAVE the current workspace, so
     # they must carry data-leave-guard like ⌂/brand/first-crumb — otherwise a
     # running job is silently abandoned (no three-choice modal) when the user
     # exits via these three. On non-workspace pages WORKSPACE_NAME is "" and the
     # delegate short-circuits (static.py ~2128), so the attribute is a no-op
     # there. `extra` (page-local actions that stay in-workspace) is untouched.
-    base = (
-        '<a class="btn btn-ghost" href="/trash" data-leave-guard>♻ 回收站</a>'
-        '<a class="btn btn-ghost" href="/settings" data-leave-guard>⚙ 设置</a>'
-        '<a class="btn btn-primary" href="/wizard" data-leave-guard>＋ 新建</a>'
-    )
+    items = []
+    if current != "trash":
+        items.append('<a class="btn btn-ghost" href="/trash" data-leave-guard>♻ 回收站</a>')
+    if current != "settings":
+        items.append('<a class="btn btn-ghost" href="/settings" data-leave-guard>⚙ 设置</a>')
+    if current != "wizard":
+        items.append('<a class="btn btn-primary" href="/wizard" data-leave-guard>＋ 新建</a>')
+    base = "".join(items)
     return extra + base
 
 
@@ -273,6 +280,27 @@ def render_workspace_novel_only_empty(name: str, workspaces: Iterable[str]) -> s
     )
 
 
+def render_workspace_type_unknown(name: str, workspaces: Iterable[str]) -> str:
+    """Fail-closed page for present but unreadable workspace metadata."""
+    main = (
+        '<section class="section"><div class="empty-state">'
+        '<span class="ornament">✦</span><h3>作品类型待确认</h3>'
+        '<p class="muted">暂时无法确认这部作品属于小说还是短剧，因此没有打开创作页面。作品内容没有被修改。</p>'
+        '<div class="cta cluster"><a class="btn btn-secondary" href="/library">返回作品列表</a>'
+        '<button type="button" class="btn btn-ghost" data-cta-action="reload">重新读取</button></div>'
+        '</div></section>'
+    )
+    return _render_shell(
+        title=f"{name} · 状态待确认",
+        page_kind="workspace_empty",
+        main_html=main,
+        breadcrumb_html=_crumbs([("书架", "/library"), (name, None)]),
+        topbar_actions_html=_topbar_actions(),
+        sidebar_html="",
+        workspace="",
+    )
+
+
 def _crumbs(parts: Sequence[tuple[str, Optional[str]]]) -> str:
     """Render breadcrumbs. Each part is (label, href or None for current)."""
     pieces = []
@@ -298,28 +326,41 @@ def _crumbs(parts: Sequence[tuple[str, Optional[str]]]) -> str:
 
 def render_index(workspaces: Iterable[str]) -> str:
     names: List[str] = list(workspaces)
-    empty_hint = "" if names else "还没有作品。点击右上角「＋ 新建」，从开新书 / 导入续写 / 短剧三选一开始。"
+    empty_hint = "" if names else "还没有作品。可以创建小说作品，也可以创建短剧作品。"
     main = (
         '<header class="page-header">'
         '<div class="titles">'
-        '<p class="eyebrow ornament">书架</p>'
-        '<h1>本地写作工作台</h1>'
-        '<p class="muted">选择一本书，继续安全写下去。作品文件保留在本机。</p>'
+        '<p class="eyebrow ornament">我的作品</p>'
+        '<h1>作品列表</h1>'
+        '<p class="muted">查看小说与短剧的最近进度，从上次停下的位置继续。</p>'
         '</div>'
         '<div class="shelf-stats" id="shelf-stats"></div>'
         '</header>'
+        '<section class="public-toolbar" aria-label="作品筛选与创建">'
+        '<div class="field public-search">'
+        '<label for="library-search">查找作品</label>'
+        '<input id="library-search" type="search" placeholder="输入作品名称" autocomplete="off" '
+        'aria-describedby="library-search-help">'
+        '<small id="library-search-help">只筛选当前已加载的作品，不会修改作品内容。</small>'
+        '</div>'
+        '<div class="cluster public-toolbar-actions">'
+        '<a class="btn btn-primary" href="/wizard?type=novel">创建小说作品</a>'
+        '<a class="btn btn-secondary" href="/wizard?type=drama">创建短剧作品</a>'
+        '</div>'
+        '</section>'
         '<section class="section">'
-        f'<div id="workspace-shelf" class="workspace-grid" data-empty="{escape(empty_hint)}">'
+        '<div id="library-status" class="sr-status" role="status" aria-live="polite"></div>'
+        f'<div id="workspace-shelf" class="workspace-list" data-empty="{escape(empty_hint)}">'
         '</div>'
         '</section>'
     )
     return _render_shell(
-        title="本地写作工作台",
+        title="作品列表 · 续写工作台",
         page_kind="index",
         main_html=main,
         breadcrumb_html=_crumbs([("书架", None)]),
         topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(names),
+        sidebar_html="",
     )
 
 
@@ -334,11 +375,13 @@ def render_trash(workspaces: Iterable[str]) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">回收站</p>'
         '<h1>已删除的作品</h1>'
-        '<p class="muted">移除的作品会保留在这里；可以恢复，同名冲突时会提示处理，也可以永久删除。</p>'
+        '<p class="muted">这里的内容尚未永久删除。你可以恢复作品，或在确认名称后永久删除。</p>'
         '</div>'
         '</header>'
         '<section class="section">'
-        '<div class="card flush"><div class="card-body" id="trash-list"></div></div>'
+        '<div class="public-notice" role="note"><strong>操作范围</strong>'
+        '<span>恢复或永久删除只影响你选择的这一部作品，其他作品不会改变。</span></div>'
+        '<div id="trash-list" class="trash-list" aria-live="polite"></div>'
         '</section>'
     )
     return _render_shell(
@@ -346,8 +389,8 @@ def render_trash(workspaces: Iterable[str]) -> str:
         page_kind="trash",
         main_html=main,
         breadcrumb_html=_crumbs([("书架", "/library"), ("回收站", None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces),
+        topbar_actions_html=_topbar_actions(current="trash"),
+        sidebar_html="",
         workspace="",
     )
 
@@ -1484,29 +1527,30 @@ def render_wizard() -> str:
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">新建作品</p>'
-        '<h1>选择作品类型</h1>'
-        '<p class="muted">导入续写、一句话开新书、短剧剧本，三类工作流相互隔离。</p>'
+        '<h1>创建作品</h1>'
+        '<p class="muted">先选择创作方式；每种方式所需内容、是否生成以及完成后的去向都不同。</p>'
         '</div>'
         '</header>'
         '<div class="alert info wizard-mode-card" id="wizard-mode-card">当前运行方式：检测中…</div>'
-        '<p class="muted" style="margin:-4px 0 4px">需要使用真实生成服务时，请先在 '
+        '<p class="muted wizard-mode-help">需要使用真实生成服务时，请先在 '
         '<a href="/settings">设置</a> 中完成连接配置并重启；默认离线试跑不会发起真实请求。</p>'
 
         '<section class="card" id="panel-type">'
         '<div class="card-header"><h3 class="ornament">第 0 步 · 类型</h3></div>'
         '<div class="card-body">'
-        '<form id="type-form" class="stack">'
-        '<label class="field-check">'
+        '<form id="type-form" class="stack" aria-describedby="type-form-help">'
+        '<p id="type-form-help" class="muted">选择后会先进入对应表单，不会立即创建或生成内容。</p>'
+        '<label class="field-check wizard-choice">'
         '<input type="radio" name="ws_type" value="novel" checked> '
-        '<strong>导入续写</strong>　·　导入电子书或纯文本文件，继续创作长篇章节'
+        '<span><strong>从本地原文创建</strong><small>需要作品名和本地小说文件；提交后会整理原文并在当前运行方式下准备初始内容。</small></span>'
         '</label>'
-        '<label class="field-check">'
+        '<label class="field-check wizard-choice">'
         '<input type="radio" name="ws_type" value="drama"> '
-        '<strong>短剧剧本</strong>　·　创建短剧作品，完成 4 站创作与评审组装'
+        '<span><strong>创建短剧作品</strong><small>需要题材、类型、集数和时长；先建立独立短剧作品，不会在此步生成媒体。</small></span>'
         '</label>'
-        '<label class="field-check">'
+        '<label class="field-check wizard-choice">'
         '<input type="radio" name="ws_type" value="premise"> '
-        '<strong>一句话开新书</strong>　·　没有原文，一句话立意原创开新书'
+        '<span><strong>创建原创故事</strong><small>需要作品名和一句话立意；可选择是否生成设定，完成后进入小说工作台。</small></span>'
         '</label>'
         '<div class="form-actions">'
         '<a class="btn btn-ghost" href="/library">取消</a>'
@@ -1529,8 +1573,8 @@ def render_wizard() -> str:
         '</div>'
         '<form id="wizard-form" enctype="multipart/form-data" class="stack">'
         '<div class="field">'
-        '<label>作品名</label>'
-        '<input name="workspace" required '
+        '<label for="upload-workspace">作品名</label>'
+        '<input id="upload-workspace" name="workspace" required aria-describedby="upload-workspace-help" '
         # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
         # the client check can't drift from the backend WORKSPACE_NAME_RE again.
         # The constant keeps the iter063 A4 escaped hyphen (Chromium `v` flag)
@@ -1538,10 +1582,12 @@ def render_wizard() -> str:
         # which the old `[...]?` final char wrongly allowed (e.g. `foo-`).
         f'pattern="{WORKSPACE_NAME_HTML_PATTERN}" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
+        '<small id="upload-workspace-help">必填；使用便于识别的名称，不需要填写本地目录。</small>'
         '</div>'
         '<div class="field">'
-        '<label>小说文件</label>'
-        '<input name="upload" type="file" accept=".epub,.txt" required>'
+        '<label for="upload-file">小说文件</label>'
+        '<input id="upload-file" name="upload" type="file" accept=".epub,.txt" required aria-describedby="upload-file-help">'
+        '<small id="upload-file-help">必填；选择电子书文件或 UTF-8 编码的纯文本文件。创建失败时需要重新确认文件选择。</small>'
         '</div>'
         '<details class="details-fold wizard-advanced">'
         '<summary>高级选项</summary>'
@@ -1566,7 +1612,7 @@ def render_wizard() -> str:
         '</div>'
         '</form>'
 
-        '<div id="upload-error"></div>'
+        '<div id="upload-error" role="alert" aria-live="assertive"></div>'
         '</div>'
         '</section>'
 
@@ -1575,8 +1621,8 @@ def render_wizard() -> str:
         '<div class="card-body">'
         '<form id="premise-form" class="stack">'
         '<div class="field">'
-        '<label>作品名</label>'
-        '<input name="workspace" required '
+        '<label for="premise-workspace">作品名</label>'
+        '<input id="premise-workspace" name="workspace" required aria-describedby="premise-workspace-help" '
         # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
         # the client check can't drift from the backend WORKSPACE_NAME_RE again.
         # The constant keeps the iter063 A4 escaped hyphen (Chromium `v` flag)
@@ -1584,11 +1630,13 @@ def render_wizard() -> str:
         # which the old `[...]?` final char wrongly allowed (e.g. `foo-`).
         f'pattern="{WORKSPACE_NAME_HTML_PATTERN}" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
+        '<small id="premise-workspace-help">必填；创建成功后会成为作品列表中的显示名称。</small>'
         '</div>'
         '<div class="field">'
-        '<label>一句话立意</label>'
-        '<textarea name="premise" rows="3" maxlength="2000" required '
+        '<label for="premise-text">一句话立意</label>'
+        '<textarea id="premise-text" name="premise" rows="3" maxlength="2000" required aria-describedby="premise-text-help" '
         'placeholder="例：少年觉醒上古血脉，在宗门倾轧中逆天改命。"></textarea>'
+        '<small id="premise-text-help">必填；写清主角、目标与主要冲突，之后仍可在工作台修改设定。</small>'
         '</div>'
         # iter 051a: expansion is opt-out — checked by default, skippable
         '<div class="field"><label style="font-weight:normal">'
@@ -1600,7 +1648,7 @@ def render_wizard() -> str:
         '<button type="submit" class="btn btn-paid" data-ui-action="paid">从一句话开始</button>'
         '</div>'
         '</form>'
-        '<div id="premise-error"></div>'
+        '<div id="premise-error" role="alert" aria-live="assertive"></div>'
         '</div>'
         '</section>'
 
@@ -1617,8 +1665,8 @@ def render_wizard() -> str:
         '</div>'
         '<form id="drama-form" class="stack">'
         '<div class="field">'
-        '<label>作品名</label>'
-        '<input name="workspace" required '
+        '<label for="drama-workspace">作品名</label>'
+        '<input id="drama-workspace" name="workspace" required aria-describedby="drama-workspace-help" '
         # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
         # the client check can't drift from the backend WORKSPACE_NAME_RE again.
         # The constant keeps the iter063 A4 escaped hyphen (Chromium `v` flag)
@@ -1626,14 +1674,16 @@ def render_wizard() -> str:
         # which the old `[...]?` final char wrongly allowed (e.g. `foo-`).
         f'pattern="{WORKSPACE_NAME_HTML_PATTERN}" '
         'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
+        '<small id="drama-workspace-help">必填；创建后会成为短剧作品列表中的显示名称。</small>'
         '</div>'
         '<div class="field">'
-        '<label>题材描述（1-500 字）</label>'
-        '<textarea name="topic" rows="3" maxlength="500" required '
+        '<label for="drama-topic">题材描述（1-500 字）</label>'
+        '<textarea id="drama-topic" name="topic" rows="3" maxlength="500" required aria-describedby="drama-topic-help" '
         'placeholder="示例：复仇 → 救赎，单线发展，强冲突"></textarea>'
+        '<small id="drama-topic-help">必填；概括核心冲突和故事走向，创建后仍可继续完善。</small>'
         '</div>'
-        '<div class="field">'
-        '<label>赛道</label>'
+        '<fieldset class="field" aria-describedby="drama-track-help">'
+        '<legend>赛道（必填）</legend>'
         '<div class="cluster">'
         '<label class="field-check"><input type="radio" name="track" value="霸总" required> 霸总</label>'
         '<label class="field-check"><input type="radio" name="track" value="重生"> 重生</label>'
@@ -1641,32 +1691,37 @@ def render_wizard() -> str:
         '<label class="field-check"><input type="radio" name="track" value="系统"> 系统</label>'
         '<label class="field-check"><input type="radio" name="track" value="觉醒"> 觉醒</label>'
         '</div>'
-        '</div>'
+        '<small id="drama-track-help">选择最接近的故事类型，用于准备对应创作规范。</small>'
+        '</fieldset>'
         '<div class="form-grid-2">'
         '<div class="field">'
-        '<label>集数（1-100）</label>'
-        '<input name="episode_count" type="number" min="1" max="100" value="12" required>'
+        '<label for="drama-episode-count">集数（1-100）</label>'
+        '<input id="drama-episode-count" name="episode_count" type="number" min="1" max="100" value="12" required aria-describedby="drama-episode-count-help">'
+        '<small id="drama-episode-count-help">必填；填写计划创建的总集数。</small>'
         '</div>'
-        '<div class="field">'
-        '<label>单集时长（秒）</label>'
+        '<fieldset class="field" aria-describedby="drama-duration-help">'
+        '<legend>单集时长（秒）</legend>'
         '<div class="cluster">'
         '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="30"> 30</label>'
         '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="60" checked> 60</label>'
         '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="90"> 90</label>'
         '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="120"> 120</label>'
         '</div>'
-        '</div>'
+        '<small id="drama-duration-help">选择每集计划时长，默认 60 秒。</small>'
+        '</fieldset>'
         '</div>'
         '<details class="details-fold wizard-advanced">'
         '<summary>高级选项</summary>'
         '<div class="form-grid-2">'
         '<div class="field">'
-        '<label>人民币额度上限</label>'
-        '<input name="budget_cny" type="number" min="0" step="0.1" placeholder="0 = 不限制">'
+        '<label for="drama-budget">人民币额度上限</label>'
+        '<input id="drama-budget" name="budget_cny" type="number" min="0" step="0.1" placeholder="0 = 不限制" aria-describedby="drama-budget-help">'
+        '<small id="drama-budget-help">可选；仅限制后续真实生成任务，创建作品本身不会使用额度。</small>'
         '</div>'
         '<div class="field">'
-        '<label>超时分钟</label>'
-        '<input name="timeout_minutes" type="number" min="0" step="1" placeholder="0 = 不启用">'
+        '<label for="drama-timeout">超时分钟</label>'
+        '<input id="drama-timeout" name="timeout_minutes" type="number" min="0" step="1" placeholder="0 = 不启用" aria-describedby="drama-timeout-help">'
+        '<small id="drama-timeout-help">可选；用于后续任务等待，创建作品不受影响。</small>'
         '</div>'
         '</div>'
         '</details>'
@@ -1675,7 +1730,7 @@ def render_wizard() -> str:
         '<button type="submit" class="btn btn-primary">创建并进入短剧创作</button>'
         '</div>'
         '</form>'
-        '<div id="drama-error"></div>'
+        '<div id="drama-error" role="alert" aria-live="assertive"></div>'
         '</div>'
         '</section>'
 
@@ -1707,25 +1762,32 @@ def render_settings() -> str:
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">设置</p>'
-        '<h1>运行与连接设置</h1>'
-        '<p class="muted">保存后需要重启本地服务才会生效；秘密信息不会在页面中回显。</p>'
+        '<h1>使用设置</h1>'
+        '<p class="muted">查看当前运行方式并调整创作偏好；连接信息仅在高级设置中按需修改。</p>'
         '</div>'
         '</header>'
         '<section class="card">'
-        '<div class="card-header"><h3 class="ornament">当前配置</h3></div>'
+        '<div class="card-header"><h3 class="ornament">当前运行方式</h3></div>'
+        '<div class="card-body">'
+        '<div id="settings-mode" class="public-mode-summary" role="status" aria-live="polite">正在读取…</div>'
+        '<p class="muted">“离线模式”表示不会发起真实请求；“尚未开始”只表示当前没有创作任务，两者含义不同。</p>'
+        '</div></section>'
+        '<section class="card">'
+        '<div class="card-header"><h3 class="ornament">创作偏好</h3><span class="badge no-dot badge-muted">可修改</span></div>'
         '<div class="card-body">'
         '<div id="restart-banner" hidden></div>'
-        '<form id="settings-form" class="stack"></form>'
-        '<div id="settings-error"></div>'
+        '<form id="settings-form" class="stack" aria-describedby="settings-help"></form>'
+        '<p id="settings-help" class="muted">只显示当前页面允许安全修改的偏好；保存后按页面提示操作。</p>'
+        '<div id="settings-error" role="status" aria-live="polite"></div>'
         '</div>'
         '<div class="card-footer">'
-        '<button type="submit" form="settings-form" class="btn btn-primary">保存</button>'
+        '<button type="submit" form="settings-form" class="btn btn-primary">保存设置</button>'
         '</div>'
         '</section>'
         '</div>'
     )
     return _render_shell(
-        title="模型设置 · 写作工作台",
+        title="使用设置 · 续写工作台",
         page_kind="settings",
         main_html=main,
         breadcrumb_html=_crumbs([("书架", "/library"), ("设置", None)]),
@@ -1761,71 +1823,37 @@ def render_landing() -> str:
         '<header class="lp-hero fade-up">'
         '<div class="lp-hero-brand">' + _LP_LOGO_SVG +
         '<span class="lp-wordmark">续写工作台</span></div>'
-        '<p class="eyebrow ornament">本地协作创作工具</p>'
-        '<h1 class="lp-title">接着你的故事写，或从零开新书</h1>'
-        '<p class="lp-lead muted">导入你的小说接着写，或一句话立意从零开新书'
-        '——多角色协同创作、自审、重写。作品文件保留在本机；启用真实生成时，必要输入会发送到你配置的生成服务。</p>'
-        '<div class="cluster lp-hero-cta">'
-        '<a class="btn btn-primary" href="/wizard">开始创作</a>'
-        '<a class="btn btn-secondary" href="/library">打开已有作品</a>'
-        '</div>'
+        '<p class="eyebrow ornament">小说与短剧创作工具</p>'
+        '<h1 class="lp-title">把故事从想法带到下一章</h1>'
+        '<p class="lp-lead muted">可以导入本地小说继续创作，也可以从一句话建立原创故事；短剧作品使用独立入口。作品内容保留在本机，是否使用真实生成取决于你之后的设置与逐次确认。</p>'
         '</header>'
-        '<section class="lp-cards">'
+        '<section class="lp-cards public-entry-grid" aria-label="开始使用">'
         '<article class="card lp-card fade-up fade-up-1">'
         '<div class="card-body">'
-        '<div class="lp-card-head"><h2>导入续写</h2>'
-        '<span class="badge badge-novel no-dot">正式开放</span></div>'
-        '<p class="muted">导入电子书或纯文本文件，继续创作长篇章节，每章自动评审与重写。</p>'
-        '<ul class="lp-feats">'
-        '<li>章节级续写，保持人设与世界观一致</li>'
-        '<li>多角色自审：评审 → 打分 → 重写闭环</li>'
-        '<li>成本、缓存、子分数全程可观测</li>'
-        '</ul></div>'
+        '<div class="lp-card-head"><h2>创建小说作品</h2></div>'
+        '<p class="muted">导入本地原文继续写，或从一句话建立原创故事。选择方式后再填写所需内容。</p></div>'
         '<div class="card-footer lp-card-footer">'
-        '<a class="btn btn-primary" href="/wizard?type=novel">进入导入续写</a></div>'
+        '<a class="btn btn-primary" href="/wizard">创建小说作品</a></div>'
         '</article>'
         '<article class="card lp-card fade-up fade-up-2">'
         '<div class="card-body">'
-        '<div class="lp-card-head"><h2>短剧剧本</h2>'
-        '<span class="badge badge-drama no-dot">体验版 · 创作流程已开放</span></div>'
-        '<p class="muted">输入题材与赛道，完成 4 站创作、评审组装与分集导出。</p>'
-        '<ul class="lp-feats">'
-        '<li>题材 / 赛道 / 集数一键立项</li>'
-        '<li>创作规范快照与分集设定生成</li>'
-        '<li class="lp-feat-beta">真实文本与图片需独立授权；完整成片链仍在建设</li>'
-        '</ul></div>'
+        '<div class="lp-card-head"><h2>打开已有作品</h2></div>'
+        '<p class="muted">查看本机已有的小说与短剧，了解最近进度并从上次停下的位置继续。</p></div>'
         '<div class="card-footer lp-card-footer">'
-        '<a class="btn btn-secondary" href="/wizard?type=drama">体验短剧创作</a></div>'
+        '<a class="btn btn-secondary" href="/library">打开已有作品</a></div>'
         '</article>'
         '<article class="card lp-card fade-up fade-up-3">'
         '<div class="card-body">'
-        '<div class="lp-card-head"><h2>一句话开新书</h2>'
-        '<span class="badge badge-novel no-dot">正式开放</span></div>'
-        '<p class="muted">没有原文也能开书：一句话立意，扩成结构化设定与首章。</p>'
-        '<ul class="lp-feats">'
-        '<li>一句话立意，自动扩成设定稿（可在工作台编辑）</li>'
-        '<li>多角色自审：评审 → 打分 → 重写闭环</li>'
-        '<li>成本、缓存、子分数全程可观测</li>'
-        '</ul></div>'
+        '<div class="lp-card-head"><h2>进入短剧作品</h2></div>'
+        '<p class="muted">创建独立短剧作品并进入短剧创作流程。真实文字、图片、视频和声音仍需分别确认。</p></div>'
         '<div class="card-footer lp-card-footer">'
-        '<a class="btn btn-secondary" href="/wizard?type=premise">进入开新书</a></div>'
+        '<a class="btn btn-secondary" href="/wizard?type=drama">进入短剧作品</a></div>'
         '</article>'
         '</section>'
-        '<section class="lp-trust fade-up fade-up-4">'
-        '<div class="lp-metrics">'
-        '<div class="tile"><span class="v">100%</span>'
-        '<span class="k">本机作品</span><span class="sub">文件留在本机，真实请求按配置发送</span></div>'
-        '<div class="tile"><span class="v">4+</span>'
-        '<span class="k">协同角色</span><span class="sub">评审 · 重写 · 审查闭环</span></div>'
-        '<div class="tile"><span class="v">3</span>'
-        '<span class="k">创作模式</span><span class="sub">导入续写 + 一句话开新书 + 短剧剧本</span></div>'
-        '</div>'
-        '<div class="cluster lp-chips">'
-        '<span class="badge badge-muted no-dot">默认严格离线</span>'
-        '<span class="badge badge-muted no-dot">真实调用逐次授权</span>'
-        '<span class="badge badge-muted no-dot">多角色自审重写</span>'
-        '<span class="badge badge-muted no-dot">开源可自托管</span>'
-        '</div>'
+        '<section class="public-next-step fade-up fade-up-4">'
+        '<h2>接下来会发生什么</h2>'
+        '<ol><li>选择作品类型与创建方式</li><li>填写当前方式需要的内容</li><li>确认运行方式后创建作品</li><li>进入对应工作台继续创作</li></ol>'
+        '<p class="muted">页面初始化失败时，可以重新加载；已有本地作品不会因此改变。</p>'
         '</section>'
         '</div>'
     )

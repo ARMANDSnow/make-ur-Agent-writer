@@ -141,7 +141,7 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/library")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
-        self.assertIn("本地写作工作台", html)
+        self.assertIn("作品列表", html)
         self.assertIn('href="/trash"', html)
         self.assertLess(html.index("♻ 回收站"), html.index("⚙ 设置"))
         self.assertIn("/api/workspaces/overview", routes.static.JS_DASHBOARD)
@@ -151,19 +151,12 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
-        # Root is now the investor landing page, not the bookshelf.
-        # iter069: three peer entries named by "有无原文" + unified drama term.
-        self.assertIn("开始创作", html)            # hero CTA (was 开始续写)
-        self.assertIn("进入导入续写", html)         # novel card footer (was 进入小说续写)
-        self.assertIn("一句话开新书", html)         # new premise card
-        self.assertIn("进入开新书", html)           # premise card footer
-        self.assertIn('href="/wizard?type=premise"', html)
-        self.assertIn("短剧剧本", html)            # drama card title (was 剧本生成)
+        self.assertIn("创建小说作品", html)
+        self.assertIn("打开已有作品", html)
+        self.assertIn("进入短剧作品", html)
         self.assertIn('window.PAGE_KIND = "landing"', html)
         self.assertIn('href="/wizard"', html)
         self.assertIn('href="/library"', html)     # hero "打开已有作品"
-        # trust now counts 3 creation modes
-        self.assertIn("导入续写 + 一句话开新书 + 短剧剧本", html)
         # removed / renamed surfaces must be gone from the landing.
         # NB: scope to the hero anchor markup — bare "开始续写" also appears in the
         # embedded READINESS_CATALOG JSON ("…之后开始续写…"), present on every page.
@@ -199,9 +192,9 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("会发生什么", html)
         self.assertIn("复仇 → 救赎", html)
         self.assertIn("data-back-to-type", html)
-        # iter069: panel-type subtitle now lists three workflows, not two
-        self.assertIn("三类工作流", html)
-        self.assertNotIn("两类工作流", html)
+        self.assertIn("从本地原文创建", html)
+        self.assertIn("创建原创故事", html)
+        self.assertIn("创建短剧作品", html)
         # 真实生成入口说明使用面向用户的中文，不暴露配置字段名。
         self.assertIn("需要使用真实生成服务时", html)
         self.assertIn("完成连接配置并重启", html)
@@ -374,6 +367,8 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(by_name["alpha"]["draft_count"], 1)
         self.assertIn("plan", by_name["alpha"])
         self.assertIn("recent_job", by_name["alpha"])
+        self.assertRegex(by_name["alpha"]["updated_at"], r"^\d{4}-\d{2}-\d{2}T")
+        self.assertNotIn("path", by_name["alpha"])
         self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
         self.assertIn("start_point_missing", by_name["beta"]["readiness"]["blockers"])
 
@@ -872,17 +867,16 @@ class RoutesGetTests(unittest.TestCase):
         # iter070: ⌂ now goes to the landing home (/), not the bookshelf, and is
         # a leave-guard exit. The bookshelf stays reachable via the brand below.
         self.assertIn('class="btn btn-icon home-btn" href="/" data-leave-guard', html)
-        self.assertIn('href="/library"', html)
+        self.assertIn('<span class="here" aria-current="page">书架</span>', html)
 
-    def test_iter070_landing_import_card_carries_type(self) -> None:
-        """iter070: the 导入续写 card jumps straight to the novel wizard panel,
-        at parity with the drama/premise cards (no redundant type pick)."""
+    def test_iter154_landing_routes_to_public_tasks(self) -> None:
+        """Phase C keeps one general novel choice and a separate drama entry."""
         status, _ct, body = routes.dispatch("GET", "/")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
-        self.assertIn('href="/wizard?type=novel"', html)
+        self.assertIn('href="/wizard"', html)
         self.assertIn('href="/wizard?type=drama"', html)
-        self.assertIn('href="/wizard?type=premise"', html)
+        self.assertIn('href="/library"', html)
 
     def test_iter070_library_populated_shelf_has_no_epub_copy(self) -> None:
         """iter070/iter071 (codex F4): this route runs with alpha/beta fixtures,
@@ -902,7 +896,7 @@ class RoutesGetTests(unittest.TestCase):
         this branch."""
         html = templates.render_index([])
         self.assertIn("还没有作品", html)  # the empty hint reached the DOM (data-empty=…)
-        self.assertIn("从开新书 / 导入续写 / 短剧三选一开始", html)  # type-neutral copy
+        self.assertIn("可以创建小说作品，也可以创建短剧作品", html)
         self.assertNotIn("epub", html)
         self.assertNotIn("第一本书", html)  # old novel-only phrasing gone
 

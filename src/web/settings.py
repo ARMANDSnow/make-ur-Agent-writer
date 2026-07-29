@@ -4,8 +4,8 @@ The dashboard / wizard are useless if the user can't change which LLM is
 called. ``.env`` at the project root is the single source of truth (see
 ``src/config.py:31`` ``load_dotenv``). This module exposes:
 
-* ``GET /api/settings`` — read the current values with the API key
-  middle masked so a screenshot or curl never leaks it.
+* ``GET /api/settings`` — read editable values while exposing only whether a
+  secret is configured; no secret fragment is returned to the browser.
 * ``PUT /api/settings`` — atomic write of a hand-edited subset.
 
 We do NOT hot-reload the running process — ``load_dotenv`` happens at
@@ -59,16 +59,24 @@ MAX_VALUE_LEN = 512
 
 
 def get_settings() -> Tuple[int, str, bytes]:
-    """GET handler — returns a JSON object with API key middle masked."""
+    """GET handler — returns editable values without any secret fragments."""
     raw = _read_env(_ENV_PATH)
     out: Dict[str, str] = {}
+    configured: Dict[str, bool] = {}
     for key in ALLOWED_KEYS:
         val = raw.get(key, "")
         if key in SECRET_KEYS:
-            out[key] = _mask(val)
+            # The browser receives no secret fragment.  It only needs to know
+            # whether leaving the replacement field blank will preserve an
+            # existing value.
+            out[key] = ""
+            configured[key] = bool(val)
         else:
             out[key] = val
-    return _json(200, {"settings": out, "restart_required": False})
+    return _json(
+        200,
+        {"settings": out, "configured": configured, "restart_required": False},
+    )
 
 
 def put_settings(body: bytes) -> Tuple[int, str, bytes]:

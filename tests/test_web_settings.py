@@ -1,9 +1,8 @@
-"""iter 026: settings panel — .env read / write + key masking."""
+"""Settings panel storage and browser-safe projection."""
 
 from __future__ import annotations
 
 import json
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,17 +35,15 @@ class SettingsTests(unittest.TestCase):
         for leftover in base.parent.glob(base.name + ".tmp*"):
             leftover.unlink(missing_ok=True)
 
-    def test_get_masks_api_key(self) -> None:
+    def test_get_returns_zero_secret_fragments(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/api/settings")
         self.assertEqual(status, 200)
         data = json.loads(body)
-        self.assertEqual(data["settings"]["OPENAI_API_KEY"], "tes***ghij")
-        self.assertEqual(data["settings"]["PLANNER_API_KEY"], "tes***ghij")
-        self.assertEqual(data["settings"]["AI_DRAW_API_KEY"], "tes***ghij")
-        self.assertEqual(data["settings"]["SD_API_KEY"], "tes***ghij")
-        # No full key anywhere in the response body
-        key_prefix = b"s" + b"k" + b"-"
-        self.assertIsNone(re.search(key_prefix + rb"[A-Za-z0-9]{16,}", body))
+        for key in settings_mod.SECRET_KEYS:
+            self.assertEqual(data["settings"][key], "")
+            self.assertTrue(data["configured"][key])
+        self.assertNotIn(b"tes***ghij", body)
+        self.assertNotIn(b"test-api-key", body)
 
     def test_put_unknown_key_400(self) -> None:
         status, _ct, body = routes.dispatch(
