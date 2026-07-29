@@ -188,3 +188,4 @@
 166. [Iteration 157 - 近期体检报告安全、Job 与 Harness 问题闭环](./iteration_157_health_report_security_job_harness_closure.md)
 167. [Iteration 158 - 短剧 Web UIUX Phase A：导航壳、概览与生产工作台重构](./iteration_158_drama_web_uiux_phase_a_shell_overview_production.md)
 168. [Iteration 159 - 短剧 Web UIUX Phase B：五站创作台与角色库](./iteration_159_drama_web_uiux_phase_b_creation_characters.md)
+169. [Iteration 160 - 短剧 Web UIUX Phase C：资产治理与逐镜媒体候选](./iteration_160_drama_web_uiux_phase_c_assets_shot_media.md)
