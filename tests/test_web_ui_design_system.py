@@ -78,7 +78,7 @@ class WebDesignSystemTests(unittest.TestCase):
             "aborted": "已取消",
             "cancelled": "已取消",
             "budget_exceeded": "额度不足",
-            "stale": "内容已更新",
+            "stale": "需要更新",
         }
         for raw, label in expected.items():
             self.assertEqual(static.user_status_label(raw), label)

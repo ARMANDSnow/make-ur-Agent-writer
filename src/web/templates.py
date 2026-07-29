@@ -144,15 +144,15 @@ def _render_shell(
 
 
 _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
-    ("overview", "概览", ""),
-    ("continue", "续写", "continue"),
-    ("workbench", "工作台", "workbench"),
-    ("plan", "计划", "plan"),
-    ("chapters", "章节", "chapters"),
-    ("search", "搜索", "search"),  # iter075: 跨章全文检索（章节的姊妹操作）
-    ("reviews", "评审", "reviews"),
-    ("insights", "数据", "insights"),
-    ("jobs", "任务", "jobs"),
+    ("overview", "作品概览", ""),
+    ("workbench", "创作工作台", "workbench"),
+    ("continue", "批量续写", "continue"),
+    ("plan", "故事规划", "plan"),
+    ("chapters", "章节列表", "chapters"),
+    ("search", "内容搜索", "search"),  # iter075: 跨章全文检索（章节的姊妹操作）
+    ("reviews", "内容检查", "reviews"),
+    ("insights", "创作数据", "insights"),
+    ("jobs", "任务记录", "jobs"),
 )
 
 _SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
@@ -210,7 +210,7 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
                 )
             else:
                 section_items.append(
-                    f'<a class="sidebar-item" href="{href}">'
+                    f'<a class="sidebar-item" href="{href}" data-leave-guard>'
                     f'<span><span class="dot"></span> {escape(label)}</span>'
                     f'</a>'
                 )
@@ -423,7 +423,7 @@ def _novel_overview_main(name: str) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">作品</p>'
         f'<h1>{escape(name)}</h1>'
-        '<p class="muted">这一本书的全景：状态、下一步、最近活动。</p>'
+        '<p class="muted">先确认当前作品能否继续，再从上次保存的位置开始。</p>'
         '</div>'
         '<div id="overview-status-badge"></div>'
         '<div class="topbar-actions">'
@@ -432,20 +432,24 @@ def _novel_overview_main(name: str) -> str:
         '</button>'
         '</div>'
         '</header>'
-        '<section class="overview-hero">'
+        '<section class="overview-hero phase-d-overview">'
         '<div class="next-action" id="overview-next-action"></div>'
         '<div class="metric-pair" id="overview-summary"></div>'
         '</section>'
         '<section class="section">'
-        '<div class="section-title"><h2 class="ornament">就绪状态</h2></div>'
+        '<div class="section-title"><h2 class="ornament">待处理问题</h2><span class="hint">不会自动覆盖已保存内容</span></div>'
         '<div id="overview-blockers"></div>'
         '</section>'
         '<section class="section">'
-        '<div class="section-title"><h2 class="ornament">细节</h2><span class="hint">创作流程状态与额度汇总</span></div>'
+        '<div class="section-title"><h2 class="ornament">最近保存的章节</h2><a class="btn btn-ghost btn-sm" href="/w/' + escape(name) + '/chapters">查看全部章节</a></div>'
+        '<div id="overview-recent-chapter"></div>'
+        '</section>'
+        '<section class="section">'
+        '<div class="section-title"><h2 class="ornament">最近保存与准备情况</h2><span class="hint">状态来自已保存记录</span></div>'
         '<div class="grid cols-2">'
-        '<details class="details-fold card"><summary class="card-header">创作流程状态</summary>'
+        '<details class="details-fold card"><summary class="card-header">准备情况</summary>'
         '<div class="card-body" id="overview-detail-status"></div></details>'
-        '<details class="details-fold card"><summary class="card-header">额度估算</summary>'
+        '<details class="details-fold card"><summary class="card-header">内容概况</summary>'
         '<div class="card-body" id="overview-detail-cost"></div></details>'
         '</div>'
         '</section>'
@@ -1009,14 +1013,15 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">工作台</p>'
-        '<h1>四阶段写书台</h1>'
-        '<p class="muted">设定 → 大纲 → 细纲 → 正文：逐阶段生成、查看、编辑，再进下一步。</p>'
+        '<h1>单章创作工作台</h1>'
+        '<p class="muted">按准备设定、生成大纲、生成细纲、撰写正文四个阶段继续；已保存结果不会被自动覆盖。</p>'
         '</div>'
         '<div id="workbench-stage-pill"></div>'
         '</header>'
 
         # iter062: clickable step rail — jump back to any done/current stage;
         # locked stages are non-interactive. Filled by refreshWorkbench().
+        '<div class="workbench-running-note" role="note">任务开始后可以离开此页，处理仍会继续；随时从“任务记录”返回查看。</div>'
         '<ol class="stepbar" id="workbench-stepbar" aria-label="四阶段进度"></ol>'
 
         '<section class="continue-flow">'
@@ -1024,7 +1029,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="flow-step">'
         '<div class="step-mark">1</div>'
         '<div class="card workbench-stage-card" id="stage-prepare-card">'
-        '<div class="card-header"><h3 class="ornament">设定</h3>'
+        '<div class="card-header"><h3 class="ornament">准备设定</h3>'
         # iter068 (Cluster A): id hooks so refreshWorkbench() can rewrite the
         # copy for an existing-book continuation (重建续写底座) vs greenfield.
         '<span class="muted" id="prepare-subtitle">从开书的一句话立意提取知识库与实体设定</span></div>'
@@ -1126,7 +1131,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="flow-step">'
         '<div class="step-mark">2</div>'
         '<div class="card workbench-stage-card" id="stage-outline-card">'
-        '<div class="card-header"><h3 class="ornament">大纲</h3>'
+        '<div class="card-header"><h3 class="ornament">生成大纲</h3>'
         '<span class="muted">生成全书故事大纲，可直接编辑后保存</span></div>'
         '<div class="card-body">'
         '<form id="outline-form" class="form-grid-2">'
@@ -1148,7 +1153,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="flow-step">'
         '<div class="step-mark">3</div>'
         '<div class="card workbench-stage-card" id="stage-plan-card">'
-        '<div class="card-header"><h3 class="ornament">细纲</h3>'
+        '<div class="card-header"><h3 class="ornament">生成细纲</h3>'
         '<span class="muted">生成分章细纲（章节计划）</span></div>'
         '<div class="card-body">'
         '<form id="plan-chapters-form" class="form-grid-2">'
@@ -1170,7 +1175,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="flow-step">'
         '<div class="step-mark">4</div>'
         '<div class="card workbench-stage-card" id="stage-write-card">'
-        '<div class="card-header"><h3 class="ornament">正文</h3>'
+        '<div class="card-header"><h3 class="ornament">撰写正文</h3>'
         '<span class="muted">逐章生成正文，自动评审</span></div>'
         '<div class="card-body">'
         '<form id="write-book-form" class="form-grid">'
@@ -1193,6 +1198,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '</div>'
         '<div class="form-actions" style="align-items:flex-end">'
         '<button type="submit" id="write-book-submit" class="btn btn-paid" data-ui-action="paid">开始写书</button>'
+        '<a id="write-book-open-chapter" class="btn btn-primary" href="/w/' + esc + '/chapters" hidden>打开章节</a>'
         '</div>'
         '</form>'
         '<div id="write-book-status"></div>'
@@ -1264,19 +1270,22 @@ def render_workspace_chapters(name: str, workspaces: Iterable[str]) -> str:
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">章节</p>'
-        '<h1>章节</h1>'
-        '<p class="muted">原文章次 + 已生成续写草稿。续写行可点击查看详情（原文行仅供参照）。</p>'
+        '<h1>章节列表</h1>'
+        '<p class="muted">原文章节仅供阅读参照；续写章节可以打开、编辑并查看保存与检查记录。</p>'
         '</div>'
         '</header>'
         '<section class="section">'
-        '<div class="chapters-filter">'
-        '<input type="search" id="chapter-search" placeholder="按章节 ID 或标题搜索…">'
-        '<div class="filter-toggle cluster">'
+        '<div class="chapters-filter phase-d-toolbar">'
+        '<div class="field"><label for="chapter-search">搜索章节</label><input type="search" id="chapter-search" placeholder="输入章节标题"></div>'
+        '<div class="field"><span class="field-label">来源</span><div class="filter-toggle cluster" aria-label="按章节来源筛选">'
         '<button class="btn btn-ghost btn-sm active" data-mode="all">全部</button>'
-        '<button class="btn btn-ghost btn-sm" data-mode="drafts">续写</button>'
-        '<button class="btn btn-ghost btn-sm" data-mode="source">原文</button>'
+        '<button class="btn btn-ghost btn-sm" data-mode="drafts">续写章节</button>'
+        '<button class="btn btn-ghost btn-sm" data-mode="source">原文章节</button>'
+        '</div></div>'
+        '<div class="field"><label for="chapter-sort">排序</label><select id="chapter-sort"><option value="newest">最近更新</option><option value="number">章节顺序</option></select></div>'
+        '<button type="button" class="btn btn-secondary" id="chapter-clear-filter">清除筛选</button>'
         '</div>'
-        '</div>'
+        '<div id="chapter-filter-status" class="sr-status" role="status" aria-live="polite"></div>'
         '<div class="card flush"><div class="card-body" id="chapters-table"></div></div>'
         '</section>'
     )
@@ -1348,28 +1357,27 @@ def render_workspace_search(name: str, workspaces: Iterable[str]) -> str:
 
 
 def render_workspace_chapter_detail(name: str, chapter_no: int, workspaces: Iterable[str]) -> str:
-    chapter_id = f"chapter_{chapter_no:02d}"
     main = (
         '<header class="page-header">'
         '<div class="titles">'
         f'<p class="eyebrow ornament">第 {chapter_no} 章</p>'
-        f'<h1>{escape(chapter_id)}</h1>'
+        f'<h1>第 {chapter_no} 章</h1>'
         '<div class="chapter-meta-bar" id="chapter-meta-bar"></div>'
         '</div>'
         '<div class="topbar-actions">'
-        f'<a class="btn btn-ghost btn-sm" href="/w/{escape(name)}/chapters">← 返回章节列表</a>'
-        f'<a class="btn btn-ghost btn-sm" href="/w/{escape(name)}/">回概览</a>'
+        f'<a class="btn btn-ghost btn-sm" href="/w/{escape(name)}/chapters" data-leave-guard>← 返回章节列表</a>'
+        f'<a class="btn btn-ghost btn-sm" href="/w/{escape(name)}/" data-leave-guard>回作品概览</a>'
         '</div>'
         '</header>'
         '<section class="tabs">'
         '<div class="tab-list">'
         '<button class="tab active" data-tab="body">正文</button>'
         '<button class="tab" data-tab="edit">编辑</button>'
-        '<button class="tab" data-tab="review">评审</button>'
+        '<button class="tab" data-tab="review">内容检查</button>'
         '<button class="tab" data-tab="lint">文字检查</button>'
         '<button class="tab" data-tab="style">文风</button>'
         '<button class="tab" data-tab="advisor">修改建议</button>'
-        '<button class="tab" data-tab="history">历史</button>'
+        '<button class="tab" data-tab="history">保存记录</button>'
         '</div>'
         '<div class="tab-panel active" id="tab-body">'
         '<div id="chapter-body" class="card"><div class="card-body">载入中…</div></div>'
@@ -1379,13 +1387,12 @@ def render_workspace_chapter_detail(name: str, chapter_no: int, workspaces: Iter
         '<div class="card"><div class="card-body">'
         '<div class="field"><label for="draft-edit-area">正文内容（可编辑）</label>'
         '<textarea id="draft-edit-area" rows="24" placeholder="载入中…"></textarea></div>'
-        '<p class="muted">保存后本章需要重新评审（评审结果基于旧文本即告过期）；'
-        '「保存并重新评审」会在保存后自动跑一轮独立评审。</p>'
+        '<p class="muted" id="draft-edit-help">保存后，旧的内容检查结果需要更新；“保存并重新检查”会在保存后开始一次独立检查。</p>'
         '<div class="form-actions">'
         '<button type="button" id="draft-save" class="btn btn-secondary">保存</button>'
-        '<button type="button" id="draft-save-review" class="btn btn-paid" data-ui-action="paid">保存并重新评审</button>'
+        '<button type="button" id="draft-save-review" class="btn btn-paid" data-ui-action="paid">保存并重新检查</button>'
         '</div>'
-        '<div id="draft-edit-status" style="margin-top:8px"></div>'
+        '<div id="draft-edit-status" class="save-state" role="status" aria-live="polite">尚未修改</div>'
         '</div></div>'
         '</div>'
         '<div class="tab-panel" id="tab-review"><p class="muted">载入中…</p></div>'
@@ -1488,23 +1495,38 @@ def render_workspace_insights(name: str, workspaces: Iterable[str]) -> str:
 
 
 def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
-    main = (
+    from .workspace_meta import read as _meta_read
+
+    is_drama = _meta_read(name).get("type", "novel") == "drama"
+    if is_drama:
+        main = (
+            '<header class="page-header"><div class="titles"><p class="eyebrow ornament">任务</p>'
+            '<h1>任务历史</h1><p class="muted">查看最近任务与经过保护的调用摘要。</p></div></header>'
+            '<section class="section"><div class="card flush"><div class="card-body" id="jobs-recent"></div></div></section>'
+            '<section class="section"><div class="section-title"><h2 class="ornament">最近生成调用</h2>'
+            '<span class="hint">已隐藏请求与生成服务错误详情</span></div><div id="jobs-logs"></div></section>'
+        )
+    else:
+        main = (
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">任务</p>'
-        '<h1>任务历史</h1>'
-        '<p class="muted">查看最近 20 个任务、问题编号与经过保护的调用摘要。</p>'
+        '<h1>任务记录</h1>'
+        '<p class="muted">任务离页后仍会继续。这里按已保存状态显示进度、结果和安全恢复入口。</p>'
         '</div>'
         '</header>'
+        '<section class="jobs-filter filter-toggle cluster" aria-label="筛选任务">'
+        '<button type="button" class="btn btn-ghost active" data-job-filter="all">全部</button>'
+        '<button type="button" class="btn btn-ghost" data-job-filter="active">处理中</button>'
+        '<button type="button" class="btn btn-ghost" data-job-filter="done">已完成</button>'
+        '<button type="button" class="btn btn-ghost" data-job-filter="attention">需要处理</button>'
+        '</section>'
+        '<div id="jobs-filter-status" class="sr-status" role="status" aria-live="polite"></div>'
         '<section class="section">'
         '<div class="card flush"><div class="card-body" id="jobs-recent"></div></div>'
         '</section>'
-        '<section class="section">'
-        '<div class="section-title"><h2 class="ornament">最近生成调用</h2>'
-        '<span class="hint">最近 30 条 · 已隐藏请求与生成服务错误详情</span></div>'
-        '<div id="jobs-logs"></div>'
-        '</section>'
-    )
+        '<div id="jobs-logs" hidden aria-hidden="true"></div>'
+        )
     return _render_shell(
         title=f"{name} · 任务",
         page_kind="jobs",

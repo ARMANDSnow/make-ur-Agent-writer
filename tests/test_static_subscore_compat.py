@@ -53,8 +53,9 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_chapter_detail_js_accepts_scores_and_legacy_sub_scores(self) -> None:
-        self.assertIn("a.scores && Object.keys(a.scores).length", static.JS_DASHBOARD)
-        self.assertIn(": a.sub_scores) || {}", static.JS_DASHBOARD)
+        self.assertIn("isPlainObject(a.scores)", static.JS_DASHBOARD)
+        self.assertIn("isPlainObject(a.sub_scores)", static.JS_DASHBOARD)
+        self.assertIn("finiteStyleNumber(v)", static.JS_DASHBOARD)
         self.assertIn(".subscore-cell-approve", static.CSS_BODY)
         self.assertNotIn('td style="text-align:center;background:', static.JS_DASHBOARD)
 
@@ -86,8 +87,8 @@ class StaticSubscoreCompatTests(unittest.TestCase):
         end = static.JS_DASHBOARD.index("// history tab", start)
         block = static.JS_DASHBOARD[start:end]
         self.assertIn("meta.rewrite_suggestions.filter(isPlainObject)", block)
-        self.assertIn('escapeHtml(s.section || "(整段)")', block)
-        self.assertIn('escapeHtml(s.guidance || "")', block)
+        self.assertIn('typeof s.section === "string"', block)
+        self.assertIn('typeof s.guidance === "string"', block)
         self.assertNotIn("s.type", block)
         self.assertNotIn("s._advisor", block)
         self.assertNotIn("target_range", block)

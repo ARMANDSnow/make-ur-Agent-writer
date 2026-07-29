@@ -29,7 +29,7 @@ USER_STATUS_LABELS = {
     "succeeded": "已完成",
     "completed": "已完成",
     "ok": "已完成",
-    "ready": "已就绪",
+    "ready": "可以开始",
     "warn": "需要留意",
     "blocked": "需要补充",
     "failed": "未完成",
@@ -39,7 +39,7 @@ USER_STATUS_LABELS = {
     "cancelled": "已取消",
     "canceled": "已取消",
     "budget_exceeded": "额度不足",
-    "stale": "内容已更新",
+    "stale": "需要更新",
     "lost": "状态待确认",
 }
 
@@ -1790,6 +1790,114 @@ html { scroll-behavior: smooth; }
   .ui-public .modal { max-height: calc(100vh - 24px); overflow-y: auto; }
   .ui-public .toast-stack { bottom: calc(var(--space-4) + env(safe-area-inset-bottom)); }
 }
+
+/* Iteration 155 · Phase D workspace flow. Kept inside ui-novel so drama stays unchanged. */
+.ui-novel [hidden] { display: none !important; }
+.ui-novel .workbench-running-note {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--jade-soft);
+  color: var(--ui-text);
+}
+.ui-novel .phase-d-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, auto) minmax(150px, 200px) auto;
+  gap: var(--space-3);
+  align-items: end;
+  margin-bottom: var(--space-4);
+}
+.ui-novel .field-label { display: block; margin-bottom: var(--space-2); font-weight: 650; }
+.ui-novel .chapter-items,
+.ui-novel .job-record-list { display: grid; gap: var(--space-3); }
+.ui-novel .chapter-item,
+.ui-novel .job-record-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.4fr) minmax(300px, 1fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-novel .chapter-item h2,
+.ui-novel .job-record-card h2 { margin: var(--space-2) 0 var(--space-1); overflow-wrap: anywhere; }
+.ui-novel .chapter-item-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.ui-novel .chapter-item-meta dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-novel .chapter-item-meta dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.ui-novel .chapter-item-action,
+.ui-novel .job-record-action { display: flex; justify-content: flex-end; }
+.ui-novel .chapter-item-action .btn,
+.ui-novel .job-record-action .btn { min-width: 132px; }
+.ui-novel .save-state {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-1);
+  background: var(--bg-sunken);
+}
+.ui-novel .save-state.success { background: var(--jade-soft); }
+.ui-novel .save-state.warn { background: var(--gold-soft); }
+.ui-novel .save-state.error { background: var(--ui-danger-bg); }
+.ui-novel .save-state.busy { background: var(--jade-soft); }
+.ui-novel .jobs-filter { margin-bottom: var(--space-4); }
+.ui-novel .job-record-state p { margin: var(--space-2) 0 0; color: var(--ui-text-muted); }
+.ui-novel textarea,
+.ui-novel .reading-body,
+.ui-novel .chapter-item,
+.ui-novel .job-record-card { max-width: 100%; overflow-wrap: anywhere; }
+.ui-novel .brand,
+.ui-novel .breadcrumb a,
+.ui-novel .stepbar a,
+.ui-novel summary,
+.ui-novel input,
+.ui-novel select {
+  box-sizing: border-box;
+  min-height: 44px !important;
+}
+.ui-novel .brand,
+.ui-novel .breadcrumb a,
+.ui-novel .stepbar a,
+.ui-novel summary {
+  display: inline-flex;
+  align-items: center;
+}
+.ui-novel .breadcrumb a { min-width: 44px; padding-inline: var(--space-2); justify-content: center; }
+.ui-novel .stepbar a { width: 100%; justify-content: center; }
+.ui-novel summary { width: 100%; padding-block: var(--space-2); }
+.ui-novel input,
+.ui-novel select { padding-block: 10px; }
+
+@media (max-width: 1199px) {
+  .ui-novel .phase-d-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-novel .chapter-item,
+  .ui-novel .job-record-card { grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.2fr); }
+  .ui-novel .chapter-item-action,
+  .ui-novel .job-record-action { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 767px) {
+  .ui-novel .phase-d-toolbar,
+  .ui-novel .chapter-item,
+  .ui-novel .job-record-card { display: flex; flex-direction: column; align-items: stretch; }
+  .ui-novel .phase-d-toolbar .btn,
+  .ui-novel .chapter-item-action .btn,
+  .ui-novel .job-record-action .btn { width: 100%; }
+  .ui-novel .chapter-item-meta { grid-template-columns: 1fr; }
+  .ui-novel .tab-list { overflow-x: auto; max-width: 100%; padding-bottom: var(--space-1); }
+  .ui-novel .tab { flex: 0 0 auto; }
+  .ui-novel .jobs-filter .btn { flex: 1 1 calc(50% - var(--space-2)); }
+  .ui-novel .reading-body { padding-inline: var(--space-3); }
+}
 """
 
 
@@ -1893,6 +2001,8 @@ JS_DASHBOARD = """\
   }
   function setFormSubmitBusy(form, busy, label) {
     if (!form) return;
+    if (busy) form.setAttribute("aria-busy", "true");
+    else form.removeAttribute("aria-busy");
     const controls = Array.prototype.slice.call(form.querySelectorAll('button[type="submit"], input[type="submit"]'));
     if (form.id) {
       document.querySelectorAll('[form="' + CSS.escape(form.id) + '"]').forEach(function (control) {
@@ -1907,8 +2017,7 @@ JS_DASHBOARD = """\
   function _httpError(res, data) {
     let msg = data.error || ("HTTP " + res.status);
     if (res.status === 409 && data.running_job_id) {
-      msg = "工作区正被另一任务占用（job " + String(data.running_job_id).slice(0, 8) +
-        "…），请等待其完成或在任务页取消后重试";
+      msg = "当前作品已有任务正在处理。请等待完成，或前往任务记录查看并请求取消。";
     }
     const err = new Error(msg);
     err.status = res.status;
@@ -2069,11 +2178,11 @@ JS_DASHBOARD = """\
     return '<span class="badge ' + escapeHtml(cls) + '">' + escapeHtml(statusLabel(raw)) + "</span>";
   }
   const STATUS_LABELS = {
-    succeeded: "已完成", completed: "已完成", ok: "已完成", ready: "已就绪",
+    succeeded: "已完成", completed: "已完成", ok: "已完成", ready: "可以开始",
     pending: "等待中", queued: "等待中", running: "处理中", generating: "处理中",
     failed: "未完成", error: "未完成", retry_error: "未完成", blocked: "需要补充", warn: "需要留意",
     aborted: "已取消", cancelled: "已取消", canceled: "已取消",
-    budget_exceeded: "额度不足", stale: "内容已更新", lost: "状态待确认",
+    budget_exceeded: "额度不足", stale: "需要更新", lost: "状态待确认",
   };
   function statusLabel(status) {
     const raw = String(status || "").toLowerCase();
@@ -2640,6 +2749,10 @@ JS_DASHBOARD = """\
   function safePublicCount(value) {
     return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
   }
+  function safeOptionalCount(value) {
+    const number = finiteStyleNumber(value);
+    return number != null && number >= 0 ? Math.floor(number) : null;
+  }
   function publicDateLabel(value) {
   if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$/.test(value)) return "尚无更新记录";
     const date = new Date(value);
@@ -2722,21 +2835,44 @@ JS_DASHBOARD = """\
     } catch (err) {
       if (summary) summary.innerHTML = renderErrorCard(err);
     }
+    loadOverviewRecentChapter();
     loadOverviewDetails();
     initDeleteWorkspace();
   }
+  async function loadOverviewRecentChapter() {
+    const box = document.getElementById("overview-recent-chapter");
+    if (!box) return;
+    box.innerHTML = skeleton(1);
+    try {
+      const data = await fetchJson(wsUrl("/drafts"));
+      const drafts = Array.isArray(data.drafts) ? data.drafts.filter(function (draft) {
+        const chapter = finiteStyleNumber(draft && draft.chapter);
+        return chapter != null && Number.isInteger(chapter) && chapter > 0 && draft.variant !== "partial";
+      }) : [];
+      drafts.sort(function (a, b) { return Number(b.chapter) - Number(a.chapter); });
+      if (!drafts.length) {
+        box.innerHTML = emptyState("还没有保存续写章节", "完成正文阶段后，最近保存的章节会显示在这里。", '<a class="btn btn-primary" href="' + wsHref("/workbench") + '">进入创作工作台</a>');
+        return;
+      }
+      const chapter = Number(drafts[0].chapter);
+      box.innerHTML = '<div class="card"><div class="card-body section-title"><div><p class="eyebrow ornament">最近保存</p><h3>第 ' + chapter + ' 章</h3><p class="muted">内容来自已保存正文。</p></div><a class="btn btn-primary" href="' + wsHref("/chapter/" + chapter) + '">打开章节</a></div></div>';
+    } catch (err) {
+      box.innerHTML = publicLoadError("最近章节没有读取成功", "已保存内容不受影响，可从章节列表继续查找。", '<a class="btn btn-secondary" href="' + wsHref("/chapters") + '">打开章节列表</a>');
+    }
+  }
   function renderOverview(item) {
-    const readiness = item.readiness || {};
+    const readiness = item.readiness && typeof item.readiness === "object" ? item.readiness : {};
     const statusEl = document.getElementById("overview-status-badge");
     if (statusEl) statusEl.innerHTML = statusBadge(readiness.status || "blocked");
     const summary = document.getElementById("overview-summary");
     if (summary) {
       summary.innerHTML =
-        '<div class="tile"><span class="k">原文章节</span><span class="v">' + (item.chapter_count || 0) + "</span></div>" +
-        '<div class="tile"><span class="k">续写草稿</span><span class="v">' + (item.draft_count || 0) + "</span></div>" +
+        '<div class="tile"><span class="k">章节总览</span><span class="v">' + safePublicCount(item.chapter_count) + '<span class="sub"> 原文</span></span></div>' +
+        '<div class="tile"><span class="k">最近保存</span><span class="v">' + safePublicCount(item.draft_count) + '<span class="sub"> 章续写</span></span></div>' +
         '<div class="tile"><span class="k">评审通过</span><span class="v">' +
-        (item.review_accepted || 0) + '<span class="sub"> / ' + (item.review_total || 0) + '</span></span></div>' +
-        '<div class="tile"><span class="k">计划章节</span><span class="v">' + ((item.plan || {}).chapters || 0) + "</span></div>";
+        safePublicCount(item.review_accepted) + '<span class="sub"> / ' + safePublicCount(item.review_total) + '</span></span></div>' +
+        '<div class="tile"><span class="k">下一章准备</span><span class="v metric-small">' +
+        (readiness.status === "ready" ? "可以开始" : readiness.status === "warn" ? "需要留意" : readiness.status === "blocked" ? "需要补充" : "状态待确认") + "</span></div>";
     }
     const nextAction = document.getElementById("overview-next-action");
     if (nextAction) {
@@ -2746,19 +2882,19 @@ JS_DASHBOARD = """\
         ? "已设置"
         : "未设置";
       let hint = "";
-      let cta = '<a class="btn btn-primary" href="/w/' + encodeURIComponent(ws) + '/continue">▸ 进入续写</a>';
+      let cta = '<a class="btn btn-primary" href="/w/' + encodeURIComponent(ws) + '/workbench">进入创作工作台</a>';
       if (status === "ready") {
         hint = "一切就绪。可以直接续写下一章。";
       } else if (status === "warn") {
         hint = "可以续写，但有可关注的提示。";
       } else {
         hint = blockers.length ? readinessReasonText(blockers[0]) : "存在阻断项，需先处理。";
-        cta = '<a class="btn btn-secondary" href="/w/' + encodeURIComponent(ws) + '/continue">查看待办</a>';
+        cta = '<a class="btn btn-primary" href="/w/' + encodeURIComponent(ws) + '/workbench">进入创作工作台</a>';
       }
       nextAction.innerHTML =
         '<p class="eyebrow ornament">下一步</p>' +
         '<h2>' + escapeHtml(hint) + '</h2>' +
-        '<p class="hint">起点：' + escapeHtml(start) + '　·　计划：' + ((item.plan || {}).chapters || 0) + ' 章</p>' +
+        '<p class="hint">续写起点：' + escapeHtml(start) + '　·　章节计划：' + safePublicCount((item.plan || {}).chapters) + ' 章</p>' +
         '<div class="cta-row">' + cta + '</div>';
     }
     const blockersBox = document.getElementById("overview-blockers");
@@ -2781,7 +2917,7 @@ JS_DASHBOARD = """\
         );
       }
       blockersBox.innerHTML = parts.join("") ||
-        '<div class="alert info">没有阻断项也没有警示，可以继续写作。</div>';
+        '<div class="alert info">当前没有待处理问题，可以继续创作下一章。</div>';
     }
   }
   async function loadOverviewDetails() {
@@ -3098,8 +3234,59 @@ JS_DASHBOARD = """\
       const href = link.getAttribute("href") || "/";
       ev.preventDefault();  // synchronous — must precede the async check
       if (leaveGuardModalOpen) return;  // a modal is up; resolve it first
+      const dirtyDraft = document.getElementById("draft-edit-area");
+      if (dirtyDraft && dirtyDraft.dataset.dirty === "1") {
+        leaveGuardModalOpen = true;
+        showDraftLeaveModal(href, dirtyDraft);
+        return;
+      }
       const seq = ++leaveGuardSeq;
       checkLeaveGuard(href, seq);
+    });
+  }
+  function showDraftLeaveModal(href, area) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="draft-leave-title">' +
+      '<div class="modal-header" id="draft-leave-title">正文还有未保存的修改</div>' +
+      '<div class="modal-body"><p>你可以继续编辑、放弃这次修改，或先保存当前正文再离开。</p>' +
+      '<div id="draft-leave-error" role="status" aria-live="polite"></div></div>' +
+      '<div class="modal-footer modal-footer-equal">' +
+      '<button type="button" class="btn btn-ghost" data-modal-close>继续编辑</button>' +
+      '<button type="button" class="btn btn-danger" data-discard-draft>放弃修改</button>' +
+      '<button type="button" class="btn btn-primary" data-save-draft-leave>保存并离开</button>' +
+      '</div></div>';
+    const stayBtn = backdrop.querySelector("[data-modal-close]");
+    const discardBtn = backdrop.querySelector("[data-discard-draft]");
+    const saveLeaveBtn = backdrop.querySelector("[data-save-draft-leave]");
+    const errorBox = backdrop.querySelector("#draft-leave-error");
+    const closeModal = mountModal(backdrop, {
+      initialFocus: stayBtn,
+      onClose: function () { leaveGuardModalOpen = false; area.focus(); },
+    });
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) closeModal();
+    });
+    discardBtn.addEventListener("click", function () {
+      delete area.dataset.dirty;
+      window.location.href = href;
+    });
+    saveLeaveBtn.addEventListener("click", async function () {
+      if (typeof area._saveBeforeLeave !== "function") return;
+      setControlBusy(saveLeaveBtn, true, "正在保存");
+      discardBtn.disabled = true;
+      stayBtn.disabled = true;
+      const saved = await area._saveBeforeLeave();
+      if (saved) {
+        window.location.href = href;
+        return;
+      }
+      errorBox.textContent = "没有保存成功。编辑内容仍保留，请重试。";
+      setControlBusy(saveLeaveBtn, false);
+      discardBtn.disabled = false;
+      stayBtn.disabled = false;
+      saveLeaveBtn.focus();
     });
   }
   async function checkLeaveGuard(href, seq) {
@@ -3268,7 +3455,7 @@ JS_DASHBOARD = """\
         return '<li>' + escapeHtml(e) + '</li>';
       }).join("");
       const rels = (Array.isArray(c.relationships_in_play) ? c.relationships_in_play : []).map(function (r) {
-        return '<span class="badge no-dot">' + escapeHtml(typeof r === "string" ? r : JSON.stringify(r)) + '</span>';
+        return '<span class="badge no-dot">' + escapeHtml(typeof r === "string" ? r : "关系信息待确认") + '</span>';
       }).join(" ");
       const body =
         '<div class="card-body">' +
@@ -3882,28 +4069,29 @@ JS_DASHBOARD = """\
       box.innerHTML = '<p class="muted">实体图谱尚未生成。</p>';
       return;
     }
-    const entities = (graph.entities || []).filter(function (e) { return e && e.id; });
-    const rels = graph.relationships || [];
+    const entities = (Array.isArray(graph.entities) ? graph.entities : []).filter(function (e) {
+      return isPlainObject(e) && typeof e.id === "string" && e.id;
+    });
+    const rels = (Array.isArray(graph.relationships) ? graph.relationships : []).filter(isPlainObject);
     const entityNames = {};
-    entities.forEach(function (e) { entityNames[String(e.id)] = e.name || e.id; });
+    entities.forEach(function (e) { entityNames[e.id] = typeof e.name === "string" && e.name ? e.name : "未命名人物"; });
     let html = '<div class="field"><label>实体（名称 / 核心事实 / 描写可编辑）</label></div>';
     entities.forEach(function (e, i) {
-      const facts = (e.key_facts || []).join("\\n");
+      const facts = (Array.isArray(e.key_facts) ? e.key_facts : []).filter(function (fact) { return typeof fact === "string"; }).join("\\n");
       html += '<div class="card" style="margin-bottom:8px"><div class="card-body">' +
-        '<div class="field"><label for="ent-name-' + i + '">名称 <span class="muted">[' +
-        escapeHtml(String(e.type || "entity")) + " · " + escapeHtml(String(e.id)) + ']</span></label>' +
-        '<input type="text" id="ent-name-' + i + '" value="' + escapeHtml(e.name || "") + '"></div>' +
+        '<div class="field"><label for="ent-name-' + i + '">名称</label>' +
+        '<input type="text" id="ent-name-' + i + '" value="' + escapeHtml(typeof e.name === "string" ? e.name : "") + '"></div>' +
         '<div class="field"><label for="ent-facts-' + i + '">核心事实（每行一条）</label>' +
         '<textarea id="ent-facts-' + i + '" rows="3">' + escapeHtml(facts) + '</textarea></div>' +
         '<div class="field"><label for="ent-desc-' + i + '">描写</label>' +
-        '<textarea id="ent-desc-' + i + '" rows="2">' + escapeHtml(e.description || "") + '</textarea></div>' +
+        '<textarea id="ent-desc-' + i + '" rows="2">' + escapeHtml(typeof e.description === "string" ? e.description : "") + '</textarea></div>' +
         '<div class="form-actions" style="justify-content:flex-end">' +
         '<button type="button" class="btn btn-ghost btn-sm" data-entity-save="' + i + '" data-entity-id="' + escapeHtml(String(e.id)) + '">保存实体</button>' +
         '</div></div></div>';
     });
     const activeRels = [];
     rels.forEach(function (r, idx) {
-      const active = ((r && r.timeline) || []).find(function (t) { return t && t.active; });
+      const active = (Array.isArray(r.timeline) ? r.timeline : []).find(function (t) { return isPlainObject(t) && t.active === true; });
       if (active) activeRels.push({ idx: idx, rel: r, active: active });
     });
     if (activeRels.length) {
@@ -3916,7 +4104,7 @@ JS_DASHBOARD = """\
           '<label for="rel-state-' + item.idx + '">' + escapeHtml(src + " ↔ " + dst) +
           ' <span class="muted">(' + escapeHtml(String(r.relation_type || "关系")) + ')</span></label>' +
           '<div style="display:flex;gap:4px">' +
-          '<input type="text" id="rel-state-' + item.idx + '" value="' + escapeHtml(item.active.state || "") + '" style="flex:1">' +
+          '<input type="text" id="rel-state-' + item.idx + '" value="' + escapeHtml(typeof item.active.state === "string" ? item.active.state : "") + '" style="flex:1">' +
           '<button type="button" class="btn btn-ghost btn-sm" data-rel-save="' + item.idx + '"' +
           ' data-src-id="' + escapeHtml(String(r.src_id || "")) + '"' +
           ' data-dst-id="' + escapeHtml(String(r.dst_id || "")) + '">保存</button>' +
@@ -3988,15 +4176,36 @@ JS_DASHBOARD = """\
       // premise. Resolved here at submit time, after refreshWorkbench populated
       // lastWorkbenchStatus.
       const stepName = typeof step === "function" ? step() : step;
+      const params = paramsFn ? paramsFn(form) : {};
+      if (stepName === "write-book") {
+        setFormSubmitBusy(form, true, "正在检查");
+        if (box) box.innerHTML = '<div class="alert info">正在检查是否可以继续…</div>';
+        let readiness;
+        try {
+          readiness = await fetchJson(wsUrl("/readiness?chapters=" + encodeURIComponent(params.chapters || 1) + "&resume_from=1&replan_every=0"));
+        } catch (err) {
+          if (box) box.innerHTML = publicLoadError("续写入口检查失败", "没有开始生成，请稍后重试检查。", "");
+          setFormSubmitBusy(form, false);
+          return;
+        }
+        setFormSubmitBusy(form, false);
+        if (!readiness || (readiness.status !== "ready" && readiness.status !== "warn")) {
+          const primary = readiness && readiness.primary_blocker;
+          const reason = primary && typeof primary.kind === "string"
+            ? readinessReasonText(primary.kind)
+            : "当前还不能开始正文，请先完成页面提示的准备步骤。";
+          if (box) box.innerHTML = publicLoadError("需要先完成准备", reason, "");
+          return;
+        }
+      }
       if (!await confirmPaidAction({
         title: "确认" + stepLabel(stepName),
         action: "将开始“" + stepLabel(stepName) + "”。",
         preservation: "已有作品内容会保留；开始后可在任务记录中查看进度或请求取消。",
       })) return;
-      setControlBusy(submit, true, "处理中");
+      setFormSubmitBusy(form, true, "处理中");
       if (box) box.innerHTML = '<div class="alert info">正在启动“' + escapeHtml(stepLabel(stepName)) + "”…</div>";
       try {
-        const params = paramsFn ? paramsFn(form) : {};
         const data = await postJson(wsUrl("/run"), { step: stepName, params: params });
         await pollJob(data.job_id, box, submit, async () => {
           await refreshWorkbench();
@@ -4007,7 +4216,8 @@ JS_DASHBOARD = """\
         });
       } catch (err) {
         if (box) box.innerHTML = renderErrorCard(err);
-        setControlBusy(submit, false);
+      } finally {
+        setFormSubmitBusy(form, false);
       }
     });
   }
@@ -4056,8 +4266,10 @@ JS_DASHBOARD = """\
       const header = card && card.querySelector(".card-header");
       if (!card || !header) return;
       const current = st.stage === s.key;
-      const state = s.done ? "已完成" : current ? "当前阶段" : s.locked ? "未开始" : "可开始";
-      card.dataset.stageState = s.done ? "completed" : current ? "current" : s.locked ? "not-started" : "ready";
+      const running = Array.isArray(st.running_stages) && st.running_stages.indexOf(s.key) >= 0;
+      const needsUpdate = s.key === "prepare" && st.expansion_stale === true;
+      const state = running ? "正在处理" : needsUpdate ? "需要更新" : s.done ? "已完成" : s.locked ? "未开始" : "可以开始";
+      card.dataset.stageState = running ? "running" : needsUpdate ? "stale" : s.done ? "completed" : current ? "current" : s.locked ? "not-started" : "ready";
       let marker = header.querySelector(".stage-state-label");
       if (!marker) {
         marker = document.createElement("span");
@@ -4082,6 +4294,14 @@ JS_DASHBOARD = """\
     let st;
     try {
       st = await fetchJson(wsUrl("/workbench"));
+      const activeData = await fetchJson(wsUrl("/jobs/active")).catch(function () { return { jobs: [] }; });
+      const stageByStep = {
+        "prepare-greenfield": "prepare", "rebuild-for-start": "prepare",
+        debate: "outline", "plan-chapters": "plan", "write-book": "write", "review-chapter": "write",
+      };
+      st.running_stages = (Array.isArray(activeData.jobs) ? activeData.jobs : []).map(function (job) {
+        return stageByStep[String(job && job.step || "")] || "";
+      }).filter(Boolean);
     } catch (err) {
       return;
     }
@@ -4112,7 +4332,11 @@ JS_DASHBOARD = """\
     setStageEnabled("outline-submit", !!st.has_kb);
     setStageEnabled("outline-save", !!st.has_outline);
     setStageEnabled("plan-chapters-submit", !!st.has_outline);
-    setStageEnabled("write-book-submit", !!st.has_plan);
+    const writeSubmit = document.getElementById("write-book-submit");
+    const openChapter = document.getElementById("write-book-open-chapter");
+    setStageEnabled("write-book-submit", !!st.has_plan && st.stage !== "done");
+    if (writeSubmit) writeSubmit.hidden = st.stage === "done";
+    if (openChapter) openChapter.hidden = st.stage !== "done";
     // iter 048c: re-label the plan-chapters button so users see that they're
     // RE-generating an existing plan (重生成 = re-plan from scratch, since the
     // backend already forces force=true; we drop the prior chapter_plan.json
@@ -5092,7 +5316,7 @@ JS_DASHBOARD = """\
       ]);
       const reviewByCh = new Map();
       for (const r of (reviews.chapters || [])) reviewByCh.set(r.chapter, r);
-      renderChapters(box, drafts.drafts || [], manifest.chapters || [], reviewByCh);
+      renderChapters(box, Array.isArray(drafts.drafts) ? drafts.drafts : [], Array.isArray(manifest.chapters) ? manifest.chapters : [], reviewByCh);
     } catch (err) {
       box.innerHTML = renderErrorCard(err);
     }
@@ -5108,68 +5332,83 @@ JS_DASHBOARD = """\
       return;
     }
     const rows = [];
-    rows.push(
-      '<table class="table table-wide" id="chapters-data-table"><thead><tr>' +
-      "<th>#</th><th>类型</th><th>标题</th>" +
-      "<th>正文结果</th><th>评审结果</th><th>重写次数</th><th>字数</th><th></th>" +
-      "</tr></thead><tbody>"
-    );
     for (const d of drafts) {
       const r = reviewByCh.get(d.chapter) || {};
-      const id = "chapter_" + String(d.chapter).padStart(2, "0");
-      const title = r.title || "";
+      const chapterNo = Number.isInteger(Number(d.chapter)) && Number(d.chapter) > 0 ? Number(d.chapter) : 0;
+      if (!chapterNo) continue;
+      const id = "第 " + chapterNo + " 章";
+      const title = typeof r.title === "string" && r.title.trim() ? r.title.trim().slice(0, 120) : id;
       const isPartial = d.variant === "partial";
-      const detailHref = isPartial ? wsUrl("/draft/" + d.chapter + "?variant=partial") : "/w/" + encodeURIComponent(ws) + "/chapter/" + d.chapter;
-      const typeCell = isPartial
-        ? '<span class="badge warn">临时草稿</span> <span class="badge reject">未完成</span>'
-        : "续写";
+      const detailHref = isPartial ? wsUrl("/draft/" + chapterNo + "?variant=partial") : "/w/" + encodeURIComponent(ws) + "/chapter/" + chapterNo;
+      const state = isPartial ? "需要处理" : statusLabel(d.review_verdict || d.verdict || "unknown");
+      const updated = publicDateLabel(typeof d.updated_at === "string" ? d.updated_at : "");
       rows.push(
-        '<tr class="chapter-row" data-title="' + escapeHtml(title) + '" data-id="' + escapeHtml(id) +
-        '" data-status="' + escapeHtml(d.verdict || "") + '">' +
-        "<td>" + d.chapter + "</td>" +
-        "<td>" + typeCell + "</td>" +
-        "<td>" + escapeHtml(title) + "</td>" +
-        "<td>" + verdictBadge(d.verdict) + "</td>" +
-        "<td>" + verdictBadge(d.review_verdict) + "</td>" +
-        "<td>" + escapeHtml(String(d.rewrite_count == null ? "—" : d.rewrite_count)) + "</td>" +
-        "<td>" + escapeHtml(String(d.chars || 0)) + "</td>" +
-        '<td><a class="btn btn-ghost btn-sm" href="' + detailHref + '">查看 →</a></td>' +
-        "</tr>"
+        '<article class="chapter-item" data-chapter-item data-source="drafts" data-number="' + chapterNo + '" data-title="' + escapeHtml(title) + '" data-id="' + escapeHtml(id) + '">' +
+        '<div class="chapter-item-main"><div class="cluster"><span class="badge no-dot badge-novel">续写章节</span>' + statusBadge(isPartial ? "blocked" : (d.review_verdict || d.verdict || "unknown")) + '</div>' +
+        '<h2>' + escapeHtml(title) + '</h2><p class="muted">' + escapeHtml(id) + ' · ' + escapeHtml(String(safePublicCount(d.chars))) + ' 字</p></div>' +
+        '<dl class="chapter-item-meta"><div><dt>来源</dt><dd>续写章节</dd></div><div><dt>状态</dt><dd>' + escapeHtml(state) + '</dd></div><div><dt>更新时间</dt><dd>' + escapeHtml(updated) + '</dd></div></dl>' +
+        '<div class="chapter-item-action">' + (isPartial
+          ? '<a class="btn btn-secondary" href="' + detailHref + '">查看临时内容</a>'
+          : '<a class="btn btn-primary" href="' + detailHref + '">打开章节</a>') + '</div></article>'
       );
     }
-    for (const ch of manifest) {
+    manifest.forEach(function (ch, index) {
+      const title = typeof ch.title === "string" && ch.title.trim() ? ch.title.trim().slice(0, 120) : "原文章节 " + (index + 1);
       rows.push(
-        '<tr class="chapter-row source" data-title="' + escapeHtml(ch.title || "") + '" data-id="' +
-        escapeHtml(ch.chapter_id || "") + '">' +
-        "<td>—</td>" +
-        '<td><span class="badge no-dot">原文</span></td>' +
-        "<td>" + escapeHtml(ch.title || "") + "</td>" +
-        '<td colspan="4" class="muted">' + escapeHtml(String(ch.char_count || "")) + " 字" + "</td>" +
-        "<td></td>" +
-        "</tr>"
+        '<article class="chapter-item source" data-chapter-item data-source="source" data-number="' + (index + 1) + '" data-title="' + escapeHtml(title) + '" data-id="原文章节">' +
+        '<div class="chapter-item-main"><div class="cluster"><span class="badge no-dot">原文章节</span><span class="badge no-dot">只读</span></div><h2>' + escapeHtml(title) + '</h2><p class="muted">' + escapeHtml(String(safePublicCount(ch.char_count))) + ' 字</p></div>' +
+        '<dl class="chapter-item-meta"><div><dt>来源</dt><dd>原文章节</dd></div><div><dt>状态</dt><dd>只读</dd></div><div><dt>更新时间</dt><dd>随原文导入</dd></div></dl>' +
+        '<div class="chapter-item-action"><span class="btn btn-ghost" aria-disabled="true">原文只读</span></div></article>'
       );
-    }
-    rows.push("</tbody></table>");
-    box.innerHTML = tableScroll(rows.join(""));
+    });
+    box.innerHTML = '<div class="chapter-items" id="chapters-data-table">' + rows.join("") + '</div><div id="chapters-empty-filter" hidden></div>';
   }
   function bindChapterFilter() {
     const search = document.getElementById("chapter-search");
     const toggles = document.querySelectorAll(".filter-toggle .btn");
+    const sort = document.getElementById("chapter-sort");
+    const clear = document.getElementById("chapter-clear-filter");
+    const live = document.getElementById("chapter-filter-status");
     let mode = "all";
     function apply() {
       const q = (search && search.value || "").trim().toLowerCase();
-      document.querySelectorAll("#chapters-data-table tbody tr").forEach((tr) => {
-        const isSource = tr.classList.contains("source");
+      const items = Array.from(document.querySelectorAll("[data-chapter-item]"));
+      if (sort && sort.value === "number") items.sort(function (a, b) { return Number(a.dataset.number) - Number(b.dataset.number); });
+      else items.sort(function (a, b) { return Number(b.dataset.number) - Number(a.dataset.number); });
+      const parent = document.getElementById("chapters-data-table");
+      items.forEach(function (item) { if (parent) parent.appendChild(item); });
+      let shown = 0;
+      items.forEach((tr) => {
+        const isSource = tr.dataset.source === "source";
         const title = (tr.dataset.title || "").toLowerCase();
         const id = (tr.dataset.id || "").toLowerCase();
         const matchesQuery = !q || title.includes(q) || id.includes(q);
         let matchesMode = true;
         if (mode === "drafts") matchesMode = !isSource;
         else if (mode === "source") matchesMode = isSource;
-        tr.style.display = (matchesQuery && matchesMode) ? "" : "none";
+        const visible = matchesQuery && matchesMode;
+        tr.hidden = !visible;
+        if (visible) shown += 1;
       });
+      const empty = document.getElementById("chapters-empty-filter");
+      if (empty) {
+        empty.hidden = shown !== 0;
+        empty.innerHTML = shown ? "" : emptyState("没有符合条件的章节", "当前条件：" + (q ? "关键词“" + q + "”；" : "") + ({ all: "全部来源", drafts: "续写章节", source: "原文章节" }[mode] || "全部来源"), '<button type="button" class="btn btn-secondary" data-clear-chapter-filter>清除筛选</button>');
+      }
+      if (live) live.textContent = "显示 " + shown + " 个章节。";
     }
     if (search) search.addEventListener("input", apply);
+    if (sort) sort.addEventListener("change", apply);
+    function reset() {
+      if (search) search.value = "";
+      mode = "all";
+      toggles.forEach(function (b) { b.classList.toggle("active", b.dataset.mode === "all"); });
+      if (sort) sort.value = "newest";
+      apply();
+      if (search) search.focus();
+    }
+    if (clear) clear.addEventListener("click", reset);
+    document.addEventListener("click", function (ev) { if (ev.target.closest("[data-clear-chapter-filter]")) reset(); });
     toggles.forEach((btn) => {
       btn.addEventListener("click", () => {
         toggles.forEach((b) => b.classList.remove("active"));
@@ -5178,6 +5417,7 @@ JS_DASHBOARD = """\
         apply();
       });
     });
+    apply();
   }
 
   // ===== page: chapter detail ============================================
@@ -5219,10 +5459,16 @@ JS_DASHBOARD = """\
     const saveReviewBtn = document.getElementById("draft-save-review");
     const statusBox = document.getElementById("draft-edit-status");
     if (!area || !saveBtn || !saveReviewBtn) return;
-    area.addEventListener("input", function () { area.dataset.dirty = "1"; });
+    function saveState(text, kind) {
+      if (!statusBox) return;
+      statusBox.className = "save-state " + (kind || "");
+      statusBox.textContent = text;
+    }
+    area.addEventListener("input", function () { area.dataset.dirty = "1"; saveState("有尚未保存的修改", "warn"); });
     async function saveDraft() {
       const content = area.value;
       if (!content.trim()) {
+        saveState("没有保存成功。正文不能为空，修改仍保留。", "error");
         showToast("正文不能为空", "error");
         return null;
       }
@@ -5230,36 +5476,59 @@ JS_DASHBOARD = """\
       delete area.dataset.dirty;
       return res;
     }
-    saveBtn.addEventListener("click", async function () {
-      saveBtn.disabled = saveReviewBtn.disabled = true;
+    area._saveBeforeLeave = async function () {
+      saveBtn.disabled = true;
+      saveReviewBtn.disabled = true;
+      saveState("正在保存", "busy");
       try {
         const res = await saveDraft();
-        if (res) {
-          if (statusBox) statusBox.innerHTML = "";
-          showToast("第 " + num + " 章已保存；评审已过期，请重新评审", "info");
-          const data = await fetchJson(wsUrl("/draft/" + num));
-          renderChapterDetail(data);
-        }
+        if (!res) return false;
+        saveState("已保存", "success");
+        showToast("第 " + num + " 章已保存；内容检查需要更新", "info");
+        return true;
       } catch (err) {
-        // iter063 A2: route through the error card (cause + action) in the
-        // editor's status slot instead of a one-line raw-message toast.
-        if (statusBox) statusBox.innerHTML = renderErrorCard(err);
-        else showToast("保存失败：" + errTitle(err), "error");
+        saveState("没有保存成功。编辑内容仍保留，请重试。", "error");
+        return false;
       } finally {
-        saveBtn.disabled = saveReviewBtn.disabled = false;
+        saveBtn.disabled = false;
+        saveReviewBtn.disabled = false;
+      }
+    };
+    window.addEventListener("beforeunload", function (ev) {
+      if (area.dataset.dirty !== "1") return;
+      ev.preventDefault();
+      ev.returnValue = "";
+    });
+    saveBtn.addEventListener("click", async function () {
+      setControlBusy(saveBtn, true, "正在保存");
+      const saved = await area._saveBeforeLeave();
+      setControlBusy(saveBtn, false);
+      if (saved) {
+        const data = await fetchJson(wsUrl("/draft/" + num));
+        renderChapterDetail(data);
       }
     });
     saveReviewBtn.addEventListener("click", async function () {
+      if (!area.value.trim()) {
+        saveState("没有保存成功。正文不能为空，修改仍保留。", "error");
+        showToast("正文不能为空", "error");
+        return;
+      }
       if (!await confirmPaidAction({
-        title: "确认保存并重新评审",
-        action: "将保存当前正文并重新生成本章评审。",
+        title: "确认保存并重新检查",
+        action: "将保存当前正文并重新进行本章内容检查。",
         scope: "第 " + num + " 章",
         preservation: "当前正文会先保存；原评审记录不会覆盖正文。",
       })) return;
-      saveBtn.disabled = saveReviewBtn.disabled = true;
+      saveBtn.disabled = true;
+      setControlBusy(saveReviewBtn, true, "正在保存");
+      saveState("正在保存", "busy");
+      let draftSaved = false;
       try {
         const res = await saveDraft();
         if (!res) return;
+        draftSaved = true;
+        saveState("已保存，正在检查", "busy");
         const job = await postJson(wsUrl("/run"), {
           step: "review-chapter",
           params: { chapter: Number(num) },
@@ -5269,11 +5538,12 @@ JS_DASHBOARD = """\
           renderChapterDetail(data);
         });
       } catch (err) {
-        // iter063 A2: surface the friendly card in the editor status slot.
-        if (statusBox) statusBox.innerHTML = renderErrorCard(err);
-        else showToast("保存或评审失败：" + errTitle(err), "error");
+        saveState(draftSaved
+          ? "已保存，但检查没有开始。可以再次选择重新检查。"
+          : "没有保存成功。编辑内容仍保留，请重试。", draftSaved ? "warn" : "error");
       } finally {
-        saveBtn.disabled = saveReviewBtn.disabled = false;
+        saveBtn.disabled = false;
+        setControlBusy(saveReviewBtn, false);
       }
     });
   }
@@ -5398,9 +5668,9 @@ JS_DASHBOARD = """\
       "</div>";
   }
   function renderChapterDetail(data) {
-    const meta = data.meta || {};
-    const review = data.review || {};
-    const num = data.chapter;
+    const meta = isPlainObject(data && data.meta) ? data.meta : {};
+    const review = isPlainObject(data && data.review) ? data.review : {};
+    const num = safeOptionalCount(data && data.chapter);
     const editArea = document.getElementById("draft-edit-area");
     const saveBtn = document.getElementById("draft-save");
     const saveReviewBtn = document.getElementById("draft-save-review");
@@ -5413,24 +5683,24 @@ JS_DASHBOARD = """\
     // header bar
     const head = document.getElementById("chapter-meta-bar");
     if (head) {
-      const cost = meta.cost_cny != null ? "¥" + Number(meta.cost_cny).toFixed(3) : "—";
+      const rewriteCount = safeOptionalCount(meta.rewrite_count);
+      const charCount = safeOptionalCount(meta.chinese_char_count);
       head.innerHTML =
         verdictBadge(meta.verdict || review.verdict) +
         styleDriftBadge(meta.style_drift) +
         styleRewriteBadge(meta) +
-        '<span class="badge no-dot">重写 ' + (meta.rewrite_count || 0) + " 次</span>" +
-        '<span class="badge no-dot">' + (meta.chinese_char_count || 0) + " 字</span>" +
-        '<span class="badge no-dot">' + escapeHtml(cost) + "</span>" +
-        (meta.needs_human_review ? '<span class="badge warn">需复核</span>' : "");
+        '<span class="badge no-dot">重写 ' + (rewriteCount == null ? "—" : rewriteCount) + " 次</span>" +
+        '<span class="badge no-dot">' + (charCount == null ? "—" : charCount) + " 字</span>" +
+        (meta.needs_human_review === true ? '<span class="badge warn">需复核</span>' : "");
     }
     // edit tab — populate unless the user is mid-edit (mirrors outline-md)
     if (editArea && !editArea.dataset.dirty && document.activeElement !== editArea) {
-      editArea.value = data.content || "";
+      editArea.value = typeof data.content === "string" ? data.content : "";
     }
     // body — render as paragraphs
     const body = document.getElementById("chapter-body");
     if (body) {
-      const lines = (data.content || "").split(/\\n/);
+      const lines = (typeof data.content === "string" ? data.content : "").split(/\\n/);
       body.innerHTML = '<div class="reading-body">' +
         lines.map((line, idx) => {
           const sourceLine = idx + 1;
@@ -5444,7 +5714,8 @@ JS_DASHBOARD = """\
     // reviews tab
     const reviewsBox = document.getElementById("tab-review");
     if (reviewsBox) {
-      const agents = review.agent_reviews || meta.agent_reviews || [];
+      const candidates = Array.isArray(review.agent_reviews) ? review.agent_reviews : (Array.isArray(meta.agent_reviews) ? meta.agent_reviews : []);
+      const agents = candidates.filter(isPlainObject);
       if (!agents.length) {
         reviewsBox.innerHTML = '<p class="muted">本章暂无评审记录。</p>';
       } else {
@@ -5454,7 +5725,7 @@ JS_DASHBOARD = """\
     // 文字检查 tab
     const lintBox = document.getElementById("tab-lint");
     if (lintBox) {
-      const issues = meta.lint_issues || [];
+      const issues = Array.isArray(meta.lint_issues) ? meta.lint_issues.filter(isPlainObject) : [];
       if (!issues.length) {
         lintBox.innerHTML = '<p class="muted">没有文字检查提示。</p>';
       } else {
@@ -5503,8 +5774,8 @@ JS_DASHBOARD = """\
         advBox.innerHTML = '<div class="stack">' + suggestions.map((s) => (
           '<div class="advisor-item">' +
           '<span class="type">修改建议</span>' +
-          '<div class="section">' + escapeHtml(s.section || "(整段)") + "</div>" +
-          '<div class="guidance">' + escapeHtml(s.guidance || "") + "</div>" +
+          '<div class="section">' + escapeHtml(typeof s.section === "string" ? s.section : "（整段）") + "</div>" +
+          '<div class="guidance">' + escapeHtml(typeof s.guidance === "string" ? s.guidance : "") + "</div>" +
           "</div>"
         )).join("") + "</div>";
       }
@@ -5512,12 +5783,14 @@ JS_DASHBOARD = """\
     // history tab (iter 074: + 多版本草稿 diff)
     const histBox = document.getElementById("tab-history");
     if (histBox) {
+      const historyRewriteCount = safeOptionalCount(meta.rewrite_count);
+      const historyRewriteRound = safeOptionalCount(meta.rewrite_round);
       histBox.innerHTML =
         '<div class="kv-list compact">' +
-        '<div class="k">重写次数</div><div class="v">' + (meta.rewrite_count || 0) + "</div>" +
-        '<div class="k">重写轮次</div><div class="v">' + (meta.rewrite_round || 0) + "</div>" +
-        '<div class="k">是否润色</div><div class="v">' + (meta.polish_applied ? "是" : "否") + "</div>" +
-        '<div class="k">历史快照</div><div class="v">' + (meta.snapshot_path ? "已保留" : "无") + "</div>" +
+        '<div class="k">重写次数</div><div class="v">' + (historyRewriteCount == null ? "—" : historyRewriteCount) + "</div>" +
+        '<div class="k">重写轮次</div><div class="v">' + (historyRewriteRound == null ? "—" : historyRewriteRound) + "</div>" +
+        '<div class="k">是否润色</div><div class="v">' + (meta.polish_applied === true ? "是" : meta.polish_applied === false ? "否" : "状态待确认") + "</div>" +
+        '<div class="k">历史快照</div><div class="v">' + (typeof meta.snapshot_path === "string" && meta.snapshot_path ? "已保留" : "无") + "</div>" +
         "</div>" +
         '<div class="diff-panel">' +
         '<h4>多版本对比</h4>' +
@@ -5620,16 +5893,21 @@ JS_DASHBOARD = """\
   function renderAgentReview(a) {
     // iter042 schema evolution: current reviewer output writes `scores`;
     // older artifacts used `sub_scores`, so the UI accepts both.
-    const sub = (a.scores && Object.keys(a.scores).length ? a.scores : a.sub_scores) || {};
+    const scores = isPlainObject(a.scores) ? a.scores : {};
+    const legacyScores = isPlainObject(a.sub_scores) ? a.sub_scores : {};
+    const sub = Object.keys(scores).length ? scores : legacyScores;
     const scoreLabels = { plot: "剧情", prose: "文笔", fidelity: "设定一致性" };
     const bars = ["plot", "prose", "fidelity"].map((k) => {
       const v = sub[k];
-      const pct = (v == null ? 0 : Math.max(0, Math.min(10, Number(v))) * 10);
+      const numeric = finiteStyleNumber(v);
+      const bounded = numeric == null ? null : Math.max(0, Math.min(10, numeric));
+      const pct = bounded == null ? 0 : bounded * 10;
       return '<div class="subscore-bar"><span class="label">' + scoreLabels[k] + "</span>" +
         '<div class="track"><i style="width:' + pct + '%"></i></div>' +
-        '<span class="val">' + (v == null ? "—" : v) + "</span></div>";
+        '<span class="val">' + (bounded == null ? "—" : escapeHtml(bounded.toFixed(1))) + "</span></div>";
     }).join("");
-    const issues = (a.issues || []).slice(0, 6).map(function (it) {
+    const issueItems = Array.isArray(a.issues) ? a.issues : [];
+    const issues = issueItems.slice(0, 6).map(function (it) {
       if (typeof it === "string" && it.trim()) return "<li>" + escapeHtml(it.trim()) + "</li>";
       if (it && typeof it === "object") {
         const text = [it.guidance, it.description, it.issue].find(function (value) {
@@ -5643,9 +5921,9 @@ JS_DASHBOARD = """\
       '<div class="review-card">' +
       '<div><div class="name">评审角色</div>' +
       '<div class="verdict">' + verdictBadge(a.verdict) +
-      '<span class="muted" style="margin-left:6px">评分 ' + (a.score == null ? "—" : a.score) + "</span></div></div>" +
+      '<span class="muted" style="margin-left:6px">评分 ' + (finiteStyleNumber(a.score) == null ? "—" : escapeHtml(finiteStyleNumber(a.score).toFixed(1))) + "</span></div></div>" +
       '<div class="stack">' + bars +
-      (issues ? '<details><summary class="muted">问题（' + (a.issues || []).length + "）</summary><ul>" + issues + "</ul></details>" : "") +
+      (issues ? '<details><summary class="muted">问题（' + issueItems.length + "）</summary><ul>" + issues + "</ul></details>" : "") +
       "</div></div>"
     );
   }
@@ -7296,7 +7574,7 @@ JS_DASHBOARD = """\
       '<th>任务</th><th>状态</th><th>耗时</th><th>输入 / 输出文字用量</th><th>尝试</th>' +
       '</tr></thead><tbody>' + body + '</tbody></table>');
   }
-  async function initJobs() {
+  async function initDramaJobsLegacy() {
     const recentBox = document.getElementById("jobs-recent");
     const logsBox = document.getElementById("jobs-logs");
     if (recentBox) recentBox.innerHTML = skeleton(4);
@@ -7308,33 +7586,22 @@ JS_DASHBOARD = """\
         recentBox.innerHTML = emptyState("尚无任务历史", "发起第一个生成任务后会出现在这里。", "");
       } else {
         const byId = new Map();
-        const rows = items.map((job) => {
+        const rows = items.map(function (job) {
           byId.set(job.job_id || "", job);
           const trace = job.trace_id || "";
-          const note = jobActionableSummary(job);
           const rowId = "job-drawer-" + escapeHtml(job.job_id || "");
-          return (
-            '<tr class="job-row">' +
-            '<td><button type="button" class="btn btn-icon btn-sm job-toggle" aria-label="展开任务详情" aria-expanded="false" aria-controls="' + rowId + '" data-job-toggle="' + escapeHtml(job.job_id || "") + '">▸</button></td>' +
-            "<td>" + escapeHtml(stepLabel(job.step)) + "</td>" +
-            "<td>" + statusBadge(job.status || "?") + "</td>" +
-            '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + "…</code> " + copyButton(job.job_id || "") + "</td>" +
-            '<td><span class="trace">' + escapeHtml(trace || "—") + "</span>" + (trace ? " " + copyButton(trace) : "") + "</td>" +
-            "<td>" + escapeHtml(formatJobTimestamp(job.started_at)) + "</td>" +
-            "<td>" + escapeHtml(note ? note.slice(0, 120) : "") + "</td>" +
-            "</tr>" +
-            '<tr class="job-drawer-row" id="' + rowId + '"><td colspan="7">' + renderJobDrawer(job) + "</td></tr>"
-          );
+          return '<tr class="job-row"><td><button type="button" class="btn btn-icon btn-sm job-toggle" aria-label="展开任务详情" aria-expanded="false" aria-controls="' + rowId + '" data-job-toggle="' + escapeHtml(job.job_id || "") + '">▸</button></td>' +
+            '<td>' + escapeHtml(stepLabel(job.step)) + '</td><td>' + statusBadge(job.status || "?") + '</td>' +
+            '<td><code>' + escapeHtml((job.job_id || "").slice(0, 12)) + '…</code></td>' +
+            '<td><span class="trace">' + escapeHtml(trace || "—") + '</span></td><td>' + escapeHtml(formatJobTimestamp(job.started_at)) + '</td>' +
+            '<td>' + escapeHtml(jobActionableSummary(job).slice(0, 120)) + '</td></tr>' +
+            '<tr class="job-drawer-row" id="' + rowId + '"><td colspan="7">' + renderJobDrawer(job) + '</td></tr>';
         }).join("");
-        recentBox.innerHTML =
-          tableScroll('<table class="table table-wide jobs-table"><thead><tr>' +
-          "<th>详情</th><th>任务</th><th>状态</th><th>任务编号</th><th>问题编号</th><th>开始时间</th><th>结果</th>" +
-          "</tr></thead><tbody>" + rows + "</tbody></table>");
+        recentBox.innerHTML = tableScroll('<table class="table table-wide jobs-table"><thead><tr><th>详情</th><th>任务</th><th>状态</th><th>任务编号</th><th>问题编号</th><th>开始时间</th><th>结果</th></tr></thead><tbody>' + rows + '</tbody></table>');
         recentBox.onclick = function (ev) {
           const toggle = ev.target.closest("[data-job-toggle]");
           if (toggle) {
-            const id = toggle.getAttribute("data-job-toggle") || "";
-            const drawer = document.getElementById("job-drawer-" + id);
+            const drawer = document.getElementById("job-drawer-" + (toggle.getAttribute("data-job-toggle") || ""));
             if (drawer) {
               const open = !drawer.classList.contains("open");
               drawer.classList.toggle("open", open);
@@ -7345,26 +7612,102 @@ JS_DASHBOARD = """\
             return;
           }
           const partial = ev.target.closest("[data-job-partial]");
-          if (partial) {
-            openPartialPreview(partial.getAttribute("data-job-partial") || "");
-            return;
+          if (partial) { openPartialPreview(partial.getAttribute("data-job-partial") || ""); return; }
+          const retry = ev.target.closest("[data-job-retry]");
+          if (retry) retryJob(byId.get(retry.getAttribute("data-job-retry") || ""), retry);
+        };
+      }
+    } catch (err) { recentBox.innerHTML = renderErrorCard(err); }
+    try {
+      const data = await fetchJson(wsUrl("/logs/tail?n=30"));
+      logsBox.innerHTML = renderLlmCallSummary(data.lines || []);
+    } catch (err) { logsBox.innerHTML = renderErrorCard(err); }
+  }
+  async function initJobs() {
+    if (document.querySelector(".ui-drama")) return initDramaJobsLegacy();
+    ensureJobCancelDelegate();
+    const recentBox = document.getElementById("jobs-recent");
+    const logsBox = document.getElementById("jobs-logs");
+    if (recentBox) recentBox.innerHTML = skeleton(4);
+    if (logsBox) logsBox.innerHTML = "";
+    try {
+      const data = await fetchJson(wsUrl("/jobs/recent?n=20"));
+      const items = Array.isArray(data.jobs) ? data.jobs : [];
+      if (!items.length) {
+        recentBox.innerHTML = emptyState("还没有任务记录", "从创作工作台开始一个阶段后，会在这里显示已保存进度。", '<a class="btn btn-primary" href="' + wsHref("/workbench") + '">进入创作工作台</a>');
+      } else {
+        const byId = new Map();
+        const rows = items.map((job) => {
+          byId.set(job.job_id || "", job);
+          const status = String(job.status || "unknown").toLowerCase();
+          const group = status === "running" || status === "pending" ? "active" : status === "succeeded" ? "done" : "attention";
+          let action = "";
+          if (group === "active") {
+            action = '<button type="button" class="btn btn-secondary" data-cancel-job="' + escapeHtml(job.job_id || "") + '">请求取消</button>';
+          } else if (status === "succeeded") {
+            const chapter = jobChapterNumber(job);
+            action = chapter
+              ? '<a class="btn btn-primary" href="' + wsHref("/chapter/" + chapter) + '">打开章节</a>'
+              : '<a class="btn btn-primary" href="' + wsHref("/workbench") + '">查看结果</a>';
+          } else if (status === "lost" || !STATUS_LABELS[status]) {
+            action = '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button>';
+          } else if (job.retryable === true) {
+            const paid = isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama");
+            action = '<button type="button" class="btn ' + (paid ? "btn-paid" : "btn-secondary") + '" data-job-retry="' + escapeHtml(job.job_id || "") + '"' + (paid ? ' data-ui-action="paid"' : '') + '>重新开始</button>';
+          } else {
+            action = renderJobPageCta(jobActionKind(job)) || '<a class="btn btn-secondary" href="' + wsHref("/workbench") + '">返回工作台</a>';
           }
+          return (
+            '<article class="job-record-card" data-job-card data-job-group="' + group + '">' +
+            '<div class="job-record-main"><p class="eyebrow ornament">任务</p><h2>' + escapeHtml(stepLabel(job.step)) + '</h2>' +
+            '<p class="muted">最近更新：' + escapeHtml(formatJobTimestamp(job.finished_at || job.started_at)) + '</p></div>' +
+            '<div class="job-record-state">' + statusBadge(status) +
+            (group === "active" && Number.isFinite(Number(job.progress))
+              ? '<p>当前进度：' + Math.max(0, Math.min(100, Math.round(Number(job.progress) * 100))) + '%</p>'
+              : '<p>' + escapeHtml(jobActionableSummary(job)) + '</p>') + '</div>' +
+            '<div class="job-record-action">' + action + '</div></article>'
+          );
+        }).join("");
+        recentBox.innerHTML = '<div class="job-record-list">' + rows + '</div><div id="jobs-empty-filter" hidden></div>';
+        recentBox.onclick = function (ev) {
+          if (ev.target.closest("[data-refresh-jobs]")) { initJobs(); return; }
           const retry = ev.target.closest("[data-job-retry]");
           if (retry) {
             retryJob(byId.get(retry.getAttribute("data-job-retry") || ""), retry);
           }
         };
+        bindJobFilters();
       }
     } catch (err) {
-      recentBox.innerHTML = renderErrorCard(err);
+      recentBox.innerHTML = publicLoadError("任务状态没有读取成功", "已保存内容不受影响；不会自动重新开始任何任务。", '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button>');
+      recentBox.onclick = function (ev) { if (ev.target.closest("[data-refresh-jobs]")) initJobs(); };
     }
-    try {
-      const data = await fetchJson(wsUrl("/logs/tail?n=30"));
-      const lines = data.lines || [];
-      logsBox.innerHTML = renderLlmCallSummary(lines);
-    } catch (err) {
-      logsBox.innerHTML = renderErrorCard(err);
+  }
+  function bindJobFilters() {
+    const buttons = Array.from(document.querySelectorAll("[data-job-filter]"));
+    const cards = Array.from(document.querySelectorAll("[data-job-card]"));
+    const live = document.getElementById("jobs-filter-status");
+    function apply(filter) {
+      let shown = 0;
+      cards.forEach(function (card) {
+        const visible = filter === "all" || card.dataset.jobGroup === filter;
+        card.hidden = !visible;
+        if (visible) shown += 1;
+      });
+      buttons.forEach(function (button) { button.classList.toggle("active", button.dataset.jobFilter === filter); });
+      const empty = document.getElementById("jobs-empty-filter");
+      if (empty) {
+        empty.hidden = shown !== 0;
+        empty.innerHTML = shown ? "" : emptyState("当前筛选没有任务", "切换到其他分类，或刷新已保存状态。", '<button type="button" class="btn btn-secondary" data-job-filter="all">查看全部</button>');
+      }
+      if (live) live.textContent = "显示 " + shown + " 项任务。";
     }
+    buttons.forEach(function (button) { button.addEventListener("click", function () { apply(button.dataset.jobFilter || "all"); }); });
+    const recentBox = document.getElementById("jobs-recent");
+    if (recentBox) recentBox.addEventListener("click", function (ev) {
+      if (ev.target.closest("#jobs-empty-filter [data-job-filter]")) apply("all");
+    });
+    apply("all");
   }
 
   // ---- drama asset governance (iter129) ---------------------------------

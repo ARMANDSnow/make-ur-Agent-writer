@@ -81,8 +81,8 @@ class WorkbenchE2ETests(unittest.TestCase):
         self.assertEqual(st, 200, body.decode("utf-8"))
         html = body.decode("utf-8")
         self.assertIn('window.PAGE_KIND = "workbench"', html)
-        self.assertIn("四阶段写书台", html)
-        self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 工作台</span></span>', html)
+        self.assertIn("单章创作工作台", html)
+        self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 创作工作台</span></span>', html)
 
     def test_workbench_page_is_novel_only(self) -> None:
         routes.dispatch(
@@ -103,7 +103,7 @@ class WorkbenchE2ETests(unittest.TestCase):
         st, _ct, body = routes.dispatch("GET", "/w/dramaws/workbench")
         # novel-only guard renders the "not a novel workspace" page, not the workbench.
         self.assertEqual(st, 200)
-        self.assertNotIn("四阶段写书台", body.decode("utf-8"))
+        self.assertNotIn("单章创作工作台", body.decode("utf-8"))
 
     # ---- stage gate progression ------------------------------------------
 

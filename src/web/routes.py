@@ -540,6 +540,8 @@ def render_workspace_jobs_page(name: str) -> Tuple[int, str, bytes]:
     guard = _workspace_html_guard(name)
     if guard:
         return guard
+    if _public_workspace_type(name) == "unknown":
+        return _html(200, templates.render_workspace_type_unknown(name, list_workspaces()))
     return _html(200, templates.render_workspace_jobs(name, list_workspaces()))
 
 

@@ -257,7 +257,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("续写", html)
         self.assertIn("计划", html)
         self.assertIn("章节", html)
-        self.assertIn("评审", html)
+        self.assertIn("内容检查", html)
         self.assertIn("任务", html)
         # overview shows status + next-action shell
         self.assertIn("overview-summary", html)
@@ -294,7 +294,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('data-plan-pane="chapters"', html)
         self.assertIn('data-plan-pane="outline"', html)
         self.assertIn('data-plan-pane="decisions"', html)
-        self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 计划</span></span>', html)
+        self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 故事规划</span></span>', html)
         self.assertIn('window.PAGE_KIND = "plan"', html)
 
     def test_workspace_chapters_renders(self) -> None:
@@ -308,7 +308,7 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/w/alpha/chapter/1")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
-        self.assertIn("chapter_01", html)
+        self.assertIn("第 1 章", html)
         for tab in ("body", "edit", "review", "lint", "style", "advisor", "history"):
             self.assertIn(f'data-tab="{tab}"', html)
         # JS gets the chapter number via window.CHAPTER_NO
@@ -336,6 +336,15 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"jobs-recent", body)
         self.assertIn(b"jobs-logs", body)
+
+    def test_workspace_jobs_page_fails_closed_for_corrupt_type(self) -> None:
+        meta_path = paths.WORKSPACE_DIR / "alpha" / "data" / "workspace.json"
+        meta_path.write_text('{"type":"mystery"}', encoding="utf-8")
+        status, _ct, body = routes.dispatch("GET", "/w/alpha/jobs")
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8")
+        self.assertIn("作品类型待确认", html)
+        self.assertNotIn('window.PAGE_KIND = "jobs"', html)
 
     def test_workspace_new_ia_404(self) -> None:
         for path in (
@@ -762,8 +771,9 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("escapeHtml(stepLabel(job.step))", js)
         self.assertIn('"drama_plan": "短剧站①核心设定"', js)
         self.assertIn('return icon + " 已完成"', js)
-        self.assertIn("<th>任务</th><th>状态</th><th>任务编号</th>", js)
-        self.assertIn("发起第一个生成任务后会出现在这里", js)
+        self.assertIn('class="job-record-card"', js)
+        self.assertIn("从创作工作台开始一个阶段后", js)
+        self.assertIn("function initDramaJobsLegacy", js)
         self.assertNotIn("lines.map((l) => escapeHtml(JSON.stringify(l)))", js)
 
     def test_api_cost_runs(self) -> None:
@@ -1014,9 +1024,10 @@ class RoutesGetTests(unittest.TestCase):
         html = templates._sidebar(["alpha", "beta"], active_workspace="alpha")
         # non-active workspace → guarded
         self.assertIn('href="/w/beta/" data-leave-guard>', html)
-        # active workspace → NOT guarded (re-opens same workspace)
-        self.assertIn('href="/w/alpha/">', html)
-        self.assertNotIn('href="/w/alpha/" data-leave-guard', html)
+        # active shelf item stays unguarded; section navigation is guarded so
+        # an unsaved chapter edit gets the three-choice leave dialog.
+        self.assertIn('class="sidebar-item active" href="/w/alpha/">', html)
+        self.assertIn('class="sidebar-item" href="/w/alpha/" data-leave-guard>', html)
 
     def test_iter072_active_endpoint_excludes_internal_fields(self) -> None:
         """iter072 (#4): /jobs/active is projected through public_job_view, so the

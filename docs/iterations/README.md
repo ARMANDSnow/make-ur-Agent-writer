@@ -176,3 +176,4 @@
 161. [Iteration 152 - 小说续写 Web UIUX 全量重设计规范](./iteration_152_novel_web_uiux_redesign_spec.md)
 162. [Iteration 153 - 小说 Web 浅色设计系统与共享组件落地](./iteration_153_novel_web_light_design_system_components.md)
 163. [Iteration 154 - 小说 Web Phase C 公共页面重构](./iteration_154_novel_web_public_pages_phase_c.md)
+164. [Iteration 155 - 小说 Web Phase D 单章续写主流程重构](./iteration_155_novel_web_phase_d_single_chapter_flow.md)

@@ -211,7 +211,7 @@ class PlanEditFrontendStringTests(unittest.TestCase):
         # "workspace busy" 409 into an actionable message; all three fetch
         # helpers must route through it.
         self.assertIn("function _httpError(res, data)", static.JS_DASHBOARD)
-        self.assertIn("工作区正被另一任务占用", static.JS_DASHBOARD)
+        self.assertIn("当前作品已有任务正在处理", static.JS_DASHBOARD)
         # iter062: fetchJson/postJson/putJson now delegate to _fetchWrapped
         # (network/timeout/bad_json classification), which calls _httpError
         # once instead of three inline copies. Definition + 3 call sites = 4.
