@@ -183,12 +183,13 @@ docs/iterations/           逐轮审计记录
 | 短剧 Web UIUX Phase A | 158 | ✅ 短剧响应式导航壳、概览六态与同源 production 列表/画布完成；三视口浏览器、键盘/触控/ARIA 与隔离 local demo 验收通过 |
 | 短剧 Web UIUX Phase B | 159 | ✅ 五站创作台与角色库完成桌面/平板/移动重构；episode/step、任务恢复、编辑与付费图片保护、键盘/触控/ARIA 保持 |
 | 短剧 Web UIUX Phase C | 160 | ✅ 资产治理、镜头图片与镜头视频完成主从/单列响应式重构；exact selection/clear、stale/blocked、逐次授权与零自动重提语义保持 |
+| 短剧 Web UIUX Phase D | 161 | ✅ 合成交付、剧集、Insights 与任务完成响应式收口；exact delivery、known/unknown、episode 2+ 与取消/恢复语义保持，Phase A-D 全部完成 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 160**（2026-07-29，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web Phase A-C 已完成：响应式 11 项页面壳、概览、production、五站创作台、角色库、资产治理及逐镜图片/视频候选均复用同一 `ui-drama` 语义变量和断点；episode、任务恢复、离开守卫、exact selection/clear、stale/blocked、付费授权与零自动重提语义保持。小说 Web Phase A-E 与短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
+最近一次更新：**iter 161**（2026-07-30，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web Phase A-D 已全部完成：响应式 11 项页面壳、概览、production、五站创作台、角色库、资产与逐镜媒体、合成交付、剧集、Insights 和任务均复用同一 `ui-drama` 语义变量与断点；episode、任务恢复、离开守卫、exact selection/download、known/unknown、stale/blocked、付费授权与零自动重提语义保持。小说 Web Phase A-E 与短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -228,7 +229,7 @@ docs/iterations/           逐轮审计记录
 | F. 合成、QA 与可编辑导出 | 同一时间线驱动 FFmpeg 竖屏 MP4、SRT/ASS、媒体 QA 和编辑器工程 | 🟨 | **F1-F3 本地闭环已完成**：固定 1080×1920/25fps H.264/AAC 的 argv-only compose/QA，加同源 ASS、六轨 vendor-neutral edit project、素材 SHA/revision、completion marker、持久 E3/current gate、本地 Web compose job、durable overview 与四类 exact download；特定 NLE adapter、多 profile、更广 codec/container 与公网流式交付待完成 |
 | G. 通用媒体调度与成本 | 从 C-F 抽象 task DAG、worker lease、provider capability、并发 lane 与 pricing | 🟨 | **G1-G7 已完成**：strict DAG、owner-guarded lease/capacity、代码内 registry、provider task+binding 单次原子入队、安全 get/bounded wait/cancel、explicit paid bridge/owner-context guarded execution、六类 append-only pricing facts/精确定点金额/分币种 unknown-safe Insights，以及 durable ready/first-claim/terminal lifecycle 与 terminal-denominator 成功率/known-unknown queue/run metrics 已实现；crash takeover、pricing/lifecycle evidence 仍依赖权威 paid bridge/ledger 与应用层 sidecar，generic 状态不替代 provider billing。真实 provider adapter 待实现 |
 | H. 小说事件图与辅助记忆 | typed event graph、来源/防剧透边界、可失效的上下文 cache | ✅ | **H1-H3 纯本地闭环已完成**：typed event graph 保留 source/invented/unknown causal/strict lineage；production adapter 绑定 entity/rolling-summary exact authority bytes；text-free recent/summary/keyword identity cache 精确绑定 current graph、selection、RenderPlan 与 policy bytes，删除不影响 canonical，drift/tamper 只使 cache stale/blocked |
-| I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ✅ | **I1+I2 纯本地闭环已完成**：I1 strict/bounded list/canvas Web 共享 fingerprint，零 mutation/provider；iter158-160 已完成响应式壳、概览、production、五站创作台、角色库、资产治理与逐镜媒体候选的 Phase A-C 重构，保留 episode、恢复、leave guard、CAS/clear、付费边界与 local demo hook；I2 确定性 ZIP 在导入前完整核对 creative/selection/render/timeline/source/QA/delivery 身份，只创建新 workspace，不带完整 prompt、provider raw 或可重放付费授权。archive 是可校验 snapshot，非 runnable raw backup |
+| I. 生产工作台与归档 | 同源展示资产/镜头/任务/时间线/QA；安全 archive 导出与导入 | ✅ | **I1+I2 纯本地闭环已完成**：I1 strict/bounded list/canvas Web 共享 fingerprint，零 mutation/provider；iter158-161 已完成响应式壳、概览、production、五站创作台、角色库、资产/逐镜媒体、合成交付、剧集、Insights 与任务的 Phase A-D 重构，保留 episode、恢复、leave guard、CAS/exact、known/unknown、付费边界与 local demo hook；I2 确定性 ZIP 在导入前完整核对 creative/selection/render/timeline/source/QA/delivery 身份，只创建新 workspace，不带完整 prompt、provider raw 或可重放付费授权。archive 是可校验 snapshot，非 runnable raw backup |
 | J. 真 provider 校准与 capstone | 真文本、真图片、真语音、真视频分别 preflight、最小 smoke、单镜、单集、多集校准 | ⏳ 🔒 | iter118、124、150 均完成五站真文本 + 2 张角色真图局部校准；iter150 为 5 calls、约 ¥0.2483，角色图 2/2 首次成功。iter142 固定样本完成一次 5.042 秒真视频；iter143 的 20 秒机会 create 结果不明且 0 自动重试；iter150 因公网素材域名失效在 upload/create 前阻断，create=0、费用=0。真语音、长时视频质量、全角色/多题材、逐镜/完整单集/多集和 SLA 仍未验证 |
 | 现有规划之外：平台发布 | 将成片上传到抖音、快手、视频号等平台 | ⏳ | A-J 没有发布 adapter、账号审核或回执状态设计；现阶段只能人工发布，后续需另行规划 |
 

@@ -48,7 +48,17 @@ iter158-160 已完成短剧响应式页面壳、概览、production、五站创�
 
 ## Acceptance Result
 
-<iter-finish 回填。>
+- **结论：`mock-functional`（通过）**。accepted implementation commit：`44a391bef4ba61885d599b0630aa787a0cd4cbd4`；canonical profile `canonical-mock-offline`，schema v2，tracked scope clean。
+- canonical `bash scripts/verify.sh`：**3001 tests OK**，15 steps，443 秒，run `0031d4965e664254ba5ecac1fa3f21de`，exit 0；`local_drama_e2e`、normalize、split、auto_pipeline、status、manifest/report、cost 与 preflight 全部通过。首次 implementation `f56401b` 验收为 3001 tests / 2 legacy static failures；修复 `aria-label` 与 iter095 卡片文案合同后在 `44a391b` 完整重验通过。
+- A161-01：通过。compose 覆盖 Empty/Ready/Running/Stale/Blocked/Failed/Complete，current timeline、QA、取消/恢复和四类 exact delivery 保持；下载继续由服务端重验当前字节，Running 不重复启动。
+- A161-02：通过。episodes 的整季 readiness、单集 freshness/评审/时长、episode 2+ 入口、下一集、snapshot/master 保持，重复交付控件已收敛。
+- A161-03：通过。Insights 的 degraded 文本/剧集/时长/钩子均显示 unknown；媒体 actual 按币种列示，不跨币种合计，也不把 fail-closed 0 计作已知。
+- A161-04：通过。jobs 区分 active/terminal/blocked/lost/unknown，取消、刷新、持久化降级与专用 compose 恢复保持；Lost/SubmissionUnknown/未知状态无自动重提，页面不读取 raw logs。
+- A161-05：通过。Phase D 状态词、错误/空态、导航、leave guard 与 safe public projection 一致；公开 DOM 不含内部 job/trace ID、hash、绝对路径、prompt、provider response 或签名 URL。
+- A161-06：通过。真实浏览器 1440×1024、1024×900、390×844 覆盖 compose/episodes/insights/jobs 及 Empty/Ready/Running/Stale/Complete、Lost/Unknown：横向 overflow=0，可见小于 44×44 控件=0，focus outline=3px；任务键盘筛选后详情、`aria-pressed`/`aria-controls`/live region 与移动固定主操作通过。
+- A161-07：通过。canonical mandatory synthetic local-drama E2E 完成创作→production→local demo→compose→delivery；exact download、stale、unknown、blocked 与恢复合同回归通过。
+- A161-08：通过。correctness/behavior、security/boundary、Web/UIUX、runner/recovery 四路独立只读审查完成；有效 findings 全部修复并聚焦回归，无已知未修高/中风险。
+- 本轮未调用真实 provider；`local-e2e` 浏览器与 mandatory local-drama 证据不升级为完整 `provider-validated`。
 
 ### Knowledge Promotion
 - `decision`: `none`

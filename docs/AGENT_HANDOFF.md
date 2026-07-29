@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 160，2026-07-29 收官 |
+| 更新时间 | iter 161，2026-07-30 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **2994 tests OK** |
-| Accepted implementation commit | `38661f3d83fa7ec0fa93c56d3cfcfe9b3cff712f` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `38661f3d83fa7ec0fa93c56d3cfcfe9b3cff712f`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、478 秒、run `18e89d1666b94d5cacc249188369bcae`；`verify.sh` exit 0；tracked scope clean |
+| Canonical 基线 | **3001 tests OK** |
+| Accepted implementation commit | `44a391bef4ba61885d599b0630aa787a0cd4cbd4` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `44a391bef4ba61885d599b0630aa787a0cd4cbd4`，其后仅允许 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、443 秒、run `0031d4965e664254ba5ecac1fa3f21de`；`verify.sh` exit 0；tracked scope clean |
 | 当前高风险缺口 | iter150 真文本五站与 2 张角色图窄校准成功，但配置的 trycloudflare 公网素材域名已失效，真视频在 upload/create 前 `safe-blocked`，create=0、费用=0；真实 TTS adapter 尚不存在。iter142 的 5 秒真视频样本成功但人民币费用未回报；iter143 的 20 秒 create 结果不明、无 task/MP4、费用 unknown 且禁止重提。真实逐镜/完整单集/多集、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter158-160 已完成短剧 Web UIUX Phase A-C：响应式 11 项导航壳、概览、production、五站创作台、角色库、资产治理与逐镜图片/视频候选，并保留 workspace/episode/step/leave guard/任务恢复、CAS/clear、编辑与付费保护。小说 Web Phase A-E 已全部完成。工程验收 `mock-functional`，mandatory local-drama 与本轮三视口浏览器证据为 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
+| 当前开发轮次 | 无；iter158-161 已完成短剧 Web UIUX Phase A-D：响应式 11 项导航壳、概览、production、五站创作台、角色库、资产/逐镜媒体、合成交付、剧集、Insights 与任务，并保留 workspace/episode/step/leave guard/任务恢复、CAS/exact、known/unknown、编辑与付费保护。小说 Web Phase A-E 已全部完成。工程验收 `mock-functional`，mandatory local-drama 与本轮三视口浏览器证据为 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
 
 ## Capability Map
 
@@ -55,7 +55,8 @@
 - iter158 依据 Figma D02/D08/D09/T01/T03/M01/M03 重构短剧 Phase A 页面壳、概览和 production；11 项导航同源，概览辅助投影独立降级，list/canvas 保持同 fingerprint，episode=2 跨页上下文、移动“更多”与 Escape、44px/3px/ARIA/键盘均经三视口浏览器复核。`localdemo_*` 隔离测试保持源项目字节不变且零 provider；三路审查 5 个有效 finding 全部修复。
 - iter159 依据 Figma D03-D07/D10/T02/M02 重构五站创作台和角色库；站⑤独立呈现，episode/step 与 active job 恢复、移动固定主操作、角色当前集/季库分区、手工字段与 paid receipt 保护均保持。三视口无横向溢出、44px/3px/ARIA/键盘通过；三路审查 10 个有效 finding 全部修复。
 - iter160 依据 Figma D11-D13/T04/M04 重构资产治理、镜头图片与镜头视频；桌面主从分栏、平板横向选择、移动需处理优先单列保持服务端治理/coverage/continuity 真源。DOM 只存序号，媒体经同源读取后以 `blob:` 挂载；exact selection/clear、stale 只读、selected 可见、oversize clear 与 unknown/lost 零重提保持。三路审查 findings 全部修复。
-- canonical **2994 tests OK**（项目 `.venv`）；implementation commit `38661f3` 上 exit 0，15 steps / 478 秒，run `18e89d1666b94d5cacc249188369bcae`，`tracked_scope_clean=true`。总级别为 `mock-functional` / `canonical-mock-offline`，本轮浏览器证据为 `local-e2e`。首次沙箱运行的 23 个 error 均为 loopback `socket.bind` EPERM，同一 commit 获批非沙箱重验通过。iter160 未调用真实 provider。
+- iter161 依据 Figma D14-D18/T05/M05-M06 重构 compose、episodes、Insights 与 jobs，并完成 Phase A-D 全站收口；timeline/QA/exact delivery、episode freshness、known/unknown、Lost/SubmissionUnknown、取消与恢复仍以服务端安全投影为真源。Running 使用不泄露 job ID 的专用轮询，移动 Ready 固定操作、三视口 44px/3px/零溢出及键盘筛选通过。四路审查 findings 全部修复。
+- canonical **3001 tests OK**（项目 `.venv`）；implementation commit `44a391b` 上 exit 0，15 steps / 443 秒，run `0031d4965e664254ba5ecac1fa3f21de`，`tracked_scope_clean=true`。总级别为 `mock-functional` / `canonical-mock-offline`，本轮浏览器证据为 `local-e2e`。首次验收的 2 个 legacy 静态合同失败在修复提交中闭合后完整重验通过。iter161 未调用真实 provider。
 
 ## Retained Working Memory
 
@@ -293,4 +294,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter160 完成短剧 Web UIUX Phase C，A160-01 至 A160-07 全部通过。资产治理按角色、场景、道具/线索与三层美术方向呈现 exact version/scope/used-by/impact；逐镜图片和视频按主从/单列候选流呈现 current/history、首尾关系、attempt/coverage/continuity 与 degraded preview。episode 切换、CAS selection/clear、stale 只读、selected 始终可见、oversize clear、资产 mutation 守门和 unknown/lost 零重提保持；DOM 只保留公共序号，安全预览以 `blob:` URL 挂载。correctness、security/boundary、Web/UIUX/媒体预览三路 findings 全部修复。三视口浏览器证据为 `local-e2e`；accepted implementation `38661f3d83fa7ec0fa93c56d3cfcfe9b3cff712f` 上 canonical 2994 tests、15 steps、478 秒，run `18e89d1666b94d5cacc249188369bcae`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean。首次沙箱验收的 23 个 error 均为 loopback `socket.bind` EPERM，同一 commit 获批非沙箱完整重验 exit 0。全程未调用真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
+iter161 完成短剧 Web UIUX Phase D，A161-01 至 A161-08 全部通过，Phase A-D 全站收口。compose 按 current timeline、job、QA 与四类 exact delivery 分层，Running 专用安全轮询保留取消/恢复且不显示 job ID；episodes 呈现整季 readiness、单集 freshness/评审/时长与 episode 2+ 入口；Insights 对 degraded 来源失败关闭并按币种列示；jobs 明确 active/terminal/blocked/lost/unknown，unknown/lost 零自动重提。correctness/behavior、security/boundary、Web/UIUX、runner/recovery 四路 findings 全部修复。三视口浏览器证据为 `local-e2e`；accepted implementation `44a391bef4ba61885d599b0630aa787a0cd4cbd4` 上 canonical 3001 tests、15 steps、443 秒，run `0031d4965e664254ba5ecac1fa3f21de`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean。首次 2 个 legacy 静态合同失败在修复提交中闭合后完整重验 exit 0。全程未调用真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
