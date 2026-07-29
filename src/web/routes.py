@@ -841,6 +841,24 @@ def _public_workspace_type(name: str) -> str:
     return str(payload["type"])
 
 
+def _novel_workspace_error(name: str) -> Optional[Tuple[int, str, bytes]]:
+    """Fail closed before projecting novel-only Phase E data."""
+    error = _workspace_error(name)
+    if error:
+        return error
+    if _public_workspace_type(name) != "novel":
+        return _json(
+            409,
+            errors.error_body(
+                errors.build_card(
+                    "invalid_value",
+                    detail="作品类型待确认；没有读取小说内容，请返回作品列表后重新尝试。",
+                )
+            ),
+        )
+    return None
+
+
 def _clear_overview_cache() -> None:
     with _OVERVIEW_CACHE_LOCK:
         _OVERVIEW_CACHE.clear()
@@ -1061,10 +1079,9 @@ def api_workspace_set_start_point(name: str, body: bytes) -> Tuple[int, str, byt
 
 
 def api_workspace_reviews(name: str) -> Tuple[int, str, bytes]:
-    if not _validate_workspace_name(name):
-        return _json(400, {"error": "invalid workspace name"})
-    if not _workspace_exists(name):
-        return _json(404, {"error": f"workspace not found: {name}"})
+    error = _novel_workspace_error(name)
+    if error:
+        return error
     with use_workspace(name):
         return _json(200, aggregate_reviews(paths.drafts_dir()))
 
@@ -1097,10 +1114,9 @@ def api_workspace_insights(name: str) -> Tuple[int, str, bytes]:
 
 
 def api_workspace_plan(name: str) -> Tuple[int, str, bytes]:
-    if not _validate_workspace_name(name):
-        return _json(400, {"error": "invalid workspace name"})
-    if not _workspace_exists(name):
-        return _json(404, {"error": f"workspace not found: {name}"})
+    error = _novel_workspace_error(name)
+    if error:
+        return error
     from .plan_view import collect_plan
 
     with use_workspace(name):
@@ -4353,10 +4369,9 @@ def api_workspace_readiness(
     resume_from: int = 1,
     replan_every: int = 0,
 ) -> Tuple[int, str, bytes]:
-    if not _validate_workspace_name(name):
-        return _json(400, {"error": "invalid workspace name"})
-    if not _workspace_exists(name):
-        return _json(404, {"error": f"workspace not found: {name}"})
+    error = _novel_workspace_error(name)
+    if error:
+        return error
     # iter060 (Codex A): the GET query parser (_parse_int) is a bare int() with
     # no ceiling, so chapters=999999999 would reach check_write_readiness ->
     # list(range(...)) and try to materialise ~1e9 ints (resource exhaustion).
@@ -4610,7 +4625,7 @@ def api_workspace_search(
     全扫（评审 iter075 #3）。空 q → 200 + 空结果（空搜索是正常态，前端显示引导态，不是
     400）。search 模块内部已 fail-open；这里再包最外层兜底把任何未预期异常收成 200 空
     结果，确保连贯性核查工具永不把页面打挂（铁律④）。"""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     q = (q or "").strip()

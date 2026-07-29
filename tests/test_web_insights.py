@@ -55,6 +55,17 @@ class InsightsAggregationTests(unittest.TestCase):
         self.assertEqual(cost[1]["calls"], 2)
         self.assertAlmostEqual(cost[2]["cost_cny"], 0.40, places=3)
 
+    def test_unknown_cost_is_not_projected_as_zero(self) -> None:
+        ws = paths.WORKSPACE_DIR / "alpha"
+        with (ws / "logs" / "llm_calls.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"chapter": 3, "model": "mock"}) + "\n")
+            handle.write(json.dumps({"chapter": 4, "cost_cny": "unknown", "model": "mock"}) + "\n")
+        with use_workspace("alpha"):
+            data = collect_insights()
+        cost = {row["chapter"]: row for row in data["cost_by_chapter"]}
+        self.assertIsNone(cost[3]["cost_cny"])
+        self.assertIsNone(cost[4]["cost_cny"])
+
     def test_cache_hit_ratio(self) -> None:
         with use_workspace("alpha"):
             data = collect_insights()

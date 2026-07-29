@@ -87,7 +87,7 @@ class WebDesignSystemTests(unittest.TestCase):
         self.assertIn('return STATUS_LABELS[raw] || "状态待确认";', static.JS_DASHBOARD)
         self.assertIn('return STEP_LABELS[step] || "未识别步骤";', static.JS_DASHBOARD)
         self.assertIn('return labels[String(verdict || "").toLowerCase()] || "状态待确认";', static.JS_DASHBOARD)
-        self.assertIn('SEARCH_SOURCE_LABELS[hit.source] || "来源待确认"', static.JS_DASHBOARD)
+        self.assertIn('SEARCH_SOURCE_LABELS[source] || "来源待确认"', static.JS_DASHBOARD)
         self.assertIn('return named[k] || "有一项续写条件需要补充";', static.JS_DASHBOARD)
         self.assertIn('hint: hints[kind] || "请检查当前作品状态后再继续。"', static.JS_DASHBOARD)
         self.assertNotIn("config/agents.yaml", static.JS_DASHBOARD)

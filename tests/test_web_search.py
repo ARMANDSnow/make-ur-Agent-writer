@@ -173,7 +173,7 @@ class SearchRouteTests(unittest.TestCase):
         html = body.decode("utf-8")
         self.assertIn('id="search-input"', html)
         self.assertIn('window.PAGE_KIND = "search"', html)
-        self.assertIn('全文搜索', html)
+        self.assertIn('内容搜索', html)
 
     def test_search_page_drama_novel_only_guard(self) -> None:
         self._seed()

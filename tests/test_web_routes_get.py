@@ -274,8 +274,8 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/w/alpha/continue")
         self.assertEqual(status, 200)
         html = body.decode("utf-8")
-        self.assertIn("准备续写", html)
-        self.assertIn("继续写书", html)
+        self.assertIn("批量续写", html)
+        self.assertIn("设置批量续写", html)
         self.assertIn("重新生成并覆盖计划", html)
         self.assertIn('id="plan-submit" class="btn btn-paid"', html)
         self.assertIn("start-point-form", html)
@@ -283,9 +283,22 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("plan-form", html)
         self.assertIn("write-preset-toggle", html)
         self.assertIn('name="tier"', html)
-        self.assertIn("本次人民币额度上限", html)
+        self.assertIn("本次可用额度（人民币）", html)
         self.assertIn("高级参数", html)
         self.assertNotIn("draft-once-dev", html)
+
+    def test_phase_e_novel_apis_fail_closed_for_drama_workspace(self) -> None:
+        workspace_meta.write("beta", type="drama", created_at="2026-07-29T00:00:00+00:00")
+        for path in (
+            "/api/workspace/beta/plan",
+            "/api/workspace/beta/reviews",
+            "/api/workspace/beta/search?q=人物",
+            "/api/workspace/beta/readiness?chapters=1&resume_from=1&replan_every=0",
+        ):
+            with self.subTest(path=path):
+                status, data = self._get_json(path)
+                self.assertEqual(status, 409, data)
+                self.assertIn("card", data)
 
     def test_workspace_plan_page_renders(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/w/alpha/plan")

@@ -7,6 +7,7 @@ chapter_NN.review.json. No LLM calls, no writes.
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from typing import Any, Dict, List
 
@@ -28,7 +29,9 @@ def collect_insights() -> Dict[str, Any]:
 
 def _cost_by_chapter() -> List[Dict[str, Any]]:
     path = paths.llm_calls_log_path()
-    out: Dict[int, Dict[str, float]] = defaultdict(lambda: {"calls": 0, "cost_cny": 0.0})
+    out: Dict[int, Dict[str, Any]] = defaultdict(
+        lambda: {"calls": 0, "cost_cny": 0.0, "cost_known": True}
+    )
     if not path.exists():
         return []
     with path.open("r", encoding="utf-8") as fh:
@@ -44,12 +47,21 @@ def _cost_by_chapter() -> List[Dict[str, Any]]:
             if not isinstance(ch, int):
                 continue
             out[ch]["calls"] += 1
-            try:
-                out[ch]["cost_cny"] += float(rec.get("cost_cny") or 0.0)
-            except (TypeError, ValueError):
-                pass
+            raw_cost = rec.get("cost_cny")
+            if isinstance(raw_cost, bool) or not isinstance(raw_cost, (int, float)):
+                out[ch]["cost_known"] = False
+                continue
+            cost = float(raw_cost)
+            if not math.isfinite(cost) or cost < 0:
+                out[ch]["cost_known"] = False
+                continue
+            out[ch]["cost_cny"] += cost
     return [
-        {"chapter": ch, "calls": int(v["calls"]), "cost_cny": round(v["cost_cny"], 4)}
+        {
+            "chapter": ch,
+            "calls": int(v["calls"]),
+            "cost_cny": round(v["cost_cny"], 4) if v["cost_known"] else None,
+        }
         for ch, v in sorted(out.items())
     ]
 

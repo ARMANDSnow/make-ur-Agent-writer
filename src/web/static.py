@@ -982,8 +982,6 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 .search-hit { padding: var(--space-4); }
 .search-hit-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); flex-wrap: wrap; }
 .search-hit-title { font-family: var(--font-serif); font-size: var(--fs-lg); color: var(--ink-1); text-decoration: none; }
-a.search-hit-title:hover { color: var(--jade); text-decoration: underline; }
-.search-hit-title.muted-link { color: var(--ink-2); }
 .search-hit-count { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
 .search-snippet {
   font-family: var(--font-serif); font-size: var(--fs-md); line-height: 1.9;
@@ -1897,6 +1895,52 @@ html { scroll-behavior: smooth; }
   .ui-novel .tab { flex: 0 0 auto; }
   .ui-novel .jobs-filter .btn { flex: 1 1 calc(50% - var(--space-2)); }
   .ui-novel .reading-body { padding-inline: var(--space-3); }
+}
+
+/* Iteration 156 · Phase E advanced and auxiliary pages. */
+.ui-novel .advanced-entry-note { margin-bottom: var(--space-4); }
+.ui-novel .plan-page-editor { max-width: 860px; margin-inline: auto; }
+.ui-novel .plan-page-editor textarea { width: 100%; resize: vertical; }
+.ui-novel .search-hero { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
+.ui-novel .search-box-wrap { flex: 1 1 360px; min-width: 0; }
+.ui-novel .search-sources { flex: 1 1 360px; }
+.ui-novel .search-sources label { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
+.ui-novel .search-hit { position: relative; min-width: 0; padding-bottom: calc(var(--space-4) + 44px); overflow-wrap: anywhere; }
+.ui-novel .search-hit-title,
+.ui-novel .search-snippet { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.ui-novel .search-hit-open { position: absolute; right: var(--space-4); bottom: var(--space-4); }
+.ui-novel .review-issue-list { display: grid; gap: var(--space-4); }
+.ui-novel .review-issue-card { min-width: 0; overflow-wrap: anywhere; }
+.ui-novel .review-safe-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0; }
+.ui-novel .review-safe-meta dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-novel .review-safe-meta dd { margin: var(--space-1) 0 0; }
+.ui-novel .insight-value { overflow-wrap: anywhere; }
+.ui-novel .insight-score-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.ui-novel .insight-score-card { min-width: 0; padding: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--ui-card-bg); }
+.ui-novel .insight-score-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-3) 0 0; }
+.ui-novel .insight-score-card dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-novel .insight-score-card dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.ui-novel .review-issue-card .card-footer { display: flex; justify-content: flex-end; }
+
+@media (max-width: 767px) {
+  .ui-novel .continue-flow .flow-step { grid-template-columns: 36px minmax(0, 1fr); }
+  .ui-novel .search-hero,
+  .ui-novel .search-sources { flex-direction: column; align-items: stretch; }
+  .ui-novel .search-box-wrap,
+  .ui-novel .search-sources { flex-basis: auto; width: 100%; }
+  .ui-novel .search-sources label,
+  .ui-novel #search-clear,
+  .ui-novel .search-hit-open,
+  .ui-novel .review-issue-card .btn,
+  .ui-novel .plan-page-editor .form-actions .btn { width: 100%; }
+  .ui-novel .search-hit-open { position: static; margin-top: var(--space-3); }
+  .ui-novel .search-hit { padding-bottom: var(--space-4); }
+  .ui-novel .review-safe-meta { grid-template-columns: 1fr; }
+  .ui-novel .insight-score-list,
+  .ui-novel .insight-score-card dl { grid-template-columns: 1fr; }
+  .ui-novel .review-issue-card .card-header { align-items: flex-start; }
+  .ui-novel .review-issue-card .card-footer { justify-content: stretch; }
+  .ui-novel #insights-cost > div { grid-template-columns: minmax(72px, auto) minmax(80px, 1fr) minmax(100px, auto) !important; }
 }
 """
 
@@ -3234,7 +3278,7 @@ JS_DASHBOARD = """\
       const href = link.getAttribute("href") || "/";
       ev.preventDefault();  // synchronous — must precede the async check
       if (leaveGuardModalOpen) return;  // a modal is up; resolve it first
-      const dirtyDraft = document.getElementById("draft-edit-area");
+      const dirtyDraft = document.getElementById("draft-edit-area") || document.getElementById("plan-page-editor");
       if (dirtyDraft && dirtyDraft.dataset.dirty === "1") {
         leaveGuardModalOpen = true;
         showDraftLeaveModal(href, dirtyDraft);
@@ -3245,17 +3289,18 @@ JS_DASHBOARD = """\
     });
   }
   function showDraftLeaveModal(href, area) {
+    const isPlan = area && area.id === "plan-page-editor";
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML =
       '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="draft-leave-title">' +
-      '<div class="modal-header" id="draft-leave-title">正文还有未保存的修改</div>' +
-      '<div class="modal-body"><p>你可以继续编辑、放弃这次修改，或先保存当前正文再离开。</p>' +
+      '<div class="modal-header" id="draft-leave-title">' + (isPlan ? '章节计划还有未保存的修改' : '正文还有未保存的修改') + '</div>' +
+      '<div class="modal-body"><p>' + (isPlan ? '你可以继续编辑，或放弃这次修改后离开。若要保留修改，请先返回页面保存。' : '你可以继续编辑、放弃这次修改，或先保存再离开。') + '</p>' +
       '<div id="draft-leave-error" role="status" aria-live="polite"></div></div>' +
       '<div class="modal-footer modal-footer-equal">' +
       '<button type="button" class="btn btn-ghost" data-modal-close>继续编辑</button>' +
       '<button type="button" class="btn btn-danger" data-discard-draft>放弃修改</button>' +
-      '<button type="button" class="btn btn-primary" data-save-draft-leave>保存并离开</button>' +
+      (isPlan ? '' : '<button type="button" class="btn btn-primary" data-save-draft-leave>保存并离开</button>') +
       '</div></div>';
     const stayBtn = backdrop.querySelector("[data-modal-close]");
     const discardBtn = backdrop.querySelector("[data-discard-draft]");
@@ -3272,7 +3317,7 @@ JS_DASHBOARD = """\
       delete area.dataset.dirty;
       window.location.href = href;
     });
-    saveLeaveBtn.addEventListener("click", async function () {
+    if (saveLeaveBtn) saveLeaveBtn.addEventListener("click", async function () {
       if (typeof area._saveBeforeLeave !== "function") return;
       setControlBusy(saveLeaveBtn, true, "正在保存");
       discardBtn.disabled = true;
@@ -3383,11 +3428,20 @@ JS_DASHBOARD = """\
     const olBox = document.querySelector('[data-plan-pane="outline"]');
     const dcBox = document.querySelector('[data-plan-pane="decisions"]');
     const sumBox = document.getElementById("plan-summary");
+    if (!planUnloadGuardBound) {
+      planUnloadGuardBound = true;
+      window.addEventListener("beforeunload", function (event) {
+        const editor = document.getElementById("plan-page-editor");
+        if (!editor || editor.dataset.dirty !== "1") return;
+        event.preventDefault(); event.returnValue = "";
+      });
+    }
     if (chBox) chBox.innerHTML = skeleton(4);
     if (olBox) olBox.innerHTML = skeleton(3);
     if (dcBox) dcBox.innerHTML = skeleton(3);
     try {
       const data = await fetchJson(wsUrl("/plan"));
+      planPageData = data;
       renderPlanSummary(sumBox, data);
       renderPlanChapters(chBox, data.plan || {}, data.draft_chapters || [], data.draft_verdicts || {});
       renderOutlineMarkdown(olBox, data.outline_md || "");
@@ -3402,8 +3456,9 @@ JS_DASHBOARD = """\
     if (!box) return;
     const plan = data.plan || {};
     const drafts = data.draft_chapters || [];
-    const fp = plan.plan_fingerprint ? String(plan.plan_fingerprint).slice(0, 8) : "—";
-    const target = plan.target_chapters || (plan.chapters || []).length || 0;
+    const targetRaw = safeOptionalCount(plan.target_chapters);
+    const planRows = Array.isArray(plan.chapters) ? plan.chapters.filter(function (item) { return item && typeof item === "object" && !Array.isArray(item); }) : [];
+    const target = targetRaw == null ? (planRows.length || null) : targetRaw;
     // iter 053a: outline↔start-point staleness warning (audit A5).
     const oc = data.outline_consistency || {};
     let outlineWarn = '';
@@ -3412,24 +3467,23 @@ JS_DASHBOARD = """\
     // (`debate --force`) they have no terminal to run.
     if (oc.checked && oc.stale) {
       outlineWarn =
-        '<div class="alert error" style="margin-top:8px"><strong>辩论大纲陈旧：</strong>' +
-        '大纲生成时的起点与当前起点不一致（' + escapeHtml((oc.codes || []).join(', ')) + '）。' +
-        '请在工作台「② 大纲」重新生成大纲后再规划，否则章纲会跨时间线。</div>';
+        '<div class="alert error" style="margin-top:8px"><strong>大纲需要更新：</strong>' +
+        '续写起点已经变化。请回到创作工作台重新生成大纲，再继续使用章节计划。</div>';
     } else if (oc.checked && oc.metadata_missing) {
       outlineWarn =
-        '<div class="alert info" style="margin-top:8px">辩论大纲没有起点指纹' +
-        '（指纹机制之前的存量产物）。在工作台「② 大纲」重新生成一次大纲即可刷新指纹。</div>';
+        '<div class="alert info" style="margin-top:8px">大纲状态需要确认。请回到创作工作台重新生成大纲后再继续。</div>';
     }
     box.innerHTML =
-      '<span class="badge no-dot">起点 <code>' + escapeHtml(plan.start_chapter_id || "—") + '</code></span>' +
-      '<span class="badge no-dot">指纹 <code>' + escapeHtml(fp) + '</code></span>' +
-      '<span class="badge no-dot">已写 ' + drafts.length + ' / 计划 ' + target + '</span>' +
+      '<span class="badge no-dot">续写起点 ' + escapeHtml(plan.start_chapter_id || "尚未设置") + '</span>' +
+      '<span class="badge no-dot">已写 ' + safePublicCount(drafts.length) + ' / 计划 ' + (target == null ? "状态待确认" : target) + '</span>' +
       outlineWarn;
   }
+  let planPageData = null;
+  let planUnloadGuardBound = false;
   function renderPlanChapters(box, plan, draftChapters, draftVerdicts) {
     if (!box) return;
-    const chapters = Array.isArray(plan && plan.chapters) ? plan.chapters : [];
-    const arc = (plan && plan.overall_arc) || "";
+    const chapters = Array.isArray(plan && plan.chapters) ? plan.chapters.filter(function (item) { return item && typeof item === "object" && !Array.isArray(item); }) : [];
+    const arc = typeof (plan && plan.overall_arc) === "string" ? plan.overall_arc.slice(0, 4000) : "";
     if (!chapters.length) {
       box.innerHTML = '<p class="muted">尚无章节计划。先在「续写」里生成一份。</p>';
       return;
@@ -3440,22 +3494,23 @@ JS_DASHBOARD = """\
       ? '<div class="alert info" style="margin-bottom:16px"><strong>整体走向：</strong>' + escapeHtml(arc) + '</div>'
       : '';
     const cards = chapters.map(function (c) {
-      const no = Number(c.chapter_no || 0);
+      const no = Number.isSafeInteger(Number(c.chapter_no)) && Number(c.chapter_no) > 0 ? Number(c.chapter_no) : 0;
+      if (!no) return "";
       const written = draftSet.has(no);
       const verdict = draftVerdicts && draftVerdicts[String(no)];
       const head =
         '<div class="card-header" style="align-items:flex-start">' +
         '<div><p class="eyebrow ornament">第 ' + escapeHtml(String(c.chapter_no || "?")) + ' 章</p>' +
-        '<h3>' + escapeHtml(c.title || "(无标题)") + '</h3></div>' +
+        '<h3>' + escapeHtml(typeof c.title === "string" ? c.title.slice(0, 160) : "未命名章节") + '</h3></div>' +
         '<div class="cluster">' +
         (written ? '<span class="badge ready">已写</span>' : '<span class="badge no-dot">未写</span>') +
         (written && verdict ? verdictBadge(verdict) : '') +
         '</div></div>';
-      const events = (Array.isArray(c.key_events) ? c.key_events : []).map(function (e) {
+      const events = (Array.isArray(c.key_events) ? c.key_events.filter(function (item) { return typeof item === "string"; }) : []).map(function (e) {
         return '<li>' + escapeHtml(e) + '</li>';
       }).join("");
-      const rels = (Array.isArray(c.relationships_in_play) ? c.relationships_in_play : []).map(function (r) {
-        return '<span class="badge no-dot">' + escapeHtml(typeof r === "string" ? r : "关系信息待确认") + '</span>';
+      const rels = (Array.isArray(c.relationships_in_play) ? c.relationships_in_play.filter(function (item) { return typeof item === "string"; }) : []).map(function (r) {
+        return '<span class="badge no-dot">' + escapeHtml(r) + '</span>';
       }).join(" ");
       const body =
         '<div class="card-body">' +
@@ -3465,15 +3520,82 @@ JS_DASHBOARD = """\
         (c.ending_hook ? '<p><strong>结尾钩子：</strong>' + escapeHtml(c.ending_hook) + '</p>' : '') +
         (c.plot_purpose ? '<p class="muted"><strong>定位：</strong>' + escapeHtml(c.plot_purpose) + '</p>' : '') +
         (c.target_chinese_chars ? '<p class="muted">目标字数：' + escapeHtml(String(c.target_chinese_chars)) + '</p>' : '') +
+        '<div class="form-actions"><button type="button" class="btn btn-secondary" data-plan-page-edit="' + no + '">编辑章节计划</button></div>' +
         '</div>';
       return '<div class="card" style="margin-bottom:16px">' + head + body + '</div>';
     }).join("");
     box.innerHTML = arcHtml + cards;
+    box.querySelectorAll("[data-plan-page-edit]").forEach(function (button) {
+      button.addEventListener("click", function () { openPlanPageEditor(Number(button.dataset.planPageEdit), button); });
+    });
+  }
+  function focusPlanEditButton(chapterNo) {
+    setTimeout(function () {
+      const target = document.querySelector('[data-plan-page-edit="' + chapterNo + '"]');
+      if (target) target.focus();
+    }, 0);
+  }
+  function openPlanPageEditor(chapterNo, trigger) {
+    const box = document.querySelector('[data-plan-pane="chapters"]');
+    const chapters = Array.isArray(planPageData && planPageData.plan && planPageData.plan.chapters)
+      ? planPageData.plan.chapters : [];
+    const chapter = chapters.find(function (item) { return Number(item.chapter_no) === chapterNo; });
+    if (!box || !chapter) return;
+    function value(id) { const el = document.getElementById(id); return el ? el.value.trim() : ""; }
+    function listValue(id) { return value(id).split("\\n").map(function (item) { return item.trim(); }).filter(Boolean); }
+    box.innerHTML =
+      '<form id="plan-page-editor" class="card plan-page-editor" aria-busy="false">' +
+      '<div class="card-header"><div><p class="eyebrow ornament">第 ' + chapterNo + ' 章</p><h2 id="plan-page-editor-title" tabindex="-1">编辑章节计划</h2></div></div>' +
+      '<div class="card-body form-grid">' +
+      '<div class="field"><label for="plan-page-title">章节标题</label><input id="plan-page-title" value="' + escapeHtml(chapter.title || "") + '"></div>' +
+      '<div class="field"><label for="plan-page-opening">开场场景</label><textarea id="plan-page-opening" rows="3">' + escapeHtml(chapter.opening_scene || "") + '</textarea></div>' +
+      '<div class="field"><label for="plan-page-events">核心事件（每行一项，共 2-7 项）</label><textarea id="plan-page-events" rows="5">' + escapeHtml((Array.isArray(chapter.key_events) ? chapter.key_events : []).join("\\n")) + '</textarea></div>' +
+      '<div class="field"><label for="plan-page-relations">重点关系（每行一项，可留空）</label><textarea id="plan-page-relations" rows="4">' + escapeHtml((Array.isArray(chapter.relationships_in_play) ? chapter.relationships_in_play : []).filter(function (item) { return typeof item === "string"; }).join("\\n")) + '</textarea></div>' +
+      '<div class="field"><label for="plan-page-hook">结尾承接</label><textarea id="plan-page-hook" rows="3">' + escapeHtml(chapter.ending_hook || "") + '</textarea></div>' +
+      '<div class="field"><label for="plan-page-target">目标字数（2500-6000）</label><input id="plan-page-target" type="number" min="2500" max="6000" step="100" value="' + Number(chapter.target_chinese_chars || 4000) + '"></div>' +
+      '<div class="field"><label for="plan-page-purpose">本章作用</label><textarea id="plan-page-purpose" rows="3">' + escapeHtml(chapter.plot_purpose || "") + '</textarea></div>' +
+      '<div id="plan-page-error" role="status" aria-live="polite"></div>' +
+      '<p class="muted">如果本章已有正文，保存后相关内容检查状态可能需要更新。</p>' +
+      '<div class="form-actions"><button type="button" class="btn btn-ghost" id="plan-page-cancel">取消编辑</button><button type="submit" class="btn btn-primary" id="plan-page-save">保存章节计划</button></div>' +
+      '</div></form>';
+    const form = document.getElementById("plan-page-editor");
+    document.getElementById("plan-page-editor-title").focus();
+    form.addEventListener("input", function () { form.dataset.dirty = "1"; });
+    document.getElementById("plan-page-cancel").addEventListener("click", function () {
+      renderPlanChapters(box, planPageData.plan || {}, planPageData.draft_chapters || [], planPageData.draft_verdicts || {});
+      focusPlanEditButton(chapterNo);
+    });
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      const fields = {
+        title: value("plan-page-title"), opening_scene: value("plan-page-opening"),
+        key_events: listValue("plan-page-events"), relationships_in_play: listValue("plan-page-relations"),
+        ending_hook: value("plan-page-hook"), target_chinese_chars: Number(value("plan-page-target")),
+        plot_purpose: value("plan-page-purpose"),
+      };
+      const errorBox = document.getElementById("plan-page-error");
+      if (!fields.title || !fields.opening_scene || !fields.ending_hook || !fields.plot_purpose || fields.key_events.length < 2 || fields.key_events.length > 7 || fields.target_chinese_chars < 2500 || fields.target_chinese_chars > 6000) {
+        errorBox.innerHTML = '<div class="alert warn">请完整填写标题、开场、结尾承接和章节作用；核心事件需 2-7 项，目标字数需在 2500-6000 之间。</div>';
+        return;
+      }
+      setFormSubmitBusy(form, true, "正在保存");
+      try {
+        const result = await putJson(wsUrl("/chapter-plan/" + chapterNo), { fields: fields });
+        form.dataset.dirty = "0";
+        const invalidated = Array.isArray(result.written_chapters_invalidated) ? result.written_chapters_invalidated : [];
+        showToast(invalidated.length ? "章节计划已保存；相关内容检查状态需要更新" : "章节计划已保存", "info");
+        await initPlan();
+        focusPlanEditButton(chapterNo);
+      } catch (err) {
+        errorBox.innerHTML = publicLoadError("章节计划没有保存成功", "输入内容仍保留，请检查后重试。", "");
+        setFormSubmitBusy(form, false);
+      }
+    });
   }
   function renderOutlineMarkdown(box, md) {
     if (!box) return;
     if (!md || !md.trim()) {
-      box.innerHTML = '<p class="muted">outline.md 不存在或为空。</p>';
+      box.innerHTML = '<div class="empty-state"><h3>暂无可查看的大纲</h3><p class="muted">请回到创作工作台检查大纲准备状态。</p><a class="btn btn-secondary" href="' + wsHref('/workbench') + '">前往创作工作台</a></div>';
       return;
     }
     box.innerHTML = '<div class="card"><div class="card-body reading-body">' + _mdToHtml(md) + '</div></div>';
@@ -3507,20 +3629,21 @@ JS_DASHBOARD = """\
   }
   function renderDecisions(box, decisions) {
     if (!box) return;
-    const votes = Array.isArray(decisions && decisions.votes) ? decisions.votes : [];
+    const votes = Array.isArray(decisions && decisions.votes) ? decisions.votes.filter(function (item) { return item && typeof item === "object" && !Array.isArray(item); }) : [];
     if (!votes.length) {
       box.innerHTML = '<p class="muted">尚无创作讨论记录。</p>';
       return;
     }
     const head =
       '<div class="alert info" style="margin-bottom:16px">' +
-      '<strong>主题：</strong>' + escapeHtml(decisions.topic || "(未命名)") +
-      '　·　<strong>讨论片段：</strong>' + escapeHtml(String(decisions.transcript_items || 0)) +
+      '<strong>主题：</strong>' + escapeHtml(typeof decisions.topic === "string" ? decisions.topic.slice(0, 240) : "未命名") +
+      '　·　<strong>讨论片段：</strong>' + escapeHtml(String(safePublicCount(decisions.transcript_items))) +
       '</div>';
     const cards = votes.map(function (v) {
-      const fors = (v["for"] || []).join("；") || "—";
-      const againsts = (v.against || []).join("；") || "—";
-      const agents = (Array.isArray(v.agent_votes) ? v.agent_votes : []).map(function (a, index) {
+      const fors = (Array.isArray(v["for"]) ? v["for"].filter(function (item) { return typeof item === "string"; }) : []).join("；") || "—";
+      const againsts = (Array.isArray(v.against) ? v.against.filter(function (item) { return typeof item === "string"; }) : []).join("；") || "—";
+      const agentRows = Array.isArray(v.agent_votes) ? v.agent_votes.filter(function (item) { return item && typeof item === "object" && !Array.isArray(item); }) : [];
+      const agents = agentRows.map(function (a, index) {
         return '<li><strong>参与角色 ' + (index + 1) + '</strong> · ' +
           escapeHtml(a.position || "—") + '：' + escapeHtml(a.reason || "—") + '</li>';
       }).join("");
@@ -3531,7 +3654,7 @@ JS_DASHBOARD = """\
         '<p><strong>裁决：</strong>' + escapeHtml(v.result || "—") + '</p>' +
         '<p><strong>支持：</strong>' + escapeHtml(fors) + '</p>' +
         '<p><strong>反对：</strong>' + escapeHtml(againsts) + '</p>' +
-        (agents ? '<details><summary class="muted">参与角色（' + (v.agent_votes || []).length + '）</summary><ul>' + agents + '</ul></details>' : '') +
+        (agents ? '<details><summary class="muted">参与角色（' + agentRows.length + '）</summary><ul>' + agents + '</ul></details>' : '') +
         '</div></div>'
       );
     }).join("");
@@ -4649,6 +4772,7 @@ JS_DASHBOARD = """\
       if (!preset) return;
       toggle.querySelectorAll("[data-write-preset]").forEach(function (item) {
         item.classList.toggle("active", item === btn);
+        item.setAttribute("aria-pressed", item === btn ? "true" : "false");
       });
       if (form.elements.tier) form.elements.tier.value = preset.tier;
       if (form.elements.chapters) form.elements.chapters.value = String(preset.chapters);
@@ -4680,17 +4804,24 @@ JS_DASHBOARD = """\
         replan_every: Number(form.elements.replan_every.value || 0),
         budget_cny: Number(form.elements.budget_cny.value || 0),
         min_confidence: Number(form.elements.min_confidence.value || 0.7),
+        timeout_minutes: Number(form.elements.timeout_minutes ? form.elements.timeout_minutes.value || 0 : 0),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
         auto_advance: Boolean(form.elements.auto_advance.checked),
         require_start_point: true,
         require_plan: true,
         require_external_review: true,
       };
+      jobBox.innerHTML = '<div class="alert info">正在检查是否可以继续；尚未开始生成。</div>';
+      const readiness = await refreshReadiness();
+      if (!readiness || ["ready", "warn"].indexOf(readiness.status) === -1) {
+        jobBox.innerHTML = '<div class="alert warn">检查未通过，没有开始生成。请先处理就绪检查中的提示。</div>';
+        return;
+      }
       if (!await confirmPaidAction({
         title: "确认开始续写",
         action: "将按当前写作与评审设置生成正文。",
-        scope: "从第 " + params.resume_from + " 章开始，共 " + params.chapters + " 章；人民币额度上限 " + params.budget_cny + " 元",
-        preservation: "已有正文和任务记录会保留；开始后可查看进度或请求取消。",
+        scope: "从第 " + params.resume_from + " 章开始，共 " + params.chapters + " 章；可用额度上限 " + params.budget_cny + " 元；最长等待 " + params.timeout_minutes + " 分钟",
+        preservation: "将更新本次范围内的新正文和检查记录；已有内容会保留。开始后可查看进度或请求取消，取消前已保存的内容不会删除。",
       })) return;
       writeBookJobRunning = true;
       setFormSubmitBusy(form, true, "处理中");
@@ -4744,39 +4875,42 @@ JS_DASHBOARD = """\
           form.elements.resume_from.dataset.userEdited !== "1" &&
           Number(form.elements.resume_from.value || 0) !== nextChapter) {
         form.elements.resume_from.value = String(nextChapter);
-        refreshReadiness();
-        return;
+        return refreshReadiness();
       }
       panel.innerHTML = renderReadinessPanel(data);
       if (pill) pill.innerHTML = statusBadge(data.status || "blocked");
+      const canProceed = data.status === "ready" || data.status === "warn";
       const submitControls = Array.prototype.slice.call(form.querySelectorAll('button[type="submit"]'));
       panel.querySelectorAll('[form="write-book-form"]').forEach(function (control) { submitControls.push(control); });
       submitControls.forEach(function (control) {
-        control.disabled = writeBookJobRunning || data.status === "blocked";
-        control.title = writeBookJobRunning ? "有任务进行中，请等待完成" : (data.status === "blocked" ? "前置未就绪，请先处理上方阻断项" : "");
+        control.disabled = writeBookJobRunning || !canProceed;
+        control.title = writeBookJobRunning ? "有任务进行中，请等待完成" : (!canProceed ? "当前状态尚未确认，请先完成就绪检查" : "");
         if (writeBookJobRunning) setControlBusy(control, true, "处理中");
       });
+      return data;
     } catch (err) {
       if (requestSeq !== readinessRequestSeq) return;
       panel.innerHTML = renderErrorCard(err);
       if (submit) { submit.disabled = true; submit.title = "续写入口检查失败，请稍后重试"; }
+      return null;
     }
   }
   function renderReadinessPanel(data) {
     const blockers = data.blockers || [];
     const warnings = data.warnings || [];
     const status = data.status || "?";
+    const canProceed = status === "ready" || status === "warn";
     const primary = data.primary_blocker || null;
     const kind = primary ? primary.kind : "";
     const cfg = ctaConfig(kind, primary || {});
     let html = '<div class="readiness-primary">' +
       '<div class="copy">' +
       '<p class="eyebrow ornament">下一步</p>' +
-      '<h3>' + escapeHtml(status === "blocked" ? cfg.label : status === "warn" ? "可以续写，但有提示" : "续写入口已就绪") + "</h3>" +
-      '<p>' + escapeHtml(status === "blocked" ? (cfg.hint || primary.raw || "请先处理阻断项。") : status === "warn" ? "建议看一眼诊断提示，但不影响开始写作。" : "参数与前置产物都已通过检查。") + "</p>" +
+      '<h3>' + escapeHtml(status === "blocked" ? cfg.label : status === "warn" ? "可以续写，但有提示" : status === "ready" ? "续写入口已就绪" : "状态待确认") + "</h3>" +
+      '<p>' + escapeHtml(status === "blocked" ? (cfg.hint || "请先处理阻断项。") : status === "warn" ? "建议看一眼检查提示，但不影响开始写作。" : status === "ready" ? "参数与前置内容都已通过检查。" : "没有开始生成，请刷新状态后再继续。") + "</p>" +
       "</div>" +
       '<div class="cluster">' +
-      (status === "blocked" ? renderCtaButton(kind, primary || {}, "btn-primary") : '<button type="submit" form="write-book-form" class="btn btn-paid" data-ui-action="paid">确认并开始续写</button>') +
+      (status === "blocked" ? renderCtaButton(kind, primary || {}, "btn-primary") : canProceed ? '<button type="submit" form="write-book-form" class="btn btn-paid" data-ui-action="paid">检查并继续</button>' : '<button type="button" class="btn btn-secondary" data-cta-action="reload">刷新状态</button>') +
       "</div>" +
       "</div>";
     html += '<div class="kv-list compact readiness-status-row">' +
@@ -5141,7 +5275,7 @@ JS_DASHBOARD = """\
   // XSS 安全高亮的根：后端只回原始片段文本 + 整数 offsets；这里全程用 DOM
   // (createElement/createTextNode) 构建，绝不 innerHTML 拼正文/用户输入。即使
   // 正文含 <script>/<img onerror> 也只当纯文本渲染。
-  const SEARCH_SOURCE_LABELS = { original: "原文", draft: "续写", kb: "知识库" };
+  const SEARCH_SOURCE_LABELS = { original: "原文章节", draft: "续写章节", kb: "人物与故事资料" };
 
   function buildSnippet(snippet) {
     const frag = document.createDocumentFragment();
@@ -5170,23 +5304,18 @@ JS_DASHBOARD = """\
     const head = document.createElement("div");
     head.className = "search-hit-head";
     const badge = document.createElement("span");
-    badge.className = "badge source-" + String(hit.source);
-    badge.textContent = SEARCH_SOURCE_LABELS[hit.source] || "来源待确认";
+    const source = Object.prototype.hasOwnProperty.call(SEARCH_SOURCE_LABELS, hit && hit.source) ? hit.source : "unknown";
+    badge.className = "badge source-" + source;
+    badge.textContent = SEARCH_SOURCE_LABELS[source] || "来源待确认";
     head.appendChild(badge);
     let titleEl;
-    if (hit.source === "draft" && hit.chapter_no != null) {
-      titleEl = document.createElement("a");
-      titleEl.href = wsHref("/chapter/" + encodeURIComponent(hit.chapter_no));
-      titleEl.className = "search-hit-title";
-    } else {
-      titleEl = document.createElement("span");
-      titleEl.className = "search-hit-title muted-link";
-    }
-    titleEl.textContent = String(hit.title || "");   // textContent，永不 innerHTML
+    titleEl = document.createElement("span");
+    titleEl.className = "search-hit-title";
+    titleEl.textContent = typeof hit.title === "string" && hit.title.trim() ? hit.title.slice(0, 160) : "未命名内容";
     head.appendChild(titleEl);
     const count = document.createElement("span");
     count.className = "search-hit-count";
-    count.textContent = (hit.match_count || 0) + " 处";
+    count.textContent = safePublicCount(hit.match_count) + " 处";
     head.appendChild(count);
     card.appendChild(head);
     const snippets = Array.isArray(hit.snippets) ? hit.snippets : [];
@@ -5196,6 +5325,17 @@ JS_DASHBOARD = """\
       p.appendChild(buildSnippet(snippets[i]));
       card.appendChild(p);
     }
+    const action = document.createElement("a");
+    action.className = "btn btn-secondary search-hit-open";
+    if (source === "draft" && Number.isSafeInteger(Number(hit.chapter_no)) && Number(hit.chapter_no) > 0) {
+      action.href = wsHref("/chapter/" + Number(hit.chapter_no));
+    } else if (source === "kb") {
+      action.href = wsHref("/plan");
+    } else {
+      action.href = wsHref("/chapters");
+    }
+    action.textContent = "打开";
+    card.appendChild(action);
     return card;
   }
 
@@ -5204,6 +5344,7 @@ JS_DASHBOARD = """\
     const box = document.getElementById("search-results");
     const summary = document.getElementById("search-summary");
     const sourcesBox = document.getElementById("search-sources");
+    const clearButton = document.getElementById("search-clear");
     if (!input || !box || !summary) return;
     let timer = null, seq = 0;
 
@@ -5260,14 +5401,19 @@ JS_DASHBOARD = """\
         data = await fetchJson(wsUrl("/search?q=" + encodeURIComponent(q) +
           "&sources=" + encodeURIComponent(active.join(","))));
       } catch (err) {
-        if (mine === seq) { box.innerHTML = renderErrorCard(err); summary.textContent = ""; }
+        if (mine === seq) {
+          box.innerHTML = publicLoadError("搜索没有完成", "已有本地内容不受影响。请保持当前条件并重试。", '<button type="button" class="btn btn-secondary" data-search-retry>重试搜索</button>');
+          summary.textContent = "";
+          const retry = box.querySelector("[data-search-retry]");
+          if (retry) retry.addEventListener("click", function () { run(true); });
+        }
         return;
       }
       if (mine !== seq) return;                  // 已被更新的查询覆盖，丢弃旧响应
       const hits = data.hits || [];              // 后端已按 sources 过滤，无需客户端二次过滤
       if (!hits.length) {
         summary.textContent = "";
-        showEmpty("未找到「" + q + "」", "换个关键词，或调整上方语料范围试试。");
+        showEmpty("没有找到符合条件的内容", "当前关键词：“" + q + "”；范围：" + active.map(function (item) { return SEARCH_SOURCE_LABELS[item] || "来源待确认"; }).join("、") + "。可调整条件或清除筛选。");
         return;
       }
       // iter076：total_matches 现在是截断前全局真实数，截断提示注明展示面。
@@ -5286,6 +5432,13 @@ JS_DASHBOARD = """\
       if (e.key === "Enter") { clearTimeout(timer); run(true); }
     });
     if (sourcesBox) sourcesBox.addEventListener("change", debouncedRun);   // 勾选变即重渲（含防抖）
+    if (clearButton) clearButton.addEventListener("click", function () {
+      clearTimeout(timer); ++seq; input.value = "";
+      if (sourcesBox) sourcesBox.querySelectorAll("input").forEach(function (item) { item.checked = true; });
+      summary.textContent = ""; syncUrl("", selectedSources());
+      showEmpty("输入关键词开始搜索", "可在章节、人物和故事资料中组合查找。");
+      input.focus();
+    });
 
     // iter076（codex 低风险项）：从 URL 恢复 q/sources——刷新不丢状态。恢复的 q
     // 视同显式检索（允许单字）。
@@ -5935,38 +6088,59 @@ JS_DASHBOARD = """\
     box.innerHTML = skeleton(6);
     try {
       const data = await fetchJson(wsUrl("/reviews"));
-      const chs = data.chapters || [];
-      const stats = data.stats || {};
+      const chs = Array.isArray(data.chapters) ? data.chapters.filter(function (item) {
+        return item && typeof item === "object" && Number.isSafeInteger(Number(item.chapter)) && Number(item.chapter) > 0;
+      }) : [];
       if (!chs.length) {
         box.innerHTML = emptyState("尚无评审记录", "生成草稿后这里会列出每章评审结果。", "");
         return;
       }
-      const statsHtml =
-        '<div class="cluster" style="margin-bottom:16px">' +
-        '<span class="badge no-dot">共 ' + (stats.total || 0) + " 章</span>" +
-        '<span class="badge ready">通过 ' + (stats.accepted || 0) + "</span>" +
-        '<span class="badge no-dot">最多重写 ' + (stats.rewrite_max || 0) + " 次</span>" +
-        '<span class="badge no-dot">修改建议 ' + (stats.advisor_suggestions_total || 0) + " 条</span>" +
-        "</div>";
-      const head =
-        '<table class="table table-wide"><thead><tr>' +
-        "<th>章节</th><th>结果</th><th>重写次数</th><th>字数</th><th>评审角色</th><th>修改建议</th><th></th>" +
-        "</tr></thead><tbody>";
       const rows = chs.map((c) => {
         const detail = "/w/" + encodeURIComponent(ws) + "/chapter/" + c.chapter;
-        return "<tr>" +
-          "<td>" + c.chapter + "</td>" +
-          "<td>" + verdictBadge(c.verdict) + "</td>" +
-          "<td>" + (c.rewrite_count == null ? "—" : c.rewrite_count) + "</td>" +
-          "<td>" + (c.chinese_char_count || 0) + "</td>" +
-          "<td>" + (c.agent_reviews || []).length + "</td>" +
-          "<td>" + (c.rewrite_suggestions || []).length + "</td>" +
-          '<td><a class="btn btn-ghost btn-sm" href="' + detail + '">详情 →</a></td>' +
-          "</tr>";
+        const issueRows = [];
+        const agentRows = Array.isArray(c.agent_reviews) ? c.agent_reviews.filter(function (item) { return item && typeof item === "object" && !Array.isArray(item); }) : [];
+        agentRows.forEach(function (review) {
+          (Array.isArray(review.issues) ? review.issues : []).slice(0, 20).forEach(function (issue) { issueRows.push({ issue: issue, fallback: "context" }); });
+        });
+        (Array.isArray(c.lint_issues) ? c.lint_issues : []).slice(0, 20).forEach(function (issue) { issueRows.push({ issue: issue, fallback: "prose" }); });
+        (Array.isArray(c.rewrite_suggestions) ? c.rewrite_suggestions : []).slice(0, 20).forEach(function (issue) { issueRows.push({ issue: issue, fallback: "context" }); });
+        if (!issueRows.length && c.needs_human_review === true) issueRows.push({ issue: {}, fallback: "context" });
+        if (!issueRows.length) {
+          return '<article class="review-issue-card card"><div class="card-header"><div><p class="eyebrow ornament">第 ' + Number(c.chapter) + ' 章</p><h2>未发现需要查看的问题</h2></div><span class="badge no-dot">已检查</span></div>' +
+            '<div class="card-body"><p>已保存的检查记录中暂无人物、时间、地点、设定或前后文问题。</p></div>' +
+            '<div class="card-footer"><a class="btn btn-secondary" href="' + detail + '#review">查看位置</a></div></article>';
+        }
+        return issueRows.map(function (entry, index) {
+          const raw = entry.issue && typeof entry.issue === "object" && !Array.isArray(entry.issue) ? entry.issue : {};
+          const key = [raw.category, raw.type, raw.rule_id].filter(function (value) { return typeof value === "string"; }).join(" ").toLowerCase();
+          let category = entry.fallback;
+          if (/person|character|relationship|人物|角色|关系/.test(key)) category = "person";
+          else if (/time|chron|时间|时序/.test(key)) category = "time";
+          else if (/place|location|地点|场景/.test(key)) category = "place";
+          else if (/setting|canon|world|fidelity|设定|世界/.test(key)) category = "setting";
+          const labels = {
+            person: ["人物关系需要确认", "人物身份、关系或行为与已保存设定可能不一致。"],
+            time: ["时间顺序需要确认", "事件先后或时间衔接需要回到正文核对。"],
+            place: ["地点信息需要确认", "场景位置或人物所在地点需要回到正文核对。"],
+            setting: ["故事设定需要确认", "本章内容与已保存的世界或人物设定可能不一致。"],
+            prose: ["文字表达需要确认", "文字表达中有一处需要回到正文查看。"],
+            context: ["前后文需要确认", "本章与前后章节的承接有一处需要查看。"],
+          };
+          const sev = typeof raw.severity === "string" ? raw.severity.toLowerCase() : "";
+          const severity = /critical|blocker|major|high|严重|高/.test(sev) ? "严重" : /minor|medium|warn|一般|中/.test(sev) ? "一般" : /info|low|提示|低/.test(sev) ? "提示" : "程度待确认";
+          const rawState = typeof raw.status === "string" ? raw.status.toLowerCase() : "";
+          const state = !rawState || /open|pending|unresolved|需要查看/.test(rawState) ? "需要查看" : /resolved|closed|已检查/.test(rawState) ? "已检查" : "状态待确认";
+          const copy = labels[category] || labels.context;
+          return '<article class="review-issue-card card">' +
+            '<div class="card-header"><div><p class="eyebrow ornament">第 ' + Number(c.chapter) + ' 章 · 问题 ' + (index + 1) + '</p><h2>' + copy[0] + '</h2></div>' +
+            '<div class="cluster"><span class="badge no-dot">严重程度：' + severity + '</span><span class="badge no-dot">' + state + '</span></div></div>' +
+            '<div class="card-body"><p>' + copy[1] + '</p><dl class="review-safe-meta"><div><dt>对应位置</dt><dd>第 ' + Number(c.chapter) + ' 章</dd></div><div><dt>处理状态</dt><dd>' + state + '</dd></div></dl></div>' +
+            '<div class="card-footer"><a class="btn btn-secondary" href="' + detail + '#review">查看位置</a></div></article>';
+        }).join("");
       }).join("");
-      box.innerHTML = statsHtml + tableScroll(head + rows + "</tbody></table>");
+      box.innerHTML = '<div class="review-issue-list">' + rows + '</div>';
     } catch (err) {
-      box.innerHTML = renderErrorCard(err);
+      box.innerHTML = publicLoadError("内容检查没有读取成功", "已保存章节不受影响。请重新加载后再查看。", '<button type="button" class="btn btn-secondary" data-cta-action="reload">重新加载</button>');
     }
   }
 
@@ -5981,28 +6155,31 @@ JS_DASHBOARD = """\
     subBox.innerHTML = skeleton(5);
     try {
       const data = await fetchJson(wsUrl("/insights"));
-      renderCostByChapter(costBox, data.cost_by_chapter || []);
-      renderCacheByModel(cacheBox, data.cache_by_model || []);
-      renderSubscores(subBox, data.subscores || []);
+      renderCostByChapter(costBox, Array.isArray(data.cost_by_chapter) ? data.cost_by_chapter : []);
+      renderCacheByModel(cacheBox, Array.isArray(data.cache_by_model) ? data.cache_by_model : []);
+      renderSubscores(subBox, Array.isArray(data.subscores) ? data.subscores : []);
     } catch (err) {
-      costBox.innerHTML = renderErrorCard(err);
+      costBox.innerHTML = publicLoadError("创作数据没有读取成功", "已保存记录不受影响。请重新加载后再查看。", '<button type="button" class="btn btn-secondary" data-cta-action="reload">重新加载</button>');
       cacheBox.innerHTML = "";
       subBox.innerHTML = "";
     }
   }
 
   function renderCostByChapter(box, rows) {
-    if (!rows.length) { box.innerHTML = '<p class="muted">尚无生成调用记录。</p>'; return; }
-    const max = Math.max.apply(null, rows.map((r) => r.cost_cny || 0)) || 1;
-    const lines = rows.map((r) => {
-      const cost = Number(r.cost_cny || 0);
-      const pct = Math.round((cost / max) * 100);
+    const safeRows = rows.filter(function (r) { return r && typeof r === "object" && Number.isSafeInteger(Number(r.chapter)) && Number(r.chapter) > 0; });
+    if (!safeRows.length) { box.innerHTML = '<p class="muted">暂无可汇总记录。</p>'; return; }
+    const knownCosts = safeRows.map(function (r) { return typeof r.cost_cny === "number" && Number.isFinite(r.cost_cny) && r.cost_cny >= 0 ? r.cost_cny : null; }).filter(function (value) { return value != null; });
+    const max = knownCosts.length ? Math.max.apply(null, knownCosts.concat([0.001])) : 1;
+    const lines = safeRows.map((r) => {
+      const cost = r.cost_cny;
+      const knownCost = typeof cost === "number" && Number.isFinite(cost) && cost >= 0;
+      const pct = knownCost ? Math.round((cost / max) * 100) : 0;
       return (
         '<div style="display:grid;grid-template-columns:56px 1fr 80px;gap:8px;align-items:center;margin-bottom:6px">' +
         '<span class="muted" style="text-align:right">第 ' + r.chapter + ' 章</span>' +
         '<div class="progress" style="height:14px"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
-        '<span style="font-family:var(--font-mono);font-size:var(--fs-xs)">¥' + cost.toFixed(3) +
-        ' · ' + r.calls + ' 次</span>' +
+        '<span class="insight-value">' + (knownCost ? '¥' + cost.toFixed(3) : '费用待确认') +
+        ' · ' + safePublicCount(r.calls) + ' 条记录</span>' +
         '</div>'
       );
     }).join("");
@@ -6010,16 +6187,18 @@ JS_DASHBOARD = """\
   }
 
   function renderCacheByModel(box, rows) {
-    if (!rows.length) { box.innerHTML = '<p class="muted">尚无生成调用记录。</p>'; return; }
-    const lines = rows.map((r, index) => {
-      const pct = Math.round((r.hit_ratio || 0) * 100);
+    const safeRows = rows.filter(function (r) { return r && typeof r === "object"; });
+    if (!safeRows.length) { box.innerHTML = '<p class="muted">暂无可汇总记录。</p>'; return; }
+    const lines = safeRows.map((r, index) => {
+      const ratio = r.hit_ratio;
+      const pct = typeof ratio === "number" && Number.isFinite(ratio) && ratio >= 0 && ratio <= 1 ? Math.round(ratio * 100) : null;
       return (
         '<div class="kv-list compact" style="margin-bottom:8px">' +
         '<div class="k">生成配置</div><div class="v">配置 ' + (index + 1) + '</div>' +
-        '<div class="k">调用次数</div><div class="v">' + r.calls + '</div>' +
+        '<div class="k">保存记录</div><div class="v">' + safePublicCount(r.calls) + ' 条</div>' +
         '<div class="k">缓存复用比例</div><div class="v">' +
         '<div class="progress" style="display:inline-block;width:120px;vertical-align:middle">' +
-        '<div class="progress-fill" style="width:' + pct + '%"></div></div> ' + pct + '%</div>' +
+        '<div class="progress-fill" style="width:' + (pct == null ? 0 : pct) + '%"></div></div> ' + (pct == null ? '比例待确认' : pct + '%') + '</div>' +
         '</div>'
       );
     }).join("");
@@ -6027,21 +6206,21 @@ JS_DASHBOARD = """\
   }
 
   function renderSubscores(box, rows) {
-    if (!rows.length) { box.innerHTML = '<p class="muted">尚无评审记录。</p>'; return; }
-    const cell = (v) => {
-      if (v == null) return '<td class="subscore-cell subscore-cell-empty">—</td>';
-      const n = Number(v);
-      if (!Number.isFinite(n)) return '<td class="subscore-cell subscore-cell-empty">—</td>';
-      const cls = n >= 7 ? "subscore-cell-approve" : n >= 5 ? "subscore-cell-warn" : "subscore-cell-fail";
-      return '<td class="subscore-cell ' + cls + '">' + n.toFixed(2) + '</td>';
+    const safeRows = rows.filter(function (r) { return r && typeof r === "object" && Number.isSafeInteger(Number(r.chapter)) && Number(r.chapter) > 0; });
+    if (!safeRows.length) { box.innerHTML = '<p class="muted">暂无可汇总记录。</p>'; return; }
+    const score = (v) => {
+      if (typeof v !== "number" || !Number.isFinite(v)) return "暂无记录";
+      return v.toFixed(2);
     };
-    const head = '<tr><th>章节</th><th>剧情</th><th>文笔</th><th>设定一致性</th><th>总分</th><th>评审角色</th></tr>';
-    const body = rows.map((r) =>
-      '<tr><td>第 ' + r.chapter + ' 章</td>' +
-      cell(r.plot) + cell(r.prose) + cell(r.fidelity) + cell(r.total) +
-      '<td class="subscore-cell subscore-cell-empty">' + r.agents + '</td></tr>'
-    ).join("");
-    box.innerHTML = '<table class="table">' + head + body + '</table>';
+    box.innerHTML = '<div class="insight-score-list">' + safeRows.map(function (r) {
+      return '<article class="insight-score-card"><h3>第 ' + Number(r.chapter) + ' 章</h3><dl>' +
+        '<div><dt>剧情</dt><dd>' + score(r.plot) + '</dd></div>' +
+        '<div><dt>文笔</dt><dd>' + score(r.prose) + '</dd></div>' +
+        '<div><dt>设定一致性</dt><dd>' + score(r.fidelity) + '</dd></div>' +
+        '<div><dt>综合结果</dt><dd>' + score(r.total) + '</dd></div>' +
+        '<div><dt>已保存检查记录</dt><dd>' + safePublicCount(r.agents) + ' 条</dd></div>' +
+        '</dl></article>';
+    }).join("") + '</div>';
   }
 
   // ===== page: drama write ==================================================
