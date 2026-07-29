@@ -82,6 +82,8 @@
 | 154 | 小说 Web 公共页面 Phase C | 五个公共页生产级信息架构、响应式、异常恢复与安全动态投影；15 组真实浏览器验证 |
 | 155 | 小说 Web 单章主流程 Phase D | 五个工作区主流程页、严格四阶段/readiness、持久任务恢复、编辑保护与三视口真实浏览器验证 |
 | 156 | 小说 Web 高级与辅助页面 Phase E | 五个高级/辅助页、readiness/Paid 边界、只读区分、安全投影、兼容收口与三视口真实浏览器验证；Phase A-E 完成 |
+| 157 | 近期体检报告安全与可靠性闭环 | KB/draft no-follow、安全异常投影、job 持久化准入/轮询终止与 owned verify 临时根 |
+| 158 | 短剧 Web UIUX Phase A | 响应式 11 项导航壳、概览六态、同源 production 列表/六阶段画布与三视口 local-e2e |
 
 ## Iteration Implementation Index
 
@@ -216,6 +218,8 @@
 | 151 | 闭环 workspace、Local Demo、媒体预检与 test worker | `src/paths.py`、`src/drama_local_demo.py`、`src/web/`、`tests/test_*.py` |
 | 152 | 建立小说续写 Web UI/UX 重构规范与 Figma 交付 | `docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`、Figma、iteration 文档 |
 | 153 | 落地小说 Web 浅色变量、中文层与共享组件 | `src/web/templates.py`、`src/web/static.py`、`tests/test_web_ui_design_system.py` |
+| 154-157 | 完成小说 Web Phase C-E 与近期体检闭环 | `src/web/`、`tests/test_web_*.py`、`scripts/verify.sh` |
+| 158 | 重构短剧导航壳、概览与生产工作台 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_a.py` |
 
 ## Durable Decisions
 

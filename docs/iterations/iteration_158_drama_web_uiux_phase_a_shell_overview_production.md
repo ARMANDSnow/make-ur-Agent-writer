@@ -42,14 +42,26 @@
 - episode 上下文：页面 query、`CHAPTER_NO` 或集数输入会同步到 desktop/tablet/mobile 导航；创作台保持既有 `episode`，production/资产/图片/视频/合成保持 `episode_no`。
 - 概览：五站进度仍以 `/drama/progress` 为创作入口权威；为完成用户要求的“媒体覆盖/最近任务/Stale/Blocked”，读取现有受限 production 与 recent-jobs 安全投影，不新增 API 字段。两个辅助投影独立降级为“暂时无法读取”，不把未知误报为 0/暂无，也不遮蔽主 progress。这里实现的是用户原始边界“`/drama/progress` 等安全投影”；Plan 中“只消费 progress”是立项时转述过窄，本轮未改 API 或持久化真值。
 - production：列表/画布仍在每次 load 后校验 `list_projection_fingerprint === canvas_projection_fingerprint`。列表提供 Ready/Selected/Stale/Blocked 文本原因、镜头详情和“只看需处理”；画布按创作→资产→图片→视频→时间线→合成 QA 展示六阶段。未展示 fingerprint、稳定内部 ID 或来源绑定诊断。
-- 响应式/可访问性：`ui-drama` 独立使用 iter153 语义变量；未修改 `ui-public`/`ui-novel`。所有新操作与导航可键盘进入，射频 tab 维持 roving `tabindex`，焦点环 3px，可见触控目标至少 44×44，移动页底预留 safe-area。
+- 响应式/可访问性：`ui-drama` 独立使用 iter153 语义变量；未修改 `ui-public`/`ui-novel`。所有新操作与导航可键盘进入，页签维持 roving `tabindex`，焦点环 3px，可见触控目标至少 44×44，移动页底预留 safe-area。
 - 浏览器证据：使用 `/private/tmp/iter158-browser-workspaces` 的 `ui-ready/ui-stale/ui-blocked` synthetic drama workspace，证据在 `/private/tmp/iter158-ui-evidence/`，包含 6 张截图和 `browser-checks.json`。页面端口仅绑定 `127.0.0.1`，验收后已关闭服务与浏览器。
 - 聚焦验证：166 项回归通过，包含 JavaScript `node --check`与真实 local-demo 路由隔离测试；该测试确认只创建 `localdemo_*`、保持源项目字节不变。
 - 只读审查：correctness/E2E、security/boundary、Web/UIUX/响应式三路独立 subagent 完成。有效 findings 为：多 toggle 仅绑定首个、episode 导航丢失、空 production blocked 抢占创作 todo、辅助投影失败拖垮概览，以及降级文案误报为真实空状态；均由主线复核成立并修复。安全审查对“只消费 progress”的文字 finding 按用户原始“等安全投影”要求修正为本段实施解释；它提出的实际降级风险已修复。修复后聚焦回归与移动“更多”/Escape/跨页 episode=2 浏览器复核通过。
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- A158-01：通过。`ui-drama` 三档响应式壳由同一 11 项导航真源生成；workspace、active、面包屑与离开守卫保持，`ui-public` / `ui-novel` 未受影响。
+- A158-02：通过。概览六态、当前集、创作/生产阶段、媒体覆盖、最近任务与下一步均来自现有安全投影，Stale/Blocked/Error 有原因和恢复入口。
+- A158-03：通过。production 列表和六阶段画布共享并校验同一 projection fingerprint，桌面/平板/移动布局及 Ready/Selected/Stale/Blocked 原因完成。
+- A158-04：通过。episode、刷新、tabs、`localdemo_*` A-F 与演练交付入口保持；刷新重读权威状态，隔离演练不改源项目且零 provider。
+- A158-05：通过。新增合同覆盖样式隔离、11 项导航、概览六态、production 同源及 episode/refresh/local-demo；既有 leave guard、tab、toast 与任务恢复 hook 通过回归。
+- A158-06：通过。synthetic Ready/Stale/Blocked 与 production list/canvas 完成三视口真实浏览器、键盘、触控、ARIA、焦点、溢出、中文投影和 console 检查。
+- 浏览器 `local-e2e`：以 synthetic `ui-ready` / `ui-stale` / `ui-blocked` workspace 在 1440×1024、1024×900、390×844 验证概览 Ready/Stale/Blocked、production list/canvas、跨页 episode=2、移动“更多”与 Escape。页面无横向溢出；可见触控目标均不小于 44×44；3px focus ring、键盘导航、tabs `aria-selected` / roving `tabindex`、状态文本与恢复入口符合要求；目标页面无 console error/warning，未出现绝对路径、provider 诊断或英文内部状态。证据：`/private/tmp/iter158-ui-evidence/`（6 张截图与 `browser-checks.json`，gitignored 临时目录）。
+- 本地隔离演练：聚焦 route test 实际创建 `localdemo_*`，源 workspace 关键文件字节不变且没有 provider 调用；刷新重新读取权威投影。
+- 聚焦验证：最终 166 项 UI/Web/production/local-demo 回归通过；标准验收发现旧合同要求的“只展示服务端已保存状态”文案缺失后，补回该兼容语义，18 项定向回归通过。
+- A158-07：通过。correctness/E2E、security/boundary、Web/UIUX/响应式三个独立只读 subagent 共提出 5 个有效 finding：多 toggle 绑定、episode 导航保持、空 production 优先级、辅助投影独立降级、未知不得误报为空；均由主线程修复并复核，无剩余已知 finding。
+- Canonical：accepted implementation commit `91b9fe6da6206dd5b1fc913c9ffe97a46aaa6015` 上 `bash scripts/verify.sh` exit 0；schema v2，15 steps，**2981 tests OK**，483 秒，run `f823073be7a34846a71e9af3db4dce3d`，`tracked_scope_clean=true`，`verification_profile=canonical-mock-offline`。
+- 验收运行说明：首次在受限沙箱运行时，23 个 loopback `socket.bind` 测试因 `EPERM` 报错，同时捕获上述 1 个真实兼容文案 failure；修复并更新 implementation commit 后，在获批环境按相同 mock/offline 配置完整重验通过。这是失败范围修复后的 canonical 重验，不调用真实 provider。
+- 最终结论：工程验收为 `mock-functional`；浏览器与隔离本地演练证据为 `local-e2e`。本轮未调用真实文本、图片、视频或 TTS provider，不是 `provider-validated`。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -65,6 +77,9 @@
 | `tests/test_drama_web_uiux_phase_a.py` | iter158 壳、概览、production、可访问性与恢复 hook 合同 |
 | `docs/iterations/README.md` | 追加 canonical iter158 索引 |
 | `docs/iterations/iteration_158_drama_web_uiux_phase_a_shell_overview_production.md` | 立项、实施、审查、验收与范围记录 |
+| `README.md` | 更新短剧 Web Phase A 状态与实时 SOP |
+| `docs/AGENT_HANDOFF.md` | 就地更新当前快照、验收证据与 Latest Transition |
+| `docs/PROJECT_HISTORY.md` | 追加 iter158 阶段里程碑与实现索引 |
 
 ## 不在本轮范围
 
