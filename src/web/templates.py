@@ -195,11 +195,13 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
         )
     work_html = "\n".join(items) if items else '<p class="muted" style="padding:0 8px">尚无作品</p>'
     sections_html = ""
+    responsive_nav_html = ""
     if active_workspace:
         from .workspace_meta import read as _meta_read
 
         ws_type = _meta_read(active_workspace).get("type", "novel")
         section_items = []
+        responsive_items = []
         for key, label, suffix in _sections_for(ws_type):
             href = f"/w/{escape(active_workspace)}/{suffix}" if suffix else f"/w/{escape(active_workspace)}/"
             if key == active_section:
@@ -208,11 +210,19 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
                     f'<span><span class="dot"></span> {escape(label)}</span>'
                     '</span>'
                 )
+                responsive_items.append(
+                    '<span class="drama-responsive-nav-item active" aria-current="page" '
+                    f'data-drama-nav-item="{escape(key)}">{escape(label)}</span>'
+                )
             else:
                 section_items.append(
                     f'<a class="sidebar-item" href="{href}" data-leave-guard>'
                     f'<span><span class="dot"></span> {escape(label)}</span>'
                     f'</a>'
+                )
+                responsive_items.append(
+                    f'<a class="drama-responsive-nav-item" href="{href}" data-leave-guard '
+                    f'data-drama-nav-item="{escape(key)}">{escape(label)}</a>'
                 )
         sections_html = (
             '<div class="sidebar-section">'
@@ -220,7 +230,30 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
             + "\n".join(section_items)
             + "</div>"
         )
+        if ws_type == "drama":
+            # The tablet rail and desktop sidebar are generated from the same
+            # canonical 11-item section tuple. Mobile keeps the four primary
+            # destinations visible; "更多" opens the existing full sidebar, so
+            # workspace switching and every route remain one guarded action away.
+            primary_keys = {"overview", "write", "production", "jobs"}
+            mobile_items = [
+                item for key, item in zip(
+                    (row[0] for row in _SECTIONS_DRAMA), responsive_items
+                ) if key in primary_keys
+            ]
+            responsive_nav_html = (
+                '<nav class="drama-tablet-nav" aria-label="短剧主导航">'
+                '<a class="drama-nav-brand" href="/library" data-leave-guard aria-label="返回书架">✦</a>'
+                '<div class="drama-tablet-nav-scroll">' + "".join(responsive_items) + '</div>'
+                '<button type="button" class="btn btn-icon" data-sidebar-toggle aria-label="切换作品">作品</button>'
+                '</nav>'
+                '<nav class="drama-mobile-nav" aria-label="短剧主导航">'
+                + "".join(mobile_items) +
+                '<button type="button" class="drama-responsive-nav-item" data-sidebar-toggle '
+                'aria-label="打开全部导航">更多</button></nav>'
+            )
     return (
+        responsive_nav_html +
         '<aside class="sidebar">'
         '<a class="brand" href="/library" data-leave-guard><span>✦</span> 续写工作台</a>'
         '<div class="sidebar-section sidebar-library">'
@@ -457,42 +490,37 @@ def _novel_overview_main(name: str) -> str:
 
 
 def _drama_overview_main(name: str, meta: dict) -> str:
-    created_at = escape(str(meta.get("created_at") or "（未记录）"))
-    schema_version = escape(str(meta.get("schema_version", 0)))
     return (
-        '<header class="page-header">'
+        '<header class="page-header drama-page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">作品 · 短剧</p>'
         f'<h1>{escape(name)}</h1>'
-        '<p class="muted">短剧工作区。完成 4 站创作后，进入评审与组装。</p>'
+        '<p class="muted">从创作到交付，按已保存状态继续当前一集。</p>'
         '</div>'
         '<div class="cluster">'
         '<span class="badge no-dot badge-drama">短剧</span>'
         '<button type="button" class="btn btn-danger btn-sm" id="delete-workspace-btn">删除作品…</button>'
         '</div>'
         '</header>'
-        '<section class="section">'
-        '<div class="section-title"><h2 class="ornament">5 步进度</h2>'
-        '<span class="hint">core_setup / hook 已完成进入下一站</span></div>'
-        '<div id="drama-overview-progress" class="grid cols-2"></div>'
+        '<section id="drama-overview-summary" class="drama-overview-summary" aria-live="polite">'
+        '<div class="drama-summary-card skeleton-block"></div><div class="drama-summary-card skeleton-block"></div>'
+        '<div class="drama-summary-card skeleton-block"></div><div class="drama-summary-card skeleton-block"></div>'
         '</section>'
-        '<section class="section">'
-        '<div class="next-action" id="drama-overview-next-action">'
-        '<p class="eyebrow ornament">下一步</p>'
-        '<h2 id="drama-next-headline">载入中…</h2>'
-        f'<a class="btn btn-primary" href="/w/{escape(name)}/write?step=setup">▸ 进入短剧创作</a>'
-        '</div>'
+        '<div class="drama-overview-layout">'
+        '<section class="section drama-overview-stages">'
+        '<div class="section-title"><div><p class="eyebrow ornament">进度</p><h2>创作与生产阶段</h2></div>'
+        '<span class="hint">状态来自已保存的安全投影</span></div>'
+        '<div id="drama-overview-progress" class="drama-stage-list"></div>'
         '</section>'
-        '<section class="section">'
-        '<div class="section-title"><h2 class="ornament">workspace 元信息</h2></div>'
-        '<div class="card"><div class="card-body">'
-        '<div class="kv-list compact">'
-        '<div class="k">type</div><div class="v"><code>drama</code></div>'
-        f'<div class="k">created_at</div><div class="v"><code>{created_at}</code></div>'
-        f'<div class="k">schema_version</div><div class="v"><code>{schema_version}</code></div>'
-        '</div>'
-        '</div></div>'
+        '<aside class="drama-overview-aside">'
+        '<section class="next-action" id="drama-overview-next-action">'
+        '<p class="eyebrow ornament">下一步</p><h2 id="drama-next-headline">正在读取进度</h2>'
+        '<p class="muted" id="drama-next-reason">将根据当前状态给出恢复入口。</p>'
+        f'<div class="cluster" id="drama-next-actions"><a class="btn btn-primary" href="/w/{escape(name)}/write?step=setup">进入创作台</a></div>'
         '</section>'
+        '<section class="card drama-recent-task"><div class="card-body" id="drama-overview-recent-task">'
+        '<p class="eyebrow ornament">最近任务</p><p class="muted">正在读取状态…</p></div></section>'
+        '</aside></div>'
     )
 
 
@@ -569,7 +597,7 @@ def render_workspace_characters(name: str, workspaces: Iterable[str]) -> str:
 
 def render_workspace_production(name: str, workspaces: Iterable[str]) -> str:
     main = (
-        '<header class="page-header">'
+        '<header class="page-header drama-page-header production-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">短剧 · I 阶段</p>'
         '<h1>生产工作台</h1>'
@@ -582,7 +610,7 @@ def render_workspace_production(name: str, workspaces: Iterable[str]) -> str:
         '<button class="btn btn-secondary" id="production-refresh" type="button">刷新</button>'
         '</div>'
         '</header>'
-        '<section class="section">'
+        '<section class="section production-workbench-section">'
         '<div class="callout info">'
         '<strong>安全的状态总览</strong>'
         '<span>镜头列表与关系画布只读取服务端已保存状态，不会调用付费服务，也不会修改素材选择或任务状态；“本地 A-F 演练”会新建隔离验收项目，不改写当前项目。</span>'

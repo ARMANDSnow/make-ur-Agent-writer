@@ -1942,6 +1942,259 @@ html { scroll-behavior: smooth; }
   .ui-novel .review-issue-card .card-footer { justify-content: stretch; }
   .ui-novel #insights-cost > div { grid-template-columns: minmax(72px, auto) minmax(80px, 1fr) minmax(100px, auto) !important; }
 }
+
+/* Iteration 158 · short-drama Phase A shell, overview and production. */
+.ui-drama {
+  background: var(--ui-page-bg);
+  color: var(--ui-text);
+}
+.ui-drama .drama-tablet-nav,
+.ui-drama .drama-mobile-nav { display: none; }
+.ui-drama .card,
+.ui-drama .sidebar,
+.ui-drama .next-action,
+.ui-drama .toast { background: var(--ui-card-bg); }
+.ui-drama :is(a, button, input, [tabindex]):focus-visible {
+  outline: 3px solid var(--ui-focus-ring);
+  outline-offset: 3px;
+}
+.ui-drama :is(.btn, button, input, .sidebar-item, .drama-responsive-nav-item) {
+  box-sizing: border-box;
+  min-height: 44px;
+  min-width: 44px;
+}
+.ui-drama .brand,
+.ui-drama .breadcrumb a {
+  box-sizing: border-box;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.ui-drama .breadcrumb a { min-width: 44px; justify-content: center; padding-inline: var(--space-2); }
+.ui-drama .page { min-width: 0; overflow-x: clip; }
+.ui-drama .drama-page-header { margin-bottom: var(--space-5); }
+.ui-drama .drama-overview-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+.ui-drama .drama-summary-card {
+  min-height: 116px;
+  padding: var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ui-drama .drama-summary-card .k { color: var(--ui-text-muted); font-size: var(--fs-sm); }
+.ui-drama .drama-summary-card strong { color: var(--ui-brand-text); font-family: var(--font-serif); font-size: var(--fs-h2); }
+.ui-drama .drama-overview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, .8fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.ui-drama .drama-overview-layout > .section { margin: 0; }
+.ui-drama .drama-overview-aside { display: grid; gap: var(--space-4); }
+.ui-drama .drama-stage-list { display: grid; gap: var(--space-3); }
+.ui-drama .drama-stage-row {
+  min-width: 0;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--amber);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-drama .drama-stage-row[data-state="ready"] { border-left-color: var(--jade); }
+.ui-drama .drama-stage-row[data-state="blocked"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
+.ui-drama .drama-stage-row h3,
+.ui-drama .drama-stage-row p { margin: 0; }
+.ui-drama .drama-stage-index {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--ui-primary-bg);
+  color: var(--ui-brand-text);
+  font-weight: 700;
+}
+.ui-drama .drama-state-label { font-weight: 600; color: var(--ui-text-muted); }
+.ui-drama .production-status-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--amber);
+  border-radius: var(--radius-2);
+  background: var(--ui-card-bg);
+}
+.ui-drama .production-status-banner[data-state="ready"] { border-left-color: var(--jade); }
+.ui-drama .production-status-banner[data-state="blocked"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
+.ui-drama .production-status-banner h2,
+.ui-drama .production-status-banner p { margin: 0; }
+.ui-drama .production-view-tabs {
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+}
+.ui-drama .production-view-tabs .tab { flex: 0 0 auto; }
+.ui-drama .production-summary-card { margin-bottom: var(--space-4); }
+.ui-drama .production-list-toolbar {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.ui-drama .production-list-toolbar p { margin: 0; }
+.ui-drama .production-list-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, .75fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+.ui-drama .production-shot-row {
+  width: 100%;
+  min-height: 92px;
+  grid-template-columns: minmax(140px, .7fr) minmax(240px, 1.1fr) minmax(220px, 1fr);
+  color: var(--ui-text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.ui-drama .production-shot-row.selected { border-color: var(--jade); box-shadow: inset 0 0 0 2px var(--jade-soft); }
+.ui-drama .production-shot-row[data-state="blocked"] { border-left: 4px solid var(--sienna); background: var(--ui-danger-bg); }
+.ui-drama .production-shot-row[data-state="stale"] { border-left: 4px solid var(--amber); background: var(--gold-soft); }
+.ui-drama .production-shot-row[data-state="ready"] { border-left: 4px solid var(--jade); }
+.ui-drama .production-shot-title { display: flex; align-items: center; gap: var(--space-3); }
+.ui-drama .production-shot-title > span:last-child,
+.ui-drama .production-shot-state { display: grid; gap: var(--space-1); }
+.ui-drama .production-shot-title small,
+.ui-drama .production-shot-state small { color: var(--ui-text-muted); line-height: 1.45; }
+.ui-drama .production-shot-media { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.ui-drama .production-shot-detail { position: sticky; top: 80px; }
+.ui-drama .production-shot-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.ui-drama .production-shot-facts div { padding: var(--space-2); border-radius: var(--radius-1); background: var(--bg-sunken); }
+.ui-drama .production-shot-facts dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-drama .production-shot-facts dd { margin: var(--space-1) 0 0; font-weight: 700; }
+.ui-drama .production-stage-canvas {
+  display: grid;
+  grid-template-columns: repeat(11, auto);
+  align-items: stretch;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding: var(--space-3) var(--space-1) var(--space-4);
+  scroll-snap-type: x proximity;
+}
+.ui-drama .production-stage-canvas .production-node {
+  width: 176px;
+  min-height: 176px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--ui-text);
+  text-decoration: none;
+  scroll-snap-align: start;
+}
+.ui-drama .production-stage-arrow { display: grid; place-items: center; color: var(--ui-text-muted); font-size: var(--fs-xl); }
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .ui-drama { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .ui-drama .drama-tablet-nav {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 24;
+    min-width: 0;
+    height: 72px;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-4);
+    border-bottom: 1px solid var(--rule);
+    background: var(--ui-card-bg);
+  }
+  .ui-drama .drama-nav-brand { width: 44px; height: 44px; display: grid; place-items: center; color: var(--jade-strong); font-size: var(--fs-xl); }
+  .ui-drama .drama-tablet-nav-scroll { min-width: 0; flex: 1; display: flex; overflow-x: auto; gap: var(--space-1); }
+  .ui-drama .drama-responsive-nav-item { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-2); color: var(--ui-text-muted); background: transparent; text-decoration: none; }
+  .ui-drama .drama-responsive-nav-item.active { color: var(--ui-brand-text); background: var(--ui-primary-bg); font-weight: 700; }
+  .ui-drama > .sidebar { position: fixed; z-index: 31; top: 0; left: 0; width: 280px; height: 100vh; transform: translateX(-100%); transition: transform .18s ease; }
+  .ui-drama > .sidebar.open { transform: translateX(0); }
+  .ui-drama > .sidebar-overlay.open { display: block; position: fixed; inset: 0; background: var(--bg-overlay); z-index: 30; }
+  .ui-drama > .main { grid-row: 2; }
+  .ui-drama .topbar .nav-toggle { display: none; }
+  .ui-drama .drama-overview-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ui-drama .drama-overview-layout { grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); }
+  .ui-drama .production-list-layout { grid-template-columns: 1fr; }
+  .ui-drama .production-shot-detail { position: static; }
+  .ui-drama .production-shot-row { grid-template-columns: minmax(140px, .7fr) minmax(220px, 1fr) minmax(200px, 1fr); }
+}
+
+@media (max-width: 767px) {
+  .ui-drama .drama-tablet-nav { display: none; }
+  .ui-drama .drama-mobile-nav {
+    display: grid;
+    position: fixed;
+    z-index: 26;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    min-height: 72px;
+    padding: var(--space-1) max(var(--space-2), env(safe-area-inset-right)) calc(var(--space-1) + env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
+    border-top: 1px solid var(--rule);
+    background: var(--ui-card-bg);
+  }
+  .ui-drama .drama-mobile-nav .drama-responsive-nav-item {
+    min-width: 0;
+    display: grid;
+    place-items: center;
+    padding: var(--space-1);
+    border: 0;
+    border-radius: var(--radius-1);
+    background: transparent;
+    color: var(--ui-text-muted);
+    text-decoration: none;
+    font: inherit;
+    font-size: var(--fs-xs);
+  }
+  .ui-drama .drama-mobile-nav .drama-responsive-nav-item.active { background: var(--ui-primary-bg); color: var(--ui-brand-text); font-weight: 700; }
+  .ui-drama .page { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .ui-drama .drama-overview-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-drama .drama-overview-layout { display: flex; flex-direction: column; }
+  .ui-drama .drama-overview-aside { order: -1; width: 100%; }
+  .ui-drama .drama-overview-stages { width: 100%; }
+  .ui-drama .drama-stage-row { grid-template-columns: 36px minmax(0, 1fr); }
+  .ui-drama .drama-stage-row .drama-state-label { grid-column: 2; }
+  .ui-drama .production-header .cluster { width: 100%; }
+  .ui-drama .production-header .field { flex: 1; }
+  .ui-drama .production-header input { width: 72px; }
+  .ui-drama .production-summary-grid { grid-template-columns: 1fr 1fr; }
+  .ui-drama .production-list-layout { grid-template-columns: 1fr; }
+  .ui-drama .production-shot-detail { position: static; }
+  .ui-drama .production-shot-row { grid-template-columns: 1fr; }
+  .ui-drama .production-shot-media { align-items: center; }
+  .ui-drama .production-shot-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-drama .production-stage-canvas { display: flex; flex-direction: column; overflow: visible; }
+  .ui-drama .production-stage-canvas .production-node { width: 100%; min-height: 132px; }
+  .ui-drama .production-stage-arrow { transform: rotate(90deg); min-height: 32px; }
+}
 """
 
 
@@ -2148,12 +2401,24 @@ JS_DASHBOARD = """\
     const url = new URL(window.location.href);
     url.searchParams.set("episode_no", String(value));
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-    document.querySelectorAll('.sidebar a[href*="/production"],.sidebar a[href*="/assets"],.sidebar a[href*="/shot-images"],.sidebar a[href*="/shot-videos"],.sidebar a[href*="/compose"]').forEach(function (link) {
+    syncDramaEpisodeLinks(value);
+    return value;
+  }
+  function syncDramaEpisodeLinks(value) {
+    if (!Number.isInteger(value) || value < 1 || value > 100) return;
+    document.querySelectorAll('.sidebar a,.drama-tablet-nav a,.drama-mobile-nav a').forEach(function (link) {
       const target = new URL(link.href, window.location.origin);
-      target.searchParams.set("episode_no", String(value));
+      if (target.pathname.endsWith("/write")) {
+        target.searchParams.set("episode", String(value));
+      } else if (["/production", "/assets", "/shot-images", "/shot-videos", "/compose"].some(function (suffix) {
+        return target.pathname.endsWith(suffix);
+      })) {
+        target.searchParams.set("episode_no", String(value));
+      } else {
+        return;
+      }
       link.setAttribute("href", target.pathname + target.search);
     });
-    return value;
   }
   function hydrateDramaEpisodeInput(input) {
     if (!input) return;
@@ -2166,7 +2431,7 @@ JS_DASHBOARD = """\
     shellControlsBound = true;
     const sidebar = document.querySelector(".sidebar");
     const overlay = document.querySelector(".sidebar-overlay");
-    const navToggle = document.querySelector("[data-sidebar-toggle]");
+    const navToggles = Array.from(document.querySelectorAll("[data-sidebar-toggle]"));
     const topbarToggle = document.querySelector("[data-topbar-menu-toggle]");
     const topbarActions = document.querySelector(".topbar-actions");
     if (topbarToggle && topbarActions && !topbarActions.textContent.trim()) {
@@ -2179,12 +2444,14 @@ JS_DASHBOARD = """\
     function closeTopbarMenu() {
       if (topbarActions) topbarActions.classList.remove("open");
     }
-    if (navToggle && sidebar && overlay) {
-      navToggle.addEventListener("click", function () {
-        const open = !sidebar.classList.contains("open");
-        sidebar.classList.toggle("open", open);
-        overlay.classList.toggle("open", open);
-        if (open) closeTopbarMenu();
+    if (navToggles.length && sidebar && overlay) {
+      navToggles.forEach(function (navToggle) {
+        navToggle.addEventListener("click", function () {
+          const open = !sidebar.classList.contains("open");
+          sidebar.classList.toggle("open", open);
+          overlay.classList.toggle("open", open);
+          if (open) closeTopbarMenu();
+        });
       });
       overlay.addEventListener("click", closeSidebar);
       sidebar.addEventListener("click", function (ev) {
@@ -2215,6 +2482,12 @@ JS_DASHBOARD = """\
       }
     });
     ensureLeaveGuardDelegate();
+    const app = document.querySelector(".app.ui-drama");
+    if (app) {
+      const params = new URL(window.location.href).searchParams;
+      const rawEpisode = params.get("episode_no") || params.get("episode") || String(window.CHAPTER_NO || "");
+      if (/^(?:[1-9]|[1-9][0-9]|100)$/.test(rawEpisode)) syncDramaEpisodeLinks(Number(rawEpisode));
+    }
   }
   function statusBadge(status) {
     const raw = String(status || "blocked");
@@ -3008,29 +3281,89 @@ JS_DASHBOARD = """\
   async function loadDramaOverview() {
     const box = document.getElementById("drama-overview-progress");
     const headline = document.getElementById("drama-next-headline");
+    const summary = document.getElementById("drama-overview-summary");
+    const reason = document.getElementById("drama-next-reason");
+    const actions = document.getElementById("drama-next-actions");
+    const recentBox = document.getElementById("drama-overview-recent-task");
     if (!box) return;
     box.innerHTML = skeleton(4);
+    if (summary) summary.innerHTML = skeleton(4);
     try {
       const data = await fetchJson(wsUrl("/drama/progress"));
-      box.innerHTML = (data.stations || []).map(function (s) {
-        const cls = s.status === "done" ? "ready" :
-          s.status === "locked" ? "blocked" : "warn";
-        return '<div class="card"><div class="card-body">' +
-          '<div class="cluster">' +
-          '<span class="eyebrow ornament">' + escapeHtml(s.id) + "</span>" +
-          '<span class="badge ' + cls + '">' + escapeHtml(s.status) + "</span></div>" +
-          '<h3>' + escapeHtml(s.label) + "</h3>" +
-          "</div></div>";
-      }).join("");
-      const todo = (data.stations || []).find((s) => s.status === "todo");
+      // Media coverage / stale reasons and the recent-task card come from
+      // existing bounded projections. They are optional enrichments: a
+      // transient failure must not hide the authoritative five-station
+      // progress or strand its recovery action.
+      const optional = await Promise.all([
+        fetchJson(wsUrl("/drama/production?episode_no=1")).catch(function () { return null; }),
+        fetchJson(wsUrl("/jobs/recent?n=1")).catch(function () { return null; }),
+      ]);
+      const production = optional[0] || {};
+      const productionAvailable = optional[0] !== null;
+      const recentAvailable = optional[1] !== null;
+      const recent = ((optional[1] || {}).jobs || [])[0] || null;
+      const stations = Array.isArray(data.stations) ? data.stations : [];
+      const doneCount = stations.filter(function (s) { return s.status === "done" || s.status === "skipped"; }).length;
+      const shots = Array.isArray(production.shots) ? production.shots : [];
+      const covered = shots.filter(function (shot) {
+        return shot.image_state === "covered" && shot.video_state === "ready";
+      }).length;
+      const stationStatus = { done: "已完成", skipped: "无需处理", todo: "待完成", locked: "等待上游" };
+      box.innerHTML = stations.length ? stations.map(function (s, index) {
+        const state = s.status === "done" || s.status === "skipped" ? "ready" :
+          s.status === "locked" ? "blocked" : "incomplete";
+        const detail = s.status === "locked" ? "请先完成上一阶段" :
+          s.status === "todo" ? "可从创作台继续" : "已保存到当前作品";
+        return '<article class="drama-stage-row" data-state="' + state + '">' +
+          '<span class="drama-stage-index" aria-hidden="true">' + (index + 1) + '</span>' +
+          '<div><h3>' + escapeHtml(s.label || "未命名阶段") + '</h3><p class="muted">' + detail + '</p></div>' +
+          '<span class="drama-state-label">' + escapeHtml(stationStatus[s.status] || "状态待确认") + '</span></article>';
+      }).join("")
+      : emptyState("还没有创作进度", "从创作台完成核心设定后，这里会显示各阶段。", '<a class="btn btn-primary" href="' + wsHref('/write?step=setup') + '">开始创作</a>');
+      if (summary) {
+        summary.innerHTML =
+          '<article class="drama-summary-card"><span class="k">当前集</span><strong>第 ' + Number(data.episode_no || 1) + ' 集</strong><span class="muted">当前查看</span></article>' +
+          '<article class="drama-summary-card"><span class="k">创作阶段</span><strong>' + doneCount + ' / 5</strong><span class="muted">已完成</span></article>' +
+          '<article class="drama-summary-card"><span class="k">媒体覆盖</span><strong>' + (productionAvailable ? covered + ' / ' + shots.length : '—') + '</strong><span class="muted">' + (productionAvailable ? '图片与视频就绪' : '暂时无法读取') + '</span></article>' +
+          '<article class="drama-summary-card"><span class="k">生产状态</span><strong>' + (productionAvailable ? escapeHtml(productionStateLabel(production.state)) : '暂时无法读取') + '</strong><span class="muted">' + (productionAvailable ? '来自生产投影' : '可从生产工作台重试') + '</span></article>';
+      }
+      if (recentBox) {
+        recentBox.innerHTML = '<p class="eyebrow ornament">最近任务</p>' + (!recentAvailable
+          ? '<h3>暂时无法读取</h3><p class="muted">已有任务不受影响，可前往任务页核对。</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">前往任务页</a>'
+          : recent
+          ? '<h3>' + escapeHtml(stepLabel(recent.step || recent.current_step)) + '</h3><p>' + statusBadge(recent.status) + '</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">查看任务</a>'
+          : '<h3>暂无任务</h3><p class="muted">创作或生产后，最近状态会显示在这里。</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">打开任务页</a>');
+      }
+      const todo = stations.find(function (s) { return s.status === "todo"; });
+      // Creative progress is the entry authority for a new/incomplete work:
+      // an expected empty production projection must not divert a first-time
+      // user away from the next unlocked station.
+      const blocked = !todo && production.state === "blocked";
+      const stale = !todo && production.state === "stale";
       if (headline) {
-        headline.textContent = todo
-          ? "下一步：完成「" + todo.label + "」"
-          : "创作与评审已完成。可以进入角色库继续整理视觉资产";
+        headline.textContent = blocked ? "生产已阻塞，需先核对状态" : stale ? "上游已变化，需刷新生产结果" : todo
+          ? "继续「" + String(todo.label || "当前阶段") + "」"
+          : "创作已完成，继续准备生产";
+      }
+      if (reason) reason.textContent = blocked
+        ? productionReasonText((production.reasons || [])[0], true)
+        : stale ? productionReasonText((production.reasons || [])[0], false)
+        : todo ? "完成这一阶段后，后续阶段会按顺序解锁。" : "检查资产、镜头媒体与交付准备情况。";
+      if (actions) {
+        const href = blocked || stale || !todo ? wsHref("/production") : wsHref("/write?step=" + encodeURIComponent(todo.id || "setup"));
+        actions.innerHTML = '<a class="btn btn-primary" href="' + href + '">' + (blocked ? "前往核对" : stale ? "打开生产工作台" : todo ? "继续创作" : "进入生产工作台") + '</a>' +
+          '<button type="button" class="btn btn-ghost" data-drama-overview-retry>刷新状态</button>';
+        const retry = actions.querySelector("[data-drama-overview-retry]");
+        if (retry) retry.addEventListener("click", loadDramaOverview);
       }
     } catch (err) {
-      box.innerHTML = renderErrorCard(err);
-      if (headline) headline.textContent = "载入失败";
+      box.innerHTML = publicLoadError("概览没有读取成功", "已保存内容不受影响。可重试或从创作台继续。", '<button type="button" class="btn btn-secondary" data-drama-overview-retry>重试</button>');
+      if (summary) summary.innerHTML = '<article class="drama-summary-card"><span class="k">当前状态</span><strong>暂时无法确认</strong><span class="muted">请重新读取</span></article>';
+      if (headline) headline.textContent = "暂时无法确认下一步";
+      if (reason) reason.textContent = "不会自动发起生成或重试提交。";
+      const retry = box.querySelector("[data-drama-overview-retry]");
+      if (retry) retry.addEventListener("click", loadDramaOverview);
+      if (recentBox) recentBox.innerHTML = '<p class="eyebrow ornament">最近任务</p><p class="muted">状态暂时无法确认。</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">前往任务页核对</a>';
     }
   }
 
@@ -8638,9 +8971,23 @@ JS_DASHBOARD = """\
       ready: "已就绪", incomplete: "尚未完整", stale: "上游已变化",
       blocked: "已阻塞", invalid: "无效", busy: "工作区繁忙",
       missing: "尚未建立", active: "已启用", disabled: "已停用",
-      succeeded: "成功", failed: "失败", submission_unknown: "提交结果未知",
+      succeeded: "已完成", failed: "未完成", submission_unknown: "提交结果待核对",
       needs_attempts: "尚无提交", fresh: "已对账", reconciliation_required: "需要对账",
-    })[state] || String(state || "未知");
+      covered: "已覆盖", selected: "已选定", terminal: "已结束",
+      not_sent: "未提交", unknown: "结果待核对", submitted: "已提交",
+      passed: "检查通过", complete: "已完成",
+    })[state] || "状态待确认";
+  }
+
+  function productionReasonText(code, blocked) {
+    return ({
+      attempt_submission_unknown: "有提交结果尚未确认，请先前往任务页核对；不会自动重试。",
+      attempt_ledger_blocked: "媒体提交记录需要对账，请先核对再继续。",
+      component_blocked: "至少一个生产阶段被阻塞，请按镜头提示修复上游状态。",
+      component_stale: "上游创作或素材已变化，请刷新并重新确认受影响镜头。",
+      production_incomplete: "生产尚未完整，可从第一个待处理阶段继续。",
+      component_busy: "当前有任务占用工作区，请等待完成后刷新。",
+    })[code] || (blocked ? "当前状态需要人工核对后才能继续。" : "当前阶段需要刷新或补全后才能继续。");
   }
 
   function productionBadge(state) {
@@ -8659,13 +9006,27 @@ JS_DASHBOARD = """\
     })[level] || "验收状态待确认";
   }
 
+  function productionShotState(shot) {
+    if (shot.latest_attempt_outcome === "unknown" || ["blocked", "invalid", "broken"].indexOf(shot.image_state) >= 0 || ["blocked", "invalid"].indexOf(shot.video_state) >= 0) return "blocked";
+    if (shot.image_state === "stale" || shot.video_state === "stale") return "stale";
+    if (shot.image_state === "covered" && shot.video_state === "ready") return "ready";
+    return "incomplete";
+  }
+
+  function productionShotReason(shot, state) {
+    if (shot.latest_attempt_outcome === "unknown") return "提交结果待核对，请前往任务页确认；不会自动重试。";
+    if (state === "blocked") return "图片或视频阶段被阻塞，请先修复对应的上游素材。";
+    if (state === "stale") return "上游内容已变化，请刷新后重新确认图片与视频。";
+    if (state === "ready") return "图片与视频均已就绪。";
+    return "尚有图片或视频素材未完成。";
+  }
+
   function renderProductionSummary(data) {
     const render = data.render || {};
     const assets = data.assets || {};
     const tasks = data.tasks || {};
     const timeline = data.timeline || {};
     const attempts = data.video_attempts || {};
-    const sourceCounts = render.source_event_counts || {};
     const demo = data.local_demo || {};
     const demoClass = demo.state === "complete" ? "success" : demo.state === "ready" ? "info" : "warning";
     const demoButton = demo.can_start === true
@@ -8674,14 +9035,14 @@ JS_DASHBOARD = """\
     const demoCard = '<div class="callout ' + demoClass + '"><strong>' +
       escapeHtml(demo.label || "本地制作演练") + '</strong><span>' +
       escapeHtml(demo.reason || "") + '</span>' + demoButton + '</div>';
-    return demoCard + '<div class="card"><div class="card-body">' +
-      '<div class="section-title"><div><p class="eyebrow ornament">Episode ' +
-      Number(data.episode_no || 1) + '</p><h2>生产状态</h2></div>' + productionBadge(data.state) + '</div>' +
+    const stateReason = data.state === "ready"
+      ? "创作、素材、媒体与时间线已就绪。"
+      : productionReasonText((data.reasons || [])[0], data.state === "blocked");
+    return '<div class="production-status-banner" data-state="' + escapeHtml(data.state || "incomplete") + '"><div><p class="eyebrow ornament">第 ' +
+      Number(data.episode_no || 1) + ' 集</p><h2>生产状态</h2><p>' + escapeHtml(stateReason) + '</p></div>' + productionBadge(data.state) + '</div>' + demoCard + '<div class="card production-summary-card"><div class="card-body">' +
       '<div class="production-summary-grid">' +
       '<div><p class="hint">镜头制作计划</p>' + productionBadge(render.state) +
       '<p>' + Number(render.shot_count || 0) + ' 镜 · ' + Number(render.spoken_segment_count || 0) + ' 段口播</p></div>' +
-      '<div><p class="hint">故事来源</p><p>原著 ' + Number(sourceCounts.source_derived || 0) +
-      ' · 发明 ' + Number(sourceCounts.invented || 0) + ' · 混合 ' + Number(sourceCounts.mixed || 0) + '</p></div>' +
       '<div><p class="hint">已选素材</p>' + productionBadge(assets.state) +
       '<p>' + Number(assets.selected_count || 0) + ' 项 · 待处理 ' + Number(assets.blocker_count || 0) + '</p></div>' +
       '<div><p class="hint">逐镜媒体</p><p>图片 ' + productionBadge(data.image_state) +
@@ -8690,41 +9051,31 @@ JS_DASHBOARD = """\
       ' · 已提交 ' + Number(attempts.submitted_count || 0) + '</p></div>' +
       '<div><p class="hint">任务编排</p>' + productionBadge(tasks.state) +
       '<p>' + Number(tasks.task_count || 0) + ' 项 · 结果未知 ' + Number(tasks.unknown_count || 0) + '</p></div>' +
-      '<div><p class="hint">时间线 / 质检</p>' + productionBadge(timeline.state) +
+      '<div><p class="hint">时间线与质检</p>' + productionBadge(timeline.state) +
       '<p>' + Number(timeline.shot_count || 0) + ' 镜 · ' + Number(timeline.subtitle_count || 0) + ' 字幕</p></div>' +
-      '</div><details><summary>诊断详情</summary><p class="hint">同源 fingerprint <code>' +
-      escapeHtml((data.source_projection_fingerprint || "").slice(0, 24)) +
-      '</code> · 来源绑定 ' + escapeHtml(render.source_event_binding_state || "unbound") +
-      '</p></details></div></div>';
+      '</div></div></div>';
   }
 
   function renderProductionList(data) {
     const shots = data.shots || [];
-    const assets = data.assets || {};
     const timeline = data.timeline || {};
-    const assetList = (assets.items || []).length
-      ? '<div class="card"><div class="card-body"><h3>已选版本</h3><div class="cluster">' +
-        assets.items.map(function (item) {
-          return '<span class="badge no-dot">' + escapeHtml(item.kind) + ' · ' +
-            escapeHtml(item.asset_id) + ' / ' + escapeHtml(item.selected_version_id) + '</span>';
-        }).join("") + '</div>' +
-        (Number(assets.omitted_count || 0) ? '<p class="hint">另有 ' + Number(assets.omitted_count) + ' 项未投影。</p>' : '') +
-        '</div></div>'
-      : '<div class="empty-state"><p>尚无已选素材。</p></div>';
+    const selectedSequence = Number(data.__selectedSequence || (shots[0] || {}).sequence || 0);
+    const selectedShot = shots.find(function (shot) { return Number(shot.sequence) === selectedSequence; }) || shots[0] || null;
+    const actionableOnly = data.__actionableOnly === true;
+    const orderedShots = shots.slice().sort(function (a, b) {
+      const weight = { blocked: 0, stale: 1, incomplete: 2, ready: 3 };
+      return weight[productionShotState(a)] - weight[productionShotState(b)] || Number(a.sequence) - Number(b.sequence);
+    }).filter(function (shot) { return !actionableOnly || productionShotState(shot) !== "ready"; });
     const shotList = shots.length
-      ? '<div class="production-shot-list">' + shots.map(function (shot) {
-          return '<article class="production-shot-row" data-shot-id="' + escapeHtml(shot.shot_id) + '">' +
-            '<div><p class="eyebrow ornament">镜头 ' + Number(shot.sequence) + '</p><code>' +
-            escapeHtml(shot.shot_id) + '</code>' + (shot.is_highlight ? '<p><span class="badge">高光</span></p>' : '') + '</div>' +
-            '<div class="cluster"><span>首/尾帧 ' + productionBadge(shot.image_state) + '</span>' +
-            '<span>视频 ' + productionBadge(shot.video_state) + '</span>' +
-            (shot.latest_attempt_outcome ? '<span>生成记录 ' + productionBadge(shot.latest_attempt_outcome) + '</span>' : '') + '</div>' +
-            '<div class="hint">' + (shot.target_duration_seconds == null ? '—' : Number(shot.target_duration_seconds) + ' 秒') +
-            ' · 图片候选 ' + Number(shot.image_candidate_count || 0) +
-            ' · 视频候选 ' + Number(shot.video_candidate_count || 0) +
-            ' · 口播 ' + Number(shot.spoken_segment_count || 0) + '</div></article>';
-        }).join("") + '</div>'
-      : '<div class="empty-state"><h3>尚无稳定镜头 ID</h3><p>先完成组装与镜头制作计划；工作台不会从文本或文件名猜镜头。</p></div>';
+      ? '<div class="production-list-toolbar"><p><strong>' + orderedShots.length + '</strong> 个镜头' + (actionableOnly ? '需要处理' : '正在显示') + '</p><button type="button" class="btn btn-ghost btn-sm" id="production-actionable-only" aria-pressed="' + (actionableOnly ? 'true' : 'false') + '">' + (actionableOnly ? '显示全部' : '只看需处理') + '</button></div><div class="production-list-layout"><div class="production-shot-list">' + orderedShots.map(function (shot) {
+          const state = productionShotState(shot);
+          const selected = Number(shot.sequence) === selectedSequence;
+          return '<button type="button" class="production-shot-row' + (selected ? ' selected' : '') + '" data-shot-entry data-shot-id="' + escapeHtml(shot.shot_id) + '" data-shot-sequence="' + Number(shot.sequence) + '" data-state="' + state + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' +
+            '<span class="production-shot-title"><span class="drama-stage-index">' + Number(shot.sequence) + '</span><span><strong>镜头 ' + Number(shot.sequence) + '</strong>' + (shot.is_highlight ? '<span class="badge no-dot">高光</span>' : '') + '<small>' + (shot.target_duration_seconds == null ? '时长待定' : Number(shot.target_duration_seconds) + ' 秒') + '</small></span></span>' +
+            '<span class="production-shot-media"><span>图片 ' + productionBadge(shot.image_state) + '</span><span>视频 ' + productionBadge(shot.video_state) + '</span></span>' +
+            '<span class="production-shot-state">' + productionBadge(state) + (selected ? '<span class="badge no-dot">已选中</span>' : '') + '<small>' + escapeHtml(productionShotReason(shot, state)) + '</small></span></button>';
+        }).join("") + (orderedShots.length ? '' : '<div class="empty-state"><h3>当前没有待处理镜头</h3><p>可显示全部镜头查看已就绪状态。</p></div>') + '</div>' + renderProductionShotDetail(selectedShot, data.episode_no) + '</div>'
+      : emptyState("尚无镜头制作计划", "先完成评审组装，工作台不会从文本或文件名猜测镜头。", '<a class="btn btn-primary" href="' + wsHref('/write?step=review') + '">返回创作台</a>');
     const qa = timeline.qa
       ? '<div class="card"><div class="card-body"><h3>质检与交付</h3><p>' +
         productionBadge(timeline.qa.status) + ' · ' + productionAcceptanceLabel(timeline.qa.acceptance_level) +
@@ -8734,26 +9085,35 @@ JS_DASHBOARD = """\
             escapeHtml(String(item.kind || '').toUpperCase()) + '</a>';
         }).join('') + '</div></div></div>'
       : '';
-    return '<div id="production-panel-list" role="tabpanel" aria-labelledby="production-tab-list" ' +
-      'data-production-panel="list">' + assetList + shotList + qa + '</div>';
+    return '<div id="production-panel-list" role="tabpanel" aria-labelledby="production-tab-list" tabindex="0" ' +
+      'data-production-panel="list">' + shotList + qa + '</div>';
+  }
+
+  function renderProductionShotDetail(shot, episodeNo) {
+    if (!shot) return '<aside class="production-shot-detail card"><div class="card-body"><h3>镜头详情</h3><p class="muted">选择一个镜头查看。</p></div></aside>';
+    const state = productionShotState(shot);
+    return '<aside class="production-shot-detail card"><div class="card-body"><p class="eyebrow ornament">已选镜头</p><h3>镜头 ' + Number(shot.sequence) + '</h3><p>' + productionBadge(state) + '</p><p>' + escapeHtml(productionShotReason(shot, state)) + '</p><dl class="production-shot-facts"><div><dt>图片候选</dt><dd>' + Number(shot.image_candidate_count || 0) + '</dd></div><div><dt>视频候选</dt><dd>' + Number(shot.video_candidate_count || 0) + '</dd></div><div><dt>口播段落</dt><dd>' + Number(shot.spoken_segment_count || 0) + '</dd></div></dl><div class="cluster"><a class="btn btn-secondary btn-sm" href="' + wsHref('/shot-images?episode_no=' + Number(episodeNo || 1)) + '">查看镜头图片</a><a class="btn btn-ghost btn-sm" href="' + wsHref('/shot-videos?episode_no=' + Number(episodeNo || 1)) + '">查看镜头视频</a></div></div></aside>';
   }
 
   function renderProductionCanvas(data) {
-    const nodes = data.canvas_nodes || [];
-    const edges = data.canvas_edges || [];
+    const render = data.render || {}, assets = data.assets || {}, tasks = data.tasks || {}, timeline = data.timeline || {};
+    const stages = [
+      ["创作", render.state, Number(render.shot_count || 0) + " 个镜头计划", "/write?step=review"],
+      ["资产", assets.state, Number(assets.selected_count || 0) + " 项已选素材", "/assets"],
+      ["图片", data.image_state, "逐镜首尾帧覆盖", "/shot-images"],
+      ["视频", data.video_state, Number((data.video_attempts || {}).unknown_count || 0) + " 项待核对", "/shot-videos"],
+      ["时间线", timeline.state, Number(timeline.shot_count || 0) + " 镜已编排", "/compose"],
+      ["合成 QA", timeline.qa ? timeline.qa.status : timeline.state, timeline.qa ? productionAcceptanceLabel(timeline.qa.acceptance_level) : "待完成质检", "/compose"],
+    ];
     return '<div id="production-panel-canvas" role="tabpanel" aria-labelledby="production-tab-canvas" ' +
-      'data-production-panel="canvas">' +
-      '<div class="callout info"><strong>同源画布投影</strong><span>' +
-      nodes.length + ' 个节点 · ' + edges.length + ' 条关系' +
-      (Number(data.canvas_omitted_edge_count || 0) ? ' · 另有 ' + Number(data.canvas_omitted_edge_count) + ' 条关系未展示' : '') +
-      '；只展示服务端已保存状态。</span></div>' +
-      '<div class="production-canvas">' + nodes.map(function (node) {
-        return '<article class="production-node" data-production-node="' + escapeHtml(node.node_id) +
-          '" data-state="' + escapeHtml(node.state) + '"><p class="eyebrow ornament">' +
-          escapeHtml(node.kind) + '</p><code>' + escapeHtml(node.ref_id) + '</code><p>' +
-          productionBadge(node.state) + (node.selected ? ' <span class="badge no-dot">已选</span>' : '') +
-          '</p></article>';
-      }).join('') + '</div></div>';
+      'data-production-panel="canvas" tabindex="0">' +
+      '<div class="callout info"><strong>同一份生产投影</strong><span>列表与画布只展示服务端已保存状态；画布节点不写入持久化事实。</span></div>' +
+      '<div class="production-stage-canvas" aria-label="创作到合成质检的生产依赖">' + stages.map(function (stage, index) {
+        const joiner = stage[3].indexOf("?") >= 0 ? "&" : "?";
+        const episodeKey = stage[3].indexOf("/write") === 0 ? "episode" : "episode_no";
+        const href = stage[3] + joiner + episodeKey + "=" + encodeURIComponent(String(Number(data.episode_no || 1)));
+        return (index ? '<span class="production-stage-arrow" aria-hidden="true">→</span>' : '') + '<a class="production-node" href="' + wsHref(href) + '" data-state="' + escapeHtml(stage[1] || "incomplete") + '"><span class="drama-stage-index">' + (index + 1) + '</span><h3>' + stage[0] + '</h3><p>' + productionBadge(stage[1]) + '</p><small>' + escapeHtml(stage[2]) + '</small></a>';
+      }).join('') + '</div><p class="hint">任务编排共 ' + Number(tasks.task_count || 0) + ' 项；每个阶段只展示安全汇总。</p></div>';
   }
 
   function localDemoPendingKey(sourceEpisodeNo) {
@@ -8831,6 +9191,21 @@ JS_DASHBOARD = """\
           }
         });
       }
+      const actionableToggle = document.getElementById("production-actionable-only");
+      if (actionableToggle) actionableToggle.addEventListener("click", function () {
+        projection.__actionableOnly = projection.__actionableOnly !== true;
+        render();
+        const nextToggle = document.getElementById("production-actionable-only");
+        if (nextToggle) nextToggle.focus();
+      });
+      root.querySelectorAll("[data-shot-entry]").forEach(function (entry) {
+        entry.addEventListener("click", function () {
+          projection.__selectedSequence = Number(entry.dataset.shotSequence || 0);
+          render();
+          const selected = root.querySelector('[data-shot-sequence="' + Number(projection.__selectedSequence) + '"]');
+          if (selected) selected.focus();
+        });
+      });
       tabs.forEach(function (tab) {
         const active = tab.dataset.productionView === view;
         tab.classList.toggle("active", active);

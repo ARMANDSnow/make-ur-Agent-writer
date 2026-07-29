@@ -186,3 +186,4 @@
 164. [Iteration 155 - 小说 Web Phase D 单章续写主流程重构](./iteration_155_novel_web_phase_d_single_chapter_flow.md)
 165. [Iteration 156 - 小说 Web Phase E 高级与辅助页面重构](./iteration_156_novel_web_phase_e_advanced_auxiliary_pages.md)
 166. [Iteration 157 - 近期体检报告安全、Job 与 Harness 问题闭环](./iteration_157_health_report_security_job_harness_closure.md)
+167. [Iteration 158 - 短剧 Web UIUX Phase A：导航壳、概览与生产工作台重构](./iteration_158_drama_web_uiux_phase_a_shell_overview_production.md)
