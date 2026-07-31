@@ -113,6 +113,55 @@ class ServerTests(unittest.TestCase):
             r"^HTTP/1\.[01] 413 ",
         )
 
+    def test_job_cancel_transport_cap_rejects_before_body_read(self) -> None:
+        with socket.create_connection(
+            ("127.0.0.1", self.port),
+            timeout=1.0,
+        ) as client:
+            client.settimeout(1.0)
+            request = (
+                "POST /api/workspace/ghost/job/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cancel HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{self.port}\r\n"
+                "Content-Type: application/json\r\n"
+                "X-Drama-Mutation-Intent: mutate-v1\r\n"
+                "Content-Length: 65537\r\n"
+                "Connection: close\r\n\r\n"
+            )
+            client.sendall(request.encode("ascii"))
+            response = client.recv(4096)
+        self.assertRegex(
+            response.decode("iso-8859-1"),
+            r"^HTTP/1\.[01] 413 ",
+        )
+
+    def test_job_cancel_rejects_ambiguous_transport_framing(self) -> None:
+        requests = (
+            "Content-Length: invalid\r\n",
+            "Content-Length: -1\r\n",
+            "Transfer-Encoding: chunked\r\n",
+        )
+        for framing in requests:
+            with self.subTest(framing=framing.strip()):
+                with socket.create_connection(
+                    ("127.0.0.1", self.port),
+                    timeout=1.0,
+                ) as client:
+                    client.settimeout(1.0)
+                    request = (
+                        "POST /api/workspace/ghost/job/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cancel HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{self.port}\r\n"
+                        "Content-Type: application/json\r\n"
+                        "X-Drama-Mutation-Intent: mutate-v1\r\n"
+                        f"{framing}"
+                        "Connection: close\r\n\r\n"
+                    )
+                    client.sendall(request.encode("ascii"))
+                    response = client.recv(4096)
+                self.assertRegex(
+                    response.decode("iso-8859-1"),
+                    r"^HTTP/1\.[01] 400 ",
+                )
+
     def test_shot_image_mutation_transport_cap_rejects_before_body_read(self) -> None:
         with socket.create_connection(
             ("127.0.0.1", self.port),

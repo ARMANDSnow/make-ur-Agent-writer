@@ -96,6 +96,9 @@ class DramaWebUiuxPhaseDTests(DramaTestBase):
         self.assertIn("时长来源待核对", source)
         self.assertIn("暂无可确认金额", source)
         self.assertIn("未知或无效记录不纳入", source)
+        self.assertIn('mediaMetrics.status === "ok"', source)
+        self.assertIn('duration.status === "ok"', source)
+        self.assertIn("指标来源待核对", source)
         self.assertNotIn(".reduce(function (sum, row)", source)
         self.assertNotIn("unknown_submission_count || 0) +", source)
 

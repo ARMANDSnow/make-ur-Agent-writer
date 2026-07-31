@@ -38,7 +38,14 @@
 
 ## Implementation Notes
 
-待实施回填。
+- 公开 recent/detail 的 result allowlist 与 drama result summary 同时移除 `task_id`、`provider`、`provider_model`；源 provider result 与受控 paid ledger 未改。`jobs.py` 顶层架构说明同步为 live in-memory pool + bounded durable public ledger。
+- 新增 URL episode 解析 helper，严格接受 1–100，非法/缺省回落到 1；概览 progress、production、workspace home/创作/生产导航及下一步 CTA 统一使用同一 episode。production 无镜头空态从服务端投影的 `episode_no` 返回对应评审步骤。
+- Insights 将 media metrics 与 duration 的 `status` 分别作为解释门禁：`ok=0` 仍显示确定零，degraded 只显示 `—` 与来源待核对。production 镜头按钮删除 `data-shot-id`，点击与原生键盘激活继续读取公开 `data-shot-sequence`。
+- protected mutation path 扩展至 `/job/<id>/cancel`；dispatch 层要求不超过 64 KiB 的 UTF-8 JSON object、显式 intent 与 same-origin，server 层在读 body 前拒绝超限、非法/负 Content-Length 和任意 Transfer-Encoding。Dashboard 既有 `postJson` 已兼容，Wizard 直连 cancel 补齐 JSON/intent/body。
+- 新增行为级 Node 回归，直接执行生产 JS 验证 episode 2、非法 episode 回落、真实 fetch/CTA/nav、sequence 点击重渲染以及 Insights degraded/`ok=0` 对照；socket 回归验证 cancel transport cap 与模糊 framing。
+- 聚焦矩阵最终 236 tests OK；Python compile、Dashboard/Wizard `node --check`、harness 与 `git diff --check` 通过。LiteLLM 仅报告未安装可选 `botocore` warning，不影响 mock/offline 行为。
+- Playwright 使用 `/private/tmp/iter162-browser-workspaces-v3` synthetic drama workspace：概览实际请求 episode 2，侧栏/CTA 保持 episode 2；production 空态链接为 `/write?episode=2&step=review`；media/duration degraded 均显示 `—`/来源待核对，DOM 无 `data-shot-id`，console 0 error / 0 warning。该证据为 `local-e2e`，临时服务与浏览器已关闭。
+- 初审三路提出测试覆盖、malformed JSON 与模糊 transport framing findings；主线程修复后复审确认 correctness、security/boundary、Web/UIUX 均无剩余 P0–P3。security 另观察到既有真视频 status 接口会返回其专用安全 meta；该接口不属于两份报告明确指向的 recent/detail finding，本轮未扩张其既有合同。
 
 ## Acceptance Result
 
@@ -51,7 +58,15 @@
 
 ## 文件变更汇总
 
-待实施回填。
+| 文件 | 改动 |
+|---|---|
+| `src/web/jobs.py` | 收紧公开 result identity，并更新 durable job 架构说明。 |
+| `src/web/routes.py`、`src/web/server.py` | 将 cancel 纳入 JSON/intent/same-origin/64 KiB 双层 wire guard。 |
+| `src/web/static.py` | 贯通 episode 2+ 概览/空态，修正 degraded Insights，删除 production DOM stable ID，修复 Wizard cancel 请求。 |
+| `tests/test_web_iter162_health_closure.py` | 新增七项 finding 的跨层行为回归。 |
+| `tests/test_web_jobs_recent.py`、`tests/test_web_server.py`、`tests/test_drama_web_uiux_phase_a.py`、`tests/test_drama_web_uiux_phase_d.py` | 更新公开投影、transport cap、episode/DOM 与 Insights 合同回归。 |
+| `docs/iterations/iteration_160_drama_web_uiux_phase_c_assets_shot_media.md` | 闭合历史 Knowledge Promotion reason 占位。 |
+| `docs/iterations/iteration_162_health_report_projection_episode_web_boundary_closure.md`、`docs/iterations/README.md` | 记录本轮计划、实现、验收与索引。 |
 
 ## 不在本轮范围
 

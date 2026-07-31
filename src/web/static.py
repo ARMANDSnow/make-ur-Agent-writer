@@ -2843,11 +2843,19 @@ JS_DASHBOARD = """\
     syncDramaEpisodeLinks(value);
     return value;
   }
+  function dramaEpisodeFromUrl() {
+    const params = new URL(window.location.href).searchParams;
+    const raw = params.get("episode_no") || params.get("episode") || String(window.CHAPTER_NO || "");
+    return /^(?:[1-9]|[1-9][0-9]|100)$/.test(raw) ? Number(raw) : 1;
+  }
   function syncDramaEpisodeLinks(value) {
     if (!Number.isInteger(value) || value < 1 || value > 100) return;
     document.querySelectorAll('.sidebar a,.drama-tablet-nav a,.drama-mobile-nav a').forEach(function (link) {
       const target = new URL(link.href, window.location.origin);
-      if (target.pathname.endsWith("/write") || target.pathname.endsWith("/characters")) {
+      const workspaceHome = new URL(wsHref("/"), window.location.origin).pathname;
+      if (target.pathname === workspaceHome) {
+        target.searchParams.set("episode_no", String(value));
+      } else if (target.pathname.endsWith("/write") || target.pathname.endsWith("/characters")) {
         target.searchParams.set("episode", String(value));
       } else if (["/production", "/assets", "/shot-images", "/shot-videos", "/compose"].some(function (suffix) {
         return target.pathname.endsWith(suffix);
@@ -2923,9 +2931,7 @@ JS_DASHBOARD = """\
     ensureLeaveGuardDelegate();
     const app = document.querySelector(".app.ui-drama");
     if (app) {
-      const params = new URL(window.location.href).searchParams;
-      const rawEpisode = params.get("episode_no") || params.get("episode") || String(window.CHAPTER_NO || "");
-      if (/^(?:[1-9]|[1-9][0-9]|100)$/.test(rawEpisode)) syncDramaEpisodeLinks(Number(rawEpisode));
+      syncDramaEpisodeLinks(dramaEpisodeFromUrl());
     }
   }
   function statusBadge(status) {
@@ -3738,16 +3744,18 @@ JS_DASHBOARD = """\
     const actions = document.getElementById("drama-next-actions");
     const recentBox = document.getElementById("drama-overview-recent-task");
     if (!box) return;
+    const episodeNo = dramaEpisodeFromUrl();
+    syncDramaEpisodeLinks(episodeNo);
     box.innerHTML = skeleton(4);
     if (summary) summary.innerHTML = skeleton(4);
     try {
-      const data = await fetchJson(wsUrl("/drama/progress"));
+      const data = await fetchJson(wsUrl("/drama/progress?episode_no=" + encodeURIComponent(String(episodeNo))));
       // Media coverage / stale reasons and the recent-task card come from
       // existing bounded projections. They are optional enrichments: a
       // transient failure must not hide the authoritative five-station
       // progress or strand its recovery action.
       const optional = await Promise.all([
-        fetchJson(wsUrl("/drama/production?episode_no=1")).catch(function () { return null; }),
+        fetchJson(wsUrl("/drama/production?episode_no=" + encodeURIComponent(String(episodeNo)))).catch(function () { return null; }),
         fetchJson(wsUrl("/jobs/recent?n=1")).catch(function () { return null; }),
       ]);
       const production = optional[0] || {};
@@ -3771,7 +3779,7 @@ JS_DASHBOARD = """\
           '<div><h3>' + escapeHtml(s.label || "未命名阶段") + '</h3><p class="muted">' + detail + '</p></div>' +
           '<span class="drama-state-label">' + escapeHtml(stationStatus[s.status] || "状态待确认") + '</span></article>';
       }).join("")
-      : emptyState("还没有创作进度", "从创作台完成核心设定后，这里会显示各阶段。", '<a class="btn btn-primary" href="' + wsHref('/write?step=setup') + '">开始创作</a>');
+      : emptyState("还没有创作进度", "从创作台完成核心设定后，这里会显示各阶段。", '<a class="btn btn-primary" href="' + wsHref('/write?episode=' + encodeURIComponent(String(episodeNo)) + '&step=setup') + '">开始创作</a>');
       if (summary) {
         summary.innerHTML =
           '<article class="drama-summary-card"><span class="k">当前集</span><strong>第 ' + Number(data.episode_no || 1) + ' 集</strong><span class="muted">当前查看</span></article>' +
@@ -3802,7 +3810,9 @@ JS_DASHBOARD = """\
         : stale ? productionReasonText((production.reasons || [])[0], false)
         : todo ? "完成这一阶段后，后续阶段会按顺序解锁。" : "检查资产、镜头媒体与交付准备情况。";
       if (actions) {
-        const href = blocked || stale || !todo ? wsHref("/production") : wsHref("/write?step=" + encodeURIComponent(todo.id || "setup"));
+        const href = blocked || stale || !todo
+          ? wsHref("/production?episode_no=" + encodeURIComponent(String(episodeNo)))
+          : wsHref("/write?episode=" + encodeURIComponent(String(episodeNo)) + "&step=" + encodeURIComponent(todo.id || "setup"));
         actions.innerHTML = '<a class="btn btn-primary" href="' + href + '">' + (blocked ? "前往核对" : stale ? "打开生产工作台" : todo ? "继续创作" : "进入生产工作台") + '</a>' +
           '<button type="button" class="btn btn-ghost" data-drama-overview-retry>刷新状态</button>';
         const retry = actions.querySelector("[data-drama-overview-retry]");
@@ -8622,19 +8632,22 @@ JS_DASHBOARD = """\
       const mediaPricing = data.media_pricing || {};
       const mediaMetrics = data.media_metrics || {};
       const duration = data.duration || {};
+      const mediaMetricsKnown = mediaMetrics.status === "ok";
+      const durationKnown = duration.status === "ok";
       const textCostsKnown = llm.status === "ok" && meta.status === "ok";
       const knownCost = Number(llm.cost_cny || 0) + Number(meta.cost_cny || 0);
       const mediaKnownCurrencies = Array.isArray(mediaPricing.currencies)
         ? mediaPricing.currencies.filter(function (row) { return row.actual_known != null; }).length
         : 0;
-      const unknownTasks = Number(mediaMetrics.unknown_submission_count || 0);
+      const unknownTasks = mediaMetricsKnown ? Number(mediaMetrics.unknown_submission_count || 0) : null;
       summaryBox.innerHTML = [
         ["创作费用", textCostsKnown ? "¥" + knownCost.toFixed(2) : "—", textCostsKnown ? String(llm.calls || 0) + " 次已记录调用" : "部分来源不可验证"],
         ["媒体费用", mediaKnownCurrencies ? String(mediaKnownCurrencies) + " 种币种" : "—", mediaKnownCurrencies ? "分币种列示，不跨币种合并" : "暂无可确认金额"],
-        ["已组装剧集", String(duration.total || 0), "未知或无效记录不纳入"],
-        ["待核对任务", String(unknownTasks), unknownTasks ? "需人工查询状态" : "当前没有未知样本"]
+        ["已组装剧集", durationKnown ? String(duration.total || 0) : "—", durationKnown ? "未知或无效记录不纳入" : "时长来源待核对"],
+        ["待核对任务", mediaMetricsKnown ? String(unknownTasks) : "—", mediaMetricsKnown ? (unknownTasks ? "需人工查询状态" : "当前没有未知样本") : "指标来源待核对"]
       ].map(function (item, index) {
-        return '<article class="drama-summary-card' + ((index === 0 && !textCostsKnown) || (index === 1 && !mediaKnownCurrencies) ? ' unknown' : '') + '"><span class="k">' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong><small>' + escapeHtml(item[2]) + '</small></article>';
+        const unknown = (index === 0 && !textCostsKnown) || (index === 1 && !mediaKnownCurrencies) || (index === 2 && !durationKnown) || (index === 3 && !mediaMetricsKnown);
+        return '<article class="drama-summary-card' + (unknown ? ' unknown' : '') + '"><span class="k">' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong><small>' + escapeHtml(item[2]) + '</small></article>';
       }).join("");
       const mediaCurrencies = Array.isArray(mediaPricing.currencies) ? mediaPricing.currencies.slice(0, 16) : [];
       const hiddenMediaCurrencies = Array.isArray(mediaPricing.currencies) ? Math.max(0, mediaPricing.currencies.length - mediaCurrencies.length) : 0;
@@ -8659,16 +8672,16 @@ JS_DASHBOARD = """\
         (mediaPricing.status === "degraded" ? '<div class="k">媒体账本</div><div class="v">存在 ' + escapeHtml(String(mediaPricing.invalid_ledgers || 0)) + ' 个无效来源，未计入金额</div>' : '') +
         '<div class="k">说明</div><div class="v">' + escapeHtml(data.cost_note || "mock 成本为 0，真模型启用后生效。") + '</div>' +
         '</div>';
-      const successRate = mediaMetrics.success_rate == null
+      const successRate = !mediaMetricsKnown || mediaMetrics.success_rate == null
         ? "—"
         : (Math.max(0, Math.min(1, Number(mediaMetrics.success_rate))) * 100).toFixed(1) + "%";
-      const queueAverage = mediaMetrics.queue_wait_average_ms == null
+      const queueAverage = !mediaMetricsKnown || mediaMetrics.queue_wait_average_ms == null
         ? "—"
         : escapeHtml(String(mediaMetrics.queue_wait_average_ms)) + " ms";
-      const runAverage = mediaMetrics.run_average_ms == null
+      const runAverage = !mediaMetricsKnown || mediaMetrics.run_average_ms == null
         ? "—"
         : escapeHtml(String(mediaMetrics.run_average_ms)) + " ms";
-      metricsBox.innerHTML = '<div class="kv-list compact">' +
+      metricsBox.innerHTML = mediaMetricsKnown ? '<div class="kv-list compact">' +
         '<div class="k">任务</div><div class="v">' + escapeHtml(String(mediaMetrics.task_count || 0)) +
         ' · 成功 ' + escapeHtml(String(mediaMetrics.succeeded_count || 0)) +
         ' · 失败 ' + escapeHtml(String(mediaMetrics.failed_count || 0)) +
@@ -8683,11 +8696,8 @@ JS_DASHBOARD = """\
         ' · 未知 ' + escapeHtml(String(mediaMetrics.run_unknown_samples || 0)) + '</div>' +
         '<div class="k">submission unknown</div><div class="v">' +
         escapeHtml(String(mediaMetrics.unknown_submission_count || 0)) + '</div>' +
-        (mediaMetrics.status === "degraded"
-          ? '<div class="k">指标来源</div><div class="v">存在无效或超限 task ledger，未返回部分指标</div>'
-          : '') +
-        '</div>';
-      const durationKnown = duration.status === "ok";
+        '</div>'
+        : '<div class="kv-list compact"><div class="k">指标来源</div><div class="v">— · 来源待核对；存在无效或超限 task ledger，未返回部分指标</div></div>';
       const rate = durationKnown ? Number(duration.rate || 0) : 0;
       const pct = Math.max(0, Math.min(100, Math.round(rate * 100)));
       durationBox.innerHTML = durationKnown
@@ -10126,12 +10136,12 @@ JS_DASHBOARD = """\
       ? '<div class="production-list-toolbar"><p><strong>' + orderedShots.length + '</strong> 个镜头' + (actionableOnly ? '需要处理' : '正在显示') + '</p><button type="button" class="btn btn-ghost btn-sm" id="production-actionable-only" aria-pressed="' + (actionableOnly ? 'true' : 'false') + '">' + (actionableOnly ? '显示全部' : '只看需处理') + '</button></div><div class="production-list-layout"><div class="production-shot-list">' + orderedShots.map(function (shot) {
           const state = productionShotState(shot);
           const selected = Number(shot.sequence) === selectedSequence;
-          return '<button type="button" class="production-shot-row' + (selected ? ' selected' : '') + '" data-shot-entry data-shot-id="' + escapeHtml(shot.shot_id) + '" data-shot-sequence="' + Number(shot.sequence) + '" data-state="' + state + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' +
+          return '<button type="button" class="production-shot-row' + (selected ? ' selected' : '') + '" data-shot-entry data-shot-sequence="' + Number(shot.sequence) + '" data-state="' + state + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' +
             '<span class="production-shot-title"><span class="drama-stage-index">' + Number(shot.sequence) + '</span><span><strong>镜头 ' + Number(shot.sequence) + '</strong>' + (shot.is_highlight ? '<span class="badge no-dot">高光</span>' : '') + '<small>' + (shot.target_duration_seconds == null ? '时长待定' : Number(shot.target_duration_seconds) + ' 秒') + '</small></span></span>' +
             '<span class="production-shot-media"><span>图片 ' + productionBadge(shot.image_state) + '</span><span>视频 ' + productionBadge(shot.video_state) + '</span></span>' +
             '<span class="production-shot-state">' + productionBadge(state) + (selected ? '<span class="badge no-dot">已选中</span>' : '') + '<small>' + escapeHtml(productionShotReason(shot, state)) + '</small></span></button>';
         }).join("") + (orderedShots.length ? '' : '<div class="empty-state"><h3>当前没有待处理镜头</h3><p>可显示全部镜头查看已就绪状态。</p></div>') + '</div>' + renderProductionShotDetail(selectedShot, data.episode_no) + '</div>'
-      : emptyState("尚无镜头制作计划", "先完成评审组装，工作台不会从文本或文件名猜测镜头。", '<a class="btn btn-primary" href="' + wsHref('/write?step=review') + '">返回创作台</a>');
+      : emptyState("尚无镜头制作计划", "先完成评审组装，工作台不会从文本或文件名猜测镜头。", '<a class="btn btn-primary" href="' + wsHref('/write?episode=' + encodeURIComponent(String(Number(data.episode_no || 1))) + '&step=review') + '">返回创作台</a>');
     const qa = timeline.qa
       ? '<div class="card"><div class="card-body"><h3>质检与交付</h3><p>' +
         productionBadge(timeline.qa.status) + ' · ' + productionAcceptanceLabel(timeline.qa.acceptance_level) +
@@ -10810,6 +10820,11 @@ JS_WIZARD = """\
       try {
         const res = await fetch("/api/workspace/" + encodeURIComponent(name) + "/job/" + jobId + "/cancel", {
           method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Drama-Mutation-Intent": "mutate-v1",
+          },
+          body: JSON.stringify({}),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {

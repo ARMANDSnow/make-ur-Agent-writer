@@ -20,10 +20,13 @@ from . import routes
 from .safe_log import log_exception as _safe_log_exception
 
 
-_DRAMA_MUTATION_PATH_RE = re.compile(
-    r"^/api/workspace/[^/]+/drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?$"
+_WEB_MUTATION_PATH_RE = re.compile(
+    r"^/api/workspace/[^/]+/(?:"
+    r"drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?"
+    r"|job/[^/]+/cancel/?"
+    r")$"
 )
-_DRAMA_MUTATION_BODY_LIMIT = 64 * 1024
+_WEB_MUTATION_BODY_LIMIT = 64 * 1024
 _DRAMA_COMPOSE_READ_PATH_RE = re.compile(
     r"^/api/workspace/[^/]+/drama/compose(?:/.*)?$"
 )
@@ -84,19 +87,34 @@ class WebHandler(BaseHTTPRequestHandler):
         # cap inside wizard.start_upload.
         body_bytes: bytes = b""
         if method in ("POST", "PUT"):
-            try:
-                length = int(self.headers.get("Content-Length", "0") or 0)
-            except ValueError:
-                length = 0
             decoded_path = unquote(urlsplit(path).path)
+            protected_mutation = bool(
+                _WEB_MUTATION_PATH_RE.fullmatch(decoded_path)
+            )
+            transfer_encoding = str(
+                self.headers.get("Transfer-Encoding", "") or ""
+            ).strip()
+            if protected_mutation and transfer_encoding:
+                self.send_error(400, "Transfer-Encoding is not accepted")
+                return
+            raw_length = self.headers.get("Content-Length", "0") or "0"
+            try:
+                length = int(raw_length)
+            except ValueError:
+                if protected_mutation:
+                    self.send_error(400, "Invalid Content-Length")
+                    return
+                length = 0
+            if protected_mutation and length < 0:
+                self.send_error(400, "Invalid Content-Length")
+                return
             if (
-                method in {"POST", "PUT"}
-                and _DRAMA_MUTATION_PATH_RE.fullmatch(decoded_path)
-                and length > _DRAMA_MUTATION_BODY_LIMIT
+                protected_mutation
+                and length > _WEB_MUTATION_BODY_LIMIT
             ):
-                # Short-drama mutations are JSON control messages, never media
+                # Protected mutations are JSON control messages, never media
                 # uploads. Reject an oversized Content-Length before reading it.
-                self.send_error(413, "Drama mutation payload too large")
+                self.send_error(413, "Mutation payload too large")
                 return
             if length > 64 * 1024 * 1024:
                 self.send_error(413, "Payload too large")

@@ -62,7 +62,7 @@ iter158 已完成短剧响应式 11 项导航壳、概览与 production，iter15
 ### Knowledge Promotion
 - `decision`: `none`
 - `destination`: `none`
-- `reason`: 待收官复核。
+- `reason`: 本轮落地既有 Web UIUX、安全投影与媒体预览边界，没有形成需要晋升到长期权威文档的新规则。
 
 ## 文件变更汇总
 

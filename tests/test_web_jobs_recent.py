@@ -560,10 +560,7 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
                     "result_summary": {"task_id": credential},
                 }
             )
-            self.assertEqual(
-                credential_view["result_summary"]["task_id"],
-                "[redacted]",
-            )
+            self.assertNotIn("task_id", credential_view["result_summary"])
 
         debate = jobs._new_job_record(
             "alpha",

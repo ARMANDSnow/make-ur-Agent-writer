@@ -73,10 +73,13 @@ _OVERVIEW_CACHE: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
 _WORKSPACE_NAME_RE = _WORKSPACE_NAME_RE_SHARED
 _RESERVED_WORKSPACE_NAMES = _RESERVED_WORKSPACE_NAMES_SHARED
 
-_DRAMA_MUTATION_PATH_RE = re.compile(
-    r"^/api/workspace/[^/]+/drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?$"
+_WEB_MUTATION_PATH_RE = re.compile(
+    r"^/api/workspace/[^/]+/(?:"
+    r"drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?"
+    r"|job/[^/]+/cancel/?"
+    r")$"
 )
-_DRAMA_MUTATION_BODY_LIMIT = 64 * 1024
+_WEB_MUTATION_BODY_LIMIT = 64 * 1024
 _KB_FILE_MAX_BYTES = 500_000 * 4
 _DRAFT_FILE_MAX_BYTES = 1_000_000 * 4 + 1
 _DRAFT_JSON_MAX_BYTES = 1_000_000
@@ -123,30 +126,42 @@ def _workspace_exists(name: str) -> bool:
     return paths.probe_workspace_identity(name) is not None
 
 
-def _drama_mutation_request_error(
+def _web_mutation_request_error(
     body: bytes,
     headers: Dict[str, str],
+    *,
+    require_json_object: bool = False,
 ) -> Optional[Tuple[int, str, bytes]]:
-    """Reject browser cross-site/simple requests before any drama mutation.
+    """Reject browser cross-site/simple requests before protected mutations.
 
     ``dispatch(..., headers=None)`` remains a trusted in-process seam for the
     existing domain tests.  The HTTP server always supplies request headers,
-    so every wire request must carry JSON plus one explicit drama intent.
+    so every wire request must carry JSON plus one explicit mutation intent.
+    Job cancellation additionally requires a valid top-level JSON object;
+    existing drama endpoints retain their narrower per-route body validation
+    and error precedence.
     """
 
-    if len(body) > _DRAMA_MUTATION_BODY_LIMIT:
-        return _json(413, {"error": "drama mutation payload too large"})
+    if len(body) > _WEB_MUTATION_BODY_LIMIT:
+        return _json(413, {"error": "mutation payload too large"})
     content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
     if content_type != "application/json":
         return _json(415, {"error": "Content-Type must be application/json"})
+    if require_json_object:
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return _json(400, {"error": "mutation body must be valid JSON"})
+        if not isinstance(payload, dict):
+            return _json(400, {"error": "mutation body must be a JSON object"})
     if not any(
         str(headers.get(key) or "") in allowed
         for key, allowed in _DRAMA_MUTATION_INTENTS.items()
     ):
-        return _json(403, {"error": "explicit drama mutation intent required"})
+        return _json(403, {"error": "explicit mutation intent required"})
     fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
     if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
-        return _json(403, {"error": "cross-site drama mutation rejected"})
+        return _json(403, {"error": "cross-site mutation rejected"})
     origin = str(headers.get("origin") or "").strip()
     if origin:
         parsed = urlsplit(origin)
@@ -155,10 +170,10 @@ def _drama_mutation_request_error(
             "localhost",
             "::1",
         }:
-            return _json(403, {"error": "cross-origin drama mutation rejected"})
+            return _json(403, {"error": "cross-origin mutation rejected"})
         host = str(headers.get("host") or "").strip().lower()
         if host and parsed.netloc.lower() != host:
-            return _json(403, {"error": "cross-origin drama mutation rejected"})
+            return _json(403, {"error": "cross-origin mutation rejected"})
     return None
 
 
@@ -5861,9 +5876,16 @@ def dispatch(
     if (
         headers is not None
         and method in {"POST", "PUT"}
-        and _DRAMA_MUTATION_PATH_RE.fullmatch(decoded_path)
+        and _WEB_MUTATION_PATH_RE.fullmatch(decoded_path)
     ):
-        request_error = _drama_mutation_request_error(body, headers)
+        request_error = _web_mutation_request_error(
+            body,
+            headers,
+            require_json_object=re.fullmatch(
+                r"/api/workspace/[^/]+/job/[^/]+/cancel/?", decoded_path
+            )
+            is not None,
+        )
         if request_error:
             return request_error
     # iter 049: opt-in bearer-token gate (no-op unless NOVEL_API_TOKEN is set).

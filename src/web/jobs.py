@@ -14,9 +14,11 @@ Design constraints:
   endpoints are not blocked by a running job — they share workspace_ctx
   but workspace_ctx now uses RLock + finally, so a fast read while a job
   is in-flight still serializes through but doesn't deadlock.
-* **In-memory job dict** keyed by uuid4. No persistence: if the server
-  restarts, in-flight jobs are lost. Acceptable for a single-user local
-  dev tool; iter 027+ can promote to ``logs/jobs.jsonl`` if needed.
+* **Live in-memory pool + bounded durable public ledger**. Active workers are
+  keyed by uuid4 in memory; public job snapshots are appended to the
+  workspace-local ``logs/web_jobs.jsonl`` ledger. After a restart, terminal
+  snapshots remain queryable while non-terminal snapshots are projected as
+  ``lost`` because their worker no longer exists.
 * **Hard-coded step dispatch table** so a malicious or fat-fingered POST
   can't invoke arbitrary functions. Adding a step = editing this file.
 """
@@ -277,8 +279,6 @@ _PUBLIC_RESULT_KEYS = frozenset(
         "network_requests",
         "partial",
         "progress",
-        "provider",
-        "provider_model",
         "qa_fingerprint",
         "ratio",
         "resolution",
@@ -288,7 +288,6 @@ _PUBLIC_RESULT_KEYS = frozenset(
         "status",
         "strict_failures",
         "source",
-        "task_id",
         "timeline_fingerprint",
         "verdict",
         "window",
@@ -2797,7 +2796,7 @@ def _summarize_result(step: str, result: Any) -> Any:
                 "status", "station", "episode_no", "hook_count", "skipped",
                 "verdict", "assembled", "error_code",
                 "budget_cny", "cost_cny",
-                "task_id", "provider", "provider_model", "duration_seconds",
+                "duration_seconds",
                 "ratio", "resolution", "file_size_bytes", "network_requests",
                 "timeline_fingerprint", "qa_fingerprint", "export_fingerprint",
                 "acceptance_level",
