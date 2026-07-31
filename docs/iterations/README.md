@@ -190,3 +190,4 @@
 168. [Iteration 159 - 短剧 Web UIUX Phase B：五站创作台与角色库](./iteration_159_drama_web_uiux_phase_b_creation_characters.md)
 169. [Iteration 160 - 短剧 Web UIUX Phase C：资产治理与逐镜媒体候选](./iteration_160_drama_web_uiux_phase_c_assets_shot_media.md)
 170. [Iteration 161 - 短剧 Web UIUX Phase D：合成交付、剧集、数据与任务收口](./iteration_161_drama_web_uiux_phase_d_delivery_episodes_insights_jobs.md)
+171. [Iteration 162 - 近期体检报告公开投影、多集上下文与 Web 边界闭环](./iteration_162_health_report_projection_episode_web_boundary_closure.md)
