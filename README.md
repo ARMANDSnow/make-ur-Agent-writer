@@ -184,12 +184,13 @@ docs/iterations/           逐轮审计记录
 | 短剧 Web UIUX Phase B | 159 | ✅ 五站创作台与角色库完成桌面/平板/移动重构；episode/step、任务恢复、编辑与付费图片保护、键盘/触控/ARIA 保持 |
 | 短剧 Web UIUX Phase C | 160 | ✅ 资产治理、镜头图片与镜头视频完成主从/单列响应式重构；exact selection/clear、stale/blocked、逐次授权与零自动重提语义保持 |
 | 短剧 Web UIUX Phase D | 161 | ✅ 合成交付、剧集、Insights 与任务完成响应式收口；exact delivery、known/unknown、episode 2+ 与取消/恢复语义保持，Phase A-D 全部完成 |
+| 近期体检报告公开投影与 Web 边界闭环 | 162 | ✅ Job provider 身份脱敏、episode 2+ 上下文、degraded Insights、production DOM 与 cancel wire guard 已闭环；两份报告在 canonical 通过后删除 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 161**（2026-07-30，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web Phase A-D 已全部完成：响应式 11 项页面壳、概览、production、五站创作台、角色库、资产与逐镜媒体、合成交付、剧集、Insights 和任务均复用同一 `ui-drama` 语义变量与断点；episode、任务恢复、离开守卫、exact selection/download、known/unknown、stale/blocked、付费授权与零自动重提语义保持。小说 Web Phase A-E 与短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
+最近一次更新：**iter 162**（2026-07-31，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。短剧 Web Phase A-D 已全部完成；iter162 进一步收紧公开 Job 投影，贯通 episode 2+ 概览/production/导航/CTA，区分 Insights degraded 与真实零，移除 production DOM 稳定 shot ID，并将 cancel 纳入 JSON、显式 intent、same-origin 与 64 KiB wire guard。小说 Web Phase A-E 与短剧 A-I 本地闭环继续保持，iter143 的 20 秒 create 不明样本仍不得自动重提。总工程验收为 `mock-functional`，mandatory local-drama 与本轮浏览器证据为 `local-e2e`；这些均不等于完整 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 

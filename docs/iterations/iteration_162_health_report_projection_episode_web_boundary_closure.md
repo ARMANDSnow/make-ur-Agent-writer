@@ -49,7 +49,17 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- A162-01：通过。公开 recent/detail 与 drama summary 不再投影 `task_id`、`provider`、`provider_model`；内部 job 与 paid ledger 未改。
+- A162-02：通过。episode 1–100 的解析、概览 progress/production、workspace 导航与 CTA 保持同集，非法/缺省值安全回落到 1。
+- A162-03：通过。production 无镜头空态按服务端 `episode_no` 返回 `/write?episode=<n>&step=review`。
+- A162-04：通过。media metrics 或 duration degraded 时只显示 `—`/来源待核对，不再把占位零解释为事实；`ok=0` 仍明确显示真实零。
+- A162-05：通过。production DOM 不含稳定 `shot_id`，公开 sequence 的点击与原生键盘激活保持可用。
+- A162-06：通过。cancel wire 对跨站、form/错误 Content-Type、缺 intent、坏 JSON、非 object、超限 body 与模糊 framing 均失败关闭；合法 same-origin JSON 返回 202，`headers=None` seam 保留。
+- A162-07：通过。`jobs.py` live pool + bounded durable ledger 说明与实现一致，iter160 Knowledge Promotion 已闭合为 `none`。
+- A162-08：通过。聚焦矩阵 236 tests OK，Python/JS 静态检查、harness、diff check 通过；correctness、security/boundary、Web/UIUX 三路只读复审均无剩余 P0–P3。Playwright synthetic episode 2 场景为 `local-e2e`，console 0 error / 0 warning。
+- 首次 canonical 在 3008 tests 中发现旧逐镜视频 mutation 的 32 KiB `413` 错误优先级被统一 JSON 解析改成 `400`；修复为仅 cancel 强制顶层 JSON object、既有 drama 端点保留各自更严格 guard 后，8 项聚焦回归通过，并将修复纳入 implementation commit `935ffc800d465ac12f7f9121a9162dd07644626f`。
+- 最终 `bash scripts/verify.sh` 在该 implementation commit 上 **exit 0**：3008 tests、15 steps、467 秒，run `0503739d35a7453cb995f5581ba0f923`；evidence schema v2 `mock-functional` / `canonical-mock-offline`，`mock_offline=true`、`tracked_scope_clean=true`，mandatory `local_drama_e2e` passed。
+- 验收通过后只删除了未跟踪的 `docs/2026-7-30体检报告.md` 与 `docs/2026-7-31体检报告.md`；两文件已不存在，删除不进入 Git 提交。全程未 push、未读取私有数据、未调用真实 provider，不构成 `provider-validated`。
 
 ### Knowledge Promotion
 - `decision`: `none`

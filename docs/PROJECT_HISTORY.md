@@ -87,6 +87,7 @@
 | 159 | 短剧 Web UIUX Phase B | 五站创作台、当前集/季角色库、任务与编辑保护及三视口 local-e2e |
 | 160 | 短剧 Web UIUX Phase C | 资产治理、逐镜图片/视频候选、安全 blob 预览与三视口 local-e2e |
 | 161 | 短剧 Web UIUX Phase D | 合成交付、剧集、Insights、任务恢复与 Phase A-D 三视口全站收口 |
+| 162 | 近期体检报告公开投影与 Web 边界闭环 | Job 身份脱敏、episode 2+、degraded Insights、DOM 与 cancel wire guard；验收后删两份报告 |
 
 ## Iteration Implementation Index
 
@@ -226,6 +227,7 @@
 | 159 | 重构五站创作台与角色库 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_b.py` |
 | 160 | 重构资产治理与逐镜媒体候选 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_c.py` |
 | 161 | 重构合成交付、剧集、数据与任务页 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_d.py` |
+| 162 | 闭环公开投影、多集上下文与 cancel 边界 | `src/web/jobs.py`、`src/web/routes.py`、`src/web/server.py`、`src/web/static.py`、`tests/test_web_iter162_health_closure.py` |
 
 ## Durable Decisions
 
@@ -331,6 +333,7 @@
 
 ## Historical Evidence Notes
 
+- iter162 在 implementation `935ffc8` 上 canonical 3008 tests / 15 steps / 467 秒通过，run `0503739d35a7453cb995f5581ba0f923`，等级 `mock-functional` / `canonical-mock-offline`；episode 2 与 degraded Insights synthetic 浏览器证据为 `local-e2e`。三路复审无剩余 P0–P3；首次完整验收发现的旧逐镜视频 mutation 错误优先级回归修复后完整重验通过，两份报告随后删除；未 push、未调用真实 provider。
 - iter161 在 implementation `44a391b` 上 canonical 3001 tests / 15 steps / 443 秒通过，run `0031d4965e664254ba5ecac1fa3f21de`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase D compose/episodes/Insights/jobs 与 Phase A-D 三视口证据为 `local-e2e`。四路审查 findings 全部修复，unknown/跨币种、Running/恢复、episode 2+、安全日志与 exact delivery 边界保持。首次验收 2 个 legacy 静态合同失败在修复提交后完整重验通过；未调用真实 provider。
 - iter160 在 implementation `38661f3` 上 canonical 2994 tests / 15 steps / 478 秒通过，run `18e89d1666b94d5cacc249188369bcae`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase C 资产治理与逐镜图片/视频三视口证据为 `local-e2e`。correctness、security/boundary、Web/UIUX/媒体预览三路 findings 全部修复；DOM 只留公共序号，媒体预览挂载 `blob:` URL。首次沙箱运行仅因 23 个 loopback bind EPERM 失败，同一 commit 非沙箱复验通过；未调用真实 provider。
 - iter159 在 implementation `9ffbb13` 上 canonical 2989 tests / 15 steps / 487 秒通过，run `5fdb0c215e0e44a09104e7f61465649b`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase B 五站创作台和角色库三视口证据为 `local-e2e`。correctness、security/boundary、Web/UIUX 三路 findings 全部修复。受限沙箱 loopback EPERM 与 3 个旧四站兼容测试契约在最终获批重验前分别解决；未调用真实 provider。
