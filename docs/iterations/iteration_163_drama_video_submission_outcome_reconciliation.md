@@ -43,7 +43,14 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- `A163-01`：通过。client/ledger/恢复矩阵已将 `request_not_sent`、`provider_rejected`、`submission_unknown` 建模为互斥结果；只有 transport 明确证明未发送时 `submission_count=0` 且可在新的显式授权下重试，拒绝与 unknown 均消费原授权并禁止自动重提。
+- `A163-02`：通过。reconciliation sidecar 为 append-only receipt chain，绑定 exact submission identity、source revision、ledger fingerprint、sidecar generation、sequence/time 与 previous receipt；exact replay 幂等，stale/乱序/冲突/ABA/结论改写均 fail closed，且读取 legacy submission 不改写源文件。
+- `A163-03`：通过。领域投影与 Web API 双 allowlist，页面只显示安全状态和动作提示；task/request ID、response body、素材/sample 身份及 evidence/provider/prompt fingerprint 均不进入公开 JSON/DOM。
+- `A163-04`：通过。iter143-compatible 回归固定：无绑定该次提交的权威新证据时始终为 `submission_unknown`；task-list absence 只能追加 `still_unknown` 观察，不能推出未发送/拒绝，inspect/resume/reconciliation read 的 upload/create 均为 0。
+- `A163-05`：通过。产品 SOP、README 与 handoff 固化五段独立授权顺序：iter143 只读 task/billing/rejection（upload/create=0）→ 实现真实 TTS adapter 后 1 条语音 → 新 namespace 下 1 个单镜图片/视频样本 → 通过后完整单集 → episode 2+ 与多集另行授权；授权不跨阶段继承。
+- `A163-06`：通过。聚焦回归最终 **136 tests OK**；correctness、security/boundary、真实媒体/计费三个独立只读审查视角的 findings 修复后均为 no findings。首次 canonical 验收在 3025 项中发现 2 个旧测试仍断言旧 `submitting`/按钮契约，已由 `ea4e1d4` 同步为三分状态契约；随后按失败范围完整重验通过。
+
+最终标准验收：implementation commit `ea4e1d4ce8f362abb1ed534ea9e3d518b186c2de` 上执行 `bash scripts/verify.sh`，**3025 tests OK**，15 steps，481 秒，run `44fb300e4c994e068c8131ff30f6a009`，schema v2 `status=passed`、`acceptance_level=mock-functional`、`verification_profile=canonical-mock-offline`、`workspace_scope=isolated-mock`、`tracked_scope_clean=true`；`local_drama_e2e` 子步骤通过，但不把总级别升级为 `local-e2e` 或 `provider-validated`。本轮真实 provider 查询、upload、create、TTS、图片与视频调用均为 0。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
@@ -69,6 +76,8 @@
 | `tests/test_drama_paid_recovery_states.py` | 固定完整、互斥的状态分类 |
 | `tests/test_drama_crash_restart_matrix.py` | 固定所有视频状态的恢复策略 |
 | `tests/test_drama_iter098_hardening.py` | 同步 request_not_sent 耐久 marker 契约 |
+| `tests/test_drama_iter097_hardening.py` | 将旧 `submitting` 断言同步为明确的 `submission_unknown` |
+| `tests/test_drama_iter099_hardening.py` | 同步 Web 三分状态下的授权按钮契约 |
 | `docs/product/short_drama_module.md` | 固化三分法、私有对账、公开边界与五段独立授权 SOP |
 | `docs/iterations/README.md`、本文件 | 登记 iter163 并记录计划、实现、审查与验收证据 |
 

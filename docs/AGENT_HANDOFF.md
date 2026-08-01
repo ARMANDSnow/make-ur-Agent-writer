@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 162，2026-07-31 收官 |
+| 更新时间 | iter 163，2026-08-01 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **3008 tests OK** |
-| Accepted implementation commit | `935ffc800d465ac12f7f9121a9162dd07644626f` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `935ffc800d465ac12f7f9121a9162dd07644626f`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、467 秒、run `0503739d35a7453cb995f5581ba0f923`；`verify.sh` exit 0；tracked scope clean |
-| 当前高风险缺口 | iter150 真文本五站与 2 张角色图窄校准成功，但配置的 trycloudflare 公网素材域名已失效，真视频在 upload/create 前 `safe-blocked`，create=0、费用=0；真实 TTS adapter 尚不存在。iter142 的 5 秒真视频样本成功但人民币费用未回报；iter143 的 20 秒 create 结果不明、无 task/MP4、费用 unknown 且禁止重提。真实逐镜/完整单集/多集、媒体 SLA 与小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter158-161 已完成短剧 Web UIUX Phase A-D，iter162 闭合公开 Job 身份、多集上下文、degraded Insights、production DOM 与 cancel wire guard 的近期体检问题。workspace/episode/step/leave guard/任务恢复、CAS/exact、known/unknown、编辑与付费保护保持。小说 Web Phase A-E 已全部完成。工程验收 `mock-functional`，mandatory local-drama 与本轮 synthetic 浏览器证据为 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
+| Canonical 基线 | **3025 tests OK** |
+| Accepted implementation commit | `ea4e1d4ce8f362abb1ed534ea9e3d518b186c2de` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `ea4e1d4ce8f362abb1ed534ea9e3d518b186c2de`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、481 秒、run `44fb300e4c994e068c8131ff30f6a009`；`verify.sh` exit 0；tracked scope clean |
+| 当前高风险缺口 | iter143 的 20 秒 create 仍为 `submission_unknown`：无 task/MP4、费用 unknown，任务列表未增加不能证明未提交，禁止重提；只能先经独立授权做 task/billing/rejection 只读 reconciliation，upload/create=0。真实 TTS adapter 尚不存在；真实单镜图片/视频、完整单集、episode 2+/多集必须按阶段另行授权。iter142 的 5 秒窄样本不外推这些阶段；小说 10-20 章 capstone 尚未实跑 |
+| 当前开发轮次 | 无；iter163 已完成视频 create 确定未发送/明确拒绝/真正 unknown 三分状态、历史 unknown 的 append-only CAS reconciliation receipt 与公开安全投影。小说 Web Phase A-E、短剧 Web Phase A-D 和 A-I 本地闭环保持。工程验收 `mock-functional`；本轮未调用真实 provider，不构成 `provider-validated` |
 
 ## Capability Map
 
@@ -22,7 +22,7 @@
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、直接 unittest/IDE 全 provider mock、付费 unknown 零自动重发、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
 | Web | 本地研究版、四阶段工作台、可编辑设定/大纲/细纲/正文、任务恢复、搜索、版本比较、创作数据、多集编辑入口与脱敏任务历史；Phase A-E 已完成生产级内容结构、安全投影、响应式、恢复路径及有证据的兼容清理 | 仍是本地研究工具，不是公网多租户产品；无调用方证据不足的兼容 hook 继续保留 |
-| 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2 渲染/stale、B1-B3 资产治理、C1-C4 逐镜图片、D1-D5 逐镜视频、E1-E3 声音/时间线、F1-F3 合成/QA/交付、G1-G7 持久调度/执行/计价/lifecycle、H1-H3 source graph/memory、I1 同源 production workbench、I2 project archive；wire mutation 同源/intent/body cap，隔离 `localdemo_*` exact-duration A-F 与 MP4/SRT/ASS/edit，贯通取消/半成品清理；固定 episode 1 高光视频真实样本 | 真实 billing adapter、provider create unknown reconciliation、物理 GC、真实逐镜图片/视频 provider 与长时主观质量、Web provider submit/poll/cancel、真实 TTS adapter、特定 NLE adapter、多 profile、更广 codec、公网流式交付及真实 episode 2+ 成片/真语音未验证 |
+| 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3、I1-I2 本地闭环；视频 create 三分状态、append-only CAS reconciliation receipt、公开安全投影；隔离 `localdemo_*` exact-duration A-F 与 MP4/SRT/ASS/edit；固定 episode 1 高光视频真实窄样本 | iter143 权威只读 reconciliation、真实 billing/TTS/逐镜图片视频 provider、长时质量、Web provider submit/poll/cancel、物理 GC、特定 NLE、多 profile、更广 codec、公网流式交付及真实完整单集/episode 2+/多集未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
 ## Latest Accepted Evidence
@@ -57,8 +57,8 @@
 - iter160 依据 Figma D11-D13/T04/M04 重构资产治理、镜头图片与镜头视频；桌面主从分栏、平板横向选择、移动需处理优先单列保持服务端治理/coverage/continuity 真源。DOM 只存序号，媒体经同源读取后以 `blob:` 挂载；exact selection/clear、stale 只读、selected 可见、oversize clear 与 unknown/lost 零重提保持。三路审查 findings 全部修复。
 - iter161 依据 Figma D14-D18/T05/M05-M06 重构 compose、episodes、Insights 与 jobs，并完成 Phase A-D 全站收口；timeline/QA/exact delivery、episode freshness、known/unknown、Lost/SubmissionUnknown、取消与恢复仍以服务端安全投影为真源。Running 使用不泄露 job ID 的专用轮询，移动 Ready 固定操作、三视口 44px/3px/零溢出及键盘筛选通过。四路审查 findings 全部修复。
 - canonical **3001 tests OK**（项目 `.venv`）；implementation commit `44a391b` 上 exit 0，15 steps / 443 秒，run `0031d4965e664254ba5ecac1fa3f21de`，`tracked_scope_clean=true`。总级别为 `mock-functional` / `canonical-mock-offline`，本轮浏览器证据为 `local-e2e`。首次验收的 2 个 legacy 静态合同失败在修复提交中闭合后完整重验通过。iter161 未调用真实 provider。
-- iter162 对 2026-7-30/31 两份重复体检报告的 7 项 finding 去重闭环：公开 recent/detail 与 drama summary 删除 provider task 身份，episode 2+ 概览/production/导航/CTA 保持同集，Insights degraded 不再解释占位零，production DOM 移除稳定 shot ID，cancel 纳入 JSON/intent/same-origin/64 KiB wire guard，并闭合 jobs 架构说明与 iter160 Knowledge Promotion。三路复审无剩余 P0–P3，两份报告在验收通过后删除。
-- canonical **3008 tests OK**（项目 `.venv`）；implementation commit `935ffc8` 上 exit 0，15 steps / 467 秒，run `0503739d35a7453cb995f5581ba0f923`，`tracked_scope_clean=true`。总级别 `mock-functional` / `canonical-mock-offline`，synthetic 浏览器为 `local-e2e`。首次完整验收发现 1 个旧逐镜视频 mutation 错误优先级回归，修复并完整重验通过。iter162 未调用真实 provider。
+- iter163 将视频 create 封闭为 `request_not_sent / provider_rejected / submission_unknown`：只有 transport 可证明未发送时释放机会；拒绝和 unknown 均消费原授权。历史 unknown 通过独立 append-only receipt chain 对账，绑定 source revision/identity、sidecar generation、ledger fingerprint、sequence/time/previous receipt；冲突、乱序、ABA 与结论改写 fail closed。公开 API/DOM 只含安全状态，不含 task/request ID、响应正文、素材/sample 身份或 evidence/provider/prompt fingerprint。iter143 在无权威新证据前仍 unknown，task-list absence 只记录观察，不能推断未提交或触发重提。
+- canonical **3025 tests OK**（项目 `.venv`）；implementation commit `ea4e1d4` 上 exit 0，15 steps / 481 秒，run `44fb300e4c994e068c8131ff30f6a009`，`tracked_scope_clean=true`。总级别 `mock-functional` / `canonical-mock-offline`；首次验收的 2 个旧三分状态测试契约已修复后完整重验通过。correctness、security/boundary、真实媒体/计费三路最终 no findings；本轮真实查询、upload/create、TTS、图片、视频均为 0。
 
 ## Retained Working Memory
 
@@ -123,7 +123,7 @@
 - C3 的 `ShotImageProviderCapability` 与注入 adapter 是本地执行契约，不是动态 provider registry。C1 仍是唯一 reference 裁剪层；C3 不二次裁剪。`RequestNotSentError`、provider fingerprint 与 adapter 行为依赖未来实现方可信接线，本轮 fake 证据不能外推真实 provider。
 - D1 的 `EpisodeShotVideoPlan` 是 provider-neutral 输入契约：从 fresh RenderPlan/C1/C2 冻结逐镜时长、exact selected first/optional tail、ordered refs 与 previous-tail lineage。它不代表已建立视频 provider capability、attempt/candidate/selection 或 submit/poll/download；旧 episode 1 高光 job 也不是 D1 真源。
 - D2 的 `EpisodeShotVideoCandidateManifest` 是逐镜本地视频事实：candidate 不可变、selection 可变且需 guarded CAS，删除镜头保留 retired audit；production coverage 只接受 current D1 下 exact selected、artifact 完整且非 placeholder 的 required shots。它不等于 provider 执行或视频质量验证。
-- D3 的 `EpisodeShotVideoAttemptLedger` 是逐镜付费执行事实：authorization 必须绑定 exact episode/shot/request 与 provider/model/account/endpoint/auth，adapter operational identity 在 submit/poll/download 前重验；同一授权有任何非 not-sent 事实后即 consumed。unknown 只能对账后显式关闭，不能猜 task 或自动重提；fake/process-crash 证据不能外推真实 provider exactly-once。
+- D3 的 `EpisodeShotVideoAttemptLedger` 是逐镜付费执行事实：authorization 必须绑定 exact episode/shot/request 与 provider/model/account/endpoint/auth，adapter operational identity 在 submit/poll/download 前重验；同一授权有任何非 not-sent 事实后即 consumed。create 只分为 transport 证明的确定未发送、provider 明确拒绝和真正 unknown；历史 unknown 只能凭绑定 exact submission 的 append-only CAS receipt 对账，task-list absence 不构成否定证据，不能猜 task 或自动重提；fake/process-crash 证据不能外推真实 provider exactly-once。
 - D5 Web 不能把 D2 内容哈希当成可公开媒体证明：raw provider MP4 永不直接返回，preview 必须在 manifest read 前进入并发/字节门禁，要求单合法视频轨、尺寸/sample/线程受控，再 decode/re-encode 去 metadata。超过 Web 重验上限的 selected 仍可 exact CAS clear，但投影为 `web_unverified` 并阻断 compose；Web mutation 的 defer 只在 bounded cap 下使用，领域默认严格行为不变。
 - G1-G5 generic 层只编排 episode/media/stage/dependency/identity fingerprint、lease、静态 capability、frozen binding 与有界 phase，不读写或替代图片、视频、TTS paid ledger。worker mutation 只能使用锁内可信时钟；执行 transition/replay 绑定 current owner/token、task/lease revision 和认证 receipt，expired takeover 必须轮换 token。registry/bridge 禁止动态 code/credential/network re-resolution，provider/model ID 与 fingerprint 双向唯一；provider task 与完整 binding 必须在 ledger v3 单次原子入队，legacy provider task 不从 current registry 补猜，本地 compose/export 明示 `not_applicable`。G5 每个 bridge action 前 heartbeat、动作后 CAS，外部动作不持 workspace lock；submit unknown 零自动重发，crash takeover 只凭权威 paid bridge 的 inspect-or-submit，真实 bridge 必须执行 context deadline。generic observation 只保存 paid/artifact evidence fingerprint，不保存上游 task/response/prompt/URL/path/receipt。
 - H1 event graph 是 workspace-local 身份层；H2 production adapter 只读取 entity/rolling-summary exact authority bytes 并冻结 bounded ID/hash/fact atoms，不复制摘要原文。完整 source graph 不随 episode boundary 改写；RenderPlan 的 full membership 与 selected/allowed/boundary binding 必须各自可重算，store 从当前 authority 重建。普通 SHA/content-addressing 只证明内部一致性，不是签名或 MAC；opaque atom 仍需调用方避免放入敏感内容。
@@ -244,7 +244,7 @@
 
 ## Open Gaps
 
-1. **短剧真实多模态后续校准**：iter150 的真文本五站与 2 张角色图窄校准成功，但当前公网素材域名失效，视频在 upload/create 前阻断且未消费提交机会。iter142 已验证固定 Episode 1 的 5 秒视频；iter143 的独立 20 秒样本在 2 个素材确认后 create 结果不明，无 task/MP4 且授权已消费。后者需先做 provider task/billing/请求拒绝原因的只读 reconciliation，不能重提；全角色/多题材图像、逐镜/完整单集媒体、真实 TTS、长时质量与 SLA 仍需分别授权。
+1. **短剧真实多模态后续校准**：iter143 的独立 20 秒样本在 2 个素材确认后 create 结果不明，无 task/MP4 且授权已消费；任务列表未增加不能证明未提交。后续必须严格逐项授权：①只读查询 iter143 task/billing/rejection，upload/create=0；②实现真实 TTS adapter 后授权 1 条语音；③新 namespace 授权 1 个单镜图片/视频样本；④通过后再授权完整单集；⑤episode 2+ 与多集另行授权。任何阶段不得继承前序授权。iter142 的 5 秒视频与 iter150 的真文本/角色图都只是窄样本，不外推完整媒体质量或 SLA。
 2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
 4. **短剧媒体、事件图、记忆、工作台与归档**：A1/A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 已完成本地闭环；真实图片/视频/语音 provider 与 billing adapter、物理 GC、Web provider submit/poll/cancel、JPEG/WebP、archive 签名/加密、staging GC/power-loss、真实 BGM/SFX、特定 NLE、公网流式交付、真实 episode 2+ 与真实多模态质量仍未验证。
@@ -254,9 +254,9 @@
 
 ## Next Candidates
 
-- 低风险工程轮：provider create unknown 的只读 task/billing/rejection reconciliation、真实 billing adapter、可靠有界 JPEG/WebP decoder、provider 幂等键调研或 100 集只读扫描优化。
+- 低风险工程轮：在用户单独授权后，仅做 iter143 task/billing/rejection 的只读 reconciliation（upload/create=0）；也可独立推进真实 billing adapter、可靠有界 JPEG/WebP decoder、provider 幂等键调研或 100 集只读扫描优化。
 - 低风险短剧阶段轮：A-I 本地规划已闭合；可独立推进 C 的可靠有界 JPEG/WebP decoder、asset/archive hidden staging GC、archive 签名/加密、特定 NLE adapter 或 episode 2+ 纯本地交付覆盖。
-- 需授权验证轮：全角色/多题材真生图、逐镜/完整单集媒体、真实 TTS 或小说 capstone。不要把这些授权合并推定；iter143 的 20 秒机会已消费且结果不明，在 reconciliation 前不得复跑或改时长重提。
+- 需授权验证轮：严格按“iter143 只读对账 → 实现真实 TTS adapter 后 1 条语音 → 新 namespace 1 个单镜图片/视频样本 → 完整单集 → episode 2+/多集”逐项推进，每一步重新授权；小说 capstone 也单独授权。iter143 的 20 秒机会已消费且结果不明，不得复跑、改时长或换入口重提。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
 - 小说 Web 产品轮：Phase A-E 已全部完成；后续只按真实使用反馈处理可访问性、性能或兼容缺陷，不在无调用方证据时继续删除兼容 hook。
 
@@ -296,4 +296,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter162 完成两份近期体检报告的 7 项去重闭环，A162-01 至 A162-08 全部通过。公开 recent/detail 与 drama summary 不再投影 provider task 身份；episode 2+ 概览、production、导航、CTA 与空态始终同集；Insights degraded 只显示未知/来源待核对，production DOM 仅保留公开 sequence；cancel wire 统一执行 JSON、显式 intent、same-origin、64 KiB 与 transport framing guard，可信 `headers=None` seam 保留。correctness/behavior、security/boundary、Web/UIUX 三路复审无剩余 P0–P3，synthetic 浏览器证据为 `local-e2e`。accepted implementation `935ffc800d465ac12f7f9121a9162dd07644626f` 上 canonical 3008 tests、15 steps、467 秒，run `0503739d35a7453cb995f5581ba0f923`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean。首次验收发现的旧逐镜视频 mutation 错误优先级回归已修复并完整重验 exit 0；验收后只删除两份指定未跟踪报告。全程未 push、未调用真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
+iter163 完成视频 create 三分状态与历史 unknown 对账闭环，A163-01 至 A163-06 全部通过。确定未发送只接受 transport 证明；provider 明确拒绝和真正 unknown 都消费原授权且不自动重提。独立 reconciliation sidecar 以 append-only receipt、source revision/identity、sidecar generation、ledger fingerprint、sequence/time/previous receipt 和 workspace-lock CAS 防止覆盖、乱序、stale、ABA 与结论改写；legacy 读取不改写 submission。公开 API/DOM 只显示安全状态，隐藏 task/request ID、response body、素材/sample 身份和所有 evidence/provider/prompt fingerprint。iter143 无权威新证据前仍 unknown，task-list absence 不能推出未提交。correctness、security/boundary、真实媒体/计费三路复审最终 no findings。accepted implementation `ea4e1d4ce8f362abb1ed534ea9e3d518b186c2de` 上 canonical 3025 tests、15 steps、481 秒，run `44fb300e4c994e068c8131ff30f6a009`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean；首次验收的 2 个旧测试契约修复后完整重验 exit 0。全程未 push、未调用或查询真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。

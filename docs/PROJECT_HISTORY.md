@@ -88,6 +88,7 @@
 | 160 | 短剧 Web UIUX Phase C | 资产治理、逐镜图片/视频候选、安全 blob 预览与三视口 local-e2e |
 | 161 | 短剧 Web UIUX Phase D | 合成交付、剧集、Insights、任务恢复与 Phase A-D 三视口全站收口 |
 | 162 | 近期体检报告公开投影与 Web 边界闭环 | Job 身份脱敏、episode 2+、degraded Insights、DOM 与 cancel wire guard；验收后删两份报告 |
+| 163 | 视频提交结果分流与历史 Unknown 对账 | create 未发送/拒绝/真正 unknown 三分状态、append-only CAS reconciliation receipt 与公开安全投影 |
 
 ## Iteration Implementation Index
 
@@ -228,6 +229,7 @@
 | 160 | 重构资产治理与逐镜媒体候选 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_c.py` |
 | 161 | 重构合成交付、剧集、数据与任务页 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_d.py` |
 | 162 | 闭环公开投影、多集上下文与 cancel 边界 | `src/web/jobs.py`、`src/web/routes.py`、`src/web/server.py`、`src/web/static.py`、`tests/test_web_iter162_health_closure.py` |
+| 163 | 区分视频 create 结果并建立历史对账链 | `src/drama_video.py`、`src/drama_video_client.py`、`src/drama_video_reconciliation.py`、`src/web/`、`tests/test_drama_video_reconciliation.py` |
 
 ## Durable Decisions
 
@@ -253,6 +255,8 @@
 - 媒体 lifecycle 延迟只能来自可信锁内 mutation 与 exact evidence：ready、first claim、terminal 必须单调并与 task/lease 绑定，legacy 缺失保持 unknown，不能从 caller time、最后 lease 或 `updated_at-created_at` 补猜。成功率只以 terminal task 为分母，queue/run 必须分列 known/unknown sample；应用层 create-once/content-addressed sidecar 不是签名，也不防有本机写权限者同时伪造新 ledger 与 sidecar。
 - 临时公网素材回调必须与完整 Web 工作台物理分离：Tunnel 只指向 loopback callback-only 端口，成功面仅为 exact 随机 capability GET；raw query/encoding/尾斜杠/其他方法和路径统一 404，连接与并发有界，token 用后撤销。Quick Tunnel 地址不稳定，不能写入代码或视为长期部署。
 - provider asset upload 与最终 video create 是两个独立外部写边界：每次 POST 前分别持久化 ambiguity marker；只有 transport 明确证明 request not sent 才能释放重试机会，已确认 asset ID 可以续用，unknown 不能自动重发或被费用 `null` 伪装成 0。
+- video create 结果必须封闭为 transport 证明的 `request_not_sent`、provider 4xx 明确 `provider_rejected`、以及发送后响应丢失/不可判定的 `submission_unknown`；任务列表未增加只是负观察，不能把历史 unknown 改判为未提交或释放授权。历史对账使用独立 append-only receipt chain，绑定 exact submission identity/revision、sidecar generation 与 ledger fingerprint；一旦权威 task/rejection 结论形成，后续不能换身份改写。公开投影不得暴露 task/request ID、响应正文、素材身份或证据指纹。
+- iter143 之后的真实闭环不是一份总授权：只读 task/billing/rejection（upload/create=0）、真实 TTS adapter 后 1 条语音、新 namespace 单镜图片/视频、完整单集、episode 2+/多集是五个依次独立授权阶段，前序证据和授权不自动传递。
 - 质量标定样本必须同时冻结 sample namespace、目标时长、实际 prompt SHA 与授权 fingerprint；仅保存 prompt 版本字符串不足以证明样本可比，样本产物和 ledger 也不能与默认 smoke 共用路径。
 
 ### Keep state auditable
@@ -330,9 +334,11 @@
 48. **身份复核与测试清理都必须覆盖实际写入窗口**：workspace 守门不能只在 selector 或请求入口检查，应在持久写前复核，并在写入新增可选 canonical 目录后刷新 identity，兼容部分初始化项目；test worker 必须 cooperative cancel 并 join 完成后才能恢复全局 workspace/env 或删除临时目录，timeout 应保留状态并明确失败。两者都不外推为抵抗最后复核后的非合作本机写者。
 49. **界面规范不能发明后端能力，用户语言也不能泄漏实现词汇**：每个按钮都应绑定当前接口、现有或待迁移 hook、确认条件、处理中状态、成功去向和失败恢复；没有写入契约的操作应明确隐藏。内部枚举、模型、provider、job 字段和原始错误只留在开发映射，用户界面统一翻译为直白中文。视觉示例还必须落在声明的响应式断点内，否则不能作为前端验收依据。
 50. **公共列表投影必须同时约束身份、类型与文件读取边界**：仅从目录名或未验证 metadata 猜 workspace 类型，会把损坏/替换对象送入错误域页面；公开更新时间也不能靠递归跟随路径。应从已验证 root fd 逐级 no-follow、有界读取权威产物，legacy 缺 metadata 可显式兼容，存在但损坏/未知的类型必须失败关闭。设置 secret 即使做掩码也仍泄漏片段，普通用户投影只应返回 configured 布尔和零片段值。
+51. **历史付费状态的读侧迁移不能改写事实真源**：为 legacy submission 增加对账时，读取路径若顺手重写源文件，会改变首次状态、破坏 source CAS，并掩盖 ABA。应让源 submission 保持字节不变，用独立 sidecar generation、文件 revision/content identity 与 ledger fingerprint 共同保护 append-only receipt；exact replay 可幂等，但权威 resolution 身份一旦形成必须冻结。
 
 ## Historical Evidence Notes
 
+- iter163 在 implementation `ea4e1d4` 上 canonical 3025 tests / 15 steps / 481 秒通过，run `44fb300e4c994e068c8131ff30f6a009`，等级 `mock-functional` / `canonical-mock-offline`。视频 create 三分状态、历史 unknown append-only CAS receipt 与公开安全投影完成；correctness、security/boundary、真实媒体/计费三路最终 no findings。首次验收的 2 个旧测试契约修复后完整重验通过；未 push、未查询或调用真实 provider。
 - iter162 在 implementation `935ffc8` 上 canonical 3008 tests / 15 steps / 467 秒通过，run `0503739d35a7453cb995f5581ba0f923`，等级 `mock-functional` / `canonical-mock-offline`；episode 2 与 degraded Insights synthetic 浏览器证据为 `local-e2e`。三路复审无剩余 P0–P3；首次完整验收发现的旧逐镜视频 mutation 错误优先级回归修复后完整重验通过，两份报告随后删除；未 push、未调用真实 provider。
 - iter161 在 implementation `44a391b` 上 canonical 3001 tests / 15 steps / 443 秒通过，run `0031d4965e664254ba5ecac1fa3f21de`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase D compose/episodes/Insights/jobs 与 Phase A-D 三视口证据为 `local-e2e`。四路审查 findings 全部修复，unknown/跨币种、Running/恢复、episode 2+、安全日志与 exact delivery 边界保持。首次验收 2 个 legacy 静态合同失败在修复提交后完整重验通过；未调用真实 provider。
 - iter160 在 implementation `38661f3` 上 canonical 2994 tests / 15 steps / 478 秒通过，run `18e89d1666b94d5cacc249188369bcae`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase C 资产治理与逐镜图片/视频三视口证据为 `local-e2e`。correctness、security/boundary、Web/UIUX/媒体预览三路 findings 全部修复；DOM 只留公共序号，媒体预览挂载 `blob:` URL。首次沙箱运行仅因 23 个 loopback bind EPERM 失败，同一 commit 非沙箱复验通过；未调用真实 provider。
