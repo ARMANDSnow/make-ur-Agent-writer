@@ -212,7 +212,7 @@ class DramaIter097VideoLedgerTests(DramaTestBase):
             with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
                 drama_video.run_video_job("ledger", params, lambda *_: None, client=client)
             ledger = drama_video.read_video_submission("ledger")
-            self.assertEqual(ledger["status"], "submitting")
+            self.assertEqual(ledger["status"], "submission_unknown")
             with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
                 drama_video.run_video_job("ledger", params, lambda *_: None, client=client)
         client.create_video_task.assert_called_once()

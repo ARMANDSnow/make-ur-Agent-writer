@@ -320,7 +320,10 @@ class Iter099DramaHardeningTests(DramaTestBase):
         payload = json.loads(body)
         self.assertEqual(payload["state"], "submitted")
         self.assertEqual(payload["latest_attempt_state"], "failed")
-        self.assertIn('state === "submission_unknown" ? \'\'', routes.static.JS_DASHBOARD)
+        self.assertIn(
+            '["provider_rejected", "submission_unknown"].includes(state) ? \'\'',
+            routes.static.JS_DASHBOARD,
+        )
         self.assertIn("继续查询", routes.static.JS_DASHBOARD)
 
     def test_unreported_video_cost_stays_unknown_in_report(self) -> None:
