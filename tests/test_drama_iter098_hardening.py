@@ -342,7 +342,9 @@ class Iter098DramaHardeningTests(DramaTestBase):
         first.create_video_task.side_effect = RequestNotSentError("peer rejected")
         with patch.dict(os.environ, env, clear=False), self.assertRaises(RequestNotSentError):
             drama_video.run_video_job("video-not-sent", options, lambda *_: None, client=first, sleep=lambda _: None)
-        self.assertIsNone(drama_video.read_video_submission("video-not-sent"))
+        marker = drama_video.read_video_submission("video-not-sent")
+        self.assertEqual(marker["status"], "request_not_sent")
+        self.assertEqual(marker["submission_count"], 0)
 
         second = Mock(base_url="https://video.example.test")
         second.api_key = "stable-test-account"

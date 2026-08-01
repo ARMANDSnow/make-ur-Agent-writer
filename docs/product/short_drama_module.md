@@ -658,7 +658,23 @@ drama workspace
 | G. 通用媒体调度、能力与成本 | C-F 已出现的稳定重复任务 | 提取最小 task DAG、dedupe、guarded transitions、cancel cascade、worker lease、provider×media lanes、capability registry、pricing/Insights | 多进程不重复 claim；unknown submission 零自动重发；迁移前后 artifact/receipt/fingerprint 不变；estimate/actual/unknown 分列 | 🟨 **G1-G7 持久调度、pricing 与 lifecycle metrics 已实现**：episode-scoped strict DAG、worker lease/capacity lane、代码内 registry、provider task+frozen binding 原子入队、纯本地 queue client、owner-guarded execution loop、六类 append-only pricing facts，以及 durable ready/first-claim/terminal lifecycle 与 success/queue/run Insights 已落地。generic task/pricing 只绑定受控 evidence fingerprint，不保存 provider task/response 或替代 paid ledger/billing。真实 adapter/账单对接尚未实现 |
 | H. 小说事件图与辅助记忆 | synthetic 或允许范围内的章节结构、现有 entity/summary 投影 | typed event graph build/merge/split；记录 source/spoiler；episode 引用 event IDs；上下文 cache 绑定 hash 并可失效 | 超来源/剧透边界 fail-closed；unknown 因果不猜；invented 与 source-derived 明示；无 embedding 时零网络降级 | ✅ **H1-H3 纯本地闭环已实现**：H1 提供 strict typed graph 与来源/改编/因果/lineage；H2 从 named workspace exact entity/rolling-summary bytes 重建 production graph 并冻结 RenderPlan binding；H3 只缓存 exact event/source identity，以 hashed keyword + recent + summary 零网络查询，绑定 workspace/season/episode/source/graph/RenderPlan/policy，current 漂移 stale/blocked，cache missing/delete 不影响 canonical。公开 Web/UI 与真实提取仍由 I/J 承接 |
 | I. 生产工作台与项目归档 | B-G 的 render/task/timeline/QA 事实 | 后端聚合安全投影；列表/画布同源；隔离本地 A-F 演练；archive export/import | UI 不是新真源；mutation 有锁和 revision guard；本地演练不得污染源项目；归档 round-trip 保持 hash/selection/timeline/MP4 | ✅ **I1+I2+隔离验收入口已实现**：I1 drama-only Web 聚合 production 安全投影；列表、画布与状态摘要已普通化并保留诊断折叠。用户从已组装项目启动本地 A-F 演练时，系统创建新的 `localdemo_*` 项目，用 synthetic 图片/视频/音频完成 exact-duration MP4、SRT、ASS、edit 四件套与 QA；源项目角色表和 RenderPlan 不变。该结果只属于 `local-e2e`，不证明真实媒体质量。I2 继续提供确定性、有上限的 ZIP export/preflight/import CLI |
-| J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 iter150 在限额内完成五站真实文本 5/5 与两张角色图 2/2 的窄范围校准；角色图人工检查可用且无明显破损。视频只完成零提交任务列表鉴权；配置的公网素材回调域名失效，因而在上传/create 前 `safe-blocked`，视频提交 0、费用 0；项目没有真实 TTS adapter。整体仍是 `provider_validated=false`，不能宣称完整真实短剧生产链通过 |
+| J. 真 provider 校准与 capstone | 对应链已通过 mock/local E2E、本次明确授权 | 真文本、真图片、真语音、真视频四轨分别执行 preflight→单资产→单镜→受限单集→多集；记录费用、恢复与人工质量 | 每次写清提交上限、预算、timeout、可重试类型、对账与终止条件；API 成功不自动等于作品质量通过 | ⏳ 🔒 iter150 在限额内完成五站真实文本 5/5 与两张角色图 2/2 的窄范围校准；iter142 完成一条固定 5 秒真视频窄样本。iter143 的独立 20 秒 create 仍无 task/MP4、费用 unknown 且禁止重提；iter163 只在 mock/offline 工程层增加 create 三分法、私有 append-only reconciliation receipt 与公开安全状态，没有查询或调用真实 provider。项目仍没有真实 TTS adapter，整体不能宣称完整真实短剧生产链已验证 |
+
+#### J1 真视频 create 结果、历史 Unknown 对账与逐项授权
+
+Episode 1 legacy 真视频 create 只允许三类互斥结果。只有 transport 能证明 HTTP headers/body 没有发送时才记 `request_not_sent`，该次提交机会未消费，但系统仍不得自动重试，下一次调用必须重新明确授权。Provider 返回明确 4xx create 拒绝时记 `provider_rejected`，私有账本最多保留有界 HTTP status、受控 outcome/error class 和 request ID，不保存响应正文；该次授权已消费，费用保持 unknown 而不是 0。请求发送后的 timeout/断连、5xx、畸形或无法安全解析的成功响应、缺失/冲突 task ID 一律记 `submission_unknown`，继续占用提交机会并禁止重提。旧 `submitting` 账本兼容解释为真正 unknown，不做静默迁移或补猜。
+
+历史 unknown 使用同 video namespace 下的私有 `reconciliation.json`，不改写原 `submission.json`。Receipt 按 sequence/time 单调追加，previous receipt、exact validated submission identity 与 evidence fingerprint 形成内容寻址链；sidecar 自有不可复用 generation，写入在 workspace lock 内同时比较 expected submission 内容 fingerprint、无写入的 source revision fingerprint、sidecar generation/revision 与 ledger fingerprint，并以 no-follow 原子替换提交。Exact replay 幂等，冲突 replay、旧 CAS、A→B→A、乱序、坏链、证据复用或 submission source drift 均 fail closed；第一次形成 `submitted` 或 `provider_rejected` 后冻结结论与私有身份，只允许 exact replay。只有绑定 exact provider task 的只读查询可以解析为 `submitted`，绑定明确 4xx 拒绝的权威证据可以解析为 `provider_rejected`；billing 查询没有 exact task、任务列表数量未增加或未找到匹配 task 时都只能追加 `still_unknown`。历史 receipt 永远不能把 unknown 改判成 `request_not_sent`，也不能复活旧授权。
+
+公开视频状态采用双层字段 allowlist，只显示 `request_not_sent / provider_rejected / submission_unknown / submitted` 等安全状态、是否需要对账、提交是否消费、是否需要新授权、是否可续查/下载及有界展示规格/费用状态。页面和 API 不公开 provider task/request ID、响应正文、素材/sample 身份、prompt/SHA 或 submission/authorization/evidence/provider/result-host fingerprint；receipt 不直接序列化到公开响应。`provider_rejected` 与 `submission_unknown` 页面均不显示 create 按钮。
+
+后续真实闭环必须按以下顺序逐项取得新的独立授权，任何一步的授权、预算或成功证据都不传递到下一步：
+
+1. 只读查询 iter143 的 task、billing 与 rejection，严格保持 `upload/create=0`；没有绑定该次 submission 的权威新证据就维持 `still_unknown`。
+2. 先实现并审查真实 TTS adapter，再单独授权 1 条语音。
+3. 使用新的 namespace，再单独授权 1 个单镜图片/视频样本。
+4. 单镜通过人工与工程验收后，再单独授权完整单集。
+5. Episode 2+ 与多集另行授权，不继承完整单集授权。
 
 #### A2 stale dependency matrix v1
 

@@ -78,7 +78,10 @@ VIDEO_PHASE_POLICY = {
 }
 
 VIDEO_STATUS_POLICY = {
+    "request_not_sent": "require_new_explicit_authorization",
     "submitting": "block_unknown_outcome",
+    "submission_unknown": "block_unknown_outcome",
+    "provider_rejected": "block_consumed_submission",
     "submitted": "resume_poll_without_create",
     "failed": "block_consumed_submission",
     "succeeded": "verify_lineage_without_network",
@@ -130,9 +133,30 @@ class PaidRecoveryPolicyMatrixTests(unittest.TestCase):
         self.assertTrue(persisted <= set(VIDEO_LEDGER_STATUSES))
         self.assertEqual(set(VIDEO_STATUS_POLICY), set(VIDEO_LEDGER_STATUSES))
         self.assertEqual(VIDEO_TASK_ID_STATUSES, {"submitted", "failed", "succeeded"})
-        self.assertEqual(VIDEO_PAID_SUBMISSION_STATUSES, VIDEO_TASK_ID_STATUSES)
-        self.assertEqual(VIDEO_NON_RESUMABLE_STATUSES, {"submitting", "failed"})
-        self.assertEqual(VIDEO_INCOMPLETE_STATUSES, {"submitting", "submitted", "failed"})
+        self.assertEqual(
+            VIDEO_PAID_SUBMISSION_STATUSES,
+            {
+                "provider_rejected",
+                "submitted",
+                "failed",
+                "succeeded",
+            },
+        )
+        self.assertEqual(
+            VIDEO_NON_RESUMABLE_STATUSES,
+            {"submitting", "submission_unknown", "provider_rejected", "failed"},
+        )
+        self.assertEqual(
+            VIDEO_INCOMPLETE_STATUSES,
+            {
+                "request_not_sent",
+                "submitting",
+                "submission_unknown",
+                "provider_rejected",
+                "submitted",
+                "failed",
+            },
+        )
         self.assertEqual(
             [name for name, row in VIDEO_PHASE_POLICY.items() if row["create"] == 1],
             ["pre_submit"],

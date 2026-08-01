@@ -33,7 +33,12 @@ from .ai_draw_client import (
 )
 from .drama_schemas import CharacterSheet, DramaEpisode, DramaEpisodeMeta, DramaStoryboard, character_paths, episode_paths
 from .drama_store import episode_character_projection, is_episode_stale
-from .drama_video_client import DEFAULT_VIDEO_MODEL, DramaVideoClient, build_video_payload
+from .drama_video_client import (
+    DEFAULT_VIDEO_MODEL,
+    DramaVideoClient,
+    VideoCreateRejected,
+    build_video_payload,
+)
 from .paid_recovery_states import (
     VIDEO_INCOMPLETE_STATUSES,
     VIDEO_LEDGER_STATUSES,
@@ -557,7 +562,8 @@ def read_video_submission(
         or any(ch not in "0123456789abcdef" for ch in fingerprint)
     ):
         raise ValueError("video submission ledger fingerprint is invalid")
-    if raw.get("submission_count") != 1:
+    expected_submission_count = 0 if status == "request_not_sent" else 1
+    if raw.get("submission_count") != expected_submission_count:
         raise ValueError("video submission ledger count is invalid")
     provider_fingerprint = raw.get("provider_fingerprint")
     if (
@@ -579,7 +585,38 @@ def read_video_submission(
     if status in VIDEO_TASK_ID_STATUSES:
         _extract_resource_id({"id": task_id}, "task")
     elif task_id is not None:
-        raise ValueError("video submitting ledger must not claim a task id")
+        raise ValueError("video submission ledger must not claim a task id")
+    if status == "provider_rejected":
+        http_status = raw.get("http_status")
+        if (
+            isinstance(http_status, bool)
+            or not isinstance(http_status, int)
+            or not 400 <= http_status < 500
+        ):
+            raise ValueError("video provider rejection status is invalid")
+        for key in (
+            "provider_outcome",
+            "provider_error_class",
+            "provider_request_id",
+        ):
+            value = raw.get(key)
+            if value is not None and (
+                not isinstance(value, str)
+                or not value
+                or len(value) > 128
+                or any(char in value for char in "\r\n\x00")
+            ):
+                raise ValueError("video provider rejection metadata is invalid")
+    elif any(
+        key in raw
+        for key in (
+            "http_status",
+            "provider_outcome",
+            "provider_error_class",
+            "provider_request_id",
+        )
+    ):
+        raise ValueError("video submission ledger has unexpected rejection metadata")
     if "cost_cny" in raw:
         cost = raw.get("cost_cny")
         if isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(float(cost)) or cost < 0:
@@ -892,6 +929,47 @@ def run_video_job(
                 "durable real video submission exists; restore the original real provider configuration"
             )
         return _run_mock_video(inputs, progress_cb)
+    if submission is not None and submission.get("status") in {
+        "submitting",
+        "submission_unknown",
+    }:
+        try:
+            from .drama_video_reconciliation import (
+                _submission_identity,
+                inspect_video_reconciliation,
+            )
+
+            reconciliation = inspect_video_reconciliation(
+                workspace,
+                sample_id=sample_id,
+            )
+        except ValueError as exc:
+            raise DramaVideoProviderError(
+                "video reconciliation evidence is invalid"
+            ) from exc
+        if reconciliation["submission_fingerprint"] != _submission_identity(
+            submission
+        ):
+            raise DramaVideoProviderError(
+                "video submission changed while reading reconciliation evidence"
+            )
+        outcome = reconciliation["observed_outcome"]
+        if outcome == "submitted":
+            task_id_from_receipt = reconciliation.get("provider_task_id")
+            _extract_resource_id({"id": task_id_from_receipt}, "task")
+            submission = {
+                **submission,
+                "status": "submitted",
+                "task_id": task_id_from_receipt,
+            }
+        elif outcome == "provider_rejected":
+            raise DramaVideoProviderError(
+                "the reconciled video submission was explicitly rejected"
+            )
+        else:
+            raise DramaVideoSubmissionUnknown(
+                "video submission outcome is unknown; reconcile provider task/billing before any retry"
+            )
     resuming_submitted = params.get("resume_submitted") is True
     if resuming_submitted:
         if submission is None or submission.get("status") != "submitted":
@@ -1017,12 +1095,17 @@ def run_video_job(
         ):
             raise DramaVideoProviderError("video submission ledger and artifact lineage differ")
         return {**meta, "committed": True, "resumed": True, "network_requests": 0}
-    if submission is not None and submission.get("status") == "submitting":
-        raise DramaVideoSubmissionUnknown(
-            "video submission outcome is unknown; reconcile provider task/billing before any retry"
-        )
-    if submission is not None and submission.get("status") == "failed":
+    if submission is not None and submission.get("status") in {
+        "provider_rejected",
+        "failed",
+    }:
         raise DramaVideoProviderError("the one authorized video submission already failed")
+
+    if submission is not None and submission.get("status") == "request_not_sent":
+        # The previous call proved that headers/body never crossed the socket.
+        # A new invocation still has to carry its own explicit authorization;
+        # there is no background or automatic retry path.
+        submission = None
 
     final: Dict[str, Any] = {}
     task_id = str(submission.get("task_id") or "") if submission is not None else ""
@@ -1192,26 +1275,58 @@ def run_video_job(
                     model=model,
                     allow_real_video=True,
                 )
+                task_id = _extract_resource_id(created, "task")
             except RequestNotSentError:
-                # The transport proves that no request headers/body crossed
-                # the socket.  Remove only the marker created immediately
-                # above so the single paid opportunity is not falsely spent.
-                _delete_video_ledger(
-                    workspace,
-                    sample_id=sample_id,
-                    filename=(
-                        "submission.json"
-                        if sample_id is not None
-                        else "drama_video_submission.json"
-                    ),
-                    label="video submission",
-                )
+                # This is the only transport error that proves the request did
+                # not cross the socket.  Persist the distinction, but never
+                # retry automatically.
+                _write_video_submission(workspace, {
+                    "status": "request_not_sent",
+                    "input_fingerprint": inputs.fingerprint,
+                    "provider_fingerprint": provider_fingerprint,
+                    "result_hosts_fingerprint": result_hosts_fingerprint,
+                    "submission_count": 0,
+                    **authorization,
+                    "updated_at": int(time.time()),
+                }, sample_id=sample_id)
                 raise
+            except VideoCreateRejected as exc:
+                rejection = {
+                    key: value
+                    for key, value in {
+                        "provider_outcome": exc.provider_outcome,
+                        "provider_error_class": exc.provider_error_class,
+                        "provider_request_id": exc.provider_request_id,
+                    }.items()
+                    if value is not None
+                }
+                _write_video_submission(workspace, {
+                    "status": "provider_rejected",
+                    "input_fingerprint": inputs.fingerprint,
+                    "provider_fingerprint": provider_fingerprint,
+                    "result_hosts_fingerprint": result_hosts_fingerprint,
+                    "submission_count": 1,
+                    "http_status": exc.http_status,
+                    **rejection,
+                    **authorization,
+                    "updated_at": int(time.time()),
+                }, sample_id=sample_id)
+                raise DramaVideoProviderError(
+                    "video provider explicitly rejected the create request"
+                ) from None
             except Exception:
+                _write_video_submission(workspace, {
+                    "status": "submission_unknown",
+                    "input_fingerprint": inputs.fingerprint,
+                    "provider_fingerprint": provider_fingerprint,
+                    "result_hosts_fingerprint": result_hosts_fingerprint,
+                    "submission_count": 1,
+                    **authorization,
+                    "updated_at": int(time.time()),
+                }, sample_id=sample_id)
                 raise DramaVideoSubmissionUnknown(
                     "video submission outcome is unknown; reconcile provider task and billing before any retry"
                 ) from None
-            task_id = _extract_resource_id(created, "task")
             _write_video_submission(workspace, {
                 "status": "submitted",
                 "input_fingerprint": inputs.fingerprint,
@@ -1361,15 +1476,77 @@ def video_status(
                     "requires_reconciliation": True,
                     "download_ready": False,
                 }
-            if ledger_status == "submitting":
+            if ledger_status == "request_not_sent":
+                return {
+                    "state": "request_not_sent",
+                    "submission_consumed": False,
+                    "retry_allowed": True,
+                    "retry_requires_new_authorization": True,
+                    "download_ready": False,
+                }
+            if ledger_status in {"submitting", "submission_unknown"}:
+                try:
+                    from .drama_video_reconciliation import inspect_video_reconciliation
+
+                    reconciliation = inspect_video_reconciliation(
+                        workspace,
+                        sample_id=sample_id,
+                    )
+                except ValueError:
+                    return {
+                        "state": "blocked",
+                        "error_code": "video_reconciliation_ledger_invalid",
+                        "download_ready": False,
+                    }
+                from .drama_video_reconciliation import _submission_identity
+
+                if reconciliation["submission_fingerprint"] != _submission_identity(
+                    submission
+                ):
+                    return {
+                        "state": "blocked",
+                        "error_code": "video_reconciliation_source_changed",
+                        "download_ready": False,
+                    }
+                if reconciliation["observed_outcome"] == "submitted":
+                    return {
+                        "state": "submitted",
+                        "resumable_poll": True,
+                        "submission_consumed": True,
+                        "download_ready": False,
+                    }
+                if reconciliation["observed_outcome"] == "provider_rejected":
+                    return {
+                        "state": "provider_rejected",
+                        "error_code": "video_create_provider_rejected",
+                        "submission_consumed": True,
+                        "download_ready": False,
+                    }
                 return {
                     "state": "submission_unknown",
                     "requires_reconciliation": True,
+                    "submission_consumed": True,
+                    "download_ready": False,
+                }
+            if ledger_status == "provider_rejected":
+                return {
+                    "state": "provider_rejected",
+                    "error_code": "video_create_provider_rejected",
+                    "submission_consumed": True,
                     "download_ready": False,
                 }
             if ledger_status == "submitted":
-                return {"state": "submitted", "resumable_poll": True, "download_ready": False}
-            return {"state": "failed", "submission_consumed": True, "download_ready": False}
+                return {
+                    "state": "submitted",
+                    "resumable_poll": True,
+                    "submission_consumed": True,
+                    "download_ready": False,
+                }
+            return {
+                "state": "failed",
+                "submission_consumed": True,
+                "download_ready": False,
+            }
     meta = read_json_optional(out.meta_path, None)
     if isinstance(meta, dict) and out.video_path.is_file():
         try:
@@ -1381,7 +1558,11 @@ def video_status(
         except (FileNotFoundError, OSError, DramaVideoInputError, ValueError):
             safe_meta = None
         if safe_meta is not None:
-            return {"state": str(safe_meta.get("status") or "succeeded"), "video": safe_meta, "download_ready": True}
+            return {
+                "state": str(safe_meta.get("status") or "succeeded"),
+                "video": _public_video_meta(safe_meta),
+                "download_ready": True,
+            }
         return {"state": "not_ready", "stale_video": True, "download_ready": False}
     if submission is not None:
         return {
@@ -2042,6 +2223,27 @@ def _safe_video_meta(meta: Mapping[str, Any]) -> Dict[str, Any]:
         "duration_seconds", "ratio", "resolution", "content_type", "file_size_bytes", "cost_cny",
         "budget_cny", "estimated_cost_cny", "cost_unreported",
         "target_duration_seconds", "sample_id", "prompt_version", "prompt_sha256",
+    )
+    return {key: meta.get(key) for key in allowed if key in meta}
+
+
+def _public_video_meta(meta: Mapping[str, Any]) -> Dict[str, Any]:
+    """Narrow Web-safe projection with no provider, material, or evidence ID."""
+
+    allowed = (
+        "schema_version",
+        "episode_no",
+        "status",
+        "duration_seconds",
+        "ratio",
+        "resolution",
+        "content_type",
+        "file_size_bytes",
+        "cost_cny",
+        "budget_cny",
+        "estimated_cost_cny",
+        "cost_unreported",
+        "target_duration_seconds",
     )
     return {key: meta.get(key) for key in allowed if key in meta}
 

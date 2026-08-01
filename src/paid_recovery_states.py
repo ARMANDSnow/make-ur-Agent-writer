@@ -63,8 +63,53 @@ SHOT_VIDEO_SUBMITTED_STATUSES = frozenset({
 })
 SHOT_VIDEO_TERMINAL_STATUSES = frozenset({"provider_failed", "succeeded", "closed_unknown"})
 
-VIDEO_LEDGER_STATUSES = frozenset({"submitting", "submitted", "failed", "succeeded"})
+VIDEO_CREATE_OUTCOME_STATUSES = frozenset({
+    "request_not_sent",
+    "provider_rejected",
+    "submission_unknown",
+})
+VIDEO_LEDGER_STATUSES = frozenset({
+    "request_not_sent",
+    "submitting",
+    "submission_unknown",
+    "provider_rejected",
+    "submitted",
+    "failed",
+    "succeeded",
+})
 VIDEO_TASK_ID_STATUSES = frozenset({"submitted", "failed", "succeeded"})
-VIDEO_PAID_SUBMISSION_STATUSES = VIDEO_TASK_ID_STATUSES
-VIDEO_NON_RESUMABLE_STATUSES = frozenset({"submitting", "failed"})
-VIDEO_INCOMPLETE_STATUSES = frozenset({"submitting", "submitted", "failed"})
+VIDEO_CONSUMED_SUBMISSION_STATUSES = frozenset({
+    "submitting",
+    "submission_unknown",
+    "provider_rejected",
+    "submitted",
+    "failed",
+    "succeeded",
+})
+VIDEO_UNKNOWN_SUBMISSION_STATUSES = frozenset({
+    "submitting",
+    "submission_unknown",
+})
+# These are known-consumed outcomes.  Ambiguous submissions are tracked by the
+# disjoint UNKNOWN set so accounting can express one consumed opportunity as
+# exactly one of known or unknown, never both.
+VIDEO_PAID_SUBMISSION_STATUSES = frozenset({
+    "provider_rejected",
+    "submitted",
+    "failed",
+    "succeeded",
+})
+VIDEO_NON_RESUMABLE_STATUSES = frozenset({
+    "submitting",
+    "submission_unknown",
+    "provider_rejected",
+    "failed",
+})
+VIDEO_INCOMPLETE_STATUSES = frozenset({
+    "request_not_sent",
+    "submitting",
+    "submission_unknown",
+    "provider_rejected",
+    "submitted",
+    "failed",
+})

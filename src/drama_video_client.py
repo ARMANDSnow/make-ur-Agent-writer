@@ -31,6 +31,29 @@ class VideoGenerationNotAuthorized(PermissionError):
     """Raised before network when a real video submission is not authorized."""
 
 
+class VideoCreateRejected(RuntimeError):
+    """The provider returned a bounded, explicit rejection to video create.
+
+    Only redacted scalar classification is retained.  The provider response
+    body is intentionally never attached to the exception or persisted by the
+    caller.
+    """
+
+    def __init__(
+        self,
+        *,
+        http_status: int,
+        provider_outcome: str | None = None,
+        provider_error_class: str | None = None,
+        provider_request_id: str | None = None,
+    ) -> None:
+        super().__init__("video provider explicitly rejected the create request")
+        self.http_status = http_status
+        self.provider_outcome = provider_outcome
+        self.provider_error_class = provider_error_class
+        self.provider_request_id = provider_request_id
+
+
 class _DuplicateJSONField(ValueError):
     """Internal sentinel; its message never includes the conflicting field."""
 
@@ -113,9 +136,21 @@ class DramaVideoClient:
             watermark=watermark,
             model=model,
         )
-        return self._request_json("POST", "/v1/video/generate", payload)
+        return self._request_json(
+            "POST",
+            "/v1/video/generate",
+            payload,
+            classify_create_rejection=True,
+        )
 
-    def _request_json(self, method: str, path: str, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: Dict[str, Any] | None = None,
+        *,
+        classify_create_rejection: bool = False,
+    ) -> Dict[str, Any]:
         if not self.api_key:
             raise ValueError("SD_API_KEY is required")
         if any(char in self.api_key for char in "\r\n\x00"):
@@ -132,6 +167,16 @@ class DramaVideoClient:
             max_response_bytes=MAX_JSON_RESPONSE_BYTES,
             peer_validator=_validate_public_endpoint,
         )
+        if (
+            response.status != 200
+            and classify_create_rejection
+            and 400 <= response.status < 500
+        ):
+            details = _redacted_create_rejection_details(
+                response.body,
+                content_type=response.content_type,
+            )
+            raise VideoCreateRejected(http_status=response.status, **details)
         if response.status != 200:
             raise ValueError(f"video API request failed with HTTP {response.status}")
         content_type = response.content_type
@@ -148,6 +193,72 @@ class DramaVideoClient:
         if not isinstance(value, dict):
             raise ValueError("video API response must be a JSON object")
         return value
+
+
+def _redacted_create_rejection_details(
+    body: bytes,
+    *,
+    content_type: str,
+) -> Dict[str, str | None]:
+    """Extract only bounded identifiers/classes; never retain response text."""
+
+    empty: Dict[str, str | None] = {
+        "provider_outcome": None,
+        "provider_error_class": None,
+        "provider_request_id": None,
+    }
+    if content_type != "application/json":
+        return empty
+    try:
+        value = json.loads(
+            body.decode("utf-8"),
+            object_pairs_hook=_strict_json_object,
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        _DuplicateJSONField,
+        RecursionError,
+    ):
+        return empty
+    if type(value) is not dict:
+        return empty
+    error = value.get("error")
+    error_object = error if type(error) is dict else {}
+    return {
+        "provider_outcome": _safe_provider_token(
+            value.get("outcome") or value.get("status")
+        ),
+        "provider_error_class": _safe_provider_token(
+            error_object.get("code")
+            or error_object.get("type")
+            or value.get("error_code")
+        ),
+        "provider_request_id": _safe_provider_identifier(
+            value.get("request_id")
+            or value.get("requestId")
+            or error_object.get("request_id")
+            or error_object.get("requestId")
+        ),
+    }
+
+
+def _safe_provider_token(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    token = value.strip().lower()
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", token):
+        return None
+    return token
+
+
+def _safe_provider_identifier(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    token = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", token):
+        return None
+    return token
 
 
 def build_video_payload(

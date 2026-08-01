@@ -9,6 +9,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from src import drama_video, drama_video_smoke, paths
+from src.drama_video_client import VideoCreateRejected
+from src.secure_http import RequestNotSentError
 from src.drama_schemas import character_paths
 from src.utils import read_json, write_json
 from src.web import routes
@@ -259,6 +261,138 @@ class DramaVideoPipelineTests(DramaTestBase):
         rendered = json.dumps(persisted)
         self.assertNotIn("signed.mp4", rendered)
         self.assertNotIn("token", rendered)
+        public = drama_video.video_status("video")
+        rendered_public = json.dumps(public, sort_keys=True)
+        for private_key in (
+            "task_id",
+            "request_id",
+            "provider_fingerprint",
+            "input_fingerprint",
+            "result_hosts_fingerprint",
+            "prompt_sha256",
+            "video_sha256",
+            "sample_id",
+        ):
+            self.assertNotIn(private_key, rendered_public)
+
+    def test_create_result_three_way_is_durable_and_never_auto_retries(self) -> None:
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        params = {
+            "confirm_real_video": True,
+            "budget_cny": 3,
+            "timeout_minutes": 1,
+        }
+        cases = (
+            (
+                "request-not-sent",
+                RequestNotSentError("pre-send"),
+                RequestNotSentError,
+                "request_not_sent",
+            ),
+            (
+                "provider-rejected",
+                VideoCreateRejected(
+                    http_status=400,
+                    provider_outcome="gate_rejected",
+                    provider_error_class="duration_unsupported",
+                    provider_request_id="req-private-1",
+                ),
+                drama_video.DramaVideoProviderError,
+                "provider_rejected",
+            ),
+            (
+                "submission-unknown",
+                TimeoutError("private-response-loss"),
+                drama_video.DramaVideoSubmissionUnknown,
+                "submission_unknown",
+            ),
+        )
+        for workspace, failure, error_type, expected_status in cases:
+            with self.subTest(workspace=workspace):
+                self._prepare(workspace)
+                first = _FakeVideoClient()
+                first.create_video_task = Mock(side_effect=failure)
+                with patch.dict(os.environ, env, clear=False):
+                    with self.assertRaises(error_type) as caught:
+                        drama_video.run_video_job(
+                            workspace,
+                            params,
+                            lambda *_: None,
+                            client=first,
+                            sleep=lambda _seconds: None,
+                        )
+                self.assertNotIn("private-response-loss", str(caught.exception))
+                ledger = drama_video.read_video_submission(workspace)
+                self.assertEqual(ledger["status"], expected_status)
+                public = drama_video.video_status(workspace)
+                self.assertEqual(public["state"], expected_status)
+                self.assertNotIn("provider_request_id", json.dumps(public))
+
+                second = _FakeVideoClient()
+                second.create_video_task = Mock(
+                    side_effect=RequestNotSentError("second explicit call")
+                )
+                with patch.dict(os.environ, env, clear=False):
+                    if expected_status == "request_not_sent":
+                        with self.assertRaises(RequestNotSentError):
+                            drama_video.run_video_job(
+                                workspace,
+                                params,
+                                lambda *_: None,
+                                client=second,
+                                sleep=lambda _seconds: None,
+                            )
+                        self.assertEqual(second.create_video_task.call_count, 1)
+                    else:
+                        with self.assertRaises(
+                            (
+                                drama_video.DramaVideoProviderError,
+                                drama_video.DramaVideoSubmissionUnknown,
+                            )
+                        ):
+                            drama_video.run_video_job(
+                                workspace,
+                                params,
+                                lambda *_: None,
+                                client=second,
+                                sleep=lambda _seconds: None,
+                            )
+                        second.create_video_task.assert_not_called()
+                self.assertEqual(second.uploads, 0)
+
+    def test_malformed_create_success_response_is_submission_unknown(self) -> None:
+        workspace = "video-create-malformed"
+        self._prepare(workspace)
+        client = _FakeVideoClient()
+        client.create_video_task = Mock(return_value={"success": True})
+        env = {
+            "SD_VIDEO_MODE": "real",
+            "SD_VIDEO_ESTIMATED_COST_CNY": "2",
+            "SD_ASSET_PUBLIC_BASE_URL": "https://assets.example.test",
+            "SD_VIDEO_RESULT_HOSTS": "result.example.test",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):
+                drama_video.run_video_job(
+                    workspace,
+                    {
+                        "confirm_real_video": True,
+                        "budget_cny": 3,
+                        "timeout_minutes": 1,
+                    },
+                    lambda *_: None,
+                    client=client,
+                    sleep=lambda _seconds: None,
+                )
+        self.assertEqual(
+            drama_video.read_video_submission(workspace)["status"],
+            "submission_unknown",
+        )
 
     def test_actual_cost_over_budget_is_visible_but_paid_video_is_preserved(self) -> None:
         self._prepare()
@@ -1263,7 +1397,7 @@ class DramaVideoPipelineTests(DramaTestBase):
             workspace,
             sample_id=drama_video.ITER143_QUALITY20_SAMPLE_ID,
         )
-        self.assertEqual(ledger["status"], "submitting")
+        self.assertEqual(ledger["status"], "submission_unknown")
         second = _FakeVideoClient()
         with patch.dict(os.environ, env, clear=False):
             with self.assertRaises(drama_video.DramaVideoSubmissionUnknown):

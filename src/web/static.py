@@ -2946,6 +2946,7 @@ JS_DASHBOARD = """\
     failed: "未完成", error: "未完成", retry_error: "未完成", blocked: "需要补充", warn: "需要留意",
     aborted: "已取消", cancelled: "已取消", canceled: "已取消",
     budget_exceeded: "额度不足", stale: "需要更新", lost: "状态丢失",
+    request_not_sent: "请求确定未发送", provider_rejected: "Provider 已拒绝",
     submission_unknown: "提交状态未知",
   };
   function statusLabel(status) {
@@ -8518,6 +8519,7 @@ JS_DASHBOARD = """\
       not_ready: "待准备", ready: "可生成", pending: "待准备",
       "upload-assets": "上传素材", queued: "排队", generating: "生成中",
       download: "下载 5 秒样片", succeeded: "成功", failed: "失败",
+      request_not_sent: "请求确定未发送", provider_rejected: "Provider 已拒绝",
       submitted: "已提交·可续查", submission_unknown: "提交结果待对账",
       aborted: "取消", cancelled: "取消", timeout: "超时", lost: "失败",
       budget_exceeded: "成功（超预算）",
@@ -8559,6 +8561,7 @@ JS_DASHBOARD = """\
       body += '<p class="muted">刷新页面会自动恢复；取消仅会停止本地轮询，不保证撤销上游已提交的计费任务。</p>' +
         '<button type="button" class="btn btn-danger" data-video-cancel="' + escapeHtml(job.job_id || "") + '">取消视频任务</button>';
     } else if (job && ["failed", "aborted", "lost", "budget_exceeded"].includes(job.status) &&
+        state !== "request_not_sent" && state !== "provider_rejected" &&
         state !== "submitted" && state !== "submission_unknown") {
       body += renderErrorCard({ message: "视频任务未完成：" + (job.error || dramaVideoStateLabel(job.status)) });
     } else if (state === "not_ready") {
@@ -8566,17 +8569,21 @@ JS_DASHBOARD = """\
     } else {
       if (state === "submitted") {
         body += '<div class="alert info">上游任务已持久化提交；使用原授权参数再次点击只会续查，不会重复上传或新建任务。</div>';
+      } else if (state === "request_not_sent") {
+        body += '<div class="alert info">传输层已证明请求头和正文均未发送；系统不会自动重试。若要再次尝试，必须重新明确授权。</div>';
+      } else if (state === "provider_rejected") {
+        body += '<div class="alert warn">Provider 已明确拒绝本次 create；本次授权已消费，费用不推断为 0，页面不会重提。</div>';
       } else if (state === "submission_unknown") {
         body += '<div class="alert warn">提交结果未知，请先查上游任务与账单；系统不会自动重试。</div>';
       }
       body += '<p class="muted">MVP 固定生成 1 个 5 秒、9:16、720p、无音频无水印的视频任务。</p>' +
-        (data.real_mode && state !== "submitted"
+        (data.real_mode && !["submitted", "provider_rejected", "submission_unknown"].includes(state)
           ? '<div class="alert warn">真实视频是独立计费授权，不继承真文本或真生图确认。预估费用：¥' + escapeHtml(String(data.estimated_cost_cny == null ? "未配置" : data.estimated_cost_cny)) + '</div>' +
             '<div class="form-grid-2"><div class="field"><label for="video-budget">预算上限（元）</label><input id="video-budget" type="number" min="0.01" step="0.01"></div>' +
             '<div class="field"><label for="video-timeout">超时（分钟）</label><input id="video-timeout" type="number" min="1" max="60" step="1" value="5"></div></div>' +
             '<label class="check-row"><input id="video-confirm" type="checkbox"> 我确认提交 1 个真实视频计费任务，且超时后不自动重试</label>'
           : '') +
-        (state === "submission_unknown" ? '' : '<button type="button" class="btn btn-primary" data-video-generate>' +
+        (["provider_rejected", "submission_unknown"].includes(state) ? '' : '<button type="button" class="btn btn-primary" data-video-generate>' +
           (state === "submitted" ? '继续查询' : '生成视频') + '</button>');
     }
     box.innerHTML = '<div class="card"><div class="card-header"><h3 class="ornament">第 1 集视频</h3><span class="badge">' + escapeHtml(dramaVideoStateLabel(state)) + '</span></div><div class="card-body stack">' + body + '</div></div>';

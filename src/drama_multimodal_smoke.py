@@ -47,8 +47,10 @@ from .paid_recovery_states import (
     IMAGE_ATTEMPT_STATUSES,
     IMAGE_RECEIPT_STATUSES,
     TEXT_CANONICAL_RECOVERY_STATUSES,
+    VIDEO_CONSUMED_SUBMISSION_STATUSES,
     VIDEO_NON_RESUMABLE_STATUSES,
     VIDEO_PAID_SUBMISSION_STATUSES,
+    VIDEO_UNKNOWN_SUBMISSION_STATUSES,
 )
 from .schemas import model_to_dict
 from .secure_http import RequestNotSentError
@@ -74,6 +76,18 @@ RUN_STATUSES = {
     "awaiting_image_authorization", "awaiting_video_authorization",
     "failed_after_video_submission", "video_submission_already_consumed",
 }
+
+
+def _video_submission_view(
+    workspace: str,
+) -> tuple[Dict[str, Any] | None, Dict[str, Any], bool]:
+    """Return the raw private ledger plus its reconciliation-aware safe state."""
+
+    submission = drama_video.read_video_submission(workspace)
+    public_state = drama_video.video_status(workspace) if submission is not None else {}
+    return submission, public_state, public_state.get("state") == "submitted"
+
+
 RETRY_TIMEOUT_SECONDS = 180.0
 MAX_IMAGE_ATTEMPTS_PER_CHARACTER = 3
 STATE_SCHEMA_VERSION = 1
@@ -1295,10 +1309,11 @@ def _video_readiness(workspace: str, options: Mapping[str, Any], *, real_video: 
         if options.get("confirm_real_video") is not True:
             raise MultimodalAuthorizationError("confirm_real_video=true is required for this invocation")
         os.environ["SD_VIDEO_MODE"] = "real"
-        submission = drama_video.read_video_submission(workspace)
-        needs_new_submission = submission is None
-        resuming_submitted = bool(
-            isinstance(submission, dict) and submission.get("status") == "submitted"
+        submission, public_video_state, resuming_submitted = (
+            _video_submission_view(workspace)
+        )
+        needs_new_submission = (
+            submission is None or submission.get("status") == "request_not_sent"
         )
         if resuming_submitted:
             try:
@@ -1385,13 +1400,8 @@ def run(
         os.environ["DRAMA_MODEL"] = "mock"
         os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "true"
     opts = dict(options or {})
-    existing_submission = (
-        drama_video.read_video_submission(workspace)
-        if real_video else None
-    )
-    resuming_submitted_video = bool(
-        isinstance(existing_submission, dict)
-        and existing_submission.get("status") == "submitted"
+    _existing_submission, _existing_video_status, resuming_submitted_video = (
+        _video_submission_view(workspace) if real_video else (None, {}, False)
     )
     _validate_invocation(
         real_text, real_image, real_video, opts,
@@ -1725,22 +1735,28 @@ def _run_claimed(
 
     if state["phases"]["real_video"]["status"] != "succeeded":
         video_phase = state["phases"]["real_video"]
-        submission = drama_video.read_video_submission(workspace) if real_video else None
+        if real_video:
+            submission, reconciled_status, resume_submitted = (
+                _video_submission_view(workspace)
+            )
+        else:
+            submission, reconciled_status, resume_submitted = None, {}, False
         if real_video and video_phase.get("submission_consumed") is True:
             # A durable task id is resumable without another paid POST.  An old
             # state with no ledger, an ambiguous POST, or a terminal provider
             # failure remains fail-closed.
-            if submission is None or submission.get("status") in VIDEO_NON_RESUMABLE_STATUSES:
+            if (
+                submission is None
+                or (
+                    submission.get("status") in VIDEO_NON_RESUMABLE_STATUSES
+                    and reconciled_status.get("state") != "submitted"
+                )
+            ):
                 state["status"] = "video_submission_already_consumed"
                 _save(state)
                 return state
         video_started = time.monotonic()
         try:
-            resume_submitted = bool(
-                real_video
-                and isinstance(submission, dict)
-                and submission.get("status") == "submitted"
-            )
             if resume_submitted:
                 video_budget = 0.0
                 video_timeout = float(submission["authorized_timeout_minutes"]) * 60.0
@@ -1769,9 +1785,9 @@ def _run_claimed(
         except Exception as exc:
             submission = drama_video.read_video_submission(workspace) if real_video else None
             ledger_status = submission.get("status") if submission is not None else None
-            consumed = submission is not None
+            consumed = ledger_status in VIDEO_CONSUMED_SUBMISSION_STATUSES
             paid = int(ledger_status in VIDEO_PAID_SUBMISSION_STATUSES)
-            unknown = int(ledger_status == "submitting")
+            unknown = int(ledger_status in VIDEO_UNKNOWN_SUBMISSION_STATUSES)
             video_phase.update({
                 "status": "failed_after_submission" if consumed else "failed",
                 "error_code": type(exc).__name__,
@@ -1907,7 +1923,7 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
     )
     video_unknown_count = max(
         _safe_count(video.get("submission_unknown_count")),
-        int(ledger_status == "submitting"),
+        int(ledger_status in VIDEO_UNKNOWN_SUBMISSION_STATUSES),
     )
     completed_steps = text.get("completed_steps")
     text_metrics: Dict[str, Any] = {

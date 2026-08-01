@@ -21,11 +21,14 @@ from src.paid_recovery_states import (
     TEXT_ATTEMPT_STATUSES,
     TEXT_CANONICAL_RECOVERY_STATUSES,
     TEXT_RECONCILIATION_REQUIRED_STATUSES,
+    VIDEO_CONSUMED_SUBMISSION_STATUSES,
+    VIDEO_CREATE_OUTCOME_STATUSES,
     VIDEO_INCOMPLETE_STATUSES,
     VIDEO_LEDGER_STATUSES,
     VIDEO_NON_RESUMABLE_STATUSES,
     VIDEO_PAID_SUBMISSION_STATUSES,
     VIDEO_TASK_ID_STATUSES,
+    VIDEO_UNKNOWN_SUBMISSION_STATUSES,
 )
 from src.web import jobs
 
@@ -75,11 +78,35 @@ class PaidRecoveryStateVocabularyTests(unittest.TestCase):
     def test_video_statuses_are_exhaustive_and_classified(self) -> None:
         self.assertEqual(
             VIDEO_LEDGER_STATUSES,
-            frozenset({"submitting", "submitted", "failed", "succeeded"}),
+            frozenset({
+                "request_not_sent",
+                "submitting",
+                "submission_unknown",
+                "provider_rejected",
+                "submitted",
+                "failed",
+                "succeeded",
+            }),
         )
-        self.assertEqual(VIDEO_TASK_ID_STATUSES, VIDEO_PAID_SUBMISSION_STATUSES)
         self.assertEqual(
-            VIDEO_TASK_ID_STATUSES | frozenset({"submitting"}),
+            VIDEO_CREATE_OUTCOME_STATUSES,
+            frozenset({
+                "request_not_sent",
+                "provider_rejected",
+                "submission_unknown",
+            }),
+        )
+        self.assertEqual(
+            VIDEO_PAID_SUBMISSION_STATUSES | VIDEO_UNKNOWN_SUBMISSION_STATUSES,
+            VIDEO_CONSUMED_SUBMISSION_STATUSES,
+        )
+        self.assertFalse(
+            VIDEO_PAID_SUBMISSION_STATUSES & VIDEO_UNKNOWN_SUBMISSION_STATUSES
+        )
+        self.assertEqual(
+            VIDEO_TASK_ID_STATUSES
+            | VIDEO_CREATE_OUTCOME_STATUSES
+            | frozenset({"submitting"}),
             VIDEO_LEDGER_STATUSES,
         )
         self.assertEqual(
@@ -90,6 +117,10 @@ class PaidRecoveryStateVocabularyTests(unittest.TestCase):
         self.assertEqual(
             VIDEO_NON_RESUMABLE_STATUSES & VIDEO_TASK_ID_STATUSES,
             frozenset({"failed"}),
+        )
+        self.assertEqual(
+            VIDEO_LEDGER_STATUSES - VIDEO_CONSUMED_SUBMISSION_STATUSES,
+            frozenset({"request_not_sent"}),
         )
 
     def test_shot_video_attempt_statuses_have_one_four_way_classification(self) -> None:
@@ -192,12 +223,17 @@ class PaidRecoveryValidatorBoundaryTests(unittest.TestCase):
                         "status": status,
                         "input_fingerprint": self._SHA,
                         "provider_fingerprint": self._SHA,
-                        "submission_count": 1,
+                        "submission_count": 0 if status == "request_not_sent" else 1,
                     }
                     if status in VIDEO_TASK_ID_STATUSES:
                         payload["task_id"] = "task-1"
                     if status == "submitted":
                         payload["result_hosts_fingerprint"] = self._SHA
+                    if status == "provider_rejected":
+                        payload.update({
+                            "http_status": 400,
+                            "provider_outcome": "gate_rejected",
+                        })
                     ledger_path.write_text(json.dumps(payload), encoding="utf-8")
                     self.assertEqual(
                         drama_video.read_video_submission(workspace)["status"],

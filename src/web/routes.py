@@ -4086,8 +4086,8 @@ def api_drama_video_generate(name: str, body: bytes) -> Tuple[int, str, bytes]:
 
         drama_video.load_video_inputs(name, episode_no=1)
         if params.get("resume_submitted") is True:
-            submission = drama_video.read_video_submission(name)
-            if submission is None or submission.get("status") != "submitted":
+            safe_status = drama_video.video_status(name, episode_no=1)
+            if safe_status.get("state") != "submitted":
                 return _json(409, {"error": "no submitted video task is available to resume"})
         job = jobs.start_job(name, "drama-video", params)
     except (FileNotFoundError, ValueError) as exc:
@@ -4106,7 +4106,45 @@ def api_drama_video_status(name: str) -> Tuple[int, str, bytes]:
         return error
     from .. import drama_video
 
-    status = drama_video.video_status(name, episode_no=1)
+    internal_status = drama_video.video_status(name, episode_no=1)
+    allowed_status_fields = {
+        "state",
+        "error_code",
+        "requires_reconciliation",
+        "submission_consumed",
+        "retry_allowed",
+        "retry_requires_new_authorization",
+        "resumable_poll",
+        "download_ready",
+        "stale_video",
+    }
+    status = {
+        key: internal_status[key]
+        for key in allowed_status_fields
+        if key in internal_status
+    }
+    video = internal_status.get("video")
+    if isinstance(video, dict):
+        allowed_video_fields = {
+            "schema_version",
+            "episode_no",
+            "status",
+            "duration_seconds",
+            "ratio",
+            "resolution",
+            "content_type",
+            "file_size_bytes",
+            "cost_cny",
+            "budget_cny",
+            "estimated_cost_cny",
+            "cost_unreported",
+            "target_duration_seconds",
+        }
+        status["video"] = {
+            key: video[key]
+            for key in allowed_video_fields
+            if key in video
+        }
     status["real_mode"] = drama_video.real_video_enabled()
     status["fixed_spec"] = {"duration_seconds": 5, "ratio": "9:16", "resolution": "720p"}
     if status["real_mode"]:
@@ -4126,7 +4164,8 @@ def api_drama_video_status(name: str) -> Tuple[int, str, bytes]:
             if recent_state == "aborted":
                 recent_state = "timeout" if recent.get("current_step") == "timeout" else "cancelled"
             if status.get("state") not in {
-                "succeeded", "budget_exceeded", "submitted", "submission_unknown",
+                "succeeded", "budget_exceeded", "request_not_sent",
+                "provider_rejected", "submitted", "submission_unknown",
             }:
                 status["state"] = recent_state
             status["latest_attempt_state"] = recent_state

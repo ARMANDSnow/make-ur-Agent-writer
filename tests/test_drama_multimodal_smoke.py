@@ -8,7 +8,12 @@ import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src import ai_draw_client, drama_multimodal_smoke as multi
+from src import (
+    ai_draw_client,
+    drama_multimodal_smoke as multi,
+    drama_video,
+    drama_video_reconciliation as reconciliation,
+)
 from src.drama_schemas import character_paths
 from src.utils import read_json
 from src.secure_http import BoundedResponse
@@ -440,6 +445,93 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             with self.assertRaises(TimeoutError):
                 multi.run("video-once", real_video=True, options=opts)
         submit.assert_called_once()
+
+    def test_video_request_not_sent_accounting_stays_unconsumed(self) -> None:
+        state = multi.run("video-not-sent-accounting")
+        state["phases"]["real_video"] = {"status": "pending"}
+        state["phases"]["video_readiness"] = {
+            "status": "awaiting_real_video_authorization"
+        }
+        state["status"] = "awaiting_video_authorization"
+        multi._save(state)
+        inputs = drama_video.load_video_inputs("video-not-sent-accounting")
+
+        def fail_not_sent(*_args, **_kwargs):
+            drama_video._write_video_submission("video-not-sent-accounting", {
+                "status": "request_not_sent",
+                "input_fingerprint": inputs.fingerprint,
+                "provider_fingerprint": "a" * 64,
+                "result_hosts_fingerprint": "b" * 64,
+                "submission_count": 0,
+                **drama_video._video_authorization(10.0, 5.0, 2.0),
+                "updated_at": 1,
+            })
+            raise RuntimeError("request was definitely not sent")
+
+        opts = {
+            "confirm_real_video": True,
+            "confirm_asset_callback_reachable": True,
+            "video_budget_cny": 10,
+            "video_timeout_seconds": 300,
+        }
+        with patch(
+            "src.drama_multimodal_smoke._video_readiness",
+            return_value={"reference_count": 2},
+        ), patch(
+            "src.drama_multimodal_smoke.run_video_smoke",
+            side_effect=fail_not_sent,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "definitely not sent"):
+                multi.run(
+                    "video-not-sent-accounting",
+                    real_video=True,
+                    options=opts,
+                )
+        persisted = multi.load_state("video-not-sent-accounting")
+        video = persisted["phases"]["real_video"]
+        self.assertFalse(video["submission_consumed"])
+        self.assertEqual(video["attempt"], 0)
+        self.assertEqual(video["paid_submission_count"], 0)
+        self.assertEqual(video["submission_unknown_count"], 0)
+
+    def test_reconciled_unknown_has_one_shared_poll_only_resume_view(self) -> None:
+        workspace = "video-reconciled-multimodal-view"
+        multi.run(workspace)
+        inputs = drama_video.load_video_inputs(workspace)
+        drama_video._write_video_submission(workspace, {
+            "status": "submission_unknown",
+            "input_fingerprint": inputs.fingerprint,
+            "provider_fingerprint": "a" * 64,
+            "result_hosts_fingerprint": "b" * 64,
+            "submission_count": 1,
+            **drama_video._video_authorization(10.0, 5.0, 2.0),
+            "updated_at": 1,
+        })
+        inspection = reconciliation.inspect_video_reconciliation(workspace)
+        reconciliation.append_video_reconciliation_receipt(
+            workspace,
+            expected_reconciliation_generation=inspection["reconciliation_generation"],
+            expected_source_revision_fingerprint=inspection["source_revision_fingerprint"],
+            expected_submission_fingerprint=inspection["submission_fingerprint"],
+            expected_revision=inspection["revision"],
+            expected_ledger_fingerprint=inspection["ledger_fingerprint"],
+            observed_outcome="submitted",
+            evidence_kind="task_query",
+            evidence_fingerprint="c" * 64,
+            recorded_at_ms=1,
+            provider_task_id="provider-task-private",
+        )
+        submission, safe_state, resumable = multi._video_submission_view(workspace)
+        self.assertEqual(submission["status"], "submission_unknown")
+        self.assertEqual(safe_state["state"], "submitted")
+        self.assertTrue(resumable)
+        multi._validate_invocation(
+            False,
+            False,
+            True,
+            {"confirm_real_video": True},
+            resuming_submitted_video=resumable,
+        )
 
     def test_corrupt_paid_state_fails_closed(self) -> None:
         multi.run("corrupt")

@@ -391,6 +391,61 @@ class DramaVideoClientTests(unittest.TestCase):
         self.assertEqual(json.loads(request_call.call_args.kwargs["body"])["model"], drama_video_client.DEFAULT_VIDEO_MODEL)
         self.assertEqual(result["task"]["status"], "pending")
 
+    def test_video_create_http_rejection_is_typed_and_body_is_not_retained(self) -> None:
+        body = json.dumps({
+            "outcome": "gate_rejected",
+            "requestId": "req-safe-1",
+            "error": {"code": "duration_unsupported", "message": "secret-body"},
+        }).encode()
+        with patch(
+            "src.drama_video_client.request_bytes",
+            return_value=BoundedResponse(400, "application/json", body),
+        ):
+            client = drama_video_client.DramaVideoClient(
+                base_url="https://93.184.216.34",
+                api_key="test-video-key",
+            )
+            with self.assertRaises(
+                drama_video_client.VideoCreateRejected
+            ) as caught:
+                client.create_video_task(
+                    prompt="原创镜头",
+                    allow_real_video=True,
+                )
+        self.assertEqual(caught.exception.http_status, 400)
+        self.assertEqual(caught.exception.provider_outcome, "gate_rejected")
+        self.assertEqual(
+            caught.exception.provider_error_class,
+            "duration_unsupported",
+        )
+        self.assertEqual(caught.exception.provider_request_id, "req-safe-1")
+        self.assertNotIn("secret-body", str(caught.exception))
+        self.assertFalse(hasattr(caught.exception, "response_body"))
+
+    def test_video_create_server_error_remains_submission_ambiguous(self) -> None:
+        with patch(
+            "src.drama_video_client.request_bytes",
+            return_value=BoundedResponse(
+                503,
+                "application/json",
+                b'{"outcome":"unknown","message":"private"}',
+            ),
+        ):
+            client = drama_video_client.DramaVideoClient(
+                base_url="https://93.184.216.34",
+                api_key="test-video-key",
+            )
+            with self.assertRaisesRegex(ValueError, "HTTP 503") as caught:
+                client.create_video_task(
+                    prompt="原创镜头",
+                    allow_real_video=True,
+                )
+        self.assertNotIsInstance(
+            caught.exception,
+            drama_video_client.VideoCreateRejected,
+        )
+        self.assertNotIn("private", str(caught.exception))
+
     def test_video_client_rejects_duplicate_json_fields_without_echoing_them(self) -> None:
         duplicate_bodies = (
             b'{"success":false,"success":true}',
