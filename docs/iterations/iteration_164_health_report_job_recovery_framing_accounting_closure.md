@@ -34,22 +34,31 @@
 
 ## Implementation Notes
 
-待实施回填。
+- 新建 job 在 admission 时冻结严格 `result_context`，持久行和 recent/detail 公共投影复用同一验证器；历史行只从受控 Local Demo target、互相一致的 episode 字段和安全 episode 1 默认降级。Local Demo 结果沿既有产品语义进入 target `/compose?episode_no=1`，而非在源 workspace 打开页面。
+- HTTP detail/cancel 改用 workspace-scoped lookup；全局查找仍只供可信进程内调用。cancel mutation 在 `_JOBS_LOCK` 内二次核对 workspace，restart pending/running 仍只读目标 ledger 并投影为 lost。
+- protected mutation 在 body read 前检查 header 全列表；任意 TE、缺失/重复/非规范 CL 返回 400，唯一规范超限 CL 保持 413。非 protected POST 的缺省空 body 行为保持兼容。
+- 视频计账从同一次 durable submission snapshot 得到 raw/effective 状态、request/unknown、consumed 与费用真源；phase cost 不再覆盖 ledger。无 ledger 时兼容 both-missing 与 iter094–096 的 paid-only=1 历史形状，统一保守为 `0/1 still_unknown`；unknown-only、paid-only=0/consumed 和其它矛盾状态失败关闭。
+- 三路初审共确认 1 个 lost CTA P2、3 个 Web/媒体专项 P2、1 个 paid-only 历史兼容 P2 和 1 个 legacy 精确性 P3；均经主线程复核后修复。最终 correctness、security/boundary、Web/runner/multi-workspace+媒体计账复核均无剩余 P0–P3。
+- synthetic mock 浏览器实测：episode 2 succeeded 与 restart-lost CTA 均进入 `/w/alpha/write?episode=2`；Local Demo CTA 进入隔离 target `/compose?episode_no=1`。未调用 provider。
 
 ## Acceptance Result
 
 待 `iter-finish` 回填。
 
 ### Knowledge Promotion
-- `decision`: `<iter-finish 回填：none|promoted>`
-- `destination`: `<iter-finish 回填：none|既有长期权威文档>`
-- `reason`: `<iter-finish 回填人工判断>`
+- `decision`: `none`
+- `destination`: `none`
+- `reason`: 本轮是在落实既有 workspace isolation、公开投影、transport framing 与 paid reconciliation 合同；审查 findings 属具体实现补漏，没有形成新的跨迭代长期规则。
 
 ## 文件变更汇总
 
 | 文件 | 改动 |
 |---|---|
-| 待实施回填 | 待实施回填 |
+| `src/web/jobs.py`、`src/web/routes.py`、`src/web/static.py` | 新增严格结果上下文、workspace-scoped job 恢复/取消和安全任务 CTA |
+| `src/web/server.py` | protected mutation 重复/非规范 HTTP framing 读前失败关闭 |
+| `src/drama_multimodal_smoke.py` | reconciliation-aware calibration schema v2、同快照状态/费用计账与 legacy 兼容 |
+| `tests/test_web_iter164_health_closure.py`、`tests/test_web_server.py`、`tests/test_drama_multimodal_smoke.py` | 四根因、审查 findings、历史兼容与失败边界回归 |
+| `docs/iterations/iteration_164_health_report_job_recovery_framing_accounting_closure.md`、`docs/iterations/README.md` | 迭代计划、实现记录、验收索引与收官证据 |
 
 ## 不在本轮范围
 

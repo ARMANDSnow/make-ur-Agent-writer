@@ -91,31 +91,37 @@ class WebHandler(BaseHTTPRequestHandler):
             protected_mutation = bool(
                 _WEB_MUTATION_PATH_RE.fullmatch(decoded_path)
             )
-            transfer_encoding = str(
-                self.headers.get("Transfer-Encoding", "") or ""
-            ).strip()
-            if protected_mutation and transfer_encoding:
-                self.send_error(400, "Transfer-Encoding is not accepted")
-                return
-            raw_length = self.headers.get("Content-Length", "0") or "0"
-            try:
-                length = int(raw_length)
-            except ValueError:
-                if protected_mutation:
+            if protected_mutation:
+                # ``Message.get`` returns only one value.  Different HTTP hops
+                # are allowed to disagree about which duplicate wins, so inspect
+                # the complete field list and fail closed before reading a byte.
+                if self.headers.get_all("Transfer-Encoding", []):
+                    self.send_error(400, "Transfer-Encoding is not accepted")
+                    return
+                content_lengths = self.headers.get_all("Content-Length", [])
+                if len(content_lengths) != 1:
                     self.send_error(400, "Invalid Content-Length")
                     return
-                length = 0
-            if protected_mutation and length < 0:
-                self.send_error(400, "Invalid Content-Length")
-                return
-            if (
-                protected_mutation
-                and length > _WEB_MUTATION_BODY_LIMIT
-            ):
-                # Protected mutations are JSON control messages, never media
-                # uploads. Reject an oversized Content-Length before reading it.
-                self.send_error(413, "Mutation payload too large")
-                return
+                raw_length = content_lengths[0]
+                if not isinstance(raw_length, str) or re.fullmatch(
+                    r"(?:0|[1-9][0-9]*)", raw_length
+                ) is None:
+                    self.send_error(400, "Invalid Content-Length")
+                    return
+                mutation_limit = str(_WEB_MUTATION_BODY_LIMIT)
+                if len(raw_length) > len(mutation_limit) or (
+                    len(raw_length) == len(mutation_limit)
+                    and raw_length > mutation_limit
+                ):
+                    self.send_error(413, "Mutation payload too large")
+                    return
+                length = int(raw_length)
+            else:
+                raw_length = self.headers.get("Content-Length", "0") or "0"
+                try:
+                    length = int(raw_length)
+                except ValueError:
+                    length = 0
             if length > 64 * 1024 * 1024:
                 self.send_error(413, "Payload too large")
                 return

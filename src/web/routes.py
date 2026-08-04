@@ -5204,11 +5204,8 @@ def api_job_status(name: str, job_id: str) -> Tuple[int, str, bytes]:
     error = _workspace_error(name)
     if error:
         return error
-    job = jobs.get_job(job_id)
+    job = jobs.get_job_for_workspace(name, job_id)
     if job is None:
-        return _json(404, {"error": "job not found"})
-    if job.get("workspace") != name:
-        # Don't leak existence of a job belonging to another workspace.
         return _json(404, {"error": "job not found"})
     # iter073 (codex D3): explicit detail allowlist instead of raw passthrough.
     return _json(200, jobs.public_job_detail_view(job))
@@ -5224,20 +5221,22 @@ def api_job_cancel(name: str, job_id: str) -> Tuple[int, str, bytes]:
     error = _workspace_error(name)
     if error:
         return error
-    job = jobs.get_job(job_id)
-    if job is None or job.get("workspace") != name:
+    job = jobs.get_job_for_workspace(name, job_id)
+    if job is None:
         return _json(404, {"error": "job not found"})
     status = str(job.get("status") or "")
     if status not in {"pending", "running"}:
         return _json(409, {"error": "job is not cancellable", "status": status})
-    snapshot = jobs.request_cancel(job_id)
+    snapshot = jobs.request_cancel(job_id, workspace=name)
     if snapshot is None:
-        latest = jobs.get_job(job_id)
+        latest = jobs.get_job_for_workspace(name, job_id)
+        if latest is None:
+            return _json(404, {"error": "job not found"})
         return _json(
             409,
             {
                 "error": "job is not cancellable",
-                "status": (latest or job).get("status"),
+                "status": latest.get("status"),
             },
         )
     return _json(

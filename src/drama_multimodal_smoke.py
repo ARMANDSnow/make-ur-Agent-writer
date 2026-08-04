@@ -47,7 +47,6 @@ from .paid_recovery_states import (
     IMAGE_ATTEMPT_STATUSES,
     IMAGE_RECEIPT_STATUSES,
     TEXT_CANONICAL_RECOVERY_STATUSES,
-    VIDEO_CONSUMED_SUBMISSION_STATUSES,
     VIDEO_NON_RESUMABLE_STATUSES,
     VIDEO_PAID_SUBMISSION_STATUSES,
     VIDEO_UNKNOWN_SUBMISSION_STATUSES,
@@ -88,10 +87,113 @@ def _video_submission_view(
     return submission, public_state, public_state.get("state") == "submitted"
 
 
+def _video_submission_accounting(
+    workspace: str,
+    video_phase: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Return one reconciliation-aware accounting view for a video attempt.
+
+    A durable submission ledger is authoritative whenever it exists. Its raw
+    status remains visible as ``source_submission_status`` for audit, while
+    ``submission_status`` follows the safe reconciliation projection. Only a
+    genuinely absent ledger may fall back to the legacy phase counters.
+    """
+
+    try:
+        submission = drama_video.read_video_submission(workspace)
+    except (OSError, TypeError, ValueError):
+        # A damaged durable marker cannot safely be treated as no submission.
+        # It is an unresolved exposure until an operator repairs/reconciles it.
+        return {
+            "_source_submission": None,
+            "source_ledger_present": True,
+            "source_submission_status": "invalid",
+            "submission_status": "blocked",
+            "request_count": 0,
+            "submission_unknown_count": 1,
+            "submission_consumed": True,
+        }
+
+    if submission is None:
+        request_count = min(1, _safe_count(video_phase.get("paid_submission_count")))
+        unknown_count = min(
+            1,
+            _safe_count(video_phase.get("submission_unknown_count")),
+        )
+        # The pre-split one-shot marker was written before the external request,
+        # so it proves a consumed opportunity but not a sent request. Preserve
+        # it as unknown unless a newer split counter says otherwise.
+        legacy_consumed = (
+            "submission_unknown_count" not in video_phase
+            and video_phase.get("submission_consumed") is True
+            and video_phase.get("attempt") == 1
+            and (
+                "paid_submission_count" not in video_phase
+                or (
+                    type(video_phase.get("paid_submission_count")) is int
+                    and video_phase.get("paid_submission_count") == 1
+                )
+            )
+        )
+        if legacy_consumed:
+            request_count, unknown_count = 0, 1
+        return {
+            "_source_submission": None,
+            "source_ledger_present": False,
+            "source_submission_status": None,
+            "submission_status": "still_unknown" if unknown_count else None,
+            "request_count": request_count,
+            "submission_unknown_count": unknown_count,
+            "submission_consumed": bool(request_count or unknown_count),
+        }
+
+    source_status = submission.get("status")
+    try:
+        public_state = drama_video.video_status(workspace)
+    except (OSError, TypeError, ValueError):
+        public_state = {"state": "blocked"}
+    projected_state = public_state.get("state")
+
+    if source_status == "request_not_sent":
+        effective_status = "request_not_sent"
+        request_count, unknown_count, consumed = 0, 0, False
+    elif source_status in VIDEO_PAID_SUBMISSION_STATUSES:
+        # These durable source outcomes are already known. Public artifact or
+        # authorization readiness may still be blocked without changing their
+        # paid-submission classification.
+        effective_status = str(source_status)
+        request_count, unknown_count, consumed = 1, 0, True
+    elif source_status in VIDEO_UNKNOWN_SUBMISSION_STATUSES and projected_state in {
+        "submitted",
+        "provider_rejected",
+    }:
+        effective_status = str(projected_state)
+        request_count, unknown_count, consumed = 1, 0, True
+    elif source_status in VIDEO_UNKNOWN_SUBMISSION_STATUSES:
+        # ``still_unknown`` is the accounting outcome; the public video status
+        # intentionally retains its older ``submission_unknown`` vocabulary.
+        effective_status = "still_unknown"
+        request_count, unknown_count, consumed = 0, 1, True
+    else:
+        # A durable but unclassifiable marker is fail-closed, never legacy.
+        effective_status = "blocked"
+        request_count, unknown_count, consumed = 0, 1, True
+
+    return {
+        "_source_submission": submission,
+        "source_ledger_present": True,
+        "source_submission_status": source_status,
+        "submission_status": effective_status,
+        "request_count": request_count,
+        "submission_unknown_count": unknown_count,
+        "submission_consumed": consumed,
+    }
+
+
 RETRY_TIMEOUT_SECONDS = 180.0
 MAX_IMAGE_ATTEMPTS_PER_CHARACTER = 3
 STATE_SCHEMA_VERSION = 1
-CALIBRATION_REPORT_SCHEMA_VERSION = 1
+CALIBRATION_REPORT_SCHEMA_VERSION = 2
 TEXT_STEP_TASKS = {
     "drama-plan": "drama_plan",
     "drama-hooks": "drama_hooks",
@@ -543,7 +645,11 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
         raise ValueError("multimodal smoke video consumed state is invalid")
     if video.get("submission_consumed") is True and video.get("attempt") != 1:
         raise ValueError("multimodal smoke video attempt ledger is invalid")
-    if "paid_submission_count" in video:
+    has_paid_counter = "paid_submission_count" in video
+    has_unknown_counter = "submission_unknown_count" in video
+    if has_unknown_counter and not has_paid_counter:
+        raise ValueError("multimodal smoke video split accounting is incomplete")
+    if has_paid_counter:
         paid = video["paid_submission_count"]
         if type(paid) is not int or paid not in {0, 1}:
             raise ValueError("multimodal smoke video paid submission ledger is invalid")
@@ -552,7 +658,13 @@ def load_state(workspace: str) -> Dict[str, Any] | None:
     unknown = video.get("submission_unknown_count", 0)
     if type(unknown) is not int or unknown not in {0, 1}:
         raise ValueError("multimodal smoke video unknown submission ledger is invalid")
-    if paid + unknown != int(video.get("submission_consumed") is True):
+    legacy_consumed = (
+        not has_unknown_counter
+        and video.get("submission_consumed") is True
+        and video.get("attempt") == 1
+        and (not has_paid_counter or paid == 1)
+    )
+    if not legacy_consumed and paid + unknown != int(video.get("submission_consumed") is True):
         raise ValueError("multimodal smoke video submission accounting is inconsistent")
     for phase_name in ("real_text", "all_character_images", "real_video"):
         real = phases[phase_name].get("real")
@@ -1783,11 +1895,18 @@ def _run_claimed(
                 resume_submitted=resume_submitted,
             )
         except Exception as exc:
-            submission = drama_video.read_video_submission(workspace) if real_video else None
-            ledger_status = submission.get("status") if submission is not None else None
-            consumed = ledger_status in VIDEO_CONSUMED_SUBMISSION_STATUSES
-            paid = int(ledger_status in VIDEO_PAID_SUBMISSION_STATUSES)
-            unknown = int(ledger_status in VIDEO_UNKNOWN_SUBMISSION_STATUSES)
+            accounting = (
+                _video_submission_accounting(workspace, video_phase)
+                if real_video
+                else {
+                    "submission_consumed": False,
+                    "request_count": 0,
+                    "submission_unknown_count": 0,
+                }
+            )
+            consumed = accounting["submission_consumed"]
+            paid = accounting["request_count"]
+            unknown = accounting["submission_unknown_count"]
             video_phase.update({
                 "status": "failed_after_submission" if consumed else "failed",
                 "error_code": type(exc).__name__,
@@ -1801,8 +1920,21 @@ def _run_claimed(
             state["status"] = "failed_after_video_submission" if consumed else "failed"
             _save(state)
             raise
-        submission = drama_video.read_video_submission(workspace) if real_video else None
-        submitted = submission is not None and submission.get("status") == "succeeded"
+        accounting = (
+            _video_submission_accounting(workspace, video_phase)
+            if real_video
+            else {
+                "source_submission_status": None,
+                "submission_status": None,
+                "submission_consumed": False,
+                "request_count": 0,
+                "submission_unknown_count": 0,
+            }
+        )
+        submitted = (
+            accounting["source_submission_status"] == "succeeded"
+            and accounting["submission_status"] == "succeeded"
+        )
         if real_video and not submitted:
             raise RuntimeError("real video job returned without a succeeded durable submission ledger")
         result_status = str(result.get("status") or "")
@@ -1811,10 +1943,11 @@ def _run_claimed(
         phase_status = "budget_exceeded" if result_status == "budget_exceeded" else "succeeded"
         state["phases"]["real_video"] = {
             "status": phase_status, "real": real_video,
-            "submission_consumed": submitted, "attempt": 1 if submitted else 0,
+            "submission_consumed": accounting["submission_consumed"],
+            "attempt": 1 if accounting["submission_consumed"] else 0,
             "automatic_retries": 0, "network_requests": result.get("network_requests", 0),
-            "paid_submission_count": 1 if submitted else 0,
-            "submission_unknown_count": 0,
+            "paid_submission_count": accounting["request_count"],
+            "submission_unknown_count": accounting["submission_unknown_count"],
             "elapsed_seconds": result.get("elapsed_seconds"),
             "cost_cny": result.get("cost_cny"),
             "cost_unreported": result.get("cost_unreported") is True,
@@ -1915,16 +2048,9 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
         # Do not add the LLM audit count to the attempt ledger: they normally
         # describe the same requests.  Max is conservative without double count.
         text_request_count = max(text_request_count, ledger_exposure)
-    video_submission = drama_video.read_video_submission(workspace)
-    ledger_status = video_submission.get("status") if video_submission is not None else None
-    video_request_count = max(
-        _safe_count(video.get("paid_submission_count")),
-        int(ledger_status in VIDEO_PAID_SUBMISSION_STATUSES),
-    )
-    video_unknown_count = max(
-        _safe_count(video.get("submission_unknown_count")),
-        int(ledger_status in VIDEO_UNKNOWN_SUBMISSION_STATUSES),
-    )
+    video_accounting = _video_submission_accounting(workspace, video)
+    video_request_count = video_accounting["request_count"]
+    video_unknown_count = video_accounting["submission_unknown_count"]
     completed_steps = text.get("completed_steps")
     text_metrics: Dict[str, Any] = {
         "request_count": text_request_count,
@@ -1949,10 +2075,16 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
         "submission_unknown_count": video_unknown_count,
         "automatic_retries": _safe_count(video.get("automatic_retries")),
     }
-    if video_submission is not None:
-        video_metrics["submission_status"] = ledger_status
-        ledger_cost = _safe_non_negative(video_submission.get("cost_cny"))
-        if video_submission.get("cost_unreported") is True:
+    if video_accounting["submission_status"] is not None:
+        video_metrics["submission_status"] = video_accounting["submission_status"]
+    if video_accounting["source_submission_status"] is not None:
+        video_metrics["source_submission_status"] = video_accounting["source_submission_status"]
+    if video_accounting["source_ledger_present"]:
+        video_submission = video_accounting["_source_submission"]
+        ledger_cost = _safe_non_negative(
+            video_submission.get("cost_cny") if video_submission is not None else None
+        )
+        if video_submission is not None and video_submission.get("cost_unreported") is True:
             video_metrics["cost_status"] = "unreported"
             video_metrics["cost_cny"] = None
         elif ledger_cost is not None:
@@ -2000,6 +2132,8 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
                 attempt[key] = value
         image_metrics["attempts"].append(attempt)
     for key in ("elapsed_seconds", "cost_cny", "budget_cny", "file_size_bytes", "duration_seconds"):
+        if key == "cost_cny" and video_accounting["source_ledger_present"]:
+            continue
         if key == "cost_cny" and video.get("cost_unreported") is True:
             video_metrics["cost_status"] = "unreported"
             video_metrics["cost_cny"] = None
@@ -2058,7 +2192,7 @@ def calibration_report(workspace: str) -> Dict[str, Any]:
     video_evidence = _evidence_level(
         video,
         real_provider_observed=(
-            video.get("submission_consumed") is True
+            video_accounting["submission_consumed"] is True
             and video.get("attempt") == 1
             and video_request_count > 0
             and video_artifact_current

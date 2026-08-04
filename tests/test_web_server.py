@@ -7,8 +7,9 @@ import threading
 import time
 import unittest
 import urllib.request
+from http.client import HTTPMessage
 from http.server import ThreadingHTTPServer
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from tests._socket_skip import SOCKET_BIND_BLOCKED
 
@@ -19,6 +20,90 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+class ServerFramingUnitTests(unittest.TestCase):
+    """Transport framing checks that do not depend on loopback availability."""
+
+    _PROTECTED_PATH = (
+        "/api/workspace/ghost/job/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cancel"
+    )
+
+    def _handler(self, fields: tuple[tuple[str, str], ...]) -> WebHandler:
+        handler = object.__new__(WebHandler)
+        headers = HTTPMessage()
+        for name, value in fields:
+            headers.add_header(name, value)
+        handler.headers = headers
+        handler.rfile = Mock()
+        handler.wfile = Mock()
+        handler.send_error = Mock()
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        return handler
+
+    def test_protected_mutation_rejects_ambiguous_framing_before_body_read(self) -> None:
+        cases = (
+            (),
+            (("Content-Length", ""),),
+            (("Content-Length", "+2"),),
+            (("Content-Length", "02"),),
+            (("Content-Length", "-1"),),
+            (("Content-Length", "invalid"),),
+            (("Content-Length", "2"), ("Content-Length", "2")),
+            (("Content-Length", "2"), ("Content-Length", "65537")),
+            (("Transfer-Encoding", ""), ("Content-Length", "2")),
+            (("Transfer-Encoding", "chunked"), ("Content-Length", "2")),
+            (
+                ("Transfer-Encoding", ""),
+                ("Transfer-Encoding", "chunked"),
+                ("Content-Length", "2"),
+            ),
+        )
+        for fields in cases:
+            with self.subTest(fields=fields):
+                handler = self._handler(fields)
+                with patch("src.web.server.routes.dispatch") as dispatch:
+                    handler._respond_inner("POST", self._PROTECTED_PATH)
+                handler.send_error.assert_called_once()
+                self.assertEqual(handler.send_error.call_args.args[0], 400)
+                handler.rfile.read.assert_not_called()
+                dispatch.assert_not_called()
+
+    def test_protected_mutation_keeps_unique_oversize_length_at_413(self) -> None:
+        for raw_length in ("65537", "9" * 5000):
+            with self.subTest(raw_length_size=len(raw_length)):
+                handler = self._handler((("Content-Length", raw_length),))
+                with patch("src.web.server.routes.dispatch") as dispatch:
+                    handler._respond_inner("POST", self._PROTECTED_PATH)
+                handler.send_error.assert_called_once()
+                self.assertEqual(handler.send_error.call_args.args[0], 413)
+                handler.rfile.read.assert_not_called()
+                dispatch.assert_not_called()
+
+    def test_protected_mutation_accepts_one_canonical_length(self) -> None:
+        handler = self._handler((("Content-Length", "2"),))
+        handler.rfile.read.return_value = b"{}"
+        with patch(
+            "src.web.server.routes.dispatch",
+            return_value=(202, "application/json", b"{}"),
+        ) as dispatch:
+            handler._respond_inner("POST", self._PROTECTED_PATH)
+        handler.send_error.assert_not_called()
+        handler.rfile.read.assert_called_once_with(2)
+        self.assertEqual(dispatch.call_args.args[2], b"{}")
+
+    def test_non_protected_post_keeps_missing_length_compatibility(self) -> None:
+        handler = self._handler(())
+        with patch(
+            "src.web.server.routes.dispatch",
+            return_value=(200, "application/json", b"{}"),
+        ) as dispatch:
+            handler._respond_inner("POST", "/api/non-protected")
+        handler.send_error.assert_not_called()
+        handler.rfile.read.assert_not_called()
+        self.assertEqual(dispatch.call_args.args[2], b"")
 
 
 @unittest.skipIf(SOCKET_BIND_BLOCKED, "sandbox: socket.bind blocked")
@@ -136,9 +221,15 @@ class ServerTests(unittest.TestCase):
 
     def test_job_cancel_rejects_ambiguous_transport_framing(self) -> None:
         requests = (
+            "",
             "Content-Length: invalid\r\n",
             "Content-Length: -1\r\n",
+            "Content-Length: 02\r\n",
+            "Content-Length: 2\r\nContent-Length: 2\r\n",
+            "Content-Length: 2\r\nContent-Length: 65537\r\n",
             "Transfer-Encoding: chunked\r\n",
+            "Transfer-Encoding:\r\nContent-Length: 2\r\n",
+            "Transfer-Encoding:\r\nTransfer-Encoding: chunked\r\nContent-Length: 2\r\n",
         )
         for framing in requests:
             with self.subTest(framing=framing.strip()):

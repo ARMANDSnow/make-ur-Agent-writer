@@ -55,6 +55,7 @@ from ..paid_recovery_states import (
 )
 from ..text_normalizer import normalize_all
 from ..writer import write_chapters
+from ._naming import validate_workspace_name
 from .workspace_ctx import use_workspace
 
 
@@ -155,6 +156,9 @@ def public_job_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project a job record down to the allowlisted public fields."""
     projected = {key: job.get(key) for key in _PUBLIC_JOB_FIELDS}
     projected.update(_public_local_demo_context(job))
+    result_context = _public_result_context(job)
+    if result_context is not None:
+        projected["result_context"] = result_context
     return projected
 
 
@@ -451,6 +455,9 @@ def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(job.get("persistence_degraded"), bool):
         projected.pop("persistence_degraded", None)
     projected.update(_public_local_demo_context(job))
+    result_context = _public_result_context(job)
+    if result_context is not None:
+        projected["result_context"] = result_context
     return projected
 
 
@@ -464,7 +471,107 @@ def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(job.get("persistence_degraded"), bool):
         projected.pop("persistence_degraded", None)
     projected.update(_public_local_demo_context(job))
+    result_context = _public_result_context(job)
+    if result_context is not None:
+        projected["result_context"] = result_context
     return projected
+
+
+def _strict_episode_no(value: Any) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 1 <= value <= 100 else None
+
+
+def _strict_result_context(value: Any) -> Optional[Dict[str, Any]]:
+    """Validate the complete public navigation context without coercion."""
+
+    if not isinstance(value, dict) or set(value) != {"workspace", "episode_no"}:
+        return None
+    workspace = value.get("workspace")
+    episode_no = _strict_episode_no(value.get("episode_no"))
+    if (
+        not isinstance(workspace, str)
+        or not validate_workspace_name(workspace)
+        or episode_no is None
+    ):
+        return None
+    return {"workspace": workspace, "episode_no": episode_no}
+
+
+def _historical_drama_episode_no(job: Dict[str, Any]) -> Optional[int]:
+    """Recover an old row's episode only from mutually consistent safe fields."""
+
+    candidates: list[int] = []
+    params = job.get("params")
+    summary = job.get("result_summary")
+    source_episode = job.get("source_episode_no")
+    if "source_episode_no" in job:
+        episode_no = _strict_episode_no(source_episode)
+        if episode_no is None:
+            return None
+        candidates.append(episode_no)
+    for container in (params, summary):
+        if not isinstance(container, dict) or "episode_no" not in container:
+            continue
+        episode_no = _strict_episode_no(container.get("episode_no"))
+        if episode_no is None:
+            return None
+        candidates.append(episode_no)
+    if candidates and any(value != candidates[0] for value in candidates[1:]):
+        return None
+    # Episode 1 predates the multi-episode field and is the only safe default.
+    return candidates[0] if candidates else 1
+
+
+def _public_result_context(job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return a strict, server-derived destination for drama result links.
+
+    New rows freeze this value at admission. Persisted ledgers remain untrusted:
+    an explicitly present but malformed/mismatched context fails closed instead
+    of falling back to other fields. Rows written before the field existed use
+    only bounded, mutually consistent historical fields.
+    """
+
+    step = job.get("step")
+    if not isinstance(step, str) or not step.startswith("drama-"):
+        return None
+    source_workspace = job.get("workspace")
+    if not isinstance(source_workspace, str) or not validate_workspace_name(source_workspace):
+        return None
+
+    frozen = job.get("result_context")
+    if "result_context" in job:
+        context = _strict_result_context(frozen)
+        if context is None:
+            return None
+        if step == "drama-local-demo":
+            local = _public_local_demo_context(job)
+            if (
+                context.get("workspace") != local.get("target_workspace")
+                or context.get("episode_no") != local.get("target_episode_no")
+            ):
+                return None
+        elif context.get("workspace") != source_workspace:
+            return None
+        else:
+            source_episode = _strict_episode_no(job.get("source_episode_no"))
+            if source_episode is None or context.get("episode_no") != source_episode:
+                return None
+        return context
+
+    if step == "drama-local-demo":
+        local = _public_local_demo_context(job)
+        if not local:
+            return None
+        return {
+            "workspace": local["target_workspace"],
+            "episode_no": local["target_episode_no"],
+        }
+    episode_no = _historical_drama_episode_no(job)
+    if episode_no is None:
+        return None
+    return {"workspace": source_workspace, "episode_no": episode_no}
 
 
 def _public_local_demo_context(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -530,6 +637,19 @@ def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[s
         )
         if not _public_local_demo_context(record):
             raise ValueError("invalid local demo target identity")
+        record["result_context"] = {
+            "workspace": record["target_workspace"],
+            "episode_no": 1,
+        }
+    elif step.startswith("drama-"):
+        episode_no = _strict_episode_no(params.get("episode_no", 1))
+        if episode_no is None or not validate_workspace_name(workspace):
+            raise ValueError("invalid drama result context")
+        record["result_context"] = {
+            "workspace": workspace,
+            "episode_no": episode_no,
+        }
+        record["source_episode_no"] = episode_no
     return record
 
 
@@ -659,6 +779,32 @@ def _persist_job(job: Dict[str, Any]) -> bool:
         durable["error"] = _public_error(job.get("error"))
         durable["result_summary"] = _public_result_summary(job.get("result_summary"))
         durable.update(_public_local_demo_context(job))
+        result_context = _public_result_context(job)
+        if (
+            isinstance(job.get("step"), str)
+            and job["step"].startswith("drama-")
+            and job["step"] != "drama-local-demo"
+        ):
+            source_episode = _strict_episode_no(job.get("source_episode_no"))
+            if "source_episode_no" in job and source_episode is None:
+                return False
+            if (
+                source_episode is None
+                and "result_context" not in job
+                and result_context is not None
+            ):
+                source_episode = result_context["episode_no"]
+            if source_episode is not None:
+                durable["source_episode_no"] = source_episode
+        if (
+            isinstance(job.get("step"), str)
+            and job["step"].startswith("drama-")
+            and "result_context" in job
+            and result_context is None
+        ):
+            return False
+        if result_context is not None:
+            durable["result_context"] = result_context
         payload = (
             json.dumps(
                 _finite_json_safe(durable),
@@ -739,6 +885,19 @@ def _load_persisted_job(job_id: str) -> Optional[Dict[str, Any]]:
         for row in _read_job_rows(workspace):
             if row.get("workspace") == workspace and row.get("job_id") == job_id:
                 latest = row
+    return latest
+
+
+def _load_persisted_job_for_workspace(
+    workspace: str,
+    job_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Read exactly one validated workspace ledger for an HTTP lookup."""
+
+    latest: Optional[Dict[str, Any]] = None
+    for row in _read_job_rows(workspace):
+        if row.get("workspace") == workspace and row.get("job_id") == job_id:
+            latest = row
     return latest
 
 
@@ -845,7 +1004,29 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     return persisted
 
 
-def request_cancel(job_id: str, reason: str = "user requested cancel") -> Optional[Dict[str, Any]]:
+def get_job_for_workspace(workspace: str, job_id: str) -> Optional[Dict[str, Any]]:
+    """Return a job only from the named workspace's memory/ledger boundary."""
+
+    if not validate_workspace_name(workspace):
+        return None
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is not None:
+            return dict(job) if job.get("workspace") == workspace else None
+    persisted = _load_persisted_job_for_workspace(workspace, job_id)
+    if persisted and persisted.get("status") in {"pending", "running"}:
+        persisted = dict(persisted)
+        persisted["status"] = "lost"
+        persisted["error"] = "worker process restarted before this job reached a terminal state"
+    return persisted
+
+
+def request_cancel(
+    job_id: str,
+    reason: str = "user requested cancel",
+    *,
+    workspace: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Set the cooperative cancel flag and return the updated job snapshot.
 
     The worker checks this flag at progress boundaries. We intentionally do
@@ -857,6 +1038,8 @@ def request_cancel(job_id: str, reason: str = "user requested cancel") -> Option
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
         if job is None:
+            return None
+        if workspace is not None and job.get("workspace") != workspace:
             return None
         if str(job.get("status") or "") not in {"pending", "running"}:
             return None

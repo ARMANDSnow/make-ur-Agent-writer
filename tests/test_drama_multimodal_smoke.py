@@ -533,6 +533,227 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             resuming_submitted_video=resumable,
         )
 
+    def test_video_accounting_classifier_uses_effective_reconciliation_outcome(self) -> None:
+        cases = (
+            ("submitted", "submitted", "submitted", 1, 0, True),
+            ("provider_rejected", "provider_rejected", "provider_rejected", 1, 0, True),
+            ("succeeded", "blocked", "succeeded", 1, 0, True),
+            ("submission_unknown", "provider_rejected", "provider_rejected", 1, 0, True),
+            ("submission_unknown", "submission_unknown", "still_unknown", 0, 1, True),
+            ("submission_unknown", "blocked", "still_unknown", 0, 1, True),
+            ("request_not_sent", "request_not_sent", "request_not_sent", 0, 0, False),
+        )
+        for source, projected, effective, requests, unknowns, consumed in cases:
+            with self.subTest(source=source, projected=projected), patch(
+                "src.drama_multimodal_smoke.drama_video.read_video_submission",
+                return_value={"status": source},
+            ), patch(
+                "src.drama_multimodal_smoke.drama_video.video_status",
+                return_value={"state": projected},
+            ), patch("src.drama_multimodal_smoke.run_video_smoke") as provider:
+                accounting = multi._video_submission_accounting("accounting", {})
+            provider.assert_not_called()
+            self.assertEqual(accounting["source_submission_status"], source)
+            self.assertEqual(accounting["submission_status"], effective)
+            self.assertEqual(accounting["request_count"], requests)
+            self.assertEqual(accounting["submission_unknown_count"], unknowns)
+            self.assertIs(accounting["submission_consumed"], consumed)
+
+    def test_video_accounting_uses_legacy_phase_only_without_ledger(self) -> None:
+        phase = {
+            "submission_consumed": True,
+            "attempt": 1,
+            "paid_submission_count": 1,
+            "submission_unknown_count": 0,
+        }
+        with patch(
+            "src.drama_multimodal_smoke.drama_video.read_video_submission",
+            return_value=None,
+        ), patch(
+            "src.drama_multimodal_smoke.drama_video.video_status"
+        ) as public_status:
+            accounting = multi._video_submission_accounting("legacy", phase)
+        public_status.assert_not_called()
+        self.assertIsNone(accounting["source_submission_status"])
+        self.assertIsNone(accounting["submission_status"])
+        self.assertEqual(accounting["request_count"], 1)
+        self.assertEqual(accounting["submission_unknown_count"], 0)
+        self.assertTrue(accounting["submission_consumed"])
+
+    def test_pre_split_video_marker_is_accepted_and_remains_unknown(self) -> None:
+        for index, legacy_counters in enumerate(({}, {"paid_submission_count": 1})):
+            workspace = f"video-pre-split-unknown-{index}"
+            state = multi.run(workspace)
+            state["status"] = "failed_after_video_submission"
+            state["phases"]["real_video"] = {
+                "status": "failed_after_submission",
+                "real": True,
+                "submission_consumed": True,
+                "attempt": 1,
+                "automatic_retries": 0,
+                **legacy_counters,
+            }
+            multi._save(state)
+
+            with self.subTest(legacy_counters=legacy_counters):
+                loaded = multi.load_state(workspace)
+                self.assertIsNotNone(loaded)
+                accounting = multi._video_submission_accounting(
+                    workspace,
+                    loaded["phases"]["real_video"],
+                )
+                self.assertEqual(accounting["submission_status"], "still_unknown")
+                self.assertEqual(accounting["request_count"], 0)
+                self.assertEqual(accounting["submission_unknown_count"], 1)
+                metrics = multi.calibration_report(workspace)["stages"]["video"]["metrics"]
+                self.assertEqual(metrics["submission_status"], "still_unknown")
+                self.assertNotIn("source_submission_status", metrics)
+                self.assertEqual(metrics["request_count"], 0)
+                self.assertEqual(metrics["submission_unknown_count"], 1)
+
+    def test_durable_video_cost_overrides_stale_phase_cost_snapshot(self) -> None:
+        workspace = "video-ledger-cost-authority"
+        state = multi.run(workspace)
+        state["phases"]["real_video"].update({
+            "cost_cny": 9.0,
+            "cost_unreported": True,
+        })
+        multi._save(state)
+
+        cases = (
+            ({"cost_cny": 2.0, "cost_unreported": False}, 2.0, None),
+            ({"cost_unreported": True}, None, "unreported"),
+        )
+        for index, (cost_fields, expected_cost, expected_status) in enumerate(cases):
+            with self.subTest(index=index), patch(
+                "src.drama_multimodal_smoke.drama_video.read_video_submission",
+                return_value={"status": "succeeded", **cost_fields},
+            ), patch(
+                "src.drama_multimodal_smoke.drama_video.video_status",
+                return_value={"state": "succeeded"},
+            ):
+                metrics = multi.calibration_report(workspace)["stages"]["video"]["metrics"]
+            self.assertEqual(metrics.get("cost_cny"), expected_cost)
+            self.assertEqual(metrics.get("cost_status"), expected_status)
+
+    def test_calibration_v2_reports_effective_and_source_video_status(self) -> None:
+        multi.run("video-effective-report")
+        for effective in ("submitted", "provider_rejected"):
+            with self.subTest(effective=effective), patch(
+                "src.drama_multimodal_smoke.drama_video.read_video_submission",
+                return_value={"status": "submission_unknown"},
+            ), patch(
+                "src.drama_multimodal_smoke.drama_video.video_status",
+                return_value={"state": effective},
+            ), patch("src.drama_multimodal_smoke.run_video_smoke") as provider:
+                report = multi.calibration_report("video-effective-report")
+            provider.assert_not_called()
+            metrics = report["stages"]["video"]["metrics"]
+            self.assertEqual(report["schema_version"], 2)
+            self.assertEqual(metrics["submission_status"], effective)
+            self.assertEqual(metrics["source_submission_status"], "submission_unknown")
+            self.assertEqual(metrics["request_count"], 1)
+            self.assertEqual(metrics["submission_unknown_count"], 0)
+
+    def test_bad_reconciliation_receipt_remains_unknown_in_calibration(self) -> None:
+        workspace = "video-bad-reconcile"
+        multi.run(workspace)
+        inputs = drama_video.load_video_inputs(workspace)
+        drama_video._write_video_submission(workspace, {
+            "status": "submission_unknown",
+            "input_fingerprint": inputs.fingerprint,
+            "provider_fingerprint": "a" * 64,
+            "result_hosts_fingerprint": "b" * 64,
+            "submission_count": 1,
+            **drama_video._video_authorization(10.0, 5.0, 2.0),
+            "updated_at": 1,
+        })
+        inspection = reconciliation.inspect_video_reconciliation(workspace)
+        reconciliation.append_video_reconciliation_receipt(
+            workspace,
+            expected_reconciliation_generation=inspection["reconciliation_generation"],
+            expected_source_revision_fingerprint=inspection["source_revision_fingerprint"],
+            expected_submission_fingerprint=inspection["submission_fingerprint"],
+            expected_revision=inspection["revision"],
+            expected_ledger_fingerprint=inspection["ledger_fingerprint"],
+            observed_outcome="still_unknown",
+            evidence_kind="task_list_observation",
+            evidence_fingerprint="d" * 64,
+            recorded_at_ms=1,
+        )
+        receipt_path = drama_video.video_submission_path(workspace).with_name(
+            "reconciliation.json"
+        )
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["receipts"][0]["evidence_fingerprint"] = "e" * 64
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+        with patch("src.drama_multimodal_smoke.run_video_smoke") as provider:
+            metrics = multi.calibration_report(workspace)["stages"]["video"]["metrics"]
+        provider.assert_not_called()
+        self.assertEqual(metrics["submission_status"], "still_unknown")
+        self.assertEqual(metrics["source_submission_status"], "submission_unknown")
+        self.assertEqual(metrics["request_count"], 0)
+        self.assertEqual(metrics["submission_unknown_count"], 1)
+
+    def test_poll_only_failure_persists_effective_known_submission_accounting(self) -> None:
+        workspace = "video-reconciled-poll-failure"
+        state = multi.run(workspace)
+        state["phases"]["real_video"] = {"status": "pending"}
+        state["phases"]["video_readiness"] = {
+            "status": "awaiting_real_video_authorization"
+        }
+        state["status"] = "awaiting_video_authorization"
+        multi._save(state)
+        inputs = drama_video.load_video_inputs(workspace)
+        drama_video._write_video_submission(workspace, {
+            "status": "submission_unknown",
+            "input_fingerprint": inputs.fingerprint,
+            "provider_fingerprint": "a" * 64,
+            "result_hosts_fingerprint": "b" * 64,
+            "submission_count": 1,
+            **drama_video._video_authorization(10.0, 5.0, 2.0),
+            "updated_at": 1,
+        })
+        inspection = reconciliation.inspect_video_reconciliation(workspace)
+        reconciliation.append_video_reconciliation_receipt(
+            workspace,
+            expected_reconciliation_generation=inspection["reconciliation_generation"],
+            expected_source_revision_fingerprint=inspection["source_revision_fingerprint"],
+            expected_submission_fingerprint=inspection["submission_fingerprint"],
+            expected_revision=inspection["revision"],
+            expected_ledger_fingerprint=inspection["ledger_fingerprint"],
+            observed_outcome="submitted",
+            evidence_kind="task_query",
+            evidence_fingerprint="f" * 64,
+            recorded_at_ms=1,
+            provider_task_id="provider-task-private",
+        )
+
+        with patch(
+            "src.drama_multimodal_smoke.load_dotenv_if_available"
+        ) as dotenv, patch(
+            "src.drama_multimodal_smoke._video_readiness",
+            return_value={"reference_count": 2},
+        ), patch(
+            "src.drama_multimodal_smoke.run_video_smoke",
+            side_effect=TimeoutError("poll failed"),
+        ) as poll_only:
+            with self.assertRaisesRegex(TimeoutError, "poll failed"):
+                multi.run(
+                    workspace,
+                    real_video=True,
+                    options={"confirm_real_video": True},
+                )
+        dotenv.assert_called_once()
+        poll_only.assert_called_once()
+        self.assertTrue(poll_only.call_args.kwargs["resume_submitted"])
+        video = multi.load_state(workspace)["phases"]["real_video"]
+        self.assertTrue(video["submission_consumed"])
+        self.assertEqual(video["paid_submission_count"], 1)
+        self.assertEqual(video["submission_unknown_count"], 0)
+        self.assertEqual(video["automatic_retries"], 0)
+
     def test_corrupt_paid_state_fails_closed(self) -> None:
         multi.run("corrupt")
         multi.state_path("corrupt").write_text("{bad", encoding="utf-8")
@@ -549,6 +770,22 @@ class DramaMultimodalSmokeTests(DramaTestBase):
             lambda row: row["image_attempts"]["c001"][0].__setitem__("artifact_path", "../../outside.png"),
             lambda row: row["image_attempts"]["c001"][0].__setitem__("artifact_sha256", "not-a-sha256"),
             lambda row: row["phases"]["real_video"].update({"submission_consumed": "yes", "attempt": 1}),
+            lambda row: (
+                row["phases"]["real_video"].pop("paid_submission_count", None),
+                row["phases"]["real_video"].update({
+                    "submission_consumed": True,
+                    "attempt": 1,
+                    "submission_unknown_count": 1,
+                }),
+            ),
+            lambda row: (
+                row["phases"]["real_video"].pop("submission_unknown_count", None),
+                row["phases"]["real_video"].update({
+                    "submission_consumed": True,
+                    "attempt": 1,
+                    "paid_submission_count": 0,
+                }),
+            ),
             lambda row: row["phases"]["real_text"].update({"status": "Bearer must-not-leak"}),
         )
         for mutate in mutations:

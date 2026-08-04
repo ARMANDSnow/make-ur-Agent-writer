@@ -8819,7 +8819,8 @@ JS_DASHBOARD = """\
         function safeNote(job) {
           const status = String(job.status || "unknown").toLowerCase();
           if (job.persistence_degraded === true) return "任务记录未完整保存；请停留此页并刷新核对，重启后可能无法恢复。";
-          if (status === "lost" || status === "submission_unknown" || !STATUS_LABELS[status]) return "先查询已提交任务与账单；系统不会自动重试。";
+          if (status === "submission_unknown" || !STATUS_LABELS[status]) return "先查询已提交任务与账单；系统不会自动重试。";
+          if (status === "lost") return "任务因服务重启中断；可前往对应页面核对已保存状态，系统不会自动重试。";
           if (status === "blocked") return "当前条件未满足；已保存内容保持不变。";
           if (status === "failed") return "任务未完成；请先查看对应页面的公开原因。";
           if (["aborted", "cancelled", "canceled"].indexOf(status) >= 0) return "取消已生效；已有结果不会被清除。";
@@ -8829,22 +8830,34 @@ JS_DASHBOARD = """\
           return status === "running" ? "正在处理，可请求取消。" : "已进入队列，刷新后可恢复状态。";
         }
         function resultHref(job) {
-          const ep = Number(job.params && job.params.episode_no) || 1;
+          const context = job && job.result_context;
+          const contextWorkspace = context && typeof context.workspace === "string" ? context.workspace : "";
+          const ep = context && typeof context.episode_no === "number" ? context.episode_no : 0;
+          if (!/^[a-zA-Z0-9_\u4e00-\u9fff](?:[a-zA-Z0-9_\u4e00-\u9fff-]{0,30}[a-zA-Z0-9_\u4e00-\u9fff])?$/.test(contextWorkspace)) return "";
+          if (contextWorkspace === "legacy" || contextWorkspace === "_trash") return "";
+          if (!Number.isInteger(ep) || ep < 1 || ep > 100) return "";
           const suffix = job.step === "drama-compose" ? "/compose" :
             job.step === "drama-video" ? "/shot-videos" :
-            job.step === "drama-local-demo" ? "/production" :
+            job.step === "drama-local-demo" ? "/compose" :
             job.step && job.step.indexOf("drama-") === 0 ? "/write" : "/";
           const episodeParam = suffix === "/write" ? "episode" : "episode_no";
-          return wsHref(suffix) + (suffix === "/" ? "" : "?" + episodeParam + "=" + encodeURIComponent(String(ep)));
+          const base = "/w/" + encodeURIComponent(contextWorkspace) + suffix;
+          return base + (suffix === "/" ? "" : "?" + episodeParam + "=" + encodeURIComponent(String(ep)));
         }
         function actionFor(job, index) {
           const status = String(job.status || "unknown").toLowerCase();
+          const href = resultHref(job);
           if (status === "running" || status === "pending") return '<button type="button" class="btn btn-secondary" data-drama-cancel-index="' + index + '">请求取消</button>';
-          if (status === "lost" || status === "submission_unknown" || !STATUS_LABELS[status]) return '<button type="button" class="btn btn-primary" data-refresh-jobs>查询状态</button>';
-          if (status === "succeeded") return '<a class="btn btn-primary" data-leave-guard href="' + escapeHtml(resultHref(job)) + '">查看结果</a>';
-          if (job.retryable === true && job.step === "drama-compose") return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(resultHref(job)) + '">前往合成页恢复</a>';
+          if (status === "submission_unknown" || !STATUS_LABELS[status]) return '<button type="button" class="btn btn-primary" data-refresh-jobs>查询状态</button>';
+          if (status === "lost") return href
+            ? '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(href) + '">查看恢复条件</a>'
+            : '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button>';
+          if (status === "succeeded" && href) return '<a class="btn btn-primary" data-leave-guard href="' + escapeHtml(href) + '">查看结果</a>';
+          if (status === "succeeded") return '<span class="muted">任务已完成，但结果上下文不可用</span>';
+          if (job.retryable === true && job.step === "drama-compose" && href) return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(href) + '">前往合成页恢复</a>';
           if (job.retryable === true) return '<button type="button" class="btn btn-secondary" data-drama-retry-index="' + index + '">重新开始</button>';
-          return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(resultHref(job)) + '">查看处理条件</a>';
+          if (href) return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(href) + '">查看处理条件</a>';
+          return '<span class="muted">任务结果上下文不可用</span>';
         }
         const rows = items.map(function (job, index) {
           const group = groupFor(job);
@@ -10196,9 +10209,10 @@ JS_DASHBOARD = """\
 
   function localDemoTarget(job) {
     if (!job || job.step !== "drama-local-demo") return null;
-    const target = String(job.target_workspace || "");
-    const sourceEpisode = Number(job.source_episode_no);
-    const targetEpisode = Number(job.target_episode_no);
+    const context = job.result_context || {};
+    const target = String(context.workspace || "");
+    const sourceEpisode = typeof job.source_episode_no === "number" ? job.source_episode_no : 0;
+    const targetEpisode = typeof context.episode_no === "number" ? context.episode_no : 0;
     if (!/^localdemo_[a-f0-9]{8}_[1-9][0-9]{0,2}_[a-f0-9]{8}$/.test(target)) return null;
     if (!Number.isInteger(sourceEpisode) || sourceEpisode < 1 || sourceEpisode > 100) return null;
     if (targetEpisode !== 1) return null;

@@ -355,6 +355,10 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
             self.assertEqual(view["target_workspace"], target)
             self.assertEqual(view["source_episode_no"], 2)
             self.assertEqual(view["target_episode_no"], 1)
+            self.assertEqual(
+                view["result_context"],
+                {"workspace": target, "episode_no": 1},
+            )
         summary = jobs.public_job_summary_view(restored)
         self.assertEqual(summary["params"], {})
         self.assertFalse(summary["retryable"])
@@ -381,6 +385,7 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
             self.assertNotIn("target_workspace", view)
             self.assertNotIn("source_episode_no", view)
             self.assertNotIn("target_episode_no", view)
+            self.assertNotIn("result_context", view)
 
     def test_global_job_lookup_rejects_row_claiming_another_workspace(self) -> None:
         _stub_workspace(paths.WORKSPACE_DIR, "zzz")
