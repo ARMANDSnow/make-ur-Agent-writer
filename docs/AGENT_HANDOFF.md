@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 163，2026-08-01 收官 |
+| 更新时间 | iter 164，2026-08-04 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **3025 tests OK** |
-| Accepted implementation commit | `ea4e1d4ce8f362abb1ed534ea9e3d518b186c2de` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `ea4e1d4ce8f362abb1ed534ea9e3d518b186c2de`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、481 秒、run `44fb300e4c994e068c8131ff30f6a009`；`verify.sh` exit 0；tracked scope clean |
+| Canonical 基线 | **3043 tests OK** |
+| Accepted implementation commit | `817c93082c3ab2b198e6f013c2319c1aecc16de3` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `817c93082c3ab2b198e6f013c2319c1aecc16de3`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、467 秒、run `9a66e53279774023ad2e6eecbabc9a94`；`verify.sh` exit 0；tracked scope clean |
 | 当前高风险缺口 | iter143 的 20 秒 create 仍为 `submission_unknown`：无 task/MP4、费用 unknown，任务列表未增加不能证明未提交，禁止重提；只能先经独立授权做 task/billing/rejection 只读 reconciliation，upload/create=0。真实 TTS adapter 尚不存在；真实单镜图片/视频、完整单集、episode 2+/多集必须按阶段另行授权。iter142 的 5 秒窄样本不外推这些阶段；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter163 已完成视频 create 确定未发送/明确拒绝/真正 unknown 三分状态、历史 unknown 的 append-only CAS reconciliation receipt 与公开安全投影。小说 Web Phase A-E、短剧 Web Phase A-D 和 A-I 本地闭环保持。工程验收 `mock-functional`；本轮未调用真实 provider，不构成 `provider-validated` |
+| 当前开发轮次 | 无；iter164 已闭环任务结果上下文、workspace-scoped job 恢复/取消、protected mutation 读前分帧守门及 reconciliation-aware 视频计账，四份报告已在验收后删除。小说 Web Phase A-E、短剧 Web Phase A-D 和 A-I 本地闭环保持。工程验收 `mock-functional`，浏览器证据 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
 
 ## Capability Map
 
@@ -58,7 +58,8 @@
 - iter161 依据 Figma D14-D18/T05/M05-M06 重构 compose、episodes、Insights 与 jobs，并完成 Phase A-D 全站收口；timeline/QA/exact delivery、episode freshness、known/unknown、Lost/SubmissionUnknown、取消与恢复仍以服务端安全投影为真源。Running 使用不泄露 job ID 的专用轮询，移动 Ready 固定操作、三视口 44px/3px/零溢出及键盘筛选通过。四路审查 findings 全部修复。
 - canonical **3001 tests OK**（项目 `.venv`）；implementation commit `44a391b` 上 exit 0，15 steps / 443 秒，run `0031d4965e664254ba5ecac1fa3f21de`，`tracked_scope_clean=true`。总级别为 `mock-functional` / `canonical-mock-offline`，本轮浏览器证据为 `local-e2e`。首次验收的 2 个 legacy 静态合同失败在修复提交中闭合后完整重验通过。iter161 未调用真实 provider。
 - iter163 将视频 create 封闭为 `request_not_sent / provider_rejected / submission_unknown`：只有 transport 可证明未发送时释放机会；拒绝和 unknown 均消费原授权。历史 unknown 通过独立 append-only receipt chain 对账，绑定 source revision/identity、sidecar generation、ledger fingerprint、sequence/time/previous receipt；冲突、乱序、ABA 与结论改写 fail closed。公开 API/DOM 只含安全状态，不含 task/request ID、响应正文、素材/sample 身份或 evidence/provider/prompt fingerprint。iter143 在无权威新证据前仍 unknown，task-list absence 只记录观察，不能推断未提交或触发重提。
-- canonical **3025 tests OK**（项目 `.venv`）；implementation commit `ea4e1d4` 上 exit 0，15 steps / 481 秒，run `44fb300e4c994e068c8131ff30f6a009`，`tracked_scope_clean=true`。总级别 `mock-functional` / `canonical-mock-offline`；首次验收的 2 个旧三分状态测试契约已修复后完整重验通过。correctness、security/boundary、真实媒体/计费三路最终 no findings；本轮真实查询、upload/create、TTS、图片、视频均为 0。
+- iter164 将 public job 的 workspace/episode 结果上下文冻结并严格校验，HTTP detail/cancel 只恢复 URL 指定 workspace，protected mutation 在读 body/dispatch 前拒绝任意 TE 和歧义/非规范 CL；视频 calibration schema v2 统一使用 reconciliation effective 状态计账并保留 raw source 状态。episode 2、restart-lost 与 Local Demo target 的 synthetic mock 浏览器路径为 `local-e2e`；四份报告在验收后删除。
+- canonical **3043 tests OK**（项目 `.venv`）；implementation commit `817c930` 上 exit 0，15 steps / 467 秒，run `9a66e53279774023ad2e6eecbabc9a94`，`tracked_scope_clean=true`。总级别 `mock-functional` / `canonical-mock-offline`；correctness、security/boundary、Web/runner/multi-workspace+媒体计账三路最终无剩余 P0-P3。本轮真实查询、upload/create、TTS、图片、视频均为 0。
 
 ## Retained Working Memory
 
@@ -296,4 +297,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter163 完成视频 create 三分状态与历史 unknown 对账闭环，A163-01 至 A163-06 全部通过。确定未发送只接受 transport 证明；provider 明确拒绝和真正 unknown 都消费原授权且不自动重提。独立 reconciliation sidecar 以 append-only receipt、source revision/identity、sidecar generation、ledger fingerprint、sequence/time/previous receipt 和 workspace-lock CAS 防止覆盖、乱序、stale、ABA 与结论改写；legacy 读取不改写 submission。公开 API/DOM 只显示安全状态，隐藏 task/request ID、response body、素材/sample 身份和所有 evidence/provider/prompt fingerprint。iter143 无权威新证据前仍 unknown，task-list absence 不能推出未提交。correctness、security/boundary、真实媒体/计费三路复审最终 no findings。accepted implementation `ea4e1d4ce8f362abb1ed534ea9e3d518b186c2de` 上 canonical 3025 tests、15 steps、481 秒，run `44fb300e4c994e068c8131ff30f6a009`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean；首次验收的 2 个旧测试契约修复后完整重验 exit 0。全程未 push、未调用或查询真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
+iter164 完成近期四份体检报告的四根因闭环，A164-01 至 A164-07 全部通过。任务 recent/detail 只投影严格校验的 workspace/episode 结果上下文；detail/cancel 只访问 URL 指定 workspace 并在取消锁内复核；protected mutation 在读 body/dispatch 前拒绝任意 TE、重复或非规范 CL，唯一规范超限仍为 413；视频 calibration schema v2 以 reconciliation effective 状态统一计账、保留 raw source 状态且不改 paid ledger/receipt。episode 2、restart-lost 与 Local Demo target 浏览器证据为 `local-e2e`。correctness、security/boundary、Web/runner/multi-workspace+媒体计账三路复审最终无剩余 P0-P3。accepted implementation `817c93082c3ab2b198e6f013c2319c1aecc16de3` 上 canonical 3043 tests、15 steps、467 秒，run `9a66e53279774023ad2e6eecbabc9a94`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean；四份报告随后精确删除。全程未 push、未调用或查询真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。

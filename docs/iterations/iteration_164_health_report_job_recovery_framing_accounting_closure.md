@@ -43,7 +43,18 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- **A164-01 通过**：2026-08-01 至 2026-08-04 四份报告去重后仍为四个根因，没有重复计入 8 月 3–4 日的补强证据。
+- **A164-02 通过**：episode 2 各终态、restart-lost 与 Local Demo target 使用严格 `result_context`；非法 workspace/episode 失败关闭。
+- **A164-03 通过**：detail/cancel 的 live、restart、unknown 与跨 workspace 矩阵只访问 URL 指定 workspace，取消 mutation 在锁内复核。
+- **A164-04 通过**：duplicate/empty TE、duplicate/noncanonical CL 在读 body/dispatch 前返回 400，唯一规范超限 CL 保持 413，合法与非 protected 路径不回归。
+- **A164-05 通过**：视频 raw/effective 状态、request/unknown/consumed、legacy/坏 receipt/poll-only 计账矩阵统一由单一 classifier 给出，零 provider call、零自动重提。
+- **A164-06 通过**：iter162/163 的脱敏投影、same-origin/intent/容量门禁、视频三分状态、append-only receipt 与逐次授权合同保持。
+- **A164-07 通过**：聚焦/静态/browser/三路复审/canonical 全部满足既定门槛，报告仅在 canonical 通过后删除。
+- **聚焦验收**：最终聚焦套件 158 tests OK；追加 legacy `paid_requests=0` 精确失败关闭回归后，视频计账矩阵 48 tests OK。Python `py_compile`、Node `--check`、harness 与 `git diff --check` 均通过。
+- **浏览器证据**：synthetic mock 任务页 `local-e2e` 通过。episode 2 succeeded 与 restart-lost 均进入 `/w/alpha/write?episode=2`，Local Demo 进入已验证 target 的 `/compose?episode_no=1`；全程 0 provider call。
+- **独立审查**：correctness、security/boundary、Web/runner/multi-workspace+媒体计账三路先后发现 lost CTA、ledger/phase 费用真源、legacy 计数与 invalid-context retry 等有效 finding，主线程复核并修复后，三路最终均无剩余 P0-P3。
+- **Canonical**：implementation commit `817c93082c3ab2b198e6f013c2319c1aecc16de3` 上执行唯一一次 `bash scripts/verify.sh`，exit 0；schema v2，3043 tests，15 steps，467 秒，run `9a66e53279774023ad2e6eecbabc9a94`，`status=passed`、`tracked_scope_clean=true`，等级 `mock-functional` / `canonical-mock-offline`。
+- **证据与删除**：回执绑定 git tree `9f2b997197bf5889146de4e6201abdb0f8ef3744`。在上述门槛全部满足后，仅删除 `docs/2026-8-{1,2,3,4}体检报告.md` 四个精确路径；未读取保护目录，未查询 task/billing，未调用或重提任何真实 provider，不构成 `provider-validated`。
 
 ### Knowledge Promotion
 - `decision`: `none`
@@ -58,7 +69,7 @@
 | `src/web/server.py` | protected mutation 重复/非规范 HTTP framing 读前失败关闭 |
 | `src/drama_multimodal_smoke.py` | reconciliation-aware calibration schema v2、同快照状态/费用计账与 legacy 兼容 |
 | `tests/test_web_iter164_health_closure.py`、`tests/test_web_server.py`、`tests/test_drama_multimodal_smoke.py` | 四根因、审查 findings、历史兼容与失败边界回归 |
-| `docs/iterations/iteration_164_health_report_job_recovery_framing_accounting_closure.md`、`docs/iterations/README.md` | 迭代计划、实现记录、验收索引与收官证据 |
+| `docs/iterations/iteration_164_health_report_job_recovery_framing_accounting_closure.md`、`docs/iterations/README.md`、`README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md` | 迭代计划、验收索引、SOP、当前快照与阶段历史收官同步 |
 
 ## 不在本轮范围
 
@@ -69,5 +80,5 @@
 
 ## Notes
 
-- 四份报告是本轮验收前证据，保持未跟踪且不暂存；只有 A164-01 至 A164-07 全部闭合后才删除精确路径。
+- 四份报告作为验收前证据保持未跟踪且未暂存；A164-01 至 A164-07 全部闭合后已删除精确路径。
 - 收官使用 `iter-finish`，只 commit、不 push。

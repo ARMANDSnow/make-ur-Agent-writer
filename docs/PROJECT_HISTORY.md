@@ -89,6 +89,7 @@
 | 161 | 短剧 Web UIUX Phase D | 合成交付、剧集、Insights、任务恢复与 Phase A-D 三视口全站收口 |
 | 162 | 近期体检报告公开投影与 Web 边界闭环 | Job 身份脱敏、episode 2+、degraded Insights、DOM 与 cancel wire guard；验收后删两份报告 |
 | 163 | 视频提交结果分流与历史 Unknown 对账 | create 未发送/拒绝/真正 unknown 三分状态、append-only CAS reconciliation receipt 与公开安全投影 |
+| 164 | 近期体检报告任务恢复、传输分帧与视频计账闭环 | result context、workspace-scoped job、严格 HTTP framing 与 effective accounting；验收后删四份报告 |
 
 ## Iteration Implementation Index
 
@@ -230,6 +231,7 @@
 | 161 | 重构合成交付、剧集、数据与任务页 | `src/web/templates.py`、`src/web/static.py`、`tests/test_drama_web_uiux_phase_d.py` |
 | 162 | 闭环公开投影、多集上下文与 cancel 边界 | `src/web/jobs.py`、`src/web/routes.py`、`src/web/server.py`、`src/web/static.py`、`tests/test_web_iter162_health_closure.py` |
 | 163 | 区分视频 create 结果并建立历史对账链 | `src/drama_video.py`、`src/drama_video_client.py`、`src/drama_video_reconciliation.py`、`src/web/`、`tests/test_drama_video_reconciliation.py` |
+| 164 | 闭环任务恢复、传输分帧与视频计账 | `src/web/`、`src/drama_multimodal_smoke.py`、`tests/test_web_iter164_health_closure.py`、`tests/test_drama_multimodal_smoke.py` |
 
 ## Durable Decisions
 
@@ -338,6 +340,7 @@
 
 ## Historical Evidence Notes
 
+- iter164 在 implementation `817c930` 上 canonical 3043 tests / 15 steps / 467 秒通过，run `9a66e53279774023ad2e6eecbabc9a94`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。四份报告去重出的 result context、workspace-scoped job、protected mutation framing 与 reconciliation-aware accounting 四根因全部闭合；episode 2/restart-lost/Local Demo target 为 `local-e2e`。三路复审最终无剩余 P0-P3，报告在验收后删除；未 push、未查询或调用真实 provider。
 - iter163 在 implementation `ea4e1d4` 上 canonical 3025 tests / 15 steps / 481 秒通过，run `44fb300e4c994e068c8131ff30f6a009`，等级 `mock-functional` / `canonical-mock-offline`。视频 create 三分状态、历史 unknown append-only CAS receipt 与公开安全投影完成；correctness、security/boundary、真实媒体/计费三路最终 no findings。首次验收的 2 个旧测试契约修复后完整重验通过；未 push、未查询或调用真实 provider。
 - iter162 在 implementation `935ffc8` 上 canonical 3008 tests / 15 steps / 467 秒通过，run `0503739d35a7453cb995f5581ba0f923`，等级 `mock-functional` / `canonical-mock-offline`；episode 2 与 degraded Insights synthetic 浏览器证据为 `local-e2e`。三路复审无剩余 P0–P3；首次完整验收发现的旧逐镜视频 mutation 错误优先级回归修复后完整重验通过，两份报告随后删除；未 push、未调用真实 provider。
 - iter161 在 implementation `44a391b` 上 canonical 3001 tests / 15 steps / 443 秒通过，run `0031d4965e664254ba5ecac1fa3f21de`，等级 `mock-functional` / `canonical-mock-offline`；Figma Phase D compose/episodes/Insights/jobs 与 Phase A-D 三视口证据为 `local-e2e`。四路审查 findings 全部修复，unknown/跨币种、Running/恢复、episode 2+、安全日志与 exact delivery 边界保持。首次验收 2 个 legacy 静态合同失败在修复提交后完整重验通过；未调用真实 provider。
