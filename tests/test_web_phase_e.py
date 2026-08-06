@@ -54,7 +54,8 @@ class NovelPhaseETests(unittest.TestCase):
         self.assertIn("输入内容仍保留，请检查后重试", js)
         self.assertIn("相关内容检查状态需要更新", js)
         self.assertIn("safeOptionalCount(plan.target_chapters)", js)
-        self.assertIn('editor.dataset.dirty !== "1"', js)
+        self.assertIn('isDirty: function () { return form.isConnected && form.dataset.dirty === "1"; }', js)
+        self.assertIn('registerDirtyEditor("plan-page"', js)
 
     def test_search_empty_query_does_not_fetch_and_results_have_textual_source_and_open(self) -> None:
         with self._novel_meta():

@@ -776,7 +776,7 @@ def _read_ledger(
         or set(metadata) != {"type", "created_at", "schema_version"}
         or metadata.get("type") != "drama"
         or type(metadata.get("schema_version")) is not int
-        or metadata.get("schema_version") != 1
+        or metadata.get("schema_version") not in {1, 2}
         or (
             metadata.get("created_at") is not None
             and not isinstance(metadata.get("created_at"), str)

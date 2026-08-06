@@ -135,7 +135,7 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
     if target_root.exists():
         return _json(409, {"error": f"workspace already exists: {name}"})
     try:
-        init_workspace(name)
+        init_workspace(name, creation_mode="continuation")
     except ValueError:
         # iter063 A3: name already passed _validate_name above; any residual
         # ValueError is still a name problem → the actionable Chinese card.
@@ -229,23 +229,16 @@ def start_upload(body: bytes, content_type: str) -> Tuple[int, str, bytes]:
             except OSError:
                 pass
 
-    # Now start the 9-step job. We pass ``chapters=1`` so the wizard
-    # always produces a single ch1 — the user grows the corpus from
-    # ``write_book.sh`` afterward.
+    # Imported novels are continuations.  Prepare only the local chapter
+    # manifest here; the user must choose a continuation start before any
+    # extraction/debate/plan/write step can run.
     try:
-        job_params: Dict[str, Any] = {
-            "chapters": 1,
-            "extract_limit": extract_limit,
-            "force": True,
-            "require_start_point": False,
-        }
-        if budget_cny > 0:
-            job_params["budget_cny"] = budget_cny
+        job_params: Dict[str, Any] = {}
         if timeout_minutes > 0:
             job_params["timeout_minutes"] = timeout_minutes
         job = jobs.start_job(
             name,
-            "auto-pipeline-greenfield",
+            "prepare-import",
             job_params,
         )
     except (ValueError, RuntimeError) as exc:
@@ -413,7 +406,7 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
         return _json(400, {"error": "'expand' must be a boolean"})
 
     try:
-        result = init_workspace(name, type="novel")
+        result = init_workspace(name, type="novel", creation_mode="greenfield")
     except FileExistsError:
         return _json(409, {"error": f"workspace already exists: {name}"})
     except ValueError as exc:

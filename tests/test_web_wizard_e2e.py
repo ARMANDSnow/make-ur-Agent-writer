@@ -1,4 +1,4 @@
-"""iter 026: wizard end-to-end (multipart upload + auto-pipeline job)."""
+"""Wizard end-to-end for imported-continuation preparation."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ class WizardE2ETests(unittest.TestCase):
             time.sleep(0.05)
         self.fail("job did not finish")
 
-    def test_upload_txt_runs_pipeline_to_chapter_01(self) -> None:
+    def test_upload_txt_prepares_manifest_without_writing_continuation(self) -> None:
         body, ct = _build_multipart(
             "newbook",
             "novel.txt",
@@ -85,8 +85,12 @@ class WizardE2ETests(unittest.TestCase):
         self.assertEqual(data["name"], "newbook")
         rec = self._wait_for_done("newbook", data["job_id"])
         self.assertEqual(rec["status"], "succeeded", f"job error: {rec.get('error')}")
+        manifest = paths.WORKSPACE_DIR / "newbook" / "data" / "chapter_manifest.json"
+        self.assertTrue(manifest.exists(), f"missing {manifest}")
         ch1 = paths.WORKSPACE_DIR / "newbook" / "outputs" / "drafts" / "chapter_01.md"
-        self.assertTrue(ch1.exists(), f"missing {ch1}")
+        self.assertFalse(ch1.exists(), "import must not write before a start point is selected")
+        meta = workspace_meta.read("newbook")
+        self.assertEqual(meta["creation_mode"], "continuation")
 
     def test_invalid_workspace_name_400(self) -> None:
         body, ct = _build_multipart("-bad-", "x.txt", b"hi", "text/plain")
@@ -100,7 +104,7 @@ class WizardE2ETests(unittest.TestCase):
         self.assertEqual(data["card"]["code"], "invalid_workspace_name")
         self.assertIn("作品名", data["error"])
 
-    def test_upload_advanced_options_forward_to_job_params(self) -> None:
+    def test_upload_only_forwards_local_prepare_timeout(self) -> None:
         body, ct = _build_multipart(
             "optionsbook",
             "novel.txt",
@@ -113,10 +117,11 @@ class WizardE2ETests(unittest.TestCase):
                 "POST", "/api/wizard/start", body, {"content-type": ct}
             )
         self.assertEqual(status, 202, resp.decode("utf-8"))
+        self.assertEqual(start.call_args.args[1], "prepare-import")
         params = start.call_args.args[2]
-        self.assertEqual(params["extract_limit"], 7)
-        self.assertEqual(params["budget_cny"], 3.5)
         self.assertEqual(params["timeout_minutes"], 12.0)
+        self.assertNotIn("extract_limit", params)
+        self.assertNotIn("budget_cny", params)
 
     def test_unsupported_mime_415(self) -> None:
         body, ct = _build_multipart("okname", "x.pdf", b"%PDF-1.4", "application/pdf")

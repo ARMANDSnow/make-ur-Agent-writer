@@ -38,7 +38,17 @@
 
 ## Implementation Notes
 
-待实施回填。
+- `workspace.json` 升至 schema v2；novel 新增 `creation_mode`，drama 保持原结构。一句话开书显式写 `greenfield`，上传显式写 `continuation`。旧 workspace 仅在真实目录中的 regular `seed.txt` 且 `upload.txt` 目录项完全不存在时只读推断 greenfield；symlink、坏链接、v2 非法字段与其它歧义均 continuation，GET 不迁移。
+- 新增服务端权威创作策略与同源 `creation_stage`；overview/workbench/readiness 均投影 `creation_mode`、`requires_start_point`。`/run` 与 `jobs.start_job()` 双层拒绝模式冲突，并在 job record/slot/log 创建前失败；plan/write 省略参数时注入权威默认。
+- 上传入口由会继续生成正文的 `auto-pipeline-greenfield` 改为 continuation-only `prepare-import`，只做本地 normalize/split，不做设定、大纲、计划或正文生成；导入完成后进入续写起点选择。
+- NovelOps/Aeloon 集成改为读取服务端模式：原创走 `prepare-greenfield`，导入书有起点才走 `rebuild-for-start`，无起点给出友好提示；旧服务端缺字段时保守 continuation。
+- 前端统一 `requestNavigation()`：same-document 直接处理，same-workspace 只处理 dirty，leave/switch 才查询 active jobs；序列号与单 modal guard 保留快速点击竞态保护。
+- 页面级 dirty registry 覆盖正文、独立细纲、KB、扩写稿、风格卡、大纲、实体、关系、内嵌细纲；站内离开支持继续、放弃、保存全部，逐项保存并保留失败输入；全局只在 registry 确有 dirty 时触发 `beforeunload`。
+- 工作台 mutation 首屏 disabled，workbench 与 active-job 两个请求都成功后才按阶段解锁；恢复 pending/running 的任务入口、取消操作和受控轮询，lost/404/坏状态停止且不自动重提。
+- Overview 按当前阶段优先，原创书改用原创文案并隐藏续写起点/原文章节；Readiness 友好文案分组计数且 primary 不进入详情重复展示；Toast 同 key 合并且最多三条。
+- 移动侧栏/顶部菜单补 `aria-controls/expanded`、首焦点、Escape/关闭焦点恢复与背景 inert；`metric-small` 修复 1199px 概览指标换行过大的问题。
+- 聚焦验证：JS `node --check` 与 Python `py_compile` 通过；核心前后端、NovelOps/Aeloon/MCP 等 256 tests OK。Playwright 使用 `/private/tmp/iter165-browser.*` isolated synthetic workspace，在 390×844、1199×900、1440×1024 验证原创、导入、dirty modal、菜单焦点与概览布局；控制台 0 errors / 0 warnings，未调用真实 provider。
+- 多视角只读审查完成 correctness、security/boundary、Web/UX 三路。主线程修复了起点变化未传递作废下游、损坏 metadata 任务准入、novel/drama family 漏口、重启 lost 投影、内联细纲增删未标脏、部分保存重复写入及移动菜单背景焦点等 findings；三路最终复核均无剩余高置信 P1/P2。
 
 ## Acceptance Result
 
@@ -53,7 +63,13 @@
 
 | 文件 | 改动 |
 |---|---|
-| 待回填 | 待实施回填 |
+| `src/web/workspace_meta.py`, `src/cli_workspace.py` | schema v2、创作模式写入与 legacy no-follow 推断 |
+| `src/web/wizard.py`, `src/web/jobs.py`, `src/web/routes.py` | continuation-only 导入准备、权威模式守门、同源 Web 投影与 cache invalidation |
+| `src/web/templates.py`, `src/web/static.py` | 阶段文案、导航/dirty 状态机、fail-closed 工作台、任务恢复、提示去重与菜单无障碍 |
+| `integrations/novel_ops/{config.py,ops.py}` | 集成消费服务端创作模式与起点策略 |
+| `tests/test_workspace_meta.py`, `tests/test_web_jobs_dispatch.py`, `tests/test_web_wizard_e2e.py` | 元数据、任务冲突与导入流程测试 |
+| `tests/test_web_iter165_ux_reliability.py`, `tests/test_web_phase_d.py`, `tests/test_web_routes_get.py` | 前端可靠性、概览与静态合同测试 |
+| `tests/test_novel_ops.py`, `tests/test_aeloon_plugin.py` | NovelOps/Aeloon 模式行为回归 |
 
 ## 不在本轮范围
 

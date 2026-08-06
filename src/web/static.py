@@ -937,6 +937,7 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 }
 .metric-pair .tile .k { font-size: var(--fs-xs); color: var(--ink-3); }
 .metric-pair .tile .v { font-size: var(--fs-display); font-weight: 600; color: var(--ink-1); font-family: var(--font-serif); }
+.metric-pair .tile .v.metric-small { font-size: var(--fs-xl); line-height: 1.25; }
 .metric-pair .tile .sub { font-size: var(--fs-xs); color: var(--ink-3); }
 
 .details-fold summary {
@@ -2881,15 +2882,65 @@ JS_DASHBOARD = """\
     const navToggles = Array.from(document.querySelectorAll("[data-sidebar-toggle]"));
     const topbarToggle = document.querySelector("[data-topbar-menu-toggle]");
     const topbarActions = document.querySelector(".topbar-actions");
+    const main = document.querySelector(".main");
+    const page = document.querySelector(".page");
+    const topbar = topbarActions && topbarActions.closest(".topbar");
+    const topbarWrap = topbarActions && topbarActions.closest(".topbar-actions-wrap");
+    const shellApp = document.querySelector(".app");
+    const sidebarInerted = new Set();
+    const topbarInerted = new Set();
+    let sidebarTrigger = null;
+    let topbarTrigger = null;
     if (topbarToggle && topbarActions && !topbarActions.textContent.trim()) {
       topbarToggle.hidden = true;
     }
-    function closeSidebar() {
+    function setExpanded(buttons, open) {
+      buttons.forEach(function (button) { button.setAttribute("aria-expanded", open ? "true" : "false"); });
+    }
+    function firstFocusable(root) {
+      return root && root.querySelector('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])');
+    }
+    function clearManagedInert(nodes) {
+      nodes.forEach(function (node) { node.inert = false; });
+      nodes.clear();
+    }
+    function inertAppSiblings(excluded, managed) {
+      if (!shellApp) return;
+      Array.from(shellApp.children).forEach(function (child) {
+        if (excluded.indexOf(child) >= 0) return;
+        if (!child.inert) {
+          child.inert = true;
+          managed.add(child);
+        }
+      });
+    }
+    function inertMainSiblings(excluded, managed) {
+      if (!main) return;
+      Array.from(main.children).forEach(function (child) {
+        if (excluded.indexOf(child) >= 0) return;
+        if (!child.inert) {
+          child.inert = true;
+          managed.add(child);
+        }
+      });
+    }
+    function closeSidebar(restore) {
       if (sidebar) sidebar.classList.remove("open");
       if (overlay) overlay.classList.remove("open");
+      setExpanded(navToggles, false);
+      clearManagedInert(sidebarInerted);
+      if (restore && sidebarTrigger && sidebarTrigger.focus) sidebarTrigger.focus();
+      sidebarTrigger = null;
     }
-    function closeTopbarMenu() {
+    function closeTopbarMenu(restore) {
       if (topbarActions) topbarActions.classList.remove("open");
+      if (topbarToggle) topbarToggle.setAttribute("aria-expanded", "false");
+      if (page) page.inert = false;
+      if (sidebar) sidebar.inert = false;
+      if (topbar) Array.from(topbar.children).forEach(function (child) { if (child !== topbarWrap) child.inert = false; });
+      clearManagedInert(topbarInerted);
+      if (restore && topbarTrigger && topbarTrigger.focus) topbarTrigger.focus();
+      topbarTrigger = null;
     }
     if (navToggles.length && sidebar && overlay) {
       navToggles.forEach(function (navToggle) {
@@ -2897,12 +2948,19 @@ JS_DASHBOARD = """\
           const open = !sidebar.classList.contains("open");
           sidebar.classList.toggle("open", open);
           overlay.classList.toggle("open", open);
-          if (open) closeTopbarMenu();
+          setExpanded(navToggles, open);
+          if (open) {
+            sidebarTrigger = navToggle;
+            closeTopbarMenu(false);
+            inertAppSiblings([sidebar, overlay], sidebarInerted);
+            const target = firstFocusable(sidebar);
+            if (target) setTimeout(function () { target.focus(); }, 0);
+          } else closeSidebar(true);
         });
       });
-      overlay.addEventListener("click", closeSidebar);
+      overlay.addEventListener("click", function () { closeSidebar(true); });
       sidebar.addEventListener("click", function (ev) {
-        if (ev.target.closest("a")) closeSidebar();
+        if (ev.target.closest("a")) closeSidebar(false);
       });
     }
     if (topbarToggle && topbarActions) {
@@ -2910,22 +2968,33 @@ JS_DASHBOARD = """\
         ev.stopPropagation();
         const open = !topbarActions.classList.contains("open");
         topbarActions.classList.toggle("open", open);
-        if (open) closeSidebar();
+        topbarToggle.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open) {
+          topbarTrigger = topbarToggle;
+          closeSidebar(false);
+          if (page) page.inert = true;
+          if (sidebar) sidebar.inert = true;
+          if (topbar) Array.from(topbar.children).forEach(function (child) { if (child !== topbarWrap) child.inert = true; });
+          inertMainSiblings([topbar], topbarInerted);
+          inertAppSiblings([main], topbarInerted);
+          const target = firstFocusable(topbarActions);
+          if (target) setTimeout(function () { target.focus(); }, 0);
+        } else closeTopbarMenu(true);
       });
       document.addEventListener("click", function (ev) {
-        if (!ev.target.closest(".topbar-actions-wrap")) closeTopbarMenu();
+        if (!ev.target.closest(".topbar-actions-wrap")) closeTopbarMenu(false);
       });
     }
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Escape") {
-        closeSidebar();
-        closeTopbarMenu();
+        closeSidebar(true);
+        closeTopbarMenu(true);
       }
     });
     window.addEventListener("resize", function () {
       if (window.innerWidth > 768) {
-        closeSidebar();
-        closeTopbarMenu();
+        closeSidebar(false);
+        closeTopbarMenu(false);
       }
     });
     ensureLeaveGuardDelegate();
@@ -3049,7 +3118,7 @@ JS_DASHBOARD = """\
       if (!btn) return;
       const action = btn.getAttribute("data-cta-action") || "";
       if (action === "go_plan") {
-        window.location.href = wsHref("/plan");
+        requestNavigation(wsHref("/plan"));
         return;
       }
       if (action === "scroll_to_start_point") {
@@ -3069,11 +3138,11 @@ JS_DASHBOARD = """\
         return;
       }
       if (action === "go_jobs") {
-        window.location.href = ws ? wsHref("/jobs") : "/library";
+        requestNavigation(ws ? wsHref("/jobs") : "/library");
         return;
       }
       if (action === "go_workbench") {
-        window.location.href = ws ? wsHref("/workbench") : "/library";
+        requestNavigation(ws ? wsHref("/workbench") : "/library");
         return;
       }
       // iter068 (Cluster E): the generate-* CTAs. The forms that actually run
@@ -3115,7 +3184,7 @@ JS_DASHBOARD = """\
       el.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    window.location.href = ws ? (wsHref("/workbench") + "#" + cardId) : "/library";
+    requestNavigation(ws ? (wsHref("/workbench") + "#" + cardId) : "/library");
   }
   // iter068 (Cluster E): map a catalog cta_action to the page/anchor that can
   // fix it, shared by the job-drawer CTA link. Mirrors bindCtaActions' routing.
@@ -3199,7 +3268,15 @@ JS_DASHBOARD = """\
   // Translate readiness codes into bounded user copy. Unknown codes fail
   // closed instead of exposing enum names, exception types, or path fragments.
   function readinessReasonText(code) {
-    var k = String(code || "").split(":")[0];
+    const raw = String(code || "");
+    var k = raw.split(":")[0];
+    if (raw.startsWith("chapter_plan:") || raw.includes("plan_item_missing")) k = "chapter_plan_missing";
+    else if (raw.startsWith("preflight:")) k = "preflight_failed";
+    else if (raw.startsWith("extraction:start_window_unextracted") || raw.includes("extraction coverage gap before start point")) k = "extraction_coverage_missing";
+    else if (raw.includes("stale debate outline")) k = "outline_stale";
+    else if (raw.startsWith("outline_severe_drift")) k = "outline_drift_severe";
+    else if (raw.includes("retry_exhausted") || raw.includes("existing_output_not_strict_approved")) k = "retry_exhausted";
+    else if (raw.startsWith("foreshadowing_must_resolve_overdue") || raw.startsWith("foreshadowing_gate_error")) k = "foreshadowing_overdue";
     var cfg = CTA_ACTIONS[k];
     if (cfg && cfg.label) return cfg.label;
     var named = {
@@ -3222,6 +3299,21 @@ JS_DASHBOARD = """\
     if (raw.startsWith("foreshadowing_boundary_overdue:")) return "有伏笔接近或超过建议回收时间";
     if (raw.includes("knowledge_index")) return "作品知识库索引待补充，可能影响起点过滤";
     return "有一项建议需要确认";
+  }
+  function groupedReadinessHtml(items, textFn, excludeKind) {
+    const groups = new Map();
+    const excludeMessage = excludeKind ? ctaConfig(excludeKind, {}).label : "";
+    (Array.isArray(items) ? items : []).forEach(function (item) {
+      const rawKind = String(item || "").split(":")[0];
+      const message = textFn(item);
+      if (excludeKind && (rawKind === excludeKind || message === excludeMessage)) return;
+      const current = groups.get(message) || { message: message, count: 0 };
+      current.count += 1;
+      groups.set(message, current);
+    });
+    return Array.from(groups.values()).map(function (group) {
+      return escapeHtml(group.message) + (group.count > 1 ? "（共 " + group.count + " 项）" : "");
+    }).join("<br>");
   }
   function copyButton(text) {
     return (
@@ -3291,10 +3383,21 @@ JS_DASHBOARD = """\
     } catch (e) {}
   });
 
+  const toastRegistry = new Map();
   function showToast(msg, kind, options) {
     const stack = document.getElementById("toast-stack");
     if (!stack) return;
     const opts = options || {};
+    const key = String(kind || "info") + "\u0000" + String(msg || "");
+    const existing = toastRegistry.get(key);
+    if (existing && existing.el && existing.el.parentNode) {
+      existing.count += 1;
+      existing.text.textContent = msg + " ×" + existing.count;
+      clearTimeout(existing.timer);
+      existing.timer = setTimeout(function () { removeToast(existing.el); }, 5000);
+      stack.appendChild(existing.el);
+      return;
+    }
     const el = document.createElement("div");
     el.className = "toast" + (kind === "error" ? " error" : kind === "warn" ? " warn" : "");
     const text = document.createElement("span");
@@ -3310,10 +3413,19 @@ JS_DASHBOARD = """\
       el.appendChild(close);
     }
     stack.appendChild(el);
-    setTimeout(function () { removeToast(el); }, 5000);
+    const record = { el: el, text: text, count: 1, key: key, timer: null };
+    toastRegistry.set(key, record);
+    while (stack.children.length > 3) removeToast(stack.firstElementChild, true);
+    record.timer = setTimeout(function () { removeToast(el); }, 5000);
   }
-  function removeToast(el) {
+  function removeToast(el, immediate) {
     if (!el || !el.parentNode) return;
+    const record = Array.from(toastRegistry.values()).find(function (item) { return item.el === el; });
+    if (record) {
+      clearTimeout(record.timer);
+      toastRegistry.delete(record.key);
+    }
+    if (immediate) { el.remove(); return; }
     el.style.transition = "opacity .4s ease";
     el.style.opacity = "0";
     setTimeout(function () { if (el.parentNode) el.remove(); }, 400);
@@ -3591,6 +3703,7 @@ JS_DASHBOARD = """\
   }
 
   // ===== page: workspace overview =========================================
+  let overviewCreationMode = "continuation";
   async function initWorkspaceOverview() {
     const dramaProgress = document.getElementById("drama-overview-progress");
     if (dramaProgress) {
@@ -3627,7 +3740,11 @@ JS_DASHBOARD = """\
       }) : [];
       drafts.sort(function (a, b) { return Number(b.chapter) - Number(a.chapter); });
       if (!drafts.length) {
-        box.innerHTML = emptyState("还没有保存续写章节", "完成正文阶段后，最近保存的章节会显示在这里。", '<a class="btn btn-primary" href="' + wsHref("/workbench") + '">进入创作工作台</a>');
+        box.innerHTML = emptyState(
+          overviewCreationMode === "greenfield" ? "还没有保存正文" : "还没有保存续写章节",
+          "完成正文阶段后，最近保存的章节会显示在这里。",
+          '<a class="btn btn-primary" href="' + wsHref("/workbench") + '">进入创作工作台</a>'
+        );
         return;
       }
       const chapter = Number(drafts[0].chapter);
@@ -3638,17 +3755,25 @@ JS_DASHBOARD = """\
   }
   function renderOverview(item) {
     const readiness = item.readiness && typeof item.readiness === "object" ? item.readiness : {};
+    const greenfield = item.creation_mode === "greenfield";
+    overviewCreationMode = greenfield ? "greenfield" : "continuation";
+    const intro = document.getElementById("overview-mode-intro");
+    if (intro) intro.textContent = greenfield
+      ? "按原创开书阶段继续准备设定、大纲、细纲与正文。"
+      : "从已导入原文选择起点，按续写阶段继续创作。";
+    const stage = item.workbench_stage || (item.workbench && item.workbench.stage) || "prepare";
+    const finalStage = stage === "write" || stage === "done";
     const statusEl = document.getElementById("overview-status-badge");
-    if (statusEl) statusEl.innerHTML = statusBadge(readiness.status || "blocked");
+    if (statusEl) statusEl.innerHTML = statusBadge(finalStage ? (readiness.status || "blocked") : "pending");
     const summary = document.getElementById("overview-summary");
     if (summary) {
       summary.innerHTML =
-        '<div class="tile"><span class="k">章节总览</span><span class="v">' + safePublicCount(item.chapter_count) + '<span class="sub"> 原文</span></span></div>' +
-        '<div class="tile"><span class="k">最近保存</span><span class="v">' + safePublicCount(item.draft_count) + '<span class="sub"> 章续写</span></span></div>' +
+        '<div class="tile"><span class="k">' + (greenfield ? '创作素材' : '原文章节') + '</span><span class="v">' + safePublicCount(item.chapter_count) + '<span class="sub"> ' + (greenfield ? '项' : '章') + '</span></span></div>' +
+        '<div class="tile"><span class="k">最近保存</span><span class="v">' + safePublicCount(item.draft_count) + '<span class="sub"> 章正文</span></span></div>' +
         '<div class="tile"><span class="k">评审通过</span><span class="v">' +
         safePublicCount(item.review_accepted) + '<span class="sub"> / ' + safePublicCount(item.review_total) + '</span></span></div>' +
         '<div class="tile"><span class="k">下一章准备</span><span class="v metric-small">' +
-        (readiness.status === "ready" ? "可以开始" : readiness.status === "warn" ? "需要留意" : readiness.status === "blocked" ? "需要补充" : "状态待确认") + "</span></div>";
+        (finalStage ? (readiness.status === "ready" ? "可以开始" : readiness.status === "warn" ? "需要留意" : readiness.status === "blocked" ? "需要补充" : "状态待确认") : "继续准备") + "</span></div>";
     }
     const nextAction = document.getElementById("overview-next-action");
     if (nextAction) {
@@ -3659,8 +3784,17 @@ JS_DASHBOARD = """\
         : "未设置";
       let hint = "";
       let cta = '<a class="btn btn-primary" href="/w/' + encodeURIComponent(ws) + '/workbench">进入创作工作台</a>';
-      if (status === "ready") {
-        hint = "一切就绪。可以直接续写下一章。";
+      if (!finalStage) {
+        const stageHints = {
+          start: "先选择续写起点",
+          prepare: greenfield ? "下一步：准备原创设定" : "下一步：整理续写设定",
+          outline: "下一步：生成故事大纲",
+          plan: "下一步：生成分章细纲",
+        };
+        hint = stageHints[stage] || "继续完成创作准备";
+        if (stage === "start") cta = '<a class="btn btn-primary" href="/w/' + encodeURIComponent(ws) + '/continue">选择续写起点</a>';
+      } else if (status === "ready") {
+        hint = greenfield ? "一切就绪，可以开始写正文。" : "一切就绪，可以续写下一章。";
       } else if (status === "warn") {
         hint = "可以续写，但有可关注的提示。";
       } else {
@@ -3670,30 +3804,37 @@ JS_DASHBOARD = """\
       nextAction.innerHTML =
         '<p class="eyebrow ornament">下一步</p>' +
         '<h2>' + escapeHtml(hint) + '</h2>' +
-        '<p class="hint">续写起点：' + escapeHtml(start) + '　·　章节计划：' + safePublicCount((item.plan || {}).chapters) + ' 章</p>' +
+        '<p class="hint">' + (greenfield ? '创作模式：原创开书' : '续写起点：' + escapeHtml(start)) + '　·　章节计划：' + safePublicCount((item.plan || {}).chapters) + ' 章</p>' +
         '<div class="cta-row">' + cta + '</div>';
     }
     const blockersBox = document.getElementById("overview-blockers");
     if (blockersBox) {
-      const blockers = readiness.blockers || [];
+      const allBlockers = readiness.blockers || [];
+      const blockers = finalStage ? allBlockers : allBlockers.filter(function (item) {
+        const raw = String(item || "");
+        return !(
+          raw === "start_point_missing" || raw === "kb_missing" ||
+          raw.startsWith("extraction:start_window_unextracted") ||
+          raw.startsWith("outline_missing") || raw.startsWith("chapter_plan:") ||
+          raw.includes("plan_item_missing")
+        );
+      });
       const warnings = readiness.warnings || [];
       const parts = [];
       if (blockers.length) {
         parts.push(
           '<div class="alert error"><strong>阻断：</strong>' +
-          blockers.map(function (b) {
-            return escapeHtml(readinessReasonText(b));
-          }).join("<br>") + "</div>"
+          groupedReadinessHtml(blockers, readinessReasonText, "") + "</div>"
         );
       }
       if (warnings.length) {
         parts.push(
           '<div class="alert warn"><strong>警示：</strong>' +
-          warnings.map(function (warning) { return escapeHtml(readinessWarningText(warning)); }).join("<br>") + "</div>"
+          groupedReadinessHtml(warnings, readinessWarningText, "") + "</div>"
         );
       }
       blockersBox.innerHTML = parts.join("") ||
-        '<div class="alert info">当前没有待处理问题，可以继续创作下一章。</div>';
+        '<div class="alert info">' + (finalStage ? '当前没有待处理问题，可以继续创作下一章。' : '当前阶段没有安全阻断，请按上方下一步继续准备。') + '</div>';
     }
   }
   async function loadOverviewDetails() {
@@ -3994,7 +4135,7 @@ JS_DASHBOARD = """\
     "debate": "生成大纲", "plan-chapters": "规划章节", "write-book": "续写正文",
     "review-chapter": "评审章节", "draft-once-dev": "试写一章",
     "auto-pipeline": "导入并初始化作品", "auto-pipeline-greenfield": "一键开新书",
-    "prepare-greenfield": "准备开新书",
+    "prepare-greenfield": "准备开新书", "prepare-import": "整理导入原文",
     "rebuild-for-start": "重建续写底座", "expand-premise": "扩写设定",
     "extract-style": "提取文风",
     "drama-plan": "短剧站①核心设定", "drama-hooks": "短剧站②钩子",
@@ -4063,72 +4204,132 @@ JS_DASHBOARD = """\
   // destination and never silently jumps elsewhere.
   let leaveGuardSeq = 0;
   let leaveGuardModalOpen = false;
+  const dirtyEditorRegistry = new Map();
+  function registerDirtyEditor(key, editor) {
+    dirtyEditorRegistry.set(key, editor);
+    return function () { dirtyEditorRegistry.delete(key); };
+  }
+  function dirtyEditors() {
+    return Array.from(dirtyEditorRegistry.values()).filter(function (editor) {
+      try { return !!editor.isDirty(); } catch (e) { return false; }
+    });
+  }
+  async function clickAndAwaitClean(button, isDirty) {
+    if (!button || button.disabled) return false;
+    button.click();
+    for (let i = 0; i < 600; i++) {
+      await new Promise(function (resolve) { setTimeout(resolve, 50); });
+      if (!isDirty()) return true;
+      if (i > 1 && !button.disabled) return false;
+    }
+    return false;
+  }
+  window.addEventListener("beforeunload", function (event) {
+    if (!dirtyEditors().length) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+  function classifyNavigation(href) {
+    const target = new URL(href || window.location.href, window.location.href);
+    const current = new URL(window.location.href);
+    if (target.origin === current.origin && target.pathname === current.pathname && target.search === current.search) return "same-document";
+    const prefix = window.WORKSPACE_NAME ? "/w/" + encodeURIComponent(window.WORKSPACE_NAME) + "/" : "";
+    if (target.origin === current.origin && prefix && (target.pathname + "/").indexOf(prefix) === 0) return "same-workspace";
+    if (target.origin === current.origin && target.pathname.indexOf("/w/") === 0) return "switch-workspace";
+    return "leave-workspace";
+  }
+  function navigateNow(href) { window.location.href = href; }
   function ensureLeaveGuardDelegate() {
     if (leaveGuardDelegateBound) return;
     leaveGuardDelegateBound = true;
     document.addEventListener("click", function (ev) {
-      const link = ev.target && ev.target.closest ? ev.target.closest("[data-leave-guard]") : null;
+      const link = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
       if (!link) return;
       if (!window.WORKSPACE_NAME) return;  // no workspace context → nothing to guard
+      if (link.target === "_blank" || link.hasAttribute("download")) return;
       if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button === 1) return;
       const href = link.getAttribute("href") || "/";
       ev.preventDefault();  // synchronous — must precede the async check
-      if (leaveGuardModalOpen) return;  // a modal is up; resolve it first
-      const dirtyDraft = document.getElementById("draft-edit-area") || document.getElementById("plan-page-editor");
-      if (dirtyDraft && dirtyDraft.dataset.dirty === "1") {
-        leaveGuardModalOpen = true;
-        showDraftLeaveModal(href, dirtyDraft);
-        return;
-      }
-      const seq = ++leaveGuardSeq;
-      checkLeaveGuard(href, seq);
+      requestNavigation(href);
     });
   }
   function guardedNavigate(href) {
+    requestNavigation(href);
+  }
+  function requestNavigation(href) {
     if (leaveGuardModalOpen) return;
+    const kind = classifyNavigation(href);
+    if (kind === "same-document") { navigateNow(href); return; }
+    const dirty = dirtyEditors();
+    if (dirty.length) {
+      leaveGuardModalOpen = true;
+      showDirtyLeaveModal(href, kind, dirty);
+      return;
+    }
+    continueNavigation(href, kind);
+  }
+  function continueNavigation(href, kind) {
+    if (kind === "same-document" || kind === "same-workspace") { navigateNow(href); return; }
     const seq = ++leaveGuardSeq;
     checkLeaveGuard(href, seq);
   }
-  function showDraftLeaveModal(href, area) {
-    const isPlan = area && area.id === "plan-page-editor";
+  function showDirtyLeaveModal(href, kind, editors) {
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML =
-      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="draft-leave-title">' +
-      '<div class="modal-header" id="draft-leave-title">' + (isPlan ? '章节计划还有未保存的修改' : '正文还有未保存的修改') + '</div>' +
-      '<div class="modal-body"><p>' + (isPlan ? '你可以继续编辑，或放弃这次修改后离开。若要保留修改，请先返回页面保存。' : '你可以继续编辑、放弃这次修改，或先保存再离开。') + '</p>' +
-      '<div id="draft-leave-error" role="status" aria-live="polite"></div></div>' +
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="dirty-leave-title">' +
+      '<div class="modal-header" id="dirty-leave-title">还有未保存的修改</div>' +
+      '<div class="modal-body"><p>' + escapeHtml(editors.map(function (editor) { return editor.label; }).join('、')) +
+      '尚未保存。可以继续编辑、放弃修改，或保存全部后继续。</p>' +
+      '<div id="dirty-leave-error" role="status" aria-live="polite"></div></div>' +
       '<div class="modal-footer modal-footer-equal">' +
       '<button type="button" class="btn btn-ghost" data-modal-close>继续编辑</button>' +
-      '<button type="button" class="btn btn-danger" data-discard-draft>放弃修改</button>' +
-      (isPlan ? '' : '<button type="button" class="btn btn-primary" data-save-draft-leave>保存并离开</button>') +
+      '<button type="button" class="btn btn-danger" data-discard-dirty>放弃修改</button>' +
+      '<button type="button" class="btn btn-primary" data-save-dirty-leave>保存全部并继续</button>' +
       '</div></div>';
     const stayBtn = backdrop.querySelector("[data-modal-close]");
-    const discardBtn = backdrop.querySelector("[data-discard-draft]");
-    const saveLeaveBtn = backdrop.querySelector("[data-save-draft-leave]");
-    const errorBox = backdrop.querySelector("#draft-leave-error");
+    const discardBtn = backdrop.querySelector("[data-discard-dirty]");
+    const saveLeaveBtn = backdrop.querySelector("[data-save-dirty-leave]");
+    const errorBox = backdrop.querySelector("#dirty-leave-error");
     const closeModal = mountModal(backdrop, {
       initialFocus: stayBtn,
-      onClose: function () { leaveGuardModalOpen = false; area.focus(); },
+      onClose: function () {
+        leaveGuardModalOpen = false;
+        const first = editors[0];
+        if (first && first.focus) first.focus();
+      },
     });
     backdrop.addEventListener("click", function (ev) {
       if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) closeModal();
     });
     discardBtn.addEventListener("click", function () {
-      delete area.dataset.dirty;
-      window.location.href = href;
+      editors.forEach(function (editor) { if (editor.discard) editor.discard(); });
+      closeModal();
+      continueNavigation(href, kind);
     });
-    if (saveLeaveBtn) saveLeaveBtn.addEventListener("click", async function () {
-      if (typeof area._saveBeforeLeave !== "function") return;
+    saveLeaveBtn.addEventListener("click", async function () {
       setControlBusy(saveLeaveBtn, true, "正在保存");
       discardBtn.disabled = true;
       stayBtn.disabled = true;
-      const saved = await area._saveBeforeLeave();
-      if (saved) {
-        window.location.href = href;
+      const failed = [];
+      workbenchBulkSaving = true;
+      try {
+        for (const editor of editors) {
+          let stillDirty = false;
+          try { stillDirty = !!editor.isDirty(); } catch (e) { stillDirty = true; }
+          if (!stillDirty) continue;
+          try { if (!editor.save || !(await editor.save())) failed.push(editor); }
+          catch (e) { failed.push(editor); }
+        }
+      } finally {
+        workbenchBulkSaving = false;
+      }
+      if (!failed.length) {
+        closeModal();
+        continueNavigation(href, kind);
         return;
       }
-      errorBox.textContent = "没有保存成功。编辑内容仍保留，请重试。";
+      errorBox.textContent = failed.map(function (editor) { return editor.label; }).join('、') + "没有保存成功；输入仍保留。";
       setControlBusy(saveLeaveBtn, false);
       discardBtn.disabled = false;
       stayBtn.disabled = false;
@@ -4229,14 +4430,6 @@ JS_DASHBOARD = """\
     const olBox = document.querySelector('[data-plan-pane="outline"]');
     const dcBox = document.querySelector('[data-plan-pane="decisions"]');
     const sumBox = document.getElementById("plan-summary");
-    if (!planUnloadGuardBound) {
-      planUnloadGuardBound = true;
-      window.addEventListener("beforeunload", function (event) {
-        const editor = document.getElementById("plan-page-editor");
-        if (!editor || editor.dataset.dirty !== "1") return;
-        event.preventDefault(); event.returnValue = "";
-      });
-    }
     if (chBox) chBox.innerHTML = skeleton(4);
     if (olBox) olBox.innerHTML = skeleton(3);
     if (dcBox) dcBox.innerHTML = skeleton(3);
@@ -4280,7 +4473,6 @@ JS_DASHBOARD = """\
       outlineWarn;
   }
   let planPageData = null;
-  let planUnloadGuardBound = false;
   function renderPlanChapters(box, plan, draftChapters, draftVerdicts) {
     if (!box) return;
     const chapters = Array.isArray(plan && plan.chapters) ? plan.chapters.filter(function (item) { return item && typeof item === "object" && !Array.isArray(item); }) : [];
@@ -4360,14 +4552,15 @@ JS_DASHBOARD = """\
       '<div class="form-actions"><button type="button" class="btn btn-ghost" id="plan-page-cancel">取消编辑</button><button type="submit" class="btn btn-primary" id="plan-page-save">保存章节计划</button></div>' +
       '</div></form>';
     const form = document.getElementById("plan-page-editor");
+    let unregisterDirty = null;
     document.getElementById("plan-page-editor-title").focus();
     form.addEventListener("input", function () { form.dataset.dirty = "1"; });
     document.getElementById("plan-page-cancel").addEventListener("click", function () {
+      if (unregisterDirty) unregisterDirty();
       renderPlanChapters(box, planPageData.plan || {}, planPageData.draft_chapters || [], planPageData.draft_verdicts || {});
       focusPlanEditButton(chapterNo);
     });
-    form.addEventListener("submit", async function (event) {
-      event.preventDefault();
+    async function savePlanPage() {
       const fields = {
         title: value("plan-page-title"), opening_scene: value("plan-page-opening"),
         key_events: listValue("plan-page-events"), relationships_in_play: listValue("plan-page-relations"),
@@ -4377,20 +4570,34 @@ JS_DASHBOARD = """\
       const errorBox = document.getElementById("plan-page-error");
       if (!fields.title || !fields.opening_scene || !fields.ending_hook || !fields.plot_purpose || fields.key_events.length < 2 || fields.key_events.length > 7 || fields.target_chinese_chars < 2500 || fields.target_chinese_chars > 6000) {
         errorBox.innerHTML = '<div class="alert warn">请完整填写标题、开场、结尾承接和章节作用；核心事件需 2-7 项，目标字数需在 2500-6000 之间。</div>';
-        return;
+        return false;
       }
       setFormSubmitBusy(form, true, "正在保存");
       try {
         const result = await putJson(wsUrl("/chapter-plan/" + chapterNo), { fields: fields });
         form.dataset.dirty = "0";
+        if (unregisterDirty) unregisterDirty();
         const invalidated = Array.isArray(result.written_chapters_invalidated) ? result.written_chapters_invalidated : [];
         showToast(invalidated.length ? "章节计划已保存；相关内容检查状态需要更新" : "章节计划已保存", "info");
         await initPlan();
         focusPlanEditButton(chapterNo);
+        return true;
       } catch (err) {
         errorBox.innerHTML = publicLoadError("章节计划没有保存成功", "输入内容仍保留，请检查后重试。", "");
         setFormSubmitBusy(form, false);
+        return false;
       }
+    }
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      await savePlanPage();
+    });
+    unregisterDirty = registerDirtyEditor("plan-page", {
+      label: "章节计划",
+      isDirty: function () { return form.isConnected && form.dataset.dirty === "1"; },
+      save: savePlanPage,
+      discard: function () { form.dataset.dirty = "0"; },
+      focus: function () { form.focus(); },
     });
   }
   function renderOutlineMarkdown(box, md) {
@@ -4633,14 +4840,14 @@ JS_DASHBOARD = """\
     // the require_start_point gate on plan-chapters / write-book, all follow
     // lastWorkbenchStatus.has_start_point so the workbench never silently
     // bypasses the start-point consistency gate for a real continuation.
-    const hasStartPoint = function () {
-      return !!(lastWorkbenchStatus && lastWorkbenchStatus.has_start_point);
+    const isGreenfield = function () {
+      return !!(lastWorkbenchStatus && lastWorkbenchStatus.creation_mode === "greenfield");
     };
     bindWorkbenchStage("prepare-form", "prepare-submit", "prepare-status",
-      function () { return hasStartPoint() ? "rebuild-for-start" : "prepare-greenfield"; },
+      function () { return isGreenfield() ? "prepare-greenfield" : "rebuild-for-start"; },
       function () {
         // rebuild = 补齐底座（reextract 默认 false，只补缺口）；greenfield = 强制重提。
-        return hasStartPoint() ? { window: 10 } : { force: true };
+        return isGreenfield() ? { force: true } : { window: 10 };
       });
     bindWorkbenchStage("outline-form", "outline-submit", "outline-status", "debate", function () {
       return {};
@@ -4649,14 +4856,13 @@ JS_DASHBOARD = """\
       // require_start_point follows has_start_point: an existing book MUST enforce
       // the gate (else plan drifts off the real start); a greenfield premise has
       // no prior start point so it stays false.
-      return { target_chapters: Number(form.elements.target_chapters.value || 5), require_start_point: hasStartPoint() };
+      return { target_chapters: Number(form.elements.target_chapters.value || 5) };
     });
     bindWorkbenchStage("write-book-form", "write-book-submit", "write-book-status", "write-book", function (form) {
       return {
         chapters: Number(form.elements.chapters.value || 1),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
         budget_cny: form.elements.budget_cny ? Number(form.elements.budget_cny.value || 10) : 10,
-        require_start_point: hasStartPoint(),
         require_plan: true,
       };
     });
@@ -4667,6 +4873,7 @@ JS_DASHBOARD = """\
   // iter 050 (B3): stage ① on-demand KB / entity_graph editor. Loads only
   // when the user opens the panel — no extra fetches on the refresh loop.
   let settingsPanelInvalidate = null;
+  let workbenchBulkSaving = false;
   function bindSettingsPanel() {
     const toggle = document.getElementById("settings-toggle");
     const panel = document.getElementById("settings-panel");
@@ -4715,12 +4922,19 @@ JS_DASHBOARD = """\
         await putJson(wsUrl("/kb"), { content: kbArea.value });
         delete kbArea.dataset.dirty;
         showToast("知识库已保存；下游大纲 / 细纲将提示重新生成", "info");
-        await refreshWorkbench();
+        if (!workbenchBulkSaving) await refreshWorkbench();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
       } finally {
         kbSave.disabled = false;
       }
+    });
+    registerDirtyEditor("workbench-kb", {
+      label: "作品知识库",
+      isDirty: function () { return kbArea.isConnected && kbArea.dataset.dirty === "1"; },
+      save: function () { return clickAndAwaitClean(kbSave, function () { return kbArea.dataset.dirty === "1"; }); },
+      discard: function () { delete kbArea.dataset.dirty; },
+      focus: function () { kbArea.focus(); },
     });
   }
   // iter 051a: stage ① structured premise-expansion editor. Field ids map
@@ -4804,7 +5018,7 @@ JS_DASHBOARD = """\
         await putJson(wsUrl("/premise-expansion"), { fields: fields });
         for (const f of EXPANSION_FIELDS) delete els[f.key].dataset.dirty;
         showToast("扩写稿已保存；需重新生成作品知识与角色设定才会生效", "info");
-        await refreshWorkbench();
+        if (!workbenchBulkSaving) await refreshWorkbench();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
       } finally {
@@ -4821,6 +5035,8 @@ JS_DASHBOARD = """\
       if (box) box.innerHTML = '<div class="alert info">正在重新扩写…</div>';
       try {
         const data = await postJson(wsUrl("/run"), { step: "expand-premise", params: { force: true } });
+        setWorkbenchMutationLock(true);
+        renderWorkbenchHydration("running", { job_id: data.job_id, step: "expand-premise", status: "pending" });
         await pollJob(data.job_id, box, regen, async function () {
           for (const f of EXPANSION_FIELDS) delete els[f.key].dataset.dirty;
           await loadExpansionPanel();
@@ -4830,6 +5046,13 @@ JS_DASHBOARD = """\
         if (box) box.innerHTML = renderErrorCard(err);
         setControlBusy(regen, false);
       }
+    });
+    registerDirtyEditor("workbench-expansion", {
+      label: "立意扩写稿",
+      isDirty: function () { return EXPANSION_FIELDS.some(function (f) { return els[f.key].isConnected && els[f.key].dataset.dirty === "1"; }); },
+      save: function () { return clickAndAwaitClean(save, function () { return EXPANSION_FIELDS.some(function (f) { return els[f.key].dataset.dirty === "1"; }); }); },
+      discard: function () { EXPANSION_FIELDS.forEach(function (f) { delete els[f.key].dataset.dirty; }); },
+      focus: function () { els[EXPANSION_FIELDS[0].key].focus(); },
     });
   }
   // iter 056: 作家风格卡面板（仅 premise 自创书；list 字段单 textarea 每行一条，
@@ -4878,10 +5101,10 @@ JS_DASHBOARD = """\
   async function loadStyleCardPanel() {
     const fold = document.getElementById("style-card-fold");
     if (!fold) return;
-    let hasStart = false;
-    try { hasStart = !!(await fetchJson(wsUrl("/workbench"))).has_start_point; } catch (err) {}
+    let continuation = true;
+    try { continuation = (await fetchJson(wsUrl("/workbench"))).creation_mode !== "greenfield"; } catch (err) {}
     const body = document.getElementById("style-card-body");
-    if (hasStart) {
+    if (continuation) {
       // 续写书：给 empty-state 占位，避免「功能去哪了」的疑惑（前端审查 P2-F）
       fold.hidden = false;
       if (body) body.innerHTML = '<div class="empty-state">✦ 风格卡仅用于自创书<p class="muted">续写作品文风以原著为准。</p></div>';
@@ -4972,6 +5195,8 @@ JS_DASHBOARD = """\
         const resp = await fetch(wsUrl("/writer-style/extract"), { method: "POST", body: fd });
         const data = await resp.json().catch(function () { return {}; });
         if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+        setWorkbenchMutationLock(true);
+        renderWorkbenchHydration("running", { job_id: data.job_id, step: "extract-style", status: "pending" });
         await pollJob(data.job_id, box, extractBtn, async function () {
           for (const f of STYLE_FIELDS) delete els[f.key].dataset.dirty;
           await loadStyleCardPanel();
@@ -4982,10 +5207,20 @@ JS_DASHBOARD = """\
         setControlBusy(extractBtn, false);
       }
     });
+    registerDirtyEditor("workbench-style", {
+      label: "作家风格卡",
+      isDirty: function () { return STYLE_FIELDS.some(function (f) { return els[f.key].isConnected && els[f.key].dataset.dirty === "1"; }); },
+      save: function () { return clickAndAwaitClean(save, function () { return STYLE_FIELDS.some(function (f) { return els[f.key].dataset.dirty === "1"; }); }); },
+      discard: function () { STYLE_FIELDS.forEach(function (f) { delete els[f.key].dataset.dirty; }); },
+      focus: function () { els[STYLE_FIELDS[0].key].focus(); },
+    });
   }
   async function renderEntityPanel() {
     const box = document.getElementById("entity-panel");
     if (!box) return;
+    Array.from(dirtyEditorRegistry.keys()).forEach(function (key) {
+      if (key.indexOf("workbench-entity-") === 0 || key.indexOf("workbench-rel-") === 0) dirtyEditorRegistry.delete(key);
+    });
     let graph;
     try {
       graph = await fetchJson(wsUrl("/entity-graph"));
@@ -5037,8 +5272,10 @@ JS_DASHBOARD = """\
     }
     box.innerHTML = html;
     box.querySelectorAll("[data-entity-save]").forEach(function (btn) {
+      const i = btn.dataset.entitySave;
+      const inputs = [document.getElementById("ent-name-" + i), document.getElementById("ent-facts-" + i), document.getElementById("ent-desc-" + i)];
+      inputs.forEach(function (input) { input.addEventListener("input", function () { input.dataset.dirty = "1"; }); });
       btn.addEventListener("click", async function () {
-        const i = btn.dataset.entitySave;
         const fields = {
           name: document.getElementById("ent-name-" + i).value.trim(),
           key_facts: document.getElementById("ent-facts-" + i).value.split("\\n")
@@ -5052,6 +5289,7 @@ JS_DASHBOARD = """\
         btn.disabled = true;
         try {
           await putJson(wsUrl("/entity/" + encodeURIComponent(btn.dataset.entityId)), { fields: fields });
+          inputs.forEach(function (input) { delete input.dataset.dirty; });
           showToast("实体已保存：" + fields.name, "info");
         } catch (err) {
           showToast("保存失败：" + errTitle(err), "error");
@@ -5059,8 +5297,17 @@ JS_DASHBOARD = """\
           btn.disabled = false;
         }
       });
+      registerDirtyEditor("workbench-entity-" + btn.dataset.entityId, {
+        label: "实体“" + (inputs[0].value || "未命名") + "”",
+        isDirty: function () { return inputs.some(function (input) { return input.isConnected && input.dataset.dirty === "1"; }); },
+        save: function () { return clickAndAwaitClean(btn, function () { return inputs.some(function (input) { return input.dataset.dirty === "1"; }); }); },
+        discard: function () { inputs.forEach(function (input) { delete input.dataset.dirty; }); },
+        focus: function () { inputs[0].focus(); },
+      });
     });
     box.querySelectorAll("[data-rel-save]").forEach(function (btn) {
+      const input = document.getElementById("rel-state-" + btn.dataset.relSave);
+      input.addEventListener("input", function () { input.dataset.dirty = "1"; });
       btn.addEventListener("click", async function () {
         const idx = btn.dataset.relSave;
         const state = document.getElementById("rel-state-" + idx).value.trim();
@@ -5077,13 +5324,23 @@ JS_DASHBOARD = """\
             src_id: btn.dataset.srcId || "",
             dst_id: btn.dataset.dstId || "",
           });
+          delete input.dataset.dirty;
           showToast("关系状态已保存", "info");
         } catch (err) {
           showToast("保存失败：" + errTitle(err), "error");
-          if (err.payload && err.payload.stale_index) await renderEntityPanel();
+          if (err.payload && err.payload.stale_index) {
+            showToast("关系数据已变化；当前输入已保留，请核对后重试", "warn");
+          }
         } finally {
           btn.disabled = false;
         }
+      });
+      registerDirtyEditor("workbench-rel-" + btn.dataset.relSave, {
+        label: "人物关系",
+        isDirty: function () { return input.isConnected && input.dataset.dirty === "1"; },
+        save: function () { return clickAndAwaitClean(btn, function () { return input.dataset.dirty === "1"; }); },
+        discard: function () { delete input.dataset.dirty; },
+        focus: function () { input.focus(); },
       });
     });
   }
@@ -5094,6 +5351,10 @@ JS_DASHBOARD = """\
     const box = document.getElementById(boxId);
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
+      if (!lastWorkbenchStatus) {
+        if (box) box.innerHTML = publicLoadError("状态尚未读取完成", "所有操作保持锁定，请重新读取状态后再试。", "");
+        return;
+      }
       // iter068 (Cluster A): step may be a function so the same form can dispatch
       // a different job by current state — stage ① runs rebuild-for-start for an
       // existing book (has_start_point) but prepare-greenfield for a greenfield
@@ -5131,6 +5392,8 @@ JS_DASHBOARD = """\
       if (box) box.innerHTML = '<div class="alert info">正在启动“' + escapeHtml(stepLabel(stepName)) + "”…</div>";
       try {
         const data = await postJson(wsUrl("/run"), { step: stepName, params: params });
+        setWorkbenchMutationLock(true);
+        renderWorkbenchHydration("running", { job_id: data.job_id, step: stepName, status: "pending" });
         await pollJob(data.job_id, box, submit, async () => {
           await refreshWorkbench();
           // iter 050d (M-2): stage ① rewrites KB/entity_graph — reload the
@@ -5162,12 +5425,19 @@ JS_DASHBOARD = """\
         await putJson(wsUrl("/outline"), { outline: area.value });
         delete area.dataset.dirty;
         showToast("大纲已保存", "info");
-        await refreshWorkbench();
+        if (!workbenchBulkSaving) await refreshWorkbench();
       } catch (err) {
         showToast("保存失败：" + errTitle(err), "error");
       } finally {
         btn.disabled = false;
       }
+    });
+    registerDirtyEditor("workbench-outline", {
+      label: "故事大纲",
+      isDirty: function () { return area.isConnected && area.dataset.dirty === "1"; },
+      save: function () { return clickAndAwaitClean(btn, function () { return area.dataset.dirty === "1"; }); },
+      discard: function () { delete area.dataset.dirty; },
+      focus: function () { area.focus(); },
     });
   }
   function setStageEnabled(id, on) {
@@ -5214,32 +5484,119 @@ JS_DASHBOARD = """\
       return '<li class="' + cls + '"><a href="#' + s.target + '">' + mark + escapeHtml(s.label) + "</a></li>";
     }).join("");
   }
+  let recoveredWorkbenchJobId = "";
+  function setWorkbenchMutationLock(locked) {
+    document.querySelectorAll('[data-workbench-mutation],#expansion-regen,#style-extract-btn,[data-style-activate],[data-entity-save],[data-rel-save],[data-plan-edit]').forEach(function (control) {
+      control.disabled = !!locked;
+    });
+  }
+  function renderWorkbenchHydration(kind, job) {
+    const note = document.querySelector(".workbench-running-note");
+    if (!note) return;
+    if (kind === "loading") {
+      note.innerHTML = '<span class="muted">正在读取作品与任务状态…</span>';
+    } else if (kind === "error") {
+      note.innerHTML = '<div class="alert error">状态读取失败，所有修改操作已锁定。<button type="button" class="btn btn-secondary btn-sm" id="workbench-retry">重新读取</button></div>';
+      const retry = document.getElementById("workbench-retry");
+      if (retry) retry.addEventListener("click", refreshWorkbench);
+    } else if (kind === "running" && job) {
+      note.innerHTML = '<div class="alert info"><strong>' + escapeHtml(stepLabel(job.step)) + '正在处理</strong>。冲突操作已锁定。 ' +
+        '<span id="workbench-active-progress">' + escapeHtml(statusLabel(job.status || "running")) + '</span> ' +
+        '<a class="btn btn-secondary btn-sm" href="' + wsHref('/jobs') + '">查看任务</a> ' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="workbench-cancel-active">请求取消</button></div>';
+      const cancel = document.getElementById("workbench-cancel-active");
+      if (cancel) cancel.addEventListener("click", async function () {
+        cancel.disabled = true;
+        try { await postJson(wsUrl("/job/" + job.job_id + "/cancel"), {}); showToast("已请求取消任务", "info"); }
+        catch (err) { showToast(errTitle(err), "error"); cancel.disabled = false; }
+      });
+    } else if (kind === "reconcile") {
+      note.innerHTML = '<div class="alert warn">任务状态无法确认，已停止刷新且不会自动重提。请前往任务记录核对后再继续。 ' +
+        '<a class="btn btn-secondary btn-sm" href="' + wsHref('/jobs') + '">查看任务</a></div>';
+    } else {
+      note.textContent = "任务开始后可以离开此页，处理仍会继续；随时从“任务记录”返回查看。";
+    }
+  }
+  async function watchRecoveredWorkbenchJob(job) {
+    if (!job || !job.job_id || recoveredWorkbenchJobId === job.job_id) return;
+    recoveredWorkbenchJobId = job.job_id;
+    while (recoveredWorkbenchJobId === job.job_id) {
+      await new Promise(function (resolve) { setTimeout(resolve, 1200); });
+      let current;
+      try { current = await fetchJson(wsUrl("/job/" + job.job_id)); }
+      catch (err) {
+        renderWorkbenchHydration("error");
+        recoveredWorkbenchJobId = "";
+        return;
+      }
+      if (!current || !["pending", "running", "succeeded", "failed", "blocked", "aborted", "budget_exceeded", "lost", "submission_unknown", "request_not_sent", "provider_rejected"].includes(current.status)) {
+        renderWorkbenchHydration("error");
+        recoveredWorkbenchJobId = "";
+        return;
+      }
+      if (current.status === "lost" || current.status === "submission_unknown") {
+        setWorkbenchMutationLock(true);
+        renderWorkbenchHydration("reconcile");
+        recoveredWorkbenchJobId = "";
+        return;
+      }
+      const progress = document.getElementById("workbench-active-progress");
+      if (progress) {
+        const pct = Number.isFinite(Number(current.progress)) ? Math.round(Number(current.progress) * 100) + "%" : "";
+        progress.textContent = statusLabel(current.status) + (pct ? " · " + pct : "");
+      }
+      if (current.status !== "pending" && current.status !== "running") {
+        recoveredWorkbenchJobId = "";
+        await refreshWorkbench();
+        return;
+      }
+    }
+  }
   async function refreshWorkbench() {
+    setWorkbenchMutationLock(true);
+    renderWorkbenchHydration("loading");
     let st;
+    let activeJobs = [];
+    let recentJob = null;
     try {
-      st = await fetchJson(wsUrl("/workbench"));
-      const activeData = await fetchJson(wsUrl("/jobs/active")).catch(function () { return { jobs: [] }; });
+      const results = await Promise.all([
+        fetchJson(wsUrl("/workbench")),
+        fetchJson(wsUrl("/jobs/active")),
+        fetchJson(wsUrl("/jobs/recent?n=1")),
+      ]);
+      st = results[0];
+      const activeData = results[1];
+      recentJob = results[2] && Array.isArray(results[2].jobs) ? results[2].jobs[0] || null : null;
+      activeJobs = (Array.isArray(activeData.jobs) ? activeData.jobs : []).filter(function (job) { return job && (job.status === "pending" || job.status === "running"); });
       const stageByStep = {
-        "prepare-greenfield": "prepare", "rebuild-for-start": "prepare",
+        "prepare-greenfield": "prepare", "prepare-import": "prepare", "rebuild-for-start": "prepare",
         debate: "outline", "plan-chapters": "plan", "write-book": "write", "review-chapter": "write",
       };
-      st.running_stages = (Array.isArray(activeData.jobs) ? activeData.jobs : []).map(function (job) {
+      st.running_stages = activeJobs.map(function (job) {
         return stageByStep[String(job && job.step || "")] || "";
       }).filter(Boolean);
     } catch (err) {
+      lastWorkbenchStatus = null;
+      renderWorkbenchHydration("error");
       return;
     }
+    const activeJob = activeJobs[0] || null;
+    const reconcileJob = !activeJob && recentJob && (
+      recentJob.status === "submission_unknown" ||
+      (recentJob.status === "lost" && recentJob.reconciliation_reason === "worker_restart")
+    );
     const pill = document.getElementById("workbench-stage-pill");
     if (pill) {
       const labels = { prepare: "① 准备设定", outline: "② 生成大纲", plan: "③ 生成细纲", write: "④ 撰写正文", done: "✓ 已出稿" };
       // iter062: surface a single "next step" primary CTA next to the badge.
-      const next = !st.has_kb ? { l: st.has_start_point ? "重建续写底座" : "生成设定", t: "stage-prepare-card" }
+      const next = !st.has_kb ? { l: st.creation_mode === "greenfield" ? "生成设定" : (st.has_start_point ? "重建续写底座" : "选择续写起点"), t: st.requires_start_point && !st.has_start_point ? "" : "stage-prepare-card" }
         : !st.has_outline ? { l: "生成大纲", t: "stage-outline-card" }
         : !st.has_plan ? { l: "生成细纲", t: "stage-plan-card" }
         : st.stage !== "done" ? { l: "开始续写", t: "stage-write-card" }
         : null;
-      const cta = next
+      const cta = next && next.t
         ? ' <a class="btn btn-primary btn-sm" href="#' + next.t + '">下一步：' + escapeHtml(next.l) + "</a>"
+        : next ? ' <a class="btn btn-primary btn-sm" href="' + wsHref('/continue') + '">下一步：' + escapeHtml(next.l) + "</a>"
         : ' <a class="btn btn-secondary btn-sm" href="' + wsHref("/chapters") + '">查看章节</a>';
       pill.innerHTML = '<span class="badge">当前：' + escapeHtml(labels[st.stage] || "状态待确认") + "</span>" + cta;
     }
@@ -5253,6 +5610,9 @@ JS_DASHBOARD = """\
         : "";
     }
     // Gate each stage on its prerequisite artifact (mtime-validated server-side).
+    setWorkbenchMutationLock(false);
+    setStageEnabled("prepare-submit", !(st.requires_start_point && !st.has_start_point));
+    setStageEnabled("settings-toggle", !!st.has_kb);
     setStageEnabled("outline-submit", !!st.has_kb);
     setStageEnabled("outline-save", !!st.has_outline);
     setStageEnabled("plan-chapters-submit", !!st.has_outline);
@@ -5280,16 +5640,17 @@ JS_DASHBOARD = """\
     const prepareSubmit = document.getElementById("prepare-submit");
     const prepareSubtitle = document.getElementById("prepare-subtitle");
     const prepareHint = document.getElementById("prepare-hint");
-    if (st.has_start_point) {
+    if (st.creation_mode !== "greenfield") {
       if (prepareSubmit) prepareSubmit.textContent = "重建续写底座";
-      if (prepareSubtitle) prepareSubtitle.textContent = "已有续写起点：补充起点附近设定并重建续写底座";
-      if (prepareHint) prepareHint.textContent = "将对起点前最近章节补齐提取，并据此重建续写底座（补齐底座，不强制全量重提）。";
+      if (prepareSubtitle) prepareSubtitle.textContent = st.has_start_point ? "已有续写起点：补充起点附近设定并重建续写底座" : "请先选择续写起点，再重建续写底座";
+      if (prepareHint) prepareHint.textContent = st.has_start_point ? "将对起点前最近章节补齐提取，并据此重建续写底座（补齐底座，不强制全量重提）。" : "导入作品需要明确从哪里开始续写；系统不会把它当作原创新书。";
     } else {
       if (prepareSubmit) prepareSubmit.textContent = "生成设定";
       if (prepareSubtitle) prepareSubtitle.textContent = "从开书的一句话立意提取知识库与实体设定";
       if (prepareHint) prepareHint.textContent = "开书时填写的立意已保存；点右侧生成作品知识与角色设定。";
     }
     if (st.has_outline) {
+      setWorkbenchMutationLock(true);
       // iter 050 (D4): explicit loading placeholder on first paint so an
       // empty box never reads as "no plan exists".
       const previewBox = document.getElementById("plan-chapters-preview");
@@ -5301,6 +5662,7 @@ JS_DASHBOARD = """\
       try {
         plan = await fetchJson(wsUrl("/plan"));
       } catch (err) {
+        renderWorkbenchHydration("error");
         return;
       }
       const area = document.getElementById("outline-md");
@@ -5309,6 +5671,24 @@ JS_DASHBOARD = """\
       }
       renderPlanPreview(plan && plan.plan, st);
       planPreviewLoaded = true;
+    }
+    if (reconcileJob) {
+      setWorkbenchMutationLock(true);
+      renderWorkbenchHydration("reconcile");
+    } else if (activeJob) {
+      setWorkbenchMutationLock(true);
+      renderWorkbenchHydration("running", activeJob);
+      watchRecoveredWorkbenchJob(activeJob);
+    } else {
+      recoveredWorkbenchJobId = "";
+      setWorkbenchMutationLock(false);
+      setStageEnabled("prepare-submit", !(st.requires_start_point && !st.has_start_point));
+      setStageEnabled("settings-toggle", !!st.has_kb);
+      setStageEnabled("outline-submit", !!st.has_kb);
+      setStageEnabled("outline-save", !!st.has_outline);
+      setStageEnabled("plan-chapters-submit", !!st.has_outline);
+      setStageEnabled("write-book-submit", !!st.has_plan && st.stage !== "done");
+      renderWorkbenchHydration("ready");
     }
   }
   // iter 050: structured per-chapter plan editing (workbench stage ③).
@@ -5367,9 +5747,15 @@ JS_DASHBOARD = """\
     }).join("");
   }
   function bindPlanEditorList(container, placeholder, addBtn, max) {
+    function markListDirty() {
+      container.dispatchEvent(new Event("input", { bubbles: true }));
+    }
     function rebindDel() {
       container.querySelectorAll("[data-row-del]").forEach(function (btn) {
-        btn.onclick = function () { btn.parentElement.remove(); };
+        btn.onclick = function () {
+          btn.parentElement.remove();
+          markListDirty();
+        };
       });
     }
     rebindDel();
@@ -5385,6 +5771,7 @@ JS_DASHBOARD = """\
         '<button type="button" class="btn btn-ghost btn-sm" data-row-del aria-label="删除此行">✕</button>';
       container.appendChild(row);
       rebindDel();
+      markListDirty();
     });
   }
   function planEditorListValues(container) {
@@ -5427,9 +5814,13 @@ JS_DASHBOARD = """\
       '<button type="button" class="btn btn-ghost btn-sm" id="plan-edit-cancel">取消</button>' +
       '</div></div>';
     box.className = "";
+    const editorRoot = box.querySelector(".plan-edit-form");
+    let unregisterDirty = null;
+    editorRoot.addEventListener("input", function () { editorRoot.dataset.dirty = "1"; });
     bindPlanEditorList(document.getElementById("plan-edit-events"), "事件描述", document.getElementById("plan-edit-events-add"), 7);
     bindPlanEditorList(document.getElementById("plan-edit-rels"), "如：路明非 ↔ 陈雯雯", document.getElementById("plan-edit-rels-add"), 20);
     document.getElementById("plan-edit-cancel").addEventListener("click", function () {
+      if (unregisterDirty) unregisterDirty();
       planEditingChapter = null;
       refreshWorkbench();
     });
@@ -5465,6 +5856,8 @@ JS_DASHBOARD = """\
       saveBtn.disabled = true;
       try {
         const res = await putJson(wsUrl("/chapter-plan/" + chapterNo), { fields: fields });
+        delete editorRoot.dataset.dirty;
+        if (unregisterDirty) unregisterDirty();
         planEditingChapter = null;
         const invalidated = res.written_chapters_invalidated || [];
         showToast("第" + num + "章细纲已保存" +
@@ -5475,6 +5868,14 @@ JS_DASHBOARD = """\
       } finally {
         saveBtn.disabled = false;
       }
+    });
+    const savePlanButton = document.getElementById("plan-edit-save");
+    unregisterDirty = registerDirtyEditor("workbench-inline-plan", {
+      label: "第" + num + "章细纲",
+      isDirty: function () { return editorRoot.isConnected && editorRoot.dataset.dirty === "1"; },
+      save: function () { return clickAndAwaitClean(savePlanButton, function () { return editorRoot.dataset.dirty === "1"; }); },
+      discard: function () { delete editorRoot.dataset.dirty; },
+      focus: function () { editorRoot.querySelector("input,textarea").focus(); },
     });
   }
   async function populateStartPointSelect() {
@@ -5608,7 +6009,6 @@ JS_DASHBOARD = """\
         timeout_minutes: Number(form.elements.timeout_minutes ? form.elements.timeout_minutes.value || 0 : 0),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
         auto_advance: Boolean(form.elements.auto_advance.checked),
-        require_start_point: true,
         require_plan: true,
         require_external_review: true,
       };
@@ -5722,12 +6122,10 @@ JS_DASHBOARD = """\
       '<div class="k">细纲覆盖</div><div class="v">' + escapeHtml(String(data.plan_window || "?")) + "</div>" +
       "</div>";
     const details = [];
-    if (blockers.length) details.push('<div class="alert error">' + blockers.map(function (b) {
-      return escapeHtml(readinessReasonText(b));
-    }).join("<br>") + "</div>");
-    if (warnings.length) details.push('<div class="alert warn">' + warnings.map(function (warning) {
-      return escapeHtml(readinessWarningText(warning));
-    }).join("<br>") + "</div>");
+    const blockerDetails = groupedReadinessHtml(blockers, readinessReasonText, kind);
+    const warningDetails = groupedReadinessHtml(warnings, readinessWarningText, "");
+    if (blockerDetails) details.push('<div class="alert error">' + blockerDetails + "</div>");
+    if (warningDetails) details.push('<div class="alert warn">' + warningDetails + "</div>");
     html += '<details class="details-fold readiness-diagnostics"><summary>检查详情</summary>' +
       (details.join("") || '<div class="alert info">没有阻断项也没有警示。</div>') +
       "</details>";
@@ -6469,10 +6867,12 @@ JS_DASHBOARD = """\
         saveReviewBtn.disabled = false;
       }
     };
-    window.addEventListener("beforeunload", function (ev) {
-      if (area.dataset.dirty !== "1") return;
-      ev.preventDefault();
-      ev.returnValue = "";
+    registerDirtyEditor("draft", {
+      label: "正文",
+      isDirty: function () { return area.isConnected && area.dataset.dirty === "1"; },
+      save: area._saveBeforeLeave,
+      discard: function () { delete area.dataset.dirty; },
+      focus: function () { area.focus(); },
     });
     saveBtn.addEventListener("click", async function () {
       setControlBusy(saveBtn, true, "正在保存");
@@ -10873,14 +11273,7 @@ JS_WIZARD = """\
       ev.preventDefault();
       errBox.innerHTML = "";
       const fd = new FormData(novelForm);
-      const submitBtn = novelForm.querySelector("button[type=submit]");
-      if (!await window.uiConfirmPaidAction({
-        title: "确认导入并创建",
-        action: "将导入作品并生成初始设定与首章内容。",
-        scope: "本次抽取 " + String(fd.get("extract_limit") || 5) + " 章；人民币额度上限 " + String(fd.get("budget_cny") || 0) + " 元",
-        preservation: "上传文件会保留在新作品中；开始后可查看进度或请求取消。",
-      })) return;
-      wizardSetFormBusy(novelForm, true, "正在导入并创建");
+      wizardSetFormBusy(novelForm, true, "正在导入并整理");
       try {
         const res = await fetch("/api/wizard/start", { method: "POST", body: fd });
         const data = await res.json().catch(() => ({}));

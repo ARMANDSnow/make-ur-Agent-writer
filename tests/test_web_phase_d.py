@@ -71,10 +71,11 @@ class NovelPhaseDTests(unittest.TestCase):
         self.assertIn("function bindJobFilters", js)
         self.assertIn("function bindChapterFilter", js)
         self.assertIn('saveState("没有保存成功。编辑内容仍保留，请重试。"', js)
-        for choice in ("继续编辑", "放弃修改", "保存并离开"):
+        for choice in ("继续编辑", "放弃修改", "保存全部并继续"):
             self.assertIn(choice, js)
         self.assertIn("area._saveBeforeLeave", js)
-        self.assertIn('dirtyDraft.dataset.dirty === "1"', js)
+        self.assertIn("dirtyEditorRegistry", js)
+        self.assertIn("classifyNavigation", js)
         self.assertIn('form.setAttribute("aria-busy", "true")', js)
         self.assertIn("已保存，但检查没有开始", js)
         self.assertIn("safeOptionalCount", js)

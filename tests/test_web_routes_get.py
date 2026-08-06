@@ -188,7 +188,8 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('id="wizard-mode-card"', html)
         self.assertIn('name="budget_cny"', html)
         self.assertIn('name="timeout_minutes"', html)
-        self.assertIn('name="extract_limit"', html)
+        self.assertNotIn('name="extract_limit"', html)
+        self.assertIn("保存为续写作品，不生成正文", html)
         self.assertIn("会发生什么", html)
         self.assertIn("复仇 → 救赎", html)
         self.assertIn("data-back-to-type", html)
@@ -409,6 +410,22 @@ class RoutesGetTests(unittest.TestCase):
         os.utime(meta_path, (now, now))
         key2 = routes._overview_cache_key(["beta"])
         self.assertNotEqual(key1, key2)
+
+    def test_overview_cache_key_tracks_legacy_seed_upload_without_following_links(self) -> None:
+        raw = paths.WORKSPACE_DIR / "beta" / "小说txt"
+        key0 = routes._overview_cache_key(["beta"])
+        seed = raw / "seed.txt"
+        seed.write_text("placeholder", encoding="utf-8")
+        key1 = routes._overview_cache_key(["beta"])
+        self.assertNotEqual(key0, key1)
+
+        upload = raw / "upload.txt"
+        upload.symlink_to(paths.WORKSPACE_DIR / "does-not-exist")
+        key2 = routes._overview_cache_key(["beta"])
+        self.assertNotEqual(key1, key2)
+        # A broken symlink is represented by its own directory entry.  The
+        # cache probe must not follow it or collapse it into "missing".
+        self.assertIn("entry", repr(key2))
 
     def test_drama_sidebar_exposes_overview_write_episodes_jobs(self) -> None:
         # Updated iter 037: drama sidebar now includes "write" for stations 1 and 2.

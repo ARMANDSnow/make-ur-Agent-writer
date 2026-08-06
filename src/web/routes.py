@@ -694,6 +694,13 @@ def _overview_cache_key(names: List[str]) -> Tuple[Any, ...]:
             (
                 name,
                 _mtime_ns(ws / "data" / "workspace.json"),
+                # Legacy creation-mode inference depends on the exact
+                # seed/upload directory-entry shape.  Use lstat signatures so
+                # the cache observes additions/replacements without following
+                # a hostile or broken symlink outside the workspace.
+                _lstat_signature(ws / "小说txt"),
+                _lstat_signature(ws / "小说txt" / "seed.txt"),
+                _lstat_signature(ws / "小说txt" / "upload.txt"),
                 _mtime_ns(ws / "data" / "chapter_manifest.json"),
                 _mtime_ns(ws / "outputs" / "debate" / "chapter_plan.json"),
                 _mtime_ns(ws / "outputs" / "episodes"),
@@ -714,6 +721,25 @@ def _mtime_ns(path: Path) -> int:
         return path.stat().st_mtime_ns
     except OSError:
         return 0
+
+
+def _lstat_signature(path: Path) -> Tuple[Any, ...]:
+    """Return a no-follow cache signature for one directory entry."""
+
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return ("missing",)
+    except OSError as exc:
+        return ("error", type(exc).__name__)
+    return (
+        "entry",
+        info.st_mode,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_dev,
+        info.st_ino,
+    )
 
 
 def _open_public_subdir(root_fd: int, parts: Tuple[str, ...]) -> int:
@@ -874,10 +900,25 @@ def _clear_overview_cache() -> None:
         _OVERVIEW_CACHE.clear()
 
 
+def _novel_creation_policy(name: str) -> Tuple[str, bool]:
+    """Return the server-authoritative novel creation/start-point policy."""
+
+    from .workspace_meta import read as _meta_read
+
+    mode = str(_meta_read(name).get("creation_mode") or "continuation")
+    if mode not in {"greenfield", "continuation"}:
+        mode = "continuation"
+    return mode, mode == "continuation"
+
+
 def _unavailable_workspace_overview(name: str) -> Dict[str, Any]:
     return {
         "name": name,
         "type": "unknown",
+        "creation_mode": "continuation",
+        "requires_start_point": True,
+        "workbench_stage": "unknown",
+        "creation_stage": "unknown",
         "updated_at": "",
         "exists": False,
         "chapter_count": 0,
@@ -968,6 +1009,9 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
         return overview if paths.workspace_identity_matches(identity) else _unavailable_workspace_overview(name)
     with use_workspace(name):
         try:
+            creation_mode, requires_start_point = _novel_creation_policy(name)
+            overview["creation_mode"] = creation_mode
+            overview["requires_start_point"] = requires_start_point
             manifest = read_json_optional(paths.chapter_manifest_path(), [])
             if isinstance(manifest, dict):
                 manifest = manifest.get("chapters", manifest.get("entries", []))
@@ -998,7 +1042,15 @@ def _workspace_overview(name: str) -> Dict[str, Any]:
             overview["review_total"] = total
             overview["review_accepted"] = accepted
             overview["review_blocked"] = max(total - accepted, 0)
-            overview["readiness"] = _safe_readiness(chapters=1, resume_from=1)
+            workbench = _collect_workbench_status_current(name)
+            overview["workbench_stage"] = workbench["stage"]
+            overview["creation_stage"] = workbench["stage"]
+            overview["workbench"] = workbench
+            overview["readiness"] = _safe_readiness(
+                chapters=1,
+                resume_from=1,
+                require_start_point=requires_start_point,
+            )
             recent = jobs.recent_jobs(name, limit=1)
             overview["recent_job"] = jobs.public_job_view(recent[0]) if recent else None
         except Exception as exc:
@@ -1042,7 +1094,7 @@ def api_workspace_manifest(name: str) -> Tuple[int, str, bytes]:
 
 
 def api_workspace_start_point(name: str) -> Tuple[int, str, bytes]:
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     with use_workspace(name):
@@ -1050,7 +1102,7 @@ def api_workspace_start_point(name: str) -> Tuple[int, str, bytes]:
 
 
 def api_workspace_set_start_point(name: str, body: bytes) -> Tuple[int, str, bytes]:
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1070,7 +1122,14 @@ def api_workspace_set_start_point(name: str, body: bytes) -> Tuple[int, str, byt
         with _workspace_write_guard(name, "web-manual-start-point"):
             start_point.set_start_point(value)
             _clear_overview_cache()
-            readiness = _safe_readiness(chapters=1, resume_from=1)
+            creation_mode, requires_start_point = _novel_creation_policy(name)
+            readiness = _safe_readiness(
+                chapters=1,
+                resume_from=1,
+                require_start_point=requires_start_point,
+            )
+            readiness["creation_mode"] = creation_mode
+            readiness["requires_start_point"] = requires_start_point
             return _json(
                 200,
                 {
@@ -1133,74 +1192,72 @@ def api_workspace_plan(name: str) -> Tuple[int, str, bytes]:
         return _json(200, collect_plan())
 
 
-def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
-    """GET /api/workspace/<name>/workbench — four-stage workbench gate
-    status (iter 048b): which stage the workspace can act on next, plus
-    per-artifact flags.
+def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
+    """Collect the shared four-stage gate inside an active workspace context."""
 
-    Gating uses an mtime chain, not bare existence: a downstream artifact
-    counts only if it is no older than the artifact it derives from. So if
-    the user edits the premise and re-runs stage ① (prepare-greenfield
-    refreshes the KB), a stale outline/plan left from a prior run is treated
-    as invalid and the workbench falls back to the right stage — avoiding
-    the "old artifact masquerades as new" trap (red-team finding)."""
-    error = _workspace_error(name)
+    from ..start_point import get_start_chapter_id
+
+    creation_mode, requires_start_point = _novel_creation_policy(name)
+    has_start_point = bool(get_start_chapter_id())
+    expansion_m = _mtime_ns(paths.premise_expansion_path())
+    start_point_m = _mtime_ns(paths.manual_overrides_dir() / "start_chapter.json")
+    kb_m = _mtime_ns(paths.kb_path())
+    outline_m = _mtime_ns(paths.outline_path())
+    plan_path = paths.chapter_plan_path()
+    plan_m = _mtime_ns(plan_path)
+    drafts = paths.drafts_dir()
+    draft_files = sorted(drafts.glob("chapter_*.md")) if drafts.exists() else []
+    draft_count = len(draft_files)
+    draft_m = max((_mtime_ns(p) for p in draft_files), default=0)
+    plan_data = read_json_optional(plan_path, {})
+    plan_chapters = plan_data.get("chapters") if isinstance(plan_data, dict) else None
+
+    has_expansion = expansion_m > 0
+    preparation_source_m = max(expansion_m, start_point_m if requires_start_point else 0)
+    has_kb = kb_m > 0 and kb_m >= preparation_source_m
+    # Staleness is transitive: once an authoritative source input changes,
+    # every downstream artifact is unusable even when its own mtime remains
+    # newer than the now-stale immediate predecessor.
+    has_outline = has_kb and outline_m > 0 and outline_m >= kb_m
+    has_plan = has_outline and bool(plan_chapters) and plan_m >= outline_m
+    has_drafts = has_plan and draft_count > 0 and draft_m >= plan_m
+
+    if requires_start_point and not has_start_point:
+        stage = "start"
+    elif not has_kb:
+        stage = "prepare"
+    elif not has_outline:
+        stage = "outline"
+    elif not has_plan:
+        stage = "plan"
+    elif not has_drafts:
+        stage = "write"
+    else:
+        stage = "done"
+
+    return {
+        "stage": stage,
+        "creation_stage": stage,
+        "creation_mode": creation_mode,
+        "requires_start_point": requires_start_point,
+        "has_kb": has_kb,
+        "has_outline": has_outline,
+        "has_plan": has_plan,
+        "draft_count": draft_count,
+        "has_expansion": has_expansion,
+        "expansion_stale": has_expansion and kb_m > 0 and kb_m < expansion_m,
+        "has_start_point": has_start_point,
+    }
+
+
+def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
+    """GET the server-authoritative novel creation stage and artifact gates."""
+
+    error = _novel_workspace_error(name)
     if error:
         return error
     with use_workspace(name):
-        # iter 051a: the premise expansion joins the mtime chain upstream of
-        # the KB — editing (or regenerating) the expansion makes the KB and
-        # everything below it stale, same semantics as a KB edit staling the
-        # outline. Missing expansion → mtime 0 → chain byte-identical to 050.
-        from ..start_point import get_start_chapter_id
-
-        # iter056: 仅 premise 自创书（无起点）展示风格卡 UI；续写书前端 gate 隐藏。
-        has_start_point = bool(get_start_chapter_id())
-        expansion_m = _mtime_ns(paths.premise_expansion_path())
-        kb_m = _mtime_ns(paths.kb_path())
-        outline_m = _mtime_ns(paths.outline_path())
-        plan_path = paths.chapter_plan_path()
-        plan_m = _mtime_ns(plan_path)
-        drafts = paths.drafts_dir()
-        draft_files = sorted(drafts.glob("chapter_*.md")) if drafts.exists() else []
-        draft_count = len(draft_files)
-        draft_m = max((_mtime_ns(p) for p in draft_files), default=0)
-        plan_data = read_json_optional(plan_path, {})
-        plan_chapters = plan_data.get("chapters") if isinstance(plan_data, dict) else None
-
-        has_expansion = expansion_m > 0
-        has_kb = kb_m > 0 and kb_m >= expansion_m
-        has_outline = outline_m > 0 and outline_m >= kb_m
-        has_plan = bool(plan_chapters) and plan_m >= outline_m and plan_m >= kb_m
-        has_drafts = draft_count > 0 and draft_m >= plan_m
-
-        if not has_kb:
-            stage = "prepare"
-        elif not has_outline:
-            stage = "outline"
-        elif not has_plan:
-            stage = "plan"
-        elif not has_drafts:
-            stage = "write"
-        else:
-            stage = "done"
-
-    return _json(
-        200,
-        {
-            "stage": stage,
-            "has_kb": has_kb,
-            "has_outline": has_outline,
-            "has_plan": has_plan,
-            "draft_count": draft_count,
-            "has_expansion": has_expansion,
-            # explicit hint for the stage ① card: KB exists but predates the
-            # (edited) expansion — "扩写稿已更新，需重新生成设定".
-            "expansion_stale": has_expansion and kb_m > 0 and kb_m < expansion_m,
-            # iter056: premise 自创书（无起点）才展示风格卡；前端据此 gate。
-            "has_start_point": has_start_point,
-        },
-    )
+        return _json(200, _collect_workbench_status_current(name))
 
 
 def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
@@ -1215,7 +1272,7 @@ def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]
     concurrently. ``workspace_reserved`` atomically reserves the slot for
     the duration of the write, so ``start_job`` from any concurrent job is
     refused while we hold it — closing the race in both directions."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1283,7 +1340,7 @@ def api_workspace_chapter_plan_save(name: str, chapter: str, body: bytes) -> Tup
     全局 strict-expire (which was the root cause of replan-append blocking every
     written chapter); per-chapter consistency is now owned by item fingerprints.
     """
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1357,7 +1414,7 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
     the strict status is ``external_review_stale`` (review.json still hashes
     the OLD text) — which is exactly the「需要重新评审」signal the frontend
     surfaces via「保存并重新评审」(the review-chapter job)."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1473,7 +1530,7 @@ def api_workspace_kb_get(name: str) -> Tuple[int, str, bytes]:
     (iter 050, B3 editor source). Full-KB view is intentional here: this is
     the EDIT surface for the book's own settings, not a writing prompt — the
     start-safe spoiler filtering (047b) applies to LLM-facing views."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1496,7 +1553,7 @@ def api_workspace_kb_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
     which makes the workbench mtime chain mark outline/plan stale — kept on
     purpose (048b red-team fix ③: a changed KB makes downstream artifacts
     suspect); the frontend explains this instead of hacking mtimes."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1539,7 +1596,7 @@ def api_workspace_kb_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
 def api_workspace_premise_expansion_get(name: str) -> Tuple[int, str, bytes]:
     """GET /api/workspace/<name>/premise-expansion — the structured premise
     expansion artifact for the stage ① editor (iter 051a)."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     from ..premise_expansion import load_expansion
@@ -1572,7 +1629,7 @@ def api_workspace_premise_expansion_save(name: str, body: bytes) -> Tuple[int, s
     is allowed — a user may hand-write the expansion without the agent.
     Per-field length caps live in the ``PremiseExpansion`` schema; the
     payload cap here is the M-4 style outer gate."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1624,7 +1681,7 @@ _WRITER_STYLE_FIELDS = {
 
 def api_workspace_style_presets(name: str) -> Tuple[int, str, bytes]:
     """GET /api/workspace/<name>/style-presets — 全局只读预置风格卡库。"""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     from ..writer_style import load_presets
@@ -1634,7 +1691,7 @@ def api_workspace_style_presets(name: str) -> Tuple[int, str, bytes]:
 
 def api_workspace_writer_style_get(name: str) -> Tuple[int, str, bytes]:
     """GET /api/workspace/<name>/writer-style — 当前激活的风格卡（iter056）。"""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     from ..writer_style import load_card
@@ -1662,7 +1719,7 @@ def api_workspace_writer_style_save(name: str, body: bytes) -> Tuple[int, str, b
     """PUT /api/workspace/<name>/writer-style — 编辑/手写风格卡（050 edit-loop）。
     不接 mtime 失效链：风格卡只喂 writer 逐章 prompt、不喂 KB/大纲生成链，
     改卡只下一章生效、不回炉已写章节。"""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1704,7 +1761,7 @@ def api_workspace_writer_style_save(name: str, body: bytes) -> Tuple[int, str, b
 def api_workspace_writer_style_activate(name: str, body: bytes) -> Tuple[int, str, bytes]:
     """POST /api/workspace/<name>/writer-style/activate — 选中预置卡（快照入
     workspace，非引用 id）。body: ``{"preset_id": "..."}``。"""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -1738,7 +1795,7 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
     """POST /api/workspace/<name>/writer-style/extract — multipart 上传样本
     （文件 ``sample`` 或文本 ``text``）→ 临时落盘 → 起 extract-style job（前端
     pollJob）。样本不持久化：提取后即删（P0-A 版权护栏）。"""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     content_type = headers.get("content-type", "")
@@ -1824,7 +1881,7 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
 def api_workspace_entity_graph(name: str) -> Tuple[int, str, bytes]:
     """GET /api/workspace/<name>/entity-graph — raw graph for the stage ①
     editor (iter 050, B3)."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     with use_workspace(name):
@@ -1845,7 +1902,7 @@ _ENTITY_LIST_FIELDS = frozenset({"aliases", "tags", "key_facts"})
 def api_workspace_entity_save(name: str, entity_id: str, body: bytes) -> Tuple[int, str, bytes]:
     """PUT /api/workspace/<name>/entity/<entity_id> — edit one entity's
     descriptive fields (iter 050, B3)."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     # iter 050d (L-2): no unquote here — dispatch already decodes the whole
@@ -1928,7 +1985,7 @@ def api_workspace_relationship_save(name: str, index: str, body: bytes) -> Tuple
     auto_advance). ``state`` is the one field the writer actually consumes
     (entities.py:render_active_state); chapter_id/order/active stay immutable
     because the spoiler filter keys off them."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -4461,8 +4518,17 @@ def api_workspace_readiness(
     ):
         if raw != applied:
             clamped[key] = {"requested": raw, "applied": applied}
+    creation_mode, requires_start_point = _novel_creation_policy(name)
     with use_workspace(name):
-        result = _safe_readiness(chapters=chapters, resume_from=resume_from, replan_every=replan_every)
+        result = _safe_readiness(
+            chapters=chapters,
+            resume_from=resume_from,
+            replan_every=replan_every,
+            require_start_point=requires_start_point,
+        )
+    if isinstance(result, dict):
+        result["creation_mode"] = creation_mode
+        result["requires_start_point"] = requires_start_point
     if clamped and isinstance(result, dict):
         result["clamped"] = clamped
     return _json(200, result)
@@ -4571,7 +4637,7 @@ def api_workspace_active_jobs(name: str) -> Tuple[int, str, bytes]:
 
 
 def api_workspace_drafts(name: str) -> Tuple[int, str, bytes]:
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -4588,7 +4654,7 @@ def api_workspace_drafts(name: str) -> Tuple[int, str, bytes]:
 
 
 def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int, str, bytes]:
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -4652,7 +4718,7 @@ def api_workspace_chapter_versions(name: str, chapter: str) -> Tuple[int, str, b
     """GET /api/workspace/<name>/chapter/<n>/versions — list a chapter's
     on-disk versions (current draft + retry snapshots) for the diff picker
     (iter 074)."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -4675,7 +4741,7 @@ def api_workspace_chapter_diff(
     Both ids must appear in ``list_chapter_versions`` (rejects unknown /
     path-traversal ids); ``resolve_version_text`` re-gates by regex + a
     stays-inside-snapshots check as defense-in-depth."""
-    error = _workspace_error(name)
+    error = _novel_workspace_error(name)
     if error:
         return error
     try:
@@ -4962,7 +5028,22 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
     params = payload.get("params") or {}
     if not isinstance(params, dict):
         return _json(400, {"error": "'params' must be an object"})
-    workspace_type = _meta_read(name).get("type")
+    # Validate the request shape before evaluating workspace-dependent policy.
+    # This preserves the public 400 contract for malformed/non-finite values
+    # and avoids masking a bad request behind a creation-mode conflict.
+    require_start_point_supplied = "require_start_point" in params
+    params_error, params = _validated_run_params(step, params)
+    if params_error:
+        return _json(400, {"error": params_error})
+    workspace_meta = _meta_read(name)
+    if workspace_meta.get("_metadata_status") == "invalid":
+        if paths.probe_workspace_identity(name) is None:
+            return _json(404, {"error": f"workspace not found: {name}"})
+        return _json(409, {
+            "error": "作品类型或创作模式元数据损坏，请先修复 workspace.json；当前没有启动任务。",
+            "code": "workspace_metadata_invalid",
+        })
+    workspace_type = workspace_meta.get("type")
     is_drama_step = step in _DRAMA_JOB_STEPS
     if is_drama_step:
         return _json(400, {
@@ -4976,9 +5057,41 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
         })
     if workspace_type != "drama" and is_drama_step:
         return _json(400, {"error": "drama job step requires a drama workspace"})
-    params_error, params = _validated_run_params(step, params)
-    if params_error:
-        return _json(400, {"error": params_error})
+    if workspace_type != "drama":
+        creation_mode, requires_start_point = _novel_creation_policy(name)
+        with use_workspace(name):
+            from ..start_point import get_start_chapter_id
+
+            has_start_point = bool(get_start_chapter_id())
+        conflict = None
+        if step in {"prepare-greenfield", "auto-pipeline-greenfield", "expand-premise"} and requires_start_point:
+            conflict = "导入续写作品不能运行原创开书步骤；请先选择续写起点。"
+        elif step in {"prepare-import", "rebuild-for-start"} and not requires_start_point:
+            conflict = "原创作品没有原作续写起点，不能运行导入续写步骤。"
+        elif requires_start_point and not has_start_point and step in {
+            "extract", "compress", "bootstrap", "apply-bootstrap", "debate",
+            "plan-chapters", "write-book", "review-chapter", "draft-once-dev",
+            "rebuild-for-start",
+        }:
+            conflict = "导入续写作品需要先选择续写起点；当前没有启动任务。"
+        elif step in {"plan-chapters", "write-book"}:
+            if require_start_point_supplied:
+                supplied = params.get("require_start_point")
+                if supplied != requires_start_point:
+                    conflict = "请求的续写起点策略与当前作品模式不一致。"
+            params = dict(params)
+            params["require_start_point"] = requires_start_point
+        if conflict:
+            return _json(
+                409,
+                {
+                    "error": "creation mode conflict",
+                    "code": "creation_mode_conflict",
+                    "detail": conflict,
+                    "creation_mode": creation_mode,
+                    "requires_start_point": requires_start_point,
+                },
+            )
     try:
         job = jobs.start_job(name, step, params)
     except ValueError as exc:
@@ -4996,6 +5109,23 @@ def api_run_step(name: str, body: bytes) -> Tuple[int, str, bytes]:
             )
         if msg.startswith("workspace_not_found:"):
             return _json(404, {"error": f"workspace not found: {name}"})
+        if msg == "workspace_metadata_invalid":
+            return _json(
+                409,
+                {
+                    "error": "作品类型或创作模式元数据在任务启动前发生变化；当前没有启动任务。",
+                    "code": "workspace_metadata_invalid",
+                },
+            )
+        if msg.startswith("creation_mode_conflict:"):
+            return _json(
+                409,
+                {
+                    "error": "creation mode conflict",
+                    "code": "creation_mode_conflict",
+                    "detail": "请求步骤与当前作品模式不一致，未启动任务。",
+                },
+            )
         raise
     return _json(202, {"job_id": job["job_id"], "status": job["status"], "step": step})
 
@@ -5028,6 +5158,20 @@ def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[s
     if step in ("prepare-greenfield", "rebuild-for-start"):
         error, out = _validate_prepare_params(step, params)
         return error, out
+    if step == "prepare-import":
+        out: Dict[str, Any] = {}
+        error, timeout = _float_param(
+            params,
+            "timeout_minutes",
+            0.0,
+            minimum=0.0,
+            maximum=1440.0,
+        )
+        if error:
+            return error, {}
+        if timeout > 0:
+            out["timeout_minutes"] = timeout
+        return None, out
     return None, params
 
 

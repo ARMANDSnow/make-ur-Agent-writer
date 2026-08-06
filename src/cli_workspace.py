@@ -61,13 +61,24 @@ def list_workspaces() -> List[str]:
     return sorted(names)
 
 
-def init_workspace(name: str, type: str = "novel") -> Dict[str, Any]:
+def init_workspace(
+    name: str,
+    type: str = "novel",
+    *,
+    creation_mode: str | None = None,
+) -> Dict[str, Any]:
     """Create ``workspaces/<name>/{小说txt,data,outputs,logs}/``."""
     _validate_name(name)
     from .web import workspace_meta as _meta
 
     if type not in _meta.VALID_TYPES:
         raise ValueError(f"invalid workspace type: {type!r}")
+    if type == "novel":
+        creation_mode = creation_mode or "continuation"
+        if creation_mode not in _meta.VALID_CREATION_MODES:
+            raise ValueError(f"invalid creation mode: {creation_mode!r}")
+    elif creation_mode is not None:
+        raise ValueError("creation_mode only applies to novel workspaces")
     target = paths.WORKSPACE_DIR / name
     try:
         target.lstat()
@@ -95,7 +106,7 @@ def init_workspace(name: str, type: str = "novel") -> Dict[str, Any]:
             created.append(str(sub_path.relative_to(ROOT)))
         except ValueError:
             created.append(str(sub_path))
-    _meta.write(name, type=type)
+    _meta.write(name, type=type, creation_mode=creation_mode)
     if type == "drama":
         for extra in ("data/tables", "outputs/debate", "outputs/episodes", "outputs/reviews"):
             extra_path = target / extra
@@ -108,6 +119,7 @@ def init_workspace(name: str, type: str = "novel") -> Dict[str, Any]:
         "name": name,
         "path": str(target),
         "type": type,
+        **({"creation_mode": creation_mode} if type == "novel" else {}),
         "created": created,
     }
 

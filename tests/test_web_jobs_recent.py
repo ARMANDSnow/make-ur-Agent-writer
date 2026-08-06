@@ -79,6 +79,9 @@ class RecentJobsLostStatusTests(unittest.TestCase):
 
         self.assertEqual(recent[0]["status"], "lost")
         self.assertIn("worker process restarted", recent[0]["error"])
+        public = jobs.public_job_summary_view(recent[0])
+        self.assertEqual(public["error"], "job_failed")
+        self.assertEqual(public["reconciliation_reason"], "worker_restart")
 
 
 class ActiveJobsTests(unittest.TestCase):

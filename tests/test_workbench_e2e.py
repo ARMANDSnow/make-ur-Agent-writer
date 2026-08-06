@@ -16,6 +16,8 @@ from pathlib import Path
 
 from src import paths
 from src.web import jobs, routes
+from src.web import workspace_meta
+from src.utils import write_json
 
 
 class WorkbenchE2ETests(unittest.TestCase):
@@ -209,6 +211,39 @@ class WorkbenchE2ETests(unittest.TestCase):
         self.assertEqual(s["stage"], "outline")
         self.assertFalse(s["has_outline"])
         self.assertFalse(s["has_plan"])
+
+    def test_changing_continuation_start_invalidates_kb_chain(self) -> None:
+        """A different source anchor changes every downstream semantic input.
+
+        The workbench must therefore fall back to preparation instead of
+        presenting an outline/plan built for the previous continuation point.
+        """
+        self._premise("anchorbook")
+        self._run_step("anchorbook", "prepare-greenfield", {"force": True})
+        self._run_step("anchorbook", "debate")
+        self._run_step("anchorbook", "plan-chapters", {"require_start_point": False})
+        self.assertEqual(self._status("anchorbook")["stage"], "write")
+
+        workspace_meta.write("anchorbook", type="novel", creation_mode="continuation")
+        with routes.use_workspace("anchorbook"):
+            start_file = paths.manual_overrides_dir() / "start_chapter.json"
+            start_file.parent.mkdir(parents=True, exist_ok=True)
+            write_json(start_file, {"start_chapter_id": "source_ch001"})
+
+        # Model an existing anchor that predates the derived artifacts.
+        past = time.time() - 100
+        os.utime(start_file, (past, past))
+        self.assertEqual(self._status("anchorbook")["stage"], "write")
+
+        # Selecting a new anchor is authoritative input and must stale the KB,
+        # outline and chapter-plan chain in one projection refresh.
+        future = time.time() + 100
+        os.utime(start_file, (future, future))
+        status = self._status("anchorbook")
+        self.assertEqual(status["stage"], "prepare")
+        self.assertFalse(status["has_kb"])
+        self.assertFalse(status["has_outline"])
+        self.assertFalse(status["has_plan"])
 
 
 if __name__ == "__main__":

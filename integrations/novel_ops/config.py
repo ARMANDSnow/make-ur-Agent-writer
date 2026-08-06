@@ -11,10 +11,9 @@ class NovelOpsConfig:
     """Operation-level defaults, distinct from transport config (which lives
     on :class:`~integrations.novel_client.NovelClient`).
 
-    ``require_start_point`` defaults to ``False`` to match the greenfield
-    workbench (src/web/static.py): a premise-seeded book has no prior
-    published start point, so the plan-chapters / write-book start-point gate
-    must be relaxed or those steps hard-block on ``start_point_missing``.
+    Creation mode and the start-point requirement are not derived from client
+    defaults.  They are workspace facts projected by the server's
+    workbench/readiness APIs, not caller-selectable preferences.
     """
 
     default_book: Optional[str] = None
@@ -22,4 +21,6 @@ class NovelOpsConfig:
     write_budget_cny: float = 5.0
     outline_chapters: int = 3
     write_chapters: int = 1
-    require_start_point: bool = False
+    # Compatibility-only constructor field for existing hosts.  Operations do
+    # not consume it: the workspace policy comes from workbench/readiness.
+    require_start_point: Optional[bool] = None

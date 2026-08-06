@@ -28,9 +28,15 @@ class FakeClient:
         self._workbench = workbench or {
             "stage": "done", "has_kb": True, "has_outline": True,
             "has_plan": True, "draft_count": 1,
+            "creation_mode": "greenfield", "requires_start_point": False,
+            "has_start_point": False,
         }
         self._plan = plan or {"plan": {"chapters": [{"title": "起"}]}}
-        self._readiness = readiness or {"status": "ready"}
+        self._readiness = readiness or {
+            "status": "ready",
+            "creation_mode": "greenfield",
+            "requires_start_point": False,
+        }
         self.calls = []
 
     def workbench_url(self, ws):
@@ -153,7 +159,15 @@ class RunRoutingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(c.runs()[0][1:3], ("only", "write-book"))
 
     async def test_outline_routes(self):
-        c = FakeClient(workspaces=["only"], workbench={"stage": "outline", "has_outline": False})
+        c = FakeClient(
+            workspaces=["only"],
+            workbench={
+                "stage": "outline",
+                "has_outline": False,
+                "creation_mode": "greenfield",
+                "requires_start_point": False,
+            },
+        )
         await run_novel_command("outline", {"chapters": 3}, c, NovelOpsConfig())
         self.assertIn("plan-chapters", [r[2] for r in c.runs()])
 

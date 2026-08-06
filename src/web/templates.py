@@ -66,12 +66,12 @@ _BASE_TPL = Template(
   <div class="sidebar-overlay" data-sidebar-close></div>
   <div class="main">
     <header class="topbar">
-      <button type="button" class="btn btn-icon nav-toggle" data-sidebar-toggle aria-label="打开侧栏">☰</button>
+      <button type="button" class="btn btn-icon nav-toggle" data-sidebar-toggle aria-label="打开侧栏" aria-controls="app-sidebar" aria-expanded="false">☰</button>
       <a class="btn btn-icon home-btn" href="/" data-leave-guard aria-label="回首页" title="回首页">⌂</a>
       <nav class="breadcrumb">$BREADCRUMB</nav>
       <div class="topbar-actions-wrap">
-        <button type="button" class="btn btn-icon topbar-menu-toggle" data-topbar-menu-toggle aria-label="打开页面操作">⋯</button>
-        <div class="topbar-actions">$TOPBAR_ACTIONS</div>
+        <button type="button" class="btn btn-icon topbar-menu-toggle" data-topbar-menu-toggle aria-label="打开页面操作" aria-controls="topbar-actions" aria-expanded="false">⋯</button>
+        <div class="topbar-actions" id="topbar-actions">$TOPBAR_ACTIONS</div>
       </div>
     </header>
     <main class="page">
@@ -245,16 +245,16 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
                 '<nav class="drama-tablet-nav" aria-label="短剧主导航">'
                 '<a class="drama-nav-brand" href="/library" data-leave-guard aria-label="返回书架">✦</a>'
                 '<div class="drama-tablet-nav-scroll">' + "".join(responsive_items) + '</div>'
-                '<button type="button" class="btn btn-icon" data-sidebar-toggle aria-label="切换作品">作品</button>'
+                '<button type="button" class="btn btn-icon" data-sidebar-toggle aria-label="切换作品" aria-controls="app-sidebar" aria-expanded="false">作品</button>'
                 '</nav>'
                 '<nav class="drama-mobile-nav" aria-label="短剧主导航">'
                 + "".join(mobile_items) +
                 '<button type="button" class="drama-responsive-nav-item" data-sidebar-toggle '
-                'aria-label="打开全部导航">更多</button></nav>'
+                'aria-label="打开全部导航" aria-controls="app-sidebar" aria-expanded="false">更多</button></nav>'
             )
     return (
         responsive_nav_html +
-        '<aside class="sidebar">'
+        '<aside class="sidebar" id="app-sidebar" aria-label="作品导航">'
         '<a class="brand" href="/library" data-leave-guard><span>✦</span> 续写工作台</a>'
         '<div class="sidebar-section sidebar-library">'
         f'<h4>书架 <span>{len(items)}</span></h4>'
@@ -456,7 +456,7 @@ def _novel_overview_main(name: str) -> str:
         '<div class="titles">'
         '<p class="eyebrow ornament">作品</p>'
         f'<h1>{escape(name)}</h1>'
-        '<p class="muted">先确认当前作品能否继续，再从上次保存的位置开始。</p>'
+        '<p class="muted" id="overview-mode-intro">正在确认当前创作阶段与已保存内容。</p>'
         '</div>'
         '<div id="overview-status-badge"></div>'
         '<div class="topbar-actions">'
@@ -1091,7 +1091,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="field"><label>立意</label>'
         '<div class="muted" id="prepare-hint">开书时填写的立意已保存；点右侧生成作品知识与角色设定。</div></div>'
         '<div class="form-actions" style="align-items:flex-end">'
-        '<button type="submit" id="prepare-submit" class="btn btn-paid" data-ui-action="paid">生成设定</button>'
+        '<button type="submit" id="prepare-submit" class="btn btn-paid" data-ui-action="paid" data-workbench-mutation disabled>生成设定</button>'
         '</div>'
         '</form>'
         '<div id="prepare-status"></div>'
@@ -1099,7 +1099,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div id="expansion-stale-hint"></div>'
         # iter 050 (B3): on-demand KB / entity_graph editor
         '<div class="form-actions" style="margin-top:12px">'
-        '<button type="button" id="settings-toggle" class="btn btn-ghost btn-sm">查看 / 编辑设定 ▾</button>'
+        '<button type="button" id="settings-toggle" class="btn btn-ghost btn-sm" data-workbench-mutation disabled>查看 / 编辑设定 ▾</button>'
         '</div>'
         '<div id="settings-panel" hidden>'
         # iter 051a: structured premise expansion editor (data/premise_expansion.json)
@@ -1119,7 +1119,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<textarea id="exp-arc-hints" rows="3"></textarea></div>'
         '<div class="form-actions" style="justify-content:flex-end">'
         '<button type="button" id="expansion-regen" class="btn btn-paid btn-sm" data-ui-action="paid">重新扩写</button>'
-        '<button type="button" id="expansion-save" class="btn btn-secondary btn-sm">保存扩写稿</button>'
+        '<button type="button" id="expansion-save" class="btn btn-secondary btn-sm" data-workbench-mutation disabled>保存扩写稿</button>'
         '</div>'
         '<div id="expansion-status"></div>'
         '<hr class="divider">'
@@ -1128,7 +1128,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<p class="muted">保存设定后，工作台会按依赖链提示重新生成大纲 / 细纲；'
         '已写正文与其评审记录不受影响。</p>'
         '<div class="form-actions" style="justify-content:flex-end">'
-        '<button type="button" id="kb-save" class="btn btn-secondary btn-sm">保存知识库</button>'
+        '<button type="button" id="kb-save" class="btn btn-secondary btn-sm" data-workbench-mutation disabled>保存知识库</button>'
         '</div>'
         '<div id="entity-panel" style="margin-top:12px"></div>'
         # iter 056: 作家风格卡（仅 premise 自创书；JS 据 workbench has_start_point gate）
@@ -1172,7 +1172,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<textarea id="style-taboo" rows="2"></textarea></div>'
         '</details>'
         '<div class="form-actions" style="justify-content:flex-end">'
-        '<button type="button" id="style-save" class="btn btn-secondary btn-sm">保存风格卡</button>'
+        '<button type="button" id="style-save" class="btn btn-secondary btn-sm" data-workbench-mutation disabled>保存风格卡</button>'
         '</div>'
         '<div id="style-card-status"></div>'
         '</div>'
@@ -1191,14 +1191,14 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="field"><label>大纲生成</label>'
         '<div class="muted">根据作品设定生成可编辑的故事大纲</div></div>'
         '<div class="form-actions" style="align-items:flex-end">'
-        '<button type="submit" id="outline-submit" class="btn btn-paid" data-ui-action="paid">生成大纲</button>'
+        '<button type="submit" id="outline-submit" class="btn btn-paid" data-ui-action="paid" data-workbench-mutation disabled>生成大纲</button>'
         '</div>'
         '</form>'
         '<div id="outline-status"></div>'
         '<div class="field" style="margin-top:12px"><label for="outline-md">大纲内容（可编辑）</label>'
         '<textarea id="outline-md" rows="12" placeholder="生成后在此查看 / 编辑大纲，然后点保存…"></textarea></div>'
         '<div class="form-actions" style="justify-content:flex-end">'
-        '<button type="button" id="outline-save" class="btn btn-secondary">保存大纲</button>'
+        '<button type="button" id="outline-save" class="btn btn-secondary" data-workbench-mutation disabled>保存大纲</button>'
         '</div>'
         '</div></div></div>'
 
@@ -1213,7 +1213,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<div class="field"><label for="plan-target-chapters">计划章节数</label>'
         '<input id="plan-target-chapters" name="target_chapters" type="number" min="1" max="200" value="5"></div>'
         '<div class="form-actions" style="align-items:flex-end">'
-        '<button type="submit" id="plan-chapters-submit" class="btn btn-paid" data-ui-action="paid">生成细纲</button>'
+        '<button type="submit" id="plan-chapters-submit" class="btn btn-paid" data-ui-action="paid" data-workbench-mutation disabled>生成细纲</button>'
         '</div>'
         '</form>'
         '<div id="plan-chapters-status"></div>'
@@ -1250,7 +1250,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<span class="muted">填 0 表示不设上限；使用真实生成时不建议这样设置。</span>'
         '</div>'
         '<div class="form-actions" style="align-items:flex-end">'
-        '<button type="submit" id="write-book-submit" class="btn btn-paid" data-ui-action="paid">开始写书</button>'
+        '<button type="submit" id="write-book-submit" class="btn btn-paid" data-ui-action="paid" data-workbench-mutation disabled>开始写书</button>'
         '<a id="write-book-open-chapter" class="btn btn-primary" href="/w/' + esc + '/chapters" hidden>打开章节</a>'
         '</div>'
         '</form>'
@@ -1624,7 +1624,7 @@ def render_wizard() -> str:
         '<p id="type-form-help" class="muted">选择后会先进入对应表单，不会立即创建或生成内容。</p>'
         '<label class="field-check wizard-choice">'
         '<input type="radio" name="ws_type" value="novel" checked> '
-        '<span><strong>从本地原文创建</strong><small>需要作品名和本地小说文件；提交后会整理原文并在当前运行方式下准备初始内容。</small></span>'
+        '<span><strong>从本地原文创建</strong><small>需要作品名和本地小说文件；提交后只在本地整理原文，随后由你选择续写起点。</small></span>'
         '</label>'
         '<label class="field-check wizard-choice">'
         '<input type="radio" name="ws_type" value="drama"> '
@@ -1649,8 +1649,8 @@ def render_wizard() -> str:
         '<p class="eyebrow ornament">会发生什么</p>'
         '<div class="kv-list compact">'
         '<div class="k">1</div><div class="v">导入文本并切章</div>'
-        '<div class="k">2</div><div class="v">抽取知识库与起始设定</div>'
-        '<div class="k">3</div><div class="v">生成首章草稿，可随时请求取消</div>'
+        '<div class="k">2</div><div class="v">保存为续写作品，不生成正文</div>'
+        '<div class="k">3</div><div class="v">进入作品后选择续写起点</div>'
         '</div>'
         '</div>'
         '<form id="wizard-form" enctype="multipart/form-data" class="stack">'
@@ -1675,22 +1675,14 @@ def render_wizard() -> str:
         '<summary>高级选项</summary>'
         '<div class="form-grid-2">'
         '<div class="field">'
-        '<label>人民币额度上限</label>'
-        '<input name="budget_cny" type="number" min="0" step="0.1" placeholder="0 = 不限制">'
-        '</div>'
-        '<div class="field">'
         '<label>超时分钟</label>'
         '<input name="timeout_minutes" type="number" min="0" step="1" placeholder="0 = 不启用">'
-        '</div>'
-        '<div class="field">'
-        '<label>本次抽取章节数</label>'
-        '<input name="extract_limit" type="number" min="1" max="200" value="5">'
         '</div>'
         '</div>'
         '</details>'
         '<div class="form-actions">'
         '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
-        '<button type="submit" class="btn btn-paid" data-ui-action="paid">导入并创建</button>'
+        '<button type="submit" class="btn btn-primary">导入并整理</button>'
         '</div>'
         '</form>'
 

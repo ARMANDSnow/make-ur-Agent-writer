@@ -73,6 +73,7 @@ _JOB_LOG_LOCK = threading.Lock()
 _WORKER_THREADS: Dict[str, threading.Thread] = {}
 _WORKER_THREADS_LOCK = threading.Lock()
 TERMINAL_STATUSES = {"succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"}
+_WORKER_RESTART_ERROR = "worker process restarted before this job reached a terminal state"
 _MAX_JOB_LOG_BYTES = 4 * 1024 * 1024
 _MAX_JOB_LOG_LINE_BYTES = 64 * 1024
 _MAX_JOB_LOG_ROWS = 5_000
@@ -211,6 +212,7 @@ _RETRY_PARAM_KEYS_BY_STEP: Dict[str, frozenset[str]] = {
     "auto-pipeline-greenfield": frozenset(
         {"extract_limit", "chapters", "force", "skip_extract"}
     ),
+    "prepare-import": frozenset(),
     "prepare-greenfield": frozenset(
         {"extract_limit", "budget_cny", "force"}
     ),
@@ -445,6 +447,14 @@ def _public_error(value: Any) -> Optional[str]:
     return "job_failed"
 
 
+def _public_reconciliation_reason(job: Dict[str, Any]) -> Optional[str]:
+    """Expose a bounded recovery enum without leaking the raw exception."""
+
+    if job.get("status") == "lost" and job.get("error") == _WORKER_RESTART_ERROR:
+        return "worker_restart"
+    return None
+
+
 def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project for /jobs/recent (sidebar + jobs table) — drops internal cancel_*."""
     projected = {key: job.get(key) for key in _PUBLIC_JOB_SUMMARY_FIELDS}
@@ -452,6 +462,9 @@ def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
     projected["result_summary"] = _public_result_summary(job.get("result_summary"))
+    reconciliation_reason = _public_reconciliation_reason(job)
+    if reconciliation_reason is not None:
+        projected["reconciliation_reason"] = reconciliation_reason
     if not isinstance(job.get("persistence_degraded"), bool):
         projected.pop("persistence_degraded", None)
     projected.update(_public_local_demo_context(job))
@@ -468,6 +481,9 @@ def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
     projected["result_summary"] = _public_result_summary(job.get("result_summary"))
+    reconciliation_reason = _public_reconciliation_reason(job)
+    if reconciliation_reason is not None:
+        projected["reconciliation_reason"] = reconciliation_reason
     if not isinstance(job.get("persistence_degraded"), bool):
         projected.pop("persistence_degraded", None)
     projected.update(_public_local_demo_context(job))
@@ -946,7 +962,7 @@ def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
                 snapshot = dict(live)
             else:
                 snapshot["status"] = "lost"
-                snapshot["error"] = "worker process restarted before this job reached a terminal state"
+                snapshot["error"] = _WORKER_RESTART_ERROR
         reconciled.append(snapshot)
 
     reconciled.sort(key=_sort_key, reverse=True)
@@ -1610,6 +1626,38 @@ def _step_auto_pipeline_greenfield(params: Dict[str, Any], progress_cb: Callable
     merged = dict(params)
     merged["require_start_point"] = False
     return _step_auto_pipeline(merged, progress_cb)
+
+
+def _step_prepare_import(
+    params: Dict[str, Any],
+    progress_cb: Callable[[str, float], None],
+) -> Any:
+    """Prepare an imported continuation without inventing a start point.
+
+    Only normalize and split the uploaded source.  Extraction/KB/bootstrap are
+    intentionally deferred until the user selects the continuation start and
+    runs ``rebuild-for-start``; debate/plan/write must never run on an imported
+    book with no authoritative start.
+    """
+
+    from ..workspace_lock import acquire_write_lock
+
+    with acquire_write_lock(source="web-prepare-import"):
+        progress_cb("normalize", 0.0)
+        normalized = normalize_all()
+        progress_cb("split", 0.5)
+        chapters = split_all()
+        if not chapters:
+            raise ValueError(
+                "uploaded text produced 0 chapters after split; no recognizable "
+                "chapter headings (第N章 / Chapter N) were found"
+            )
+        progress_cb("done", 1.0)
+        return {
+            "status": "succeeded",
+            "normalized": len(normalized) if isinstance(normalized, list) else None,
+            "chapters": len(chapters),
+        }
 
 
 def _step_expand_premise(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -2802,6 +2850,7 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "review-chapter": _step_review_chapter,
     "draft-once-dev": _step_draft_once_dev,
     "auto-pipeline-greenfield": _step_auto_pipeline_greenfield,
+    "prepare-import": _step_prepare_import,
     "prepare-greenfield": _step_prepare_greenfield,
     "rebuild-for-start": _step_rebuild_for_start,
     "expand-premise": _step_expand_premise,
@@ -3101,16 +3150,59 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
     with code ``"workspace_busy"`` if the workspace already has a
     running job — the route handler maps this to HTTP 409.
     """
-    params = params or {}
+    params = dict(params or {})
     if not is_known_step(step):
         raise ValueError(f"unknown step: {step}")
+
+    identity = paths.probe_workspace_identity(workspace)
+    if identity is None:
+        raise RuntimeError(f"workspace_not_found:{workspace}")
+
+    # Iter165: creation mode is a server-side execution contract, not a UI
+    # hint.  Keep this guard below every in-process caller (wizard/plugins/tests)
+    # and before record allocation/persistence so a conflicting request creates
+    # no job and consumes no workspace slot.
+    from .workspace_meta import read as _meta_read
+
+    meta = _meta_read(workspace)
+    if meta.get("_metadata_status") == "invalid":
+        raise RuntimeError("workspace_metadata_invalid")
+    workspace_type = str(meta.get("type") or "novel")
+    is_drama_step = step.startswith("drama-")
+    if workspace_type == "drama" and not is_drama_step:
+        raise RuntimeError("creation_mode_conflict:drama_rejects_novel_step")
+    if workspace_type != "drama" and is_drama_step:
+        raise RuntimeError("creation_mode_conflict:novel_rejects_drama_step")
+    if meta.get("type") == "novel":
+        mode = str(meta.get("creation_mode") or "continuation")
+        requires_start = mode != "greenfield"
+        with use_workspace(workspace):
+            from ..start_point import get_start_chapter_id
+
+            has_start = bool(get_start_chapter_id())
+        if step in {"prepare-greenfield", "auto-pipeline-greenfield", "expand-premise"} and requires_start:
+            raise RuntimeError("creation_mode_conflict:continuation_requires_start_point")
+        if step in {"prepare-import", "rebuild-for-start"} and not requires_start:
+            raise RuntimeError("creation_mode_conflict:greenfield_has_no_import_start")
+        start_gated_steps = {
+            "extract", "compress", "bootstrap", "apply-bootstrap", "debate",
+            "plan-chapters", "write-book", "review-chapter", "draft-once-dev",
+            "rebuild-for-start",
+        }
+        if requires_start and not has_start and step in start_gated_steps:
+            raise RuntimeError("creation_mode_conflict:start_point_required")
+        if step in {"plan-chapters", "write-book"}:
+            if "require_start_point" in params:
+                supplied = params.get("require_start_point")
+                if type(supplied) is not bool or supplied != requires_start:
+                    raise RuntimeError("creation_mode_conflict:require_start_point")
+            params["require_start_point"] = requires_start
 
     with _WORKSPACE_LOCK:
         if workspace in _WORKSPACE_JOBS:
             existing = _WORKSPACE_JOBS[workspace]
             raise RuntimeError(f"workspace_busy:{existing}")
-        identity = paths.probe_workspace_identity(workspace)
-        if identity is None:
+        if not paths.workspace_identity_matches(identity):
             raise RuntimeError(f"workspace_not_found:{workspace}")
         record = _new_job_record(workspace, step, params)
         # iter072 (#3): register in _JOBS *before* reserving the workspace

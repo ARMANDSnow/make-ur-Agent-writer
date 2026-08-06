@@ -12,8 +12,8 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from src import paths
-from src.web import jobs, routes
+from src import paths, start_point
+from src.web import jobs, routes, workspace_meta
 from src.web.workspace_ctx import use_workspace
 from src.workspace_lock import acquire_write_lock
 from src.utils import write_json
@@ -34,6 +34,11 @@ class JobsDispatchTests(unittest.TestCase):
         os.environ.pop("WORKSPACE_NAME", None)
         paths.WORKSPACE_DIR = Path(self._tmp.name)
         _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+        # Most dispatcher tests exercise handler behaviour rather than the
+        # continuation admission gate.  Make that intent explicit so the
+        # schema-v2 default does not accidentally turn unrelated tests into
+        # "missing continuation start point" cases.
+        workspace_meta.write("alpha", type="novel", creation_mode="greenfield")
         jobs.reset_for_tests()
 
     def tearDown(self) -> None:
@@ -67,6 +72,99 @@ class JobsDispatchTests(unittest.TestCase):
         status, data = self._post_run("alpha", {"step": "no-such-step"})
         self.assertEqual(status, 400)
         self.assertIn("unknown step", data["error"])
+
+    def test_creation_mode_conflicts_are_rejected_before_job_allocation(self) -> None:
+        workspace_meta.write("alpha", type="novel", creation_mode="continuation")
+        with self.assertRaisesRegex(RuntimeError, "creation_mode_conflict"):
+            jobs.start_job("alpha", "prepare-greenfield", {})
+        self.assertFalse(jobs._JOBS)
+        self.assertIsNone(jobs.workspace_busy("alpha"))
+        self.assertFalse((paths.WORKSPACE_DIR / "alpha" / "logs" / "web_jobs.jsonl").exists())
+
+        status, data = self._post_run(
+            "alpha",
+            {"step": "write-book", "params": {"require_start_point": False}},
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(data["code"], "creation_mode_conflict")
+        self.assertFalse(jobs._JOBS)
+
+    def test_invalid_metadata_is_rejected_before_job_allocation(self) -> None:
+        workspace_meta.workspace_meta_path("alpha").write_bytes(b"{")
+        status, data = self._post_run("alpha", {"step": "normalize", "params": {}})
+        self.assertEqual(status, 409)
+        self.assertEqual(data["code"], "workspace_metadata_invalid")
+        with self.assertRaisesRegex(RuntimeError, "workspace_metadata_invalid"):
+            jobs.start_job("alpha", "normalize", {})
+        self.assertFalse(jobs._JOBS)
+        self.assertIsNone(jobs.workspace_busy("alpha"))
+        self.assertFalse((paths.WORKSPACE_DIR / "alpha" / "logs" / "web_jobs.jsonl").exists())
+
+    def test_metadata_invalidated_between_route_and_job_returns_friendly_409(self) -> None:
+        with unittest.mock.patch(
+            "src.web.routes.jobs.start_job",
+            side_effect=RuntimeError("workspace_metadata_invalid"),
+        ):
+            status, data = self._post_run("alpha", {"step": "normalize", "params": {}})
+        self.assertEqual(status, 409)
+        self.assertEqual(data["code"], "workspace_metadata_invalid")
+        self.assertIn("没有启动任务", data["error"])
+
+    def test_novel_mutations_reject_drama_workspace(self) -> None:
+        _stub_workspace(paths.WORKSPACE_DIR, "drama")
+        workspace_meta.write("drama", type="drama")
+        requests = (
+            ("POST", "/api/workspace/drama/start-point", {"start_point": "ch001"}),
+            ("PUT", "/api/workspace/drama/outline", {"outline": "novel outline"}),
+            ("PUT", "/api/workspace/drama/kb", {"content": "novel kb"}),
+        )
+        for method, path, payload in requests:
+            status, _ct, body = routes.dispatch(
+                method, path, json.dumps(payload).encode("utf-8")
+            )
+            self.assertEqual(status, 409, (path, body))
+        for path in (
+            "/api/workspace/drama/chapter/1/versions",
+            "/api/workspace/drama/chapter/1/diff?v1=current&v2=current",
+        ):
+            status, _ct, body = routes.dispatch("GET", path)
+            self.assertEqual(status, 409, (path, body))
+        self.assertFalse((paths.WORKSPACE_DIR / "drama" / "data" / "manual_overrides" / "start_chapter.json").exists())
+        self.assertFalse((paths.WORKSPACE_DIR / "drama" / "outputs" / "debate" / "outline.md").exists())
+        self.assertFalse((paths.WORKSPACE_DIR / "drama" / "data" / "knowledge_base" / "global_knowledge.md").exists())
+
+    def test_run_injects_authoritative_start_policy_when_omitted(self) -> None:
+        workspace_meta.write("alpha", type="novel", creation_mode="continuation")
+        with use_workspace("alpha"):
+            write_json(
+                paths.chapter_manifest_path(),
+                [{"chapter_id": "alpha_ch001", "volume_id": "v1", "title": "one"}],
+            )
+            start_point.set_start_point("alpha_ch001")
+        fake = {"job_id": "job-authoritative", "status": "pending"}
+        with unittest.mock.patch("src.web.routes.jobs.start_job", return_value=fake) as start:
+            status, data = self._post_run(
+                "alpha", {"step": "plan-chapters", "params": {"target_chapters": 1}}
+            )
+        self.assertEqual(status, 202)
+        self.assertEqual(data["job_id"], "job-authoritative")
+        self.assertTrue(start.call_args.args[2]["require_start_point"])
+
+        workspace_meta.write("alpha", type="novel", creation_mode="greenfield")
+        with unittest.mock.patch("src.web.routes.jobs.start_job", return_value=fake) as start:
+            status, _data = self._post_run(
+                "alpha", {"step": "write-book", "params": {"chapters": 1}}
+            )
+        self.assertEqual(status, 202)
+        self.assertFalse(start.call_args.args[2]["require_start_point"])
+
+    def test_greenfield_rejects_import_and_rebuild_steps(self) -> None:
+        workspace_meta.write("alpha", type="novel", creation_mode="greenfield")
+        for step in ("prepare-import", "rebuild-for-start"):
+            status, data = self._post_run("alpha", {"step": step, "params": {}})
+            self.assertEqual(status, 409, step)
+            self.assertEqual(data["creation_mode"], "greenfield")
+        self.assertFalse(jobs._JOBS)
 
     def test_start_job_rejects_symlink_workspace_without_allocating(self) -> None:
         with tempfile.TemporaryDirectory() as outside_tmp:
@@ -194,21 +292,45 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("min_confidence", data["error"])
 
-    def test_plan_chapters_missing_start_point_is_blocked(self) -> None:
+    def test_continuation_steps_missing_start_point_are_rejected_before_job(self) -> None:
+        workspace_meta.write("alpha", type="novel", creation_mode="continuation")
+        gated = (
+            "extract",
+            "compress",
+            "bootstrap",
+            "apply-bootstrap",
+            "debate",
+            "plan-chapters",
+            "write-book",
+            "review-chapter",
+            "draft-once-dev",
+            "rebuild-for-start",
+        )
+        for step in gated:
+            status, data = self._post_run("alpha", {"step": step, "params": {}})
+            self.assertEqual(status, 409, step)
+            self.assertEqual(data["code"], "creation_mode_conflict", step)
+            self.assertTrue(data["requires_start_point"], step)
+        self.assertFalse(jobs._JOBS)
+        self.assertIsNone(jobs.workspace_busy("alpha"))
+        self.assertFalse((paths.WORKSPACE_DIR / "alpha" / "logs" / "web_jobs.jsonl").exists())
+
+    def test_plan_chapters_missing_start_point_is_rejected(self) -> None:
+        workspace_meta.write("alpha", type="novel", creation_mode="continuation")
         status, data = self._post_run(
             "alpha",
             {"step": "plan-chapters", "params": {"target_chapters": 3}},
         )
-        self.assertEqual(status, 202)
-        job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
-        self.assertEqual(job["status"], "blocked")
-        self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "start_point_missing")
+        self.assertEqual(status, 409)
+        self.assertEqual(data["code"], "creation_mode_conflict")
+        self.assertFalse(jobs._JOBS)
 
     def test_plan_chapters_forces_force_but_honors_require_start_point(self) -> None:
         # iter 048b: force is always overridden to True (a re-plan overwrites),
         # but require_start_point is now HONORED from params (was forced True
         # pre-048b) so the greenfield workbench can pass False. Default stays
-        # True for safety — see test_plan_chapters_missing_start_point_is_blocked.
+        # True for continuation safety; greenfield is authoritatively false.
+        workspace_meta.write("alpha", type="novel", creation_mode="greenfield")
         with unittest.mock.patch(
             "src.web.jobs.generate_chapter_plan",
             return_value={"chapters": []},
@@ -276,6 +398,7 @@ class JobsDispatchTests(unittest.TestCase):
         # call, so we use a long-ish step. ``auto-pipeline-greenfield`` needs a
         # seeded raw txt to make progress; we don't care about its
         # outcome, only that it occupies the slot.
+        workspace_meta.write("alpha", type="novel", creation_mode="greenfield")
         (paths.WORKSPACE_DIR / "alpha" / "小说txt" / "sample.txt").write_text(
             "第一章\n测试。\n" * 50, encoding="utf-8"
         )

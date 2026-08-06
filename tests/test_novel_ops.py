@@ -16,6 +16,7 @@ from integrations.novel_ops import (
     op_new,
     op_open,
     op_outline,
+    op_prepare,
     op_status,
     op_write,
 )
@@ -69,7 +70,13 @@ class FakeClient:
             i = min(self._wb_i, len(self._workbench_seq) - 1)
             self._wb_i += 1
             return self._workbench_seq[i]
-        return self._workbench or {"stage": "outline", "has_kb": True}
+        return self._workbench or {
+            "stage": "outline",
+            "has_kb": True,
+            "creation_mode": "greenfield",
+            "requires_start_point": False,
+            "has_start_point": False,
+        }
 
     async def plan(self, ws):
         self.calls.append(("plan", ws))
@@ -171,17 +178,35 @@ class OpNewTest(unittest.IsolatedAsyncioTestCase):
         out = await op_new(c, "abc", name="b")
         self.assertIn("failed", out)
 
+    async def test_new_consumes_server_policy_before_preparing(self):
+        c = FakeClient(
+            workbench={
+                "stage": "start",
+                "creation_mode": "continuation",
+                "requires_start_point": True,
+                "has_start_point": False,
+            }
+        )
+        out = await op_new(c, "abc", name="b")
+        self.assertIn("续写起点", out)
+        self.assertEqual(c.runs(), [])
+
 
 class OpOutlineTest(unittest.IsolatedAsyncioTestCase):
     async def test_prepare_stage_blocks(self):
-        c = FakeClient(workbench={"stage": "prepare"})
+        c = FakeClient(workbench={"stage": "prepare", "creation_mode": "greenfield", "requires_start_point": False})
         out = await op_outline(c, "b")
         self.assertIn("还没做设定准备", out)
         self.assertEqual(c.runs(), [])  # nothing run
 
     async def test_runs_debate_then_plan_when_no_outline(self):
         c = FakeClient(
-            workbench={"stage": "outline", "has_outline": False},
+            workbench={
+                "stage": "outline",
+                "has_outline": False,
+                "creation_mode": "greenfield",
+                "requires_start_point": False,
+            },
             plan={"plan": {"chapters": [{"title": "起"}, {"title": "承"}, {"title": "转"}]}},
         )
         out = await op_outline(c, "b", 3)
@@ -194,14 +219,61 @@ class OpOutlineTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("3 章", out)
         self.assertIn("承", out)
 
+    async def test_continuation_outline_uses_projected_start_policy(self):
+        c = FakeClient(
+            workbench={
+                "stage": "outline",
+                "has_outline": True,
+                "creation_mode": "continuation",
+                "requires_start_point": True,
+                "has_start_point": True,
+            }
+        )
+        await op_outline(c, "b", 3)
+        run = c.runs()[0]
+        self.assertEqual(run[2], "plan-chapters")
+        self.assertIs(run[3]["require_start_point"], True)
+
     async def test_skips_debate_when_outline_exists(self):
         c = FakeClient(
-            workbench={"stage": "plan", "has_outline": True},
+            workbench={
+                "stage": "plan",
+                "has_outline": True,
+                "creation_mode": "greenfield",
+                "requires_start_point": False,
+            },
             plan={"plan": {"chapters": [{"title": "x"}]}},
         )
         await op_outline(c, "b")
         steps = [r[2] for r in c.runs()]
         self.assertEqual(steps, ["plan-chapters"])
+
+
+class OpPrepareTest(unittest.IsolatedAsyncioTestCase):
+    async def test_continuation_without_start_does_not_run_greenfield(self):
+        c = FakeClient(
+            workbench={
+                "stage": "start",
+                "creation_mode": "continuation",
+                "requires_start_point": True,
+                "has_start_point": False,
+            }
+        )
+        out = await op_prepare(c, "b")
+        self.assertIn("续写起点", out)
+        self.assertEqual(c.runs(), [])
+
+    async def test_continuation_with_start_rebuilds_instead_of_greenfield(self):
+        c = FakeClient(
+            workbench={
+                "stage": "prepare",
+                "creation_mode": "continuation",
+                "requires_start_point": True,
+                "has_start_point": True,
+            }
+        )
+        await op_prepare(c, "b")
+        self.assertEqual(c.runs(), [("run", "b", "rebuild-for-start", {"window": 10})])
 
 
 class OpWriteTest(unittest.IsolatedAsyncioTestCase):
@@ -215,7 +287,7 @@ class OpWriteTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_writes_with_greenfield_params(self):
         c = FakeClient(
-            readiness={"status": "ready"},
+            readiness={"status": "ready", "creation_mode": "greenfield", "requires_start_point": False},
             job_results={"write-book": {"status": "succeeded", "result_summary": {"chapters": 2, "cost_cny": 1.5}}},
         )
         out = await op_write(c, "b", 2, cfg=NovelOpsConfig(write_tier="low", write_budget_cny=3.0))
@@ -227,6 +299,26 @@ class OpWriteTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run[3]["require_start_point"], False)
         self.assertIn("2 章", out)
         self.assertIn("¥1.50", out)
+
+    async def test_continuation_write_uses_projected_start_policy(self):
+        c = FakeClient(
+            readiness={
+                "status": "ready",
+                "creation_mode": "continuation",
+                "requires_start_point": True,
+            },
+            job_results={"write-book": {"status": "succeeded"}},
+        )
+        await op_write(c, "b", 1)
+        self.assertIs(c.runs()[0][3]["require_start_point"], True)
+
+    async def test_partial_greenfield_projection_fails_closed(self):
+        c = FakeClient(
+            readiness={"status": "ready", "creation_mode": "greenfield"},
+            job_results={"write-book": {"status": "succeeded"}},
+        )
+        await op_write(c, "b", 1)
+        self.assertIs(c.runs()[0][3]["require_start_point"], True)
 
     async def test_write_blocked_job(self):
         c = FakeClient(
@@ -243,11 +335,11 @@ class OpAutoTest(unittest.IsolatedAsyncioTestCase):
         # workbench reports successively advancing stages until done
         c = FakeClient(
             workbench_seq=[
-                {"stage": "prepare"},
-                {"stage": "outline"},
-                {"stage": "plan"},
-                {"stage": "write"},
-                {"stage": "done"},
+                {"stage": "prepare", "creation_mode": "greenfield", "requires_start_point": False},
+                {"stage": "outline", "creation_mode": "greenfield", "requires_start_point": False},
+                {"stage": "plan", "creation_mode": "greenfield", "requires_start_point": False},
+                {"stage": "write", "creation_mode": "greenfield", "requires_start_point": False},
+                {"stage": "done", "creation_mode": "greenfield", "requires_start_point": False},
             ],
             job_results={"write-book": {"status": "succeeded", "result_summary": {"chapters": 1, "cost_cny": 0.9}}},
         )
@@ -255,6 +347,28 @@ class OpAutoTest(unittest.IsolatedAsyncioTestCase):
         steps = [r[2] for r in c.runs()]
         self.assertEqual(steps, ["prepare-greenfield", "debate", "plan-chapters", "write-book"])
         self.assertIn("1 章", out)
+
+    async def test_continuation_auto_waits_for_start_point(self):
+        c = FakeClient(
+            workbench_seq=[{
+                "stage": "start",
+                "creation_mode": "continuation",
+                "requires_start_point": True,
+                "has_start_point": False,
+            }]
+        )
+        out = await op_auto(c, "b")
+        self.assertIn("续写起点", out)
+        self.assertEqual(c.runs(), [])
+
+    async def test_unknown_or_missing_stage_never_reports_success(self):
+        for status in ({}, {"stage": "unknown"}, {"stage": "future-stage"}):
+            with self.subTest(status=status):
+                c = FakeClient(workbench_seq=[status])
+                out = await op_auto(c, "b")
+                self.assertIn("未启动任何新任务", out)
+                self.assertNotIn("✅", out)
+                self.assertEqual(c.runs(), [])
 
     async def test_stops_on_blocked_step(self):
         c = FakeClient(

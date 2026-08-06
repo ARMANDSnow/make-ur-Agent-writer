@@ -120,6 +120,12 @@ class RunEndpointIntGuardTests(unittest.TestCase):
         os.environ.pop("WORKSPACE_NAME", None)
         paths.WORKSPACE_DIR = Path(self._tmp.name)
         _stub_workspace(paths.WORKSPACE_DIR, "alpha")
+        # This suite exercises numeric admission, not legacy-mode inference.
+        # Make the synthetic fixture an explicit original-work workspace so a
+        # valid request can still reach the mock job runner under schema v2.
+        from src.web import workspace_meta
+
+        workspace_meta.write("alpha", type="novel", creation_mode="greenfield")
         jobs.reset_for_tests()
         self.addCleanup(self._restore_env)
         self.addCleanup(jobs.reset_for_tests)
