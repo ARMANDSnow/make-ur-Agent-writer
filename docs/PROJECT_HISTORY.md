@@ -90,6 +90,7 @@
 | 162 | 近期体检报告公开投影与 Web 边界闭环 | Job 身份脱敏、episode 2+、degraded Insights、DOM 与 cancel wire guard；验收后删两份报告 |
 | 163 | 视频提交结果分流与历史 Unknown 对账 | create 未发送/拒绝/真正 unknown 三分状态、append-only CAS reconciliation receipt 与公开安全投影 |
 | 164 | 近期体检报告任务恢复、传输分帧与视频计账闭环 | result context、workspace-scoped job、严格 HTTP framing 与 effective accounting；验收后删四份报告 |
+| 165 | 小说 Web 模式语义与交互可靠性修复 | schema v2 原创/续写模式、阶段同源、分层导航/dirty、任务恢复与三视口 local-e2e |
 
 ## Iteration Implementation Index
 
@@ -232,6 +233,7 @@
 | 162 | 闭环公开投影、多集上下文与 cancel 边界 | `src/web/jobs.py`、`src/web/routes.py`、`src/web/server.py`、`src/web/static.py`、`tests/test_web_iter162_health_closure.py` |
 | 163 | 区分视频 create 结果并建立历史对账链 | `src/drama_video.py`、`src/drama_video_client.py`、`src/drama_video_reconciliation.py`、`src/web/`、`tests/test_drama_video_reconciliation.py` |
 | 164 | 闭环任务恢复、传输分帧与视频计账 | `src/web/`、`src/drama_multimodal_smoke.py`、`tests/test_web_iter164_health_closure.py`、`tests/test_drama_multimodal_smoke.py` |
+| 165 | 闭环小说模式语义、导航与任务恢复 | `src/web/`、`integrations/novel_ops/`、`tests/test_web_iter165_ux_reliability.py`、`tests/test_workspace_meta.py` |
 
 ## Durable Decisions
 
@@ -270,6 +272,11 @@
 - LLM 调用、writer meta、review、driver state、style drift 和媒体 attempt 只记录排障所需的有界、脱敏数据。
 - 运行中的草稿、失败、snapshot 和 resume 状态要完整落盘；成功/拒稿/中止不能靠文件是否存在猜测。
 - 计费恢复身份要区分不可变上游输入与本次站点输出；callback/ledger 提交前崩溃时只能凭 durable receipt、provider 与产物血统零网络收尾，不能用会被本次结果改写的全量输入指纹判断 stale。
+
+### Keep novel creation mode server-authoritative
+
+- 小说 workspace 的原创/导入续写来源必须持久化为 schema v2 `creation_mode`，由服务端向 overview、workbench、readiness 与 run 同源投影并在任务创建前执行守门；不能从“当前是否已有续写起点”反推来源模式。
+- legacy workspace 只允许 no-follow、regular-file 的只读安全推断；只有正规 `seed.txt` 且无 `upload.txt` 才视为 greenfield，其余歧义保守 continuation。GET 不迁移、不改盘，损坏 metadata 必须 fail-closed。
 
 ### Separate current truth from history
 
@@ -337,9 +344,12 @@
 49. **界面规范不能发明后端能力，用户语言也不能泄漏实现词汇**：每个按钮都应绑定当前接口、现有或待迁移 hook、确认条件、处理中状态、成功去向和失败恢复；没有写入契约的操作应明确隐藏。内部枚举、模型、provider、job 字段和原始错误只留在开发映射，用户界面统一翻译为直白中文。视觉示例还必须落在声明的响应式断点内，否则不能作为前端验收依据。
 50. **公共列表投影必须同时约束身份、类型与文件读取边界**：仅从目录名或未验证 metadata 猜 workspace 类型，会把损坏/替换对象送入错误域页面；公开更新时间也不能靠递归跟随路径。应从已验证 root fd 逐级 no-follow、有界读取权威产物，legacy 缺 metadata 可显式兼容，存在但损坏/未知的类型必须失败关闭。设置 secret 即使做掩码也仍泄漏片段，普通用户投影只应返回 configured 布尔和零片段值。
 51. **历史付费状态的读侧迁移不能改写事实真源**：为 legacy submission 增加对账时，读取路径若顺手重写源文件，会改变首次状态、破坏 source CAS，并掩盖 ABA。应让源 submission 保持字节不变，用独立 sidecar generation、文件 revision/content identity 与 ledger fingerprint 共同保护 append-only receipt；exact replay 可幂等，但权威 resolution 身份一旦形成必须冻结。
+52. **创作来源不能由起点是否存在反推**：原创书没有续写起点是正常状态，导入书暂未选起点也不会因此变成原创。来源模式必须由持久 metadata 与服务端同源投影决定，显式冲突在任务分配前拒绝；legacy 推断保持只读和保守。
+53. **dirty 与 active job 是两个有序导航守门**：same-workspace 切页只处理未保存内容，不应查询或弹出运行任务提示；真正离开/切书才在 dirty 解决后处理 active job。hydration 或任务状态未知时 mutation 必须保持禁用，lost/404/坏状态停止轮询且不得自动重提。
 
 ## Historical Evidence Notes
 
+- iter165 在 implementation `e718200` 上 canonical 3072 tests / 15 steps / 502 秒通过，run `615a5147bb994c6f8179c1899dc0b055`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。schema v2 创作模式、阶段同源、dirty/active-job 分层、fail-closed 工作台与任务恢复、提示聚合和移动菜单无障碍闭环；三视口为 `local-e2e`，三路最终无剩余高置信 P1/P2。前两次 full gate 的兼容回归经聚焦修复后完整重验通过；两份未跟踪报告保持原样，未 push、未查询或调用真实 provider。
 - iter164 在 implementation `817c930` 上 canonical 3043 tests / 15 steps / 467 秒通过，run `9a66e53279774023ad2e6eecbabc9a94`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。四份报告去重出的 result context、workspace-scoped job、protected mutation framing 与 reconciliation-aware accounting 四根因全部闭合；episode 2/restart-lost/Local Demo target 为 `local-e2e`。三路复审最终无剩余 P0-P3，报告在验收后删除；未 push、未查询或调用真实 provider。
 - iter163 在 implementation `ea4e1d4` 上 canonical 3025 tests / 15 steps / 481 秒通过，run `44fb300e4c994e068c8131ff30f6a009`，等级 `mock-functional` / `canonical-mock-offline`。视频 create 三分状态、历史 unknown append-only CAS receipt 与公开安全投影完成；correctness、security/boundary、真实媒体/计费三路最终 no findings。首次验收的 2 个旧测试契约修复后完整重验通过；未 push、未查询或调用真实 provider。
 - iter162 在 implementation `935ffc8` 上 canonical 3008 tests / 15 steps / 467 秒通过，run `0503739d35a7453cb995f5581ba0f923`，等级 `mock-functional` / `canonical-mock-offline`；episode 2 与 degraded Insights synthetic 浏览器证据为 `local-e2e`。三路复审无剩余 P0–P3；首次完整验收发现的旧逐镜视频 mutation 错误优先级回归修复后完整重验通过，两份报告随后删除；未 push、未调用真实 provider。

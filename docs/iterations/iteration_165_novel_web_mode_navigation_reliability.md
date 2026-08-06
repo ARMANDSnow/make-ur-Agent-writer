@@ -52,12 +52,26 @@
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- **A165-01 通过**：小说 workspace schema v2、新建入口显式模式与 legacy no-follow/regular-file 只读保守推断均有回归；GET 不迁移、不改盘。
+- **A165-02 通过**：overview/workbench/readiness/run 共用服务端权威模式与阶段；原创正文不受续写起点误拦，导入作品与冲突参数在 job 创建前失败关闭。
+- **A165-03 通过**：概览按当前阶段优先，greenfield 隐藏续写口径；readiness primary 单点展示，同类多章提示聚合计数。
+- **A165-04 通过**：same-document/same-workspace/leave/switch 分类、dirty→active-job 顺序、编码名称、query/hash 与快速双击竞态均有行为回归。
+- **A165-05 通过**：正文、独立计划、KB、扩写稿、风格卡、大纲、实体、关系与内嵌细纲全部接入 dirty registry；部分保存失败保留输入，beforeunload 仅在 dirty 时生效。
+- **A165-06 通过**：工作台 hydration 与 active-job 状态未知时 mutation 禁用；pending/running 可恢复，终态刷新，lost/404/坏状态停止轮询且零自动重提。
+- **A165-07 通过**：Toast 合并且最多三条；移动菜单 ARIA、焦点、Escape 与背景隔离通过三视口 isolated synthetic mock 浏览器复核。
+- **A165-08 通过**：聚焦 Python/JS/harness/diff 检查和 correctness、security/boundary、Web/UX 三路只读审查完成，最终无剩余高置信 P1/P2。
+- **A165-09 通过**：最终 implementation commit 上 canonical 3072 tests 与 15 steps 通过，超过 iter164 的 3043 基线，回执为 `mock-functional` / `canonical-mock-offline`，未作 provider-validated 宣称。
+- **聚焦验收**：初始核心前后端、NovelOps/Aeloon/MCP 共 256 tests OK，JS `node --check`、Python `py_compile`、harness 与 `git diff --check` 通过。第一次 canonical 暴露 legacy drama metadata 与旧步骤分类兼容问题后，213 项失败域回归通过；随后 483 项 Web/static/drama-media 广域回归仅发现 1 个旧静态合同，修复后 125 项终检通过。第二次 canonical 暴露 `/run` 数值参数校验被模式门禁遮蔽，调整校验优先级并将数值测试 fixture 显式标记 greenfield 后，47 项聚焦回归通过。
+- **浏览器证据**：Playwright 仅使用 `/private/tmp/iter165-browser.*` isolated synthetic workspace 与 mock，在 390×844、1199×900、1440×1024 覆盖原创、导入、active job、dirty modal、Toast、菜单键盘/焦点和概览布局；0 console errors、0 warnings，无横向溢出或关键控件遮挡，等级 `local-e2e`，provider calls=0。
+- **独立审查**：correctness、security/boundary、Web/UX 三路只读审查完成。审查 findings 经主线程复核并修复，包含模式/阶段与下游 stale 传播、metadata/novel-drama family 准入、重启 lost 投影、内联细纲 dirty、部分保存、移动菜单背景焦点等；三路最终复核均无剩余高置信 P1/P2。
+- **Canonical**：最终 accepted implementation `e718200da399c25c198f239b874bf669f1de963b` 上 `bash scripts/verify.sh` exit 0；schema v2，3072 tests、15 completed steps、502 秒，run `615a5147bb994c6f8179c1899dc0b055`，`status=passed`、`tracked_scope_clean=true`、`mock_offline=true`，等级 `mock-functional` / `canonical-mock-offline`。完整链包含 `local_drama_e2e`、mock pipeline 与 preflight。
+- **失败后重验记录**：首次 full gate 在 implementation `3240671` 上 3072 tests 出现 40 failures / 181 errors，定位为 schema v2 对既有 drama metadata 与步骤分类的兼容回归；修复后 implementation `6651156` 上 3072 tests 仅余 6 个 `/run` 校验优先级失败（run `7630ad0d2d4d420ca700292c1bbcc43e`）。两次失败均未越过 unittest，也未产生 provider 请求；按失败范围聚焦修复后在最终 implementation 上完整重验通过。更早一次 clean-scope 预检因 iteration 文档未并入 commit 而立即停止，未运行测试。
+- **边界**：全程未 push，未读取或修改 `.env`、`小说txt/`、私有 workspace、用户运行产物，未调用或查询真实 provider。`docs/2026-8-5体检报告.md` 与 `docs/2026-8-6体检报告.md` 保持未跟踪且未读取、修改、暂存或提交。
 
 ### Knowledge Promotion
-- `decision`: `<iter-finish 回填：none|promoted>`
-- `destination`: `<iter-finish 回填：none|既有长期权威文档>`
-- `reason`: `<iter-finish 回填人工判断>`
+- `decision`: `promoted`
+- `destination`: `docs/PROJECT_HISTORY.md`
+- `reason`: 本轮形成跨迭代长期合同：小说创作来源必须由持久 metadata 与服务端投影/执行守门统一决定，legacy 只读保守推断且 GET 不迁移；导航必须把 dirty 与 active-job 分层，same-workspace 不查询任务，hydration 或任务状态未知时 mutation 保持 fail-closed。
 
 ## 文件变更汇总
 
@@ -70,6 +84,8 @@
 | `tests/test_workspace_meta.py`, `tests/test_web_jobs_dispatch.py`, `tests/test_web_wizard_e2e.py` | 元数据、任务冲突与导入流程测试 |
 | `tests/test_web_iter165_ux_reliability.py`, `tests/test_web_phase_d.py`, `tests/test_web_routes_get.py` | 前端可靠性、概览与静态合同测试 |
 | `tests/test_novel_ops.py`, `tests/test_aeloon_plugin.py` | NovelOps/Aeloon 模式行为回归 |
+| `src/drama_media_tasks.py`, `tests/test_int_finite_guard.py`, `tests/test_web_phase_e.py` | schema v2 与既有参数/静态合同兼容修复 |
+| `README.md`, `docs/AGENT_HANDOFF.md`, `docs/PROJECT_HISTORY.md`, `docs/iterations/README.md`, 本文档 | SOP、当前快照、长期决策、索引与验收回执收官同步 |
 
 ## 不在本轮范围
 
@@ -79,4 +95,4 @@
 
 ## Notes
 
-- 当前工作树已有两份用户未跟踪体检报告；本轮不读取、不修改、不暂存、不提交。
+- 当前工作树两份用户未跟踪体检报告保持原样；本轮未读取、修改、暂存或提交。

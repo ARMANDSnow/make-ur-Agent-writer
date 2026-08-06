@@ -6,13 +6,13 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 164，2026-08-04 收官 |
+| 更新时间 | iter 165，2026-08-06 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **3043 tests OK** |
-| Accepted implementation commit | `817c93082c3ab2b198e6f013c2319c1aecc16de3` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `817c93082c3ab2b198e6f013c2319c1aecc16de3`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、467 秒、run `9a66e53279774023ad2e6eecbabc9a94`；`verify.sh` exit 0；tracked scope clean |
+| Canonical 基线 | **3072 tests OK** |
+| Accepted implementation commit | `e718200da399c25c198f239b874bf669f1de963b` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `e718200da399c25c198f239b874bf669f1de963b`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、502 秒、run `615a5147bb994c6f8179c1899dc0b055`；`verify.sh` exit 0；tracked scope clean |
 | 当前高风险缺口 | iter143 的 20 秒 create 仍为 `submission_unknown`：无 task/MP4、费用 unknown，任务列表未增加不能证明未提交，禁止重提；只能先经独立授权做 task/billing/rejection 只读 reconciliation，upload/create=0。真实 TTS adapter 尚不存在；真实单镜图片/视频、完整单集、episode 2+/多集必须按阶段另行授权。iter142 的 5 秒窄样本不外推这些阶段；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter164 已闭环任务结果上下文、workspace-scoped job 恢复/取消、protected mutation 读前分帧守门及 reconciliation-aware 视频计账，四份报告已在验收后删除。小说 Web Phase A-E、短剧 Web Phase A-D 和 A-I 本地闭环保持。工程验收 `mock-functional`，浏览器证据 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
+| 当前开发轮次 | 无；iter165 已闭环小说原创/导入模式语义、阶段同源、dirty/active-job 导航、fail-closed hydration/任务恢复、警示/Toast 聚合与移动菜单无障碍。小说 Web Phase A-E、短剧 Web Phase A-D 和 A-I 本地闭环保持。工程验收 `mock-functional`，浏览器证据 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
 
 ## Capability Map
 
@@ -21,7 +21,7 @@
 | 小说主链 | normalize、split、extract、compress、debate、plan、write、review、滚动摘要、关系推进、多 workspace、多语言 | 10-20 章真模型 capstone 与长期质量阈值校准 |
 | 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、直接 unittest/IDE 全 provider mock、付费 unknown 零自动重发、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
 | 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
-| Web | 本地研究版、四阶段工作台、可编辑设定/大纲/细纲/正文、任务恢复、搜索、版本比较、创作数据、多集编辑入口与脱敏任务历史；Phase A-E 已完成生产级内容结构、安全投影、响应式、恢复路径及有证据的兼容清理 | 仍是本地研究工具，不是公网多租户产品；无调用方证据不足的兼容 hook 继续保留 |
+| Web | 本地研究版、schema v2 原创/导入权威模式、同源四阶段工作台、全编辑器 dirty registry、分层导航守卫、fail-closed hydration 与 active-job 恢复、搜索/版本比较/创作数据、多集入口及脱敏任务历史；Phase A-E 已完成生产级内容结构、安全投影、响应式与恢复路径 | 仍是本地研究工具，不是公网多租户产品；无调用方证据不足的兼容 hook 继续保留 |
 | 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3、I1-I2 本地闭环；视频 create 三分状态、append-only CAS reconciliation receipt、公开安全投影；隔离 `localdemo_*` exact-duration A-F 与 MP4/SRT/ASS/edit；固定 episode 1 高光视频真实窄样本 | iter143 权威只读 reconciliation、真实 billing/TTS/逐镜图片视频 provider、长时质量、Web provider submit/poll/cancel、物理 GC、特定 NLE、多 profile、更广 codec、公网流式交付及真实完整单集/episode 2+/多集未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
@@ -58,8 +58,8 @@
 - iter161 依据 Figma D14-D18/T05/M05-M06 重构 compose、episodes、Insights 与 jobs，并完成 Phase A-D 全站收口；timeline/QA/exact delivery、episode freshness、known/unknown、Lost/SubmissionUnknown、取消与恢复仍以服务端安全投影为真源。Running 使用不泄露 job ID 的专用轮询，移动 Ready 固定操作、三视口 44px/3px/零溢出及键盘筛选通过。四路审查 findings 全部修复。
 - canonical **3001 tests OK**（项目 `.venv`）；implementation commit `44a391b` 上 exit 0，15 steps / 443 秒，run `0031d4965e664254ba5ecac1fa3f21de`，`tracked_scope_clean=true`。总级别为 `mock-functional` / `canonical-mock-offline`，本轮浏览器证据为 `local-e2e`。首次验收的 2 个 legacy 静态合同失败在修复提交中闭合后完整重验通过。iter161 未调用真实 provider。
 - iter163 将视频 create 封闭为 `request_not_sent / provider_rejected / submission_unknown`：只有 transport 可证明未发送时释放机会；拒绝和 unknown 均消费原授权。历史 unknown 通过独立 append-only receipt chain 对账，绑定 source revision/identity、sidecar generation、ledger fingerprint、sequence/time/previous receipt；冲突、乱序、ABA 与结论改写 fail closed。公开 API/DOM 只含安全状态，不含 task/request ID、响应正文、素材/sample 身份或 evidence/provider/prompt fingerprint。iter143 在无权威新证据前仍 unknown，task-list absence 只记录观察，不能推断未提交或触发重提。
-- iter164 将 public job 的 workspace/episode 结果上下文冻结并严格校验，HTTP detail/cancel 只恢复 URL 指定 workspace，protected mutation 在读 body/dispatch 前拒绝任意 TE 和歧义/非规范 CL；视频 calibration schema v2 统一使用 reconciliation effective 状态计账并保留 raw source 状态。episode 2、restart-lost 与 Local Demo target 的 synthetic mock 浏览器路径为 `local-e2e`；四份报告在验收后删除。
-- canonical **3043 tests OK**（项目 `.venv`）；implementation commit `817c930` 上 exit 0，15 steps / 467 秒，run `9a66e53279774023ad2e6eecbabc9a94`，`tracked_scope_clean=true`。总级别 `mock-functional` / `canonical-mock-offline`；correctness、security/boundary、Web/runner/multi-workspace+媒体计账三路最终无剩余 P0-P3。本轮真实查询、upload/create、TTS、图片、视频均为 0。
+- iter165 将小说 `creation_mode` 固化为 schema v2 权威字段，legacy 只读保守推断；overview/workbench/readiness/run 共用模式与阶段。导航按 same-document/same-workspace/leave/switch 分层，dirty 先于 active-job；hydration/任务未知保持 fail-closed，lost/404/坏状态停止且零重提。三视口 synthetic mock 浏览器为 `local-e2e`，三路最终复核无剩余高置信 P1/P2；两份未跟踪体检报告保持原样。
+- canonical **3072 tests OK**（项目 `.venv`）；implementation commit `e718200` 上 exit 0，15 steps / 502 秒，run `615a5147bb994c6f8179c1899dc0b055`，`tracked_scope_clean=true`。总级别 `mock-functional` / `canonical-mock-offline`；失败 gate 的兼容性问题均经聚焦修复和完整重验闭合。本轮真实查询、upload/create、TTS、图片、视频均为 0。
 
 ## Retained Working Memory
 
@@ -111,7 +111,9 @@
 ### 7. Web 与本地产品定位
 
 - Web 是本地个人研究工作台，默认绑定 loopback，不是公网多租户产品。任何面向公网的鉴权、租户隔离、CSRF、速率限制或对象存储结论都不能从本地安全守门外推。
+- 小说创作来源由 `workspace.json` schema v2 的 `creation_mode` 决定；overview/workbench/readiness/run 必须消费服务端同源投影。legacy 只允许 no-follow、regular-file 的只读推断，歧义保守 continuation，GET 不迁移、不改盘。
 - 四步工作台支持 premise、设定、大纲、细纲、正文的编辑与再生成；编辑后必须使依赖的 fingerprint/readiness 失效，不能继续沿用旧计划或旧草稿。
+- 导航的未保存内容与 active job 是两个有序守门：same-workspace 只处理 dirty，真正离开/切书才在 dirty 解决后查询任务。hydration 或 active-job 状态未知时 mutation 继续禁用；lost/404/坏状态停止轮询且绝不自动重提。
 - Job 的公开投影只允许受控字段和短状态；内部异常、provider 文本、路径、prompt、URL 与大对象不能直接透传。恢复页面需要从持久 state 重建，而不是只依赖进程内 future。
 - 搜索、章节 diff、Insights、软删除/回收站属于编辑辅助能力；它们应只读或显式确认，不得绕过 workspace 路径约束和写锁。
 
@@ -259,7 +261,7 @@
 - 低风险短剧阶段轮：A-I 本地规划已闭合；可独立推进 C 的可靠有界 JPEG/WebP decoder、asset/archive hidden staging GC、archive 签名/加密、特定 NLE adapter 或 episode 2+ 纯本地交付覆盖。
 - 需授权验证轮：严格按“iter143 只读对账 → 实现真实 TTS adapter 后 1 条语音 → 新 namespace 1 个单镜图片/视频样本 → 完整单集 → episode 2+/多集”逐项推进，每一步重新授权；小说 capstone 也单独授权。iter143 的 20 秒机会已消费且结果不明，不得复跑、改时长或换入口重提。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
-- 小说 Web 产品轮：Phase A-E 已全部完成；后续只按真实使用反馈处理可访问性、性能或兼容缺陷，不在无调用方证据时继续删除兼容 hook。
+- 小说 Web 产品轮：Phase A-E 与 iter165 模式/导航/恢复可靠性已闭环；后续只按真实使用反馈处理可访问性、性能或兼容缺陷，不在无调用方证据时继续删除兼容 hook。
 
 ## Recovery Commands
 
@@ -297,4 +299,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter164 完成近期四份体检报告的四根因闭环，A164-01 至 A164-07 全部通过。任务 recent/detail 只投影严格校验的 workspace/episode 结果上下文；detail/cancel 只访问 URL 指定 workspace 并在取消锁内复核；protected mutation 在读 body/dispatch 前拒绝任意 TE、重复或非规范 CL，唯一规范超限仍为 413；视频 calibration schema v2 以 reconciliation effective 状态统一计账、保留 raw source 状态且不改 paid ledger/receipt。episode 2、restart-lost 与 Local Demo target 浏览器证据为 `local-e2e`。correctness、security/boundary、Web/runner/multi-workspace+媒体计账三路复审最终无剩余 P0-P3。accepted implementation `817c93082c3ab2b198e6f013c2319c1aecc16de3` 上 canonical 3043 tests、15 steps、467 秒，run `9a66e53279774023ad2e6eecbabc9a94`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean；四份报告随后精确删除。全程未 push、未调用或查询真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
+iter165 完成小说 Web 模式语义与交互可靠性闭环，A165-01 至 A165-09 全部通过。workspace schema v2 以 `creation_mode` 权威区分原创/导入续写，legacy 只读保守推断；overview/workbench/readiness/run 共用模式与阶段，原创不再误报续写起点，导入作品不能误走 greenfield。导航将 dirty 与 active-job 分层，same-workspace 不查询任务；全编辑器保存保护、fail-closed hydration、运行中任务恢复、警示/Toast 聚合和移动菜单焦点语义闭环。correctness、security/boundary、Web/UX 三路最终复核无剩余高置信 P1/P2；三视口 synthetic mock 浏览器证据为 `local-e2e`。accepted implementation `e718200da399c25c198f239b874bf669f1de963b` 上 canonical 3072 tests、15 steps、502 秒，run `615a5147bb994c6f8179c1899dc0b055`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean。两次 full gate 的兼容回归均在聚焦修复后完整重验闭合。两份未跟踪体检报告保持原样；全程未 push、未调用或查询真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
