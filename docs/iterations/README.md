@@ -193,3 +193,4 @@
 171. [Iteration 162 - 近期体检报告公开投影、多集上下文与 Web 边界闭环](./iteration_162_health_report_projection_episode_web_boundary_closure.md)
 172. [Iteration 163 - 短剧视频提交结果分流与历史 Unknown 对账凭证](./iteration_163_drama_video_submission_outcome_reconciliation.md)
 173. [Iteration 164 - 近期体检报告任务恢复、传输分帧与视频计账闭环](./iteration_164_health_report_job_recovery_framing_accounting_closure.md)
+174. [Iteration 165 - 小说 Web 模式语义与交互可靠性修复](./iteration_165_novel_web_mode_navigation_reliability.md)
