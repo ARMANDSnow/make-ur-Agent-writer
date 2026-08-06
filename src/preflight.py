@@ -67,6 +67,7 @@ def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     _check_cache_provider(warn)
     _check_global_facts(warn, root)
     _check_runtime_env(warn)
+    _check_model_pricing(fatal, is_global_mock, model)
     _check_budget_guard(warn, is_global_mock)
     _check_drama_media_config(warn, info)
     _check_start_safe_knowledge(warn, info, root)
@@ -519,6 +520,21 @@ def _check_budget_guard(warn: List[str], is_global_mock: bool) -> None:
         warn.append(
             f"NOVEL_DEFAULT_BUDGET_CNY='{raw}' is not a usable cap "
             "(needs a finite number >= 0); the 10.0元 default applies."
+        )
+
+
+def _check_model_pricing(fatal: List[str], is_global_mock: bool, model: str) -> None:
+    """Require a trusted local price fact before claiming a人民币 hard cap."""
+
+    if is_global_mock:
+        return
+    from .cost_estimator import has_known_model_pricing
+
+    if not has_known_model_pricing(model):
+        fatal.append(
+            f"Model {model!r} has no trusted local pricing; paid Web generation "
+            "is blocked before the first provider request. Configure a model "
+            "with explicit pricing before real validation."
         )
 
 

@@ -33,6 +33,26 @@ MODEL_PRICING: Dict[str, Tuple[float, float, float]] = {
 _UNKNOWN_MODEL_WARNED: Set[str] = set()
 
 
+def has_known_model_pricing(model: str) -> bool:
+    """Whether ``model`` has an explicit local pricing fact.
+
+    The legacy reporting path below deliberately keeps its DeepSeek fallback,
+    but a paid Web admission guard must not mistake that approximation for a
+    trustworthy人民币 hard cap.  Keep the distinction explicit so callers can
+    fail closed without changing historical dashboards or CLI estimates.
+    """
+
+    name = str(model or "").strip().lower()
+    if not name:
+        return False
+    return any(
+        name == prefix
+        or name.startswith(f"{prefix}/")
+        or f"/{prefix}/" in name
+        for prefix in MODEL_PRICING
+    )
+
+
 def _mock_pricing_override() -> Tuple[float, float, float] | None:
     raw = os.getenv("MOCK_COST_CNY_PER_1K_TOKENS", "").strip()
     if not raw:

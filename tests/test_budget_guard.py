@@ -274,8 +274,10 @@ class PreflightBudgetWarnTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("NOVEL_DEFAULT_BUDGET_CNY", None)
             html = templates.render_workspace_workbench("formws", ["formws"])
-            self.assertIn('value="10"', html)
-        self.assertIn("填 0 表示不设上限", html)
+            self.assertIn('name="budget_cny" type="number" min="0.1" max="6"', html)
+            self.assertIn('value="6"', html)
+        self.assertNotIn("填 0 表示不设上限", html)
+        self.assertIn("单章最高 6 元", html)
 
 
 if __name__ == "__main__":

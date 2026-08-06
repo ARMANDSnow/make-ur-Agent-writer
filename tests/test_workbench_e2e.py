@@ -136,14 +136,16 @@ class WorkbenchE2ETests(unittest.TestCase):
         # The mock reviewer defaults to Reject (reviewer.py:68), so write-book
         # hits retry_exhausted under mock — the chapter draft IS written, just
         # not strict-approved (real models can approve). Reaching a terminal
-        # state (succeeded OR blocked) proves the stage④ wiring; the draft
-        # landing + stage="done" proves the workbench reflects it.
+        # state (succeeded OR blocked) proves the stage④ wiring. A rejected
+        # draft must stay recoverable instead of masquerading as stage="done".
         self.assertIn(rec["status"], ("succeeded", "blocked"), f"rec={json.dumps(rec, ensure_ascii=False)[:500]}")
         ch1 = paths.WORKSPACE_DIR / "stagebook" / "outputs" / "drafts" / "chapter_01.md"
         self.assertTrue(ch1.exists(), f"missing {ch1}")
         s4 = self._status("stagebook")
         self.assertGreaterEqual(s4["draft_count"], 1)
-        self.assertEqual(s4["stage"], "done")
+        self.assertEqual(s4["stage"], "write")
+        self.assertEqual(s4["write_state"], "retry_required")
+        self.assertEqual(s4["retry_chapter"], 1)
 
     # ---- outline PUT ------------------------------------------------------
 

@@ -214,7 +214,15 @@ def chapter_status(
     )
     # iter077 审查修复：重试耗尽后按 halt 停机的分诊结论（book_runner._mark_panel_halted
     # 落盘），resume 的 stale-reject 自动重写据此让路——halt 语义跨进程存活。
-    panel_halted = bool(meta.get("panel_halted")) if isinstance(meta, dict) else False
+    panel_halted_raw = meta.get("panel_halted") if isinstance(meta, dict) else None
+    panel_halted = bool(panel_halted_raw)
+    panel_halt_reason = ""
+    if isinstance(panel_halted_raw, dict):
+        candidate = panel_halted_raw.get("reason")
+        if candidate in {"retry_exhausted", "hard_reject", "external_review_reject"}:
+            panel_halt_reason = str(candidate)
+        elif candidate:
+            panel_halt_reason = "unknown"
     draft_sha = ""
     if exists:
         try:
@@ -318,4 +326,5 @@ def chapter_status(
         "hard_reject": hard_reject,
         "caveat_approved": caveat_approved,
         "panel_halted": panel_halted,
+        "panel_halt_reason": panel_halt_reason,
     }

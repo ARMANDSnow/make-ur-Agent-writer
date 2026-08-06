@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from html.parser import HTMLParser
 from unittest import mock
@@ -86,6 +87,15 @@ class WebDesignSystemTests(unittest.TestCase):
         self.assertEqual(static.user_status_label("new_internal_state"), "状态待确认")
         self.assertIn('return STATUS_LABELS[raw] || "状态待确认";', static.JS_DASHBOARD)
         self.assertIn('return STEP_LABELS[step] || "未识别步骤";', static.JS_DASHBOARD)
+        self.assertIn("function currentStepLabel", static.JS_DASHBOARD)
+        self.assertIn('return parent || "任务处理中";', static.JS_DASHBOARD)
+        self.assertNotIn("stepLabel(job.current_step || job.step)", static.JS_DASHBOARD)
+        self.assertIn("write_recovery_busy", static.JS_DASHBOARD)
+        self.assertIn("write_recovery_reconciliation_required", static.JS_DASHBOARD)
+        self.assertIn("write_recovery_state_changed", static.JS_DASHBOARD)
+        self.assertIn("confirm.disabled = true", static.JS_DASHBOARD)
+        self.assertIn("当前模型缺少可信单价", static.JS_SETTINGS)
+        self.assertIn("当前模型缺少可信单价", static.JS_WIZARD)
         self.assertIn('return labels[String(verdict || "").toLowerCase()] || "状态待确认";', static.JS_DASHBOARD)
         self.assertIn('SEARCH_SOURCE_LABELS[source] || "来源待确认"', static.JS_DASHBOARD)
         self.assertIn('return named[k] || "有一项续写条件需要补充";', static.JS_DASHBOARD)
@@ -94,6 +104,40 @@ class WebDesignSystemTests(unittest.TestCase):
         self.assertIn('return "有一项建议需要确认";', static.JS_DASHBOARD)
         self.assertIn('if (document.querySelector(".ui-drama")) return (err && err.message)', static.JS_DASHBOARD)
         self.assertNotIn('"知识库尚未生成（" + err.message', static.JS_DASHBOARD)
+
+    def test_current_step_dynamic_matrix_uses_safe_fallback(self) -> None:
+        js = static.JS_DASHBOARD
+        start = js.index("function currentStepLabel(")
+        end = js.index("  const PAID_NOVEL_JOB_STEPS", start)
+        function_source = js[start:end]
+        script = function_source + r'''
+const STEP_LABELS = {"write-book": "顶层写作", "expand-premise": "顶层扩写"};
+function statusLabel(value) { return value === "succeeded" ? "已完成" : "终态"; }
+const cases = [
+  ["expand", "expand-premise", "running", "扩写故事设定"],
+  ["extract:synthetic-secret", "extract", "running", "抽取章节设定"],
+  ["compress:part-2", "compress", "running", "构建作品知识库"],
+  ["bootstrap:persona", "bootstrap", "running", "生成实体提案"],
+  ["debate-round-3", "debate", "running", "生成故事大纲"],
+  ["chapter-1/write-attempt-1", "write-book", "running", "撰写章节正文"],
+  ["chapter-1/retry-2/review-attempt-3", "write-book", "running", "评审章节"],
+  ["chapter-1/style-rewrite", "write-book", "running", "润色章节"],
+  ["chapter-1/finalize", "write-book", "running", "整理评审结果"],
+  ["internal/secret/token", "write-book", "running", "顶层写作"],
+  ["internal/secret/token", "future-step", "running", "任务处理中"],
+  ["internal/secret/token", "write-book", "succeeded", "已完成"],
+];
+for (const [current, parent, status, expected] of cases) {
+  const actual = currentStepLabel(current, parent, status);
+  if (actual !== expected || actual.includes("secret")) {
+    throw new Error(JSON.stringify({current, parent, status, expected, actual}));
+  }
+}
+'''
+        result = subprocess.run(
+            ["node", "-e", script], text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     @mock.patch("src.web.workspace_meta.read", return_value={"type": "novel"})
     def test_paid_actions_follow_novel_generation_hooks(self, _read) -> None:

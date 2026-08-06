@@ -79,6 +79,52 @@ _MAX_JOB_LOG_LINE_BYTES = 64 * 1024
 _MAX_JOB_LOG_ROWS = 5_000
 _MAX_JOB_WORKSPACES = 256
 
+# Provider-attempt caps for Web novel jobs.  These are both server defaults and
+# hard per-step maxima, not UI trust: routes validates an explicit lower value
+# and persists the resolved value;
+# the worker also installs a required LLM scope so an internal caller that
+# omits it cannot make an unbounded real-model request.  Purely local steps are
+# intentionally absent.
+MAX_MODEL_REQUESTS_PER_JOB = 160
+NOVEL_MODEL_REQUEST_DEFAULTS: Dict[str, int] = {
+    "extract": 10,
+    "compress": 10,
+    "bootstrap": 10,
+    "debate": 45,
+    "plan-chapters": 3,
+    "write-book": 20,
+    "review-chapter": 20,
+    "draft-once-dev": 20,
+    "auto-pipeline-greenfield": 160,
+    "prepare-greenfield": 10,
+    "rebuild-for-start": 10,
+    "expand-premise": 2,
+    "extract-style": 2,
+}
+NOVEL_EXECUTION_LIMIT_DEFAULTS: Dict[str, tuple[float, float]] = {
+    "extract": (3.0, 15.0),
+    "compress": (3.0, 15.0),
+    "bootstrap": (3.0, 15.0),
+    "debate": (8.0, 60.0),
+    "plan-chapters": (2.0, 15.0),
+    "write-book": (6.0, 45.0),
+    "review-chapter": (6.0, 45.0),
+    "draft-once-dev": (6.0, 45.0),
+    "auto-pipeline-greenfield": (40.0, 120.0),
+    "prepare-greenfield": (3.0, 15.0),
+    "rebuild-for-start": (3.0, 15.0),
+    "expand-premise": (1.0, 15.0),
+    "extract-style": (2.0, 15.0),
+}
+
+
+def default_model_request_limit(step: str) -> Optional[int]:
+    return NOVEL_MODEL_REQUEST_DEFAULTS.get(step)
+
+
+def default_novel_execution_limits(step: str) -> Optional[tuple[float, float]]:
+    return NOVEL_EXECUTION_LIMIT_DEFAULTS.get(step)
+
 
 class JobCancelled(RuntimeError):
     """Raised inside a worker when a cooperative cancel checkpoint fires."""
@@ -190,12 +236,12 @@ _PUBLIC_JOB_DETAIL_FIELDS = _PUBLIC_JOB_SUMMARY_FIELDS + (
 _RETRY_PARAM_KEYS_BY_STEP: Dict[str, frozenset[str]] = {
     "normalize": frozenset({"lang"}),
     "split": frozenset({"lang"}),
-    "extract": frozenset({"limit", "force", "reextract"}),
-    "compress": frozenset(),
-    "bootstrap": frozenset(),
+    "extract": frozenset({"limit", "force", "reextract", "max_model_requests"}),
+    "compress": frozenset({"max_model_requests"}),
+    "bootstrap": frozenset({"max_model_requests"}),
     "apply-bootstrap": frozenset({"name", "apply"}),
-    "debate": frozenset({"force"}),
-    "plan-chapters": frozenset({"target_chapters", "force"}),
+    "debate": frozenset({"force", "max_model_requests"}),
+    "plan-chapters": frozenset({"target_chapters", "force", "max_model_requests"}),
     "write-book": frozenset(
         {
             "chapters",
@@ -205,21 +251,22 @@ _RETRY_PARAM_KEYS_BY_STEP: Dict[str, frozenset[str]] = {
             "min_confidence",
             "require_plan",
             "from_chapter",
+            "max_model_requests",
         }
     ),
-    "review-chapter": frozenset({"chapter", "tier", "budget_cny"}),
-    "draft-once-dev": frozenset({"chapter"}),
+    "review-chapter": frozenset({"chapter", "tier", "budget_cny", "max_model_requests"}),
+    "draft-once-dev": frozenset({"chapter", "max_model_requests"}),
     "auto-pipeline-greenfield": frozenset(
-        {"extract_limit", "chapters", "force", "skip_extract"}
+        {"extract_limit", "chapters", "force", "skip_extract", "max_model_requests"}
     ),
     "prepare-import": frozenset(),
     "prepare-greenfield": frozenset(
-        {"extract_limit", "budget_cny", "force"}
+        {"extract_limit", "budget_cny", "force", "max_model_requests"}
     ),
     "rebuild-for-start": frozenset(
-        {"chapter", "window", "budget_cny", "force"}
+        {"chapter", "window", "budget_cny", "force", "max_model_requests"}
     ),
-    "expand-premise": frozenset({"force"}),
+    "expand-premise": frozenset({"force", "max_model_requests"}),
     "drama-compose": frozenset({"episode_no"}),
 }
 _NON_RETRYABLE_STEPS = frozenset(
@@ -254,6 +301,7 @@ _RETRY_INT_KEYS = frozenset(
         "resume_from",
         "target_chapters",
         "window",
+        "max_model_requests",
     }
 )
 _RETRY_FLOAT_KEYS = frozenset({"budget_cny", "min_confidence"})
@@ -780,6 +828,87 @@ def _read_job_rows_unlocked(workspace: str) -> list[Dict[str, Any]]:
         os.close(directory_fd)
 
 
+def _read_job_rows_for_recovery(workspace: str) -> tuple[str, list[Dict[str, Any]]]:
+    """Read the paid-write ledger without collapsing uncertainty to empty.
+
+    General UI projections historically degrade a damaged/busy ledger to an
+    empty list.  Recovery admission cannot: empty means "safe to submit" while
+    an unreadable ledger may hide a pending or submission-unknown paid job.
+    Return ``absent`` only for a genuinely missing logs directory/file,
+    ``ok`` for a fully verified snapshot, and ``indeterminate`` for every
+    unsafe, oversized, locked, malformed, or racing state.
+    """
+
+    with _JOB_LOG_LOCK:
+        logs_path = paths.WORKSPACE_DIR / workspace / "logs"
+        try:
+            logs_stat = os.lstat(logs_path)
+        except FileNotFoundError:
+            return "absent", []
+        except OSError:
+            return "indeterminate", []
+        if not stat.S_ISDIR(logs_stat.st_mode) or stat.S_ISLNK(logs_stat.st_mode):
+            return "indeterminate", []
+
+        directory_fd = _open_job_logs_directory(workspace, create=False)
+        if directory_fd is None:
+            # The directory existed at lstat time but could not be opened with
+            # the no-follow identity walk.  Treat the race/identity mismatch as
+            # unknown rather than as a clean workspace.
+            return "indeterminate", []
+        file_fd: Optional[int] = None
+        try:
+            try:
+                file_fd = os.open(
+                    "web_jobs.jsonl",
+                    os.O_RDONLY
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_NONBLOCK", 0),
+                    dir_fd=directory_fd,
+                )
+            except FileNotFoundError:
+                return "absent", []
+            fcntl.flock(file_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            before = os.fstat(file_fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_size > _MAX_JOB_LOG_BYTES:
+                return "indeterminate", []
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = os.read(file_fd, min(64 * 1024, _MAX_JOB_LOG_BYTES + 1 - total))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_JOB_LOG_BYTES:
+                    return "indeterminate", []
+                chunks.append(chunk)
+            after = os.fstat(file_fd)
+            identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+            if identity(before) != identity(after):
+                return "indeterminate", []
+            lines = b"".join(chunks).splitlines()
+            if len(lines) > _MAX_JOB_LOG_ROWS:
+                return "indeterminate", []
+            rows: list[Dict[str, Any]] = []
+            for line in lines:
+                if len(line) > _MAX_JOB_LOG_LINE_BYTES:
+                    return "indeterminate", []
+                try:
+                    row = json.loads(line)
+                except (UnicodeDecodeError, ValueError, RecursionError):
+                    return "indeterminate", []
+                if not isinstance(row, dict):
+                    return "indeterminate", []
+                rows.append(row)
+            return "ok", rows
+        except OSError:
+            return "indeterminate", []
+        finally:
+            if file_fd is not None:
+                os.close(file_fd)
+            os.close(directory_fd)
+
+
 def _persist_job(job: Dict[str, Any]) -> bool:
     """Append one durable job row, restoring the prior length on failure."""
     try:
@@ -967,6 +1096,109 @@ def recent_jobs(workspace: str, limit: int = 5) -> list[Dict[str, Any]]:
 
     reconciled.sort(key=_sort_key, reverse=True)
     return reconciled[:limit]
+
+
+def _latest_write_job_from_rows(
+    workspace: str,
+    chapter: int,
+    rows: list[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    latest_by_id: Dict[str, Dict[str, Any]] = {}
+    creation_order: Dict[str, int] = {}
+    for sequence, row in enumerate(rows):
+        if not isinstance(row, dict) or row.get("workspace") != workspace or row.get("step") != "write-book":
+            continue
+        params = row.get("params")
+        if not isinstance(params, dict):
+            continue
+        try:
+            first = int(params.get("resume_from", 1))
+            count = int(params.get("chapters", 1))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if count < 1 or not first <= int(chapter) < first + count:
+            continue
+        job_id = str(row.get("job_id") or "")
+        if job_id:
+            creation_order.setdefault(job_id, sequence)
+            latest_by_id[job_id] = row
+    if not latest_by_id:
+        return None
+    # Pending rows deliberately have no timestamp.  Picking by started/finished
+    # time would therefore let an older terminal row hide a newer lost pending
+    # write after restart and incorrectly reopen the paid recovery entrypoint.
+    # The ledger is append-only and the workspace slot serializes jobs, so the
+    # first-seen row order is the authoritative creation order.
+    latest_job_id = max(creation_order, key=creation_order.__getitem__)
+    latest = latest_by_id[latest_job_id]
+    snapshot = dict(latest)
+    if snapshot.get("status") in {"pending", "running"}:
+        with _JOBS_LOCK:
+            live = _JOBS.get(str(snapshot.get("job_id") or ""))
+            snapshot = dict(live) if live is not None else snapshot
+        if live is None:
+            snapshot["status"] = "lost"
+            snapshot["error"] = _WORKER_RESTART_ERROR
+    return snapshot
+
+
+def latest_write_job_for_chapter(workspace: str, chapter: int) -> Optional[Dict[str, Any]]:
+    """Return the untruncated latest write job whose range covers ``chapter``.
+
+    This compatibility helper retains the UI reader's degraded-empty behavior.
+    Paid recovery admission must call ``write_recovery_job_ledger`` instead so
+    an unreadable ledger cannot be mistaken for no prior job.
+    """
+
+    return _latest_write_job_from_rows(workspace, chapter, _read_job_rows(workspace))
+
+
+def write_recovery_job_ledger(
+    workspace: str,
+    chapter: int,
+) -> tuple[str, Optional[Dict[str, Any]]]:
+    """Return ``(absent|ok|indeterminate, latest_chapter_write)`` safely."""
+
+    ledger_state, latest, _claim = write_recovery_job_claim(workspace, chapter)
+    return ledger_state, latest
+
+
+def write_recovery_job_claim(
+    workspace: str,
+    chapter: int,
+    *,
+    exclude_job_id: str = "",
+) -> tuple[str, Optional[Dict[str, Any]], Optional[str]]:
+    """Return strict ledger state, latest write, and a durable CAS digest.
+
+    The digest covers every verified ledger row except rows for the supplied
+    current recovery job.  A worker can therefore prove that no foreign job
+    was appended or updated between HTTP admission and its write-lock-held
+    precondition, even when process-local workspace slots cannot see another
+    Web process.
+    """
+
+    ledger_state, rows = _read_job_rows_for_recovery(workspace)
+    if ledger_state == "indeterminate":
+        return ledger_state, None, None
+    latest = _latest_write_job_from_rows(workspace, chapter, rows)
+    claim_rows = [
+        row
+        for row in rows
+        if not exclude_job_id or str(row.get("job_id") or "") != exclude_job_id
+    ]
+    try:
+        encoded = json.dumps(
+            claim_rows,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError):
+        return "indeterminate", None, None
+    claim = hashlib.sha256(b"write-recovery-ledger-v1\x00" + encoded).hexdigest()
+    return ledger_state, latest, claim
 
 
 def active_jobs(workspace: str) -> list[Dict[str, Any]]:
@@ -1449,6 +1681,48 @@ def _review_budget_cny() -> float:
 
 
 def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
+    precondition: Optional[Callable[[], None]] = None
+    expected_recovery_fingerprint = params.get("expected_recovery_fingerprint")
+    expected_recovery_ledger_claim = params.get("expected_recovery_ledger_claim")
+    recovery_chapter = params.get("recovery_chapter")
+    active_job_id = params.get("_active_job_id")
+    if isinstance(expected_recovery_fingerprint, str) and expected_recovery_fingerprint:
+        def _recovery_precondition() -> None:
+            import hmac
+
+            from .write_recovery import current_fingerprint
+
+            try:
+                chapter_no = int(recovery_chapter)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise BookRunBlocked("write_recovery_state_changed") from exc
+            if not (
+                isinstance(active_job_id, str)
+                and active_job_id
+                and isinstance(expected_recovery_ledger_claim, str)
+                and expected_recovery_ledger_claim
+            ):
+                raise BookRunBlocked("write_recovery_state_changed")
+            ledger_state, latest, actual_ledger_claim = write_recovery_job_claim(
+                paths.workspace_name(),
+                chapter_no,
+                exclude_job_id=active_job_id,
+            )
+            if (
+                ledger_state != "ok"
+                or not isinstance(latest, dict)
+                or str(latest.get("job_id") or "") != active_job_id
+                or not isinstance(actual_ledger_claim, str)
+                or not hmac.compare_digest(
+                    actual_ledger_claim, expected_recovery_ledger_claim
+                )
+            ):
+                raise BookRunBlocked("write_recovery_state_changed")
+            actual = current_fingerprint(paths.workspace_name(), chapter_no)
+            if actual is None or not hmac.compare_digest(actual, expected_recovery_fingerprint):
+                raise BookRunBlocked("write_recovery_state_changed")
+
+        precondition = _recovery_precondition
     return run_write_book(
         chapters=int(params.get("chapters", 1)),
         resume_from=int(params.get("resume_from", 1)),
@@ -1463,6 +1737,7 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
         require_external_review=bool(params.get("require_external_review", True)),
         progress_cb=progress_cb,
         tier=params.get("tier"),
+        precondition=precondition,
         # iter078 P1-7: workspace 写锁 holder 标签——被拒的 CLI 侧能从报错
         # 看出持有方是 Web job。
         lock_source="web-job",
@@ -2943,13 +3218,60 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
 
     _update(job_id, status="running", started_at=_now(), current_step=step)
     try:
-        from ..llm_client import llm_deadline_scope
+        from ..llm_client import (
+            LLMBudgetLimitExceeded,
+            LLMPricingUnavailable,
+            llm_budget_limit_scope,
+            llm_deadline_scope,
+            llm_request_limit_scope,
+        )
 
-        with use_workspace(workspace), llm_deadline_scope(deadline):
-            _check_cancelled(job_id, deadline, timeout_minutes)
-            result = handler(params, _progress)
-            if not (isinstance(result, dict) and result.get("committed") is True):
+        with use_workspace(workspace):
+            from ..book_runner import _llm_log_line_count
+            from ..cost_estimator import estimate_cost_since
+
+            model_step = step in NOVEL_MODEL_REQUEST_DEFAULTS
+            initial_log_lines = _llm_log_line_count()
+
+            def _known_job_cost() -> float:
+                return float(
+                    estimate_cost_since(
+                        initial_log_lines,
+                        paths.workspace_root(),
+                    ).get("cost_cny", 0.0)
+                )
+
+            with (
+                llm_deadline_scope(deadline),
+                llm_request_limit_scope(
+                    params.get("max_model_requests"),
+                    required=model_step,
+                ),
+                llm_budget_limit_scope(
+                    params.get("budget_cny"),
+                    _known_job_cost,
+                    required=model_step,
+                    require_known_pricing=model_step,
+                ),
+            ):
                 _check_cancelled(job_id, deadline, timeout_minutes)
+                execution_params = params
+                if params.get("expected_recovery_fingerprint"):
+                    execution_params = dict(params)
+                    # Worker identity is intentionally in-memory only.  It is
+                    # never part of retry params or the durable public ledger.
+                    execution_params["_active_job_id"] = job_id
+                result = handler(execution_params, _progress)
+                if not (isinstance(result, dict) and result.get("committed") is True):
+                    _check_cancelled(job_id, deadline, timeout_minutes)
+                budget = params.get("budget_cny")
+                if model_step and budget is not None and float(budget) > 0:
+                    settled_cost = _known_job_cost()
+                    if settled_cost > float(budget):
+                        raise LLMBudgetLimitExceeded(
+                            budget_cny=float(budget),
+                            cost_cny=settled_cost,
+                        )
     except JobCancelled as exc:
         _update(
             job_id,
@@ -2974,6 +3296,34 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
             job_id,
             status="blocked",
             error=str(exc),
+            finished_at=_now(),
+        )
+    except LLMPricingUnavailable:
+        _update(
+            job_id,
+            status="blocked",
+            current_step="blocked",
+            error="model pricing unavailable",
+            result_summary={
+                "status": "blocked",
+                "first_blocked": {
+                    "reason": "preflight_failed",
+                    "status": "blocked",
+                },
+            },
+            finished_at=_now(),
+        )
+    except LLMBudgetLimitExceeded as exc:
+        _update(
+            job_id,
+            status="budget_exceeded",
+            current_step="budget_exceeded",
+            error="model budget limit exhausted",
+            result_summary={
+                "status": "budget_exceeded",
+                "budget_cny": exc.budget_cny,
+                "cost_cny": exc.cost_cny,
+            },
             finished_at=_now(),
         )
     except Exception as exc:

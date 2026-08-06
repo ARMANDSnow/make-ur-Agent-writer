@@ -451,7 +451,20 @@ def start_premise_workspace(body: bytes, content_type: str) -> Tuple[int, str, b
         from . import jobs
 
         try:
-            job = jobs.start_job(name, "expand-premise", {})
+            budget_cny, timeout_minutes = jobs.default_novel_execution_limits(
+                "expand-premise"
+            ) or (1.0, 15.0)
+            job = jobs.start_job(
+                name,
+                "expand-premise",
+                {
+                    "max_model_requests": jobs.default_model_request_limit(
+                        "expand-premise"
+                    ) or 2,
+                    "budget_cny": budget_cny,
+                    "timeout_minutes": timeout_minutes,
+                },
+            )
             expansion_job_id = job["job_id"]
         except RuntimeError as exc:
             expansion_error = "设定扩写暂未启动，可稍后在工作台重试。"

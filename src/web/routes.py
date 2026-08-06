@@ -16,6 +16,7 @@ iter 026 will add POST/PUT entries to ``_ROUTES``; iter 025 ships GET-only.
 
 from __future__ import annotations
 
+import hmac
 import json
 import math
 import os
@@ -77,6 +78,7 @@ _WEB_MUTATION_PATH_RE = re.compile(
     r"^/api/workspace/[^/]+/(?:"
     r"drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?"
     r"|job/[^/]+/cancel/?"
+    r"|write-recovery/?"
     r")$"
 )
 _WEB_MUTATION_BODY_LIMIT = 64 * 1024
@@ -90,6 +92,7 @@ _DRAMA_MUTATION_INTENTS = {
     "x-drama-shot-video-intent": {"mutate-v1"},
     "x-drama-compose-intent": {"run-local-v1"},
     "x-drama-image-intent": {"generate-once-v1"},
+    "x-write-recovery-intent": {"archive-and-regenerate-v1"},
 }
 
 
@@ -131,6 +134,7 @@ def _web_mutation_request_error(
     headers: Dict[str, str],
     *,
     require_json_object: bool = False,
+    required_intent: Optional[Tuple[str, str]] = None,
 ) -> Optional[Tuple[int, str, bytes]]:
     """Reject browser cross-site/simple requests before protected mutations.
 
@@ -154,10 +158,15 @@ def _web_mutation_request_error(
             return _json(400, {"error": "mutation body must be valid JSON"})
         if not isinstance(payload, dict):
             return _json(400, {"error": "mutation body must be a JSON object"})
-    if not any(
-        str(headers.get(key) or "") in allowed
-        for key, allowed in _DRAMA_MUTATION_INTENTS.items()
-    ):
+    if required_intent is not None:
+        intent_key, intent_value = required_intent
+        has_intent = str(headers.get(intent_key) or "") == intent_value
+    else:
+        has_intent = any(
+            str(headers.get(key) or "") in allowed
+            for key, allowed in _DRAMA_MUTATION_INTENTS.items()
+        )
+    if not has_intent:
         return _json(403, {"error": "explicit mutation intent required"})
     fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
     if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
@@ -574,8 +583,20 @@ def api_workspaces() -> Tuple[int, str, bytes]:
 def api_preflight() -> Tuple[int, str, bytes]:
     """Return a small secret-free runtime mode summary for onboarding UI."""
 
+    from ..cost_estimator import has_known_model_pricing
+
     model = str(get_model_config("write").get("model") or "mock")
-    return _json(200, {"model": model, "is_mock": (not model or model == "mock" or model.startswith("mock/"))})
+    is_mock = not model or model == "mock" or model.startswith("mock/")
+    pricing_known = is_mock or has_known_model_pricing(model)
+    return _json(
+        200,
+        {
+            "model": model,
+            "is_mock": is_mock,
+            "pricing_known": pricing_known,
+            "real_ready": (not is_mock) and pricing_known,
+        },
+    )
 
 
 def api_workspaces_overview() -> Tuple[int, str, bytes]:
@@ -1220,7 +1241,41 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
     # newer than the now-stale immediate predecessor.
     has_outline = has_kb and outline_m > 0 and outline_m >= kb_m
     has_plan = has_outline and bool(plan_chapters) and plan_m >= outline_m
-    has_drafts = has_plan and draft_count > 0 and draft_m >= plan_m
+    current_drafts = has_plan and draft_count > 0 and draft_m >= plan_m
+    write_state = "not_started"
+    retry_chapter: Optional[int] = None
+    if current_drafts:
+        from ..chapter_status import chapter_status
+
+        chapter_numbers = []
+        for draft_path in draft_files:
+            match = re.fullmatch(r"chapter_(\d+)\.md", draft_path.name)
+            if match:
+                chapter_numbers.append(int(match.group(1)))
+        statuses = [
+            chapter_status(
+                chapter_no,
+                drafts,
+                validate_context=True,
+                require_start_point=requires_start_point,
+                require_plan=True,
+                require_external_review=True,
+            )
+            for chapter_no in sorted(set(chapter_numbers))
+        ]
+        retry_required = [
+            status
+            for status in statuses
+            if not status.get("approved") and status.get("panel_halt_reason") == "retry_exhausted"
+        ]
+        unapproved = [status for status in statuses if not status.get("approved")]
+        if retry_required:
+            write_state = "retry_required"
+            retry_chapter = int(retry_required[0].get("chapter_no") or 1)
+        elif not unapproved and statuses:
+            write_state = "approved"
+        elif unapproved:
+            write_state = "needs_review"
 
     if requires_start_point and not has_start_point:
         stage = "start"
@@ -1230,7 +1285,7 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
         stage = "outline"
     elif not has_plan:
         stage = "plan"
-    elif not has_drafts:
+    elif write_state != "approved":
         stage = "write"
     else:
         stage = "done"
@@ -1244,6 +1299,8 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
         "has_outline": has_outline,
         "has_plan": has_plan,
         "draft_count": draft_count,
+        "write_state": write_state,
+        "retry_chapter": retry_chapter,
         "has_expansion": has_expansion,
         "expansion_stale": has_expansion and kb_m > 0 and kb_m < expansion_m,
         "has_start_point": has_start_point,
@@ -1258,6 +1315,198 @@ def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
         return error
     with use_workspace(name):
         return _json(200, _collect_workbench_status_current(name))
+
+
+def _write_recovery_snapshot(name: str, chapter: int) -> Dict[str, Any]:
+    """Overlay the disk generation with the untruncated job ledger state."""
+
+    from .write_recovery import inspect_recovery_state
+
+    snapshot = inspect_recovery_state(name, chapter)
+    if jobs.workspace_busy(name):
+        snapshot["state"] = "busy"
+        snapshot["state_fingerprint"] = None
+        return snapshot
+    ledger_state, latest, ledger_claim = jobs.write_recovery_job_claim(name, chapter)
+    if ledger_state == "indeterminate":
+        snapshot["state"] = "reconciliation_required"
+        snapshot["state_fingerprint"] = None
+        return snapshot
+    snapshot["_ledger_claim"] = ledger_claim
+    if latest is None:
+        return snapshot
+    status = str(latest.get("status") or "")
+    if status in {"pending", "running"}:
+        snapshot["state"] = "busy"
+        snapshot["state_fingerprint"] = None
+    elif status == "lost" or status not in {
+        "blocked",
+        "failed",
+        "succeeded",
+        "aborted",
+        "budget_exceeded",
+    }:
+        snapshot["state"] = "reconciliation_required"
+        snapshot["state_fingerprint"] = None
+    elif status != "blocked" and snapshot.get("state") == "eligible":
+        # Only the explicit retry_exhausted/blocked terminal is a recoverable
+        # write failure.  General failure, cancellation, budget exhaustion and
+        # an inconsistent "succeeded" row never acquire a force entrypoint.
+        snapshot["state"] = "blocked"
+        snapshot["state_fingerprint"] = None
+    return snapshot
+
+
+def _public_write_recovery(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "state": snapshot.get("state") or "blocked",
+        "chapter": snapshot.get("chapter"),
+        "draft_available": bool(snapshot.get("draft_available")),
+        "review_state": snapshot.get("review_state") or "unknown",
+        "state_fingerprint": snapshot.get("state_fingerprint"),
+    }
+
+
+def api_workspace_write_recovery_get(name: str, raw_chapter: Any) -> Tuple[int, str, bytes]:
+    error = _novel_workspace_error(name)
+    if error:
+        return error
+    int_error, chapter = _int_value(raw_chapter, "chapter", minimum=1, maximum=9999)
+    if int_error:
+        return _json(400, {"error": int_error})
+    return _json(200, _public_write_recovery(_write_recovery_snapshot(name, chapter)))
+
+
+def api_workspace_write_recovery_post(name: str, body: bytes) -> Tuple[int, str, bytes]:
+    """Start a one-shot, single-chapter force rewrite after exact revalidation."""
+
+    error = _novel_workspace_error(name)
+    if error:
+        return error
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _json(400, {"error": "body must be valid JSON"})
+    if not isinstance(payload, dict):
+        return _json(400, {"error": "body must be a JSON object"})
+    allowed = {
+        "chapter",
+        "tier",
+        "budget_cny",
+        "timeout_minutes",
+        "max_model_requests",
+        "state_fingerprint",
+        "confirm_archive_and_regenerate",
+    }
+    unknown = set(payload) - allowed
+    if unknown:
+        return _json(400, {"error": f"unknown recovery fields: {', '.join(sorted(unknown))}"})
+    if payload.get("confirm_archive_and_regenerate") is not True:
+        return _json(
+            400,
+            {
+                "error": "explicit archive and regenerate confirmation required",
+                "code": "write_recovery_confirmation_required",
+            },
+        )
+    int_error, chapter = _int_value(payload.get("chapter"), "chapter", minimum=1, maximum=9999)
+    if int_error:
+        return _json(400, {"error": int_error})
+    supplied_fingerprint = payload.get("state_fingerprint")
+    if not isinstance(supplied_fingerprint, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", supplied_fingerprint
+    ):
+        return _json(400, {"error": "state_fingerprint must be a sha256 digest"})
+    try:
+        tier = review_tier.resolve_tier(str(payload.get("tier") or review_tier.DEFAULT_TIER))
+    except ValueError as exc:
+        return _json(400, {"error": str(exc)})
+    budget_error, budget_cny = _float_param(
+        payload, "budget_cny", 0.0, minimum=0.000001, maximum=6.0
+    )
+    if budget_error:
+        return _json(400, {"error": budget_error})
+    timeout_error, timeout_minutes = _float_param(
+        payload, "timeout_minutes", 0.0, minimum=0.000001, maximum=45.0
+    )
+    if timeout_error:
+        return _json(400, {"error": timeout_error})
+    request_error, max_model_requests = _model_request_int_value(
+        payload.get("max_model_requests"),
+    )
+    if request_error:
+        return _json(400, {"error": request_error})
+    if max_model_requests > 20:
+        return _json(400, {"error": "max_model_requests must be between 1 and 20 for write recovery"})
+
+    snapshot = _write_recovery_snapshot(name, chapter)
+    state = snapshot.get("state")
+    if state == "busy":
+        return _json(409, {"error": "workspace busy", "code": "write_recovery_busy"})
+    if state == "reconciliation_required":
+        return _json(
+            409,
+            {
+                "error": "write job requires reconciliation before recovery",
+                "code": "write_recovery_reconciliation_required",
+            },
+        )
+    actual_fingerprint = snapshot.get("state_fingerprint")
+    ledger_claim = snapshot.get("_ledger_claim")
+    if (
+        state != "eligible"
+        or not isinstance(actual_fingerprint, str)
+        or not isinstance(ledger_claim, str)
+        or not hmac.compare_digest(actual_fingerprint, supplied_fingerprint)
+    ):
+        return _json(
+            409,
+            {
+                "error": "write recovery state changed",
+                "code": "write_recovery_state_changed",
+            },
+        )
+
+    # Deliberately omit confirm_archive_and_regenerate.  Consent is one-shot;
+    # it must never enter the persisted job ledger or generic replay params.
+    params: Dict[str, Any] = {
+        "chapters": 1,
+        "resume_from": chapter,
+        "force": True,
+        "max_retries": 0,
+        "tier": tier,
+        "budget_cny": budget_cny,
+        "timeout_minutes": timeout_minutes,
+        "max_model_requests": max_model_requests,
+        "auto_advance": True,
+        "require_start_point": bool(snapshot.get("requires_start_point")),
+        "require_plan": True,
+        "require_external_review": True,
+        "expected_recovery_fingerprint": actual_fingerprint,
+        "expected_recovery_ledger_claim": ledger_claim,
+        "recovery_chapter": chapter,
+    }
+    try:
+        job = jobs.start_job(name, "write-book", params)
+    except RuntimeError as exc:
+        msg = str(exc)
+        if msg.startswith("workspace_busy:"):
+            return _json(409, {"error": "workspace busy", "code": "write_recovery_busy"})
+        if msg.startswith(("creation_mode_conflict:", "workspace_metadata_invalid")):
+            return _json(
+                409,
+                {
+                    "error": "write recovery state changed",
+                    "code": "write_recovery_state_changed",
+                },
+            )
+        if msg.startswith("workspace_not_found:"):
+            return _json(404, {"error": f"workspace not found: {name}"})
+        raise
+    return _json(
+        202,
+        {"job_id": job["job_id"], "status": job["status"], "step": "write-book"},
+    )
 
 
 def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]:
@@ -5151,14 +5400,11 @@ def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[s
             return error, {}
     if step == "write-book":
         error, out = _validate_write_book_params(params)
-        return error, out
-    if step == "plan-chapters":
+    elif step == "plan-chapters":
         error, out = _validate_plan_chapters_params(params)
-        return error, out
-    if step in ("prepare-greenfield", "rebuild-for-start"):
+    elif step in ("prepare-greenfield", "rebuild-for-start"):
         error, out = _validate_prepare_params(step, params)
-        return error, out
-    if step == "prepare-import":
+    elif step == "prepare-import":
         out: Dict[str, Any] = {}
         error, timeout = _float_param(
             params,
@@ -5171,8 +5417,88 @@ def _validated_run_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[s
             return error, {}
         if timeout > 0:
             out["timeout_minutes"] = timeout
+        error = None
+    else:
+        error, out = None, dict(params)
+    if error:
+        return error, {}
+    return _with_model_request_limit(step, params, out)
+
+
+def _with_model_request_limit(
+    step: str,
+    incoming: Dict[str, Any],
+    validated: Dict[str, Any],
+) -> Tuple[Optional[str], Dict[str, Any]]:
+    """Resolve a finite provider-attempt cap for every Web novel model step.
+
+    Browser values are never trusted: an explicit value must be an integer no
+    greater than the step-specific iter166 allowance (and the worker enforces
+    it again).  When omitted, the same value is applied as the default, so an
+    old browser cannot silently create an uncapped real-model job.
+    """
+
+    default = jobs.default_model_request_limit(step)
+    if default is None:
+        return None, validated
+    raw = incoming.get("max_model_requests", default)
+    error, value = _model_request_int_value(raw)
+    if error:
+        return error, {}
+    if value > default:
+        return (
+            f"max_model_requests must be between 1 and {default} for {step}",
+            {},
+        )
+    out = dict(validated)
+    out["max_model_requests"] = value
+    execution_defaults = jobs.default_novel_execution_limits(step)
+    if execution_defaults is None:
         return None, out
-    return None, params
+    default_budget, default_timeout = execution_defaults
+    budget_input = dict(incoming)
+    if "budget_cny" not in budget_input:
+        budget_input["budget_cny"] = default_budget
+    budget_error, budget = _float_param(
+        budget_input,
+        "budget_cny",
+        default_budget,
+        minimum=0.000001,
+        maximum=default_budget,
+    )
+    if budget_error:
+        return budget_error, {}
+    timeout_input = dict(incoming)
+    if "timeout_minutes" not in timeout_input:
+        timeout_input["timeout_minutes"] = default_timeout
+    timeout_error, timeout = _float_param(
+        timeout_input,
+        "timeout_minutes",
+        default_timeout,
+        minimum=0.000001,
+        maximum=default_timeout,
+    )
+    if timeout_error:
+        return timeout_error, {}
+    out["budget_cny"] = budget
+    out["timeout_minutes"] = timeout
+    return None, out
+
+
+def _model_request_int_value(value: Any) -> Tuple[Optional[str], int]:
+    """Strict integer parser for a paid-attempt cap (no float truncation)."""
+
+    if isinstance(value, bool) or not (
+        isinstance(value, int)
+        or (isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()))
+    ):
+        return "max_model_requests must be an integer", 0
+    return _int_value(
+        value,
+        "max_model_requests",
+        minimum=1,
+        maximum=jobs.MAX_MODEL_REQUESTS_PER_JOB,
+    )
 
 
 def _validate_prepare_params(step: str, params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
@@ -5486,6 +5812,18 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: api_workspace_reviews(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/plan/?$"), lambda name, **_: api_workspace_plan(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/workbench/?$"), lambda name, **_: api_workbench_status(name)),
+    (
+        "GET",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/write-recovery/?$"),
+        lambda name, _query=None, **_: api_workspace_write_recovery_get(
+            name, ((_query or {}).get("chapter", [""])[0])
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/api/workspace/(?P<name>[^/]+)/write-recovery/?$"),
+        lambda name, _body=b"", **_: api_workspace_write_recovery_post(name, _body),
+    ),
     (
         "PUT",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/outline/?$"),
@@ -6067,6 +6405,13 @@ def dispatch(
                 r"/api/workspace/[^/]+/job/[^/]+/cancel/?", decoded_path
             )
             is not None,
+            required_intent=(
+                ("x-write-recovery-intent", "archive-and-regenerate-v1")
+                if re.fullmatch(
+                    r"/api/workspace/[^/]+/write-recovery/?", decoded_path
+                )
+                else None
+            ),
         )
         if request_error:
             return request_error

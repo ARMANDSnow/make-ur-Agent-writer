@@ -24,6 +24,7 @@ _WEB_MUTATION_PATH_RE = re.compile(
     r"^/api/workspace/[^/]+/(?:"
     r"drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?"
     r"|job/[^/]+/cancel/?"
+    r"|write-recovery/?"
     r")$"
 )
 _WEB_MUTATION_BODY_LIMIT = 64 * 1024

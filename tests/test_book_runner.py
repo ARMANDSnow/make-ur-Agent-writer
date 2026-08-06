@@ -503,6 +503,39 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertTrue((archive / "chapter_01.entity_advance_proposals.json").exists())
         self.assertTrue((archive / "chapter_01.review.json").exists())
 
+    def test_archive_rejects_symlinked_snapshots_without_moving_generation(self) -> None:
+        drafts = self.root / "outputs" / "drafts"
+        external = self.root / "external-snapshots"
+        external.mkdir()
+        (drafts / "snapshots").symlink_to(external, target_is_directory=True)
+        current = drafts / "chapter_01.md"
+        current.write_text("must remain current", encoding="utf-8")
+
+        with self.assertRaises(OSError):
+            _archive_chapter_artifacts(drafts, 1, reason="force_rewrite")
+
+        self.assertEqual(current.read_text(encoding="utf-8"), "must remain current")
+        self.assertEqual(list(external.iterdir()), [])
+
+    def test_archive_same_second_uses_unique_directory_without_overwrite(self) -> None:
+        drafts = self.root / "outputs" / "drafts"
+        current = drafts / "chapter_01.md"
+        fixed_time = 1_800_000_000.0
+
+        current.write_text("generation one", encoding="utf-8")
+        with patch("src.book_runner.time.time", return_value=fixed_time):
+            first = _archive_chapter_artifacts(drafts, 1, reason="first")
+
+        current.write_text("generation two", encoding="utf-8")
+        with patch("src.book_runner.time.time", return_value=fixed_time):
+            second = _archive_chapter_artifacts(drafts, 1, reason="second")
+
+        self.assertNotEqual(first, second)
+        self.assertEqual((first / "chapter_01.md").read_text(encoding="utf-8"), "generation one")
+        self.assertEqual((second / "chapter_01.md").read_text(encoding="utf-8"), "generation two")
+        self.assertRegex(first.name, r"^stale_chapter_01_\d{8}_\d{6}$")
+        self.assertRegex(second.name, r"^stale_chapter_01_\d{8}_\d{6}$")
+
     def test_auto_apply_advance_missing_relationship_skips_not_fails(self) -> None:
         # Regression: a proposal referencing a relationship absent from the
         # graph (the real-model ``ent_wuliang_east <-> ent_wuliang_west`` ch4

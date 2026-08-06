@@ -204,6 +204,25 @@ class PreflightTests(unittest.TestCase):
                 report = run_preflight(Path(tmp))
         self.assertFalse(any("provider" in item.lower() for item in report["fatal"]))
 
+    def test_real_model_without_trusted_pricing_is_fatal_before_paid_web(self) -> None:
+        fake_litellm = types.SimpleNamespace(
+            get_llm_provider=lambda model: ("openai", model, None, None)
+        )
+        env = {
+            "OPENAI_MODEL": "openai/synthetic-unpriced-model",
+            "OPENAI_API_KEY": "test",
+            "OPENAI_BASE_URL": "https://x.com",
+        }
+        with build_root() as tmp:
+            with patch.dict(os.environ, env, clear=True), patch.dict(
+                sys.modules, {"litellm": fake_litellm}
+            ), patch("src.preflight.load_dotenv_if_available"), patch(
+                "src.config.load_dotenv_if_available"
+            ):
+                report = run_preflight(Path(tmp))
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("trusted local pricing" in item for item in report["fatal"]))
+
     def test_real_model_missing_planner_api_key_is_fatal(self) -> None:
         fake_litellm = types.SimpleNamespace(get_llm_provider=lambda model: ("provider", model, None, None))
         env = {

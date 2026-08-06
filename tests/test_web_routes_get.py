@@ -8,6 +8,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src import paths
 from src.plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
@@ -228,7 +229,20 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["model"], "mock")
         self.assertTrue(data["is_mock"])
+        self.assertTrue(data["pricing_known"])
+        self.assertFalse(data["real_ready"])
         self.assertNotIn("API_KEY", json.dumps(data))
+
+    def test_api_preflight_blocks_real_model_without_trusted_pricing(self) -> None:
+        with patch(
+            "src.web.routes.get_model_config",
+            return_value={"model": "openai/synthetic-unpriced-model"},
+        ):
+            status, data = self._get_json("/api/preflight")
+        self.assertEqual(status, 200)
+        self.assertFalse(data["is_mock"])
+        self.assertFalse(data["pricing_known"])
+        self.assertFalse(data["real_ready"])
 
     def test_workspace_legacy_url_301s_to_new_ia(self) -> None:
         """Iter 032: the iter 025 ``/workspace/<name>/`` URL still

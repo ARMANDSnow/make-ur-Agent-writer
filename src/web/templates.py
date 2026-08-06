@@ -46,6 +46,13 @@ def _format_budget(value: float) -> str:
     return f"{value:g}"
 
 
+def _write_budget_default() -> float:
+    """Clamp the configurable legacy default to iter166's paid Web cap."""
+
+    value = float(_default_budget_cny())
+    return value if 0 < value <= 6.0 else 6.0
+
+
 # ---------------------------------------------------------------------------
 # Shell
 # ---------------------------------------------------------------------------
@@ -1008,8 +1015,9 @@ def render_workspace_continue(name: str, workspaces: Iterable[str]) -> str:
         '<details class="details-fold">'
         '<summary>高级参数</summary>'
         '<div class="form-grid">'
-        '<div class="field"><label for="continue-budget">本次可用额度（人民币）</label><input id="continue-budget" name="budget_cny" type="number" min="0" step="0.1" value="10" aria-describedby="continue-budget-help"><small id="continue-budget-help">额度不足时可在此调整；不会锁住其他设置。</small></div>'
-        '<div class="field"><label for="continue-timeout">最长等待时间（分钟）</label><input id="continue-timeout" name="timeout_minutes" type="number" min="0" max="1440" value="30" aria-describedby="continue-timeout-help"><small id="continue-timeout-help">到时后停止继续等待，已经保存的内容仍会保留。</small></div>'
+        '<div class="field"><label for="continue-budget">本次可用额度（人民币）</label><input id="continue-budget" name="budget_cny" type="number" min="0.1" max="6" step="0.1" value="6" aria-describedby="continue-budget-help"><small id="continue-budget-help">正文阶段最高 6 元；额度耗尽后停止新的模型请求。</small></div>'
+        '<div class="field"><label for="continue-timeout">最长等待时间（分钟）</label><input id="continue-timeout" name="timeout_minutes" type="number" min="1" max="45" value="30" aria-describedby="continue-timeout-help"><small id="continue-timeout-help">到时后停止继续等待，已经保存的内容仍会保留。</small></div>'
+        '<div class="field"><label for="continue-request-limit">模型请求上限</label><input id="continue-request-limit" name="max_model_requests" type="number" min="1" max="20" value="20" aria-describedby="continue-request-limit-help"><small id="continue-request-limit-help">每次真实模型请求前检查，达到 20 次立即停止。</small></div>'
         '<div class="field"><label for="continue-replan">每几章重规划</label><input id="continue-replan" name="replan_every" type="number" min="0" value="0"></div>'
         '<div class="field"><label for="continue-retries">最大重试</label><input id="continue-retries" name="max_retries" type="number" min="0" value="2"></div>'
         '<div class="field"><label for="continue-confidence">推进置信度</label><input id="continue-confidence" name="min_confidence" type="number" min="0" max="1" step="0.05" value="0.7"></div>'
@@ -1240,17 +1248,22 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         '<option value="mid" selected>标准 · 日常创作</option>'
         '<option value="high">严格 · 发布门槛</option>'
         '</select></div>'
-        # iter 050d (M-3): the input's default VALUE comes from
-        # NOVEL_DEFAULT_BUDGET_CNY at render time — the form always submits
-        # budget_cny explicitly, so without this the env cap would never
-        # reach workbench-started jobs.
+        # iter166: every paid Web write is bounded; keep a smaller configured
+        # project default but never render zero or exceed the single-job cap.
         '<div class="field"><label for="write-budget-input">预算上限（元）</label>'
-        '<input id="write-budget-input" name="budget_cny" type="number" min="0" step="0.5" value="'
-        + _format_budget(_default_budget_cny()) + '">'
-        '<span class="muted">填 0 表示不设上限；使用真实生成时不建议这样设置。</span>'
+        '<input id="write-budget-input" name="budget_cny" type="number" min="0.1" max="6" step="0.5" value="'
+        + _format_budget(_write_budget_default()) + '">'
+        '<span class="muted">正文与失败稿恢复均为单章最高 6 元；额度耗尽后不再发起新的模型请求。</span>'
+        '</div>'
+        '<div class="field"><label for="write-timeout-input">最长等待（分钟）</label>'
+        '<input id="write-timeout-input" name="timeout_minutes" type="number" min="1" max="45" value="45">'
+        '</div>'
+        '<div class="field"><label for="write-request-limit">模型请求上限</label>'
+        '<input id="write-request-limit" name="max_model_requests" type="number" min="1" max="20" value="20">'
         '</div>'
         '<div class="form-actions" style="align-items:flex-end">'
         '<button type="submit" id="write-book-submit" class="btn btn-paid" data-ui-action="paid" data-workbench-mutation disabled>开始写书</button>'
+        '<button type="button" id="write-recovery-submit" class="btn btn-paid" data-ui-action="paid" data-cta-action="retry_write_book" data-workbench-mutation hidden disabled>归档并重新生成本章</button>'
         '<a id="write-book-open-chapter" class="btn btn-primary" href="/w/' + esc + '/chapters" hidden>打开章节</a>'
         '</div>'
         '</form>'

@@ -194,3 +194,4 @@
 172. [Iteration 163 - 短剧视频提交结果分流与历史 Unknown 对账凭证](./iteration_163_drama_video_submission_outcome_reconciliation.md)
 173. [Iteration 164 - 近期体检报告任务恢复、传输分帧与视频计账闭环](./iteration_164_health_report_job_recovery_framing_accounting_closure.md)
 174. [Iteration 165 - 小说 Web 模式语义与交互可靠性修复](./iteration_165_novel_web_mode_navigation_reliability.md)
+175. [Iteration 166 - 小说原创/续写双链失败恢复与真模型前端验证](./iteration_166_novel_dual_flow_recovery_real_provider_validation.md)

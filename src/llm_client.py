@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import os
 import random
 import re
@@ -142,7 +143,36 @@ class LLMCallDeadlineExceeded(TimeoutError):
     pass
 
 
+class LLMRequestLimitExceeded(RuntimeError):
+    """Raised before a real provider call would exceed the active job cap."""
+
+
+class LLMBudgetLimitExceeded(RuntimeError):
+    """Raised before a real provider call when known job spend reached its cap."""
+
+    def __init__(self, *, budget_cny: float | None, cost_cny: float) -> None:
+        self.budget_cny = budget_cny
+        self.cost_cny = cost_cny
+        label = "required" if budget_cny is None else f"{budget_cny:g}"
+        super().__init__(f"model budget limit exhausted ({cost_cny:g}/{label})")
+
+
+class LLMPricingUnavailable(RuntimeError):
+    """Raised before a paid Web call whose model has no trusted CNY price."""
+
+
 _LLM_DEADLINE: ContextVar[float | None] = ContextVar("llm_deadline", default=None)
+# Keep the value immutable.  Contexts copied into concurrent asyncio tasks then
+# advance their own counter instead of sharing a mutable list/dict by reference.
+# ``None`` as the limit means that a Web job required a limit but did not supply
+# one; it is deliberately distinct from no active scope (the ContextVar default).
+_LLM_REQUEST_LIMIT: ContextVar[tuple[int | None, int] | None] = ContextVar(
+    "llm_request_limit", default=None
+)
+_LLM_BUDGET_CHECK: ContextVar[tuple[float | None, Any, bool] | None] = ContextVar(
+    "llm_budget_check", default=None
+)
+MAX_MODEL_REQUESTS_PER_JOB = 160
 
 
 @contextmanager
@@ -154,6 +184,132 @@ def llm_deadline_scope(deadline: float | None):
         yield
     finally:
         _LLM_DEADLINE.reset(token)
+
+
+def _parse_model_request_limit(value: Any, *, required: bool) -> int | None:
+    """Validate one job's provider-attempt cap without accepting bool/float.
+
+    An omitted optional scope preserves non-Web/CLI compatibility.  A required
+    scope records the missing value and fails immediately before the first real
+    provider attempt, while mock completions remain strictly offline and do not
+    consume the counter.
+    """
+
+    if value is None or value == "":
+        if required:
+            return None
+        return None
+    if isinstance(value, bool):
+        raise ValueError("max_model_requests must be an integer")
+    if isinstance(value, int):
+        limit = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        limit = int(value.strip())
+    else:
+        raise ValueError("max_model_requests must be an integer")
+    if not 1 <= limit <= MAX_MODEL_REQUESTS_PER_JOB:
+        raise ValueError(
+            f"max_model_requests must be between 1 and {MAX_MODEL_REQUESTS_PER_JOB}"
+        )
+    return limit
+
+
+@contextmanager
+def llm_request_limit_scope(max_model_requests: Any, *, required: bool = False):
+    """Isolate and bound real provider attempts for one job/task.
+
+    Nested scopes start their own counter and restore the exact outer counter
+    on exit.  The immutable ContextVar state also isolates independently copied
+    async contexts.  This guards provider *attempts* (including a safe retry or
+    JSON repair), not high-level completion calls.
+    """
+
+    limit = _parse_model_request_limit(max_model_requests, required=required)
+    if limit is None and not required:
+        yield
+        return
+    token = _LLM_REQUEST_LIMIT.set((limit, 0))
+    try:
+        yield
+    finally:
+        _LLM_REQUEST_LIMIT.reset(token)
+
+
+def _claim_model_request(model: str = "") -> None:
+    """Atomically claim the next attempt in the current execution context."""
+
+    budget_state = _LLM_BUDGET_CHECK.get()
+    if budget_state is not None:
+        budget_cny, cost_check, require_known_pricing = budget_state
+        if require_known_pricing:
+            from .cost_estimator import has_known_model_pricing
+
+            if not has_known_model_pricing(model):
+                raise LLMPricingUnavailable(
+                    "trusted model pricing is required before a paid Web request"
+                )
+        if budget_cny is None:
+            raise LLMBudgetLimitExceeded(budget_cny=None, cost_cny=0.0)
+        known_cost = float(cost_check())
+        if not math.isfinite(known_cost) or known_cost < 0:
+            raise LLMBudgetLimitExceeded(budget_cny=budget_cny, cost_cny=0.0)
+        if known_cost >= budget_cny:
+            raise LLMBudgetLimitExceeded(
+                budget_cny=budget_cny,
+                cost_cny=known_cost,
+            )
+    state = _LLM_REQUEST_LIMIT.get()
+    if state is None:
+        # Standalone/CLI callers retain their existing behavior unless they opt
+        # into a scope.  Web novel workers always install a required scope.
+        return
+    limit, consumed = state
+    if limit is None:
+        raise LLMRequestLimitExceeded(
+            "max_model_requests is required before a real provider attempt"
+        )
+    if consumed >= limit:
+        raise LLMRequestLimitExceeded(
+            f"model request limit exhausted ({consumed}/{limit})"
+        )
+    _LLM_REQUEST_LIMIT.set((limit, consumed + 1))
+
+
+@contextmanager
+def llm_budget_limit_scope(
+    budget_cny: Any,
+    cost_check: Any,
+    *,
+    required: bool = False,
+    require_known_pricing: bool = False,
+):
+    """Check known spend immediately before every real provider attempt.
+
+    ``cost_check`` is workspace-scoped and returns cost accumulated since this
+    job started.  Mock calls return before the check, preserving strict offline
+    tests.  The final settlement remains the worker's responsibility because a
+    last successful call can itself cross the cap.
+    """
+
+    if budget_cny is None or budget_cny == "":
+        parsed = None
+    else:
+        if isinstance(budget_cny, bool):
+            raise ValueError("budget_cny must be a positive finite number")
+        try:
+            parsed = float(budget_cny)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("budget_cny must be a positive finite number") from exc
+        if not math.isfinite(parsed) or parsed <= 0:
+            raise ValueError("budget_cny must be a positive finite number")
+    if parsed is None and not required:
+        yield
+        return
+    token = _LLM_BUDGET_CHECK.set((parsed, cost_check, require_known_pricing))
+    try:
+        yield
+    finally:
+        _LLM_BUDGET_CHECK.reset(token)
 
 
 # iter055 轨B: 中转站抖动(Cloudflare Tunnel 530/1033、provider 过载 50x、连接/读取
@@ -350,6 +506,11 @@ class LLMClient:
                     kwargs["api_key"] = self.config["api_key"]
                 if self.config.get("base_url"):
                     kwargs["api_base"] = self.config["base_url"]
+                # Claim at the last possible point before calling LiteLLM so
+                # every real provider attempt (safe retry/cache downgrade/JSON
+                # repair included) is bounded. Mock returned above and consumes
+                # no allowance.
+                _claim_model_request(self.model)
                 if use_stream:
                     kwargs["stream"] = True
                     # include_usage asks the upstream to emit a final SSE chunk
@@ -370,6 +531,15 @@ class LLMClient:
                     response=response,
                 )
                 return content
+            except (
+                LLMRequestLimitExceeded,
+                LLMBudgetLimitExceeded,
+                LLMPricingUnavailable,
+            ):
+                # No provider call occurred, so do not write a retry_error cost
+                # row or wrap this deterministic admission failure as a model
+                # transport error.
+                raise
             except Exception as exc:
                 last_exc = exc
                 # iter078 P1-2: 每个失败 attempt 记一条 retry_error——此前 N 次

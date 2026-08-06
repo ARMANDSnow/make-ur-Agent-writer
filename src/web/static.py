@@ -2708,9 +2708,17 @@ JS_DASHBOARD = """\
   })();
   const WRITE_PRESETS = {
     trial: { tier: "low", chapters: 1, max_retries: 1, budget_cny: 2, auto_advance: false },
-    production: { tier: "mid", chapters: 1, max_retries: 2, budget_cny: 10, auto_advance: true },
-    strict: { tier: "high", chapters: 1, max_retries: 3, budget_cny: 30, auto_advance: true },
+    production: { tier: "mid", chapters: 1, max_retries: 2, budget_cny: 6, auto_advance: true },
+    strict: { tier: "high", chapters: 1, max_retries: 3, budget_cny: 6, auto_advance: true },
   };
+  const NOVEL_STAGE_LIMITS = Object.freeze({
+    "expand-premise": { budget_cny: 1, timeout_minutes: 15, max_model_requests: 2 },
+    "prepare-greenfield": { budget_cny: 3, timeout_minutes: 15, max_model_requests: 10 },
+    "rebuild-for-start": { budget_cny: 3, timeout_minutes: 15, max_model_requests: 10 },
+    debate: { budget_cny: 8, timeout_minutes: 60, max_model_requests: 45 },
+    "plan-chapters": { budget_cny: 2, timeout_minutes: 15, max_model_requests: 3 },
+    "write-book": { budget_cny: 6, timeout_minutes: 45, max_model_requests: 20 },
+  });
 
   // ---- shared helpers ----------------------------------------------------
   function escapeHtml(s) {
@@ -3130,7 +3138,8 @@ JS_DASHBOARD = """\
         return;
       }
       if (action === "retry_write_book") {
-        scrollAndFocus("write-book-form", "resume_from");
+        const explicitChapter = Number(btn.getAttribute("data-write-recovery-chapter") || 0);
+        openWriteRecovery(explicitChapter || resolveWriteRecoveryChapter(), btn);
         return;
       }
       if (action === "reload") {
@@ -3174,6 +3183,140 @@ JS_DASHBOARD = """\
     form.scrollIntoView({ behavior: "smooth", block: "start" });
     const field = form.elements && form.elements[fieldName];
     if (field && field.focus) setTimeout(function () { field.focus(); }, 250);
+  }
+  function resolveWriteRecoveryChapter() {
+    if (lastWorkbenchStatus && Number.isInteger(Number(lastWorkbenchStatus.retry_chapter))) {
+      return Number(lastWorkbenchStatus.retry_chapter);
+    }
+    const form = document.getElementById("write-book-form");
+    const value = form && form.elements && form.elements.resume_from ? Number(form.elements.resume_from.value) : 0;
+    return Number.isInteger(value) && value >= 1 && value <= 9999 ? value : 0;
+  }
+  function writeRecoveryParams(chapter) {
+    const form = document.getElementById("write-book-form");
+    const limits = NOVEL_STAGE_LIMITS["write-book"];
+    function positiveBounded(name, fallback, maximum) {
+      const control = form && form.elements ? form.elements[name] : null;
+      const value = control ? Number(control.value) : fallback;
+      return Number.isFinite(value) && value > 0 ? Math.min(value, maximum) : fallback;
+    }
+    return {
+      chapter: chapter,
+      tier: form && form.elements && form.elements.tier ? form.elements.tier.value || "mid" : "mid",
+      budget_cny: positiveBounded("budget_cny", limits.budget_cny, limits.budget_cny),
+      timeout_minutes: positiveBounded("timeout_minutes", limits.timeout_minutes, limits.timeout_minutes),
+      max_model_requests: Math.floor(positiveBounded("max_model_requests", limits.max_model_requests, limits.max_model_requests)),
+    };
+  }
+  function writeRecoveryStateCopy(state) {
+    const copy = {
+      not_needed: "这一章当前不需要强制恢复，请刷新页面查看最新评审状态。",
+      needs_review: "草稿仍在等待处理，但不是重试耗尽状态；请先查看评审意见。",
+      busy: "当前作品还有任务正在处理。请等待任务结束或先请求取消，系统不会自动重复提交。",
+      reconciliation_required: "上一项写作任务状态无法确认，需要先到任务记录对账；系统不会自动重复提交。",
+      blocked: "当前章节不符合安全恢复条件，没有启动新任务。",
+    };
+    return copy[state] || "恢复资格无法确认，没有启动新任务。";
+  }
+  async function openWriteRecovery(chapter, trigger) {
+    chapter = Number(chapter);
+    if (!Number.isInteger(chapter) || chapter < 1 || chapter > 9999) {
+      showToast("无法确认需要恢复的章节，请刷新作品状态", "error");
+      return;
+    }
+    setControlBusy(trigger, true, "正在检查");
+    let recovery;
+    try {
+      recovery = await fetchJson(wsUrl("/write-recovery?chapter=" + encodeURIComponent(chapter)));
+    } catch (err) {
+      showToast("恢复检查失败：" + errTitle(err), "error");
+      setControlBusy(trigger, false);
+      return;
+    }
+    setControlBusy(trigger, false);
+    const eligible = recovery && recovery.state === "eligible" && typeof recovery.state_fingerprint === "string";
+    const params = writeRecoveryParams(chapter);
+    let committed = false;
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="write-recovery-title">' +
+      '<div class="modal-header" id="write-recovery-title">恢复第 ' + escapeHtml(chapter) + ' 章</div>' +
+      '<div class="modal-body">' +
+      (eligible
+        ? '<p>这一章已有未通过评审的失败稿。你可以先查看内容，再决定是否重新生成。</p>' +
+          '<div class="alert warn"><strong>恢复范围只有第 ' + escapeHtml(chapter) + ' 章。</strong>确认后会先归档当前正文、评审和元数据，再创建一个新的写作任务；启用真实生成服务时可能产生费用。</div>' +
+          '<p>本次上限：' + escapeHtml(params.max_model_requests) + ' 次模型请求 / ' + escapeHtml(params.budget_cny) + ' 元 / ' + escapeHtml(params.timeout_minutes) + ' 分钟。不会沿用旧任务的确认。</p>'
+        : '<div class="alert warn">' + escapeHtml(writeRecoveryStateCopy(recovery && recovery.state)) + '</div>') +
+      '<div id="write-recovery-error" role="status" aria-live="polite"></div>' +
+      '</div><div class="modal-footer">' +
+      (recovery && recovery.draft_available
+        ? '<a class="btn btn-secondary" href="' + wsHref("/chapter/" + chapter) + '" target="_blank" rel="noopener">查看失败稿</a>'
+        : '') +
+      '<button type="button" class="btn btn-ghost" data-modal-close>关闭</button>' +
+      (eligible ? '<button type="button" class="btn btn-paid" data-write-recovery-confirm>归档并重新生成本章</button>' : '') +
+      '</div></div>';
+    const confirm = backdrop.querySelector("[data-write-recovery-confirm]");
+    const closeButton = backdrop.querySelector("[data-modal-close]");
+    const errorBox = backdrop.querySelector("#write-recovery-error");
+    const close = mountModal(backdrop, {
+      initialFocus: eligible ? closeButton : closeButton,
+      canClose: function () { return !committed; },
+    });
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop || ev.target.hasAttribute("data-modal-close")) close();
+    });
+    if (!confirm) return;
+    confirm.addEventListener("click", async function () {
+      if (committed) return;
+      committed = true;
+      setControlBusy(confirm, true, "正在创建任务");
+      closeButton.disabled = true;
+      try {
+        const payload = Object.assign({}, params, {
+          state_fingerprint: recovery.state_fingerprint,
+          confirm_archive_and_regenerate: true,
+        });
+        const data = await postJson(wsUrl("/write-recovery"), payload, {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Write-Recovery-Intent": "archive-and-regenerate-v1",
+          },
+        });
+        committed = false;
+        close();
+        showToast("已创建第 " + chapter + " 章恢复任务", "info");
+        const box = document.getElementById("write-book-status");
+        const submit = document.getElementById("write-book-submit");
+        if (pageKind === "workbench") {
+          setWorkbenchMutationLock(true);
+          renderWorkbenchHydration("running", { job_id: data.job_id, step: "write-book", status: "pending" });
+        }
+        if (box && data.job_id) {
+          await pollJob(data.job_id, box, submit, async function () {
+            if (pageKind === "workbench") await refreshWorkbench();
+            if (pageKind === "continue") {
+              await refreshReadiness();
+              await refreshRecentJobsSidebar();
+            }
+          });
+        }
+      } catch (err) {
+        committed = false;
+        closeButton.disabled = false;
+        setControlBusy(confirm, false);
+        const recoveryCode = err && err.payload && err.payload.code;
+        if (recoveryCode && FRONT_ERROR_CATALOG[recoveryCode]) {
+          // A 409 means the confirmation snapshot is no longer actionable.
+          // Keep this modal's submit disabled: the user must close it and
+          // re-check current state instead of repeatedly hitting the same
+          // stale/busy admission decision.
+          err.code = recoveryCode;
+          confirm.disabled = true;
+        }
+        errorBox.innerHTML = renderErrorCard(err);
+      }
+    });
   }
   // iter068 (Cluster E): scroll to a workbench stage card if it's on the current
   // page (workbench), else navigate to the workbench with the anchor (continue
@@ -3222,6 +3365,9 @@ JS_DASHBOARD = """\
     network: { code: "network", title: "连不上本地服务", cause: "本地服务可能没在运行，或端口被占用。请确认服务已启动后重试。", actions: [{ label: "刷新重试", action: "reload" }] },
     timeout: { code: "timeout", title: "请求超时", cause: "服务端响应太慢，任务可能仍在后台长跑。可去任务页查看进度。", actions: [{ label: "去任务页", action: "go_jobs" }] },
     bad_json: { code: "bad_json", title: "返回数据异常", cause: "服务端返回的内容不是预期格式，刷新后通常即可恢复。", actions: [{ label: "刷新重试", action: "reload" }] },
+    write_recovery_busy: { code: "write_recovery_busy", title: "当前作品仍有任务在处理", cause: "没有创建新的恢复任务。请先等待现有任务结束，或到任务页请求取消并确认终态。", actions: [{ label: "去任务页", action: "go_jobs" }] },
+    write_recovery_reconciliation_required: { code: "write_recovery_reconciliation_required", title: "上一项写作任务需要先对账", cause: "系统无法确认上一项付费写作是否已提交，因此没有重复生成。请先到任务页核对状态。", actions: [{ label: "去任务页", action: "go_jobs" }] },
+    write_recovery_state_changed: { code: "write_recovery_state_changed", title: "章节状态已经变化", cause: "没有归档或生成任何内容。请关闭窗口并刷新页面，再按最新状态重新检查。", actions: [{ label: "刷新状态", action: "reload" }] },
   };
   function _normalizeErrorCard(p) {
     if (p && p.payload && p.payload.card) return p.payload.card;
@@ -4151,6 +4297,45 @@ JS_DASHBOARD = """\
   function stepLabel(step) {
     return STEP_LABELS[step] || "未识别步骤";
   }
+  // iter166: ``job.step`` is a stable top-level job id, while
+  // ``job.current_step`` is a progress token and may contain bounded dynamic
+  // suffixes (chapter ids, proposal names, retry numbers).  Never feed the
+  // latter through STEP_LABELS: that produced the user-visible
+  // "未识别步骤" bug and risked exposing internal suffixes.  Recognise only
+  // documented exact tokens/prefixes and otherwise fall back to the safe
+  // top-level label (or the generic running copy).
+  function currentStepLabel(currentStep, jobStep, status) {
+    const terminal = String(status || "").toLowerCase();
+    if (["succeeded", "failed", "blocked", "aborted", "budget_exceeded", "lost"].indexOf(terminal) >= 0) {
+      return statusLabel(terminal);
+    }
+    const raw = String(currentStep || "");
+    const exact = {
+      expand: "扩写故事设定", normalize: "规范化原文", split: "切分章节",
+      extract: "抽取章节设定", compress: "构建作品知识库",
+      bootstrap: "生成实体提案", "apply-bootstrap": "应用实体提案",
+      debate: "生成故事大纲", "debate-decisions": "整理大纲决策",
+      "debate-ballot": "汇总大纲投票", "debate-outline": "形成故事大纲",
+      plan: "生成章节细纲", "plan-chapters": "生成章节细纲",
+      write: "撰写章节正文", review: "评审章节", polish: "润色章节",
+      "sync-meta": "整理评审结果", done: "完成当前任务",
+      cancelled: "正在取消", timeout: "已到最长等待时间", blocked: "需要补充内容",
+    };
+    if (exact[raw]) return exact[raw];
+    if (raw.startsWith("extract:")) return "抽取章节设定";
+    if (raw.startsWith("compress:")) return "构建作品知识库";
+    if (raw.startsWith("bootstrap:")) return "生成实体提案";
+    if (raw.startsWith("debate-") || raw.startsWith("debate:")) return "生成故事大纲";
+    if (/^chapter-\\d+$/.test(raw)) return "准备章节正文";
+    if (/^chapter-\\d+(?:\\/retry-\\d+)?\\/(?:write-attempt-\\d+|review-attempt-\\d+|review-done-attempt-\\d+|polish|style-rewrite|style-rewrite-review|finalize|sync-meta|caveat_continue)$/.test(raw)) {
+      if (/\\/review(?:-done)?-attempt-\\d+$/.test(raw) || raw.endsWith("/style-rewrite-review")) return "评审章节";
+      if (raw.endsWith("/polish") || raw.endsWith("/style-rewrite")) return "润色章节";
+      if (raw.endsWith("/sync-meta") || raw.endsWith("/finalize")) return "整理评审结果";
+      return "撰写章节正文";
+    }
+    const parent = STEP_LABELS[String(jobStep || "")];
+    return parent || "任务处理中";
+  }
   const PAID_NOVEL_JOB_STEPS = new Set([
     "extract", "compress", "bootstrap", "debate", "plan-chapters", "write-book",
     "review-chapter", "draft-once-dev", "auto-pipeline-greenfield",
@@ -4835,6 +5020,7 @@ JS_DASHBOARD = """\
   // iter 048b: four-stage workbench. Each stage fires its step job and the
   // next card is gated on the previous stage's artifact (GET /workbench).
   async function initWorkbench() {
+    bindCtaActions();
     // iter068 (Cluster A): an existing book (has_start_point) must rebuild its
     // continuation base — NOT run greenfield onboarding. The stage ① job, and
     // the require_start_point gate on plan-chapters / write-book, all follow
@@ -4846,23 +5032,26 @@ JS_DASHBOARD = """\
     bindWorkbenchStage("prepare-form", "prepare-submit", "prepare-status",
       function () { return isGreenfield() ? "prepare-greenfield" : "rebuild-for-start"; },
       function () {
+        const limit = isGreenfield() ? NOVEL_STAGE_LIMITS["prepare-greenfield"] : NOVEL_STAGE_LIMITS["rebuild-for-start"];
         // rebuild = 补齐底座（reextract 默认 false，只补缺口）；greenfield = 强制重提。
-        return isGreenfield() ? { force: true } : { window: 10 };
+        return Object.assign(isGreenfield() ? { force: true } : { window: 10 }, limit);
       });
     bindWorkbenchStage("outline-form", "outline-submit", "outline-status", "debate", function () {
-      return {};
+      return Object.assign({}, NOVEL_STAGE_LIMITS.debate);
     });
     bindWorkbenchStage("plan-chapters-form", "plan-chapters-submit", "plan-chapters-status", "plan-chapters", function (form) {
       // require_start_point follows has_start_point: an existing book MUST enforce
       // the gate (else plan drifts off the real start); a greenfield premise has
       // no prior start point so it stays false.
-      return { target_chapters: Number(form.elements.target_chapters.value || 5) };
+      return Object.assign({ target_chapters: Number(form.elements.target_chapters.value || 5) }, NOVEL_STAGE_LIMITS["plan-chapters"]);
     });
     bindWorkbenchStage("write-book-form", "write-book-submit", "write-book-status", "write-book", function (form) {
       return {
         chapters: Number(form.elements.chapters.value || 1),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
-        budget_cny: form.elements.budget_cny ? Number(form.elements.budget_cny.value || 10) : 10,
+        budget_cny: form.elements.budget_cny ? Number(form.elements.budget_cny.value || NOVEL_STAGE_LIMITS["write-book"].budget_cny) : NOVEL_STAGE_LIMITS["write-book"].budget_cny,
+        timeout_minutes: form.elements.timeout_minutes ? Number(form.elements.timeout_minutes.value || NOVEL_STAGE_LIMITS["write-book"].timeout_minutes) : NOVEL_STAGE_LIMITS["write-book"].timeout_minutes,
+        max_model_requests: form.elements.max_model_requests ? Number(form.elements.max_model_requests.value || NOVEL_STAGE_LIMITS["write-book"].max_model_requests) : NOVEL_STAGE_LIMITS["write-book"].max_model_requests,
         require_plan: true,
       };
     });
@@ -5034,7 +5223,10 @@ JS_DASHBOARD = """\
       setControlBusy(regen, true, "处理中");
       if (box) box.innerHTML = '<div class="alert info">正在重新扩写…</div>';
       try {
-        const data = await postJson(wsUrl("/run"), { step: "expand-premise", params: { force: true } });
+        const data = await postJson(wsUrl("/run"), {
+          step: "expand-premise",
+          params: Object.assign({ force: true }, NOVEL_STAGE_LIMITS["expand-premise"]),
+        });
         setWorkbenchMutationLock(true);
         renderWorkbenchHydration("running", { job_id: data.job_id, step: "expand-premise", status: "pending" });
         await pollJob(data.job_id, box, regen, async function () {
@@ -5592,6 +5784,7 @@ JS_DASHBOARD = """\
       const next = !st.has_kb ? { l: st.creation_mode === "greenfield" ? "生成设定" : (st.has_start_point ? "重建续写底座" : "选择续写起点"), t: st.requires_start_point && !st.has_start_point ? "" : "stage-prepare-card" }
         : !st.has_outline ? { l: "生成大纲", t: "stage-outline-card" }
         : !st.has_plan ? { l: "生成细纲", t: "stage-plan-card" }
+        : st.write_state === "retry_required" ? { l: "处理失败稿", t: "stage-write-card" }
         : st.stage !== "done" ? { l: "开始续写", t: "stage-write-card" }
         : null;
       const cta = next && next.t
@@ -5617,9 +5810,17 @@ JS_DASHBOARD = """\
     setStageEnabled("outline-save", !!st.has_outline);
     setStageEnabled("plan-chapters-submit", !!st.has_outline);
     const writeSubmit = document.getElementById("write-book-submit");
+    const recoverySubmit = document.getElementById("write-recovery-submit");
     const openChapter = document.getElementById("write-book-open-chapter");
-    setStageEnabled("write-book-submit", !!st.has_plan && st.stage !== "done");
-    if (writeSubmit) writeSubmit.hidden = st.stage === "done";
+    const retryRequired = st.write_state === "retry_required" && Number(st.retry_chapter) > 0;
+    setStageEnabled("write-book-submit", !!st.has_plan && st.stage !== "done" && !retryRequired);
+    setStageEnabled("write-recovery-submit", retryRequired);
+    if (writeSubmit) writeSubmit.hidden = st.stage === "done" || retryRequired;
+    if (recoverySubmit) {
+      recoverySubmit.hidden = !retryRequired;
+      if (retryRequired) recoverySubmit.setAttribute("data-write-recovery-chapter", String(st.retry_chapter));
+      else recoverySubmit.removeAttribute("data-write-recovery-chapter");
+    }
     if (openChapter) openChapter.hidden = st.stage !== "done";
     // iter 048c: re-label the plan-chapters button so users see that they're
     // RE-generating an existing plan (重生成 = re-plan from scratch, since the
@@ -5687,7 +5888,8 @@ JS_DASHBOARD = """\
       setStageEnabled("outline-submit", !!st.has_kb);
       setStageEnabled("outline-save", !!st.has_outline);
       setStageEnabled("plan-chapters-submit", !!st.has_outline);
-      setStageEnabled("write-book-submit", !!st.has_plan && st.stage !== "done");
+      setStageEnabled("write-book-submit", !!st.has_plan && st.stage !== "done" && !retryRequired);
+      setStageEnabled("write-recovery-submit", retryRequired);
       renderWorkbenchHydration("ready");
     }
   }
@@ -5953,7 +6155,7 @@ JS_DASHBOARD = """\
       try {
         const data = await postJson(wsUrl("/run"), {
           step: "plan-chapters",
-          params: { target_chapters: target },
+          params: Object.assign({ target_chapters: target }, NOVEL_STAGE_LIMITS["plan-chapters"]),
         });
         await pollJob(data.job_id, box, submit, async () => {
           await refreshReadiness();
@@ -6007,6 +6209,7 @@ JS_DASHBOARD = """\
         budget_cny: Number(form.elements.budget_cny.value || 0),
         min_confidence: Number(form.elements.min_confidence.value || 0.7),
         timeout_minutes: Number(form.elements.timeout_minutes ? form.elements.timeout_minutes.value || 0 : 0),
+        max_model_requests: Number(form.elements.max_model_requests ? form.elements.max_model_requests.value || 20 : 20),
         tier: form.elements.tier ? form.elements.tier.value || "mid" : "mid",
         auto_advance: Boolean(form.elements.auto_advance.checked),
         require_plan: true,
@@ -6021,7 +6224,7 @@ JS_DASHBOARD = """\
       if (!await confirmPaidAction({
         title: "确认开始续写",
         action: "将按当前写作与评审设置生成正文。",
-        scope: "从第 " + params.resume_from + " 章开始，共 " + params.chapters + " 章；可用额度上限 " + params.budget_cny + " 元；最长等待 " + params.timeout_minutes + " 分钟",
+        scope: "从第 " + params.resume_from + " 章开始，共 " + params.chapters + " 章；最多 " + params.max_model_requests + " 次模型请求；可用额度上限 " + params.budget_cny + " 元；最长等待 " + params.timeout_minutes + " 分钟",
         preservation: "将更新本次范围内的新正文和检查记录；已有内容会保留。开始后可查看进度或请求取消，取消前已保存的内容不会删除。",
       })) return;
       writeBookJobRunning = true;
@@ -6201,11 +6404,11 @@ JS_DASHBOARD = """\
   function jobActionKind(job) {
     const detail = jobBlockedDetail(job);
     const reason = detail && detail.reason ? detail.reason : "";
+    if (reason === "retry_exhausted") {
+      return job.step === "write-book" && detail && Number(detail.chapter) > 0 ? "retry_exhausted" : "";
+    }
     if (CTA_ACTIONS[reason]) return reason;
     if (/fingerprint/.test(reason)) return "plan_fingerprint_stale";
-    const partial = job.result_summary && job.result_summary.partial;
-    if (partial && partial.chapter) return "retry_exhausted";
-    if (job.status === "failed" || job.status === "blocked" || job.status === "budget_exceeded") return "retry_exhausted";
     return "";
   }
   function resultSummaryRows(summary) {
@@ -6227,8 +6430,14 @@ JS_DASHBOARD = """\
     if (params.resume_from) return Number(params.resume_from);
     return 0;
   }
-  function renderJobPageCta(kind) {
+  function renderJobPageCta(kind, job) {
     if (!kind) return "";
+    if (kind === "retry_exhausted") {
+      const chapter = jobChapterNumber(job || {});
+      if (!chapter) return "";
+      return '<button type="button" class="btn btn-paid btn-sm" data-ui-action="paid" data-cta-action="retry_write_book" data-write-recovery-chapter="' +
+        escapeHtml(String(chapter)) + '">查看并恢复</button>';
+    }
     const cfg = ctaConfig(kind, {});
     // iter068 (Cluster E): route by the catalog cta_action to the page/anchor
     // that actually fixes the blocker, instead of hardcoding /plan vs /continue
@@ -6252,8 +6461,8 @@ JS_DASHBOARD = """\
     if (job.status === "succeeded" && localDemoHref) {
       actions.push('<a class="btn btn-primary btn-sm" href="' + localDemoHref + '">打开演练交付</a>');
     }
-    if (actionKind) actions.push(renderJobPageCta(actionKind));
-    if (job.retryable === true && job.status !== "running" && job.status !== "pending") {
+    if (actionKind) actions.push(renderJobPageCta(actionKind, job));
+    if (actionKind !== "retry_exhausted" && job.retryable === true && job.status !== "running" && job.status !== "pending") {
       const paidRetry = isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama");
       actions.push('<button type="button" class="btn ' + (paidRetry ? "btn-paid" : "btn-secondary") +
         ' btn-sm"' + (paidRetry ? ' data-ui-action="paid"' : "") + ' data-job-retry="' +
@@ -6439,7 +6648,7 @@ JS_DASHBOARD = """\
         '<div class="kv-list compact">' +
         '<div class="k">任务编号</div><div class="v"><code>' + escapeHtml(jobId) + "</code></div>" +
         '<div class="k">状态</div><div class="v">' + statusBadge(job.status || "?") + "</div>" +
-        '<div class="k">当前步骤</div><div class="v">' + escapeHtml(stepLabel(job.current_step || job.step)) + "</div>" +
+        '<div class="k">当前步骤</div><div class="v">' + escapeHtml(currentStepLabel(job.current_step, job.step, job.status)) + "</div>" +
         '<div class="k">进度</div><div class="v">' + pct + "%</div>" +
         "</div>" +
         '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
@@ -6448,7 +6657,7 @@ JS_DASHBOARD = """\
         ' <a class="btn btn-ghost btn-sm" data-leave-guard href="' + wsHref("/jobs") + '">任务页</a>' +
         "</div>" +
         (cancelPending
-          ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(stepLabel(job.current_step || job.step)) + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
+          ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(currentStepLabel(job.current_step, job.step, job.status)) + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
           : "") +
         (job.persistence_degraded === true
           ? '<div class="alert warn" style="margin-top:6px">任务状态的持久化记录不完整；请打开任务页核对。</div>'
@@ -6906,7 +7115,7 @@ JS_DASHBOARD = """\
         saveState("已保存，正在检查", "busy");
         const job = await postJson(wsUrl("/run"), {
           step: "review-chapter",
-          params: { chapter: Number(num) },
+          params: Object.assign({ chapter: Number(num) }, NOVEL_STAGE_LIMITS["write-book"]),
         });
         await pollJob(job.job_id, statusBox, null, async function () {
           const data = await fetchJson(wsUrl("/draft/" + num));
@@ -9309,6 +9518,7 @@ JS_DASHBOARD = """\
   }
   async function initJobs() {
     if (document.querySelector(".ui-drama")) return initDramaJobsLegacy();
+    bindCtaActions();
     ensureJobCancelDelegate();
     const recentBox = document.getElementById("jobs-recent");
     const logsBox = document.getElementById("jobs-logs");
@@ -9335,11 +9545,13 @@ JS_DASHBOARD = """\
               : '<a class="btn btn-primary" href="' + wsHref("/workbench") + '">查看结果</a>';
           } else if (status === "lost" || !STATUS_LABELS[status]) {
             action = '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button>';
+          } else if (jobActionKind(job) === "retry_exhausted") {
+            action = renderJobPageCta("retry_exhausted", job);
           } else if (job.retryable === true) {
             const paid = isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama");
             action = '<button type="button" class="btn ' + (paid ? "btn-paid" : "btn-secondary") + '" data-job-retry="' + escapeHtml(job.job_id || "") + '"' + (paid ? ' data-ui-action="paid"' : '') + '>重新开始</button>';
           } else {
-            action = renderJobPageCta(jobActionKind(job)) || '<a class="btn btn-secondary" href="' + wsHref("/workbench") + '">返回工作台</a>';
+            action = renderJobPageCta(jobActionKind(job), job) || '<a class="btn btn-secondary" href="' + wsHref("/workbench") + '">返回工作台</a>';
           }
           return (
             '<article class="job-record-card" data-job-card data-job-group="' + group + '">' +
@@ -11203,9 +11415,14 @@ JS_WIZARD = """\
       const data = await res.json().catch(() => ({}));
       if (!res.ok || typeof data.is_mock !== "boolean") throw new Error("mode_unavailable");
       const isMock = !!data.is_mock;
-      modeCard.innerHTML = '<strong>当前运行方式：' + (isMock ? "离线模式" : "真实生成") + '</strong>' +
+      const pricingKnown = data.pricing_known !== false;
+      modeCard.innerHTML = '<strong>当前运行方式：' + (isMock ? "离线模式" : pricingKnown ? "真实生成" : "真实生成暂不可用") + '</strong>' +
         '<br><span class="muted">' +
-        (isMock ? "本次不会发送真实请求，也不会使用真实额度。" : "开始前请确认本次范围与人民币额度。") + "</span>";
+        (isMock
+          ? "本次不会发送真实请求，也不会使用真实额度。"
+          : pricingKnown
+            ? "开始前请确认本次范围与人民币额度。"
+            : "当前模型缺少可信单价，系统会在首次真实请求前安全阻断；请先到设置中更换模型。") + "</span>";
     } catch (err) {
       modeCard.innerHTML = '<strong>当前运行方式：暂时无法确认</strong>' +
         '<br><span class="muted">没有开始创建，也不会自动发起请求。请重新加载页面后再试。</span>';
@@ -11532,7 +11749,9 @@ JS_SETTINGS = """\
     if (modeBox) {
       modeBox.innerHTML = modeData.is_mock
         ? '<strong>离线模式</strong><span>当前不会发起真实生成请求，也不会使用真实额度。</span>'
-        : '<strong>真实生成方式已选择</strong><span>这不代表已经授权；每次使用前仍需确认范围与人民币额度。</span>';
+        : modeData.pricing_known === false
+          ? '<strong>真实生成暂不可用</strong><span>当前模型缺少可信单价，付费请求会被安全阻断。请更换为已有明确本地价格的模型并重启服务。</span>'
+          : '<strong>真实生成方式已选择</strong><span>这不代表已经授权；每次使用前仍需确认范围与人民币额度。</span>';
     }
   } catch (err) {
     if (modeBox) modeBox.innerHTML = '<strong>运行方式未能读取</strong><span>没有修改任何设置。请重新加载页面后再试。</span>';

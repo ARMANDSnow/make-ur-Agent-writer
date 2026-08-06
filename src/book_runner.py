@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import math
 import os
-import shutil
+import stat
 import sys
 import time
 from datetime import datetime, timezone
@@ -222,7 +223,12 @@ def _mark_caveat_approved(drafts_dir: Path, chapter_no: int, *, reason: str) -> 
     write_json(meta_path, meta)
 
 
-def run_write_book(*, lock_source: str = "cli-write-book", **kwargs: Any) -> Dict[str, Any]:
+def run_write_book(
+    *,
+    lock_source: str = "cli-write-book",
+    precondition: Callable[[], None] | None = None,
+    **kwargs: Any,
+) -> Dict[str, Any]:
     """Production write entrypoint shared by CLI/Web wrappers.
 
     iter078 P1-7: the whole run holds the workspace write lock
@@ -235,6 +241,13 @@ def run_write_book(*, lock_source: str = "cli-write-book", **kwargs: Any) -> Dic
     """
     try:
         with acquire_write_lock(source=lock_source):
+            # Recovery admission is checked once by the HTTP handler and once
+            # more here, after the cross-process write lock is held but before
+            # readiness/force can archive any prior generation.  This closes
+            # the POST→worker TOCTOU window without moving archival out of the
+            # runner's existing force path.
+            if precondition is not None:
+                precondition()
             return _run_write_book_unlocked(**kwargs)
     except WorkspaceLocked as exc:
         raise BookRunBlocked(str(exc)) from exc
@@ -1353,32 +1366,201 @@ def _expected_write_model() -> str:
         return ""
 
 
+def _archive_directory_flags() -> int:
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise OSError("secure chapter archive access is unavailable")
+    return os.O_RDONLY | directory | nofollow | getattr(os, "O_CLOEXEC", 0)
+
+
+def _archive_regular_at(parent_fd: int, name: str) -> os.stat_result | None:
+    """Return one no-follow source identity, or ``None`` when it is absent."""
+
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        raise OSError("chapter archive source is not a regular file")
+    return info
+
+
+def _archive_file_identity(info: os.stat_result) -> tuple[int, int, int, int]:
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _write_archive_reason(archive_fd: int, *, reason: str, chapter_no: int) -> None:
+    payload = (
+        json.dumps(
+            {"reason": reason, "chapter": chapter_no},
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    fd = os.open("archive_reason.json", flags, 0o600, dir_fd=archive_fd)
+    try:
+        offset = 0
+        while offset < len(payload):
+            written = os.write(fd, payload[offset:])
+            if written <= 0:
+                raise OSError("short chapter archive reason write")
+            offset += written
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _archive_chapter_artifacts(drafts_dir: Path, chapter_no: int, *, reason: str) -> Path:
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    archive_dir = ensure_dir(drafts_dir / "snapshots" / f"stale_chapter_{chapter_no:02d}_{stamp}")
-    for suffix in (
-        ".md",
-        ".partial.md",
-        ".meta.json",
-        ".failure.json",
-        # iter077 审查修复：caveat 放行归档的 lint 失败件也随章整体归档——否则
-        # force 重写后旧世代审计残片留在 drafts 挂错世代、二次 caveat 时被覆写。
-        ".failure.caveat.json",
-        ".entity_advances.json",
-        ".entity_advance_proposals.json",
-        # iter078 P1-4①: advance 处置 sidecar 随章归档——force 重写后新周期
-        # 重新处置，不残留旧世代标记（iter077 caveat.json 同款教训）。
-        ".advance_applied.json",
-    ):
-        path = drafts_dir / f"chapter_{chapter_no:02d}{suffix}"
-        if path.exists():
-            shutil.move(str(path), str(archive_dir / path.name))
-    reviews_dir = drafts_dir.parent / "reviews"
-    review_path = reviews_dir / f"chapter_{chapter_no:02d}.review.json"
-    if review_path.exists():
-        shutil.move(str(review_path), str(archive_dir / review_path.name))
-    write_json(archive_dir / "archive_reason.json", {"reason": reason, "chapter": chapter_no})
-    return archive_dir
+    """Move one chapter generation into a unique no-follow snapshot.
+
+    Recovery admission reads the generation through secure descriptors.  The
+    destructive half must preserve that boundary too: every descendant is
+    opened relative to an already-open directory, ``snapshots`` may never be a
+    symlink, and a fresh archive directory is created atomically.  Hard-linking
+    each regular source into that fresh directory before unlinking it gives us
+    no-replace semantics and keeps the old generation intact if preparation
+    fails before the commit phase.
+    """
+
+    drafts_dir = Path(drafts_dir)
+    if not drafts_dir.name or drafts_dir.name in {".", ".."}:
+        raise OSError("invalid drafts directory")
+    directory_flags = _archive_directory_flags()
+    parent_fd = os.open(drafts_dir.parent, directory_flags)
+    drafts_fd = snapshots_fd = archive_fd = reviews_fd = -1
+    archive_name = ""
+    linked_names: list[str] = []
+    sources: list[tuple[int, str, os.stat_result]] = []
+    unlink_started = False
+    try:
+        drafts_fd = os.open(drafts_dir.name, directory_flags, dir_fd=parent_fd)
+        for suffix in (
+            ".md",
+            ".partial.md",
+            ".meta.json",
+            ".failure.json",
+            # iter077 审查修复：caveat 放行归档的 lint 失败件也随章整体归档——否则
+            # force 重写后旧世代审计残片留在 drafts 挂错世代、二次 caveat 时被覆写。
+            ".failure.caveat.json",
+            ".entity_advances.json",
+            ".entity_advance_proposals.json",
+            # iter078 P1-4①: advance 处置 sidecar 随章归档——force 重写后新周期
+            # 重新处置，不残留旧世代标记（iter077 caveat.json 同款教训）。
+            ".advance_applied.json",
+        ):
+            name = f"chapter_{chapter_no:02d}{suffix}"
+            info = _archive_regular_at(drafts_fd, name)
+            if info is not None:
+                sources.append((drafts_fd, name, info))
+
+        try:
+            reviews_fd = os.open("reviews", directory_flags, dir_fd=parent_fd)
+        except FileNotFoundError:
+            reviews_fd = -1
+        if reviews_fd >= 0:
+            review_name = f"chapter_{chapter_no:02d}.review.json"
+            info = _archive_regular_at(reviews_fd, review_name)
+            if info is not None:
+                sources.append((reviews_fd, review_name, info))
+
+        try:
+            os.mkdir("snapshots", mode=0o700, dir_fd=drafts_fd)
+        except FileExistsError:
+            pass
+        snapshots_fd = os.open("snapshots", directory_flags, dir_fd=drafts_fd)
+
+        # Preserve the public YYYYMMDD_HHMMSS version-id contract.  A collision
+        # advances to the next second rather than reopening an existing folder.
+        base_time = time.time()
+        for bump in range(86_400):
+            stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(base_time + bump))
+            candidate = f"stale_chapter_{chapter_no:02d}_{stamp}"
+            try:
+                os.mkdir(candidate, mode=0o700, dir_fd=snapshots_fd)
+            except FileExistsError:
+                continue
+            archive_name = candidate
+            created = os.stat(candidate, dir_fd=snapshots_fd, follow_symlinks=False)
+            archive_fd = os.open(candidate, directory_flags, dir_fd=snapshots_fd)
+            opened = os.fstat(archive_fd)
+            if (
+                not stat.S_ISDIR(created.st_mode)
+                or not stat.S_ISDIR(opened.st_mode)
+                or (created.st_dev, created.st_ino) != (opened.st_dev, opened.st_ino)
+            ):
+                raise OSError("chapter archive directory identity changed")
+            break
+        if archive_fd < 0:
+            raise OSError("chapter archive namespace exhausted")
+
+        # Preparation: link every still-identical regular source into the fresh
+        # directory. os.link is atomic and refuses an existing destination.
+        for source_fd, name, approved in sources:
+            current = _archive_regular_at(source_fd, name)
+            if current is None or _archive_file_identity(current) != _archive_file_identity(approved):
+                raise OSError("chapter archive source changed")
+            os.link(
+                name,
+                name,
+                src_dir_fd=source_fd,
+                dst_dir_fd=archive_fd,
+                follow_symlinks=False,
+            )
+            linked_names.append(name)
+            linked = os.stat(name, dir_fd=archive_fd, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(linked.st_mode)
+                or _archive_file_identity(linked) != _archive_file_identity(approved)
+            ):
+                raise OSError("chapter archive destination identity changed")
+
+        _write_archive_reason(archive_fd, reason=reason, chapter_no=chapter_no)
+        os.fsync(archive_fd)
+
+        # Commit only after every destination is durable.  A changed source is
+        # rejected before the first unlink, so no model request can proceed on
+        # an ambiguous/partially archived generation.
+        for source_fd, name, approved in sources:
+            current = _archive_regular_at(source_fd, name)
+            if current is None or _archive_file_identity(current) != _archive_file_identity(approved):
+                raise OSError("chapter archive source changed before commit")
+        unlink_started = True
+        for source_fd, name, _approved in sources:
+            os.unlink(name, dir_fd=source_fd)
+        os.fsync(drafts_fd)
+        if reviews_fd >= 0:
+            os.fsync(reviews_fd)
+        os.fsync(snapshots_fd)
+        return drafts_dir / "snapshots" / archive_name
+    except BaseException:
+        # Before commit the original generation is untouched, so remove the
+        # prepared hard links and fresh directory.  Once unlinking starts the
+        # archive is the durable copy and must be retained for reconciliation.
+        if not unlink_started and archive_fd >= 0:
+            for name in linked_names:
+                try:
+                    os.unlink(name, dir_fd=archive_fd)
+                except OSError:
+                    pass
+            try:
+                os.unlink("archive_reason.json", dir_fd=archive_fd)
+            except OSError:
+                pass
+        if not unlink_started and archive_name and snapshots_fd >= 0:
+            try:
+                os.rmdir(archive_name, dir_fd=snapshots_fd)
+            except OSError:
+                pass
+        raise
+    finally:
+        for fd in (archive_fd, snapshots_fd, reviews_fd, drafts_fd, parent_fd):
+            if fd >= 0:
+                os.close(fd)
 
 
 def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[str, Any]:

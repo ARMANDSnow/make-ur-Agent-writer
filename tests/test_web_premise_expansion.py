@@ -19,6 +19,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src import paths
 from src.web import jobs, routes
@@ -125,6 +126,26 @@ class PremiseStartExpandTests(_WebHarness):
         self.assertIn("mock 题材基调", data["fields"]["genre_tone"])
         # the original premise survives in the artifact (seed wrapper stripped)
         self.assertEqual(data["premise"], "旧书店店主收到亡友预言谋杀的信。")
+
+    def test_expand_true_starts_with_server_derived_hard_limits(self) -> None:
+        captured: dict = {}
+
+        def fake_start(workspace: str, step: str, params: dict) -> dict:
+            captured.update(workspace=workspace, step=step, params=dict(params))
+            return {"job_id": "a" * 32, "status": "pending"}
+
+        with patch("src.web.jobs.start_job", side_effect=fake_start):
+            body = self._premise("boundedexp", expand=True)
+        self.assertEqual(body["expansion_job_id"], "a" * 32)
+        self.assertEqual(captured["step"], "expand-premise")
+        self.assertEqual(
+            captured["params"],
+            {
+                "max_model_requests": 2,
+                "budget_cny": 1.0,
+                "timeout_minutes": 15.0,
+            },
+        )
 
     def test_expand_must_be_boolean(self) -> None:
         status, _ct, resp = routes.dispatch(
