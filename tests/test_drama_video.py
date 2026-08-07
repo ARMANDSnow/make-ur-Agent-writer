@@ -1022,8 +1022,11 @@ class DramaVideoPipelineTests(DramaTestBase):
             )
             self.assertTrue(entered.wait(1))
             record = self._wait_drama_job(started["job_id"])
-            self.assertEqual(record["status"], "aborted")
+            self.assertEqual(record["status"], "failed")
             self.assertEqual(record["current_step"], "timeout")
+            self.assertEqual(
+                record["result_summary"]["failure_reason"], "job_timeout"
+            )
 
     def test_download_requires_allowlist_content_type_and_magic(self) -> None:
         with self.assertRaisesRegex(ValueError, "allowlisted"):
