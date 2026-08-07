@@ -1244,7 +1244,7 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
     current_drafts = has_plan and draft_count > 0 and draft_m >= plan_m
     write_state = "not_started"
     retry_chapter: Optional[int] = None
-    if current_drafts:
+    if has_plan and draft_count > 0:
         from ..chapter_status import chapter_status
 
         chapter_numbers = []
@@ -1272,9 +1272,9 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
         if retry_required:
             write_state = "retry_required"
             retry_chapter = int(retry_required[0].get("chapter_no") or 1)
-        elif not unapproved and statuses:
+        elif current_drafts and not unapproved and statuses:
             write_state = "approved"
-        elif unapproved:
+        elif current_drafts and unapproved:
             write_state = "needs_review"
 
     if requires_start_point and not has_start_point:
@@ -1333,6 +1333,7 @@ def _write_recovery_snapshot(name: str, chapter: int) -> Dict[str, Any]:
         snapshot["state_fingerprint"] = None
         return snapshot
     snapshot["_ledger_claim"] = ledger_claim
+    snapshot["_prior_job_id"] = ""
     if latest is None:
         return snapshot
     status = str(latest.get("status") or "")
@@ -1348,12 +1349,14 @@ def _write_recovery_snapshot(name: str, chapter: int) -> Dict[str, Any]:
     }:
         snapshot["state"] = "reconciliation_required"
         snapshot["state_fingerprint"] = None
-    elif status != "blocked" and snapshot.get("state") == "eligible":
+    elif not jobs.is_exact_write_recovery_terminal(latest, chapter):
         # Only the explicit retry_exhausted/blocked terminal is a recoverable
         # write failure.  General failure, cancellation, budget exhaustion and
         # an inconsistent "succeeded" row never acquire a force entrypoint.
         snapshot["state"] = "blocked"
         snapshot["state_fingerprint"] = None
+    else:
+        snapshot["_prior_job_id"] = str(latest.get("job_id") or "")
     return snapshot
 
 
@@ -1484,6 +1487,7 @@ def api_workspace_write_recovery_post(name: str, body: bytes) -> Tuple[int, str,
         "require_external_review": True,
         "expected_recovery_fingerprint": actual_fingerprint,
         "expected_recovery_ledger_claim": ledger_claim,
+        "expected_recovery_prior_job_id": str(snapshot.get("_prior_job_id") or ""),
         "recovery_chapter": chapter,
     }
     try:
@@ -1492,6 +1496,14 @@ def api_workspace_write_recovery_post(name: str, body: bytes) -> Tuple[int, str,
         msg = str(exc)
         if msg.startswith("workspace_busy:"):
             return _json(409, {"error": "workspace busy", "code": "write_recovery_busy"})
+        if msg.startswith("write_recovery_state_changed"):
+            return _json(
+                409,
+                {
+                    "error": "write recovery state changed",
+                    "code": "write_recovery_state_changed",
+                },
+            )
         if msg.startswith(("creation_mode_conflict:", "workspace_metadata_invalid")):
             return _json(
                 409,
@@ -5554,6 +5566,8 @@ def _validate_prepare_params(step: str, params: Dict[str, Any]) -> Tuple[Optiona
 
 def _validate_write_book_params(params: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
     out: Dict[str, Any] = {}
+    if params.get("force") is True:
+        return "force write-book must use the dedicated write-recovery endpoint", {}
     # iter059 #6a: upper bounds so a pathological chapters=999999999 can't be
     # accepted (resource exhaustion). Caps are well above any real run; the
     # default path is unchanged. plan-chapters already capped target at 200.

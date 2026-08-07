@@ -323,6 +323,20 @@ def inspect_recovery_state(workspace: str, chapter: int) -> Dict[str, Any]:
         or plan_mtime_ns < outline_mtime_ns
     ):
         return public
+    # Recovery must be executable under the same strict plan contract as the
+    # writer.  A merely present/fresh legacy or tampered plan would otherwise
+    # advertise an action that deterministically blocks after confirmation.
+    from ..book_runner import _plan_metadata_failures
+    from .workspace_ctx import use_workspace
+
+    with use_workspace(workspace):
+        plan_failures = _plan_metadata_failures(
+            plan,
+            chapter_numbers=[chapter],
+            require_start_point=creation_mode == "continuation",
+        )
+    if plan_failures:
+        return public
     resolved_start: Optional[str] = None
     if creation_mode == "continuation":
         start = _json_object(start_raw)

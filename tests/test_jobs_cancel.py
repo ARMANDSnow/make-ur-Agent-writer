@@ -91,7 +91,7 @@ class JobCancelTests(unittest.TestCase):
         self.assertIn("user requested cancel", terminal["error"])
         self.assertIsNone(jobs.workspace_busy("alpha"))
 
-    def test_timeout_uses_aborted_path(self) -> None:
+    def test_timeout_uses_failed_path(self) -> None:
         def slow_checkpoint_handler(params, progress_cb):
             time.sleep(0.02)
             progress_cb("late-progress", 0.5)
@@ -101,10 +101,14 @@ class JobCancelTests(unittest.TestCase):
             record = jobs.start_job("alpha", "normalize", {"timeout_minutes": 0.000001})
             terminal = self._wait_for_terminal(record["job_id"])
 
-        self.assertEqual(terminal["status"], "aborted")
+        self.assertEqual(terminal["status"], "failed")
         self.assertEqual(terminal["current_step"], "timeout")
-        self.assertIn("timeout after", terminal["error"])
-        self.assertTrue(terminal["cancel_requested"])
+        self.assertEqual(terminal["error"], "job timed out")
+        self.assertEqual(
+            terminal["result_summary"]["failure_reason"], "job_timeout"
+        )
+        self.assertFalse(terminal["cancel_requested"])
+        self.assertIsNone(terminal["cancel_reason"])
         self.assertIsNone(jobs.workspace_busy("alpha"))
 
     def test_request_cancel_rejects_terminal_job(self) -> None:

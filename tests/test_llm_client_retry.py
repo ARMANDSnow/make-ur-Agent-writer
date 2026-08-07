@@ -16,10 +16,13 @@ from unittest.mock import PropertyMock, patch
 
 from src.llm_client import (
     LLMClient,
+    LLMCallDeadlineExceeded,
     LLMContextOverflowError,
+    llm_deadline_scope,
     _is_safe_to_retry,
     _is_submission_unknown,
     _is_transient,
+    public_llm_failure_reason,
 )
 
 
@@ -81,6 +84,37 @@ class IsTransientClassificationTests(unittest.TestCase):
         self.assertFalse(_is_safe_to_retry(ConnectionResetError("mid-stream")))
         self.assertTrue(_is_safe_to_retry(RequestNotSentError("connect refused")))
         self.assertFalse(_is_safe_to_retry(RateLimitError("429 Too Many Requests")))
+
+    def test_public_failure_reason_is_bounded_and_preserves_paid_safety(self) -> None:
+        self.assertEqual(
+            public_llm_failure_reason(APITimeoutError("https://private.invalid/?token=secret")),
+            "submission_unknown",
+        )
+        self.assertEqual(
+            public_llm_failure_reason(RequestNotSentError("connect refused")),
+            "provider_unavailable",
+        )
+        self.assertEqual(
+            public_llm_failure_reason(ValueError("private provider payload")),
+            "generation_failed",
+        )
+        wrapped = RuntimeError("safe outer")
+        wrapped.__cause__ = APITimeoutError("private upstream")
+        self.assertEqual(public_llm_failure_reason(wrapped), "submission_unknown")
+
+    def test_stream_checks_cooperative_job_deadline_between_chunks(self) -> None:
+        client = LLMClient("extract")
+        stream = iter(
+            [
+                {"choices": [{"delta": {"content": "partial"}}]},
+                {"choices": [{"delta": {"content": "must-discard"}}]},
+            ]
+        )
+        with llm_deadline_scope(10.0), patch(
+            "src.llm_client.time.monotonic", side_effect=[9.0, 9.5, 10.0]
+        ):
+            with self.assertRaises(LLMCallDeadlineExceeded):
+                client._consume_stream(stream)
 
 
 class RetryLoopBehaviorTests(unittest.TestCase):

@@ -17,12 +17,13 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any, Dict, Iterator, List
 from unittest.mock import PropertyMock, patch
 
-from src.llm_client import LLMClient
+from src.llm_client import LLMClient, llm_deadline_scope
 
 
 def _chunk(content: str = "", usage: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -77,6 +78,31 @@ class LLMClientStreamingTests(unittest.TestCase):
         self.assertEqual(row["status"], "ok")
         self.assertEqual(row["prompt_tokens"], 7)
         self.assertEqual(row["response_tokens"], 3)
+
+    def test_outer_job_deadline_forces_timeout_bounded_non_stream_request(self) -> None:
+        captured: Dict[str, Any] = {}
+
+        def fake_completion(**kwargs: Any) -> Dict[str, Any]:
+            captured.update(kwargs)
+            return {"choices": [{"message": {"content": "bounded"}}]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("src.llm_client.ROOT", Path(tmp)):
+                client = LLMClient("write")
+                client.config = dict(client.config)
+                client.config["request_timeout"] = 60
+                with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
+                    mock_prop.return_value = False
+                    with patch("litellm.completion", side_effect=fake_completion):
+                        with llm_deadline_scope(time.monotonic() + 10):
+                            text = client.complete_text(
+                                [{"role": "user", "content": "hi"}], stream=True
+                            )
+
+        self.assertEqual(text, "bounded")
+        self.assertNotIn("stream", captured)
+        self.assertGreater(captured["timeout"], 0)
+        self.assertLessEqual(captured["timeout"], 10)
 
     def test_stream_submission_unknown_does_not_retry(self) -> None:
         def bad_stream() -> Iterator[Dict[str, Any]]:

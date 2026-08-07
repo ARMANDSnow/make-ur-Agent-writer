@@ -41,17 +41,19 @@
 - 新恢复协议的内容无关指纹绑定创作模式、续写 manifest 与已解析起点、扩写稿、KB→大纲→细纲 freshness、正文/meta/review。POST 与 worker 写锁内各复核一次；任务账本使用 `absent|ok|indeterminate` 三态和 durable claim，跨进程插入或更新任何 foreign job 都在归档/模型调用前阻断。
 - force 归档改为 dir-fd + `O_NOFOLLOW`/no-replace：拒绝 symlink/非目录，唯一目录不覆盖，同一代全部副本与 reason 落盘后才移除当前稿。一次确认、状态指纹、ledger claim 与 worker job id 均不进入公开投影或通用重放参数。
 - Web 小说模型阶段以服务端 step 表同时提供默认值与硬上限；真实 provider 的每次 attempt（含安全重试、cache downgrade、JSON repair）都计入 ContextVar 请求额度，并在调用前检查已知费用。未知价格在 preflight 与首次 provider 请求前 fail closed；mock 保持严格离线，CLI 历史估值兼容不作为付费硬上限。
-- 三路只读审查共发现并闭合：坏/超限 ledger fail-open、归档 symlink/覆盖、unknown pricing 低估、专用 intent 漂移、wizard 自动扩写缺额度、逐阶段上限仅为默认值、上游 freshness/起点未绑定、409 无操作提示、跨进程 paid-job 竞态等 findings。修复后聚焦回归为 334 tests OK（13 skipped），harness 仍为 accepted iter165 / active iter166。
-- 浏览器 local-E2E 未获得证据：本地 server bind 与 in-app browser 访问均被宿主安全策略拒绝，未绕过。脱敏 preflight 读取的当前文字模型为 provider-prefixed `openai/gpt-5.5-low`，凭据与地址仅记录为“已配置”；该模型没有可信本地价格，preflight 以唯一 fatal 在任何真实请求前安全阻断。本轮真实请求消耗为 0 次 / 0 元，等待用户在 Web 设置更换模型后重新 preflight 与授权。
+- 立项后的首轮三视角审查闭合了坏/超限 ledger fail-open、归档 symlink/覆盖、专用 intent 漂移、wizard 自动扩写缺限制、上游 freshness/起点未绑定、409 无操作提示和跨进程 paid-job 竞态。收官复审又闭合 raw `current_step` 公开/持久泄漏、通用 `/run force=true` 绕过、非 exact 同章 `retry_exhausted` 恢复、legacy/tampered plan 假入口、timeout 误报取消、wrapped provider failure 丢分类、lost/unknown 重提、细纲更新后隐藏恢复入口，以及流式读取不受外层 deadline 约束。
+- 用户启动隔离服务后，Codex 在原创 synthetic `test01` 的真实浏览器链路中观察到准备、大纲和 5 章细纲成功，工作台进入“④ 撰写正文”，“开始写书”可用，动态步骤未再出现“未识别步骤”。随后两次正文尝试均在约 125 秒后收到上游 timeout，系统未自动重发且未生成草稿/评审；用户重启后自行完成本地测试并明确报告成功。该证据仅将原创链标记为“Codex 观察至细纲 + 正文成功为用户声明”，不伪装成 Codex 观察到的正文成功。
+- 续写 synthetic 链没有取得完整真实 provider 浏览器证据；其导入/恢复协议由确定性 mock E2E 覆盖。三视口与完整双链 provider 走查也未形成可审计证据，因此本轮不得宣称完整双链 `provider-validated`，也不外推其它 provider、多章长跑或 SLA。用户本轮明确取消价格/预算考量，但实现仍保留请求数、超时和配置上限；凭据、provider 地址和文本内容均未进入文档。
+- 收官 findings 修复后的聚焦回归为 338 tests OK，受影响 Python 语法检查、harness（accepted iter165 / active iter166）与 `git diff --check` 均通过。Web 活动 deadline 会强制改用带剩余时间 clamp 的非流式 provider 请求；若同步 provider SDK 完全违反 timeout 契约且永久不返回，Python 工作线程仍无法提供进程级强杀，这是外部 transport 残余而不是本轮的硬中断保证。
 
 ## Acceptance Result
 
 <iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
 
 ### Knowledge Promotion
-- `decision`: `<iter-finish 回填：none|promoted>`
-- `destination`: `<iter-finish 回填：none|既有长期权威文档>`
-- `reason`: `<iter-finish 回填人工判断>`
+- `decision`: `promoted`
+- `destination`: `docs/PROJECT_HISTORY.md`
+- `reason`: 付费失败恢复必须绑定 exact durable terminal、完整上游 freshness、内容无关状态指纹与 durable ledger claim，并在归档/付费调用所在写锁内再次复核；这是可复用于其它付费重试入口的长期安全规则。
 
 ## 文件变更汇总
 

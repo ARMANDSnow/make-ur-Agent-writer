@@ -165,6 +165,24 @@ class ExpandPremiseJobTests(_WebHarness):
         self.assertEqual(rec["status"], "blocked")
         self.assertIn("seed_missing", json.dumps(rec.get("result_summary") or rec))
 
+    def test_provider_timeout_surfaces_only_safe_failure_reason(self) -> None:
+        marker = "PRIVATE_PROVIDER_MARKER"
+        self._premise("timeout", expand=False)
+        with patch(
+            "src.premise_expansion.expand_premise",
+            side_effect=TimeoutError(f"https://private.invalid/{marker}"),
+        ):
+            rec = self._run_step("timeout", "expand-premise")
+
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(rec["error"], "job_failed")
+        self.assertEqual(
+            rec["result_summary"]["failure_reason"], "submission_unknown"
+        )
+        rendered = json.dumps(rec, ensure_ascii=False)
+        self.assertNotIn(marker, rendered)
+        self.assertNotIn("private.invalid", rendered)
+
     def test_rerun_without_force_preserves_user_edit(self) -> None:
         self._premise("keepedit", expand=False)
         self._run_step("keepedit", "expand-premise")

@@ -73,6 +73,21 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("unknown step", data["error"])
 
+    def test_timeout_terminal_is_not_reported_as_user_cancel(self) -> None:
+        def timed_out(_params, _progress):
+            raise jobs.JobTimeout("private timeout detail")
+
+        with unittest.mock.patch.dict(jobs.STEP_HANDLERS, {"normalize": timed_out}):
+            status, data = self._post_run("alpha", {"step": "normalize"})
+            self.assertEqual(status, 202)
+            job = self._wait_for_done("alpha", data["job_id"])
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job["current_step"], "timeout")
+        self.assertEqual(job["error"], "job timed out")
+        self.assertEqual(job["result_summary"]["failure_reason"], "job_timeout")
+        self.assertFalse(job["cancel_requested"])
+        self.assertIsNone(job["cancel_reason"])
+
     def test_creation_mode_conflicts_are_rejected_before_job_allocation(self) -> None:
         workspace_meta.write("alpha", type="novel", creation_mode="continuation")
         with self.assertRaisesRegex(RuntimeError, "creation_mode_conflict"):
@@ -599,6 +614,33 @@ class JobsDispatchTests(unittest.TestCase):
             job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
         self.assertEqual(job["status"], "blocked")
         self.assertEqual(job["result_summary"]["first_blocked"]["reason"], "retry_exhausted")
+        self.assertNotIn("snapshot_path", job["result_summary"])
+
+    def test_write_book_job_surfaces_only_bounded_failure_reason(self) -> None:
+        marker = "PRIVATE_PROVIDER_MARKER"
+        with unittest.mock.patch(
+            "src.web.jobs.run_write_book",
+            return_value={
+                "status": "failed",
+                "chapters": [],
+                "blocked": [],
+                "failure_reason": "submission_unknown",
+                "error": f"provider timeout at https://private.invalid/{marker}",
+                "snapshot_path": f"/private/{marker}",
+            },
+        ):
+            status, data = self._post_run(
+                "alpha", {"step": "write-book", "params": {"chapters": 1}}
+            )
+            self.assertEqual(status, 202)
+            job = self._wait_for_done("alpha", data["job_id"], timeout=10.0)
+
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job["error"], "job_failed")
+        self.assertEqual(job["result_summary"]["failure_reason"], "submission_unknown")
+        rendered = json.dumps(job, ensure_ascii=False)
+        self.assertNotIn(marker, rendered)
+        self.assertNotIn("private.invalid", rendered)
         self.assertNotIn("snapshot_path", job["result_summary"])
 
     def test_write_book_job_preserves_zero_min_confidence(self) -> None:

@@ -26,6 +26,7 @@ from .entity_advance import (
     select_auto_indexes,
     unapplied_auto_indexes,
 )
+from .llm_client import public_llm_failure_reason
 from .preflight import run_preflight
 from .proposal_validator import validate_proposals_against_plan
 from .reviewer import review_target
@@ -681,6 +682,9 @@ def _run_write_book_unlocked(
                 "caveats": caveats,
                 "costs": costs,
                 "error": f"{type(exc).__name__}: {exc}",
+                # Public Web state consumes only this bounded enum.  The raw
+                # error remains local to the failure snapshot for diagnosis.
+                "failure_reason": public_llm_failure_reason(exc),
             }
             partial = _partial_artifact(drafts_dir, chapter_no)
             if partial:

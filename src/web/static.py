@@ -3365,6 +3365,13 @@ JS_DASHBOARD = """\
     network: { code: "network", title: "连不上本地服务", cause: "本地服务可能没在运行，或端口被占用。请确认服务已启动后重试。", actions: [{ label: "刷新重试", action: "reload" }] },
     timeout: { code: "timeout", title: "请求超时", cause: "服务端响应太慢，任务可能仍在后台长跑。可去任务页查看进度。", actions: [{ label: "去任务页", action: "go_jobs" }] },
     bad_json: { code: "bad_json", title: "返回数据异常", cause: "服务端返回的内容不是预期格式，刷新后通常即可恢复。", actions: [{ label: "刷新重试", action: "reload" }] },
+    submission_unknown: { code: "submission_unknown", title: "模型响应超时，结果未确认", cause: "为避免重复生成，系统没有自动重试。请回到工作台核对是否出现新草稿；确认没有后，再由你决定是否重新开始。", actions: [{ label: "回到工作台核对", action: "go_workbench" }] },
+    provider_unavailable: { code: "provider_unavailable", title: "模型服务暂时不可用", cause: "本次生成没有完成。请稍后再试，或在设置中更换模型连接。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
+    request_limit_exhausted: { code: "request_limit_exhausted", title: "模型请求次数已达上限", cause: "任务已停止，不会继续请求。请缩小生成范围或调整上限后再开始。", actions: [{ label: "调整生成设置", action: "go_workbench" }] },
+    context_too_large: { code: "context_too_large", title: "本次输入内容过长", cause: "模型无法接收当前上下文。请缩小生成范围或精简素材后再开始。", actions: [{ label: "调整生成设置", action: "go_workbench" }] },
+    job_timeout: { code: "job_timeout", title: "任务达到最长等待时间", cause: "任务已停止，不会继续提交模型请求。请调整最长等待时间后再开始。", actions: [{ label: "调整生成设置", action: "go_workbench" }] },
+    generation_failed: { code: "generation_failed", title: "生成过程未完成", cause: "当前内容已保留。请回到工作台检查设置，再由你决定是否重新开始。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
+    task_failed: { code: "task_failed", title: "任务未完成", cause: "当前内容已保留。请回到对应工作台检查状态后再决定。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
     write_recovery_busy: { code: "write_recovery_busy", title: "当前作品仍有任务在处理", cause: "没有创建新的恢复任务。请先等待现有任务结束，或到任务页请求取消并确认终态。", actions: [{ label: "去任务页", action: "go_jobs" }] },
     write_recovery_reconciliation_required: { code: "write_recovery_reconciliation_required", title: "上一项写作任务需要先对账", cause: "系统无法确认上一项付费写作是否已提交，因此没有重复生成。请先到任务页核对状态。", actions: [{ label: "去任务页", action: "go_jobs" }] },
     write_recovery_state_changed: { code: "write_recovery_state_changed", title: "章节状态已经变化", cause: "没有归档或生成任何内容。请关闭窗口并刷新页面，再按最新状态重新检查。", actions: [{ label: "刷新状态", action: "reload" }] },
@@ -6396,10 +6403,11 @@ JS_DASHBOARD = """\
     };
     const detail = jobBlockedDetail(job);
     const reason = detail && detail.reason ? detail.reason : "";
-    const line = jobFailureLine(job);
+    const failureReason = job.result_summary && job.result_summary.failure_reason;
+    const failureCard = failureReason && FRONT_ERROR_CATALOG[failureReason];
     const icon = icons[status] || "•";
     if (status === "succeeded") return icon + " 已完成" + (job.result_summary && job.result_summary.snapshot_path ? " · 快照已就绪" : "");
-    return icon + " " + statusLabel(status);
+    return icon + " " + statusLabel(status) + (failureCard ? " · " + failureCard.title : "");
   }
   function jobActionKind(job) {
     const detail = jobBlockedDetail(job);
@@ -6462,7 +6470,9 @@ JS_DASHBOARD = """\
       actions.push('<a class="btn btn-primary btn-sm" href="' + localDemoHref + '">打开演练交付</a>');
     }
     if (actionKind) actions.push(renderJobPageCta(actionKind, job));
-    if (actionKind !== "retry_exhausted" && job.retryable === true && job.status !== "running" && job.status !== "pending") {
+    const retryStatuses = ["succeeded", "failed", "blocked", "aborted", "budget_exceeded"];
+    const failureReason = summary && summary.failure_reason;
+    if (actionKind !== "retry_exhausted" && job.retryable === true && retryStatuses.indexOf(job.status) >= 0 && failureReason !== "submission_unknown") {
       const paidRetry = isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama");
       actions.push('<button type="button" class="btn ' + (paidRetry ? "btn-paid" : "btn-secondary") +
         ' btn-sm"' + (paidRetry ? ' data-ui-action="paid"' : "") + ' data-job-retry="' +
@@ -6569,6 +6579,13 @@ JS_DASHBOARD = """\
     const detail = jobBlockedDetail(job);
     const reason = (detail && detail.reason) || "";
     const line = jobFailureLine(job);
+    const failureReason = job.result_summary && job.result_summary.failure_reason;
+    const failureCard = failureReason && FRONT_ERROR_CATALOG[failureReason];
+    if (failureCard) {
+      return renderErrorCard({ card: Object.assign({}, failureCard, {
+        trace_id: job.trace_id || "",
+      })});
+    }
     // A DIRECT readiness-kind match → friendly kind card (title + cause + CTA).
     const direct = CTA_ACTIONS[reason];
     if (job.status === "blocked" && direct) {

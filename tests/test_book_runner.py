@@ -274,6 +274,29 @@ class BookRunnerReadinessTests(unittest.TestCase):
             result = run_write_book(chapters=1, budget_cny=1.0)
         self.assertEqual(result["status"], "budget_exceeded")
 
+    def test_write_failure_snapshot_keeps_raw_error_local_and_adds_safe_reason(self) -> None:
+        managers = self._common_patches(_strict_plan())
+        with ExitStack() as stack:
+            for manager in managers:
+                stack.enter_context(manager)
+            stack.enter_context(
+                patch(
+                    "src.book_runner.write_chapters",
+                    side_effect=TimeoutError("private upstream URL and payload"),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "src.book_runner._snapshot",
+                    side_effect=lambda status, payload: {"status": status, **payload},
+                )
+            )
+            result = run_write_book(chapters=1)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure_reason"], "submission_unknown")
+        self.assertIn("private upstream URL", result["error"])
+
     def _readiness_with_severe_drift(self, *, require_start_point: bool):
         """iter073 (codex I): drive check_write_readiness with a real outline.md
         present and a patched SEVERE drift severity, so the warn→block escalation

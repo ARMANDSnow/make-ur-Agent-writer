@@ -896,6 +896,8 @@ class RoutesGetTests(unittest.TestCase):
         # iter063 A1/A2: terminal job failures render a friendly card; error
         # toasts prefer the card title.
         self.assertIn("renderJobFailureCard", js)
+        self.assertIn("failure_reason", js)
+        self.assertIn("模型响应超时，结果未确认", js)
         self.assertIn("function errTitle", js)
         # iter063 Part C: CTA_ACTIONS is derived from the injected catalog, not a
         # hardcoded literal (outline_stale etc. now come from window.READINESS_CATALOG).

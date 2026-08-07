@@ -13,8 +13,11 @@ from unittest.mock import patch
 
 from src import paths
 from src.book_runner import BookRunBlocked, run_write_book
+from src.plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
+from src.start_point import start_point_fingerprint
 from src.utils import write_json
 from src.web import jobs, routes, workspace_meta
+from src.web.workspace_ctx import use_workspace
 
 
 def _stub_workspace(root: Path, name: str, *, mode: str) -> Path:
@@ -74,10 +77,15 @@ class WriteRecoveryRouteTests(unittest.TestCase):
         plan = workspace / "outputs/debate/chapter_plan.json"
         kb.write_text("synthetic knowledge\n", encoding="utf-8")
         outline.write_text("synthetic outline\n", encoding="utf-8")
-        write_json(
-            plan,
-            {"chapters": [{"chapter_no": 1, "title": "synthetic"}]},
-        )
+        item = {"chapter_no": 1, "title": "synthetic"}
+        item["chapter_plan_item_fingerprint"] = chapter_plan_item_fingerprint(item)
+        plan_data = {"chapters": [item]}
+        if mode == "continuation":
+            with use_workspace(name):
+                plan_data["start_chapter_id"] = "synthetic_ch003"
+                plan_data["start_point_fingerprint"] = start_point_fingerprint()
+        plan_data["plan_fingerprint"] = plan_fingerprint(plan_data)
+        write_json(plan, plan_data)
         # Make the server-authoritative freshness chain deterministic even on
         # filesystems whose ordinary writes share a coarse timestamp.
         base_ns = time.time_ns()
@@ -217,6 +225,24 @@ class WriteRecoveryRouteTests(unittest.TestCase):
         _status, data = self._get("hard")
         self.assertEqual(data["state"], "blocked")
         self.assertIsNone(data["state_fingerprint"])
+
+    def test_legacy_or_tampered_plan_never_advertises_recovery(self) -> None:
+        workspace = self._eligible("bad-plan")
+        _status, original = self._get("bad-plan")
+        plan_path = workspace / "outputs/debate/chapter_plan.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan.pop("plan_fingerprint")
+        write_json(plan_path, plan)
+
+        status, blocked = self._get("bad-plan")
+        self.assertEqual(status, 200)
+        self.assertEqual(blocked["state"], "blocked")
+        self.assertIsNone(blocked["state_fingerprint"])
+        with patch("src.web.routes.jobs.start_job") as start:
+            status, data = self._post("bad-plan", original["state_fingerprint"])
+        self.assertEqual(status, 409)
+        self.assertEqual(data["code"], "write_recovery_state_changed")
+        start.assert_not_called()
 
     def test_post_requires_one_shot_confirmation_and_does_not_persist_it(self) -> None:
         self._eligible("submit")
@@ -360,6 +386,26 @@ class WriteRecoveryRouteTests(unittest.TestCase):
             ({"status": "new_future_state"}, "reconciliation_required"),
             ({"status": "failed"}, "blocked"),
             ({"status": "budget_exceeded"}, "blocked"),
+            (
+                {
+                    "step": "write-book",
+                    "status": "blocked",
+                    "result_summary": {
+                        "first_blocked": {"reason": "workspace_locked", "chapter": 1}
+                    },
+                },
+                "blocked",
+            ),
+            (
+                {
+                    "step": "write-book",
+                    "status": "blocked",
+                    "result_summary": {
+                        "first_blocked": {"reason": "retry_exhausted", "chapter": 2}
+                    },
+                },
+                "blocked",
+            ),
         )
         for latest, expected in cases:
             with self.subTest(latest=latest):
@@ -453,13 +499,91 @@ class WriteRecoveryRouteTests(unittest.TestCase):
                                 "chapters": 1,
                                 "resume_from": 1,
                                 "force": True,
+                                "max_retries": 0,
+                                "auto_advance": True,
+                                "require_start_point": False,
+                                "require_plan": True,
+                                "require_external_review": True,
                                 "expected_recovery_fingerprint": state["state_fingerprint"],
                                 "expected_recovery_ledger_claim": baseline_claim,
+                                "expected_recovery_prior_job_id": "",
                                 "recovery_chapter": 1,
                                 "_active_job_id": current_id,
                             },
                             lambda _step, _progress: None,
                         )
+
+    def test_worker_requires_its_own_durable_active_row(self) -> None:
+        def invoke_precondition(**kwargs: object) -> object:
+            precondition = kwargs.get("precondition")
+            self.assertTrue(callable(precondition))
+            precondition()  # type: ignore[operator]
+            self.fail("missing own ledger row reached the underlying runner")
+
+        def worker_params(state: dict, claim: str, current_id: str, prior_id: str = "") -> dict:
+            return {
+                "chapters": 1,
+                "resume_from": 1,
+                "force": True,
+                "max_retries": 0,
+                "auto_advance": True,
+                "require_start_point": False,
+                "require_plan": True,
+                "require_external_review": True,
+                "expected_recovery_fingerprint": state["state_fingerprint"],
+                "expected_recovery_ledger_claim": claim,
+                "expected_recovery_prior_job_id": prior_id,
+                "recovery_chapter": 1,
+                "_active_job_id": current_id,
+            }
+
+        workspace = self._eligible("ledger-own-missing")
+        _status, state = self._get("ledger-own-missing")
+        _ledger_state, _latest, empty_claim = jobs.write_recovery_job_claim(
+            "ledger-own-missing", 1
+        )
+        self.assertIsInstance(empty_claim, str)
+        with patch(
+            "src.web.jobs.paths.workspace_name", return_value="ledger-own-missing"
+        ), patch("src.web.jobs.run_write_book", side_effect=invoke_precondition) as runner:
+            with self.assertRaisesRegex(BookRunBlocked, "write_recovery_state_changed"):
+                jobs._step_write_book(
+                    worker_params(state, empty_claim, "a" * 32),
+                    lambda _step, _progress: None,
+                )
+        runner.assert_called_once()
+
+        workspace = self._eligible("ledger-own-removed")
+        prior_id = "b" * 32
+        prior = {
+            "workspace": "ledger-own-removed",
+            "job_id": prior_id,
+            "step": "write-book",
+            "params": {"resume_from": 1, "chapters": 1},
+            "status": "blocked",
+            "result_summary": {
+                "first_blocked": {"reason": "retry_exhausted", "chapter": 1}
+            },
+        }
+        ledger = workspace / "logs/web_jobs.jsonl"
+        ledger.write_text(json.dumps(prior) + "\n", encoding="utf-8")
+        _status, state = self._get("ledger-own-removed")
+        _ledger_state, _latest, prior_claim = jobs.write_recovery_job_claim(
+            "ledger-own-removed", 1
+        )
+        self.assertIsInstance(prior_claim, str)
+        # Simulate truncation that removes only the admitted recovery rows;
+        # the predecessor and its claim remain byte-identical.
+        ledger.write_text(json.dumps(prior) + "\n", encoding="utf-8")
+        with patch(
+            "src.web.jobs.paths.workspace_name", return_value="ledger-own-removed"
+        ), patch("src.web.jobs.run_write_book", side_effect=invoke_precondition) as runner:
+            with self.assertRaisesRegex(BookRunBlocked, "write_recovery_state_changed"):
+                jobs._step_write_book(
+                    worker_params(state, prior_claim, "c" * 32, prior_id),
+                    lambda _step, _progress: None,
+                )
+        runner.assert_called_once()
 
     def test_newer_untimestamped_pending_row_wins_over_old_terminal(self) -> None:
         rows = [
@@ -498,6 +622,22 @@ class WriteRecoveryRouteTests(unittest.TestCase):
                 status, _data = self._post("caps", state["state_fingerprint"], **updates)
                 self.assertEqual(status, 400)
                 start.assert_not_called()
+
+    def test_generic_run_and_direct_start_cannot_force_write(self) -> None:
+        self._eligible("no-bypass")
+        status, _ct, body = routes.dispatch(
+            "POST",
+            "/api/workspace/no-bypass/run",
+            json.dumps(
+                {"step": "write-book", "params": {"force": True, "chapters": 1}}
+            ).encode("utf-8"),
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("dedicated write-recovery", json.loads(body)["error"])
+        with self.assertRaisesRegex(RuntimeError, "write_recovery_state_changed"):
+            jobs.start_job(
+                "no-bypass", "write-book", {"force": True, "chapters": 1}
+            )
 
     def test_mock_e2e_archives_old_generation_and_creates_new_job(self) -> None:
         status, _ct, body = routes.dispatch(

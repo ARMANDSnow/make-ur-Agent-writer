@@ -146,6 +146,15 @@ class WorkbenchE2ETests(unittest.TestCase):
         self.assertEqual(s4["stage"], "write")
         self.assertEqual(s4["write_state"], "retry_required")
         self.assertEqual(s4["retry_chapter"], 1)
+        # A newly regenerated strict plan does not erase the durable failed
+        # chapter.  The recovery CTA must remain reachable until that exact
+        # generation is explicitly archived or otherwise resolved.
+        plan = paths.WORKSPACE_DIR / "stagebook" / "outputs" / "debate" / "chapter_plan.json"
+        future = max(time.time_ns(), ch1.stat().st_mtime_ns + 1_000_000)
+        os.utime(plan, ns=(future, future))
+        refreshed = self._status("stagebook")
+        self.assertEqual(refreshed["write_state"], "retry_required")
+        self.assertEqual(refreshed["retry_chapter"], 1)
 
     # ---- outline PUT ------------------------------------------------------
 

@@ -507,6 +507,7 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
         rec["error"] = f"Bearer {marker}"
         rec["result_summary"] = {
             "status": "failed",
+            "failure_reason": "submission_unknown",
             "error": f"provider response {marker}",
             "snapshot_path": f"/private/{marker}",
             "provider": "sk-secret-value",
@@ -519,9 +520,45 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
 
         self.assertEqual(view["params"], {"chapters": 2})
         self.assertEqual(view["error"], "job_failed")
+        self.assertEqual(view["result_summary"]["failure_reason"], "submission_unknown")
         self.assertNotIn(marker, rendered)
         self.assertNotIn("sk-secret-value", rendered)
         self.assertNotIn("snapshot_path", rendered)
+
+    def test_dynamic_current_step_is_sanitized_in_http_and_ledger(self) -> None:
+        marker = "PRIVATE_CHAPTER_ID"
+        rec = jobs._new_job_record("alpha", "extract", {"limit": 1})
+        rec["current_step"] = f"extract:{marker}"
+
+        view = jobs.public_job_detail_view(rec)
+        jobs._persist_job(rec)
+        durable = self._log_path("alpha").read_text(encoding="utf-8")
+
+        self.assertEqual(view["current_step"], "extract:chapter")
+        self.assertNotIn(marker, json.dumps(view) + durable)
+        self.assertEqual(json.loads(durable)["current_step"], "extract:chapter")
+
+    def test_public_failure_reason_rejects_unknown_internal_value(self) -> None:
+        rec = jobs._new_job_record("alpha", "write-book", {"chapters": 1})
+        rec["result_summary"] = {
+            "status": "failed",
+            "failure_reason": "private_provider_detail",
+        }
+
+        view = jobs.public_job_detail_view(rec)
+
+        self.assertIsNone(view["result_summary"]["failure_reason"])
+
+    def test_lost_and_submission_unknown_are_never_retryable_even_if_stale_flag_is_true(self) -> None:
+        for status, summary in (
+            ("lost", None),
+            ("failed", {"failure_reason": "submission_unknown"}),
+            ("future_terminal", None),
+        ):
+            with self.subTest(status=status):
+                rec = jobs._new_job_record("alpha", "write-book", {"chapters": 1})
+                rec.update(status=status, retryable=True, result_summary=summary)
+                self.assertFalse(jobs.public_job_detail_view(rec)["retryable"])
 
     def test_retry_projection_is_step_aware_and_disables_unsafe_replay(self) -> None:
         normalize = jobs._new_job_record(

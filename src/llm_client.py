@@ -386,6 +386,39 @@ def _is_safe_to_retry(exc: BaseException) -> bool:
     return getattr(exc, "request_not_sent", False) is True
 
 
+def public_llm_failure_reason(exc: BaseException) -> str:
+    """Return a bounded, credential-free reason for user-facing job state.
+
+    Provider exceptions routinely embed upstream URLs, request metadata, or
+    echoed payload fragments, so callers must never project ``str(exc)`` into
+    the Web job ledger.  This classifier deliberately returns only stable
+    enums.  ``submission_unknown`` is checked before the broader transient
+    bucket because it carries the important paid-action rule: never retry an
+    attempt whose submission outcome is uncertain without a fresh user action.
+    """
+
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen and len(chain) < 8:
+        chain.append(current)
+        seen.add(id(current))
+        cause = current.__cause__
+        current = cause if isinstance(cause, BaseException) else current.__context__
+
+    if any(isinstance(item, LLMRequestLimitExceeded) for item in chain):
+        return "request_limit_exhausted"
+    if any(isinstance(item, LLMContextOverflowError) for item in chain):
+        return "context_too_large"
+    if any(isinstance(item, LLMCallDeadlineExceeded) for item in chain):
+        return "job_timeout"
+    if any(_is_submission_unknown(item) for item in chain):
+        return "submission_unknown"
+    if any(_is_transient(item) for item in chain):
+        return "provider_unavailable"
+    return "generation_failed"
+
+
 def _is_cache_control_rejection(exc: BaseException) -> bool:
     text = str(exc).lower()
     return (
@@ -473,6 +506,13 @@ class LLMClient:
             raise RuntimeError("litellm is required for real model calls") from exc
 
         use_stream = self.stream_default if stream is None else bool(stream)
+        # A synchronous streaming iterator can block inside ``next()`` before
+        # Python regains control to check the outer job deadline.  Web jobs
+        # always install an LLM deadline, so use the non-streaming transport in
+        # that scope and let LiteLLM's clamped request timeout cover connect +
+        # read.  CLI/direct callers without an outer deadline keep streaming.
+        if _LLM_DEADLINE.get() is not None:
+            use_stream = False
 
         last_exc: Exception | None = None
         attempts = max(1, int(self.config.get("retry_attempts", 1)))
@@ -672,7 +712,13 @@ class LLMClient:
         """
         chunks: List[str] = []
         usage: Optional[Dict[str, Any]] = None
+        deadline = _LLM_DEADLINE.get()
+        if deadline is not None and time.monotonic() >= deadline:
+            raise LLMCallDeadlineExceeded("LLM job deadline expired before stream read")
         for chunk in stream_iter:
+            deadline = _LLM_DEADLINE.get()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise LLMCallDeadlineExceeded("LLM job deadline expired during stream read")
             # chunk may be dict or pydantic-like object depending on litellm
             # version; normalize via __getitem__ / getattr.
             try:
@@ -692,6 +738,9 @@ class LLMClient:
             chunk_usage = chunk.get("usage") if isinstance(chunk, dict) else getattr(chunk, "usage", None)
             if chunk_usage:
                 usage = self._usage_dict({"usage": chunk_usage})
+            deadline = _LLM_DEADLINE.get()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise LLMCallDeadlineExceeded("LLM job deadline expired during stream read")
         content = "".join(chunks)
         response: Dict[str, Any] = {
             "choices": [{"message": {"content": content}}],

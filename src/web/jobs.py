@@ -202,6 +202,9 @@ _PUBLIC_JOB_FIELDS = (
 def public_job_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project a job record down to the allowlisted public fields."""
     projected = {key: job.get(key) for key in _PUBLIC_JOB_FIELDS}
+    projected["current_step"] = _public_current_step(
+        job.get("current_step"), step=job.get("step")
+    )
     projected.update(_public_local_demo_context(job))
     result_context = _public_result_context(job)
     if result_context is not None:
@@ -325,6 +328,7 @@ _PUBLIC_RESULT_KEYS = frozenset(
         "export_fingerprint",
         "extracted",
         "fact_count",
+        "failure_reason",
         "file_size_bytes",
         "first_blocked",
         "hook_count",
@@ -348,6 +352,54 @@ _PUBLIC_RESULT_KEYS = frozenset(
         "workspace_locked",
     }
 )
+_PUBLIC_FAILURE_REASONS = frozenset(
+    {
+        "submission_unknown",
+        "provider_unavailable",
+        "request_limit_exhausted",
+        "context_too_large",
+        "job_timeout",
+        "generation_failed",
+        "task_failed",
+    }
+)
+_PUBLIC_CURRENT_STEP_EXACT = frozenset(
+    {
+        "expand", "normalize", "split", "extract", "compress", "bootstrap",
+        "apply-bootstrap", "debate", "debate-decisions", "debate-ballot",
+        "debate-outline", "plan", "plan-chapters", "write", "review", "polish",
+        "sync-meta", "done", "succeeded", "failed", "cancelled", "timeout",
+        "blocked", "budget_exceeded",
+    }
+)
+
+
+def _public_current_step(value: Any, *, step: Any) -> Optional[str]:
+    """Project progress to content-free tokens before HTTP or persistence."""
+
+    raw = value if isinstance(value, str) else ""
+    if raw in _PUBLIC_CURRENT_STEP_EXACT:
+        return raw
+    if raw.startswith("extract:"):
+        return "extract:chapter"
+    if raw.startswith("compress:"):
+        return "compress:stage"
+    if raw.startswith("bootstrap:"):
+        return "bootstrap:item"
+    if re.fullmatch(r"debate-round-[0-9]{1,3}", raw):
+        return raw
+    if raw.startswith(("debate-", "debate:")):
+        return "debate"
+    if re.fullmatch(r"replan-after-[0-9]{1,4}", raw):
+        return "plan-chapters"
+    if re.fullmatch(r"chapter-[0-9]{1,4}", raw):
+        return raw
+    if re.fullmatch(
+        r"chapter-[0-9]{1,4}(?:/retry-[0-9]{1,3})?/(?:write-attempt-[0-9]{1,3}|review-attempt-[0-9]{1,3}|review-done-attempt-[0-9]{1,3}|polish|style-rewrite|style-rewrite-review|finalize|sync-meta|caveat_continue)",
+        raw,
+    ):
+        return raw
+    return step if isinstance(step, str) and step in STEP_HANDLERS else None
 
 
 def _bounded_public_value(
@@ -364,6 +416,8 @@ def _bounded_public_value(
         return value if math.isfinite(value) else None
     if isinstance(value, str):
         text = value.strip()
+        if field == "failure_reason":
+            return text if text in _PUBLIC_FAILURE_REASONS else None
         if re.fullmatch(r"[\w.:/+@-]{0,160}", text, flags=re.UNICODE) and not (
             "://" in text
             or text.startswith(("/", "~"))
@@ -457,6 +511,14 @@ def _public_retry_params(value: Any, *, step: Any = None) -> Dict[str, Any]:
 
 
 def _job_retryable(job: Dict[str, Any]) -> bool:
+    status = str(job.get("status") or "")
+    if status in {"lost", "submission_unknown"} or status not in (
+        {"pending", "running"} | TERMINAL_STATUSES
+    ):
+        return False
+    summary = job.get("result_summary")
+    if isinstance(summary, dict) and summary.get("failure_reason") == "submission_unknown":
+        return False
     if type(job.get("retryable")) is bool:
         return bool(job["retryable"])
     step = job.get("step")
@@ -506,6 +568,9 @@ def _public_reconciliation_reason(job: Dict[str, Any]) -> Optional[str]:
 def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project for /jobs/recent (sidebar + jobs table) — drops internal cancel_*."""
     projected = {key: job.get(key) for key in _PUBLIC_JOB_SUMMARY_FIELDS}
+    projected["current_step"] = _public_current_step(
+        job.get("current_step"), step=job.get("step")
+    )
     projected["params"] = _public_retry_params(job.get("params"), step=job.get("step"))
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
@@ -525,6 +590,9 @@ def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
 def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
     """Project for /job/<id> — adds cancel_* (poll banner) on top of summary."""
     projected = {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
+    projected["current_step"] = _public_current_step(
+        job.get("current_step"), step=job.get("step")
+    )
     projected["params"] = _public_retry_params(job.get("params"), step=job.get("step"))
     projected["retryable"] = _job_retryable(job)
     projected["error"] = _public_error(job.get("error"))
@@ -914,6 +982,9 @@ def _persist_job(job: Dict[str, Any]) -> bool:
     try:
         workspace = str(job.get("workspace") or "")
         durable = {key: job.get(key) for key in _PUBLIC_JOB_DETAIL_FIELDS}
+        durable["current_step"] = _public_current_step(
+            job.get("current_step"), step=job.get("step")
+        )
         if not isinstance(job.get("persistence_degraded"), bool):
             durable.pop("persistence_degraded", None)
         durable["params"] = _public_retry_params(
@@ -1168,6 +1239,7 @@ def write_recovery_job_claim(
     chapter: int,
     *,
     exclude_job_id: str = "",
+    require_excluded_active_row: bool = False,
 ) -> tuple[str, Optional[Dict[str, Any]], Optional[str]]:
     """Return strict ledger state, latest write, and a durable CAS digest.
 
@@ -1181,12 +1253,39 @@ def write_recovery_job_claim(
     ledger_state, rows = _read_job_rows_for_recovery(workspace)
     if ledger_state == "indeterminate":
         return ledger_state, None, None
-    latest = _latest_write_job_from_rows(workspace, chapter, rows)
+    excluded_rows = [
+        row
+        for row in rows
+        if exclude_job_id and str(row.get("job_id") or "") == exclude_job_id
+    ]
+    if require_excluded_active_row:
+        own = excluded_rows[-1] if excluded_rows else None
+        own_params = own.get("params") if isinstance(own, dict) else None
+        try:
+            own_first = int(own_params.get("resume_from", 1))
+            own_count = int(own_params.get("chapters", 1))
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return "indeterminate", None, None
+        if not (
+            ledger_state == "ok"
+            and isinstance(own, dict)
+            and own.get("workspace") == workspace
+            and own.get("step") == "write-book"
+            and own.get("status") in {"pending", "running"}
+            and own_count == 1
+            and own_first == chapter
+        ):
+            return "indeterminate", None, None
     claim_rows = [
         row
         for row in rows
         if not exclude_job_id or str(row.get("job_id") or "") != exclude_job_id
     ]
+    # The worker's own pending/running row is not prior recovery authority.
+    # Compute both the CAS digest and the latest predecessor from the exact
+    # same filtered row set so a newly admitted recovery job cannot authorize
+    # itself.
+    latest = _latest_write_job_from_rows(workspace, chapter, claim_rows)
     try:
         encoded = json.dumps(
             claim_rows,
@@ -1199,6 +1298,23 @@ def write_recovery_job_claim(
         return "indeterminate", None, None
     claim = hashlib.sha256(b"write-recovery-ledger-v1\x00" + encoded).hexdigest()
     return ledger_state, latest, claim
+
+
+def is_exact_write_recovery_terminal(job: Any, chapter: int) -> bool:
+    """Whether ``job`` durably records retry exhaustion for this chapter."""
+
+    if not isinstance(job, dict) or type(chapter) is not int:
+        return False
+    summary = job.get("result_summary")
+    first = summary.get("first_blocked") if isinstance(summary, dict) else None
+    return bool(
+        job.get("step") == "write-book"
+        and job.get("status") == "blocked"
+        and isinstance(first, dict)
+        and first.get("reason") == "retry_exhausted"
+        and type(first.get("chapter")) is int
+        and first.get("chapter") == chapter
+    )
 
 
 def active_jobs(workspace: str) -> list[Dict[str, Any]]:
@@ -1359,11 +1475,13 @@ def _complete_job(job_id: str, terminal: str, step: str, result: Any) -> None:
                 }
             )
         else:
+            terminal_error = "job_failed" if terminal == "failed" else job.get("error")
             job.update(
                 {
                     "status": terminal,
                     "current_step": terminal,
                     "progress": 1.0,
+                    "error": terminal_error,
                     "finished_at": _now(),
                     "result_summary": _summarize_result(step, result),
                 }
@@ -1682,11 +1800,32 @@ def _review_budget_cny() -> float:
 
 def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
     precondition: Optional[Callable[[], None]] = None
+    force = params.get("force") is True
     expected_recovery_fingerprint = params.get("expected_recovery_fingerprint")
     expected_recovery_ledger_claim = params.get("expected_recovery_ledger_claim")
+    expected_prior_job_id = params.get("expected_recovery_prior_job_id")
     recovery_chapter = params.get("recovery_chapter")
     active_job_id = params.get("_active_job_id")
-    if isinstance(expected_recovery_fingerprint, str) and expected_recovery_fingerprint:
+    recovery_context_complete = bool(
+        isinstance(expected_recovery_fingerprint, str)
+        and expected_recovery_fingerprint
+        and isinstance(expected_recovery_ledger_claim, str)
+        and expected_recovery_ledger_claim
+        and isinstance(expected_prior_job_id, str)
+        and type(recovery_chapter) is int
+        and isinstance(active_job_id, str)
+        and active_job_id
+        and params.get("chapters") == 1
+        and params.get("resume_from") == recovery_chapter
+        and params.get("max_retries") == 0
+        and params.get("auto_advance") is True
+        and params.get("require_plan") is True
+        and params.get("require_external_review") is True
+        and type(params.get("require_start_point")) is bool
+    )
+    if force and not recovery_context_complete:
+        raise BookRunBlocked("write_recovery_state_changed")
+    if force:
         def _recovery_precondition() -> None:
             import hmac
 
@@ -1696,22 +1835,17 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
                 chapter_no = int(recovery_chapter)
             except (TypeError, ValueError, OverflowError) as exc:
                 raise BookRunBlocked("write_recovery_state_changed") from exc
-            if not (
-                isinstance(active_job_id, str)
-                and active_job_id
-                and isinstance(expected_recovery_ledger_claim, str)
-                and expected_recovery_ledger_claim
-            ):
-                raise BookRunBlocked("write_recovery_state_changed")
             ledger_state, latest, actual_ledger_claim = write_recovery_job_claim(
                 paths.workspace_name(),
                 chapter_no,
                 exclude_job_id=active_job_id,
+                require_excluded_active_row=True,
             )
+            actual_prior_job_id = str(latest.get("job_id") or "") if latest else ""
             if (
                 ledger_state != "ok"
-                or not isinstance(latest, dict)
-                or str(latest.get("job_id") or "") != active_job_id
+                or actual_prior_job_id != expected_prior_job_id
+                or (latest is not None and not is_exact_write_recovery_terminal(latest, chapter_no))
                 or not isinstance(actual_ledger_claim, str)
                 or not hmac.compare_digest(
                     actual_ledger_claim, expected_recovery_ledger_claim
@@ -1726,7 +1860,7 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
     return run_write_book(
         chapters=int(params.get("chapters", 1)),
         resume_from=int(params.get("resume_from", 1)),
-        force=bool(params.get("force", False)),
+        force=force,
         max_retries=int(params.get("max_retries", 2)),
         budget_cny=_float_param(params, "budget_cny", _default_budget_cny()),
         replan_every=int(params.get("replan_every", 0)),
@@ -3272,11 +3406,22 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
                             budget_cny=float(budget),
                             cost_cny=settled_cost,
                         )
+    except JobTimeout:
+        _update(
+            job_id,
+            status="failed",
+            current_step="timeout",
+            error="job timed out",
+            result_summary={"status": "failed", "failure_reason": "job_timeout"},
+            cancel_requested=False,
+            cancel_reason=None,
+            finished_at=_now(),
+        )
     except JobCancelled as exc:
         _update(
             job_id,
             status="aborted",
-            current_step="timeout" if isinstance(exc, JobTimeout) else "cancelled",
+            current_step="cancelled",
             error=str(exc),
             finished_at=_now(),
         )
@@ -3328,11 +3473,21 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
         )
     except Exception as exc:
         trace_id = uuid.uuid4().hex
+        from ..llm_client import public_llm_failure_reason
+
         _update(
             job_id,
             status="failed",
             error=f"{type(exc).__name__}: job failed",
             trace_id=trace_id,
+            result_summary={
+                "status": "failed",
+                "failure_reason": (
+                    public_llm_failure_reason(exc)
+                    if step in NOVEL_MODEL_REQUEST_DEFAULTS
+                    else "task_failed"
+                ),
+            },
             finished_at=_now(),
         )
         # Do not print the exception text or traceback: provider exceptions may
@@ -3417,6 +3572,7 @@ def _summarize_result(step: str, result: Any) -> Any:
             "cost_cny": result.get("cost_cny"),
             "budget_cny": result.get("budget_cny"),
             "partial": result.get("partial"),
+            "failure_reason": result.get("failure_reason"),
             "error": result.get("error"),
             "snapshot_path": result.get("snapshot_path"),
         }
@@ -3503,6 +3659,37 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
     params = dict(params or {})
     if not is_known_step(step):
         raise ValueError(f"unknown step: {step}")
+    recovery_keys = {
+        "expected_recovery_fingerprint",
+        "expected_recovery_ledger_claim",
+        "expected_recovery_prior_job_id",
+        "recovery_chapter",
+    }
+    if step == "write-book" and params.get("force") is not True and recovery_keys & params.keys():
+        raise RuntimeError("write_recovery_state_changed")
+    if step == "write-book" and params.get("force") is True:
+        chapter = params.get("recovery_chapter")
+        fingerprint = params.get("expected_recovery_fingerprint")
+        ledger_claim = params.get("expected_recovery_ledger_claim")
+        prior_job_id = params.get("expected_recovery_prior_job_id")
+        if not (
+            type(chapter) is int
+            and 1 <= chapter <= 9999
+            and isinstance(fingerprint, str)
+            and re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+            and isinstance(ledger_claim, str)
+            and re.fullmatch(r"[0-9a-f]{64}", ledger_claim)
+            and isinstance(prior_job_id, str)
+            and (prior_job_id == "" or re.fullmatch(r"[0-9a-f]{32}", prior_job_id))
+            and params.get("chapters") == 1
+            and params.get("resume_from") == chapter
+            and params.get("max_retries") == 0
+            and params.get("auto_advance") is True
+            and params.get("require_plan") is True
+            and params.get("require_external_review") is True
+            and type(params.get("require_start_point")) is bool
+        ):
+            raise RuntimeError("write_recovery_state_changed")
 
     identity = paths.probe_workspace_identity(workspace)
     if identity is None:
