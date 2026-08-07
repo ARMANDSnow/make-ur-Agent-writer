@@ -48,7 +48,16 @@
 
 ## Acceptance Result
 
-<iter-finish 回填测试数、acceptance 结果、审查结论与未修风险。>
+- **A166-01 — 通过**：稳定 `job.step` 与动态 `current_step` 已分离；合法静态/动态阶段矩阵、未知值安全回退、公开 HTTP 投影与 durable ledger 清洗均有聚焦测试。主进度、任务详情与取消提示共用安全中文标签，不再显示“未识别步骤”或原始内部值。
+- **A166-02 — 通过**：工作台公开 `write_state=not_started|needs_review|retry_required|approved` 与 `retry_chapter`；仅 strict-approved 进入 `done`，Reject、halt、exact `retry_exhausted` 均保留在可处理正文阶段，更新细纲不会隐藏已有失败章。
+- **A166-03 — 通过**：原创/续写共用 GET/POST 恢复协议；恢复资格绑定 creation mode、续写起点、strict plan/上游 freshness、正文/meta/review 状态指纹、同章 exact durable terminal 与 ledger claim。一次明确确认后才归档旧稿并创建新 job；worker 在归档/模型调用写锁内复核自身 durable active row，确认和内部 claim 不进入公开投影或历史重放。
+- **A166-04 — 通过**：`/continue` 与 `/workbench` 的失败 CTA 均提供查看失败稿和可执行的“归档并重新生成本章”；双击、slot-release、状态漂移与 409 busy 有确定结果且不自动重提。通用 `/run write-book force=true`、lost、unknown、`submission_unknown`、一般失败和额度失败均不能进入恢复。
+- **A166-05 — 通过（用户取消价格约束后的适用范围）**：真实小说阶段仍由服务端校验 `budget_cny`、`timeout_minutes`、`max_model_requests`，每次 provider attempt 前检查请求数与已知费用；active deadline 强制非流式并将 provider timeout clamp 到剩余时间。用户随后明确表示本轮浏览器验证不考虑模型价格，因此未以原计划人民币额度作为真实走查结论，但实现守门与测试仍保留。
+- **A166-06 — 部分通过**：聚焦回归 338 tests OK，受影响 Python 语法、harness 与 `git diff --check` 通过；确定性 mock 浏览器 E2E 覆盖原创/续写 exact `retry_exhausted`、显式确认、旧稿归档与新 job。未形成双链 1440×1024、1199×900、390×844 全部真实浏览器检查的可审计证据，因此不把该部分升级为完整三视口 `local-e2e`。
+- **A166-07 — 部分通过 / 续写 `safe-blocked`**：Codex 在隔离 synthetic 原创 `test01` 中观察到准备、大纲与 5 章细纲成功，工作台进入“④ 撰写正文”，“开始写书”可用且未再出现“未识别步骤”；两次正文尝试约 125 秒后上游 timeout，均无自动重发、草稿或评审。用户重启后明确声明本地正文测试成功，但该成功不是 Codex 亲见证据。续写 synthetic 真 provider 整链未完成，恢复协议仅有确定性 mock E2E；故不得宣称完整双链 `provider-validated`，也不外推其它 provider、10–20 章长跑或 SLA。
+- **A166-08 — 通过（记录一次失败后的完整重验）**：correctness、security/boundary、Web/UX+provider/timeout 三路只读审查 findings 全部闭合，最终无剩余 P0-P3。首次完整 `verify.sh` 在 3126 tests 中发现 `tests/test_drama_video.py` 仍期待旧 timeout 终态；修正为新的 `failed/job_timeout` 契约并提交 `9378f65` 后完整重验通过。最终 evidence：implementation `9378f651244755e45148c5b6e3fdad33238cb4db`，status `passed`，3126 tests OK，15 steps，479 秒，run `348bac3ef2984d91b49c89e4875e9395`，`mock-functional` / `canonical-mock-offline`，`mock_offline=true`，`tracked_scope_clean=true`。由于首次 gate 失败，本轮实际运行了修复后的第二次完整验收，未伪称“只运行一次”。
+
+结论分级：canonical 为 `mock-functional`；exact 失败恢复有确定性 mock 浏览器 E2E。原创真实链仅有“Codex 观察至细纲 + 用户声明正文成功”的窄范围证据，不能作为完整可审计 `provider-validated`；续写真实链为 `safe-blocked`。同步 provider SDK 若完全违反 timeout 契约且永久不返回，Python 工作线程仍不能提供进程级强杀，这是保留的 transport 风险，不改变本轮 deadline/状态语义闭环。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
@@ -59,7 +68,13 @@
 
 | 文件 | 改动 |
 |---|---|
-| `<iter-finish 回填>` | `<iter-finish 回填>` |
+| `src/web/write_recovery.py`、`src/web/routes.py`、`src/web/jobs.py` | 新增双链 exact 失败章恢复协议、durable claim/slot/指纹复核、安全公开投影与失败分类 |
+| `src/web/static.py`、`src/web/templates.py`、`src/web/wizard.py`、`src/web/server.py` | 动态阶段安全中文、严格正文状态、查看/确认/归档重生 UX 与受控接口接线 |
+| `src/book_runner.py`、`src/chapter_status.py` | strict-approved 完成判定、单章 force 恢复与写锁内状态复核 |
+| `src/llm_client.py`、`src/cost_estimator.py`、`src/preflight.py` | 请求数/费用/timeout 守门、deadline clamp、非流式 timeout 与安全失败分类 |
+| `tests/test_web_iter166_recovery.py`、`tests/test_iter166_model_request_limit.py` | 原创/续写恢复、归档、竞态、状态漂移、请求上限与 timeout 主测试矩阵 |
+| `tests/test_book_runner.py`、`tests/test_web_*.py`、`tests/test_llm_client_*.py`、`tests/test_preflight.py`、`tests/test_budget_guard.py`、`tests/test_drama_video.py` | 聚焦回归、公开投影/调度/交互合同与 timeout 终态兼容修正 |
+| `README.md`、`docs/AGENT_HANDOFF.md`、`docs/PROJECT_HISTORY.md`、`docs/iterations/*` | 立项、索引、验收结果、SOP、当前快照、里程碑与长期恢复规则同步 |
 
 ## 不在本轮范围
 

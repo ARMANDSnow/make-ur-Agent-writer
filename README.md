@@ -188,12 +188,13 @@ docs/iterations/           逐轮审计记录
 | 视频提交结果分流与历史 Unknown 对账 | 163 | ✅ create 明确区分未发送/拒绝/真正 unknown；历史 unknown 以 append-only CAS receipt 对账，公开页只显示安全状态；iter143 无权威新证据前仍 unknown 且禁止重提 |
 | 近期体检报告任务恢复、传输分帧与视频计账闭环 | 164 | ✅ 任务结果上下文、workspace-scoped 恢复/取消、protected mutation 分帧与 reconciliation-aware 计账已闭环；四份报告在 canonical 通过后删除 |
 | 小说 Web 模式语义与交互可靠性修复 | 165 | ✅ schema v2 权威区分原创/导入续写；阶段投影、任务准入、dirty/active-job 导航、运行恢复、提示聚合与移动菜单无障碍完成三视口 local-e2e 闭环 |
+| 小说双链失败恢复与真实模型守门 | 166 | ✅ 原创/续写共用 exact `retry_exhausted` 恢复协议、动态阶段安全投影、严格正文完成态与有界 provider 请求已形成 mock 工程闭环；续写真模型整链仍待验证 |
 
 历史里程碑见 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md)，逐轮验收见 [`docs/iterations/README.md`](docs/iterations/README.md)。
 
 ## 流水线 SOP（实时状态）
 
-最近一次更新：**iter 165**（2026-08-06，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。小说 workspace 由 schema v2 的 `creation_mode` 权威区分原创与导入续写，overview/workbench/readiness/run 共用同一模式和阶段；legacy 只读保守推断且 GET 不迁移。同作品导航只处理未保存内容，真正离开或切书才检查 active job；工作台 hydration/任务状态未知时 mutation 保持 fail-closed，运行中任务可恢复且绝不自动重提。短剧 Web Phase A-D 与既有付费 unknown 边界继续保持；iter143 在没有绑定该次提交的权威新证据前仍为 unknown，禁止据任务列表缺项重提。总工程验收为 `mock-functional`，浏览器证据为 `local-e2e`，均不等于 `provider-validated`。
+最近一次更新：**iter 166**（2026-08-07，收官）。当前状态以 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 为准。小说 workspace 由 schema v2 的 `creation_mode` 权威区分原创与导入续写，overview/workbench/readiness/run 共用同一模式和阶段；合法动态子阶段使用安全中文投影，未知值不泄漏。正文只有 strict-approved 才完成；exact `retry_exhausted` 可经状态指纹、上游 freshness、durable terminal/claim 和写锁内复核后显式归档重生，lost/unknown/submission-unknown 与一般失败绝不自动重提。短剧 Web Phase A-D 与既有付费 unknown 边界继续保持；iter143 在没有绑定该次提交的权威新证据前仍为 unknown。总工程验收为 `mock-functional`；原创真模型浏览器链由 Codex 观察至细纲，正文成功来自用户本地声明，续写真模型整链为 `safe-blocked`，不得外推为双链 `provider-validated`。
 
 图例：✅ 已实现　🟨 部分实现　⏳ 待实现　🔒 待逐次授权验证
 
@@ -201,14 +202,14 @@ docs/iterations/           逐轮审计记录
 
 | 阶段 | 当前能力 | 状态 | 关键迭代 |
 |---|---|---|---|
-| 运行基础 | mock 严格离线、dotenv 物理短路、隔离 synthetic workspace、accepted commit/evidence 审计绑定、必跑 local-drama E2E、test-only 跨进程 crash/restart | ✅ | 006-008, 047B2, 096, 102-104 |
+| 运行基础 | mock 严格离线、dotenv 物理短路、隔离 synthetic workspace、accepted commit/evidence 审计绑定、必跑 local-drama E2E、test-only 跨进程 crash/restart、真实文本请求数与 active deadline 守门 | ✅ | 006-008, 047B2, 096, 102-104, 166 |
 | 1. 输入准备 | normalize、split、manifest、多语言/EPUB；schema v2 显式区分原创/导入，legacy 只读保守推断 | ✅ | 001-002, 018, 165 |
 | 2. 知识抽取 | extract、compress、五类 bootstrap/apply | ✅ | 003-004, 015-016 |
 | 3. 起点判断 | start point、anchor、长程起点一致性硬门；仅 continuation 要求续写起点，服务端模式冲突在任务创建前拒绝 | ✅ | 021, 027, 165 |
 | 4. 世界观激活 | facts/entity/persona 与起点安全知识视图 | ✅ | 010-011, 021, 047 |
 | 5. 情节规划 | debate、chapter plan、周期 re-plan | ✅ | 005, 014, 029 |
-| 6. 写作 | 多上下文 writer、lint/rewrite、partial draft | ✅ | 009-013, 022-023, 039 |
-| 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测 | ✅ | 019, 022-024, 042, 083-087 |
+| 6. 写作 | 多上下文 writer、lint/rewrite、partial draft；exact `retry_exhausted` 经显式确认、状态指纹与 durable claim 后归档并单章重生 | ✅ | 009-013, 022-023, 039, 166 |
+| 7. 审核 | fail-closed panel、三档阈值、文风检测/建议/复测；仅 strict-approved 进入完成态，Reject/halt/重试耗尽保留可处理状态 | ✅ | 019, 022-024, 042, 083-087, 166 |
 | 8. 关系更新 | proposal、conflict check、auto-advance | ✅ | 013, 019, 029 |
 | 9. 滚动下一章 | rolling summary、成本/预算、runner/supervisor | 🟨 | 工程已通；10-20 章真模型 capstone 待授权 |
 

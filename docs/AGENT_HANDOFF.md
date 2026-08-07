@@ -6,22 +6,22 @@
 
 | 项 | 当前值 |
 |---|---|
-| 更新时间 | iter 165，2026-08-06 收官 |
+| 更新时间 | iter 166，2026-08-07 收官 |
 | 默认运行模式 | `OPENAI_MODEL=mock`，无 key、无 provider 请求；LiteLLM 本地 cost map、无代理探测，mock token 统计不初始化 tiktoken |
-| Canonical 基线 | **3072 tests OK** |
-| Accepted implementation commit | `e718200da399c25c198f239b874bf669f1de963b` |
-| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `e718200da399c25c198f239b874bf669f1de963b`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、502 秒、run `615a5147bb994c6f8179c1899dc0b055`；`verify.sh` exit 0；tracked scope clean |
-| 当前高风险缺口 | iter143 的 20 秒 create 仍为 `submission_unknown`：无 task/MP4、费用 unknown，任务列表未增加不能证明未提交，禁止重提；只能先经独立授权做 task/billing/rejection 只读 reconciliation，upload/create=0。真实 TTS adapter 尚不存在；真实单镜图片/视频、完整单集、episode 2+/多集必须按阶段另行授权。iter142 的 5 秒窄样本不外推这些阶段；小说 10-20 章 capstone 尚未实跑 |
-| 当前开发轮次 | 无；iter165 已闭环小说原创/导入模式语义、阶段同源、dirty/active-job 导航、fail-closed hydration/任务恢复、警示/Toast 聚合与移动菜单无障碍。小说 Web Phase A-E、短剧 Web Phase A-D 和 A-I 本地闭环保持。工程验收 `mock-functional`，浏览器证据 `local-e2e`；本轮未调用真实 provider，不构成 `provider-validated` |
+| Canonical 基线 | **3126 tests OK** |
+| Accepted implementation commit | `9378f651244755e45148c5b6e3fdad33238cb4db` |
+| 标准验收 | schema v2 `mock-functional` / `canonical-mock-offline`，status=passed；实际运行 HEAD `9378f651244755e45148c5b6e3fdad33238cb4db`，其后仅 docs-only 收官；`local_drama_e2e` 子步骤通过；15 steps、479 秒、run `348bac3ef2984d91b49c89e4875e9395`；`verify.sh` exit 0；tracked scope clean |
+| 当前高风险缺口 | iter143 的 20 秒 create 仍为 `submission_unknown`：无 task/MP4、费用 unknown，任务列表未增加不能证明未提交，禁止重提；只能先经独立授权做 task/billing/rejection 只读 reconciliation，upload/create=0。真实 TTS adapter 尚不存在；真实单镜图片/视频、完整单集、episode 2+/多集必须按阶段另行授权。iter142 的 5 秒窄样本不外推这些阶段；小说续写 synthetic 真 provider 整链、双链三视口真模型证据与 10-20 章 capstone 尚未完成 |
+| 当前开发轮次 | 无；iter166 已闭环小说原创/续写共用的 exact `retry_exhausted` 恢复、动态步骤安全投影、严格正文完成态与 provider 请求/timeout 守门。工程验收为 `mock-functional`；恢复协议有确定性 mock E2E。原创 `test01` 由 Codex 观察至细纲，正文成功来自用户本地声明；续写真 provider 整链为 `safe-blocked`，不构成完整双链 `provider-validated` |
 
 ## Capability Map
 
 | 领域 | 已打通 | 仍未闭环 |
 |---|---|---|
 | 小说主链 | normalize、split、extract、compress、debate、plan、write、review、滚动摘要、关系推进、多 workspace、多语言 | 10-20 章真模型 capstone 与长期质量阈值校准 |
-| 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、直接 unittest/IDE 全 provider mock、付费 unknown 零自动重发、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
-| 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留 | 真模型长跑的费用和失败分布仍需 capstone 证明 |
-| Web | 本地研究版、schema v2 原创/导入权威模式、同源四阶段工作台、全编辑器 dirty registry、分层导航守卫、fail-closed hydration 与 active-job 恢复、搜索/版本比较/创作数据、多集入口及脱敏任务历史；Phase A-E 已完成生产级内容结构、安全投影、响应式与恢复路径 | 仍是本地研究工具，不是公网多租户产品；无调用方证据不足的兼容 hook 继续保留 |
+| 质量与安全 | 起点/指纹守门、review panel、lint、预算/超时、直接 unittest/IDE 全 provider mock、付费 unknown 零自动重发、exact terminal + freshness + 状态指纹 + durable claim 恢复守门、文风 baseline/drift/advisor、red drift 单次重写复测 | 文风真模型阈值仍需样本校准；预训练记忆泄露只能缓解，不能作绝对保证 |
+| 长跑可靠性 | `write-book`、`drive-book`、supervisor、心跳/watchdog、断点恢复、workspace 写锁、预算预留、正文单章受控恢复、provider 请求上限与 active deadline | 真模型长跑的费用和失败分布仍需 capstone 证明；同步 provider 若无视 timeout 仍无法由 Python 线程强杀 |
+| Web | 本地研究版、schema v2 原创/导入权威模式、同源四阶段工作台、动态步骤安全中文、严格 `write_state`、原创/续写共用恢复 CTA、全编辑器 dirty registry、分层导航守卫、fail-closed hydration 与 active-job 恢复、搜索/版本比较/创作数据、多集入口及脱敏任务历史；Phase A-E 已完成生产级内容结构、安全投影、响应式与恢复路径 | 仍是本地研究工具，不是公网多租户产品；无调用方证据不足的兼容 hook 继续保留 |
 | 短剧 | 五站创作/Approve assembly、连续多集与季角色库；A1-A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3、I1-I2 本地闭环；视频 create 三分状态、append-only CAS reconciliation receipt、公开安全投影；隔离 `localdemo_*` exact-duration A-F 与 MP4/SRT/ASS/edit；固定 episode 1 高光视频真实窄样本 | iter143 权威只读 reconciliation、真实 billing/TTS/逐镜图片视频 provider、长时质量、Web provider submit/poll/cancel、物理 GC、特定 NLE、多 profile、更广 codec、公网流式交付及真实完整单集/episode 2+/多集未验证 |
 | 集成 | Aeloon 插件/MCP 双轨已实现；详情见 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) | Aeloon vendored 基线与主仓后续版本需按集成文档同步 |
 
@@ -60,6 +60,8 @@
 - iter163 将视频 create 封闭为 `request_not_sent / provider_rejected / submission_unknown`：只有 transport 可证明未发送时释放机会；拒绝和 unknown 均消费原授权。历史 unknown 通过独立 append-only receipt chain 对账，绑定 source revision/identity、sidecar generation、ledger fingerprint、sequence/time/previous receipt；冲突、乱序、ABA 与结论改写 fail closed。公开 API/DOM 只含安全状态，不含 task/request ID、响应正文、素材/sample 身份或 evidence/provider/prompt fingerprint。iter143 在无权威新证据前仍 unknown，task-list absence 只记录观察，不能推断未提交或触发重提。
 - iter165 将小说 `creation_mode` 固化为 schema v2 权威字段，legacy 只读保守推断；overview/workbench/readiness/run 共用模式与阶段。导航按 same-document/same-workspace/leave/switch 分层，dirty 先于 active-job；hydration/任务未知保持 fail-closed，lost/404/坏状态停止且零重提。三视口 synthetic mock 浏览器为 `local-e2e`，三路最终复核无剩余高置信 P1/P2；两份未跟踪体检报告保持原样。
 - canonical **3072 tests OK**（项目 `.venv`）；implementation commit `e718200` 上 exit 0，15 steps / 502 秒，run `615a5147bb994c6f8179c1899dc0b055`，`tracked_scope_clean=true`。总级别 `mock-functional` / `canonical-mock-offline`；失败 gate 的兼容性问题均经聚焦修复和完整重验闭合。本轮真实查询、upload/create、TTS、图片、视频均为 0。
+- iter166 将稳定顶层 step 与动态 `current_step` 分离为安全中文投影，只有 strict-approved 正文进入完成态；原创/续写的 exact `retry_exhausted` 恢复绑定 creation mode、上游 freshness、状态指纹、同章 durable terminal/claim 与 worker 写锁内复核，通用 `force=true`、lost/unknown/submission-unknown 和一般失败均不能绕入恢复。三路最终只读审查无剩余 P0-P3，确定性 mock 恢复 E2E 证明旧稿归档和新 job 创建。
+- canonical **3126 tests OK**（项目 `.venv`）；implementation commit `9378f651244755e45148c5b6e3fdad33238cb4db` 上 exit 0，15 steps / 479 秒，run `348bac3ef2984d91b49c89e4875e9395`，`tracked_scope_clean=true`，总级别 `mock-functional` / `canonical-mock-offline`。首次完整验收发现 `tests/test_drama_video.py` 仍期待旧 timeout 终态，修正后完整重验通过。原创 `test01` 由 Codex 观察至准备、大纲、5 章细纲和可用写作入口，用户随后声明本地正文测试成功；续写真 provider 完整链未形成，记 `safe-blocked`，两者均不外推其它 provider、长跑或 SLA。
 
 ## Retained Working Memory
 
@@ -97,6 +99,7 @@
 ### 5. 生产写作、评审与状态提交
 
 - 单章生产不是“生成文件即成功”。必须能区分 partial draft、reviewed、approved、rejected、aborted 和 stale；失败/拒稿草稿仍需完整落盘以供排障，但不能被下一章误认成已提交正文。
+- Web 的正文阶段同样只认 strict-approved；Reject、halt 与 exact `retry_exhausted` 必须保留为可查看、可处理状态，更新细纲不得把已有失败章隐藏成未开始或完成。
 - review panel、计划履约检查、outline drift、lint 和 style drift 是不同维度。确定性硬门先执行，LLM reviewer 不应覆盖起点、指纹、预算或严重漂移等本地 blocker。
 - 文风闭环采用 baseline v2 → drift → directives → red drift 最多一次定向重写 → 复测择优。mock 证明 wiring，不证明阈值适合真实作家/书目，真实阈值仍是待校准项。
 - 实体/关系更新先产 proposal，经冲突检查后 apply；新实体关系必须受控创建。rolling summary、entity compensation 和 chapter commit 的顺序不能随意交换，否则 resume 会出现正文与记忆不一致。
@@ -106,6 +109,7 @@
 - 长流程的正确目标是可恢复，不是“永不失败”。`drive-book`、heartbeat/watchdog、supervisor、workspace lock、snapshot、attempt ledger 和预算预留共同构成可靠性边界。
 - 预算在调用前预留、调用后按实际结算；非有限数、布尔、负值或陈旧 state 必须 fail-closed。readiness 的估算不是账单，实际 cost 仍需审计 ledger 核对。
 - workspace 写锁同时覆盖 CLI 和 Web 写入口。取消需要阶段检查点；孤儿进程、陈旧 heartbeat 和 crash-active step 必须能在 resume 时被明确归类，不能静默重复提交。
+- 付费失败恢复是一次新的受控提交，不是普通 force 重跑：必须绑定同章 exact durable terminal、完整上游 freshness/strict plan、内容无关状态指纹和 durable ledger claim，并在归档与模型调用所在写锁内再次复核当前恢复任务自身的 durable pending/running row；任一状态漂移或 slot 未释放都安全拒绝。
 - 10-20 章 capstone 仍未完成，因此“工程长跑闭环”不能表述成“真实长期质量/费用已证明”。真跑前先使用干净 workspace、固定起点和有限预算，并逐次取得授权。
 
 ### 7. Web 与本地产品定位
@@ -115,6 +119,7 @@
 - 四步工作台支持 premise、设定、大纲、细纲、正文的编辑与再生成；编辑后必须使依赖的 fingerprint/readiness 失效，不能继续沿用旧计划或旧草稿。
 - 导航的未保存内容与 active job 是两个有序守门：same-workspace 只处理 dirty，真正离开/切书才在 dirty 解决后查询任务。hydration 或 active-job 状态未知时 mutation 继续禁用；lost/404/坏状态停止轮询且绝不自动重提。
 - Job 的公开投影只允许受控字段和短状态；内部异常、provider 文本、路径、prompt、URL 与大对象不能直接透传。恢复页面需要从持久 state 重建，而不是只依赖进程内 future。
+- 顶层 `job.step` 与动态 `current_step` 必须分开翻译；动态值只走白名单并安全回退，不显示原始内部阶段。正文 `force=true` 只允许专用恢复协议在一次明确确认后注入，通用 `/run` 不得开放绕过。
 - 搜索、章节 diff、Insights、软删除/回收站属于编辑辅助能力；它们应只读或显式确认，不得绕过 workspace 路径约束和写锁。
 
 ### 8. 短剧创作与媒体链
@@ -248,7 +253,7 @@
 ## Open Gaps
 
 1. **短剧真实多模态后续校准**：iter143 的独立 20 秒样本在 2 个素材确认后 create 结果不明，无 task/MP4 且授权已消费；任务列表未增加不能证明未提交。后续必须严格逐项授权：①只读查询 iter143 task/billing/rejection，upload/create=0；②实现真实 TTS adapter 后授权 1 条语音；③新 namespace 授权 1 个单镜图片/视频样本；④通过后再授权完整单集；⑤episode 2+ 与多集另行授权。任何阶段不得继承前序授权。iter142 的 5 秒视频与 iter150 的真文本/角色图都只是窄样本，不外推完整媒体质量或 SLA。
-2. **小说 capstone**：选择干净 workspace 跑 10-20 章，验证预算、supervisor、resume、质量闸和关系推进。
+2. **小说真模型覆盖与 capstone**：iter166 仅有原创单章窄范围真实证据（Codex 观察至细纲，正文成功来自用户声明）；续写 synthetic 真 provider 完整链和双链三视口证据仍未形成。之后再选择干净 workspace 跑 10-20 章，验证 supervisor、resume、质量闸和关系推进。
 3. **文风阈值**：用真模型草稿校准 baseline/drift tolerance；当前工程闭环已通，但阈值证据仍以 mock/局部样本为主。
 4. **短剧媒体、事件图、记忆、工作台与归档**：A1/A2、B1-B3、C1-C4、D1-D5、E1-E3、F1-F3、G1-G7、H1-H3 与 I1-I2 已完成本地闭环；真实图片/视频/语音 provider 与 billing adapter、物理 GC、Web provider submit/poll/cancel、JPEG/WebP、archive 签名/加密、staging GC/power-loss、真实 BGM/SFX、特定 NLE、公网流式交付、真实 episode 2+ 与真实多模态质量仍未验证。
 5. **集成同步**：Aeloon 内置副本不是自动跟随主仓，需要按集成文档明确同步。
@@ -261,7 +266,7 @@
 - 低风险短剧阶段轮：A-I 本地规划已闭合；可独立推进 C 的可靠有界 JPEG/WebP decoder、asset/archive hidden staging GC、archive 签名/加密、特定 NLE adapter 或 episode 2+ 纯本地交付覆盖。
 - 需授权验证轮：严格按“iter143 只读对账 → 实现真实 TTS adapter 后 1 条语音 → 新 namespace 1 个单镜图片/视频样本 → 完整单集 → episode 2+/多集”逐项推进，每一步重新授权；小说 capstone 也单独授权。iter143 的 20 秒机会已消费且结果不明，不得复跑、改时长或换入口重提。
 - 产品轮：100 集状态扫描性能优化、episode 2+ 视频、多季模型，或真 ComfyUI 导出校准。
-- 小说 Web 产品轮：Phase A-E 与 iter165 模式/导航/恢复可靠性已闭环；后续只按真实使用反馈处理可访问性、性能或兼容缺陷，不在无调用方证据时继续删除兼容 hook。
+- 小说 Web 产品轮：Phase A-E 与 iter165-166 的模式/导航/失败恢复可靠性已闭环；后续可在单独授权下补续写真 provider 整链与 10-20 章 capstone，或按真实使用反馈处理可访问性、性能和兼容缺陷，不在无调用方证据时继续删除兼容 hook。
 
 ## Recovery Commands
 
@@ -299,4 +304,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter165 完成小说 Web 模式语义与交互可靠性闭环，A165-01 至 A165-09 全部通过。workspace schema v2 以 `creation_mode` 权威区分原创/导入续写，legacy 只读保守推断；overview/workbench/readiness/run 共用模式与阶段，原创不再误报续写起点，导入作品不能误走 greenfield。导航将 dirty 与 active-job 分层，same-workspace 不查询任务；全编辑器保存保护、fail-closed hydration、运行中任务恢复、警示/Toast 聚合和移动菜单焦点语义闭环。correctness、security/boundary、Web/UX 三路最终复核无剩余高置信 P1/P2；三视口 synthetic mock 浏览器证据为 `local-e2e`。accepted implementation `e718200da399c25c198f239b874bf669f1de963b` 上 canonical 3072 tests、15 steps、502 秒，run `615a5147bb994c6f8179c1899dc0b055`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean。两次 full gate 的兼容回归均在聚焦修复后完整重验闭合。两份未跟踪体检报告保持原样；全程未 push、未调用或查询真实 provider，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。
+iter166 完成小说原创/续写双链失败恢复与真实模型守门闭环。稳定 step 与动态 `current_step` 分离为安全中文投影，strict-approved 才进入正文完成态；exact `retry_exhausted` 的专用恢复绑定创作模式、strict plan/上游 freshness、状态指纹、同章 durable terminal/claim 与 worker 写锁内 own durable active row，通用 force、lost/unknown/submission-unknown 和一般失败保持零重提。correctness、security/boundary、Web/UX+provider/timeout 三路最终复核无剩余 P0-P3；聚焦回归 338 tests OK。accepted implementation `9378f651244755e45148c5b6e3fdad33238cb4db` 上 canonical 3126 tests、15 steps、479 秒，run `348bac3ef2984d91b49c89e4875e9395`，schema v2 `mock-functional` / `canonical-mock-offline`、tracked scope clean；首次完整验收的旧视频 timeout 断言修正后完整重验通过。原创 `test01` 由 Codex 观察至准备、大纲、5 章细纲及可用写作入口，用户随后声明本地正文成功；续写真 provider 整链未形成，记 `safe-blocked`，不外推完整双链、其它 provider、长跑或 SLA。两份未跟踪体检报告保持原样；未 push，也未读取 `.env`、`小说txt/`、私有 workspace 或用户运行产物。

@@ -91,6 +91,7 @@
 | 163 | 视频提交结果分流与历史 Unknown 对账 | create 未发送/拒绝/真正 unknown 三分状态、append-only CAS reconciliation receipt 与公开安全投影 |
 | 164 | 近期体检报告任务恢复、传输分帧与视频计账闭环 | result context、workspace-scoped job、严格 HTTP framing 与 effective accounting；验收后删四份报告 |
 | 165 | 小说 Web 模式语义与交互可靠性修复 | schema v2 原创/续写模式、阶段同源、分层导航/dirty、任务恢复与三视口 local-e2e |
+| 166 | 小说原创/续写双链失败恢复与真模型前端验证 | 动态步骤安全投影、strict-approved 完成态、exact 失败章受控恢复、provider deadline 与窄范围真实前端证据 |
 
 ## Iteration Implementation Index
 
@@ -234,6 +235,7 @@
 | 163 | 区分视频 create 结果并建立历史对账链 | `src/drama_video.py`、`src/drama_video_client.py`、`src/drama_video_reconciliation.py`、`src/web/`、`tests/test_drama_video_reconciliation.py` |
 | 164 | 闭环任务恢复、传输分帧与视频计账 | `src/web/`、`src/drama_multimodal_smoke.py`、`tests/test_web_iter164_health_closure.py`、`tests/test_drama_multimodal_smoke.py` |
 | 165 | 闭环小说模式语义、导航与任务恢复 | `src/web/`、`integrations/novel_ops/`、`tests/test_web_iter165_ux_reliability.py`、`tests/test_workspace_meta.py` |
+| 166 | 闭环小说双链失败章恢复与模型调用守门 | `src/book_runner.py`、`src/llm_client.py`、`src/web/`、`tests/test_web_iter166_recovery.py`、`tests/test_iter166_model_request_limit.py` |
 
 ## Durable Decisions
 
@@ -262,6 +264,7 @@
 - video create 结果必须封闭为 transport 证明的 `request_not_sent`、provider 4xx 明确 `provider_rejected`、以及发送后响应丢失/不可判定的 `submission_unknown`；任务列表未增加只是负观察，不能把历史 unknown 改判为未提交或释放授权。历史对账使用独立 append-only receipt chain，绑定 exact submission identity/revision、sidecar generation 与 ledger fingerprint；一旦权威 task/rejection 结论形成，后续不能换身份改写。公开投影不得暴露 task/request ID、响应正文、素材身份或证据指纹。
 - iter143 之后的真实闭环不是一份总授权：只读 task/billing/rejection（upload/create=0）、真实 TTS adapter 后 1 条语音、新 namespace 单镜图片/视频、完整单集、episode 2+/多集是五个依次独立授权阶段，前序证据和授权不自动传递。
 - 质量标定样本必须同时冻结 sample namespace、目标时长、实际 prompt SHA 与授权 fingerprint；仅保存 prompt 版本字符串不足以证明样本可比，样本产物和 ledger 也不能与默认 smoke 共用路径。
+- 付费失败恢复是新的受控提交，不能退化成通用 force：资格必须绑定 exact durable terminal、当前 creation mode、strict plan 与完整上游 freshness、内容无关状态指纹和 durable ledger claim，并在归档或模型调用所在写锁内复核恢复任务自身仍有 durable pending/running row；漂移、歧义或 slot 未释放一律拒绝且不自动重提。
 
 ### Keep state auditable
 
@@ -346,9 +349,11 @@
 51. **历史付费状态的读侧迁移不能改写事实真源**：为 legacy submission 增加对账时，读取路径若顺手重写源文件，会改变首次状态、破坏 source CAS，并掩盖 ABA。应让源 submission 保持字节不变，用独立 sidecar generation、文件 revision/content identity 与 ledger fingerprint 共同保护 append-only receipt；exact replay 可幂等，但权威 resolution 身份一旦形成必须冻结。
 52. **创作来源不能由起点是否存在反推**：原创书没有续写起点是正常状态，导入书暂未选起点也不会因此变成原创。来源模式必须由持久 metadata 与服务端同源投影决定，显式冲突在任务分配前拒绝；legacy 推断保持只读和保守。
 53. **dirty 与 active job 是两个有序导航守门**：same-workspace 切页只处理未保存内容，不应查询或弹出运行任务提示；真正离开/切书才在 dirty 解决后处理 active job。hydration 或任务状态未知时 mutation 必须保持禁用，lost/404/坏状态停止轮询且不得自动重提。
+54. **付费失败恢复不是普通 force 重跑**：UI 上看到失败稿不等于具有恢复资格；服务端必须绑定同章 exact durable terminal、完整上游 freshness/strict plan、内容无关状态指纹与 ledger claim，并在归档/调用写锁内复核本次恢复 job 自身仍是 durable active。状态漂移、任务槽未释放、lost/unknown/submission-unknown 或一般失败只能安全停止，不能猜测后重提。
 
 ## Historical Evidence Notes
 
+- iter166 在 implementation `9378f651244755e45148c5b6e3fdad33238cb4db` 上 canonical 3126 tests / 15 steps / 479 秒通过，run `348bac3ef2984d91b49c89e4875e9395`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。动态步骤安全投影、strict-approved 正文完成态、原创/续写 exact 失败章恢复与 provider deadline 守门闭环；correctness、security/boundary、Web/UX+provider/timeout 三路最终无剩余 P0-P3。首次完整验收的旧视频 timeout 断言修正后完整重验通过。确定性恢复浏览器为 mock E2E；原创 `test01` 由 Codex 观察至细纲，正文成功来自用户本地声明，续写真 provider 整链为 `safe-blocked`，不外推其它 provider、长跑或 SLA；两份未跟踪报告未触碰，未 push。
 - iter165 在 implementation `e718200` 上 canonical 3072 tests / 15 steps / 502 秒通过，run `615a5147bb994c6f8179c1899dc0b055`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。schema v2 创作模式、阶段同源、dirty/active-job 分层、fail-closed 工作台与任务恢复、提示聚合和移动菜单无障碍闭环；三视口为 `local-e2e`，三路最终无剩余高置信 P1/P2。前两次 full gate 的兼容回归经聚焦修复后完整重验通过；两份未跟踪报告保持原样，未 push、未查询或调用真实 provider。
 - iter164 在 implementation `817c930` 上 canonical 3043 tests / 15 steps / 467 秒通过，run `9a66e53279774023ad2e6eecbabc9a94`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。四份报告去重出的 result context、workspace-scoped job、protected mutation framing 与 reconciliation-aware accounting 四根因全部闭合；episode 2/restart-lost/Local Demo target 为 `local-e2e`。三路复审最终无剩余 P0-P3，报告在验收后删除；未 push、未查询或调用真实 provider。
 - iter163 在 implementation `ea4e1d4` 上 canonical 3025 tests / 15 steps / 481 秒通过，run `44fb300e4c994e068c8131ff30f6a009`，等级 `mock-functional` / `canonical-mock-offline`。视频 create 三分状态、历史 unknown append-only CAS receipt 与公开安全投影完成；correctness、security/boundary、真实媒体/计费三路最终 no findings。首次验收的 2 个旧测试契约修复后完整重验通过；未 push、未查询或调用真实 provider。
