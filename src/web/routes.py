@@ -3052,6 +3052,8 @@ def _with_model_request_limit(
     if execution_defaults is None:
         return None, out
     default_budget, default_timeout = execution_defaults
+    execution_maxima = jobs.max_novel_execution_limits(step) or execution_defaults
+    max_budget, max_timeout = execution_maxima
     budget_input = dict(incoming)
     if "budget_cny" not in budget_input:
         budget_input["budget_cny"] = default_budget
@@ -3060,7 +3062,7 @@ def _with_model_request_limit(
         "budget_cny",
         default_budget,
         minimum=0.000001,
-        maximum=default_budget,
+        maximum=max_budget,
     )
     if budget_error:
         return budget_error, {}
@@ -3072,7 +3074,7 @@ def _with_model_request_limit(
         "timeout_minutes",
         default_timeout,
         minimum=0.000001,
-        maximum=default_timeout,
+        maximum=max_timeout,
     )
     if timeout_error:
         return timeout_error, {}

@@ -120,6 +120,17 @@ NOVEL_EXECUTION_LIMIT_DEFAULTS: Dict[str, tuple[float, float]] = {
     "expand-premise": (1.0, 15.0),
     "extract-style": (2.0, 15.0),
 }
+# Explicit user authorization may raise a model step above its conservative
+# default, but the server still owns a finite hard ceiling.  The four-stage
+# novel chain sums to at most CNY 95; omitted browser values continue to use
+# the lower defaults above.
+NOVEL_EXECUTION_LIMIT_MAXIMA: Dict[str, tuple[float, float]] = {
+    **NOVEL_EXECUTION_LIMIT_DEFAULTS,
+    "rebuild-for-start": (20.0, 15.0),
+    "debate": (33.0, 60.0),
+    "plan-chapters": (10.0, 15.0),
+    "write-book": (32.0, 45.0),
+}
 _MODEL_TASKS = (
     "extract",
     "compress",
@@ -138,6 +149,10 @@ def default_model_request_limit(step: str) -> Optional[int]:
 
 def default_novel_execution_limits(step: str) -> Optional[tuple[float, float]]:
     return NOVEL_EXECUTION_LIMIT_DEFAULTS.get(step)
+
+
+def max_novel_execution_limits(step: str) -> Optional[tuple[float, float]]:
+    return NOVEL_EXECUTION_LIMIT_MAXIMA.get(step)
 
 
 class JobCancelled(RuntimeError):

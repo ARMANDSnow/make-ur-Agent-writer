@@ -73,6 +73,32 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("unknown step", data["error"])
 
+    def test_explicit_chain_budget_can_exceed_default_but_not_server_maximum(self) -> None:
+        fake = {"job_id": "job-budget-cap", "status": "pending"}
+        with unittest.mock.patch("src.web.routes.jobs.start_job", return_value=fake) as start:
+            status, _data = self._post_run(
+                "alpha",
+                {
+                    "step": "debate",
+                    "params": {
+                        "budget_cny": 33.0,
+                        "timeout_minutes": 60.0,
+                        "max_model_requests": 45,
+                    },
+                },
+            )
+        self.assertEqual(status, 202)
+        self.assertEqual(start.call_args.args[2]["budget_cny"], 33.0)
+
+        with unittest.mock.patch("src.web.routes.jobs.start_job") as start:
+            status, data = self._post_run(
+                "alpha",
+                {"step": "debate", "params": {"budget_cny": 33.01}},
+            )
+        self.assertEqual(status, 400)
+        self.assertIn("budget_cny", data["error"])
+        start.assert_not_called()
+
     def test_timeout_terminal_is_not_reported_as_user_cancel(self) -> None:
         def timed_out(_params, _progress):
             raise jobs.JobTimeout("private timeout detail")
