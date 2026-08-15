@@ -25,7 +25,8 @@ from typing import Any, Dict, List, Optional
 
 from . import paths, start_point
 from .config import load_config
-from .llm_client import LLMClient
+from .llm_client import LLMClient, raise_if_terminal_llm_failure
+from .safe_errors import safe_exception_text
 from .schemas import WriterStyleCard, model_to_dict
 from .state import log_event
 from .utils import read_json_optional, write_json
@@ -129,7 +130,7 @@ def load_card() -> Optional[Dict[str, Any]]:
     try:
         WriterStyleCard(**record["fields"])
     except Exception as exc:
-        log_event("writer_style", "artifact_invalid", path=str(path), error=str(exc))
+        log_event("writer_style", "artifact_invalid", path=str(path), error=safe_exception_text(exc))
         return None
     return record
 
@@ -360,7 +361,8 @@ def extract_style_card(sample: str, *, force: bool = False) -> Dict[str, Any]:
                 fields = retry_fields
                 empty = _empty_fields(fields)
         except Exception as exc:
-            log_event("writer_style", "extract_empty_retry_error", error=str(exc))
+            raise_if_terminal_llm_failure(exc)
+            log_event("writer_style", "extract_empty_retry_error", error=safe_exception_text(exc))
 
     fields, scrubbed = _scrub_sample_overlap(fields, sample)
     record: Dict[str, Any] = {

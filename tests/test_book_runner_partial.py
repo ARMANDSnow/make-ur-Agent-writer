@@ -123,7 +123,8 @@ class BookRunnerPartialArtifactTests(unittest.TestCase):
             failure = json.loads(failure_path.read_text(encoding="utf-8"))
             self.assertEqual(failure["attempt"], 1)
             self.assertEqual(failure["stage"], "write")
-            self.assertIn("stream interrupted", failure["last_error"])
+            self.assertIn("operation_failed:PartialWriteError", failure["last_error"])
+            self.assertNotIn("stream interrupted", failure["last_error"])
             self.assertEqual(result["partial"]["chapter"], 2)
             self.assertEqual(result["partial"]["attempt"], 1)
             self.assertEqual(result["partial"]["draft_path"], str(partial_path))
@@ -131,7 +132,7 @@ class BookRunnerPartialArtifactTests(unittest.TestCase):
 
             summary = jobs._summarize_result("write-book", result)
             self.assertEqual(summary["partial"]["chapter"], 2)
-            self.assertIn("stream interrupted", summary["error"])
+            self.assertNotIn("stream interrupted", summary["error"])
 
     def test_budget_exceeded_inside_chapter_saves_partial(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -211,7 +212,7 @@ class BookRunnerPartialArtifactTests(unittest.TestCase):
             self.assertTrue(failure_path.exists())
             failure = json.loads(failure_path.read_text(encoding="utf-8"))
             self.assertEqual(failure["stage"], "budget_check_write")
-            self.assertIn("budget_cny exceeded", failure["last_error"])
+            self.assertIn("budget_exceeded:BudgetExceeded", failure["last_error"])
             self.assertEqual(result["partial"]["draft_path"], str(partial_path))
             self.assertIn(("budget_exceeded", 1.0), progress)
 

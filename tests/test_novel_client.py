@@ -21,6 +21,7 @@ class _StubState:
         self.counter = 0
         self.saved_outline = None
         self.workspaces = ["alpha", "龙族"]
+        self.mutations = []
 
 
 def _make_handler(state: _StubState):
@@ -38,9 +39,16 @@ def _make_handler(state: _StubState):
 
         def _body(self):
             n = int(self.headers.get("Content-Length") or 0)
-            if not n:
-                return {}
-            return json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            body = json.loads(self.rfile.read(n).decode("utf-8") or "{}") if n else {}
+            state.mutations.append(
+                {
+                    "method": self.command,
+                    "path": urlparse(self.path).path,
+                    "headers": {key.lower(): value for key, value in self.headers.items()},
+                    "body": body,
+                }
+            )
+            return body
 
         # ---- routing helpers ----
         def _parts(self):
@@ -108,6 +116,7 @@ def _make_handler(state: _StubState):
                 if seg[3] == "run":
                     return self._run(ws)
                 if seg[3] == "job" and len(seg) == 6 and seg[5] == "cancel":
+                    self._body()
                     return self._send(
                         202,
                         {
@@ -199,6 +208,10 @@ class NovelClientTest(unittest.IsolatedAsyncioTestCase):
     async def test_create_premise(self):
         out = await self.client.create_premise("newbook", "一个赛博朋克侦探故事")
         self.assertEqual(out["name"], "newbook")
+        self.assertEqual(
+            self.state.mutations[-1]["headers"].get("x-onboarding-intent"),
+            "premise-v1",
+        )
 
     async def test_list_workspaces(self):
         names = await self.client.list_workspaces()
@@ -249,6 +262,23 @@ class NovelClientTest(unittest.IsolatedAsyncioTestCase):
         out = await self.client.save_outline("mybook", "# 新大纲")
         self.assertTrue(out["saved"])
         self.assertEqual(self.state.saved_outline, "# 新大纲")
+        self.assertEqual(
+            self.state.mutations[-1]["headers"].get("x-workspace-mutation-intent"),
+            "mutate-v1",
+        )
+
+    async def test_run_and_cancel_send_endpoint_intents_and_json_objects(self):
+        started = await self.client.run_step("mybook", "plan-chapters", {})
+        run = self.state.mutations[-1]
+        self.assertEqual(run["headers"].get("x-model-action-intent"), "run-v1")
+        self.assertEqual(run["headers"].get("content-type"), "application/json")
+        await self.client.cancel_job("mybook", started["job_id"])
+        cancel = self.state.mutations[-1]
+        self.assertEqual(
+            cancel["headers"].get("x-workspace-mutation-intent"), "mutate-v1"
+        )
+        self.assertEqual(cancel["headers"].get("content-type"), "application/json")
+        self.assertEqual(cancel["body"], {})
 
     async def test_readiness_blocked(self):
         r = await self.client.readiness("blocked_book", chapters=2)

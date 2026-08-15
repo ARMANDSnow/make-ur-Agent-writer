@@ -88,6 +88,32 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertFalse(job["cancel_requested"])
         self.assertIsNone(job["cancel_reason"])
 
+    def test_model_job_settlement_blocks_when_accounting_degraded(self) -> None:
+        def degraded(_params, _progress):
+            from src import llm_client
+
+            llm_client._LLM_ACCOUNTING_DEGRADED.set(True)
+            return {"status": "succeeded"}
+
+        with unittest.mock.patch.dict(
+            jobs.STEP_HANDLERS, {"expand-premise": degraded}
+        ):
+            record = jobs.start_job(
+                "alpha",
+                "expand-premise",
+                {
+                    "max_model_requests": 2,
+                    "budget_cny": 1.0,
+                    "timeout_minutes": 15.0,
+                },
+            )
+            job = self._wait_for_done("alpha", record["job_id"])
+        self.assertEqual(job["status"], "blocked")
+        self.assertEqual(
+            job["result_summary"]["first_blocked"]["reason"],
+            "accounting_unavailable",
+        )
+
     def test_creation_mode_conflicts_are_rejected_before_job_allocation(self) -> None:
         workspace_meta.write("alpha", type="novel", creation_mode="continuation")
         with self.assertRaisesRegex(RuntimeError, "creation_mode_conflict"):

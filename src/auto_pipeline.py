@@ -25,13 +25,19 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
-from .auto_bootstrap import bootstrap_all, bootstrap_continuation_anchor, bootstrap_entity_graph
+from .auto_bootstrap import (
+    bootstrap_all,
+    bootstrap_continuation_anchor,
+    bootstrap_entity_graph,
+    bootstrap_personas,
+)
 from .chapter_splitter import split_all
 from .cli_apply_bootstrap import apply_bootstrap
 from .compressor import compress_all
 from .debater import run_debate
 from .extractor import extract_all
 from .plot_planner import generate_chapter_plan
+from .safe_errors import safe_exception_text
 from .text_normalizer import normalize_all
 from .writer import write_chapters
 
@@ -173,7 +179,7 @@ def _run_prepare_steps(
             applied[name] = {
                 "name": name,
                 "status": "apply_failed",
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": safe_exception_text(exc),
             }
     results["apply-bootstrap"] = applied
 
@@ -390,8 +396,21 @@ def rebuild_for_start(
     window_ids = {str(c.get("chapter_id")) for c in before if c.get("chapter_id")}
     window_ids.add(start)
 
-    labels = ["extract", "compress", "bootstrap-graph", "bootstrap-anchor"]
+    # A freshly imported workspace has no per-book persona binding yet.  The
+    # next workbench stage (debate) deliberately refuses to fall back to the
+    # legacy validation-corpus personas, so the rebuild transaction must fill
+    # that prerequisite as well.  Existing, user-reviewed personas are kept
+    # untouched when merely moving the continuation start point.
+    from .persona_loader import load_personas
+
+    needs_personas = load_personas() is None
+    labels = ["extract", "compress"]
+    if needs_personas:
+        labels.append("bootstrap-personas")
+    labels += ["bootstrap-graph", "bootstrap-anchor"]
     if apply:
+        if needs_personas:
+            labels.append("apply-personas")
         labels += ["apply-entity-graph", "apply-anchor"]
     total = len(labels)
     done = 0
@@ -425,6 +444,11 @@ def rebuild_for_start(
     steps["compress"] = compress_all()
     if budget_check is not None:
         budget_check()
+    if needs_personas:
+        _step("bootstrap-personas")
+        steps["bootstrap_personas"] = bootstrap_personas(force=True)
+        if budget_check is not None:
+            budget_check()
     _step("bootstrap-graph")
     steps["bootstrap_graph"] = bootstrap_entity_graph(force=True)
     if budget_check is not None:
@@ -434,6 +458,9 @@ def rebuild_for_start(
     if budget_check is not None:
         budget_check()
     if apply:
+        if needs_personas:
+            _step("apply-personas")
+            steps["apply_personas"] = apply_bootstrap("personas", confirm=True)
         _step("apply-entity-graph")
         steps["apply_entity_graph"] = apply_bootstrap("entity_graph", confirm=True)
         _step("apply-anchor")

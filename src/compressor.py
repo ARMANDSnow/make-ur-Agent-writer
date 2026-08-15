@@ -10,6 +10,7 @@ from .config import ROOT
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary, load_global_facts
 from .premise_expansion import expansion_prompt_block, load_expansion, render_expansion_markdown
+from .safe_errors import safe_exception_text
 from .state import log_event, write_text_atomic
 from .utils import ensure_dir, read_json, write_json
 
@@ -112,7 +113,7 @@ def compress_all(progress_cb: Optional[Callable[[str, float], None]] = None) -> 
 
         foreshadowing.build_registry()
     except Exception as exc:  # never let registry seeding break compress
-        log_event("compress", "foreshadowing_registry_error", error=str(exc))
+        log_event("compress", "foreshadowing_registry_error", error=safe_exception_text(exc))
     log_event("compress", "done", chapters=len(extractions), output=str(kb_dir / "global_knowledge.md"))
     return index
 

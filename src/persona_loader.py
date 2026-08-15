@@ -29,6 +29,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from . import paths
 from .config import ROOT
+from .safe_errors import safe_exception_text
 from .state import log_event
 from .utils import read_json_optional
 
@@ -138,20 +139,20 @@ def render_agent_fields(
         try:
             name = render_template(name_tpl, personas).strip() or legacy_name
         except Exception as exc:  # pragma: no cover - defensive
-            log_event("persona", "render_failure", field="name", agent=legacy_name, error=str(exc), context=log_context)
+            log_event("persona", "render_failure", field="name", agent=legacy_name, error=safe_exception_text(exc), context=log_context)
 
     prompt = legacy_prompt
     if isinstance(prompt_tpl, str) and prompt_tpl.strip():
         try:
             prompt = render_template(prompt_tpl, personas).strip() or legacy_prompt
         except Exception as exc:  # pragma: no cover - defensive
-            log_event("persona", "render_failure", field="system_prompt", agent=legacy_name, error=str(exc), context=log_context)
+            log_event("persona", "render_failure", field="system_prompt", agent=legacy_name, error=safe_exception_text(exc), context=log_context)
 
     stance = legacy_stance
     if isinstance(stance_tpl, str) and stance_tpl.strip():
         try:
             stance = render_template(stance_tpl, personas).strip() or legacy_stance
         except Exception as exc:  # pragma: no cover - defensive
-            log_event("persona", "render_failure", field="stance", agent=legacy_name, error=str(exc), context=log_context)
+            log_event("persona", "render_failure", field="stance", agent=legacy_name, error=safe_exception_text(exc), context=log_context)
 
     return name, prompt, stance

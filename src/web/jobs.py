@@ -48,6 +48,7 @@ from ..book_runner import BookRunBlocked, BudgetExceeded, run_write_book
 from ..debater import run_debate
 from ..extractor import ExtractionBatchFailure, extract_all
 from ..plot_planner import OutlineStale, generate_chapter_plan
+from ..safe_errors import exception_projection
 from ..paid_recovery_states import (
     TEXT_ATTEMPT_STATUSES,
     TEXT_CANONICAL_RECOVERY_STATUSES,
@@ -72,6 +73,7 @@ _JOBS_LOCK = threading.Lock()
 _JOB_LOG_LOCK = threading.Lock()
 _WORKER_THREADS: Dict[str, threading.Thread] = {}
 _WORKER_THREADS_LOCK = threading.Lock()
+_JOB_EXECUTION_CONTEXTS: Dict[str, Dict[str, Any]] = {}
 TERMINAL_STATUSES = {"succeeded", "blocked", "failed", "aborted", "lost", "budget_exceeded"}
 _WORKER_RESTART_ERROR = "worker process restarted before this job reached a terminal state"
 _MAX_JOB_LOG_BYTES = 4 * 1024 * 1024
@@ -97,7 +99,9 @@ NOVEL_MODEL_REQUEST_DEFAULTS: Dict[str, int] = {
     "draft-once-dev": 20,
     "auto-pipeline-greenfield": 160,
     "prepare-greenfield": 10,
-    "rebuild-for-start": 10,
+    # Default continuation window is 10 chapters: extraction (10) plus
+    # compress/entity/anchor/persona stages and bounded repair headroom.
+    "rebuild-for-start": 32,
     "expand-premise": 2,
     "extract-style": 2,
 }
@@ -116,6 +120,16 @@ NOVEL_EXECUTION_LIMIT_DEFAULTS: Dict[str, tuple[float, float]] = {
     "expand-premise": (1.0, 15.0),
     "extract-style": (2.0, 15.0),
 }
+_MODEL_TASKS = (
+    "extract",
+    "compress",
+    "debate",
+    "write",
+    "review",
+    "premise_expand",
+    "style_extract",
+    "plot_planner",
+)
 
 
 def default_model_request_limit(step: str) -> Optional[int]:
@@ -267,6 +281,12 @@ _RETRY_PARAM_KEYS_BY_STEP: Dict[str, frozenset[str]] = {
     ),
     "expand-premise": frozenset({"force", "max_model_requests"}),
 }
+for _model_retry_step in NOVEL_MODEL_REQUEST_DEFAULTS:
+    if _model_retry_step in _RETRY_PARAM_KEYS_BY_STEP and _model_retry_step != "extract-style":
+        _RETRY_PARAM_KEYS_BY_STEP[_model_retry_step] = frozenset(
+            set(_RETRY_PARAM_KEYS_BY_STEP[_model_retry_step])
+            | {"budget_cny", "timeout_minutes", "max_model_requests"}
+        )
 _NON_RETRYABLE_STEPS = frozenset({"extract-style"})
 _RETRY_BOOL_KEYS = frozenset(
     {
@@ -290,7 +310,7 @@ _RETRY_INT_KEYS = frozenset(
         "max_model_requests",
     }
 )
-_RETRY_FLOAT_KEYS = frozenset({"budget_cny", "min_confidence"})
+_RETRY_FLOAT_KEYS = frozenset({"budget_cny", "min_confidence", "timeout_minutes"})
 _RETRY_TOKEN_KEYS = frozenset({"lang", "name", "tier"})
 _PUBLIC_RESULT_KEYS = frozenset(
     {
@@ -332,6 +352,8 @@ _PUBLIC_FAILURE_REASONS = frozenset(
         "context_too_large",
         "job_timeout",
         "generation_failed",
+        "response_validation_failed",
+        "accounting_unavailable",
         "task_failed",
     }
 )
@@ -442,14 +464,14 @@ def _typed_retry_value(key: str, value: Any) -> Any:
             else None
         )
     if key in _RETRY_FLOAT_KEYS:
-        return (
-            value
-            if isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(float(value))
-            and 0 <= float(value) <= 1_000_000
-            else None
-        )
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        number = float(value)
+        if not math.isfinite(number):
+            return None
+        maximum = 40.0 if key == "budget_cny" else 120.0 if key == "timeout_minutes" else 1.0
+        lower_ok = number >= 0 if key == "min_confidence" else number > 0
+        return value if lower_ok and number <= maximum else None
     if key in _RETRY_TOKEN_KEYS:
         text = value.strip() if isinstance(value, str) else ""
         if (
@@ -2209,10 +2231,15 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
 
     with _JOBS_LOCK:
         job = dict(_JOBS[job_id])
+        admitted = dict(_JOB_EXECUTION_CONTEXTS.get(job_id) or {})
     workspace = job["workspace"]
-    step = job["step"]
-    params = job["params"]
-    deadline, timeout_minutes = _timeout_deadline(params)
+    step = str(admitted.get("step") or job["step"])
+    params = dict(admitted.get("params") or job["params"])
+    deadline = admitted.get("deadline")
+    timeout_minutes = admitted.get("timeout_minutes")
+    if "deadline" not in admitted:
+        deadline, timeout_minutes = _timeout_deadline(params)
+    model_configs = admitted.get("model_configs")
     handler = STEP_HANDLERS.get(step)
     if handler is None:
         _update(
@@ -2251,9 +2278,12 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
     try:
         from ..llm_client import (
             LLMBudgetLimitExceeded,
+            LLMAccountingUnavailable,
             LLMPricingUnavailable,
+            llm_accounting_degraded,
             llm_budget_limit_scope,
             llm_deadline_scope,
+            llm_model_config_scope,
             llm_request_limit_scope,
         )
 
@@ -2273,6 +2303,7 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
                 )
 
             with (
+                llm_model_config_scope(model_configs),
                 llm_deadline_scope(deadline),
                 llm_request_limit_scope(
                     params.get("max_model_requests"),
@@ -2293,6 +2324,10 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
                     # never part of retry params or the durable public ledger.
                     execution_params["_active_job_id"] = job_id
                 result = handler(execution_params, _progress)
+                if model_step and llm_accounting_degraded():
+                    raise LLMAccountingUnavailable(
+                        "paid model accounting became unavailable"
+                    )
                 if not (isinstance(result, dict) and result.get("committed") is True):
                     _check_cancelled(job_id, deadline, timeout_minutes)
                 budget = params.get("budget_cny")
@@ -2340,16 +2375,25 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
             error=str(exc),
             finished_at=_now(),
         )
-    except LLMPricingUnavailable:
+    except (LLMPricingUnavailable, LLMAccountingUnavailable) as exc:
+        reason = (
+            "accounting_unavailable"
+            if isinstance(exc, LLMAccountingUnavailable)
+            else "preflight_failed"
+        )
         _update(
             job_id,
             status="blocked",
             current_step="blocked",
-            error="model pricing unavailable",
+            error=(
+                "model accounting unavailable"
+                if reason == "accounting_unavailable"
+                else "model pricing unavailable"
+            ),
             result_summary={
                 "status": "blocked",
                 "first_blocked": {
-                    "reason": "preflight_failed",
+                    "reason": reason,
                     "status": "blocked",
                 },
             },
@@ -2369,21 +2413,27 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
             finished_at=_now(),
         )
     except Exception as exc:
-        trace_id = uuid.uuid4().hex
         from ..llm_client import public_llm_failure_reason
+
+        reason = (
+            public_llm_failure_reason(exc)
+            if step in NOVEL_MODEL_REQUEST_DEFAULTS
+            else "task_failed"
+        )
+        projection = exception_projection(exc, reason=reason)
+        trace_id = projection["trace_id"]
 
         _update(
             job_id,
             status="failed",
-            error=f"{type(exc).__name__}: job failed",
+            error=f"{projection['error_type']}: job failed",
             trace_id=trace_id,
             result_summary={
                 "status": "failed",
-                "failure_reason": (
-                    public_llm_failure_reason(exc)
-                    if step in NOVEL_MODEL_REQUEST_DEFAULTS
-                    else "task_failed"
-                ),
+                "failure_reason": reason,
+                "error_type": projection["error_type"],
+                "trace_id": trace_id,
+                **({"attempts": projection["attempts"]} if "attempts" in projection else {}),
             },
             finished_at=_now(),
         )
@@ -2393,7 +2443,7 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
 
         sys.stderr.write(
             f"[jobs] job_id={job_id} trace_id={trace_id} "
-            f"error_type={type(exc).__name__}\n"
+            f"error_type={projection['error_type']}\n"
         )
     else:
         terminal = "succeeded"
@@ -2416,6 +2466,8 @@ def _worker_entry(job_id: str, expected_identity: Any) -> None:
     try:
         _worker(job_id, expected_identity)
     finally:
+        with _JOBS_LOCK:
+            _JOB_EXECUTION_CONTEXTS.pop(job_id, None)
         with _WORKER_THREADS_LOCK:
             _WORKER_THREADS.pop(job_id, None)
 
@@ -2533,6 +2585,12 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
     params = dict(params or {})
     if not is_known_step(step):
         raise ValueError(f"unknown step: {step}")
+    model_configs: Dict[str, Dict[str, Any]] | None = None
+    if step in NOVEL_MODEL_REQUEST_DEFAULTS:
+        from ..config import get_model_config
+
+        model_configs = {task: dict(get_model_config(task)) for task in _MODEL_TASKS}
+    deadline, timeout_minutes = _timeout_deadline(params)
     recovery_keys = {
         "expected_recovery_fingerprint",
         "expected_recovery_ledger_claim",
@@ -2622,6 +2680,13 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
         # touches both takes WORKSPACE→JOBS, never the reverse.
         with _JOBS_LOCK:
             _JOBS[record["job_id"]] = record
+            _JOB_EXECUTION_CONTEXTS[record["job_id"]] = {
+                "step": step,
+                "params": dict(params),
+                "deadline": deadline,
+                "timeout_minutes": timeout_minutes,
+                "model_configs": model_configs,
+            }
         _WORKSPACE_JOBS[workspace] = record["job_id"]
 
     # Close the deterministic probe-to-persist replacement window.  The
@@ -2633,12 +2698,14 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
             _WORKSPACE_JOBS.pop(workspace, None)
         with _JOBS_LOCK:
             _JOBS.pop(record["job_id"], None)
+            _JOB_EXECUTION_CONTEXTS.pop(record["job_id"], None)
         raise RuntimeError(f"workspace_not_found:{workspace}")
     if not _persist_job(record):
         with _WORKSPACE_LOCK:
             _WORKSPACE_JOBS.pop(workspace, None)
         with _JOBS_LOCK:
             _JOBS.pop(record["job_id"], None)
+            _JOB_EXECUTION_CONTEXTS.pop(record["job_id"], None)
         with _WORKER_THREADS_LOCK:
             _WORKER_THREADS.pop(record["job_id"], None)
         raise JobPersistenceError("job_persistence_failed")
@@ -2651,6 +2718,7 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
             _WORKSPACE_JOBS.pop(workspace, None)
         with _JOBS_LOCK:
             _JOBS.pop(record["job_id"], None)
+            _JOB_EXECUTION_CONTEXTS.pop(record["job_id"], None)
         raise RuntimeError(f"workspace_not_found:{workspace}")
 
     # Iter 027 P2 (review #8 fix): if thread.start() fails (OS thread
@@ -2677,6 +2745,7 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
             _WORKSPACE_JOBS.pop(workspace, None)
         with _JOBS_LOCK:
             _JOBS.pop(record["job_id"], None)
+            _JOB_EXECUTION_CONTEXTS.pop(record["job_id"], None)
         raise
     return dict(record)
 
@@ -2722,6 +2791,7 @@ def reset_for_tests(*, timeout_seconds: float = 5.0) -> None:
         _WORKSPACE_JOBS.clear()
     with _JOBS_LOCK:
         _JOBS.clear()
+        _JOB_EXECUTION_CONTEXTS.clear()
 
 
 def _float_param(params: Dict[str, Any], key: str, default: float) -> float:

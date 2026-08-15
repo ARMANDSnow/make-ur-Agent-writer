@@ -16,8 +16,9 @@ except Exception:
 from . import paths
 from .chapter_splitter import chapter_text, load_manifest
 from .config import ROOT, load_config
-from .llm_client import LLMClient, _is_transient
+from .llm_client import LLMClient, _is_transient, raise_if_terminal_llm_failure
 from .schemas import ChapterExtraction, EvidenceSpan, model_to_dict, model_to_json_schema
+from .safe_errors import exception_projection, safe_exception_text
 from .state import log_event
 from .utils import deep_merge, ensure_dir, read_json, write_json
 
@@ -276,9 +277,10 @@ def _extract_chapter_with_retry(
         try:
             return _extract_chapter_data(entry, text, previous_summaries, volume_summary, client, settings)
         except Exception as exc:
+            raise_if_terminal_llm_failure(exc)
             last_exc = exc
             if attempt < attempts and not _is_transient(exc):
-                log_event("extract", "chapter_retry", chapter_id=chapter_id, attempt=attempt, error=str(exc))
+                log_event("extract", "chapter_retry", chapter_id=chapter_id, attempt=attempt, error=safe_exception_text(exc))
                 continue
             break  # transient(call 级已尽力)或已到上限 → 不再整章重试
     assert last_exc is not None  # attempts>=1 → 循环未 return 必经 except,last_exc 必有值
@@ -325,22 +327,25 @@ def _write_failure(entry: Dict[str, object], text: str, exc: Exception, elapsed_
     chapter_id = str(entry["chapter_id"])
     existing = read_json(failures_dir / f"{chapter_id}.json", {})
     retry_count = int(existing.get("retry_count", 0)) + 1
+    failure_projection = exception_projection(exc)
+    safe_error = safe_exception_text(exc, trace_id=failure_projection["trace_id"])
     failure = {
         "chapter_id": chapter_id,
         "volume_id": str(entry["volume_id"]),
         "source_title": str(entry.get("title", "")),
         "retry_count": retry_count,
-        "last_error": f"{type(exc).__name__}: {exc}",
-        "error": f"{type(exc).__name__}: {exc}",
+        "last_error": safe_error,
+        "error": safe_error,
+        "failure": failure_projection,
         "failed_at": datetime.now(timezone.utc).isoformat(),
-        "prompt_summary": text[:500],
+        "prompt_chars": len(text),
     }
     if elapsed_ms is not None:
         # iter055 轨D: 失败耗时。≈ per-call 超时值(如 120000ms) ⇒ tunnel 挂起撞超时的特征。
         failure["elapsed_ms"] = elapsed_ms
     write_json(failures_dir / f"{chapter_id}.json", failure)
     log_event(
-        "extract", "failure", chapter_id=chapter_id, error=str(exc),
+        "extract", "failure", chapter_id=chapter_id, error=safe_error,
         retry_count=retry_count, elapsed_ms=elapsed_ms,
     )
 
@@ -490,6 +495,7 @@ def extract_all(
             )
         except Exception as exc:
             _write_failure(entry, text, exc, elapsed_ms=int((time.monotonic() - started_at) * 1000))
+            raise_if_terminal_llm_failure(exc)
             failed_ids.append(chapter_id)
     # iter054c: surface the batch outcome so orchestrators aren't blind to a
     # silently-degraded extraction set (per-chapter failures are written to

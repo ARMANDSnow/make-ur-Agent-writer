@@ -19,6 +19,7 @@ from .linter import NovelLinter, count_chinese_chars
 from .llm_client import LLMClient
 from .manual_facts import global_facts_summary
 from .reviewer import review_text
+from .safe_errors import safe_exception_text
 from .schemas import ChapterPlan, ChapterSummary, EntityAdvanceProposalSet, model_to_dict
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
@@ -264,7 +265,7 @@ def write_chapters(
                             )
                             lint_blocked_reviews.append({"attempt": attempt, "review": shadow_review})
                         except Exception as exc:
-                            log_event("write", "shadow_review_error", chapter=chapter_no, error=str(exc))
+                            log_event("write", "shadow_review_error", chapter=chapter_no, error=safe_exception_text(exc))
                         stage = "budget_check_review"
                         budget_check()
                     feedback = "请修复 deterministic linter 问题:\n" + _format_lint_feedback(lint_issues)
@@ -345,7 +346,7 @@ def write_chapters(
                         polish_applied = True
                         polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
                 except Exception as exc:
-                    report["polish_error"] = f"{type(exc).__name__}: {exc}"
+                    report["polish_error"] = safe_exception_text(exc)
                 stage = "budget_check_polish"
                 budget_check()
 
@@ -715,7 +716,7 @@ def write_chapters(
                     chapter_no,
                     last_nonempty_draft,
                     attempt=attempt,
-                    last_error=f"{type(exc).__name__}: {exc}",
+                    last_error=safe_exception_text(exc),
                     stage=stage,
                 )
             raise
@@ -1265,7 +1266,7 @@ def _summarize_chapter(client: LLMClient, chapter_no: int, draft: str) -> Dict[s
         )
         return model_to_dict(result)
     except Exception as exc:
-        log_event("write", "chapter_summary_fallback", chapter=chapter_no, error=str(exc))
+        log_event("write", "chapter_summary_fallback", chapter=chapter_no, error=safe_exception_text(exc))
         return {
             "summary": draft[:500],
             "key_events": ["summary_fallback"],
@@ -1331,7 +1332,7 @@ def _propose_entity_advance(
         )
         return [model_to_dict(item) for item in result.proposed_advances]
     except Exception as exc:
-        log_event("write", "entity_advance_fallback", chapter=chapter_no, error=str(exc))
+        log_event("write", "entity_advance_fallback", chapter=chapter_no, error=safe_exception_text(exc))
         return []
 
 

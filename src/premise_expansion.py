@@ -28,7 +28,8 @@ import time
 from typing import Any, Dict, Optional
 
 from . import paths
-from .llm_client import LLMClient
+from .llm_client import LLMClient, raise_if_terminal_llm_failure
+from .safe_errors import safe_exception_text
 from .schemas import PremiseExpansion, model_to_dict
 from .state import log_event
 from .utils import read_json_optional, write_json
@@ -126,8 +127,9 @@ def expand_premise(premise: str, *, force: bool = False) -> Dict[str, Any]:
                 fields = retry_fields
                 empty = _empty_fields(fields)
         except Exception as exc:
+            raise_if_terminal_llm_failure(exc)
             # 重试失败不影响主路径：带着第一稿照常落盘 + 标记。
-            log_event("premise_expand", "empty_fields_retry_error", error=str(exc))
+            log_event("premise_expand", "empty_fields_retry_error", error=safe_exception_text(exc))
     record = {
         "schema_version": SCHEMA_VERSION,
         "premise": premise,
@@ -164,7 +166,7 @@ def load_expansion() -> Optional[Dict[str, Any]]:
     try:
         PremiseExpansion(**record["fields"])
     except Exception as exc:
-        log_event("premise_expand", "artifact_invalid", path=str(path), error=str(exc))
+        log_event("premise_expand", "artifact_invalid", path=str(path), error=safe_exception_text(exc))
         return None
     return record
 

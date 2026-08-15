@@ -24,6 +24,7 @@ import re
 import stat
 import threading
 import time
+from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from contextlib import contextmanager
 from pathlib import Path
@@ -36,6 +37,7 @@ from ..cli_workspace import list_workspaces
 from ..config import get_model_config
 from ..cost_estimator import estimate_cost
 from ..observability import collect_status
+from ..safe_jsonl import tail_jsonl as _safe_tail_jsonl
 from ..utils import read_json, read_json_optional
 from . import auth, chapter_diff as chapter_diff_mod, diag, errors, jobs, settings as settings_mod, static, templates, wizard
 from .safe_log import log_exception as _safe_log_exception
@@ -68,20 +70,61 @@ _OVERVIEW_CACHE: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
 _WORKSPACE_NAME_RE = _WORKSPACE_NAME_RE_SHARED
 _RESERVED_WORKSPACE_NAMES = _RESERVED_WORKSPACE_NAMES_SHARED
 
-_WEB_MUTATION_PATH_RE = re.compile(
-    r"^/api/workspace/[^/]+/(?:"
-    r"job/[^/]+/cancel/?"
-    r"|write-recovery/?"
-    r")$"
-)
 _WEB_MUTATION_BODY_LIMIT = 64 * 1024
 _KB_FILE_MAX_BYTES = 500_000 * 4
 _DRAFT_FILE_MAX_BYTES = 1_000_000 * 4 + 1
 _DRAFT_JSON_MAX_BYTES = 1_000_000
-_WORKSPACE_MUTATION_INTENTS = {
-    "x-workspace-mutation-intent": {"mutate-v1"},
-    "x-write-recovery-intent": {"archive-and-regenerate-v1"},
-}
+
+
+@dataclass(frozen=True)
+class MutationPolicy:
+    """Wire-level contract for one state-changing HTTP route."""
+
+    content_type: str
+    max_bytes: int
+    intent_header: str
+    intent_value: str
+    require_json_object: bool = True
+    require_empty_object: bool = False
+
+
+_POLICY_WORKSPACE = MutationPolicy(
+    "application/json", _WEB_MUTATION_BODY_LIMIT,
+    "x-workspace-mutation-intent", "mutate-v1",
+)
+_POLICY_MODEL_RUN = MutationPolicy(
+    "application/json", _WEB_MUTATION_BODY_LIMIT,
+    "x-model-action-intent", "run-v1",
+)
+_POLICY_MODEL_DIAG = MutationPolicy(
+    "application/json", _WEB_MUTATION_BODY_LIMIT,
+    "x-model-action-intent", "diagnose-v1",
+    require_empty_object=True,
+)
+_POLICY_STYLE_EXTRACT = MutationPolicy(
+    "multipart/form-data", 2_000_000,
+    "x-model-action-intent", "extract-style-v1",
+    require_json_object=False,
+)
+_POLICY_WIZARD_IMPORT = MutationPolicy(
+    "multipart/form-data", 50 * 1024 * 1024,
+    "x-onboarding-intent", "import-v1",
+    require_json_object=False,
+)
+_POLICY_WIZARD_PREMISE = MutationPolicy(
+    "application/json", _WEB_MUTATION_BODY_LIMIT,
+    "x-onboarding-intent", "premise-v1",
+)
+_POLICY_SETTINGS = MutationPolicy(
+    "application/json", _WEB_MUTATION_BODY_LIMIT,
+    "x-settings-mutation-intent", "update-v1",
+)
+_POLICY_WRITE_RECOVERY = MutationPolicy(
+    "application/json", _WEB_MUTATION_BODY_LIMIT,
+    "x-write-recovery-intent", "archive-and-regenerate-v1",
+)
+
+_MUTATION_POLICIES: Dict[Tuple[str, str], MutationPolicy] = {}
 
 
 def _json(status: int, payload: Dict[str, Any]) -> Tuple[int, str, bytes]:
@@ -121,8 +164,8 @@ def _web_mutation_request_error(
     body: bytes,
     headers: Dict[str, str],
     *,
-    require_json_object: bool = False,
-    required_intent: Optional[Tuple[str, str]] = None,
+    policy: MutationPolicy,
+    check_body: bool = True,
 ) -> Optional[Tuple[int, str, bytes]]:
     """Reject browser cross-site/simple requests before protected mutations.
 
@@ -134,44 +177,95 @@ def _web_mutation_request_error(
     precedence.
     """
 
-    if len(body) > _WEB_MUTATION_BODY_LIMIT:
+    if len(body) > policy.max_bytes:
         return _json(413, {"error": "mutation payload too large"})
     content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip().lower()
-    if content_type != "application/json":
-        return _json(415, {"error": "Content-Type must be application/json"})
-    if require_json_object:
+    if content_type != policy.content_type:
+        return _json(415, {"error": f"Content-Type must be {policy.content_type}"})
+    if check_body and policy.require_json_object:
         try:
             payload = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return _json(400, {"error": "mutation body must be valid JSON"})
         if not isinstance(payload, dict):
             return _json(400, {"error": "mutation body must be a JSON object"})
-    if required_intent is not None:
-        intent_key, intent_value = required_intent
-        has_intent = str(headers.get(intent_key) or "") == intent_value
-    else:
-        has_intent = any(
-            str(headers.get(key) or "") in allowed
-            for key, allowed in _WORKSPACE_MUTATION_INTENTS.items()
-        )
-    if not has_intent:
+        if policy.require_empty_object and payload:
+            return _json(400, {"error": "mutation body must be an empty JSON object"})
+    if str(headers.get(policy.intent_header) or "") != policy.intent_value:
         return _json(403, {"error": "explicit mutation intent required"})
     fetch_site = str(headers.get("sec-fetch-site") or "").strip().lower()
     if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
         return _json(403, {"error": "cross-site mutation rejected"})
     origin = str(headers.get("origin") or "").strip()
     if origin:
-        parsed = urlsplit(origin)
-        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
-            "127.0.0.1",
-            "localhost",
-            "::1",
-        }:
+        try:
+            parsed = urlsplit(origin)
+            hostname = parsed.hostname
+            # Accessing ``port`` also validates malformed bracket/port forms.
+            parsed.port
+        except (TypeError, ValueError):
+            return _json(403, {"error": "cross-origin mutation rejected"})
+        if (
+            parsed.scheme != "http"
+            or hostname not in {"127.0.0.1", "localhost", "::1"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
             return _json(403, {"error": "cross-origin mutation rejected"})
         host = str(headers.get("host") or "").strip().lower()
         if host and parsed.netloc.lower() != host:
             return _json(403, {"error": "cross-origin mutation rejected"})
     return None
+
+
+def mutation_policy_for(method: str, decoded_path: str) -> Optional[MutationPolicy]:
+    """Return the exact registered policy for a concrete mutation path."""
+
+    for (route_method, pattern_text), policy in _MUTATION_POLICIES.items():
+        if route_method == method and re.fullmatch(pattern_text, decoded_path):
+            return policy
+    return None
+
+
+def mutation_route_missing_policy(method: str, decoded_path: str) -> bool:
+    """Detect a registered mutation route that bypassed ``_mutation_route``."""
+
+    if method not in {"POST", "PUT"}:
+        return False
+    if mutation_policy_for(method, decoded_path) is not None:
+        return False
+    return any(
+        route_method == method and pattern.fullmatch(decoded_path) is not None
+        for route_method, pattern, _handler in _ROUTES
+    )
+
+
+def mutation_header_error(
+    method: str,
+    decoded_path: str,
+    headers: Dict[str, str],
+) -> Optional[WebResponse]:
+    """Header-only preflight used by the HTTP server before it reads body."""
+
+    policy = mutation_policy_for(method, decoded_path)
+    if policy is None:
+        return None
+    return _web_mutation_request_error(b"", headers, policy=policy, check_body=False)
+
+
+def _trusted_in_process_mutation_headers(headers: Dict[str, str]) -> bool:
+    """Preserve pure handler tests while never weakening an actual wire call."""
+
+    wire_markers = {
+        "host", "content-length", "origin", "sec-fetch-site",
+        "x-workspace-mutation-intent", "x-model-action-intent",
+        "x-onboarding-intent", "x-settings-mutation-intent",
+        "x-write-recovery-intent",
+    }
+    return not any(key in headers for key in wire_markers)
 
 
 def _workspace_error(name: str) -> Optional[Tuple[int, str, bytes]]:
@@ -677,7 +771,7 @@ def _workspace_updated_at(root: Path) -> str:
                             continue
                         matched += 1
                         latest_ns = max(latest_ns, info.st_mtime_ns)
-            except (OSError, TypeError, ValueError):
+            except (OSError, RuntimeError, TypeError, ValueError):
                 continue
             finally:
                 if directory_fd >= 0:
@@ -1005,7 +1099,6 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
     drafts = paths.drafts_dir()
     draft_files = sorted(drafts.glob("chapter_*.md")) if drafts.exists() else []
     draft_count = len(draft_files)
-    draft_m = max((_mtime_ns(p) for p in draft_files), default=0)
     plan_data = read_json_optional(plan_path, {})
     plan_chapters = plan_data.get("chapters") if isinstance(plan_data, dict) else None
 
@@ -1016,29 +1109,66 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
     # every downstream artifact is unusable even when its own mtime remains
     # newer than the now-stale immediate predecessor.
     has_outline = has_kb and outline_m > 0 and outline_m >= kb_m
-    has_plan = has_outline and bool(plan_chapters) and plan_m >= outline_m
-    current_drafts = has_plan and draft_count > 0 and draft_m >= plan_m
+    has_plan = (
+        has_outline
+        and bool(plan_chapters)
+        and plan_m >= outline_m
+        and _chapter_plan_is_self_consistent(plan_data)
+        and not start_point.enforce_consistency(
+            require_start_point=requires_start_point,
+            plan_data=plan_data if isinstance(plan_data, dict) else {},
+        )
+    )
+    authoritative_plan = None
+    if has_plan:
+        try:
+            from ..writer import _load_chapter_plan
+
+            authoritative_plan = _load_chapter_plan()
+            if not authoritative_plan:
+                has_plan = False
+        except (OSError, RuntimeError, TypeError, ValueError):
+            # A malformed or schema-invalid plan is not a current plan.  Keep
+            # the workbench at the plan stage instead of allowing a newer
+            # unrelated draft to mask the damaged authority.
+            has_plan = False
     write_state = "not_started"
     retry_chapter: Optional[int] = None
     if has_plan and draft_count > 0:
         from ..chapter_status import chapter_status
+        from ..writer import _chapter_plan_item, _run_context
 
         chapter_numbers = []
         for draft_path in draft_files:
             match = re.fullmatch(r"chapter_(\d+)\.md", draft_path.name)
             if match:
                 chapter_numbers.append(int(match.group(1)))
-        statuses = [
-            chapter_status(
-                chapter_no,
-                drafts,
-                validate_context=True,
-                require_start_point=requires_start_point,
-                require_plan=True,
-                require_external_review=True,
+        statuses = []
+        for chapter_no in sorted(set(chapter_numbers)):
+            try:
+                item = _chapter_plan_item(authoritative_plan, chapter_no)
+                expected = _run_context(item, chapter_no=chapter_no)
+            except (OSError, TypeError, ValueError):
+                statuses.append(
+                    {
+                        "chapter_no": chapter_no,
+                        "approved": False,
+                        "panel_halt_reason": "",
+                        "strict_failures": ["chapter_plan_item_missing_or_invalid"],
+                    }
+                )
+                continue
+            statuses.append(
+                chapter_status(
+                    chapter_no,
+                    drafts,
+                    validate_context=True,
+                    require_start_point=requires_start_point,
+                    require_plan=True,
+                    require_external_review=True,
+                    expected_context=expected,
+                )
             )
-            for chapter_no in sorted(set(chapter_numbers))
-        ]
         retry_required = [
             status
             for status in statuses
@@ -1048,9 +1178,9 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
         if retry_required:
             write_state = "retry_required"
             retry_chapter = int(retry_required[0].get("chapter_no") or 1)
-        elif current_drafts and not unapproved and statuses:
+        elif not unapproved and statuses:
             write_state = "approved"
-        elif current_drafts and unapproved:
+        elif unapproved:
             write_state = "needs_review"
 
     if requires_start_point and not has_start_point:
@@ -1081,6 +1211,37 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
         "expansion_stale": has_expansion and kb_m > 0 and kb_m < expansion_m,
         "has_start_point": has_start_point,
     }
+
+
+def _chapter_plan_is_self_consistent(value: Any) -> bool:
+    """Fail closed on missing, reordered or stale stored plan fingerprints."""
+
+    if not isinstance(value, dict):
+        return False
+    chapters = value.get("chapters")
+    target = value.get("target_chapters")
+    if not isinstance(chapters, list) or isinstance(target, bool) or not isinstance(target, int):
+        return False
+    if target <= 0 or len(chapters) != target:
+        return False
+    try:
+        from ..plot_planner import chapter_plan_item_fingerprint, plan_fingerprint
+
+        if value.get("plan_fingerprint") != plan_fingerprint(value):
+            return False
+        numbers: list[int] = []
+        for item in chapters:
+            if not isinstance(item, dict):
+                return False
+            chapter_no = item.get("chapter_no")
+            if isinstance(chapter_no, bool) or not isinstance(chapter_no, int):
+                return False
+            numbers.append(chapter_no)
+            if item.get("chapter_plan_item_fingerprint") != chapter_plan_item_fingerprint(item):
+                return False
+        return numbers == list(range(1, target + 1))
+    except (TypeError, ValueError):
+        return False
 
 
 def api_workbench_status(name: str) -> Tuple[int, str, bytes]:
@@ -1897,7 +2058,15 @@ def api_workspace_writer_style_extract(name: str, body: bytes, headers: Dict[str
                 write_text_atomic(sample_path, sample)
         try:
             job = jobs.start_job(
-                name, "extract-style", {"force": True, "sample_token": sample_token}
+                name,
+                "extract-style",
+                {
+                    "force": True,
+                    "sample_token": sample_token,
+                    "max_model_requests": 2,
+                    "budget_cny": 2.0,
+                    "timeout_minutes": 15.0,
+                },
             )
         except BaseException:
             sample_path.unlink(missing_ok=True)  # don't leak the staged sample
@@ -2316,13 +2485,10 @@ def api_workspace_logs_tail(name: str, n: int = 50) -> Tuple[int, str, bytes]:
         return error
     n = max(1, min(n, 1000))
     with use_workspace(name):
-        log_path = paths.llm_calls_log_path()
-        # This endpoint feeds the ordinary desktop task page.  Keep raw
-        # provider errors and request fingerprints in the local audit log,
-        # but never project them into the browser: provider messages may
-        # contain upstream URLs or other operational details that are neither
-        # useful nor appropriate in the normal user interface.
-        lines = [_public_llm_call_view(row) for row in _tail_jsonl(log_path, n)]
+        # Both the durable writer and this read-side view are metadata-only;
+        # the extra allowlist remains defense in depth for legacy rows.
+        rows = _safe_tail_jsonl(paths.workspace_root(), "logs/llm_calls.jsonl", n)
+        lines = [_public_llm_call_view(row) for row in rows]
     return _json(200, {"lines": lines})
 
 
@@ -2646,60 +2812,10 @@ def _draft_summary(workspace: str, filename: str) -> Optional[Dict[str, Any]]:
 
 
 def _tail_jsonl(path: Path, n: int) -> List[Dict[str, Any]]:
-    """Iter 026 code-review #3: read the LAST n lines without loading
-    the whole file. ``llm_calls.jsonl`` grows monotonically across a
-    pipeline run (longzu already has thousands of entries) and the
-    iter 025 implementation called ``fh.readlines()`` which pulled the
-    entire file into RAM on every poll.
+    """Compatibility wrapper around the shared fail-closed reader."""
 
-    Strategy: seek to end, read 8 KB blocks backward, accumulate until
-    we have ``n+1`` newlines (or hit start of file), then split and
-    take the trailing ``n`` lines. O(n * line_length) memory instead
-    of O(file_size)."""
-    if not path.exists() or not path.is_file():
-        return []
-    if n <= 0:
-        return []
-    chunk_size = 8192
-    raw_tail = b""
-    try:
-        with path.open("rb") as fh:
-            fh.seek(0, 2)  # end
-            position = fh.tell()
-            # Collect blocks until we have ``n + 1`` newlines so we can
-            # discard the partial-first-line and keep exactly the last
-            # ``n`` complete lines.
-            while position > 0 and raw_tail.count(b"\n") <= n:
-                read_size = min(chunk_size, position)
-                position -= read_size
-                fh.seek(position)
-                raw_tail = fh.read(read_size) + raw_tail
-    except OSError:
-        return []
-    lines = raw_tail.splitlines()
-    # Iter 027 P2 (review #5 fix): when ``position > 0`` the first byte
-    # of ``raw_tail`` is mid-record — the read started inside a JSON
-    # line because the file is bigger than our backward read. Drop that
-    # half-line so we never surface ``{"raw": "...partial json..."}``
-    # rows to the dashboard. When ``position == 0`` we read from byte 0
-    # and the first line IS complete.
-    if position > 0 and lines:
-        lines = lines[1:]
-    if len(lines) > n:
-        lines = lines[-n:]
-    out: List[Dict[str, Any]] = []
-    for raw in lines:
-        try:
-            text = raw.decode("utf-8").strip()
-        except UnicodeDecodeError:
-            continue
-        if not text:
-            continue
-        try:
-            out.append(json.loads(text))
-        except json.JSONDecodeError:
-            out.append({"raw": text})
-    return out
+    value = Path(path)
+    return _safe_tail_jsonl(value.parent, value.name, n)
 
 
 # ---- POST handlers (iter 026) ----------------------------------------------
@@ -2724,7 +2840,7 @@ def api_wizard_premise_start(body: bytes, headers: Dict[str, str]) -> Tuple[int,
 
 
 def api_diag_models() -> Tuple[int, str, bytes]:
-    """GET /api/diag/models — model-key connectivity matrix (iter 048a).
+    """Protected POST model-key connectivity matrix.
 
     User-triggered diagnostics: probes each distinct configured model once
     (max_tokens=1), mock-short-circuits offline, never echoes the api_key.
@@ -3205,6 +3321,23 @@ def api_job_cancel(name: str, job_id: str) -> Tuple[int, str, bytes]:
 # ---- dispatcher -------------------------------------------------------------
 
 
+def _mutation_route(
+    method: str,
+    pattern_text: str,
+    handler: Handler,
+    policy: MutationPolicy,
+) -> Tuple[str, "re.Pattern[str]", Handler]:
+    """Register a mutation and its wire policy as one inseparable operation."""
+
+    if method not in {"POST", "PUT"}:
+        raise ValueError("mutation routes must use POST or PUT")
+    key = (method, pattern_text)
+    if key in _MUTATION_POLICIES:
+        raise ValueError(f"duplicate mutation policy: {method} {pattern_text}")
+    _MUTATION_POLICIES[key] = policy
+    return method, re.compile(pattern_text), handler
+
+
 # (method, compiled regex, handler). Named groups in the regex become
 # kwargs passed to the handler.
 _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
@@ -3234,30 +3367,29 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
     ("GET", re.compile(r"^/w/(?P<name>[^/]+)/jobs/?$"), lambda name, **_: render_workspace_jobs_page(name)),
     ("GET", re.compile(r"^/api/workspaces/overview/?$"), lambda **_: api_workspaces_overview()),
     ("GET", re.compile(r"^/api/workspaces/?$"), lambda **_: api_workspaces()),
-    (
-        "POST",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/delete/?$"),
+    _mutation_route(
+        "POST", r"^/api/workspace/(?P<name>[^/]+)/delete/?$",
         lambda name, _body=b"", **_: api_workspace_delete(name, _body),
+        _POLICY_WORKSPACE,
     ),
     ("GET", re.compile(r"^/api/trash/?$"), lambda **_: api_trash_list()),
-    (
-        "POST",
-        re.compile(r"^/api/trash/(?P<entry>[^/]+)/restore/?$"),
-        lambda entry, **_: api_trash_restore(entry),
+    _mutation_route(
+        "POST", r"^/api/trash/(?P<entry>[^/]+)/restore/?$",
+        lambda entry, **_: api_trash_restore(entry), _POLICY_WORKSPACE,
     ),
-    (
-        "POST",
-        re.compile(r"^/api/trash/(?P<entry>[^/]+)/purge/?$"),
+    _mutation_route(
+        "POST", r"^/api/trash/(?P<entry>[^/]+)/purge/?$",
         lambda entry, _body=b"", **_: api_trash_purge(entry, _body),
+        _POLICY_WORKSPACE,
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/status/?$"), lambda name, **_: api_workspace_status(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/cost/?$"), lambda name, **_: api_workspace_cost(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/manifest/?$"), lambda name, **_: api_workspace_manifest(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/start-point/?$"), lambda name, **_: api_workspace_start_point(name)),
-    (
-        "POST",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/start-point/?$"),
+    _mutation_route(
+        "POST", r"^/api/workspace/(?P<name>[^/]+)/start-point/?$",
         lambda name, _body=b"", **_: api_workspace_set_start_point(name, _body),
+        _POLICY_WORKSPACE,
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/reviews/?$"), lambda name, **_: api_workspace_reviews(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/plan/?$"), lambda name, **_: api_workspace_plan(name)),
@@ -3269,33 +3401,33 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
             name, ((_query or {}).get("chapter", [""])[0])
         ),
     ),
-    (
-        "POST",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/write-recovery/?$"),
+    _mutation_route(
+        "POST", r"^/api/workspace/(?P<name>[^/]+)/write-recovery/?$",
         lambda name, _body=b"", **_: api_workspace_write_recovery_post(name, _body),
+        _POLICY_WRITE_RECOVERY,
     ),
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/outline/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/outline/?$",
         lambda name, _body=b"", **_: api_workspace_outline_save(name, _body),
+        _POLICY_WORKSPACE,
     ),
     # iter 050: structured per-chapter plan edit (workbench stage ③)
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/chapter-plan/(?P<chapter>\d+)/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/chapter-plan/(?P<chapter>\d+)/?$",
         lambda name, chapter, _body=b"", **_: api_workspace_chapter_plan_save(name, chapter, _body),
+        _POLICY_WORKSPACE,
     ),
     # iter 050 (B1/B3): draft + KB + entity_graph edit surfaces
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/draft/(?P<chapter>\d+)/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/draft/(?P<chapter>\d+)/?$",
         lambda name, chapter, _body=b"", **_: api_workspace_draft_save(name, chapter, _body),
+        _POLICY_WORKSPACE,
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/kb/?$"), lambda name, **_: api_workspace_kb_get(name)),
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/kb/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/kb/?$",
         lambda name, _body=b"", **_: api_workspace_kb_save(name, _body),
+        _POLICY_WORKSPACE,
     ),
     # iter 051a: premise expansion view + edit (workbench stage ①)
     (
@@ -3303,10 +3435,10 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/premise-expansion/?$"),
         lambda name, **_: api_workspace_premise_expansion_get(name),
     ),
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/premise-expansion/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/premise-expansion/?$",
         lambda name, _body=b"", **_: api_workspace_premise_expansion_save(name, _body),
+        _POLICY_WORKSPACE,
     ),
     # iter 056: 作家风格卡（workbench stage ①，仅 premise 自创书）
     (
@@ -3319,31 +3451,31 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/?$"),
         lambda name, **_: api_workspace_writer_style_get(name),
     ),
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/writer-style/?$",
         lambda name, _body=b"", **_: api_workspace_writer_style_save(name, _body),
+        _POLICY_WORKSPACE,
     ),
-    (
-        "POST",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/activate/?$"),
+    _mutation_route(
+        "POST", r"^/api/workspace/(?P<name>[^/]+)/writer-style/activate/?$",
         lambda name, _body=b"", **_: api_workspace_writer_style_activate(name, _body),
+        _POLICY_WORKSPACE,
     ),
-    (
-        "POST",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/writer-style/extract/?$"),
+    _mutation_route(
+        "POST", r"^/api/workspace/(?P<name>[^/]+)/writer-style/extract/?$",
         lambda name, _body=b"", _headers=None, **_: api_workspace_writer_style_extract(name, _body, _headers or {}),
+        _POLICY_STYLE_EXTRACT,
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/entity-graph/?$"), lambda name, **_: api_workspace_entity_graph(name)),
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/entity/(?P<entity_id>[^/]+)/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/entity/(?P<entity_id>[^/]+)/?$",
         lambda name, entity_id, _body=b"", **_: api_workspace_entity_save(name, entity_id, _body),
+        _POLICY_WORKSPACE,
     ),
-    (
-        "PUT",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/relationship/(?P<index>\d+)/?$"),
+    _mutation_route(
+        "PUT", r"^/api/workspace/(?P<name>[^/]+)/relationship/(?P<index>\d+)/?$",
         lambda name, index, _body=b"", **_: api_workspace_relationship_save(name, index, _body),
+        _POLICY_WORKSPACE,
     ),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/insights/?$"), lambda name, **_: api_workspace_insights(name)),
     ("GET", re.compile(r"^/api/workspace/(?P<name>[^/]+)/drafts/?$"), lambda name, **_: api_workspace_drafts(name)),
@@ -3408,42 +3540,48 @@ _ROUTES: List[Tuple[str, "re.Pattern[str]", Handler]] = [
         lambda name, **_: api_workspace_active_jobs(name),
     ),
     # iter 026: POST /run (start a job) + GET /job/<id> (poll progress)
-    (
-        "POST",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/run/?$"),
+    _mutation_route(
+        "POST", r"^/api/workspace/(?P<name>[^/]+)/run/?$",
         lambda name, _body=b"", **_: api_run_step(name, _body),
+        _POLICY_MODEL_RUN,
     ),
     (
         "GET",
         re.compile(r"^/api/workspace/(?P<name>[^/]+)/job/(?P<job_id>[a-f0-9]{32})/?$"),
         lambda name, job_id, **_: api_job_status(name, job_id),
     ),
-    (
-        "POST",
-        re.compile(r"^/api/workspace/(?P<name>[^/]+)/job/(?P<job_id>[a-f0-9]{32})/cancel/?$"),
+    _mutation_route(
+        "POST", r"^/api/workspace/(?P<name>[^/]+)/job/(?P<job_id>[a-f0-9]{32})/cancel/?$",
         lambda name, job_id, **_: api_job_cancel(name, job_id),
+        _POLICY_WORKSPACE,
     ),
     # iter 026: onboarding wizard — single multipart POST that starts an
     # auto-pipeline job; client then polls the job_id from above.
     ("GET", re.compile(r"^/wizard/?$"), lambda **_: render_wizard_page()),
     ("GET", re.compile(r"^/api/preflight/?$"), lambda **_: api_preflight()),
-    (
-        "POST",
-        re.compile(r"^/api/wizard/start/?$"),
+    _mutation_route(
+        "POST", r"^/api/wizard/start/?$",
         lambda _body=b"", _headers=None, **_: api_wizard_start(_body, _headers or {}),
+        _POLICY_WIZARD_IMPORT,
     ),
-    (
-        "POST",
-        re.compile(r"^/api/wizard/premise-start/?$"),
+    _mutation_route(
+        "POST", r"^/api/wizard/premise-start/?$",
         lambda _body=b"", _headers=None, **_: api_wizard_premise_start(_body, _headers or {}),
+        _POLICY_WIZARD_PREMISE,
     ),
     # iter 048a: workbench "test key" — model-key connectivity matrix
-    ("GET", re.compile(r"^/api/diag/models/?$"), lambda **_: api_diag_models()),
+    _mutation_route(
+        "POST", r"^/api/diag/models/?$", lambda **_: api_diag_models(),
+        _POLICY_MODEL_DIAG,
+    ),
     # iter 026 P4: model-switch panel
     ("GET", re.compile(r"^/settings/?$"), lambda **_: render_settings_page()),
     ("GET", re.compile(r"^/static/settings\.js$"), lambda **_: (200, "application/javascript; charset=utf-8", static.JS_SETTINGS.encode("utf-8"))),
     ("GET", re.compile(r"^/api/settings/?$"), lambda **_: api_settings_get()),
-    ("PUT", re.compile(r"^/api/settings/?$"), lambda _body=b"", **_: api_settings_put(_body)),
+    _mutation_route(
+        "PUT", r"^/api/settings/?$",
+        lambda _body=b"", **_: api_settings_put(_body), _POLICY_SETTINGS,
+    ),
 ]
 
 
@@ -3498,32 +3636,29 @@ def dispatch(
     # ``/`` separator survives because ``unquote`` is applied AFTER
     # ``urlsplit`` has already extracted the path component.
     decoded_path = unquote(split.path)
+    normalized_headers = {
+        str(key).lower(): str(value) for key, value in (headers or {}).items()
+    }
+    if mutation_route_missing_policy(method, decoded_path):
+        return _json(500, {"error": "mutation policy missing"})
+    policy = mutation_policy_for(method, decoded_path)
     if (
         headers is not None
         and method in {"POST", "PUT"}
-        and _WEB_MUTATION_PATH_RE.fullmatch(decoded_path)
+        and policy is not None
+        and not _trusted_in_process_mutation_headers(normalized_headers)
     ):
         request_error = _web_mutation_request_error(
             body,
-            headers,
-            require_json_object=re.fullmatch(
-                r"/api/workspace/[^/]+/job/[^/]+/cancel/?", decoded_path
-            )
-            is not None,
-            required_intent=(
-                ("x-write-recovery-intent", "archive-and-regenerate-v1")
-                if re.fullmatch(
-                    r"/api/workspace/[^/]+/write-recovery/?", decoded_path
-                )
-                else None
-            ),
+            normalized_headers,
+            policy=policy,
         )
         if request_error:
             return request_error
     # iter 049: opt-in bearer-token gate (no-op unless NOVEL_API_TOKEN is set).
     # Only /api/* is gated; pages + /w/ deep links stay open for the browser.
     _token = auth.required_token()
-    if _token is not None and not auth.is_authorized(decoded_path, headers or {}, _token):
+    if _token is not None and not auth.is_authorized(decoded_path, normalized_headers, _token):
         return _json(401, {"error": "unauthorized"})
     matched_any_method = False
     for route_method, pattern, handler in _ROUTES:
@@ -3536,7 +3671,7 @@ def dispatch(
         kwargs = match.groupdict()
         kwargs["_query"] = query
         kwargs["_body"] = body
-        kwargs["_headers"] = headers or {}
+        kwargs["_headers"] = normalized_headers
         try:
             return handler(**kwargs)
         except FileNotFoundError as exc:

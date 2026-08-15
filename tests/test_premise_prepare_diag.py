@@ -216,7 +216,13 @@ class PremisePrepareDiagTests(unittest.TestCase):
 
     def test_diag_models_mock_short_circuits_offline(self) -> None:
         with patch("litellm.completion") as comp:
-            status, _ct, resp = routes.dispatch("GET", "/api/diag/models")
+            status, _ct, resp = routes.dispatch(
+                "POST", "/api/diag/models", b"{}",
+                {
+                    "content-type": "application/json",
+                    "x-model-action-intent": "diagnose-v1",
+                },
+            )
         self.assertEqual(status, 200, resp.decode("utf-8"))
         data = json.loads(resp)
         self.assertTrue(data["is_mock"])
@@ -279,12 +285,9 @@ class PremisePrepareDiagTests(unittest.TestCase):
         # The actual bearer token must NOT appear in the returned error.
         self.assertNotIn("sk-leakedabcdef1234567890XYZ", res["error"])
         self.assertNotIn("sk-anotherbarekey9876543210abcdef", res["error"])
-        # And the redacted markers should be present so the user still
-        # sees the redaction happened (rather than silent truncation).
-        self.assertIn("Bearer ***", res["error"])
-        self.assertIn("sk-***", res["error"])
-        # Exception type stays visible so the user can tell 401 / 429 / etc.
-        self.assertIn("AuthenticationError", res["error"])
+        # The provider-controlled message is discarded entirely; only a
+        # stable failure code and bounded exception type remain.
+        self.assertEqual(res["error"], "generation_failed:Exception")
 
 
 if __name__ == "__main__":

@@ -127,9 +127,9 @@ def budget_for_task(task: str = "write", *, margin_tokens: int = 0) -> int:
     ``context_limit * 0.9`` redline: ``int(limit*0.9) - max_tokens - margin``.
     """
 
-    from .config import get_model_config
+    from .llm_client import resolved_model_config
 
-    cfg = get_model_config(task)
+    cfg = resolved_model_config(task)
     context_limit = int(cfg.get("context_limit", 128000))
     max_tokens = int(cfg.get("max_tokens", 2000))
     return max(0, int(context_limit * 0.9) - max_tokens - int(margin_tokens))

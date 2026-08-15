@@ -9,7 +9,8 @@ from . import paths, review_tier, style_drift
 from .config import ROOT, load_config
 from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .linter import NovelLinter
-from .llm_client import LLMClient
+from .llm_client import LLMClient, raise_if_terminal_llm_failure
+from .safe_errors import safe_exception_text, safe_exception_type_name
 from .manual_facts import global_facts_summary
 from .persona_loader import load_personas, render_agent_fields
 from .schemas import AgentReview, RewriteSuggestion, model_to_dict
@@ -201,8 +202,8 @@ def _review_error_log_fields(exc: Exception, *, allow_content: bool) -> Dict[str
     """Keep discarded candidate prose out of non-persistent review logs."""
 
     if allow_content:
-        return {"error": str(exc), "error_type": type(exc).__name__}
-    return {"error_type": type(exc).__name__}
+        return {"error": safe_exception_text(exc), "error_type": safe_exception_type_name(exc)}
+    return {"error_type": safe_exception_type_name(exc)}
 
 
 def _simple_verdict_fallback(
@@ -276,7 +277,6 @@ def _simple_verdict_fallback(
             "simple_fallback_bad_verdict",
             target=target_name,
             agent=agent.get("name", "?"),
-            raw_verdict=verdict if allow_content_log else "",
             raw_verdict_length=len(verdict),
         )
         return None
@@ -564,10 +564,6 @@ def review_text(
                 target=target_name,
                 agent=agent["name"],
                 **_review_error_log_fields(exc, allow_content=persist),
-                # Iter087 candidate reviews are explicitly non-persistent.
-                # A malformed model response may echo candidate prose, so do
-                # not smuggle that discarded text into run_state logs.
-                content_preview=content[:200] if persist else "",
                 content_length=len(content),
             )
             # Debug fix (post iter 019): before recording Abstain, try ONE
@@ -618,7 +614,6 @@ def review_text(
                 "bad_verdict_abstain",
                 target=target_name,
                 agent=agent["name"],
-                raw_verdict=(str(raw.get("verdict", ""))[:80] if persist and isinstance(raw, dict) else ""),
                 raw_verdict_length=(len(str(raw.get("verdict", ""))) if isinstance(raw, dict) else 0),
             )
             reviews.append(
@@ -855,6 +850,7 @@ def review_text(
                             **_review_error_log_fields(schema_exc, allow_content=persist),
                         )
             except Exception as exc:
+                raise_if_terminal_llm_failure(exc)
                 log_event(
                     "review",
                     "advisor_runtime_error",
@@ -900,7 +896,7 @@ def review_text(
             "review",
             "style_drift_advisor_error",
             target=target_name,
-            error_type=type(exc).__name__,
+            error_type=safe_exception_type_name(exc),
         )
     if style_suggestions:
         rewrite_suggestions = _merge_style_advisor_suggestions(

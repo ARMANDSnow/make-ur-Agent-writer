@@ -83,7 +83,12 @@ class ServerFramingUnitTests(unittest.TestCase):
                 dispatch.assert_not_called()
 
     def test_protected_mutation_accepts_one_canonical_length(self) -> None:
-        handler = self._handler((("Content-Length", "2"),))
+        handler = self._handler((
+            ("Content-Length", "2"),
+            ("Content-Type", "application/json"),
+            ("X-Workspace-Mutation-Intent", "mutate-v1"),
+            ("Host", "127.0.0.1:8765"),
+        ))
         handler.rfile.read.return_value = b"{}"
         with patch(
             "src.web.server.routes.dispatch",
@@ -93,6 +98,65 @@ class ServerFramingUnitTests(unittest.TestCase):
         handler.send_error.assert_not_called()
         handler.rfile.read.assert_called_once_with(2)
         self.assertEqual(dispatch.call_args.args[2], b"{}")
+
+    def test_protected_mutation_rejects_short_body_before_dispatch(self) -> None:
+        handler = self._handler((
+            ("Content-Length", "2"),
+            ("Content-Type", "application/json"),
+            ("X-Workspace-Mutation-Intent", "mutate-v1"),
+            ("Host", "127.0.0.1:8765"),
+        ))
+        handler.rfile.read.return_value = b"{"
+        with patch("src.web.server.routes.dispatch") as dispatch:
+            handler._respond_inner("POST", self._PROTECTED_PATH)
+        handler.send_error.assert_called_once_with(400, "Incomplete request body")
+        dispatch.assert_not_called()
+
+    def test_optional_bearer_gate_rejects_before_body_read(self) -> None:
+        handler = self._handler((
+            ("Content-Length", "2"),
+            ("Content-Type", "application/json"),
+            ("X-Workspace-Mutation-Intent", "mutate-v1"),
+            ("Host", "127.0.0.1:8765"),
+        ))
+        with patch("src.web.auth.required_token", return_value="synthetic-token"), patch(
+            "src.web.server.routes.dispatch"
+        ) as dispatch:
+            handler._respond_inner("POST", self._PROTECTED_PATH)
+        handler.rfile.read.assert_not_called()
+        dispatch.assert_not_called()
+        handler.send_response.assert_called_once_with(401)
+
+    def test_protected_mutation_rejects_header_contract_before_body_read(self) -> None:
+        cases = (
+            (
+                ("Content-Length", "2"),
+                ("Content-Type", "application/json"),
+                ("Host", "127.0.0.1:8765"),
+            ),
+            (
+                ("Content-Length", "2"),
+                ("Content-Type", "text/plain"),
+                ("X-Workspace-Mutation-Intent", "mutate-v1"),
+                ("Host", "127.0.0.1:8765"),
+            ),
+            (
+                ("Content-Length", "2"),
+                ("Content-Type", "application/json"),
+                ("X-Workspace-Mutation-Intent", "mutate-v1"),
+                ("Host", "127.0.0.1:8765"),
+                ("Origin", "https://evil.example"),
+                ("Sec-Fetch-Site", "cross-site"),
+            ),
+        )
+        for fields in cases:
+            with self.subTest(fields=fields):
+                handler = self._handler(fields)
+                with patch("src.web.server.routes.dispatch") as dispatch:
+                    handler._respond_inner("POST", self._PROTECTED_PATH)
+                handler.rfile.read.assert_not_called()
+                dispatch.assert_not_called()
+                handler.send_response.assert_called_once()
 
     def test_non_protected_post_keeps_missing_length_compatibility(self) -> None:
         handler = self._handler(())

@@ -5,10 +5,43 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.extractor import ExtractionBatchFailure, extract_all, retry_failures
-from src.llm_client import LLMClient
+from src.llm_client import LLMClient, LLMProviderFailure
 
 
 class ExtractorFailureIsolationTests(unittest.TestCase):
+    def test_submission_unknown_aborts_batch_before_next_chapter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            normalized = root / "normalized.txt"
+            normalized.write_text("第一章\n正文\n第二章\n正文\n", encoding="utf-8")
+            manifest = [
+                {
+                    "chapter_id": f"book_ch00{number}",
+                    "volume_id": "book",
+                    "source_file": "synthetic.txt",
+                    "normalized_file": str(normalized),
+                    "title": f"chapter {number}",
+                    "start_line": 1 if number == 1 else 3,
+                    "end_line": 2 if number == 1 else 4,
+                    "char_count": 10,
+                }
+                for number in (1, 2)
+            ]
+            terminal = LLMProviderFailure(
+                reason="submission_unknown",
+                error_type="TimeoutError",
+                attempts=1,
+            )
+            with patch("src.extractor.load_manifest", return_value=manifest), patch(
+                "src.extractor.EXTRACTED_DIR", root / "extracted"
+            ), patch("src.extractor.FAILURES_DIR", root / "failures"), patch(
+                "src.extractor.ROLLING_DIR", root / "rolling"
+            ), patch.object(LLMClient, "complete_json", side_effect=terminal) as complete:
+                with self.assertRaises(LLMProviderFailure) as raised:
+                    extract_all(volume="all", force=True)
+            self.assertIs(raised.exception, terminal)
+            self.assertEqual(complete.call_count, 1)
+
     def test_one_chapter_fails_others_continue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -69,7 +102,8 @@ class ExtractorFailureIsolationTests(unittest.TestCase):
             self.assertTrue(failure_file.exists())
             failure_data = json.loads(failure_file.read_text(encoding="utf-8"))
             self.assertEqual(failure_data["chapter_id"], "longzu_1_ch001")
-            self.assertIn("simulated extract failure", failure_data["error"])
+            self.assertIn("operation_failed:RuntimeError", failure_data["error"])
+            self.assertNotIn("simulated extract failure", failure_data["error"])
             self.assertIn("last_error", failure_data)
             self.assertEqual(failure_data["retry_count"], 1)
             self.assertTrue((rolling_dir / "longzu_1.json").exists())

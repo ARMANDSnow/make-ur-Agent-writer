@@ -12,13 +12,27 @@ from . import paths
 from .chapter_splitter import load_manifest
 from .config import ROOT, get_model_config, load_config, load_dotenv_if_available
 from .extractor import _extract_settings, build_extraction_prompt
-from .llm_client import LLMClient
+from .llm_client import (
+    LLMClient,
+    model_config_scope_active,
+    resolved_model_config,
+)
+from .safe_errors import safe_exception_type_name
+from .safe_jsonl import tail_jsonl
 from .utils import read_json, read_json_optional
 
 
 NOVEL_TASKS = ("extract", "compress", "debate", "write", "review", "plot_planner")
 TASKS = NOVEL_TASKS
 CACHE_PROVIDER_HINTS = ("anthropic", "bedrock", "claude", "deepseek")
+
+
+def _model_config(task: str) -> Dict[str, Any]:
+    # Preserve the historical patch seam outside jobs while consuming the
+    # admission snapshot whenever a worker installed one.
+    if model_config_scope_active():
+        return resolved_model_config(task)
+    return get_model_config(task)
 
 
 def _resolve_root(root: Path | None) -> Path:
@@ -29,16 +43,25 @@ def _resolve_root(root: Path | None) -> Path:
 
 def run_preflight(root: Path | None = None) -> Dict[str, Any]:
     root = _resolve_root(root)
-    load_dotenv_if_available()
+    frozen = model_config_scope_active()
+    if not frozen:
+        load_dotenv_if_available()
     fatal: List[str] = []
     warn: List[str] = []
     info: List[str] = []
 
-    model_cfg = load_config("models.yaml")
-    env_model = os.getenv("OPENAI_MODEL")
-    default_model = str(model_cfg.get("default", {}).get("model", "mock"))
-    model = env_model or default_model
-    is_global_mock = model.lower().startswith("mock")
+    if frozen:
+        frozen_tasks = {task: _model_config(task) for task in TASKS}
+        model_cfg = {"default": {}, "tasks": frozen_tasks}
+        models = [str(cfg.get("model", "mock")) for cfg in frozen_tasks.values()]
+        is_global_mock = all(model.lower().startswith("mock") for model in models)
+        model = str(frozen_tasks.get("write", {}).get("model", "mock"))
+    else:
+        model_cfg = load_config("models.yaml")
+        env_model = os.getenv("OPENAI_MODEL")
+        default_model = str(model_cfg.get("default", {}).get("model", "mock"))
+        model = env_model or default_model
+        is_global_mock = model.lower().startswith("mock")
 
     _check_env(fatal, warn, is_global_mock)
     _check_agents_config(fatal, warn, root, info)
@@ -90,16 +113,16 @@ def _check_env(fatal: List[str], warn: List[str], is_global_mock: bool) -> None:
     if is_global_mock:
         return
     for task in TASKS:
-        cfg = get_model_config(task)
+        cfg = _model_config(task)
         model = str(cfg.get("model", "mock"))
         if model.lower().startswith("mock"):
             continue
         api_key_env = str(cfg.get("api_key_env") or "OPENAI_API_KEY")
-        if not os.getenv(api_key_env):
+        if not cfg.get("api_key"):
             fatal.append(f"{api_key_env} is empty while task '{task}' model is not mock.")
         base_url_env = str(cfg.get("base_url_env") or "")
         if base_url_env:
-            base_url = os.getenv(base_url_env, "")
+            base_url = str(cfg.get("base_url") or "")
             parsed = urlparse(base_url)
             host = str(parsed.hostname or "").rstrip(".").lower()
             local_http = parsed.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}
@@ -170,7 +193,7 @@ def _check_style_rewrite_config(warn: List[str]) -> None:
     try:
         cfg = load_config("style_fingerprint.yaml")
     except Exception as exc:
-        warn.append(f"style_fingerprint.yaml failed to load; automatic style rewrite is disabled: {type(exc).__name__}")
+        warn.append(f"style_fingerprint.yaml failed to load; automatic style rewrite is disabled: {safe_exception_type_name(exc)}")
         return
     from .style_drift import parse_rewrite_policy
 
@@ -207,7 +230,7 @@ def _check_provider_routing(fatal: List[str], warn: List[str], is_global_mock: b
         warn.append("litellm not installed; provider routing not verified.")
         return
     for task in TASKS:
-        model = str(get_model_config(task).get("model", "mock"))
+        model = str(_model_config(task).get("model", "mock"))
         if model.lower().startswith("mock"):
             continue
         try:
@@ -231,7 +254,7 @@ def _check_context_limits(
         context_limit = task_cfg.get("context_limit", default_limit)
         if not isinstance(context_limit, int) or context_limit <= 0:
             fatal.append(f"config/models.yaml task '{task}' is missing positive context_limit.")
-        cfg = get_model_config(task)
+        cfg = _model_config(task)
         # iter078 P1-3: yaml 配置与已知模型物理上限矛盾的可见性。超上限的
         # 已被 get_model_config 封顶（危险方向：操作者以为有 128K 实际 64K
         # → WARN 生效值）；低于上限属主动保守（合法 → INFO）。mock 假模型
@@ -320,7 +343,7 @@ def _check_tiktoken(warn: List[str], is_global_mock: bool) -> None:
         import tiktoken  # type: ignore
 
         for task in TASKS:
-            model = str(get_model_config(task).get("model", "mock"))
+            model = str(_model_config(task).get("model", "mock"))
             if model.lower().startswith("mock"):
                 continue
             try:
@@ -368,7 +391,7 @@ def _check_longest_chapter(warn: List[str], info: List[str], root: Path) -> None
 
 
 def _check_cache_provider(warn: List[str]) -> None:
-    cfg = get_model_config("write")
+    cfg = _model_config("write")
     if not cfg.get("cache_enabled"):
         return
     model = str(cfg.get("model", "")).lower()
@@ -522,7 +545,7 @@ def _check_panel_block_policy(warn: List[str], info: List[str]) -> None:
 
         policy = _panel_block_policy(emit_stderr=False)
     except Exception as exc:  # 防御：策略解析永远不该让 preflight 本身崩掉
-        warn.append(f"panel_block_policy 解析异常：{type(exc).__name__}: {exc}")
+        warn.append(f"panel_block_policy 解析异常：{safe_exception_type_name(exc)}")
         return
     for msg in policy.get("config_warnings") or []:
         warn.append(msg)
@@ -535,19 +558,29 @@ def _check_panel_block_policy(warn: List[str], info: List[str]) -> None:
 
 
 def _summarize_llm_logs(info: List[str], root: Path) -> None:
-    path = root / "logs" / "llm_calls.jsonl"
-    if not path.exists():
-        info.append("LLM logs: no logs/llm_calls.jsonl found.")
+    rows = tail_jsonl(root, "logs/llm_calls.jsonl", 10)
+    if not rows:
+        info.append("LLM logs: no readable bounded logs/llm_calls.jsonl rows.")
         return
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines()[-10:]:
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    status_counts = Counter(str(row.get("status", "unknown")) for row in rows)
-    prompt_tokens = sum(int(row.get("prompt_tokens", 0) or 0) for row in rows)
-    response_tokens = sum(int(row.get("response_tokens", 0) or 0) for row in rows)
+    allowed_statuses = {"ok", "retry_error", "error"}
+
+    def _status(row: Dict[str, Any]) -> str:
+        value = row.get("status")
+        return value if isinstance(value, str) and value in allowed_statuses else "unknown"
+
+    def _tokens(row: Dict[str, Any], key: str) -> int:
+        value = row.get(key, 0)
+        return (
+            value
+            if isinstance(value, int)
+            and not isinstance(value, bool)
+            and 0 <= value <= 1_000_000_000_000
+            else 0
+        )
+
+    status_counts = Counter(_status(row) for row in rows)
+    prompt_tokens = sum(_tokens(row, "prompt_tokens") for row in rows)
+    response_tokens = sum(_tokens(row, "response_tokens") for row in rows)
     info.append(
         f"LLM logs last10: statuses={dict(status_counts)}, prompt_tokens={prompt_tokens}, response_tokens={response_tokens}"
     )

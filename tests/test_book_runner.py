@@ -274,7 +274,7 @@ class BookRunnerReadinessTests(unittest.TestCase):
             result = run_write_book(chapters=1, budget_cny=1.0)
         self.assertEqual(result["status"], "budget_exceeded")
 
-    def test_write_failure_snapshot_keeps_raw_error_local_and_adds_safe_reason(self) -> None:
+    def test_write_failure_snapshot_projects_only_safe_reason_and_stable_trace(self) -> None:
         managers = self._common_patches(_strict_plan())
         with ExitStack() as stack:
             for manager in managers:
@@ -295,7 +295,8 @@ class BookRunnerReadinessTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["failure_reason"], "submission_unknown")
-        self.assertIn("private upstream URL", result["error"])
+        self.assertNotIn("private upstream URL", result["error"])
+        self.assertEqual(result["failure"]["trace_id"], result["error"].rsplit("trace_id=", 1)[1])
 
     def _readiness_with_severe_drift(self, *, require_start_point: bool):
         """iter073 (codex I): drive check_write_readiness with a real outline.md

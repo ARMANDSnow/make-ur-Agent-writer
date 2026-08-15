@@ -237,6 +237,9 @@ class ExtractUniqueSampleTests(_WebHarness):
         # iter061 P0: the route passes only a random token, never a path — the
         # exploitable sample_path key must be gone.
         self.assertNotIn("sample_path", params)
+        self.assertEqual(params["max_model_requests"], 2)
+        self.assertEqual(params["budget_cny"], 2.0)
+        self.assertEqual(params["timeout_minutes"], 15.0)
         token = params["sample_token"]
         self.assertRegex(token, r"^[0-9a-f]{32}$")
         staged = paths.WORKSPACE_DIR / "u1" / "data" / f".writer_style_sample.{token}.tmp"

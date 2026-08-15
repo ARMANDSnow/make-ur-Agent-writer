@@ -36,7 +36,14 @@ iter167 已将 main 收敛为 novel-only，但 2026-08-05 至 2026-08-15 的九�
 
 ## Implementation Notes
 
-<实施中回填。>
+- Web mutation 现由单一 policy 表覆盖全部 POST/PUT；wire 层在读取 body 前校验 framing、Content-Type、Origin/Fetch-Site、intent 与可选 bearer，diagnostics 固定为 API-only 的受保护 POST。
+- `NovelClient`/Aeloon/MCP 同步发送 endpoint-specific intent，cancel 固定发送空 JSON object；前端所有现有 mutation 与付费确认同步新契约。
+- 工作台逐章复用 writer/runner current-plan context，并增加 current-start metadata gate；旧起点、旧 plan、缺项、重排、外审 mismatch 或任一 stale 章均不能聚合为 `done`。
+- provider failure、repair failure、review/debate/extract 等跨层异常统一为 metadata-only typed terminal；`submission_unknown`、deadline、request/budget/pricing/accounting failure 在同一授权内 fail-fast，遥测失败不会重提当前请求且会阻断后续请求与 settlement。
+- Web paid job 冻结 step/params/model config/budget/request/deadline；指纹、context budget 与 preflight 均消费 admission snapshot。每次调用按 prompt UTF-8 bytes + max output tokens 预留最坏费用，阶段预算合计不超过 ¥19、请求合计不超过 100。
+- `safe_jsonl.tail_jsonl` 以 dir-fd + no-follow 打开，限制累计/单行/深度/类型，并在读后重新解析完整 pathname/目录链；Web 日志与 preflight 共用且所有异常降级为空。
+- 浏览器在 `/private/tmp/iter168-browser.2JZsNv` 的 fresh synthetic 三章 workspace 完成导入、起点、重建、辩论、细纲、单章 strict write/review、任务/取消/刷新、日志与设置只读走查；三视口无横向溢出、不可达控件或关键 console error。Playwright DOM/交互证据正常，但截图命令持续 capture timeout，未生成截图文件，作为工具限制如实保留。
+- diagnostics 没有既有浏览器调用，按 API-only 契约验收；未为其新增虚构 UI。
 
 ## Acceptance Result
 

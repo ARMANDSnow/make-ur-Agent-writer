@@ -9,6 +9,7 @@ import re
 import sys as _sys
 import types
 import time
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
@@ -18,30 +19,19 @@ from pydantic import BaseModel
 from .config import ROOT
 from .config import _env_int, _safe_int, get_model_config, prepare_litellm_environment
 from .schemas import model_to_dict
+from .safe_errors import safe_exception_type_name, safe_url
 from .utils import append_jsonl, extract_json_object
 
 
 def _sanitize_error_text(error: Any, *, api_key: Optional[str] = None, max_chars: int = 500) -> str:
-    """Redact secrets and prompt-like payloads before persisting diagnostics."""
-    if isinstance(error, BaseException):
-        text = f"{type(error).__name__}: {error}"
-    else:
-        text = str(error)
-    if isinstance(api_key, str) and len(api_key) >= 8:
-        text = text.replace(api_key, "***")
-    text = re.sub(r"Bearer\s+\S+", "Bearer ***", text)
-    text = re.sub(r"sk-[A-Za-z0-9_\-]{16,}", "sk-***", text)
+    """Return metadata only; provider-controlled free text is never retained."""
 
-    # Some provider/proxy exceptions echo request kwargs or JSON-ish request
-    # bodies. Keep the field names for debugging, but never keep prompt bodies.
-    text = re.sub(r"(?is)(messages\s*=\s*)\[[^\]]*\]", r"\1[***]", text)
-    text = re.sub(r"(?is)((?:\"|')messages(?:\"|')\s*:\s*)\[[^\]]*\]", r"\1[***]", text)
-    text = re.sub(r"(?is)((?:prompt|input|content)\s*=\s*)(['\"]).*?\2", r"\1***", text)
-    text = re.sub(
-        r"(?is)((?:\"|')(?:prompt|input|content)(?:\"|')\s*:\s*)(['\"]).*?\2",
-        r"\1\"***\"",
-        text,
-    )
+    if isinstance(error, BaseException):
+        error_type = safe_exception_type_name(error)
+        reason = public_llm_failure_reason(error)
+        text = f"{reason}:{error_type}"
+    else:
+        text = "generation_failed:non_exception"
     if max_chars > 0 and len(text) > max_chars:
         return text[:max_chars] + "...<truncated>"
     return text
@@ -161,6 +151,67 @@ class LLMPricingUnavailable(RuntimeError):
     """Raised before a paid Web call whose model has no trusted CNY price."""
 
 
+class LLMAccountingUnavailable(RuntimeError):
+    """Raised when paid-call telemetry can no longer enforce the CNY cap."""
+
+
+class LLMProviderFailure(RuntimeError):
+    """Metadata-only terminal wrapper for any provider-controlled failure."""
+
+    def __init__(self, *, reason: str, error_type: str, attempts: int, trace_id: str | None = None) -> None:
+        self.reason = reason if re.fullmatch(r"[a-z0-9_]{1,48}", reason) else "generation_failed"
+        self.error_type = (
+            error_type
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", error_type)
+            else "Exception"
+        )
+        self.attempts = max(1, int(attempts))
+        self.trace_id = trace_id if trace_id and re.fullmatch(r"[a-f0-9]{32}", trace_id) else uuid.uuid4().hex
+        super().__init__(
+            f"{self.reason} (provider_error_type={self.error_type}, "
+            f"attempts={self.attempts}, trace_id={self.trace_id})"
+        )
+
+
+class LLMResponseValidationError(RuntimeError):
+    """Safe terminal for invalid provider output after bounded repair."""
+
+    def __init__(self, response_model: str, *, repaired: bool) -> None:
+        self.reason = "response_validation_failed"
+        self.error_type = "ValidationError"
+        self.attempts = 1
+        self.trace_id = uuid.uuid4().hex
+        phase = "after_repair" if repaired else "without_repair"
+        super().__init__(
+            f"response_validation_failed (model={response_model}, phase={phase}, "
+            f"trace_id={self.trace_id})"
+        )
+
+
+def raise_if_terminal_llm_failure(exc: BaseException) -> None:
+    """Prevent paid-action terminal/admission failures from being degraded.
+
+    Local parse/schema fallbacks may continue, but submission-unknown,
+    deadline and admission failures must end the entire authorized job so no
+    later chapter/advisor/repair call is sent under the same intent.
+    """
+
+    if isinstance(
+        exc,
+        (
+            LLMProviderFailure,
+            LLMResponseValidationError,
+            LLMCallDeadlineExceeded,
+            LLMRequestLimitExceeded,
+            LLMBudgetLimitExceeded,
+            LLMPricingUnavailable,
+            LLMAccountingUnavailable,
+            LLMContextOverflowError,
+        ),
+    ):
+        raise exc
+
+
 _LLM_DEADLINE: ContextVar[float | None] = ContextVar("llm_deadline", default=None)
 # Keep the value immutable.  Contexts copied into concurrent asyncio tasks then
 # advance their own counter instead of sharing a mutable list/dict by reference.
@@ -172,7 +223,49 @@ _LLM_REQUEST_LIMIT: ContextVar[tuple[int | None, int] | None] = ContextVar(
 _LLM_BUDGET_CHECK: ContextVar[tuple[float | None, Any, bool] | None] = ContextVar(
     "llm_budget_check", default=None
 )
+_LLM_MODEL_CONFIGS: ContextVar[dict[str, Dict[str, Any]] | None] = ContextVar(
+    "llm_model_configs", default=None
+)
+_LLM_ACCOUNTING_DEGRADED: ContextVar[bool | None] = ContextVar(
+    "llm_accounting_degraded", default=None
+)
 MAX_MODEL_REQUESTS_PER_JOB = 160
+
+
+@contextmanager
+def llm_model_config_scope(configs: dict[str, Dict[str, Any]] | None):
+    """Freeze resolved per-task model configuration for one admitted job."""
+
+    snapshot = None if configs is None else {
+        str(task): dict(config) for task, config in configs.items()
+    }
+    token = _LLM_MODEL_CONFIGS.set(snapshot)
+    try:
+        yield
+    finally:
+        _LLM_MODEL_CONFIGS.reset(token)
+
+
+def resolved_model_config(task: str) -> Dict[str, Any]:
+    """Return the admitted job's frozen config, or the current CLI config.
+
+    Fingerprint and context-budget consumers must use the same snapshot as
+    ``LLMClient``; otherwise a settings edit after admission can make output
+    from model A look stale against live model B.
+    """
+
+    frozen = _LLM_MODEL_CONFIGS.get()
+    if frozen is not None and task in frozen:
+        return dict(frozen[task])
+    return get_model_config(task)
+
+
+def model_config_scope_active() -> bool:
+    return _LLM_MODEL_CONFIGS.get() is not None
+
+
+def llm_accounting_degraded() -> bool:
+    return _LLM_ACCOUNTING_DEGRADED.get() is True
 
 
 @contextmanager
@@ -235,9 +328,13 @@ def llm_request_limit_scope(max_model_requests: Any, *, required: bool = False):
         _LLM_REQUEST_LIMIT.reset(token)
 
 
-def _claim_model_request(model: str = "") -> None:
+def _claim_model_request(model: str = "", *, reserved_cost_cny: float = 0.0) -> None:
     """Atomically claim the next attempt in the current execution context."""
 
+    if llm_accounting_degraded():
+        raise LLMAccountingUnavailable(
+            "paid model accounting is unavailable after telemetry failure"
+        )
     budget_state = _LLM_BUDGET_CHECK.get()
     if budget_state is not None:
         budget_cny, cost_check, require_known_pricing = budget_state
@@ -254,6 +351,12 @@ def _claim_model_request(model: str = "") -> None:
         if not math.isfinite(known_cost) or known_cost < 0:
             raise LLMBudgetLimitExceeded(budget_cny=budget_cny, cost_cny=0.0)
         if known_cost >= budget_cny:
+            raise LLMBudgetLimitExceeded(
+                budget_cny=budget_cny,
+                cost_cny=known_cost,
+            )
+        reserve = float(reserved_cost_cny)
+        if not math.isfinite(reserve) or reserve < 0 or known_cost + reserve > budget_cny:
             raise LLMBudgetLimitExceeded(
                 budget_cny=budget_cny,
                 cost_cny=known_cost,
@@ -306,9 +409,11 @@ def llm_budget_limit_scope(
         yield
         return
     token = _LLM_BUDGET_CHECK.set((parsed, cost_check, require_known_pricing))
+    accounting_token = _LLM_ACCOUNTING_DEGRADED.set(False)
     try:
         yield
     finally:
+        _LLM_ACCOUNTING_DEGRADED.reset(accounting_token)
         _LLM_BUDGET_CHECK.reset(token)
 
 
@@ -338,6 +443,20 @@ _TRANSIENT_ERR_MARKERS = (
 )
 
 
+def _safe_exception_text_lower(exc: BaseException) -> str:
+    try:
+        return str(exc).lower()
+    except BaseException:
+        return ""
+
+
+def _safe_exception_attr(exc: BaseException, name: str, default: Any = None) -> Any:
+    try:
+        return getattr(exc, name, default)
+    except BaseException:
+        return default
+
+
 def _is_transient(exc: BaseException) -> bool:
     if isinstance(exc, (LLMContextOverflowError, LLMCallDeadlineExceeded)):
         return False
@@ -345,19 +464,19 @@ def _is_transient(exc: BaseException) -> bool:
     # 稳定类型,用 isinstance 兜住 —— 流式中途断流即走这里。
     if isinstance(exc, (ConnectionError, TimeoutError)):
         return True
-    if type(exc).__name__ in _TRANSIENT_EXC_NAMES:
+    if safe_exception_type_name(exc) in _TRANSIENT_EXC_NAMES:
         return True
-    text = str(exc).lower()
+    text = _safe_exception_text_lower(exc)
     return any(marker in text for marker in _TRANSIENT_ERR_MARKERS)
 
 
 def _is_submission_unknown(exc: BaseException) -> bool:
     """Whether a transport failure may have happened after submission."""
 
-    if getattr(exc, "request_not_sent", False) is True:
+    if _safe_exception_attr(exc, "request_not_sent", False) is True:
         return False
-    name = type(exc).__name__.lower()
-    text = str(exc).lower()
+    name = safe_exception_type_name(exc).lower()
+    text = _safe_exception_text_lower(exc)
     return (
         isinstance(exc, (TimeoutError, ConnectionError))
         or "timeout" in name
@@ -383,7 +502,7 @@ def _is_safe_to_retry(exc: BaseException) -> bool:
 
     if not _is_transient(exc):
         return False
-    return getattr(exc, "request_not_sent", False) is True
+    return _safe_exception_attr(exc, "request_not_sent", False) is True
 
 
 def public_llm_failure_reason(exc: BaseException) -> str:
@@ -403,9 +522,18 @@ def public_llm_failure_reason(exc: BaseException) -> str:
     while current is not None and id(current) not in seen and len(chain) < 8:
         chain.append(current)
         seen.add(id(current))
-        cause = current.__cause__
-        current = cause if isinstance(cause, BaseException) else current.__context__
+        cause = _safe_exception_attr(current, "__cause__")
+        context = _safe_exception_attr(current, "__context__")
+        current = cause if isinstance(cause, BaseException) else (
+            context if isinstance(context, BaseException) else None
+        )
 
+    for item in chain:
+        reason = _safe_exception_attr(item, "reason")
+        if isinstance(reason, str) and re.fullmatch(r"[a-z0-9_]{1,48}", reason):
+            return reason
+    if any(isinstance(item, LLMAccountingUnavailable) for item in chain):
+        return "accounting_unavailable"
     if any(isinstance(item, LLMRequestLimitExceeded) for item in chain):
         return "request_limit_exhausted"
     if any(isinstance(item, LLMContextOverflowError) for item in chain):
@@ -420,7 +548,7 @@ def public_llm_failure_reason(exc: BaseException) -> str:
 
 
 def _is_cache_control_rejection(exc: BaseException) -> bool:
-    text = str(exc).lower()
+    text = _safe_exception_text_lower(exc)
     return (
         not _is_submission_unknown(exc)
         and "cache_control" in text
@@ -437,14 +565,14 @@ def _normalize_url(value: Any) -> str | None:
     parsed = urlparse(text)
     if not parsed.scheme or not parsed.netloc:
         return text.rstrip("/")
-    path = parsed.path.rstrip("/")
-    return parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), path=path).geturl()
+    projected = safe_url(text)
+    return projected.rstrip("/") if projected else None
 
 
 class LLMClient:
     def __init__(self, task: str = "default") -> None:
         self.task = task
-        self.config = get_model_config(task)
+        self.config = resolved_model_config(task)
         self.model = self.config["model"]
         # Iter 027 capstone: OPENAI_STREAM=1 makes complete_text default to
         # streaming so long generations bypass Cloudflare's 524 / 100s edge
@@ -497,12 +625,12 @@ class LLMClient:
         if self.is_mock:
             # OPENAI_MODEL=mock must NOT stream (existing behavior, no SSE involved).
             text = self._mock_text(prepared_messages)
-            self._log_call("complete_text", "ok", started, request_meta=request_meta, response_text=text)
+            self._try_log_call("complete_text", "ok", started, request_meta=request_meta, response_text=text)
             return text
         try:
             from litellm import completion
         except Exception as exc:
-            self._log_call("complete_text", "error", started, exc, request_meta=request_meta)
+            self._try_log_call("complete_text", "error", started, exc, request_meta=request_meta)
             raise RuntimeError("litellm is required for real model calls") from exc
 
         use_stream = self.stream_default if stream is None else bool(stream)
@@ -519,6 +647,7 @@ class LLMClient:
         if cache_segments and any("cache_control" in msg for msg in prepared_messages):
             attempts += 1
         cache_downgraded = False
+        failure_trace_id = uuid.uuid4().hex
         for attempt in range(1, attempts + 1):
             try:
                 deadline = _LLM_DEADLINE.get()
@@ -550,7 +679,15 @@ class LLMClient:
                 # every real provider attempt (safe retry/cache downgrade/JSON
                 # repair included) is bounded. Mock returned above and consumes
                 # no allowance.
-                _claim_model_request(self.model)
+                from .cost_estimator import cost_cny as _cost_cny
+
+                reserved_cost = _cost_cny(
+                    int(request_meta.get("prompt_bytes", 0) or 0),
+                    0,
+                    max_tokens,
+                    self.model,
+                )
+                _claim_model_request(self.model, reserved_cost_cny=reserved_cost)
                 if use_stream:
                     kwargs["stream"] = True
                     # include_usage asks the upstream to emit a final SSE chunk
@@ -561,7 +698,7 @@ class LLMClient:
                 else:
                     response = completion(**kwargs)
                     content = response["choices"][0]["message"]["content"]
-                self._log_call(
+                self._try_log_call(
                     "complete_text",
                     "ok",
                     started,
@@ -575,6 +712,7 @@ class LLMClient:
                 LLMRequestLimitExceeded,
                 LLMBudgetLimitExceeded,
                 LLMPricingUnavailable,
+                LLMAccountingUnavailable,
             ):
                 # No provider call occurred, so do not write a retry_error cost
                 # row or wrap this deterministic admission failure as a model
@@ -587,13 +725,14 @@ class LLMClient:
                 # 账本消失（真模型弱网下预算持续虚低）。prompt_tokens 随
                 # request_meta 入账；response 侧超时场景 provider 已计费部分
                 # 结构性不可知，不估（见 iteration_078 已知残留低估声明）。
-                self._log_call(
+                self._try_log_call(
                     "complete_text",
                     "retry_error",
                     started,
                     exc,
                     attempt=attempt,
                     request_meta=request_meta,
+                    trace_id=failure_trace_id,
                 )
                 # Mid-stream failures discard partial output (handled inside
                 # _consume_stream — it raises before returning any content).
@@ -627,20 +766,25 @@ class LLMClient:
         # iter078 P1-2: 终态 error 条保留（dashboard/grep 兼容）但 token 置零
         # ——每次尝试的消耗已由上方 retry_error 条逐笔入账，这里再带 token
         # 就是双计。final_of_attempts 标记它是 N 次尝试的收尾条。
-        self._log_call(
+        terminal_error = LLMProviderFailure(
+            reason=public_llm_failure_reason(last_exc or RuntimeError()),
+            error_type=safe_exception_type_name(last_exc) if last_exc is not None else "Exception",
+            attempts=attempt,
+            trace_id=failure_trace_id,
+        )
+        self._try_log_call(
             "complete_text",
             "error",
             started,
-            last_exc,
+            terminal_error,
             request_meta=request_meta,
             zero_tokens=True,
             final_of_attempts=attempt,
         )
-        suffix = "stream attempts" if use_stream else "attempt(s)"
-        # iter055 审查修正: 报实际尝试次数 attempt(非配置上限 attempts)—— 非 transient 提前
-        # break 时只试 1 次,旧文案 "after {attempts}" 会让运维误判重试了满 3 次。attempt/attempts
-        # = 实际/上限(如 "1/3" 提前停 vs "3/3" 耗尽)。
-        raise RuntimeError(f"LLM text completion failed after {attempt}/{attempts} {suffix}: {last_exc}") from last_exc
+        # Never retain the raw provider exception as ``__cause__``: traceback
+        # serialization in a downstream sink would otherwise bypass the safe
+        # wrapper even when ``str(terminal_error)`` is metadata-only.
+        raise terminal_error from None
 
     def ping(self) -> Dict[str, Any]:
         """iter 048a: lightweight model-key connectivity probe for the
@@ -664,7 +808,7 @@ class LLMClient:
                 "model": self.model,
                 "ok": False,
                 "mock": False,
-                "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                "error": _sanitize_error_text(exc, max_chars=200),
             }
         try:
             kwargs: Dict[str, Any] = {
@@ -755,14 +899,18 @@ class LLMClient:
         if self.is_mock:
             result = self._mock_json(response_model, messages)
             response_text = json.dumps(model_to_dict(result), ensure_ascii=False)
-            self._log_call("complete_json", "ok", started, request_meta=request_meta, response_text=response_text)
+            self._try_log_call("complete_json", "ok", started, request_meta=request_meta, response_text=response_text)
             return result
         content = self.complete_text(messages)
         data: Dict[str, Any]
+        parse_failed = False
         try:
             data = json.loads(extract_json_object(content))
-        except (json.JSONDecodeError, ValueError) as exc:
+        except (json.JSONDecodeError, ValueError):
+            parse_failed = True
+        if parse_failed:
             if self.config.get("json_repair", True):
+                repair_failure: Exception | None = None
                 try:
                     repaired = self.complete_text(
                         [
@@ -785,17 +933,15 @@ class LLMClient:
                     data = json.loads(extract_json_object(repaired))
                     return self._validate_json_response(data, response_model, original_content=content)
                 except Exception as repair_exc:
-                    raise RuntimeError(
-                        f"Failed to parse {response_model.__name__} from LLM response after repair. "
-                        f"Initial error: {type(exc).__name__}: {exc}. "
-                        f"Repair error: {type(repair_exc).__name__}: {repair_exc}. "
-                        f"First 500 chars: {content[:500]}"
-                    ) from repair_exc
-            raise RuntimeError(
-                f"Failed to parse {response_model.__name__} from LLM response. "
-                f"Error: {type(exc).__name__}: {exc}. "
-                f"First 500 chars: {content[:500]}"
-            ) from exc
+                    repair_failure = repair_exc
+                assert repair_failure is not None
+                raise_if_terminal_llm_failure(repair_failure)
+                raise LLMResponseValidationError(
+                    response_model.__name__, repaired=True
+                ) from None
+            raise LLMResponseValidationError(
+                response_model.__name__, repaired=False
+            ) from None
         return self._validate_json_response(data, response_model, original_content=content)
 
     def _validate_json_response(
@@ -805,45 +951,65 @@ class LLMClient:
         *,
         original_content: str,
     ) -> BaseModel:
+        validation_error_text = ""
         try:
             return response_model(**data)
         except Exception as exc:
-            if self.config.get("json_repair", True):
-                try:
-                    repaired = self.complete_text(
-                        [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "You repair JSON that is syntactically valid but fails schema validation. "
-                                    "Output only one JSON object matching the requested response model."
-                                ),
-                            },
-                            {
-                                "role": "user",
-                                "content": (
-                                    f"Response model: {response_model.__name__}\n"
-                                    f"Validation error:\n{type(exc).__name__}: {exc}\n\n"
-                                    f"Invalid JSON object:\n{json.dumps(data, ensure_ascii=False)[:4000]}"
-                                ),
-                            },
-                        ],
-                        temperature=0,
-                    )
-                    repaired_data = json.loads(extract_json_object(repaired))
-                    return response_model(**repaired_data)
-                except Exception as repair_exc:
-                    raise RuntimeError(
-                        f"Failed to validate {response_model.__name__} from LLM response after schema repair. "
-                        f"Validation error: {type(exc).__name__}: {exc}. "
-                        f"Repair error: {type(repair_exc).__name__}: {repair_exc}. "
-                        f"First 500 chars: {original_content[:500]}"
-                    ) from repair_exc
-            raise RuntimeError(
-                f"Failed to validate {response_model.__name__} from LLM response. "
-                f"Validation error: {type(exc).__name__}: {exc}. "
-                f"First 500 chars: {original_content[:500]}"
-            ) from exc
+            # Used only in the provider repair prompt; never persisted.
+            validation_error_text = f"{safe_exception_type_name(exc)}: {_safe_exception_text_lower(exc)[:1000]}"
+        if self.config.get("json_repair", True):
+            repair_failure: Exception | None = None
+            try:
+                repaired = self.complete_text(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You repair JSON that is syntactically valid but fails schema validation. "
+                                "Output only one JSON object matching the requested response model."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Response model: {response_model.__name__}\n"
+                                f"Validation error:\n{validation_error_text}\n\n"
+                                f"Invalid JSON object:\n{json.dumps(data, ensure_ascii=False)[:4000]}"
+                            ),
+                        },
+                    ],
+                    temperature=0,
+                )
+                repaired_data = json.loads(extract_json_object(repaired))
+                return response_model(**repaired_data)
+            except Exception as repair_exc:
+                repair_failure = repair_exc
+            assert repair_failure is not None
+            raise_if_terminal_llm_failure(repair_failure)
+            raise LLMResponseValidationError(
+                response_model.__name__, repaired=True
+            ) from None
+        raise LLMResponseValidationError(
+            response_model.__name__, repaired=False
+        ) from None
+
+    def _try_log_call(self, *args: Any, **kwargs: Any) -> None:
+        """Best-effort telemetry that can never change provider semantics.
+
+        A provider response may already have been accepted or may be
+        submission-unknown.  Retrying because a local log sink failed would
+        duplicate a paid action, while propagating the sink exception could
+        retain the raw provider error in ``__context__``.
+        """
+
+        try:
+            self._log_call(*args, **kwargs)
+        except BaseException:
+            # Deliberately drop all exception text: filesystem and serializer
+            # errors may themselves carry user-controlled content.
+            if _LLM_ACCOUNTING_DEGRADED.get() is not None:
+                _LLM_ACCOUNTING_DEGRADED.set(True)
+            return
 
     def _log_call(
         self,
@@ -858,6 +1024,7 @@ class LLMClient:
         response: Any = None,
         zero_tokens: bool = False,
         final_of_attempts: int | None = None,
+        trace_id: str | None = None,
     ) -> None:
         record: Dict[str, Any] = {
             "task": self.task,
@@ -897,7 +1064,17 @@ class LLMClient:
         if attempt is not None:
             record["attempt"] = attempt
         if error is not None:
-            record["error"] = _sanitize_error_text(error, api_key=self.config.get("api_key"))
+            error_code = public_llm_failure_reason(error)
+            error_type = safe_exception_type_name(error)
+            candidate_trace_id = trace_id or _safe_exception_attr(error, "trace_id")
+            if not isinstance(candidate_trace_id, str) or re.fullmatch(r"[a-f0-9]{32}", candidate_trace_id) is None:
+                candidate_trace_id = uuid.uuid4().hex
+            record.update({
+                "error": error_code,
+                "error_code": error_code,
+                "error_type": error_type,
+                "trace_id": candidate_trace_id,
+            })
         from . import paths
         log_path = paths.llm_calls_log_path() if paths.workspace_name() else (ROOT / "logs" / "llm_calls.jsonl")
         append_jsonl(log_path, record)
@@ -925,6 +1102,9 @@ class LLMClient:
         return {
             "request_hash": hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16],
             "prompt_chars": len(prompt_text),
+            # A byte count is a conservative upper bound for byte-level BPE
+            # input tokens and supports a pre-call CNY reservation.
+            "prompt_bytes": len(prompt_text.encode("utf-8")),
             "prompt_tokens": prompt_tokens,
             "token_method": token_method,
         }
@@ -982,6 +1162,14 @@ class LLMClient:
                 )
                 reps = (pad // 40) + 1
                 return "\n\n".join([base] * reps)
+            # Writer prompts legitimately contain review criteria and words
+            # such as “审查”.  Task identity must win over keyword routing;
+            # otherwise the mock writer returns a review JSON object and that
+            # object is persisted as chapter prose in the real Web workflow.
+            return (
+                "雨停在凌晨。路明非站在窗边，看着城市的灯一盏盏熄灭。"
+                "他没有说话，只把那张写满名字的纸折起来，放进口袋。"
+            )
         if "审查" in user or "review" in user.lower():
             return json.dumps({"verdict": "Approve", "score": 9, "issues": [], "suggestions": []}, ensure_ascii=False)
         if "续写" in user or "写作" in user:

@@ -17,7 +17,7 @@ from pathlib import Path
 from src import paths
 from src.web import jobs, routes
 from src.web import workspace_meta
-from src.utils import write_json
+from src.utils import read_json, write_json
 
 
 class WorkbenchE2ETests(unittest.TestCase):
@@ -220,6 +220,18 @@ class WorkbenchE2ETests(unittest.TestCase):
             start_file = paths.manual_overrides_dir() / "start_chapter.json"
             start_file.parent.mkdir(parents=True, exist_ok=True)
             write_json(start_file, {"start_chapter_id": "source_ch001"})
+            # Once the workspace is declared a continuation, its existing plan
+            # must carry the same anchor identity; the workbench now shares the
+            # runner's strict metadata gate instead of accepting mtime alone.
+            from src.plot_planner import plan_fingerprint
+            from src.start_point import start_point_fingerprint
+
+            plan_file = paths.chapter_plan_path()
+            plan_data = read_json(plan_file, {})
+            plan_data["start_chapter_id"] = "source_ch001"
+            plan_data["start_point_fingerprint"] = start_point_fingerprint()
+            plan_data["plan_fingerprint"] = plan_fingerprint(plan_data)
+            write_json(plan_file, plan_data)
 
         # Model an existing anchor that predates the derived artifacts.
         past = time.time() - 100

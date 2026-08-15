@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
-from src.llm_client import LLMClient
+from src.llm_client import LLMClient, LLMResponseValidationError
 from src.schemas import AgentReview
 
 
@@ -39,20 +39,21 @@ class LLMClientJsonParseTests(unittest.TestCase):
             client = LLMClient("plot_planner")
         self.assertEqual(client.model, "openai/claude-opus-4-5")
 
-    def test_invalid_json_raises_runtime_error_with_context(self) -> None:
+    def test_invalid_json_raises_metadata_only_validation_error(self) -> None:
         client = LLMClient("review")
         with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
             mock_prop.return_value = False
             with patch.object(client, "complete_text", return_value="not valid json at all {{{"):
-                with self.assertRaises(RuntimeError) as ctx:
+                with self.assertRaises(LLMResponseValidationError) as ctx:
                     client.complete_json(
                         [{"role": "user", "content": "test"}],
                         AgentReview,
                     )
                 msg = str(ctx.exception)
                 self.assertIn("AgentReview", msg)
-                self.assertIn("First 500 chars", msg)
-                self.assertIn("not valid json", msg)
+                self.assertIn("response_validation_failed", msg)
+                self.assertNotIn("First 500 chars", msg)
+                self.assertNotIn("not valid json", msg)
 
     def test_invalid_json_can_be_repaired(self) -> None:
         client = LLMClient("review")

@@ -30,6 +30,7 @@ from .llm_client import public_llm_failure_reason
 from .preflight import run_preflight
 from .proposal_validator import validate_proposals_against_plan
 from .reviewer import review_target
+from .safe_errors import exception_projection, safe_exception_text, safe_exception_type_name
 from .utils import ensure_dir, read_json_optional, write_json
 from .kb_view import start_safe_knowledge
 from .workspace_lock import WorkspaceLocked, acquire_write_lock
@@ -675,16 +676,22 @@ def _run_write_book_unlocked(
             return _snap("budget_exceeded", payload)
         except Exception as exc:
             progress("failed", 1.0)
+            failure_reason = public_llm_failure_reason(exc)
+            failure_projection = exception_projection(exc, reason=failure_reason)
             payload: Dict[str, Any] = {
                 "chapters": written,
                 "blocked": blocked,
                 "advances": advances,
                 "caveats": caveats,
                 "costs": costs,
-                "error": f"{type(exc).__name__}: {exc}",
-                # Public Web state consumes only this bounded enum.  The raw
-                # error remains local to the failure snapshot for diagnosis.
-                "failure_reason": public_llm_failure_reason(exc),
+                "error": safe_exception_text(
+                    exc,
+                    reason=failure_reason,
+                    trace_id=failure_projection["trace_id"],
+                ),
+                "failure": failure_projection,
+                # Public and durable state consume only bounded metadata.
+                "failure_reason": failure_reason,
             }
             partial = _partial_artifact(drafts_dir, chapter_no)
             if partial:
@@ -782,7 +789,7 @@ def _run_write_book_unlocked(
                     {
                         "chapter": chapter_no,
                         "reason": "replan_failed",
-                        "error": f"{type(exc).__name__}: {exc}",
+                        "error": safe_exception_text(exc, reason=public_llm_failure_reason(exc)),
                     }
                 )
                 progress("blocked", 1.0)
@@ -1145,7 +1152,7 @@ def check_write_readiness(
         # swallowing it into an empty (passing) result.
         overdue = []
         boundary_overdue = []
-        blockers.append(f"foreshadowing_gate_error:{type(exc).__name__}")
+        blockers.append(f"foreshadowing_gate_error:{safe_exception_type_name(exc)}")
         recommended.append(
             "伏笔闸门检查异常（foreshadowing_registry.json 可能损坏）；修复或删除后重试"
         )
@@ -1363,9 +1370,9 @@ def _expected_write_model() -> str:
     config 读取失败回空串——比对侧「双方非空才比对」自动跳过，readiness
     不为它不拥有的配置问题崩溃。"""
     try:
-        from .config import get_model_config
+        from .llm_client import resolved_model_config
 
-        return str(get_model_config("write").get("model") or "")
+        return str(resolved_model_config("write").get("model") or "")
     except Exception:
         return ""
 
@@ -1750,7 +1757,7 @@ def _auto_apply_advances(
             "min_confidence": min_confidence,
             "conflicts": conflicts,
             "no_op_reason": "apply_advance_failed",
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": safe_exception_text(exc, reason=public_llm_failure_reason(exc)),
         }
     result["auto_apply"] = True
     result["min_confidence"] = min_confidence

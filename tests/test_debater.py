@@ -13,7 +13,7 @@ from src.debater import (
     build_decisions,
     build_outline,
 )
-from src.llm_client import LLMClient
+from src.llm_client import LLMClient, LLMProviderFailure
 from src.schemas import DebateDecisions, DebateVote
 
 
@@ -44,17 +44,43 @@ class DebaterAgentFailureTests(unittest.TestCase):
                 self.assertTrue(len(error_items) > 0)
                 item = error_items[0]
                 self.assertEqual(item["response"], "")
-                self.assertIn("boom", item["error"])
+                self.assertIn("operation_failed:RuntimeError", item["error"])
+                self.assertNotIn("boom", item["error"])
 
-    def test_llm_fallback_when_parse_fails(self) -> None:
+    def test_response_validation_terminal_does_not_enter_decision_fallback(self) -> None:
         agents = [{"name": "a1", "stance": "s1"}, {"name": "a2", "stance": "s2"}]
         transcript = [{"round": 1, "round_name": "test", "agent": "a1", "response": "x"}]
         with patch.object(LLMClient, "is_mock", new_callable=PropertyMock) as mock_prop:
             mock_prop.return_value = False
-            with patch.object(self.client, "complete_text", return_value="garbage not json"):
-                decisions = build_decisions(agents, transcript, self.client)
-                self.assertIn("votes", decisions)
-                self.assertIn("topic", decisions)
+            with patch.object(
+                self.client, "complete_text", return_value="garbage not json"
+            ) as complete_text:
+                from src.llm_client import LLMResponseValidationError
+
+                with self.assertRaises(LLMResponseValidationError):
+                    build_decisions(agents, transcript, self.client)
+                # Initial response + bounded JSON repair only; the legacy
+                # decision fallback must not submit a third paid call.
+                self.assertEqual(complete_text.call_count, 2)
+
+    def test_submission_unknown_does_not_enter_decision_fallback(self) -> None:
+        agents = [{"name": "a1", "stance": "s1"}]
+        transcript = [{"round": 1, "round_name": "test", "agent": "a1", "response": "x"}]
+        terminal = LLMProviderFailure(
+            reason="submission_unknown",
+            error_type="TimeoutError",
+            attempts=1,
+        )
+        with patch.object(
+            LLMClient, "is_mock", new_callable=PropertyMock, return_value=False
+        ), patch.object(self.client, "complete_json", side_effect=terminal) as complete_json, patch.object(
+            self.client, "complete_text"
+        ) as fallback:
+            with self.assertRaises(LLMProviderFailure) as raised:
+                build_decisions(agents, transcript, self.client)
+        self.assertIs(raised.exception, terminal)
+        self.assertEqual(complete_json.call_count, 1)
+        fallback.assert_not_called()
 
     def test_llm_decisions_preserve_for_alias(self) -> None:
         agents = [{"name": "a1", "stance": "s1"}, {"name": "a2", "stance": "s2"}]

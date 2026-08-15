@@ -1677,7 +1677,7 @@ JS_DASHBOARD = """\
   const NOVEL_STAGE_LIMITS = Object.freeze({
     "expand-premise": { budget_cny: 1, timeout_minutes: 15, max_model_requests: 2 },
     "prepare-greenfield": { budget_cny: 3, timeout_minutes: 15, max_model_requests: 10 },
-    "rebuild-for-start": { budget_cny: 3, timeout_minutes: 15, max_model_requests: 10 },
+    "rebuild-for-start": { budget_cny: 3, timeout_minutes: 15, max_model_requests: 32 },
     debate: { budget_cny: 8, timeout_minutes: 60, max_model_requests: 45 },
     "plan-chapters": { budget_cny: 2, timeout_minutes: 15, max_model_requests: 3 },
     "write-book": { budget_cny: 6, timeout_minutes: 45, max_model_requests: 20 },
@@ -1788,6 +1788,16 @@ JS_DASHBOARD = """\
       },
       body: JSON.stringify(payload || {}),
     }, opts || {}));
+  }
+  async function postModelRun(url, payload) {
+    return _fetchWrapped(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Model-Action-Intent": "run-v1",
+      },
+      body: JSON.stringify(payload || {}),
+    });
   }
   function wsUrl(suffix) {
     return "/api/workspace/" + encodeURIComponent(ws) + suffix;
@@ -2266,6 +2276,8 @@ JS_DASHBOARD = """\
     context_too_large: { code: "context_too_large", title: "本次输入内容过长", cause: "模型无法接收当前上下文。请缩小生成范围或精简素材后再开始。", actions: [{ label: "调整生成设置", action: "go_workbench" }] },
     job_timeout: { code: "job_timeout", title: "任务达到最长等待时间", cause: "任务已停止，不会继续提交模型请求。请调整最长等待时间后再开始。", actions: [{ label: "调整生成设置", action: "go_workbench" }] },
     generation_failed: { code: "generation_failed", title: "生成过程未完成", cause: "当前内容已保留。请回到工作台检查设置，再由你决定是否重新开始。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
+    response_validation_failed: { code: "response_validation_failed", title: "模型返回格式无法验证", cause: "系统已停止后续模型请求，并保留现有内容。请检查模型兼容性后再决定是否重新开始。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
+    accounting_unavailable: { code: "accounting_unavailable", title: "本次费用记录不可用", cause: "系统已停止后续模型请求，避免在无法核算额度时继续生成。已有内容会保留。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
     task_failed: { code: "task_failed", title: "任务未完成", cause: "当前内容已保留。请回到对应工作台检查状态后再决定。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
     write_recovery_busy: { code: "write_recovery_busy", title: "当前作品仍有任务在处理", cause: "没有创建新的恢复任务。请先等待现有任务结束，或到任务页请求取消并确认终态。", actions: [{ label: "去任务页", action: "go_jobs" }] },
     write_recovery_reconciliation_required: { code: "write_recovery_reconciliation_required", title: "上一项写作任务需要先对账", cause: "系统无法确认上一项付费写作是否已提交，因此没有重复生成。请先到任务页核对状态。", actions: [{ label: "去任务页", action: "go_jobs" }] },
@@ -2982,6 +2994,15 @@ JS_DASHBOARD = """\
       });
       backdrop.querySelector("[data-paid-action-confirm]").addEventListener("click", function () { finish(true); });
     });
+  }
+  function paidLimitScope(prefix, limits) {
+    limits = limits || {};
+    const parts = [];
+    if (prefix) parts.push(prefix);
+    if (Number(limits.max_model_requests) > 0) parts.push("最多 " + Number(limits.max_model_requests) + " 次模型请求");
+    if (Number(limits.budget_cny) > 0) parts.push("额度上限 " + Number(limits.budget_cny) + " 元");
+    if (Number(limits.timeout_minutes) > 0) parts.push("最长等待 " + Number(limits.timeout_minutes) + " 分钟");
+    return parts.join("；");
   }
   window.uiConfirmPaidAction = confirmPaidAction;
 
@@ -3974,12 +3995,13 @@ JS_DASHBOARD = """\
       if (!await confirmPaidAction({
         title: "确认重新扩写",
         action: "将重新生成立意扩写稿，并覆盖当前扩写稿（包括手工修改）。",
+        scope: paidLimitScope("扩写稿 1 份", NOVEL_STAGE_LIMITS["expand-premise"]),
         preservation: "作品其它内容会保留；开始后可在任务记录中查看进度或请求取消。",
       })) return;
       setControlBusy(regen, true, "处理中");
       if (box) box.innerHTML = '<div class="alert info">正在重新扩写…</div>';
       try {
-        const data = await postJson(wsUrl("/run"), {
+        const data = await postModelRun(wsUrl("/run"), {
           step: "expand-premise",
           params: Object.assign({ force: true }, NOVEL_STAGE_LIMITS["expand-premise"]),
         });
@@ -4135,12 +4157,17 @@ JS_DASHBOARD = """\
       if (!await confirmPaidAction({
         title: "确认提取写作风格",
         action: "将从你提供的样本中提取写作风格。",
+        scope: paidLimitScope("风格卡 1 份", { max_model_requests: 2, budget_cny: 2, timeout_minutes: 15 }),
         preservation: "样本文本不会覆盖作品正文；开始后可在任务记录中查看进度。",
       })) return;
       setControlBusy(extractBtn, true, "处理中");
       if (box) box.innerHTML = '<div class="alert info">正在提取风格特征…</div>';
       try {
-        const resp = await fetch(wsUrl("/writer-style/extract"), { method: "POST", body: fd });
+        const resp = await fetch(wsUrl("/writer-style/extract"), {
+          method: "POST",
+          headers: { "X-Model-Action-Intent": "extract-style-v1" },
+          body: fd,
+        });
         const data = await resp.json().catch(function () { return {}; });
         if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
         setWorkbenchMutationLock(true);
@@ -4334,12 +4361,13 @@ JS_DASHBOARD = """\
       if (!await confirmPaidAction({
         title: "确认" + stepLabel(stepName),
         action: "将开始“" + stepLabel(stepName) + "”。",
+        scope: paidLimitScope("当前阶段", params),
         preservation: "已有作品内容会保留；开始后可在任务记录中查看进度或请求取消。",
       })) return;
       setFormSubmitBusy(form, true, "处理中");
       if (box) box.innerHTML = '<div class="alert info">正在启动“' + escapeHtml(stepLabel(stepName)) + "”…</div>";
       try {
-        const data = await postJson(wsUrl("/run"), { step: stepName, params: params });
+        const data = await postModelRun(wsUrl("/run"), { step: stepName, params: params });
         setWorkbenchMutationLock(true);
         renderWorkbenchHydration("running", { job_id: data.job_id, step: stepName, status: "pending" });
         await pollJob(data.job_id, box, submit, async () => {
@@ -4903,13 +4931,13 @@ JS_DASHBOARD = """\
       if (!await confirmPaidAction({
         title: "确认重新生成计划",
         action: "将生成并覆盖未来章节计划。",
-        scope: "计划 " + target + " 章",
+        scope: paidLimitScope("计划 " + target + " 章", NOVEL_STAGE_LIMITS["plan-chapters"]),
         preservation: "已有正文会保留；新计划生成后请复核再继续写作。",
       })) return;
       setControlBusy(submit, true, "处理中");
       box.innerHTML = '<div class="alert info">正在生成计划…</div>';
       try {
-        const data = await postJson(wsUrl("/run"), {
+        const data = await postModelRun(wsUrl("/run"), {
           step: "plan-chapters",
           params: Object.assign({ target_chapters: target }, NOVEL_STAGE_LIMITS["plan-chapters"]),
         });
@@ -4987,7 +5015,7 @@ JS_DASHBOARD = """\
       setFormSubmitBusy(form, true, "处理中");
       jobBox.innerHTML = '<div class="alert info">正在启动任务；已有设置会保留。</div>';
       try {
-        const data = await postJson(wsUrl("/run"), { step: "write-book", params });
+        const data = await postModelRun(wsUrl("/run"), { step: "write-book", params });
         await pollJob(data.job_id, jobBox, submit, async () => {
           writeBookJobRunning = false;
           setFormSubmitBusy(form, false);
@@ -5287,6 +5315,7 @@ JS_DASHBOARD = """\
         '<div class="modal-body">' +
         '<p>将按原任务范围重新开始“' + escapeHtml(stepLabel(job && job.step)) + '”。</p>' +
         '<div class="alert warn">如果当前启用了真实生成服务，这次操作可能使用人民币额度；原任务和已有内容会保留。</div>' +
+        '<p><strong>本次范围：</strong>' + escapeHtml(paidLimitScope("原任务范围", (job && job.params) || {})) + '</p>' +
         '<p>开始后可在任务记录中查看进度或请求取消。</p>' +
         '</div><div class="modal-footer">' +
         '<button type="button" class="btn btn-ghost" data-modal-close>取消</button>' +
@@ -5313,7 +5342,7 @@ JS_DASHBOARD = """\
     if (isPaidNovelJobStep(job.step) && !await confirmPaidRetry(job)) return;
     setControlBusy(btn, true, "处理中");
     try {
-      const data = await postJson(wsUrl("/run"), { step: job.step, params: job.params || {} });
+      const data = await postModelRun(wsUrl("/run"), { step: job.step, params: job.params || {} });
       showToast("已重新启动：" + stepLabel(job.step), "info");
       if (data && data.job_id) setTimeout(function () { initJobs(); }, 500);
     } catch (err) {
@@ -5867,7 +5896,7 @@ JS_DASHBOARD = """\
       if (!await confirmPaidAction({
         title: "确认保存并重新检查",
         action: "将保存当前正文并重新进行本章内容检查。",
-        scope: "第 " + num + " 章",
+        scope: paidLimitScope("第 " + num + " 章", NOVEL_STAGE_LIMITS["write-book"]),
         preservation: "当前正文会先保存；原评审记录不会覆盖正文。",
       })) return;
       saveBtn.disabled = true;
@@ -5879,7 +5908,7 @@ JS_DASHBOARD = """\
         if (!res) return;
         draftSaved = true;
         saveState("已保存，正在检查", "busy");
-        const job = await postJson(wsUrl("/run"), {
+        const job = await postModelRun(wsUrl("/run"), {
           step: "review-chapter",
           params: Object.assign({ chapter: Number(num) }, NOVEL_STAGE_LIMITS["write-book"]),
         });
@@ -6837,7 +6866,11 @@ JS_WIZARD = """\
       const fd = new FormData(novelForm);
       wizardSetFormBusy(novelForm, true, "正在导入并整理");
       try {
-        const res = await fetch("/api/wizard/start", { method: "POST", body: fd });
+        const res = await fetch("/api/wizard/start", {
+          method: "POST",
+          headers: { "X-Onboarding-Intent": "import-v1" },
+          body: fd,
+        });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           errBox.innerHTML = renderErrorCard(data);
@@ -6880,14 +6913,17 @@ JS_WIZARD = """\
       if (payload.expand && !await window.uiConfirmPaidAction({
         title: "确认从立意创建作品",
         action: "将根据当前立意生成作品设定。",
-        scope: payload.expand ? "生成结构化立意扩写稿" : "仅创建作品并保存立意",
+        scope: payload.expand ? "生成结构化立意扩写稿；最多 2 次模型请求；额度上限 1 元；最长等待 15 分钟" : "仅创建作品并保存立意",
         preservation: "当前输入会保留；开始后可在工作台查看和编辑结果。",
       })) return;
       wizardSetFormBusy(premiseForm, true, "正在创建原创故事");
       try {
         const res = await fetch("/api/wizard/premise-start", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Onboarding-Intent": "premise-v1",
+          },
           body: JSON.stringify(payload),
         });
         const data = await res.json().catch(() => ({}));
@@ -7114,7 +7150,10 @@ JS_SETTINGS = """\
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Settings-Mutation-Intent": "update-v1",
+        },
         body: JSON.stringify(payload),
       });
       const data = await res.json();

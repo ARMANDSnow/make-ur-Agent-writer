@@ -194,6 +194,11 @@ class RebuildForStartTests(unittest.TestCase):
         self.assertTrue(
             self._ws_path("data/manual_overrides/continuation_anchor.txt").exists()
         )
+        # A new imported workspace must be debate-ready after this one action;
+        # otherwise the next workbench stage fails closed for missing personas.
+        self.assertTrue(
+            self._ws_path("data/manual_overrides/personas.json").exists()
+        )
         # both sidecars stamped to the current start (054b stale detection)
         eg = json.loads(self._ws_path("data/.entity_graph.meta.json").read_text(encoding="utf-8"))
         self.assertEqual(eg["start_chapter_id"], cids[1])
@@ -209,6 +214,27 @@ class RebuildForStartTests(unittest.TestCase):
         self.assertEqual(result["start_chapter_id"], cids[1])
         self.assertEqual(seen[0], "extract")
         self.assertEqual(seen[-1], "done")
+
+    def test_rebuild_preserves_existing_personas(self) -> None:
+        from src import start_point
+        from src.auto_pipeline import rebuild_for_start
+
+        manifest = self._seed_manifest()
+        start_point.set_start_point(manifest[1]["chapter_id"])
+        personas_path = self._ws_path("data/manual_overrides/personas.json")
+        personas_path.parent.mkdir(parents=True, exist_ok=True)
+        personas_path.write_text(
+            json.dumps({"protagonist_name": "用户保留角色"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        result = rebuild_for_start(window=10)
+
+        self.assertEqual(
+            json.loads(personas_path.read_text(encoding="utf-8"))["protagonist_name"],
+            "用户保留角色",
+        )
+        self.assertNotIn("bootstrap_personas", result["steps"])
 
     def test_rebuild_no_apply_builds_proposals_only(self) -> None:
         from src import start_point

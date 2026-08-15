@@ -507,7 +507,7 @@ def render_workspace_continue(name: str, workspaces: Iterable[str]) -> str:
         '<details class="details-fold">'
         '<summary>高级参数</summary>'
         '<div class="form-grid">'
-        '<div class="field"><label for="continue-budget">本次可用额度（人民币）</label><input id="continue-budget" name="budget_cny" type="number" min="0.1" max="6" step="0.1" value="6" aria-describedby="continue-budget-help"><small id="continue-budget-help">正文阶段最高 6 元；额度耗尽后停止新的模型请求。</small></div>'
+        '<div class="field"><label for="continue-budget">本次可用额度（人民币）</label><input id="continue-budget" name="budget_cny" type="number" min="0.1" max="6" step="any" value="6" aria-describedby="continue-budget-help"><small id="continue-budget-help">正文阶段最高 6 元；额度耗尽后停止新的模型请求。</small></div>'
         '<div class="field"><label for="continue-timeout">最长等待时间（分钟）</label><input id="continue-timeout" name="timeout_minutes" type="number" min="1" max="45" value="30" aria-describedby="continue-timeout-help"><small id="continue-timeout-help">到时后停止继续等待，已经保存的内容仍会保留。</small></div>'
         '<div class="field"><label for="continue-request-limit">模型请求上限</label><input id="continue-request-limit" name="max_model_requests" type="number" min="1" max="20" value="20" aria-describedby="continue-request-limit-help"><small id="continue-request-limit-help">每次真实模型请求前检查，达到 20 次立即停止。</small></div>'
         '<div class="field"><label for="continue-replan">每几章重规划</label><input id="continue-replan" name="replan_every" type="number" min="0" value="0"></div>'
@@ -743,7 +743,7 @@ def render_workspace_workbench(name: str, workspaces: Iterable[str]) -> str:
         # iter166: every paid Web write is bounded; keep a smaller configured
         # project default but never render zero or exceed the single-job cap.
         '<div class="field"><label for="write-budget-input">预算上限（元）</label>'
-        '<input id="write-budget-input" name="budget_cny" type="number" min="0.1" max="6" step="0.5" value="'
+        '<input id="write-budget-input" name="budget_cny" type="number" min="0.1" max="6" step="any" value="'
         + _format_budget(_write_budget_default()) + '">'
         '<span class="muted">正文与失败稿恢复均为单章最高 6 元；额度耗尽后不再发起新的模型请求。</span>'
         '</div>'

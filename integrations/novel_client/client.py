@@ -59,7 +59,11 @@ class NovelClient:
     # ---- low-level transport ----------------------------------------------
 
     def _request_sync(
-        self, method: str, path: str, payload: Optional[Dict[str, Any]] = None
+        self,
+        method: str,
+        path: str,
+        payload: Optional[Dict[str, Any]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> Tuple[int, Any]:
         url = self.base_url + path
         headers = {"Accept": "application/json"}
@@ -67,6 +71,8 @@ class NovelClient:
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
+        if extra_headers:
+            headers.update({str(key): str(value) for key, value in extra_headers.items()})
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
         req = urllib.request.Request(url, data=data, method=method, headers=headers)
@@ -100,9 +106,16 @@ class NovelClient:
         return status, body
 
     async def _request(
-        self, method: str, path: str, payload: Optional[Dict[str, Any]] = None
+        self,
+        method: str,
+        path: str,
+        payload: Optional[Dict[str, Any]] = None,
+        *,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> Any:
-        _status, body = await asyncio.to_thread(self._request_sync, method, path, payload)
+        _status, body = await asyncio.to_thread(
+            self._request_sync, method, path, payload, extra_headers
+        )
         return body
 
     @staticmethod
@@ -118,6 +131,7 @@ class NovelClient:
             "POST",
             "/api/wizard/premise-start",
             {"workspace": workspace, "premise": premise},
+            extra_headers={"X-Onboarding-Intent": "premise-v1"},
         )
 
     async def list_workspaces(self) -> List[str]:
@@ -136,7 +150,10 @@ class NovelClient:
 
     async def save_outline(self, workspace: str, outline: str) -> Dict[str, Any]:
         return await self._request(
-            "PUT", f"/api/workspace/{self._ws(workspace)}/outline", {"outline": outline}
+            "PUT",
+            f"/api/workspace/{self._ws(workspace)}/outline",
+            {"outline": outline},
+            extra_headers={"X-Workspace-Mutation-Intent": "mutate-v1"},
         )
 
     async def readiness(
@@ -162,6 +179,7 @@ class NovelClient:
             "POST",
             f"/api/workspace/{self._ws(workspace)}/run",
             {"step": step, "params": params or {}},
+            extra_headers={"X-Model-Action-Intent": "run-v1"},
         )
 
     async def get_job(self, workspace: str, job_id: str) -> Dict[str, Any]:
@@ -171,7 +189,10 @@ class NovelClient:
 
     async def cancel_job(self, workspace: str, job_id: str) -> Dict[str, Any]:
         return await self._request(
-            "POST", f"/api/workspace/{self._ws(workspace)}/job/{self._ws(job_id)}/cancel"
+            "POST",
+            f"/api/workspace/{self._ws(workspace)}/job/{self._ws(job_id)}/cancel",
+            {},
+            extra_headers={"X-Workspace-Mutation-Intent": "mutate-v1"},
         )
 
     # ---- orchestration -----------------------------------------------------

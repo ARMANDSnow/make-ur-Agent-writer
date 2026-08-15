@@ -13,10 +13,11 @@ from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
 from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .kb_view import start_safe_knowledge
-from .llm_client import LLMClient
+from .llm_client import LLMClient, raise_if_terminal_llm_failure
 from .manual_facts import global_facts_summary
 from .persona_loader import load_personas, render_agent_fields
 from .schemas import DebateDecisions, model_to_dict
+from .safe_errors import safe_exception_text
 from .state import log_event, write_text_atomic
 from .style import load_style_examples
 from .utils import (
@@ -311,8 +312,10 @@ def run_debate(
                 )
                 item = {"round": round_index, "round_name": round_name, "agent": agent["name"], "response": response}
             except Exception as exc:
-                item = {"round": round_index, "round_name": round_name, "agent": agent["name"], "error": str(exc), "response": ""}
-                log_event("debate", "agent_error", agent=agent["name"], round=round_index, error=str(exc))
+                raise_if_terminal_llm_failure(exc)
+                safe_error = safe_exception_text(exc)
+                item = {"round": round_index, "round_name": round_name, "agent": agent["name"], "error": safe_error, "response": ""}
+                log_event("debate", "agent_error", agent=agent["name"], round=round_index, error=safe_error)
             transcript.append(item)
             with log_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -603,9 +606,11 @@ def _collect_agent_votes(
             )
         return {"response": json.dumps(data, ensure_ascii=False), "ballots": ballots}
     except Exception as exc:
-        log_event("debate", "ballot_fallback", agent=agent_name, error=str(exc))
+        raise_if_terminal_llm_failure(exc)
+        safe_error = safe_exception_text(exc)
+        log_event("debate", "ballot_fallback", agent=agent_name, error=safe_error)
         ballots = _fallback_ballots(agent_name, votes, "(parse_failed)")
-        return {"response": "", "ballots": ballots, "error": str(exc)}
+        return {"response": "", "ballots": ballots, "error": safe_error}
 
 
 def _with_result_prefix(result: str, prefix: str) -> str:
@@ -797,7 +802,8 @@ def _legacy_llm_derived_votes(
         if votes:
             return votes[:3]
     except Exception as exc:
-        log_event("debate", "votes_empty_fallback_error", error=str(exc))
+        raise_if_terminal_llm_failure(exc)
+        log_event("debate", "votes_empty_fallback_error", error=safe_exception_text(exc))
     return _placeholder_votes(voter_names)
 
 
@@ -862,7 +868,8 @@ def build_decisions(
             return _apply_agent_ballots(data, agent_ballots, len(transcript))
         return data
     except Exception as exc:
-        log_event("debate", "decision_fallback", error=str(exc))
+        raise_if_terminal_llm_failure(exc)
+        log_event("debate", "decision_fallback", error=safe_exception_text(exc))
         votes = _legacy_llm_derived_votes(agents, transcript, client, global_facts)
         data = {
             "topic": "续写核心裁决",
@@ -935,7 +942,8 @@ def build_outline(
         )
         return text.strip() + "\n"
     except Exception as exc:
-        log_event("debate", "outline_fallback", error=str(exc))
+        raise_if_terminal_llm_failure(exc)
+        log_event("debate", "outline_fallback", error=safe_exception_text(exc))
         return _hardcoded_outline(topic, decisions)
 
 

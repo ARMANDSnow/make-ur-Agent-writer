@@ -195,7 +195,7 @@ class WebModelRequestLimitValidationTests(unittest.TestCase):
         expected = {
             "expand-premise": 2,
             "prepare-greenfield": 10,
-            "rebuild-for-start": 10,
+            "rebuild-for-start": 32,
             "debate": 45,
             "plan-chapters": 3,
             "write-book": 20,
@@ -219,7 +219,7 @@ class WebModelRequestLimitValidationTests(unittest.TestCase):
         maxima = {
             "expand-premise": (2, 1.0, 15.0),
             "prepare-greenfield": (10, 3.0, 15.0),
-            "rebuild-for-start": (10, 3.0, 15.0),
+            "rebuild-for-start": (32, 3.0, 15.0),
             "extract": (10, 3.0, 15.0),
             "compress": (10, 3.0, 15.0),
             "bootstrap": (10, 3.0, 15.0),

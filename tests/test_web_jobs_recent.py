@@ -567,6 +567,46 @@ class Iter073RecentAndProjectionTests(unittest.TestCase):
         self.assertEqual(write_view["params"], {"chapters": 2})
         self.assertFalse(write_view["retryable"])
 
+    def test_current_model_retry_preserves_all_resolved_caps(self) -> None:
+        rec = jobs._new_job_record(
+            "alpha",
+            "debate",
+            {
+                "force": True,
+                "max_model_requests": 45,
+                "budget_cny": 8.0,
+                "timeout_minutes": 60.0,
+            },
+        )
+        rec.update(status="failed", finished_at=1.0)
+        view = jobs.public_job_detail_view(rec)
+        self.assertTrue(view["retryable"])
+        self.assertEqual(
+            view["params"],
+            {
+                "force": True,
+                "max_model_requests": 45,
+                "budget_cny": 8.0,
+                "timeout_minutes": 60.0,
+            },
+        )
+
+        write = jobs._new_job_record(
+            "alpha",
+            "write-book",
+            {
+                "chapters": 1,
+                "min_confidence": 0,
+                "max_model_requests": 20,
+                "budget_cny": 6.0,
+                "timeout_minutes": 45.0,
+            },
+        )
+        write.update(status="failed", finished_at=1.0)
+        write_view = jobs.public_job_detail_view(write)
+        self.assertTrue(write_view["retryable"])
+        self.assertEqual(write_view["params"]["min_confidence"], 0)
+
     def test_job_log_symlink_is_neither_read_nor_appended(self) -> None:
         outside = Path(self._tmp.name) / "outside.jsonl"
         outside.write_text(

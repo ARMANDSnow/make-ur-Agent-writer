@@ -19,12 +19,6 @@ from . import routes
 from .safe_log import log_exception as _safe_log_exception
 
 
-_WEB_MUTATION_PATH_RE = re.compile(
-    r"^/api/workspace/[^/]+/(?:"
-    r"job/[^/]+/cancel/?"
-    r"|write-recovery/?"
-    r")$"
-)
 _WEB_MUTATION_BODY_LIMIT = 64 * 1024
 
 
@@ -55,17 +49,17 @@ class WebHandler(BaseHTTPRequestHandler):
         self._respond_inner(method, path)
 
     def _respond_inner(self, method: str, path: str) -> None:
-        # iter 026: POST / PUT carry bodies. Hard cap at 64 MB so a
-        # rogue Content-Length doesn't make us allocate the universe;
-        # the wizard's multipart upload enforces its own tighter 50 MB
-        # cap inside wizard.start_upload.
+        # Every registered mutation is rejected on framing, origin, content
+        # type and intent before a byte of its body is read.
         body_bytes: bytes = b""
+        request_headers = {k.lower(): v for k, v in self.headers.items()}
         if method in ("POST", "PUT"):
             decoded_path = unquote(urlsplit(path).path)
-            protected_mutation = bool(
-                _WEB_MUTATION_PATH_RE.fullmatch(decoded_path)
-            )
-            if protected_mutation:
+            if routes.mutation_route_missing_policy(method, decoded_path):
+                self.send_error(500, "Mutation policy missing")
+                return
+            mutation_policy = routes.mutation_policy_for(method, decoded_path)
+            if mutation_policy is not None:
                 # ``Message.get`` returns only one value.  Different HTTP hops
                 # are allowed to disagree about which duplicate wins, so inspect
                 # the complete field list and fail closed before reading a byte.
@@ -82,7 +76,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 ) is None:
                     self.send_error(400, "Invalid Content-Length")
                     return
-                mutation_limit = str(_WEB_MUTATION_BODY_LIMIT)
+                mutation_limit = str(mutation_policy.max_bytes)
                 if len(raw_length) > len(mutation_limit) or (
                     len(raw_length) == len(mutation_limit)
                     and raw_length > mutation_limit
@@ -90,6 +84,30 @@ class WebHandler(BaseHTTPRequestHandler):
                     self.send_error(413, "Mutation payload too large")
                     return
                 length = int(raw_length)
+                header_error = routes.mutation_header_error(
+                    method, decoded_path, request_headers
+                )
+                if header_error is not None:
+                    self._send_result(method, header_error)
+                    return
+                # When the optional API bearer gate is enabled, reject before
+                # consuming a potentially large mutation body.  Dispatch
+                # repeats the same constant-time check as defense in depth.
+                from . import auth
+
+                required_token = auth.required_token()
+                if required_token is not None and not auth.is_authorized(
+                    decoded_path, request_headers, required_token
+                ):
+                    self._send_result(
+                        method,
+                        (
+                            401,
+                            "application/json; charset=utf-8",
+                            b'{"error":"unauthorized"}',
+                        ),
+                    )
+                    return
             else:
                 raw_length = self.headers.get("Content-Length", "0") or "0"
                 try:
@@ -101,9 +119,9 @@ class WebHandler(BaseHTTPRequestHandler):
                 return
             if length > 0:
                 body_bytes = self.rfile.read(length)
-        # Pass lowercase-keyed headers dict — the wizard multipart
-        # parser needs Content-Type; future handlers may want others.
-        request_headers = {k.lower(): v for k, v in self.headers.items()}
+                if len(body_bytes) != length:
+                    self.send_error(400, "Incomplete request body")
+                    return
         try:
             status, content_type, body = routes.dispatch(method, path, body_bytes, request_headers)
         except Exception as exc:  # pragma: no cover - last-resort guard
@@ -120,6 +138,12 @@ class WebHandler(BaseHTTPRequestHandler):
                 + trace_id
                 + '"}'
             ).encode("ascii")
+        self._send_result(method, (status, content_type, body))
+
+    def _send_result(self, method: str, result: routes.WebResponse) -> None:
+        """Serialize one dispatcher-style response, including early guards."""
+
+        status, content_type, body = result
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
