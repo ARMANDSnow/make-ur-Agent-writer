@@ -15,7 +15,7 @@
 | **解决什么** | 直接让 ChatGPT 写一章常见的：风格飘移、人物 OOC、伏笔遗忘、剧透穿越、逻辑断裂 |
 | **怎么用** | 一条 CLI 命令链，或浏览器里的"小白四步工作台" |
 | **跑在哪** | 编排与产物在本地；mock 不上传内容，真模型会向用户配置的 provider 发送必要上下文 |
-| **现在到哪了** | 九阶段小说流水线已打通；深起点、长跑、Web 编辑与短剧媒体入口已完成工程演进，真实校准项见 handoff |
+| **现在到哪了** | 九阶段小说流水线已打通；iter167 起 main 为 novel-only，完整短剧基线在 `codex/short-drama`；真实校准项见 handoff |
 | **技术底色** | Python 3.9+ / LiteLLM 多模型路由 / Pydantic / 标准库 Web，**无 async、无 Web 框架、无编排库** |
 
 ---
@@ -136,7 +136,7 @@
 | **多语言·多书** | `lang_detect` / `chapter_splitter` / `epub_to_txt` / `paths` | 中英判定 / 切章 / EPUB 转换 / 多 workspace 路径 |
 | **自动化编排** | `auto_bootstrap` / `auto_pipeline` / `book_driver` / `book_runner` | 一键产提案 / 9 步 SOP 编排 / 长程驱动器 / 生产级写书 runner |
 | **守门·工程** | `preflight` / `config` / `llm_client` / `cost_estimator` / `schemas` | 起飞前检查 / 配置 / 真假模型抽象 / 成本汇总 / Pydantic schema 唯一真源 |
-| **辅助规划** | `premise_expansion` / `drama_planner` / `hook_designer` / `foreshadowing` / `continuation_anchor` / `chapter_summary` | 立意扩写 / 戏剧·钩子·伏笔规划 / 起点锚点 / 滚动摘要 |
+| **辅助规划** | `premise_expansion` / `foreshadowing` / `continuation_anchor` / `chapter_summary` | 立意扩写 / 伏笔规划 / 起点锚点 / 滚动摘要 |
 
 ### 5.2 Web 工作台
 
@@ -235,7 +235,7 @@ python3 main.py web      # 默认 http://127.0.0.1:8765
 
 ### 8.1 总体进度
 
-九阶段小说流水线已完成工程闭环；长程真模型 capstone 仍待授权校准。短剧与真实媒体入口的最新状态不在本产品视角文档重复维护，统一见 [`docs/AGENT_HANDOFF.md`](../AGENT_HANDOFF.md)。
+九阶段小说流水线已完成工程闭环；长程真模型 capstone 仍待授权校准。main 不再提供短剧与媒体入口；完整旧实现和协议位于 `codex/short-drama`，迁移规则见 [`short_drama_module.md`](short_drama_module.md)。
 
 | 阶段群 | 范围 | 状态 |
 |---|---|---|
@@ -248,7 +248,7 @@ python3 main.py web      # 默认 http://127.0.0.1:8765
 | 7（iter 049–050） | Aeloon 双轨集成 + 全程可编辑闭环 | ✅ 完成 |
 | 8（iter 051） | premise 扩写增强 + 评审预算强拦 + 技债清偿 | ✅ 完成 |
 | 9（iter 052） | 长程驱动器正式化 + 起点一致性清债 | ✅ 完成 |
-| —（iter 053–092） | 深起点、长跑可靠性、Web 编辑、文风量化与短剧媒体入口 | ✅ 工程演进完成；真实校准项见 handoff |
+| —（iter 053–092） | 深起点、长跑可靠性、Web 编辑、文风量化；同期短剧工作为历史分支能力 | ✅ 小说工程演进完成；短剧实现已迁移到 `codex/short-drama` |
 
 ### 8.2 已留存的真实验证证据
 

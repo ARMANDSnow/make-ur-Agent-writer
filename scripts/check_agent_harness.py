@@ -72,10 +72,17 @@ PROMOTION_TARGETS = {
     "docs/PROJECT_HISTORY.md",
 }
 ALLOWED_CLOSURE_FILES = {
+    "AGENTS.md",
     "README.md",
+    "README_EN.md",
     "docs/AGENT_HANDOFF.md",
     "docs/PROJECT_HISTORY.md",
     "docs/iterations/README.md",
+    "docs/product/GETTING_STARTED.md",
+    "docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md",
+    "docs/product/PRODUCT_SPEC.md",
+    "docs/product/short_drama_creation_standard.md",
+    "docs/product/short_drama_module.md",
 }
 
 

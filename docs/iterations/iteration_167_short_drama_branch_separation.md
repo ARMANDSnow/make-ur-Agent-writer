@@ -35,22 +35,47 @@
 
 ## Implementation Notes
 
-待实施回填。
+- 在完整基线 `35c97ccedeaca1725cc1a491cebf393f6a91303a` 建立 `codex/short-drama`，并在 `codex/novel-only-split` 实施；立项提交为 `233e89b`。
+- `4ab110b` 物理移除短剧领域/媒体模块、CLI 归档命令、Web 页面/API/公开媒体路由、job step、prompt、fixture、脚本和对应测试；共享 routes/jobs/static/templates/config/preflight 收敛为小说路径。
+- 首页和作品列表保留两个原生 disabled 入口，统一显示“短剧模块暂未开放”；不存在 `href`、onclick 或短剧向导表单。
+- workspace identity 分成 recognized 与 supported：legacy `drama` 仅作隔离哨兵，`novel` 是 main 唯一可创建、枚举和运行的类型。CLI/Web/list/direct/logs/run-step/import/trash 均 fail closed。
+- 回收站对 unsupported entry 隐藏并投影为 `entry_not_found`；restore/purge 使用锁、nofollow parent fd、`(st_dev, st_ino)` 二次匹配与 dir-fd 操作，防止检查后替换导致迁移或删除旧短剧数据。
+- canonical 升级为 schema v3 / `canonical-novel-mock-offline`，以 exact ordered steps 约束成功证据；新增 novel-only 静态边界检查，删除 `local_drama_e2e` 及其 evidence 依赖。
+- `a1ffb71` 修正首次 canonical 暴露的两个旧契约：topbar CSS 精确空格断言，以及 invalid workspace metadata 的新 404 fail-closed 预期。
 
 ## Acceptance Result
 
-待 `iter-finish` 回填。
+- 结果：`mock-functional`，2026-08-15 accepted。
+- implementation：`a1ffb71df295e057c3e4af5e7d2cdc5b7270364e`（主体拆分 `4ab110b`）。canonical schema v3，profile `canonical-novel-mock-offline`，run `8a1055c15cff4139acad65dedfd3686f`，1847 tests / 15 steps / 149 秒，status=passed，`tracked_scope_clean=true`。
+- 聚焦检查覆盖 disabled DOM、历史路由/CLI 缺席、legacy/invalid/unsafe workspace、logs、import-current、trash list/restore/purge 与 swap、小说创建/续写/恢复、job projection、harness exact steps、py_compile、CLI help、route table、test discovery 和静态边界；回归通过。
+- correctness 只读审查发现并关闭：向导 progress section 开标签丢失、logs tail 缺类型守门、import-current 可写入 legacy target、trash 可枚举/恢复/删除 unsupported entry，以及遗留 job result keys。最终复核无 finding。
+- security/boundary 只读审查发现并关闭：孤儿 character-ref 路由、invalid/unsafe CLI identity、trash 公开存在性与 TOCTOU、非 `drama_` 命名的媒体 CSS/JS/job/fixture 残留。最终复核无 finding。
+- Web/runner/harness 只读审查发现并关闭：向导 DOM 回归、孤儿媒体 route 500、generic static/test 残留、boundary checker 漏检/自撞、route absence 测试弱断言，以及 schema v3 acceptance 可绕过 canonical steps。最终复核无剩余问题。
+- 首次 `verify.sh` 在 1847 tests 中有 2 个失败，均为拆分后旧测试契约（CSS 精确空格、invalid metadata 409→404），没有功能/provider 失败；聚焦修复提交 `a1ffb71` 后按失败重验规则完整复验并通过。全程强制 mock/offline，未调用真实文本、图片、视频或 TTS provider。
+- A167-01 PASS：短剧快照 ref 精确固定；docs-only 收官后以 `--ff-only` 更新 main，不 push、不删分支。
+- A167-02 PASS：静态 novel-only checker 通过；允许项之外无短剧实现引用。
+- A167-03 PASS：两个禁用入口具有 `disabled` / `aria-disabled`，无跳转。
+- A167-04 PASS：历史 CLI、页面、API、媒体和 job surface 不存在或返回 404。
+- A167-05 PASS：legacy drama 隐藏、direct fail closed，import/trash 不修改数据并覆盖 swap 回归。
+- A167-06 PASS：schema v3/profile exact steps、synthetic workspace、mock/offline 与 clean implementation binding 均由 evidence 证明。
+- A167-07 PASS：聚焦检查和三个独立只读视角最终无未闭合 finding。
+- A167-08 PASS（有记录偏差）：最终 successful canonical 证据完整；因首次完整门禁暴露 2 个测试契约而按项目规则修复并重验，因此本轮实际执行两次标准验收，而非计划中的单次调用。
 
 ### Knowledge Promotion
-- `decision`: `<iter-finish 回填：none|promoted>`
-- `destination`: `<iter-finish 回填：none|既有长期权威文档>`
-- `reason`: `<iter-finish 回填人工判断>`
+- `decision`: `promoted`
+- `destination`: `AGENTS.md`, `docs/PROJECT_HISTORY.md`, `docs/product/GETTING_STARTED.md`, `docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md`, `docs/product/PRODUCT_SPEC.md`, `docs/product/short_drama_module.md`, `docs/product/short_drama_creation_standard.md`
+- `reason`: novel-only 产品边界、workspace 支持语义、canonical schema v3 和短剧分支访问规则会影响所有后续开发与用户操作，必须进入现有长期权威文档。
 
 ## 文件变更汇总
 
 | 文件 | 改动 |
 |---|---|
-| 待回填 | 待实施回填 |
+| `main.py`、`src/`、`config/` | 删除短剧运行/媒体/任务路径，保留小说链与 legacy 类型隔离；强化 CLI/Web/trash fail-closed |
+| `src/web/` | 保留禁用入口，移除短剧页面/API/媒体/JS/CSS；修复小说向导共享 progress panel |
+| `scripts/` | canonical schema v3 novel-only profile；新增静态边界检查；删除短剧/local-e2e 工具 |
+| `prompts/`、`tests/fixtures/` | 删除短剧 prompt 与 provider/media fixture |
+| `tests/` | 删除短剧测试，新增 iter167 隔离/不变性/路由/CLI/harness 回归 |
+| README、AGENTS、handoff、history、product docs | 切换为小说主线，并将短剧完整资料改为分支迁移说明 |
 
 ## 不在本轮范围
 

@@ -4,7 +4,7 @@
 
 ## 项目与边界
 
-Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与短剧生成研究项目，目标是支持任意小说，而非只服务当前验证书目。
+Dragon Raja AI Continuer 的 `main` 是一个基于 LLM 多 agent 协作的小说原创与续写研究项目，目标是支持任意小说，而非只服务当前验证书目。iter167 前的完整小说+短剧基线固定保存在 `codex/short-drama`；main 只保留禁用入口与 legacy 类型隔离哨兵，不提供短剧运行能力。
 
 - **禁止修改 `小说txt/` 原文**。原文及其衍生数据只用于本地处理，不进入仓库。
 - 默认 `OPENAI_MODEL=mock`，无 key、无计费模型请求即可完成工程验证；mock 会在 LiteLLM 首次导入前强制使用内置 cost map 并跳过代理探测，保持严格离线。真实模型仍按既有 provider/代理配置运行。
@@ -28,7 +28,7 @@ Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与�
 - `iter-start` 新建当轮文档并更新 iteration 索引。
 - `iter-finish` 先跑聚焦检查，再完成只读多视角审查与修复，最后只跑一次标准全量验收；随后更新 README SOP，并**就地更新** handoff 当前快照和“Latest Transition”。
 - 收官默认至少两个独立只读 subagent：correctness 与 security/boundary。Web、runner、多 workspace、真模型或计费入口按风险增加视角。
-- 验收结论固定分为 `safe-blocked`、`mock-functional`、`local-e2e`、`provider-validated`；标准 `verify.sh` 只能产生 `mock-functional`，不得据此宣称真实 provider 已验证。
+- 验收结论固定分为 `safe-blocked`、`mock-functional`、`local-e2e`、`provider-validated`；标准 `verify.sh` 使用 novel-only schema v3/profile，只能产生 `mock-functional`，不得据此宣称真实 provider 已验证。
 - 只 commit，不 push，等待用户验收。
 
 ## 工程铁律
@@ -37,12 +37,12 @@ Dragon Raja AI Continuer 是一个基于 LLM 多 agent 协作的小说续写与�
 2. **版权边界**：不得主动读取、写入或提交 `小说txt/`、私有样本与原文片段。示例文件只放 schema 和 `<用户填写>` 占位符。
 3. **测试隔离**：单测必须是 mock；任何让 `unittest discover` 触发真模型的改动都是 bug。
 4. **Graceful degrade**：可选的 style examples、global facts、entity graph、continuation anchor 缺失时，mock 裸仓库仍须跑通。
-5. **真模型需逐次授权**：`scripts/{real,debate,write}_smoke.sh` 及任何真文本、真生图、真视频入口，必须等用户明确授权。
+5. **真模型需逐次授权**：`scripts/{real,debate,write}_smoke.sh` 及任何真实文本模型入口，必须等用户明确授权。
 6. **范围收敛**：不顺手改计划外文件；真实运行暴露的阻塞 bug 可例外，但必须在 iteration 中记录。
 7. **SOP 实时性**：收官同步 README 的项目状态、9 阶段 SOP 和真实日期；handoff 保留当前值及经筛选的阶段级工作记忆，不复制逐轮完整验收日志。
 8. **收官审查**：优先使用内置代码/安全审查能力，并完成至少两个只读 subagent 视角。记录范围、结论、主线程复核和未修风险。
 9. **审查边界**：subagent 不得改文件、跑真模型、触碰 `.env`、`data/`、`outputs/`、`logs/` 或 `小说txt/`。
-10. **真生图超时策略**：仅在用户明确授权后使用。首次失败/超时后先查上游任务状态与账单，再经重新授权使用简化 prompt；首轮外最多 2 次，每次 180 秒。真视频仍是单次提交、超时不重试。
+10. **分支边界**：短剧开发、媒体 provider、归档和旧短剧 workspace 访问只在 `codex/short-drama` 上进行；main 不迁移、修改或删除这些数据。
 
 ## 标准验证
 
@@ -68,7 +68,7 @@ bash scripts/write_smoke.sh
 
 ```text
 main.py                  CLI 入口
-src/                     流水线、runner、Web、小说与短剧领域逻辑
+src/                     小说流水线、runner 与 Web
 config/                  agent/model/linter/style 配置
 scripts/                 verify、harness checker、mock/real smoke、长跑入口
 tests/                   mock 隔离测试
@@ -79,7 +79,7 @@ workspaces/<name>/       每书本地隔离目录，内容不提交
 data/ outputs/ logs/     legacy/mock 与本地产物，均 gitignored
 ```
 
-涉及 Aeloon 时读 `docs/AELOON_INTEGRATION.md`；涉及产品使用读 `docs/product/GETTING_STARTED.md`；涉及短剧协议读 `docs/product/short_drama_module.md` 和创作规范。
+涉及 Aeloon 时读 `docs/AELOON_INTEGRATION.md`；涉及产品使用读 `docs/product/GETTING_STARTED.md`。涉及短剧历史时，main 内产品文档只提供迁移提示；切换到 `codex/short-drama` 后再读该分支完整协议。
 
 ## 排障顺序
 

@@ -28,6 +28,11 @@ FORBIDDEN_PATH = re.compile(
 
 
 def _controlled_reference(rel: str, line: str) -> bool:
+    if rel in {"scripts/check_agent_harness.py", "tests/test_agent_harness.py"}:
+        return line.strip().strip(",").strip('"') in {
+            "docs/product/short_drama_creation_standard.md",
+            "docs/product/short_drama_module.md",
+        }
     if rel == "tests/test_iter167_novel_only_split.py":
         return True
     if rel == ".gitignore":

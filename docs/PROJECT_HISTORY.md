@@ -92,6 +92,7 @@
 | 164 | 近期体检报告任务恢复、传输分帧与视频计账闭环 | result context、workspace-scoped job、严格 HTTP framing 与 effective accounting；验收后删四份报告 |
 | 165 | 小说 Web 模式语义与交互可靠性修复 | schema v2 原创/续写模式、阶段同源、分层导航/dirty、任务恢复与三视口 local-e2e |
 | 166 | 小说原创/续写双链失败恢复与真模型前端验证 | 动态步骤安全投影、strict-approved 完成态、exact 失败章受控恢复、provider deadline 与窄范围真实前端证据 |
+| 167 | 短剧模块安全分支拆分 | 完整基线固定到 `codex/short-drama`；main 物理收敛为 novel-only，legacy drama 只读隔离，canonical 升级 schema v3 |
 
 ## Iteration Implementation Index
 
@@ -236,6 +237,7 @@
 | 164 | 闭环任务恢复、传输分帧与视频计账 | `src/web/`、`src/drama_multimodal_smoke.py`、`tests/test_web_iter164_health_closure.py`、`tests/test_drama_multimodal_smoke.py` |
 | 165 | 闭环小说模式语义、导航与任务恢复 | `src/web/`、`integrations/novel_ops/`、`tests/test_web_iter165_ux_reliability.py`、`tests/test_workspace_meta.py` |
 | 166 | 闭环小说双链失败章恢复与模型调用守门 | `src/book_runner.py`、`src/llm_client.py`、`src/web/`、`tests/test_web_iter166_recovery.py`、`tests/test_iter166_model_request_limit.py` |
+| 167 | 安全拆分短剧并建立 novel-only 边界 | `main.py`、`src/web/`、`scripts/verify.sh`、`scripts/check_novel_only_boundary.py`、`tests/test_iter167_novel_only_split.py` |
 
 ## Durable Decisions
 
@@ -280,6 +282,13 @@
 
 - 小说 workspace 的原创/导入续写来源必须持久化为 schema v2 `creation_mode`，由服务端向 overview、workbench、readiness 与 run 同源投影并在任务创建前执行守门；不能从“当前是否已有续写起点”反推来源模式。
 - legacy workspace 只允许 no-follow、regular-file 的只读安全推断；只有正规 `seed.txt` 且无 `upload.txt` 才视为 greenfield，其余歧义保守 continuation。GET 不迁移、不改盘，损坏 metadata 必须 fail-closed。
+
+### Keep product branches and legacy data fail-closed
+
+- iter167 将完整小说+短剧基线固定在 `codex/short-drama`，main 仅支持 novel。分支保存的是可运行快照，不是从主线删除历史审计记录。
+- “可识别 workspace 类型”与“当前分支支持类型”必须分开：legacy `drama` metadata 只用于防止误判为小说，不能因此获得创建、枚举、direct route、import、trash 或 mutation 能力。
+- destructive 操作不能只在路径检查后执行。trash restore/purge 需要锁、nofollow parent fd、对象 identity 二次匹配和 dir-fd 操作；unsupported 与不存在对公开调用方使用相同投影，避免泄漏隐藏数据存在性。
+- novel-only 静态检查必须覆盖 generic media/production 名称，而不只搜索 `drama` 字面量；允许项限定为禁用入口、legacy sentinel、迁移说明和历史审计。
 
 ### Separate current truth from history
 
@@ -353,6 +362,7 @@
 
 ## Historical Evidence Notes
 
+- iter167 在 implementation `a1ffb71df295e057c3e4af5e7d2cdc5b7270364e` 上 canonical 1847 tests / 15 steps / 149 秒通过，run `8a1055c15cff4139acad65dedfd3686f`，schema v3、`mock-functional` / `canonical-novel-mock-offline`，`tracked_scope_clean=true`。完整基线 `35c97cc` 保存在 `codex/short-drama`；main 删除短剧运行/媒体/CLI/Web/API/job/prompt/fixture/script/test，只保留禁用入口和 legacy 类型隔离。三路只读审查 findings 全闭合；首次完整门禁的 2 个旧测试契约经聚焦修复后重验通过。9 份未跟踪报告未触碰，未读取私有 workspace，未调用真实 provider，未 push。
 - iter166 在 implementation `9378f651244755e45148c5b6e3fdad33238cb4db` 上 canonical 3126 tests / 15 steps / 479 秒通过，run `348bac3ef2984d91b49c89e4875e9395`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。动态步骤安全投影、strict-approved 正文完成态、原创/续写 exact 失败章恢复与 provider deadline 守门闭环；correctness、security/boundary、Web/UX+provider/timeout 三路最终无剩余 P0-P3。首次完整验收的旧视频 timeout 断言修正后完整重验通过。确定性恢复浏览器为 mock E2E；原创 `test01` 由 Codex 观察至细纲，正文成功来自用户本地声明，续写真 provider 整链为 `safe-blocked`，不外推其它 provider、长跑或 SLA；两份未跟踪报告未触碰，未 push。
 - iter165 在 implementation `e718200` 上 canonical 3072 tests / 15 steps / 502 秒通过，run `615a5147bb994c6f8179c1899dc0b055`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。schema v2 创作模式、阶段同源、dirty/active-job 分层、fail-closed 工作台与任务恢复、提示聚合和移动菜单无障碍闭环；三视口为 `local-e2e`，三路最终无剩余高置信 P1/P2。前两次 full gate 的兼容回归经聚焦修复后完整重验通过；两份未跟踪报告保持原样，未 push、未查询或调用真实 provider。
 - iter164 在 implementation `817c930` 上 canonical 3043 tests / 15 steps / 467 秒通过，run `9a66e53279774023ad2e6eecbabc9a94`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。四份报告去重出的 result context、workspace-scoped job、protected mutation framing 与 reconciliation-aware accounting 四根因全部闭合；episode 2/restart-lost/Local Demo target 为 `local-e2e`。三路复审最终无剩余 P0-P3，报告在验收后删除；未 push、未查询或调用真实 provider。

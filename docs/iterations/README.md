@@ -4,6 +4,8 @@
 
 标题只描述主题，不重复测试数、finding 清单或实现细节。每轮完整事实以链接文件为准。
 
+当前 accepted：2026-08-15 / iter167。main 为 novel-only；iter167 前完整小说+短剧快照保存在 `codex/short-drama`。
+
 ## Supplemental Records
 
 - [iter 039 plan draft](./iteration_039_PLAN_DRAFT.md)、[iter 040 plan draft](./iteration_040_PLAN_DRAFT.md)、[iter 042 plan draft](./iteration_042_PLAN_DRAFT.md)、[iter 043B plan draft](./iteration_043B_PLAN_DRAFT.md)、[iter 044 plan draft](./iteration_044_PLAN_DRAFT.md)：外部计划快照，与最终执行档不同，保留供追溯。

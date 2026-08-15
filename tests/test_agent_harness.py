@@ -724,6 +724,50 @@ class AgentHarnessCheckerTests(unittest.TestCase):
         result = self.run_checker()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_explicit_product_and_agent_docs_are_allowed_closure(self) -> None:
+        allowed = (
+            "AGENTS.md",
+            "README_EN.md",
+            "docs/product/GETTING_STARTED.md",
+            "docs/product/NOVEL_WEB_UIUX_REDESIGN_SPEC.md",
+            "docs/product/PRODUCT_SPEC.md",
+            "docs/product/short_drama_creation_standard.md",
+            "docs/product/short_drama_module.md",
+        )
+        for relative in allowed:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("docs-only closure\n")
+        subprocess.run(["git", "add", *allowed], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "-qm", "allowed docs closure",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unlisted_product_doc_is_not_allowed_closure(self) -> None:
+        extra = self.root / "docs/product/unlisted.md"
+        extra.parent.mkdir(parents=True, exist_ok=True)
+        extra.write_text("unlisted docs closure\n", encoding="utf-8")
+        subprocess.run(["git", "add", str(extra)], cwd=self.root, check=True)
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "-qm", "unlisted product docs drift",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("docs/product/unlisted.md", result.stderr)
+
     def test_committed_unindexed_iteration_doc_is_not_allowed_closure(self) -> None:
         extra = self.root / "docs/iterations/iteration_101_extra.md"
         extra.write_text("# unindexed\n", encoding="utf-8")
