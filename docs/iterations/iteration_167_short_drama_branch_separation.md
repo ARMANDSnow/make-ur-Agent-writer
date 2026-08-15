@@ -41,17 +41,17 @@
 - workspace identity 分成 recognized 与 supported：legacy `drama` 仅作隔离哨兵，`novel` 是 main 唯一可创建、枚举和运行的类型。CLI/Web/list/direct/logs/run-step/import/trash 均 fail closed。
 - 回收站对 unsupported entry 隐藏并投影为 `entry_not_found`；restore/purge 使用锁、nofollow parent fd、`(st_dev, st_ino)` 二次匹配与 dir-fd 操作，防止检查后替换导致迁移或删除旧短剧数据。
 - canonical 升级为 schema v3 / `canonical-novel-mock-offline`，以 exact ordered steps 约束成功证据；新增 novel-only 静态边界检查，删除 `local_drama_e2e` 及其 evidence 依赖。
-- `a1ffb71` 修正首次 canonical 暴露的两个旧契约：topbar CSS 精确空格断言，以及 invalid workspace metadata 的新 404 fail-closed 预期。
+- `a1ffb71` 修正首次 canonical 暴露的两个旧契约：topbar CSS 精确空格断言，以及 invalid workspace metadata 的新 404 fail-closed 预期；`bd1be59` 将 AGENTS/README/product 迁移说明纳入明确列举的 docs-only closure 契约并增加正反测试。
 
 ## Acceptance Result
 
 - 结果：`mock-functional`，2026-08-15 accepted。
-- implementation：`a1ffb71df295e057c3e4af5e7d2cdc5b7270364e`（主体拆分 `4ab110b`）。canonical schema v3，profile `canonical-novel-mock-offline`，run `8a1055c15cff4139acad65dedfd3686f`，1847 tests / 15 steps / 149 秒，status=passed，`tracked_scope_clean=true`。
+- implementation：`bd1be596deca742c2bb0d78fea965b5604e067df`（主体拆分 `4ab110b`，契约修复 `a1ffb71`）。canonical schema v3，profile `canonical-novel-mock-offline`，run `22a861a2561b4de8b2cd25aeddd7810f`，1849 tests / 15 steps / 78 秒，status=passed，`tracked_scope_clean=true`。
 - 聚焦检查覆盖 disabled DOM、历史路由/CLI 缺席、legacy/invalid/unsafe workspace、logs、import-current、trash list/restore/purge 与 swap、小说创建/续写/恢复、job projection、harness exact steps、py_compile、CLI help、route table、test discovery 和静态边界；回归通过。
 - correctness 只读审查发现并关闭：向导 progress section 开标签丢失、logs tail 缺类型守门、import-current 可写入 legacy target、trash 可枚举/恢复/删除 unsupported entry，以及遗留 job result keys。最终复核无 finding。
 - security/boundary 只读审查发现并关闭：孤儿 character-ref 路由、invalid/unsafe CLI identity、trash 公开存在性与 TOCTOU、非 `drama_` 命名的媒体 CSS/JS/job/fixture 残留。最终复核无 finding。
 - Web/runner/harness 只读审查发现并关闭：向导 DOM 回归、孤儿媒体 route 500、generic static/test 残留、boundary checker 漏检/自撞、route absence 测试弱断言，以及 schema v3 acceptance 可绕过 canonical steps。最终复核无剩余问题。
-- 首次 `verify.sh` 在 1847 tests 中有 2 个失败，均为拆分后旧测试契约（CSS 精确空格、invalid metadata 409→404），没有功能/provider 失败；聚焦修复提交 `a1ffb71` 后按失败重验规则完整复验并通过。全程强制 mock/offline，未调用真实文本、图片、视频或 TTS provider。
+- 早期 `verify.sh` 在 1847 tests 中有 2 个失败，均为拆分后旧测试契约（CSS 精确空格、invalid metadata 409→404），没有功能/provider 失败；聚焦修复提交 `a1ffb71` 后完整复验通过。最终 implementation `bd1be59` 的首次受限验收有 12 个 error，全部是沙箱拒绝测试用 `127.0.0.1` bind；同一提交零代码改动、获准 loopback 后 1849 tests 全过。全程强制 mock/offline，未调用真实文本、图片、视频或 TTS provider。
 - A167-01 PASS：短剧快照 ref 精确固定；docs-only 收官后以 `--ff-only` 更新 main，不 push、不删分支。
 - A167-02 PASS：静态 novel-only checker 通过；允许项之外无短剧实现引用。
 - A167-03 PASS：两个禁用入口具有 `disabled` / `aria-disabled`，无跳转。
@@ -59,7 +59,7 @@
 - A167-05 PASS：legacy drama 隐藏、direct fail closed，import/trash 不修改数据并覆盖 swap 回归。
 - A167-06 PASS：schema v3/profile exact steps、synthetic workspace、mock/offline 与 clean implementation binding 均由 evidence 证明。
 - A167-07 PASS：聚焦检查和三个独立只读视角最终无未闭合 finding。
-- A167-08 PASS（有记录偏差）：最终 successful canonical 证据完整；因首次完整门禁暴露 2 个测试契约而按项目规则修复并重验，因此本轮实际执行两次标准验收，而非计划中的单次调用。
+- A167-08 PASS（有记录偏差）：最终 successful canonical 证据完整；本轮因 2 个真实测试契约失败而修复重验，随后因 docs-closure harness 缺口重新绑定 implementation，且受限运行遇到 loopback `EPERM` 后在获准环境复验，因此实际标准验收调用超过计划单次。每次失败原因、提交边界和最终证据均如实记录。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

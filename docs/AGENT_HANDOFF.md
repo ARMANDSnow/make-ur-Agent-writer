@@ -6,12 +6,12 @@
 
 | 项目 | 当前事实 |
 |---|---|
-| 更新时间 | iter 166 / 2026-08-15 |
-| Accepted implementation commit | `9378f651244755e45148c5b6e3fdad33238cb4db` |
+| 更新时间 | iter 167 / 2026-08-15 |
+| Accepted implementation commit | `bd1be596deca742c2bb0d78fea965b5604e067df` |
 | 日期 / accepted iteration | 2026-08-15 / iter167 |
 | 产品主线 | `main` 只支持小说原创与导入续写；完整小说+短剧快照在 `codex/short-drama` |
-| implementation | `a1ffb71`（前置拆分 `4ab110b`） |
-| 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1847 tests / 15 steps / 149 秒；run `8a1055c15cff4139acad65dedfd3686f`；tracked scope clean |
+| implementation | `bd1be59`（主体拆分 `4ab110b`，契约修复 `a1ffb71`） |
+| 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1849 tests / 15 steps / 78 秒；run `22a861a2561b4de8b2cd25aeddd7810f`；tracked scope clean |
 | workspace 类型 | 可识别：`novel`、legacy `drama`；main 可创建/枚举/运行：仅 `novel` |
 | 短剧 UI | 首页与作品列表保留原生 disabled 卡片按钮；无 href、handler 或跳转目标 |
 | 短剧数据 | main 隐藏并 fail-closed；不读取业务内容，不迁移、不修改、不删除 |
@@ -33,9 +33,9 @@
 ## Latest Accepted Evidence
 
 - iter167 从完整基线 `35c97ccedeaca1725cc1a491cebf393f6a91303a` 固定 `codex/short-drama`，在 `codex/novel-only-split` 物理移除短剧领域、媒体、CLI、Web/API/job、prompt、fixture、脚本与当前测试。
-- canonical 验收升级为 schema v3 / `canonical-novel-mock-offline`，不再读取或要求 `local_drama_e2e`。implementation `a1ffb71` 上 1847 tests、15 steps、149 秒全部通过；mock pipeline、manifest、report snapshot 和 preflight 均通过。
+- canonical 验收升级为 schema v3 / `canonical-novel-mock-offline`，不再读取或要求 `local_drama_e2e`。implementation `bd1be59` 上 1849 tests、15 steps、78 秒全部通过；mock pipeline、manifest、report snapshot 和 preflight 均通过。
 - correctness、security/boundary、Web/runner/harness 三个独立只读视角完成审查。发现的向导 DOM、logs guard、CLI import、trash 隔离/TOCTOU、孤儿媒体路由/静态资源和 acceptance 契约问题均修复；最终复核无剩余 finding。
-- 第一次标准验收在 1847 项中暴露 2 个旧测试契约（CSS 精确空格、invalid metadata 从 409 改为 404）；聚焦修复后按规则完整重验通过。没有调用真实文本、图片、视频或 TTS provider。
+- 早期标准验收在 1847 项中暴露 2 个旧测试契约（CSS 精确空格、invalid metadata 从 409 改为 404）；聚焦修复后通过。最终 implementation 首次受限验收的 12 个 error 均为沙箱拒绝 `127.0.0.1` bind；同一提交在允许 loopback 的环境中 1849 项全过。没有调用真实文本、图片、视频或 TTS provider。
 - iter166 已完成小说原创/续写双链失败恢复：安全动态步骤、strict-approved 完成态和 exact `retry_exhausted` 恢复；该小说行为在 iter167 聚焦回归中保持。
 
 ## Retained Working Memory
@@ -127,4 +127,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter167 完成短剧模块安全分支拆分：完整基线 `35c97cc` 固定在 `codex/short-drama`，main 的实现结果为 `a1ffb71`，只支持小说原创与导入续写。短剧运行代码、媒体链、CLI、Web/API/job、prompt、fixture、脚本和当前测试均从 main 物理移除；首页与作品列表只保留无跳转的 disabled 入口。legacy `type=drama` 仅作隔离哨兵，Web/CLI/list/direct/logs/import/trash 全部 fail closed 且 destructive 操作防替换。三个只读审查视角最终无 finding；canonical schema v3 / `canonical-novel-mock-offline` 在 1847 tests、15 steps、149 秒后 passed，级别 `mock-functional`。9 份未跟踪报告保持原样，未读取私有数据，未调用真实 provider，未 push。
+iter167 完成短剧模块安全分支拆分：完整基线 `35c97cc` 固定在 `codex/short-drama`，main 的 accepted implementation 为 `bd1be59`，只支持小说原创与导入续写。短剧运行代码、媒体链、CLI、Web/API/job、prompt、fixture、脚本和当前测试均从 main 物理移除；首页与作品列表只保留无跳转的 disabled 入口。legacy `type=drama` 仅作隔离哨兵，Web/CLI/list/direct/logs/import/trash 全部 fail closed 且 destructive 操作防替换。三个只读审查视角最终无 finding；canonical schema v3 / `canonical-novel-mock-offline` 在 1849 tests、15 steps、78 秒后 passed，级别 `mock-functional`。9 份未跟踪报告保持原样，未读取私有数据，未调用真实 provider，未 push。

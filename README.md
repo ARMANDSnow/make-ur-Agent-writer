@@ -1,6 +1,6 @@
 # Continuator / 续
 
-最近一次更新：**iter 166**（2026-08-15）
+最近一次更新：**iter 167**（2026-08-15）
 
 本地运行的多 agent 小说续写流水线。它将知识抽取、情节规划、正文生成、审稿和关系推进拆成可恢复步骤；开发与标准验收默认使用 mock，不产生计费模型请求。
 
@@ -106,7 +106,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 - iter153-156、165-166：小说 Web Phase A-E、原创/续写权威模式和失败恢复闭环。
 - iter167：完整基线保存在 `codex/short-drama`，main 收敛为 novel-only；canonical 升级为 schema v3 / `canonical-novel-mock-offline`。
 
-最新 canonical：implementation `a1ffb71`，1847 tests / 15 steps / 149 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider、长篇质量或 SLA 已验证。
+最新 canonical：implementation `bd1be59`，1849 tests / 15 steps / 78 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider、长篇质量或 SLA 已验证。
 
 ## 目录结构
 

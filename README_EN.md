@@ -47,7 +47,7 @@ The Web UI manages novel workspaces only. Short-drama cards are native disabled 
 
 ## Current baseline
 
-Iteration 167 preserved the full baseline on `codex/short-drama` and made main novel-only. Canonical evidence on implementation `a1ffb71`: schema v3, profile `canonical-novel-mock-offline`, 1847 tests, 15 steps, 149 seconds, `mock-functional`, tracked scope clean. This does not validate real providers, long-form quality, or an SLA.
+Iteration 167 preserved the full baseline on `codex/short-drama` and made main novel-only. Canonical evidence on implementation `bd1be59`: schema v3, profile `canonical-novel-mock-offline`, 1849 tests, 15 steps, 78 seconds, `mock-functional`, tracked scope clean. This does not validate real providers, long-form quality, or an SLA.
 
 See [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) for current state, [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md) for historical decisions, and [`docs/product/GETTING_STARTED.md`](docs/product/GETTING_STARTED.md) for usage.
 
