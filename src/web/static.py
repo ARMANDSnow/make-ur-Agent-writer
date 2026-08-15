@@ -1148,7 +1148,7 @@ small{ font-size: var(--fs-xs); color: var(--ink-3); }
      .topbar-actions inside .topbar-actions-wrap). The bare selector also hit
      in-page content action rows (overview "删除作品…", chapter-detail back
      links) that reuse the .topbar-actions class, hiding them at <=768px. */
-  .topbar-actions-wrap .topbar-actions{
+  .topbar-actions-wrap .topbar-actions {
     display: none;
     position: absolute;
     right: 0;
@@ -1163,8 +1163,8 @@ small{ font-size: var(--fs-xs); color: var(--ink-3); }
     flex-direction: column;
     align-items: stretch;
   }
-  .topbar-actions-wrap .topbar-actions.open{ display: flex; }
-  .topbar-actions-wrap .topbar-actions .btn{
+  .topbar-actions-wrap .topbar-actions.open { display: flex; }
+  .topbar-actions-wrap .topbar-actions .btn {
     width: 100%;
     justify-content: flex-start;
   }

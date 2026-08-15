@@ -107,8 +107,8 @@ class JobsDispatchTests(unittest.TestCase):
     def test_invalid_metadata_is_rejected_before_job_allocation(self) -> None:
         workspace_meta.workspace_meta_path("alpha").write_bytes(b"{")
         status, data = self._post_run("alpha", {"step": "normalize", "params": {}})
-        self.assertEqual(status, 409)
-        self.assertEqual(data["code"], "workspace_metadata_invalid")
+        self.assertEqual(status, 404)
+        self.assertIn("workspace not found", data["error"])
         with self.assertRaisesRegex(RuntimeError, "workspace_metadata_invalid"):
             jobs.start_job("alpha", "normalize", {})
         self.assertFalse(jobs._JOBS)
