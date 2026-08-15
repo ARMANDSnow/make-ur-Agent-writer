@@ -93,6 +93,7 @@
 | 165 | 小说 Web 模式语义与交互可靠性修复 | schema v2 原创/续写模式、阶段同源、分层导航/dirty、任务恢复与三视口 local-e2e |
 | 166 | 小说原创/续写双链失败恢复与真模型前端验证 | 动态步骤安全投影、strict-approved 完成态、exact 失败章受控恢复、provider deadline 与窄范围真实前端证据 |
 | 167 | 短剧模块安全分支拆分 | 完整基线固定到 `codex/short-drama`；main 物理收敛为 novel-only，legacy drama 只读隔离，canonical 升级 schema v3 |
+| 168 | 小说续写体检与付费安全闭环 | mutation/intent/framing、metadata-only terminal、逐章 current-plan freshness、bounded JSONL、冻结定价/预算；真链 unknown 零重提 |
 
 ## Iteration Implementation Index
 
@@ -238,6 +239,7 @@
 | 165 | 闭环小说模式语义、导航与任务恢复 | `src/web/`、`integrations/novel_ops/`、`tests/test_web_iter165_ux_reliability.py`、`tests/test_workspace_meta.py` |
 | 166 | 闭环小说双链失败章恢复与模型调用守门 | `src/book_runner.py`、`src/llm_client.py`、`src/web/`、`tests/test_web_iter166_recovery.py`、`tests/test_iter166_model_request_limit.py` |
 | 167 | 安全拆分短剧并建立 novel-only 边界 | `main.py`、`src/web/`、`scripts/verify.sh`、`scripts/check_novel_only_boundary.py`、`tests/test_iter167_novel_only_split.py` |
+| 168 | 闭环小说 mutation、异常、freshness 与日志边界 | `src/llm_client.py`、`src/safe_*.py`、`src/web/`、`integrations/novel_client/`、`tests/test_iter168_novel_health_security.py` |
 
 ## Durable Decisions
 
@@ -359,9 +361,15 @@
 52. **创作来源不能由起点是否存在反推**：原创书没有续写起点是正常状态，导入书暂未选起点也不会因此变成原创。来源模式必须由持久 metadata 与服务端同源投影决定，显式冲突在任务分配前拒绝；legacy 推断保持只读和保守。
 53. **dirty 与 active job 是两个有序导航守门**：same-workspace 切页只处理未保存内容，不应查询或弹出运行任务提示；真正离开/切书才在 dirty 解决后处理 active job。hydration 或任务状态未知时 mutation 必须保持禁用，lost/404/坏状态停止轮询且不得自动重提。
 54. **付费失败恢复不是普通 force 重跑**：UI 上看到失败稿不等于具有恢复资格；服务端必须绑定同章 exact durable terminal、完整上游 freshness/strict plan、内容无关状态指纹与 ledger claim，并在归档/调用写锁内复核本次恢复 job 自身仍是 durable active。状态漂移、任务槽未释放、lost/unknown/submission-unknown 或一般失败只能安全停止，不能猜测后重提。
+55. **HTTP mutation 守门必须由完整 policy 驱动**：新增 POST/PUT 若未登记应在测试和运行时都 fail closed；重复/short `Content-Length`、`Transfer-Encoding`、Content-Type、Origin/Fetch-Site、auth 与 route intent 要在 body 和 handler/provider 之前拒绝。有付费副作用的 diagnostics 不得伪装成 GET。
+56. **“已脱敏异常”必须是 total projection**：未知 provider 异常的 `__str__`、property、truthiness 和 metaclass type name 都可再次抛错，因此投影必须捕获 hostile shape，只选稳定 code/type/attempt/trace。日志 sink 失败不得覆盖本次 provider 结果或导致重提；它要标记 accounting degraded，在下一次付费 claim 和 settlement 前阻断。
+57. **多章完成态要证明全集合 current，不能用最新单章代表全体**：工作台应从当前起点与权威 chapter plan 逐章构造 expected context，计划缺失/重排/损坏、任一旧章 stale 或 external-review mismatch 都不得投影 `done`。
+58. **有界日志读取要同时绑定路径身份与实际 bytes**：dir-fd/`O_NOFOLLOW`/regular-file 还不足；读前后 fd 和最终 pathname/目录链必须一致，行长要在 strip 之前按原始 bytes 检查，再叠加单行、累计、JSON 深度和 dict-only 上限；任一失败只能降级为空。
+59. **付费真链的预算必须在请求前可证明**：未知模型定价不能靠便宜 fallback 宣称人民币上限；显式家族定价、prompt bytes + max output 保守预留、每阶段 request/budget/deadline 冻结和链级 monotonic deadline 需同时成立。`submission_unknown` 发生后原授权不能继续用于新提交，只能无提交 inspect/reconciliation 或重新取得授权后开全新链。
 
 ## Historical Evidence Notes
 
+- iter168 在 implementation `df3bc8a2f8b26ab4901837164570285551a1c8b5` 上 canonical 1889 tests / 15 steps / 84 秒通过，run `880f05b99e4e4f61bb6c2f31bf206c64`，schema v3、`mock-functional` / `canonical-novel-mock-offline`，`tracked_scope_clean=true`。mutation/intent/framing、typed terminal、逐章 freshness、bounded JSONL 与冻结定价/预算闭环；三路只读审查最终无 P0–P2。三视口 synthetic mock 为 `local-e2e`；真链 3 extract + compress + persona 获得响应，entity graph 为 `submission_unknown`后零重提，估算 ¥4.7503，结论 `safe-blocked`。短剧 backlog 已保留，9 份重复日报在验收后删除，未 push。
 - iter167 在 implementation `bd1be596deca742c2bb0d78fea965b5604e067df` 上 canonical 1849 tests / 15 steps / 78 秒通过，run `22a861a2561b4de8b2cd25aeddd7810f`，schema v3、`mock-functional` / `canonical-novel-mock-offline`，`tracked_scope_clean=true`。完整基线 `35c97cc` 保存在 `codex/short-drama`；main 删除短剧运行/媒体/CLI/Web/API/job/prompt/fixture/script/test，只保留禁用入口和 legacy 类型隔离。三路只读审查 findings 全闭合；早期完整门禁的 2 个旧测试契约经聚焦修复，最终提交的首次受限运行又因 12 个 loopback bind `EPERM` 失败，同一提交获准后完整重验通过。9 份未跟踪报告未触碰，未读取私有 workspace，未调用真实 provider，未 push。
 - iter166 在 implementation `9378f651244755e45148c5b6e3fdad33238cb4db` 上 canonical 3126 tests / 15 steps / 479 秒通过，run `348bac3ef2984d91b49c89e4875e9395`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。动态步骤安全投影、strict-approved 正文完成态、原创/续写 exact 失败章恢复与 provider deadline 守门闭环；correctness、security/boundary、Web/UX+provider/timeout 三路最终无剩余 P0-P3。首次完整验收的旧视频 timeout 断言修正后完整重验通过。确定性恢复浏览器为 mock E2E；原创 `test01` 由 Codex 观察至细纲，正文成功来自用户本地声明，续写真 provider 整链为 `safe-blocked`，不外推其它 provider、长跑或 SLA；两份未跟踪报告未触碰，未 push。
 - iter165 在 implementation `e718200` 上 canonical 3072 tests / 15 steps / 502 秒通过，run `615a5147bb994c6f8179c1899dc0b055`，等级 `mock-functional` / `canonical-mock-offline`，`tracked_scope_clean=true`。schema v2 创作模式、阶段同源、dirty/active-job 分层、fail-closed 工作台与任务恢复、提示聚合和移动菜单无障碍闭环；三视口为 `local-e2e`，三路最终无剩余高置信 P1/P2。前两次 full gate 的兼容回归经聚焦修复后完整重验通过；两份未跟踪报告保持原样，未 push、未查询或调用真实 provider。

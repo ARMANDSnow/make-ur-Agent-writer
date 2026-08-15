@@ -1,6 +1,6 @@
 # Continuator / 续
 
-最近一次更新：**iter 167**（2026-08-15）
+最近一次更新：**iter 168**（2026-08-15）
 
 本地运行的多 agent 小说续写流水线。它将知识抽取、情节规划、正文生成、审稿和关系推进拆成可恢复步骤；开发与标准验收默认使用 mock，不产生计费模型请求。
 
@@ -13,10 +13,10 @@
 ## 核心能力
 
 - 小说原创与导入续写：权威 `creation_mode`、起点安全视图、知识提案、情节辩论、章节规划、写作与评审。
-- 质量守门：指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与受控重写。
+- 质量守门：当前 plan/run-context 指纹、5+1 reviewer、确定性 lint、预算/超时、文风漂移与受控重写。
 - 长跑恢复：`write-book`、`drive-book`、supervisor、heartbeat/watchdog、workspace 写锁和断点续跑。
 - 本地 Web：四阶段工作台、设定/大纲/细纲/正文编辑、任务恢复、搜索、版本比较和创作数据。
-- 安全隔离：旧 `type=drama` metadata 只用于识别并拒绝；损坏、未知或不安全 workspace fail closed。
+- 安全隔离：HTTP mutation/intent、provider 异常和日志读取默认 fail closed；旧 `type=drama` metadata 只用于识别并拒绝。
 
 当前验收基线、真实验证边界和下一步统一见 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md)。
 
@@ -105,8 +105,9 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 - iter080-164：历史上同时发展短剧能力；记录继续保留在 [`docs/PROJECT_HISTORY.md`](docs/PROJECT_HISTORY.md) 和 iteration 文档中。
 - iter153-156、165-166：小说 Web Phase A-E、原创/续写权威模式和失败恢复闭环。
 - iter167：完整基线保存在 `codex/short-drama`，main 收敛为 novel-only；canonical 升级为 schema v3 / `canonical-novel-mock-offline`。
+- iter168：闭环 Web mutation/付费守门、LLM 安全异常、逐章 freshness 和有界日志；synthetic 三视口达 `local-e2e`，真链在 entity graph `submission_unknown` 后零重提并记 `safe-blocked`。
 
-最新 canonical：implementation `bd1be59`，1849 tests / 15 steps / 78 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider、长篇质量或 SLA 已验证。
+最新 canonical：implementation `df3bc8a`，1889 tests / 15 steps / 84 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
 
 ## 目录结构
 

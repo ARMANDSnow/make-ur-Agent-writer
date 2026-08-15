@@ -4,7 +4,7 @@
 
 标题只描述主题，不重复测试数、finding 清单或实现细节。每轮完整事实以链接文件为准。
 
-当前 accepted：2026-08-15 / iter167。main 为 novel-only；iter167 前完整小说+短剧快照保存在 `codex/short-drama`。
+当前 accepted：2026-08-15 / iter168。main 为 novel-only；iter167 前完整小说+短剧快照保存在 `codex/short-drama`。
 
 ## Supplemental Records
 

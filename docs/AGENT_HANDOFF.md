@@ -6,17 +6,17 @@
 
 | 项目 | 当前事实 |
 |---|---|
-| 更新时间 | iter 167 / 2026-08-15 |
-| Accepted implementation commit | `bd1be596deca742c2bb0d78fea965b5604e067df` |
-| 日期 / accepted iteration | 2026-08-15 / iter167 |
+| 更新时间 | iter 168 / 2026-08-15 |
+| Accepted implementation commit | `df3bc8a2f8b26ab4901837164570285551a1c8b5` |
+| 日期 / accepted iteration | 2026-08-15 / iter168 |
 | 产品主线 | `main` 只支持小说原创与导入续写；完整小说+短剧快照在 `codex/short-drama` |
-| implementation | `bd1be59`（主体拆分 `4ab110b`，契约修复 `a1ffb71`） |
-| 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1849 tests / 15 steps / 78 秒；run `22a861a2561b4de8b2cd25aeddd7810f`；tracked scope clean |
+| implementation | `df3bc8a`（主体 `b434117`，定价 `fc266b2`，授权预算 maxima `987c0c4`） |
+| 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1889 tests / 15 steps / 84 秒；run `880f05b99e4e4f61bb6c2f31bf206c64`；tracked scope clean |
 | workspace 类型 | 可识别：`novel`、legacy `drama`；main 可创建/枚举/运行：仅 `novel` |
 | 短剧 UI | 首页与作品列表保留原生 disabled 卡片按钮；无 href、handler 或跳转目标 |
 | 短剧数据 | main 隐藏并 fail-closed；不读取业务内容，不迁移、不修改、不删除 |
 | 发布状态 | 本轮仅本地分支和提交；未 push、未建 PR |
-| 本地未跟踪项 | 9 份体检报告保持原样，未读取、移动、提交或删除 |
+| 体检报告 | 9 份重复未跟踪日报已在 canonical 通过后删除；短剧专属待办保留于 `docs/audits/short_drama_health_findings_2026-08.md` |
 
 ## Capability Map
 
@@ -28,15 +28,16 @@
 | 失败恢复 | 动态步骤安全中文、strict-approved 完成态、exact `retry_exhausted` 受控恢复 | lost/unknown/submission-unknown 和一般失败不自动重提 |
 | 长跑 | write-book、drive-book、supervisor、heartbeat/watchdog、预算、写锁 | 真实 10–20 章 capstone 仍需逐次授权 |
 | Web | 四阶段工作台、编辑、任务恢复、搜索、版本与创作数据；响应式 Phase A-E | 本地个人研究工具，不是公网多租户产品 |
+| 安全边界 | mutation policy/intent、typed metadata-only provider failure、bounded no-follow JSONL、逐章 strict freshness、冻结计费 scope | 遥测/定价不可用时 fail closed；`submission_unknown` 无自动出边 |
 | 短剧 | main 无运行能力；完整代码、协议和历史状态在 `codex/short-drama` | main 只识别 legacy 类型以隔离，所有历史入口不可达 |
 
 ## Latest Accepted Evidence
 
-- iter167 从完整基线 `35c97ccedeaca1725cc1a491cebf393f6a91303a` 固定 `codex/short-drama`，在 `codex/novel-only-split` 物理移除短剧领域、媒体、CLI、Web/API/job、prompt、fixture、脚本与当前测试。
-- canonical 验收升级为 schema v3 / `canonical-novel-mock-offline`，不再读取或要求 `local_drama_e2e`。implementation `bd1be59` 上 1849 tests、15 steps、78 秒全部通过；mock pipeline、manifest、report snapshot 和 preflight 均通过。
-- correctness、security/boundary、Web/runner/harness 三个独立只读视角完成审查。发现的向导 DOM、logs guard、CLI import、trash 隔离/TOCTOU、孤儿媒体路由/静态资源和 acceptance 契约问题均修复；最终复核无剩余 finding。
-- 早期标准验收在 1847 项中暴露 2 个旧测试契约（CSS 精确空格、invalid metadata 从 409 改为 404）；聚焦修复后通过。最终 implementation 首次受限验收的 12 个 error 均为沙箱拒绝 `127.0.0.1` bind；同一提交在允许 loopback 的环境中 1849 项全过。没有调用真实文本、图片、视频或 TTS provider。
-- iter166 已完成小说原创/续写双链失败恢复：安全动态步骤、strict-approved 完成态和 exact `retry_exhausted` 恢复；该小说行为在 iter167 聚焦回归中保持。
+- iter168 闭环九份日报在 novel-only main 仍成立的四个根因：HTTP mutation/付费 intent、LLM metadata-only 安全异常、当前 plan 逐章 freshness、Web/preflight 共享 bounded no-follow JSONL。NovelClient/Aeloon、任务恢复、预算/超时和 novel-only 边界同步回归。
+- correctness、security/boundary、Web/UX+provider 三个独立只读审查最终无剩余 P0–P2。重要追加修复包括 terminal fail-fast、hostile exception shape、telemetry/accounting degrade、JSONL 竞态/行长、current-start gate、保守费用预留与 retry caps。
+- fresh synthetic 三章在三视口完成导入、起点、四阶段 mock 链和 strict 单章，结论 `local-e2e`；无横向溢出、不可达控件或关键 console error，截图因 capture timeout 未产生。
+- 真 provider 仅使用 `/private/tmp` synthetic workspace；3 次 extract、compress 与 persona 获得确认响应，entity graph 在 125.5 秒后进入 `submission_unknown`，当场终止且零重提。本地估算 ¥4.7503，结论 `safe-blocked`，不是 `provider-validated`。
+- implementation `df3bc8a` 上 canonical schema v3 / `canonical-novel-mock-offline` 以 1889 tests、15 steps、84 秒通过；run `880f05b99e4e4f61bb6c2f31bf206c64`，`tracked_scope_clean=true`，等级 `mock-functional`。首次完整门禁只暴露 4 个 iter166 旧预算断言，修正后完整重验通过。
 
 ## Retained Working Memory
 
@@ -51,6 +52,7 @@
 - 不主动读取 `.env`、`小说txt/`、私有 workspace、`data/`、`outputs/` 或 `logs/`。公开错误和 job 投影不含完整 prompt、签名 URL、凭据或 provider raw。
 - mock 必须在 LiteLLM 首次导入前固定本地 cost map 并跳过代理探测；unittest discovery 触发真实调用是严重回归。
 - 所有真实模型入口逐次授权。标准 `verify.sh` 只能证明 `mock-functional`。
+- 真实模型必须有明确本地定价才能在请求前预留最坏费用；日志/计费 sink 降级后阻断下一次付费请求和 settlement。
 
 ### 3. 写作、评审与恢复
 
@@ -63,6 +65,7 @@
 - dirty 与 active job 是有序但不同的导航守门：同 workspace 先解决未保存内容，离开/切书才处理 active job。
 - hydration、任务或 metadata 未知时 mutation 保持禁用；lost/404/坏状态停止轮询且零重提。
 - 文件身份检查必须覆盖实际 mutation 窗口。回收站 destructive 操作使用锁、nofollow parent fd、inode 二次匹配和 dir-fd 操作，避免检查后对象被替换。
+- 日志和 preflight 只能通过共享 bounded reader 读取：dir-fd/no-follow、regular-file、读前后 pathname identity、单行/累计/深度上限任一失败都降级为空。
 
 ### 5. novel-only 分支边界
 
@@ -82,18 +85,18 @@
 - main 不提供短剧 CLI、页面、API、媒体回调、job step、归档或 workspace 创建。
 - 历史 iteration 与 PROJECT_HISTORY 保留为审计记录，不代表 main 当前可运行能力。
 - 不 push、不建 PR，除非用户另行明确要求。
-- 不读取或提交 9 份未跟踪体检报告。
+- 短剧专属 backlog 只在 main 记录；实际复核/移植必须切到 `codex/short-drama`。
 
 ## Open Gaps
 
-1. 小说真实 provider 的完整续写链和 10–20 章长跑质量仍需用户逐次授权；当前 canonical 不能外推。
+1. 小说真实 provider 续写链在 entity graph 留有 `submission_unknown`；无权威 provider inspect/reconciliation 时不得重提原请求。完整单章与 10–20 章长跑仍未验证。
 2. Web 仍是本机个人研究工具，未做公网身份认证、多租户隔离或服务级 SLA。
 3. Aeloon 集成状态继续由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护。
 4. 短剧后续能力、真实媒体校准和历史数据访问只在 `codex/short-drama` 继续，不属于 main backlog。
 
 ## Next Candidates
 
-1. 在明确授权后，对一份 synthetic/用户指定小说做 continuation 真 provider 最小链验证，再决定是否扩大到长篇 capstone。
+1. 先寻找不产生新提交的 provider inspect/reconciliation 证据处理本次 entity graph unknown；若上游不提供查询，保持 `safe-blocked`，只能在用户再次明确授权后开全新 synthetic 链。
 2. 继续收敛小说 Web 的可访问性、恢复说明和端到端浏览器回归，不改变 novel-only 类型边界。
 3. 定期运行静态 novel-only 边界检查，避免 generic media/production 命名的短剧残留重新进入 main。
 
@@ -127,4 +130,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter167 完成短剧模块安全分支拆分：完整基线 `35c97cc` 固定在 `codex/short-drama`，main 的 accepted implementation 为 `bd1be59`，只支持小说原创与导入续写。短剧运行代码、媒体链、CLI、Web/API/job、prompt、fixture、脚本和当前测试均从 main 物理移除；首页与作品列表只保留无跳转的 disabled 入口。legacy `type=drama` 仅作隔离哨兵，Web/CLI/list/direct/logs/import/trash 全部 fail closed 且 destructive 操作防替换。三个只读审查视角最终无 finding；canonical schema v3 / `canonical-novel-mock-offline` 在 1849 tests、15 steps、78 秒后 passed，级别 `mock-functional`。9 份未跟踪报告保持原样，未读取私有数据，未调用真实 provider，未 push。
+iter168 完成小说续写体检闭环：main 统一 mutation/intent/framing 守门，provider failure 只保留 typed metadata，工作台按当前 plan 逐章证明 strict freshness，Web/preflight 共用 bounded no-follow JSONL。真模型定价、最坏费用预留和显式授权 maxima 已入服务端守门；三视口 synthetic mock 链为 `local-e2e`，真链在 entity graph `submission_unknown` 后零重提，本地估算 ¥4.7503，结论 `safe-blocked`。三路只读审查最终无剩余 P0–P2；canonical 在 `df3bc8a` 上 1889 tests / 15 steps / 84 秒 passed，级别 `mock-functional`。短剧 backlog 已独立保留，9 份重复日报已删除，未读取私有数据，未 push。
