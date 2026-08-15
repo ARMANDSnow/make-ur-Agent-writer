@@ -81,14 +81,6 @@ class NovelPhaseDTests(unittest.TestCase):
         self.assertIn("safeOptionalCount", js)
         self.assertNotIn("评分 ' + (a.score == null", js)
 
-    def test_phase_d_responsive_cards_and_44px_targets_are_scoped_to_novel(self) -> None:
-        css = static.CSS_BODY
-        self.assertIn(".ui-novel .chapter-item", css)
-        self.assertIn(".ui-novel .job-record-card", css)
-        self.assertIn("@media (max-width: 767px)", css)
-        self.assertIn("min-height: 44px", css)
-        self.assertIn(".ui-novel [hidden] { display: none !important; }", css)
-        self.assertNotIn(".ui-drama .chapter-item", css)
 
 
 if __name__ == "__main__":

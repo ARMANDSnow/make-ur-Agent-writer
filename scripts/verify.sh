@@ -24,18 +24,13 @@ fi
 # provider surface before any Python process can load the user's .env.
 unset WORKSPACE_NAME BOOK
 export OPENAI_MODEL=mock
-export DRAMA_MODEL=mock
 export PLANNER_MODEL=mock
-export SD_VIDEO_MODE=mock
 export LITELLM_LOCAL_MODEL_COST_MAP=true
 export DRAGON_RAJA_SKIP_DOTENV=1
 export PYTHON_DOTENV_DISABLED=1
 unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_STREAM
 unset PLANNER_API_KEY PLANNER_BASE_URL
-unset AI_DRAW_ENDPOINT AI_DRAW_BASE_URL AI_DRAW_MODEL AI_DRAW_API_KEY AI_DRAW_RESULT_HOSTS
-unset SD_API_BASE_URL SD_API_KEY SD_VIDEO_MODEL SD_ASSET_PUBLIC_BASE_URL
-unset SD_VIDEO_RESULT_HOSTS SD_VIDEO_ESTIMATED_COST_CNY
-unset CONFIRM_REAL_MODEL_SMOKE CONFIRM_REAL_VIDEO_SMOKE
+unset CONFIRM_REAL_MODEL_SMOKE
 unset DISABLE_PROMPT_CACHE WRITE_MAX_TOKENS WRITE_PROMPT_PROFILE
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -139,11 +134,7 @@ fi
 
 VERIFY_WORKSPACE_ROOT="$RUN_DIR/workspaces"
 VERIFY_BOOK_ROOT="$VERIFY_WORKSPACE_ROOT/verify"
-VERIFY_DRAMA_ROOT="$RUN_DIR/drama-e2e"
 mkdir -p "$VERIFY_BOOK_ROOT/小说txt"
-mkdir -p "$VERIFY_DRAMA_ROOT"
-touch "$VERIFY_DRAMA_ROOT/.dragon-raja-local-e2e"
-chmod 600 "$VERIFY_DRAMA_ROOT/.dragon-raja-local-e2e"
 touch "$VERIFY_WORKSPACE_ROOT/.dragon-raja-verify-owned"
 chmod 600 "$VERIFY_WORKSPACE_ROOT/.dragon-raja-verify-owned"
 cat > "$VERIFY_BOOK_ROOT/小说txt/verify-placeholder.txt" <<'EOF'
@@ -164,10 +155,7 @@ pin_empty_runtime_env() {
   # pin empty values so later CLI processes cannot reload local .env values.
   export OPENAI_API_KEY="" OPENAI_BASE_URL="" OPENAI_STREAM=""
   export PLANNER_API_KEY="" PLANNER_BASE_URL=""
-  export AI_DRAW_ENDPOINT="" AI_DRAW_BASE_URL="" AI_DRAW_MODEL="" AI_DRAW_API_KEY="" AI_DRAW_RESULT_HOSTS=""
-  export SD_API_BASE_URL="" SD_API_KEY="" SD_VIDEO_MODEL="" SD_ASSET_PUBLIC_BASE_URL=""
-  export SD_VIDEO_RESULT_HOSTS="" SD_VIDEO_ESTIMATED_COST_CNY=""
-  export CONFIRM_REAL_MODEL_SMOKE="" CONFIRM_REAL_VIDEO_SMOKE=""
+  export CONFIRM_REAL_MODEL_SMOKE=""
   export DISABLE_PROMPT_CACHE="" WRITE_MAX_TOKENS="" WRITE_PROMPT_PROFILE=""
 }
 
@@ -186,6 +174,7 @@ run_main_step() {
 }
 run_step repository_state "$PYTHON_BIN" scripts/write_acceptance.py check-repository --root "$ROOT"
 run_step harness_check "$PYTHON_BIN" scripts/check_agent_harness.py
+run_step novel_only_boundary "$PYTHON_BIN" scripts/check_novel_only_boundary.py
 run_step py_compile "$PYTHON_BIN" -m py_compile main.py src/*.py src/web/*.py tests/*.py scripts/run_isolated_cli.py
 
 CURRENT_STEP="unittest"
@@ -210,16 +199,6 @@ if [[ ! "$TEST_COUNT" =~ ^[1-9][0-9]*$ ]]; then
 fi
 complete_step
 pin_empty_runtime_env
-
-# Iter 103: this is a mandatory loopback fake-provider component test.  It
-# shares the canonical run/git identity, writes separate local-e2e evidence,
-# and may never be treated as an optional skip.
-run_step local_drama_e2e "$PYTHON_BIN" scripts/run_local_drama_e2e.py \
-  --workspace-root "$VERIFY_DRAMA_ROOT" \
-  --run-id "$RUN_ID" \
-  --evidence-path "$ROOT/outputs/harness/local_drama_e2e.json" \
-  --git-head "$(git rev-parse HEAD)" \
-  --git-tree "$(git rev-parse 'HEAD^{tree}')"
 
 run_main_step normalize normalize
 run_main_step split split

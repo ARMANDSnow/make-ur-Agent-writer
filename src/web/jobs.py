@@ -205,10 +205,6 @@ def public_job_view(job: Dict[str, Any]) -> Dict[str, Any]:
     projected["current_step"] = _public_current_step(
         job.get("current_step"), step=job.get("step")
     )
-    projected.update(_public_local_demo_context(job))
-    result_context = _public_result_context(job)
-    if result_context is not None:
-        projected["result_context"] = result_context
     return projected
 
 
@@ -270,20 +266,8 @@ _RETRY_PARAM_KEYS_BY_STEP: Dict[str, frozenset[str]] = {
         {"chapter", "window", "budget_cny", "force", "max_model_requests"}
     ),
     "expand-premise": frozenset({"force", "max_model_requests"}),
-    "drama-compose": frozenset({"episode_no"}),
 }
-_NON_RETRYABLE_STEPS = frozenset(
-    {
-        "extract-style",
-        "drama-plan",
-        "drama-hooks",
-        "drama-storyboard",
-        "drama-characters",
-        "drama-review-assemble",
-        "drama-local-demo",
-        "drama-video",
-    }
-)
+_NON_RETRYABLE_STEPS = frozenset({"extract-style"})
 _RETRY_BOOL_KEYS = frozenset(
     {
         "apply",
@@ -297,7 +281,6 @@ _RETRY_INT_KEYS = frozenset(
     {
         "chapter",
         "chapters",
-        "episode_no",
         "extract_limit",
         "from_chapter",
         "limit",
@@ -313,7 +296,6 @@ _PUBLIC_RESULT_KEYS = frozenset(
     {
         "acceptance_level",
         "applied",
-        "assembled",
         "blocked",
         "budget_cny",
         "chapter",
@@ -321,32 +303,22 @@ _PUBLIC_RESULT_KEYS = frozenset(
         "chapters_written",
         "cost_cny",
         "count",
-        "duration_seconds",
-        "episode_no",
         "error_code",
         "estimated",
-        "export_fingerprint",
         "extracted",
         "fact_count",
         "failure_reason",
-        "file_size_bytes",
         "first_blocked",
-        "hook_count",
         "holder",
         "keys",
-        "network_requests",
         "partial",
         "progress",
-        "qa_fingerprint",
         "ratio",
-        "resolution",
         "reason",
         "skipped",
-        "station",
         "status",
         "strict_failures",
         "source",
-        "timeline_fingerprint",
         "verdict",
         "window",
         "workspace_locked",
@@ -580,10 +552,6 @@ def public_job_summary_view(job: Dict[str, Any]) -> Dict[str, Any]:
         projected["reconciliation_reason"] = reconciliation_reason
     if not isinstance(job.get("persistence_degraded"), bool):
         projected.pop("persistence_degraded", None)
-    projected.update(_public_local_demo_context(job))
-    result_context = _public_result_context(job)
-    if result_context is not None:
-        projected["result_context"] = result_context
     return projected
 
 
@@ -602,144 +570,7 @@ def public_job_detail_view(job: Dict[str, Any]) -> Dict[str, Any]:
         projected["reconciliation_reason"] = reconciliation_reason
     if not isinstance(job.get("persistence_degraded"), bool):
         projected.pop("persistence_degraded", None)
-    projected.update(_public_local_demo_context(job))
-    result_context = _public_result_context(job)
-    if result_context is not None:
-        projected["result_context"] = result_context
     return projected
-
-
-def _strict_episode_no(value: Any) -> Optional[int]:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value if 1 <= value <= 100 else None
-
-
-def _strict_result_context(value: Any) -> Optional[Dict[str, Any]]:
-    """Validate the complete public navigation context without coercion."""
-
-    if not isinstance(value, dict) or set(value) != {"workspace", "episode_no"}:
-        return None
-    workspace = value.get("workspace")
-    episode_no = _strict_episode_no(value.get("episode_no"))
-    if (
-        not isinstance(workspace, str)
-        or not validate_workspace_name(workspace)
-        or episode_no is None
-    ):
-        return None
-    return {"workspace": workspace, "episode_no": episode_no}
-
-
-def _historical_drama_episode_no(job: Dict[str, Any]) -> Optional[int]:
-    """Recover an old row's episode only from mutually consistent safe fields."""
-
-    candidates: list[int] = []
-    params = job.get("params")
-    summary = job.get("result_summary")
-    source_episode = job.get("source_episode_no")
-    if "source_episode_no" in job:
-        episode_no = _strict_episode_no(source_episode)
-        if episode_no is None:
-            return None
-        candidates.append(episode_no)
-    for container in (params, summary):
-        if not isinstance(container, dict) or "episode_no" not in container:
-            continue
-        episode_no = _strict_episode_no(container.get("episode_no"))
-        if episode_no is None:
-            return None
-        candidates.append(episode_no)
-    if candidates and any(value != candidates[0] for value in candidates[1:]):
-        return None
-    # Episode 1 predates the multi-episode field and is the only safe default.
-    return candidates[0] if candidates else 1
-
-
-def _public_result_context(job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Return a strict, server-derived destination for drama result links.
-
-    New rows freeze this value at admission. Persisted ledgers remain untrusted:
-    an explicitly present but malformed/mismatched context fails closed instead
-    of falling back to other fields. Rows written before the field existed use
-    only bounded, mutually consistent historical fields.
-    """
-
-    step = job.get("step")
-    if not isinstance(step, str) or not step.startswith("drama-"):
-        return None
-    source_workspace = job.get("workspace")
-    if not isinstance(source_workspace, str) or not validate_workspace_name(source_workspace):
-        return None
-
-    frozen = job.get("result_context")
-    if "result_context" in job:
-        context = _strict_result_context(frozen)
-        if context is None:
-            return None
-        if step == "drama-local-demo":
-            local = _public_local_demo_context(job)
-            if (
-                context.get("workspace") != local.get("target_workspace")
-                or context.get("episode_no") != local.get("target_episode_no")
-            ):
-                return None
-        elif context.get("workspace") != source_workspace:
-            return None
-        else:
-            source_episode = _strict_episode_no(job.get("source_episode_no"))
-            if source_episode is None or context.get("episode_no") != source_episode:
-                return None
-        return context
-
-    if step == "drama-local-demo":
-        local = _public_local_demo_context(job)
-        if not local:
-            return None
-        return {
-            "workspace": local["target_workspace"],
-            "episode_no": local["target_episode_no"],
-        }
-    episode_no = _historical_drama_episode_no(job)
-    if episode_no is None:
-        return None
-    return {"workspace": source_workspace, "episode_no": episode_no}
-
-
-def _public_local_demo_context(job: Dict[str, Any]) -> Dict[str, Any]:
-    """Return the non-replayable, server-derived local-demo target identity.
-
-    The target deliberately stays outside ``params``: local demos are one-shot
-    jobs and a historical confirmation must never become reusable consent.
-    Persisted rows are untrusted input, so every read revalidates the source
-    workspace hash and the exact allocator grammar before projecting a link.
-    """
-
-    if job.get("step") != "drama-local-demo":
-        return {}
-    source = job.get("workspace")
-    target = job.get("target_workspace")
-    source_episode = job.get("source_episode_no")
-    target_episode = job.get("target_episode_no")
-    if (
-        not isinstance(source, str)
-        or not isinstance(target, str)
-        or isinstance(source_episode, bool)
-        or not isinstance(source_episode, int)
-        or not 1 <= source_episode <= 100
-        or isinstance(target_episode, bool)
-        or target_episode != 1
-    ):
-        return {}
-    source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()[:8]
-    expected = rf"localdemo_{source_hash}_{source_episode}_[a-f0-9]{{8}}"
-    if re.fullmatch(expected, target) is None:
-        return {}
-    return {
-        "target_workspace": target,
-        "source_episode_no": source_episode,
-        "target_episode_no": target_episode,
-    }
 
 
 def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -759,29 +590,6 @@ def _new_job_record(workspace: str, step: str, params: Dict[str, Any]) -> Dict[s
         "cancel_requested": False,
         "cancel_reason": None,
     }
-    if step == "drama-local-demo":
-        record.update(
-            {
-                "target_workspace": params.get("demo_workspace"),
-                "source_episode_no": params.get("episode_no", 1),
-                "target_episode_no": 1,
-            }
-        )
-        if not _public_local_demo_context(record):
-            raise ValueError("invalid local demo target identity")
-        record["result_context"] = {
-            "workspace": record["target_workspace"],
-            "episode_no": 1,
-        }
-    elif step.startswith("drama-"):
-        episode_no = _strict_episode_no(params.get("episode_no", 1))
-        if episode_no is None or not validate_workspace_name(workspace):
-            raise ValueError("invalid drama result context")
-        record["result_context"] = {
-            "workspace": workspace,
-            "episode_no": episode_no,
-        }
-        record["source_episode_no"] = episode_no
     return record
 
 
@@ -994,33 +802,6 @@ def _persist_job(job: Dict[str, Any]) -> bool:
         durable["retryable"] = _job_retryable(job)
         durable["error"] = _public_error(job.get("error"))
         durable["result_summary"] = _public_result_summary(job.get("result_summary"))
-        durable.update(_public_local_demo_context(job))
-        result_context = _public_result_context(job)
-        if (
-            isinstance(job.get("step"), str)
-            and job["step"].startswith("drama-")
-            and job["step"] != "drama-local-demo"
-        ):
-            source_episode = _strict_episode_no(job.get("source_episode_no"))
-            if "source_episode_no" in job and source_episode is None:
-                return False
-            if (
-                source_episode is None
-                and "result_context" not in job
-                and result_context is not None
-            ):
-                source_episode = result_context["episode_no"]
-            if source_episode is not None:
-                durable["source_episode_no"] = source_episode
-        if (
-            isinstance(job.get("step"), str)
-            and job["step"].startswith("drama-")
-            and "result_context" in job
-            and result_context is None
-        ):
-            return False
-        if result_context is not None:
-            durable["result_context"] = result_context
         payload = (
             json.dumps(
                 _finite_json_safe(durable),
@@ -2267,38 +2048,14 @@ def _step_rebuild_for_start(params: Dict[str, Any], progress_cb: Callable[[str, 
     return result
 
 
-def _drama_episode_no(params: Dict[str, Any]) -> int:
-    from ..drama_schemas import normalize_episode_no
-
-    return normalize_episode_no(params.get("episode_no", 1))
 
 
-def _drama_job_error(step: str, exc: BaseException) -> Dict[str, Any]:
-    """Return a public-safe drama failure without persisting provider text/paths."""
-    import sys
-
-    sys.stderr.write(f"[jobs] {step} failed: {type(exc).__name__} (details suppressed)\n")
-    return {
-        "status": "failed",
-        "error_code": "drama_generation_failed",
-        "station": step,
-    }
 
 
-_DRAMA_MODEL_TASKS = {
-    "drama-plan": "drama_plan",
-    "drama-hooks": "drama_hooks",
-    "drama-storyboard": "drama_storyboard",
-    "drama-characters": "drama_character",
-    "drama-review-assemble": "drama_review",
-}
 
 
-def _drama_text_attempt_path(workspace: str) -> Path:
-    return paths.workspace_root(workspace) / "logs" / "drama_text_attempts.json"
 
 
-MAX_DRAMA_TEXT_LEDGER_BYTES = 512 * 1024
 
 
 def _open_strict_parent_directory(path: Path, *, create: bool) -> int | None:
@@ -2347,902 +2104,56 @@ def _open_strict_parent_directory(path: Path, *, create: bool) -> int | None:
         raise
 
 
-def _read_drama_text_ledger_bytes(path: Path) -> bytes | None:
-    directory_fd: int | None = None
-    file_fd: int | None = None
-    try:
-        directory_fd = _open_strict_parent_directory(path, create=False)
-        if directory_fd is None:
-            return None
-        try:
-            file_fd = os.open(
-                path.name,
-                os.O_RDONLY
-                | getattr(os, "O_NOFOLLOW", 0)
-                | getattr(os, "O_NONBLOCK", 0),
-                dir_fd=directory_fd,
-            )
-        except OSError as exc:
-            if path.is_symlink():
-                raise ValueError("drama text attempt ledger must be a regular file") from exc
-            raise
-        before = os.fstat(file_fd)
-        if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_DRAMA_TEXT_LEDGER_BYTES:
-            raise ValueError("drama text attempt ledger is unreadable")
-        chunks: list[bytes] = []
-        remaining = MAX_DRAMA_TEXT_LEDGER_BYTES + 1
-        while remaining > 0:
-            chunk = os.read(file_fd, min(64 * 1024, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        body = b"".join(chunks)
-        after = os.fstat(file_fd)
-        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
-        if (
-            len(body) > MAX_DRAMA_TEXT_LEDGER_BYTES
-            or len(body) != before.st_size
-            or identity(before) != identity(after)
-        ):
-            raise ValueError("drama text attempt ledger is unreadable")
-        return body
-    except FileNotFoundError:
-        return None
-    except ValueError:
-        raise
-    except OSError as exc:
-        raise ValueError("drama text attempt ledger is unreadable") from exc
-    finally:
-        if file_fd is not None:
-            os.close(file_fd)
-        if directory_fd is not None:
-            os.close(directory_fd)
-
-
-def _write_drama_text_ledger_bytes(path: Path, body: bytes) -> None:
-    if len(body) > MAX_DRAMA_TEXT_LEDGER_BYTES:
-        raise ValueError("drama text attempt ledger exceeds its size limit")
-    directory_fd: int | None = None
-    temp_fd: int | None = None
-    temp_name = f".{path.name}.tmp.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}"
-    try:
-        directory_fd = _open_strict_parent_directory(path, create=True)
-        if directory_fd is None:
-            raise OSError("text ledger directory is unavailable")
-        try:
-            existing = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            existing = None
-        if existing is not None and not stat.S_ISREG(existing.st_mode):
-            raise OSError("text ledger target is not a regular file")
-        temp_fd = os.open(
-            temp_name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-            dir_fd=directory_fd,
-        )
-        view = memoryview(body)
-        while view:
-            written = os.write(temp_fd, view)
-            if written <= 0:
-                raise OSError("short text ledger write")
-            view = view[written:]
-        os.fsync(temp_fd)
-        os.close(temp_fd)
-        temp_fd = None
-        os.replace(temp_name, path.name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
-        os.fsync(directory_fd)
-    except (OSError, ValueError) as exc:
-        raise ValueError("drama text attempt ledger could not be written safely") from exc
-    finally:
-        if temp_fd is not None:
-            try:
-                os.close(temp_fd)
-            except OSError:
-                pass
-        if directory_fd is not None:
-            try:
-                os.unlink(temp_name, dir_fd=directory_fd)
-            except OSError:
-                pass
-            os.close(directory_fd)
-
 
-def _drama_text_provider_fingerprint(task: str) -> str:
-    import hashlib
-    from ..config import get_model_config
-
-    config = get_model_config(task)
-    payload = {
-        "model": str(config.get("model") or "mock").strip(),
-        "base_url": str(config.get("base_url") or "").strip().rstrip("/"),
-        "base_url_env": str(config.get("base_url_env") or ""),
-        "api_key_env": str(config.get("api_key_env") or ""),
-        "api_key": str(config.get("api_key") or ""),
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-
-def _drama_text_input_payload(
-    step: str,
-    workspace: str,
-    episode_no: int,
-    *,
-    stable_recovery: bool,
-) -> Dict[str, Any]:
-    import hashlib
-    from ..drama_schemas import character_paths, episode_paths
-    from ..utils import read_json_optional
-
-    ep = episode_paths(workspace, episode_no=episode_no)
-    root = paths.workspace_root(workspace)
-    snapshot = root / "data" / "creation_standard.snapshot.md"
-    try:
-        snapshot_sha256 = hashlib.sha256(snapshot.read_bytes()).hexdigest()
-    except OSError:
-        snapshot_sha256 = "missing"
-    sources: Dict[str, Any] = {
-        "step": step,
-        "episode_no": episode_no,
-        "wizard": read_json_optional(root / "data" / "wizard_input.json", None),
-        "creation_standard_sha256": snapshot_sha256,
-    }
-    if step in {"drama-hooks", "drama-storyboard", "drama-characters", "drama-review-assemble"}:
-        setup = read_json_optional(ep.setup_path, None)
-        if stable_recovery and step == "drama-hooks" and isinstance(setup, dict):
-            setup = {key: value for key, value in setup.items() if key != "hook"}
-        sources["setup"] = setup
-    if step in {"drama-characters", "drama-review-assemble"}:
-        sources["storyboard"] = read_json_optional(ep.storyboard_path, None)
-    if step == "drama-characters" and not stable_recovery:
-        sources["existing_characters"] = read_json_optional(character_paths(workspace).sheet_path, None)
-    if step == "drama-hooks" and episode_no > 1:
-        sources["previous_hooks"] = [
-            read_json_optional(episode_paths(workspace, episode_no=number).setup_path, None)
-            for number in range(1, episode_no)
-        ]
-    if step == "drama-review-assemble":
-        sources["characters"] = read_json_optional(character_paths(workspace).sheet_path, None)
-    return sources
-
-
-def _drama_text_input_fingerprint(step: str, workspace: str, episode_no: int) -> str:
-    from ..utils import sha256_data
-
-    return sha256_data(_drama_text_input_payload(
-        step, workspace, episode_no, stable_recovery=False
-    ))
-
-
-def _drama_text_recovery_fingerprint(step: str, workspace: str, episode_no: int) -> str:
-    from ..utils import sha256_data
-
-    return sha256_data(_drama_text_input_payload(
-        step, workspace, episode_no, stable_recovery=True
-    ))
-
-
-def _drama_text_recovery_fingerprint_matches(
-    step: str,
-    workspace: str,
-    episode_no: int,
-    row: Dict[str, Any],
-) -> bool:
-    """Accept current recovery identity plus the safe first-sheet legacy shape."""
-
-    from ..utils import sha256_data
-
-    current = _drama_text_recovery_fingerprint(step, workspace, episode_no)
-    recorded = row.get("recovery_fingerprint")
-    if isinstance(recorded, str):
-        return recorded == current
-    legacy = row.get("input_fingerprint")
-    if legacy == current:
-        return True
-    if step == "drama-characters":
-        # Before recovery_fingerprint existed, the first character generation
-        # hashed an explicit null sheet.  That state is reconstructible without
-        # trusting the now-written output; later merge inputs remain fail-closed.
-        payload = _drama_text_input_payload(
-            step, workspace, episode_no, stable_recovery=True
-        )
-        payload["existing_characters"] = None
-        return legacy == sha256_data(payload)
-    return False
-
-
-def _load_drama_text_attempts(workspace: str) -> Dict[str, Any]:
-    path = _drama_text_attempt_path(workspace)
-    try:
-        body = _read_drama_text_ledger_bytes(path)
-        if body is None:
-            return {"schema_version": 1, "attempts": {}}
-        raw = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise ValueError("drama text attempt ledger is unreadable") from exc
-    except FileNotFoundError:
-        return {"schema_version": 1, "attempts": {}}
-    if not isinstance(raw, dict) or raw.get("schema_version") != 1 or not isinstance(raw.get("attempts"), dict):
-        raise ValueError("drama text attempt ledger is invalid")
-    for key, row in raw["attempts"].items():
-        if (
-            not isinstance(key, str)
-            or not isinstance(row, dict)
-            or row.get("status") not in TEXT_ATTEMPT_STATUSES
-            or row.get("step") not in _DRAMA_MODEL_TASKS
-            or type(row.get("episode_no")) is not int
-            or row["episode_no"] < 1
-            or type(row.get("attempt_count")) is not int
-            or row["attempt_count"] < 1
-            or key != f'{row["step"]}:{row["episode_no"]}'
-        ):
-            raise ValueError("drama text attempt ledger row is invalid")
-        for field in ("provider_fingerprint", "input_fingerprint"):
-            value = row.get(field)
-            if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-                raise ValueError("drama text attempt ledger fingerprint is invalid")
-        recovery = row.get("recovery_fingerprint")
-        if recovery is not None and (
-            not isinstance(recovery, str)
-            or re.fullmatch(r"[0-9a-f]{64}", recovery) is None
-        ):
-            raise ValueError("drama text attempt recovery fingerprint is invalid")
-        artifact = row.get("artifact_fingerprint")
-        if artifact is not None and (
-            not isinstance(artifact, str) or re.fullmatch(r"[0-9a-f]{64}", artifact) is None
-        ):
-            raise ValueError("drama text attempt artifact fingerprint is invalid")
-        candidates = row.get("candidate_fingerprints")
-        if candidates is not None and (
-            not isinstance(candidates, list)
-            or not candidates
-            or any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None for value in candidates)
-        ):
-            raise ValueError("drama text attempt candidate fingerprints are invalid")
-        revision = row.get("revision", 1)
-        if type(revision) is not int or revision < 1:
-            raise ValueError("drama text attempt revision is invalid")
-        history = row.get("completed_revisions", [])
-        if not isinstance(history, list) or len(history) > 100:
-            raise ValueError("drama text attempt revision history is invalid")
-        for previous in history:
-            if (
-                not isinstance(previous, dict)
-                or previous.get("status") != "succeeded"
-                or previous.get("step") != row.get("step")
-                or previous.get("episode_no") != row.get("episode_no")
-                or type(previous.get("attempt_count")) is not int
-                or previous["attempt_count"] < 1
-                or type(previous.get("revision")) is not int
-                or previous["revision"] < 1
-                or any(
-                    not isinstance(previous.get(field), str)
-                    or re.fullmatch(r"[0-9a-f]{64}", previous[field]) is None
-                    for field in ("provider_fingerprint", "input_fingerprint")
-                )
-            ):
-                raise ValueError("drama text attempt revision history is invalid")
-            for field in ("recovery_fingerprint", "artifact_fingerprint"):
-                value = previous.get(field)
-                if value is not None and (
-                    not isinstance(value, str)
-                    or re.fullmatch(r"[0-9a-f]{64}", value) is None
-                ):
-                    raise ValueError("drama text attempt revision history is invalid")
-    return raw
-
-
-def _save_drama_text_attempts(workspace: str, ledger: Dict[str, Any]) -> None:
-    try:
-        body = (json.dumps(ledger, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
-    except (TypeError, ValueError) as exc:
-        raise ValueError("drama text attempt ledger is invalid") from exc
-    _write_drama_text_ledger_bytes(_drama_text_attempt_path(workspace), body)
-
-
-def _canonical_drama_text_result(
-    step: str,
-    workspace: str,
-    episode_no: int,
-    row: Dict[str, Any],
-    *,
-    allow_selected_hook: bool = False,
-) -> Dict[str, Any] | None:
-    """Recover a committed station result without another provider call."""
-    from ..drama_schemas import character_paths, episode_paths
-    from ..utils import read_json_optional, sha256_data
-
-    ep = episode_paths(workspace, episode_no=episode_no)
-    if step == "drama-plan":
-        value = read_json_optional(ep.setup_path, None)
-        candidate = {key: item for key, item in value.items() if key != "hook"} if isinstance(value, dict) else None
-    elif step == "drama-hooks":
-        value = read_json_optional(ep.hook_candidates_path, None)
-        if isinstance(value, dict):
-            candidate = value
-        elif allow_selected_hook:
-            setup = read_json_optional(ep.setup_path, None)
-            hook = setup.get("hook") if isinstance(setup, dict) else None
-            candidate = {"hooks": [hook]} if isinstance(hook, dict) else None
-        else:
-            return None
-        fingerprints = row.get("candidate_fingerprints") or []
-        hooks = candidate.get("hooks") if isinstance(candidate, dict) else None
-        if not isinstance(hooks, list) or not hooks or not all(sha256_data(hook) in fingerprints for hook in hooks):
-            return None
-        return candidate
-    elif step == "drama-storyboard":
-        candidate = read_json_optional(ep.storyboard_path, None)
-    elif step == "drama-characters":
-        candidate = read_json_optional(character_paths(workspace).sheet_path, None)
-    elif step == "drama-review-assemble":
-        candidate = read_json_optional(ep.review_path, None)
-    else:
-        return None
-    if not isinstance(candidate, dict) or sha256_data(candidate) != row.get("artifact_fingerprint"):
-        return None
-    return candidate
-
-
-def _begin_drama_text_attempt(step: str, params: Dict[str, Any], episode_no: int) -> tuple[str, Dict[str, Any]] | None:
-    from ..config import get_model_config
-
-    task = _DRAMA_MODEL_TASKS[step]
-    if str(get_model_config(task).get("model") or "mock").lower().startswith("mock"):
-        return None
-    workspace = paths.workspace_name()
-    ledger = _load_drama_text_attempts(workspace)
-    key = f"{step}:{episode_no}"
-    existing = ledger["attempts"].get(key)
-    provider = _drama_text_provider_fingerprint(task)
-    input_fingerprint = _drama_text_input_fingerprint(step, workspace, episode_no)
-    recovery_fingerprint = _drama_text_recovery_fingerprint(step, workspace, episode_no)
-    start_new_revision = params.get("confirm_new_text_revision") is True
-    if (
-        isinstance(existing, dict)
-        and existing.get("status") == "succeeded"
-        and start_new_revision
-    ):
-        if params.get("confirm_real_text") is not True:
-            raise ValueError("new drama text revision requires fresh real-text authorization")
-        previous = {
-            key: value
-            for key, value in existing.items()
-            if key in {
-                "status", "step", "episode_no", "attempt_count", "revision",
-                "provider_fingerprint", "input_fingerprint", "recovery_fingerprint",
-                "artifact_fingerprint", "candidate_fingerprints", "updated_at",
-            }
-        }
-        previous["revision"] = int(existing.get("revision") or 1)
-        history = list(existing.get("completed_revisions") or [])
-        history.append(previous)
-        row = {
-            "status": "submitting",
-            "step": step,
-            "episode_no": episode_no,
-            "attempt_count": int(existing.get("attempt_count") or 0) + 1,
-            "revision": previous["revision"] + 1,
-            "completed_revisions": history[-100:],
-            "provider_fingerprint": provider,
-            "input_fingerprint": input_fingerprint,
-            "recovery_fingerprint": recovery_fingerprint,
-            "updated_at": int(time.time()),
-        }
-        ledger["attempts"][key] = row
-        _save_drama_text_attempts(workspace, ledger)
-        return key, row
-    if isinstance(existing, dict):
-        if (
-            existing.get("provider_fingerprint") != provider
-            or not _drama_text_recovery_fingerprint_matches(
-                step, workspace, episode_no, existing
-            )
-        ):
-            raise ValueError("drama text retry provider or input identity changed")
-    if isinstance(existing, dict) and existing.get("status") in TEXT_CANONICAL_RECOVERY_STATUSES:
-        recovered = _canonical_drama_text_result(step, workspace, episode_no, existing)
-        if recovered is not None:
-            # Ephemeral only: never persist model output in the billing ledger.
-            return key, {**existing, "_recovered_result": recovered}
-        if existing.get("status") == "succeeded":
-            raise ValueError("committed drama text artifact no longer matches its paid attempt")
-    if isinstance(existing, dict) and existing.get("input_fingerprint") != input_fingerprint:
-        raise ValueError("drama text retry exact input identity changed")
-    if (
-        isinstance(existing, dict)
-        and existing.get("status") in TEXT_RECONCILIATION_REQUIRED_STATUSES
-    ):
-        if not (
-            params.get("confirm_text_retry") is True
-            and params.get("confirm_upstream_status_and_billing_checked") is True
-        ):
-            raise ValueError("drama text retry requires upstream task and billing reconciliation")
-    count = int(existing.get("attempt_count") or 0) + 1 if isinstance(existing, dict) else 1
-    row = {
-        "status": "submitting",
-        "step": step,
-        "episode_no": episode_no,
-        "attempt_count": count,
-        "revision": int(existing.get("revision") or 1) if isinstance(existing, dict) else 1,
-        "provider_fingerprint": provider,
-        "input_fingerprint": input_fingerprint,
-        "recovery_fingerprint": recovery_fingerprint,
-        "updated_at": int(time.time()),
-    }
-    if isinstance(existing, dict) and existing.get("completed_revisions"):
-        row["completed_revisions"] = list(existing["completed_revisions"])
-    ledger["attempts"][key] = row
-    _save_drama_text_attempts(workspace, ledger)
-    return key, row
-
-
-def _mark_drama_text_attempt(token: tuple[str, Dict[str, Any]] | None, status: str) -> None:
-    if token is None:
-        return
-    key, expected = token
-    workspace = paths.workspace_name()
-    ledger = _load_drama_text_attempts(workspace)
-    current = ledger["attempts"].get(key)
-    if not isinstance(current, dict) or current.get("attempt_count") != expected.get("attempt_count"):
-        raise ValueError("drama text attempt ledger changed during generation")
-    current["status"] = status
-    current["updated_at"] = int(time.time())
-    _save_drama_text_attempts(workspace, ledger)
-
-
-def _bind_drama_text_artifact(
-    token: tuple[str, Dict[str, Any]] | None,
-    artifact: Dict[str, Any],
-    *,
-    candidates: list[Dict[str, Any]] | None = None,
-) -> None:
-    if token is None:
-        return
-    from ..utils import sha256_data
-
-    key, expected = token
-    workspace = paths.workspace_name()
-    ledger = _load_drama_text_attempts(workspace)
-    current = ledger["attempts"].get(key)
-    if not isinstance(current, dict) or current.get("attempt_count") != expected.get("attempt_count"):
-        raise ValueError("drama text attempt ledger changed during artifact binding")
-    current["artifact_fingerprint"] = sha256_data(artifact)
-    if candidates is not None:
-        current["candidate_fingerprints"] = [sha256_data(item) for item in candidates]
-    current["updated_at"] = int(time.time())
-    _save_drama_text_attempts(workspace, ledger)
-
-
-def _call_drama_text_model(
-    step: str,
-    params: Dict[str, Any],
-    episode_no: int,
-    operation: Callable[[], Dict[str, Any]],
-) -> tuple[Dict[str, Any], tuple[str, Dict[str, Any]] | None]:
-    token = _begin_drama_text_attempt(step, params, episode_no)
-    if token is not None and isinstance(token[1].get("_recovered_result"), dict):
-        return dict(token[1]["_recovered_result"]), token
-    try:
-        result = operation()
-    except BaseException:
-        _mark_drama_text_attempt(token, "failed_after_submission")
-        raise
-    _mark_drama_text_attempt(token, "response_received")
-    return result, token
-
-
-def _drama_budget_start(step: str, params: Dict[str, Any]) -> tuple[float, int]:
-    """Validate the last-hop real-text gate and capture this job's cost offset."""
-    from ..book_runner import _llm_log_line_count
-    from ..config import get_model_config
-
-    task = _DRAMA_MODEL_TASKS[step]
-    real_model = not str(get_model_config(task).get("model") or "mock").lower().startswith("mock")
-    budget_cny = _float_param(params, "budget_cny", 0.0)
-    timeout_minutes = _float_param(params, "timeout_minutes", 0.0)
-    if real_model and params.get("confirm_real_text") is not True:
-        raise ValueError("real drama generation requires explicit confirmation")
-    if real_model and budget_cny <= 0:
-        raise ValueError("real drama generation requires a positive budget")
-    if real_model and not 0 < timeout_minutes <= 1440:
-        raise ValueError("real drama generation requires a bounded positive timeout")
-    if real_model:
-        from ..drama_smoke import validate_real_text_tasks_ready
-
-        validate_real_text_tasks_ready()
-    return budget_cny, _llm_log_line_count()
-
-
-def _drama_settle_budget(
-    budget_cny: float, line_offset: int, progress_cb: Callable[[str, float], None]
-) -> tuple[Optional[Dict[str, Any]], float]:
-    """Honor cancel/timeout, then settle cost before any generated artifact write."""
-    from ..cost_estimator import estimate_cost_since
-
-    progress_cb("settle-budget", 0.78)
-    report = estimate_cost_since(line_offset, paths.workspace_root())
-    if int(report.get("dirty_lines") or 0) > 0:
-        raise ValueError("drama billing evidence is invalid")
-    cost_cny = float(report.get("cost_cny", 0.0))
-    if budget_cny > 0 and cost_cny > budget_cny:
-        return {
-            "status": "budget_exceeded",
-            "error_code": "drama_budget_exceeded",
-            "budget_cny": budget_cny,
-            "cost_cny": cost_cny,
-        }, cost_cny
-    return None, cost_cny
-
-
-def _run_locked_drama_step(
-    step: str,
-    params: Dict[str, Any],
-    progress_cb: Callable[[str, float], None],
-    operation: Callable[[int], Dict[str, Any]],
-) -> Dict[str, Any]:
-    from ..workspace_lock import WorkspaceLocked, acquire_write_lock
-
-    episode_no = _drama_episode_no(params)
-    progress_cb("validate", 0.05)
-    try:
-        with acquire_write_lock(source=f"web-job-{step}"):
-            progress_cb("generate", 0.15)
-            return operation(episode_no)
-    except WorkspaceLocked as exc:
-        return _workspace_locked_blocked(exc)
-    except JobCancelled:
-        raise
-    except (FileNotFoundError, ValueError) as exc:
-        return _blocked("drama_prerequisite_invalid", "drama prerequisite is missing or invalid")
-    except Exception as exc:
-        return _drama_job_error(step, exc)
-
-
-def _restore_drama_artifacts(snapshots: Dict[Path, Optional[bytes]]) -> None:
-    """Best-effort exact rollback for a station-5 multi-file commit."""
-    import os
-    import threading
-
-    for path, payload in snapshots.items():
-        if payload is None:
-            path.unlink(missing_ok=True)
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + f".rollback.{os.getpid()}.{threading.get_ident()}")
-        tmp.write_bytes(payload)
-        os.replace(tmp, path)
-
-
-def _step_drama_plan(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    from .. import drama_planner
-    from ..drama_schemas import episode_paths
-    from ..utils import write_json
-
-    def _op(episode_no: int) -> Dict[str, Any]:
-        if episode_no > 1:
-            raise ValueError("later episodes must be initialized through next-episode")
-        budget_cny, line_offset = _drama_budget_start("drama-plan", params)
-        result, attempt = _call_drama_text_model(
-            "drama-plan", params, episode_no,
-            lambda: drama_planner.run(paths.workspace_name(), mock=None, episode_no=episode_no),
-        )
-        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
-        if exceeded:
-            _mark_drama_text_attempt(attempt, "budget_exceeded")
-            return {**exceeded, "station": "setup", "episode_no": episode_no}
-        progress_cb("commit", 0.85)
-        ep = episode_paths(paths.workspace_name(), episode_no=episode_no)
-        _bind_drama_text_artifact(attempt, {key: value for key, value in result.items() if key != "hook"})
-        write_json(ep.setup_path, result)
-        ep.hook_candidates_path.unlink(missing_ok=True)
-        _mark_drama_text_attempt(attempt, "succeeded")
-        return {"status": "succeeded", "station": "setup", "episode_no": episode_no,
-                "budget_cny": budget_cny, "cost_cny": cost_cny, "committed": True}
-
-    return _run_locked_drama_step("drama-plan", params, progress_cb, _op)
-
-
-def _step_drama_hooks(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    from .. import hook_designer
-    from ..drama_schemas import episode_paths
-    from ..utils import write_json
-
-    def _op(episode_no: int) -> Dict[str, Any]:
-        workspace = paths.workspace_name()
-        budget_cny, line_offset = _drama_budget_start("drama-hooks", params)
-        result, attempt = _call_drama_text_model(
-            "drama-hooks", params, episode_no,
-            lambda: hook_designer.run(workspace, mock=None, episode_no=episode_no),
-        )
-        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
-        if exceeded:
-            _mark_drama_text_attempt(attempt, "budget_exceeded")
-            return {**exceeded, "station": "hook", "episode_no": episode_no}
-        progress_cb("commit", 0.85)
-        hooks = result.get("hooks") or []
-        _bind_drama_text_artifact(attempt, result, candidates=hooks if isinstance(hooks, list) else None)
-        write_json(episode_paths(workspace, episode_no=episode_no).hook_candidates_path, result)
-        _mark_drama_text_attempt(attempt, "succeeded")
-        return {
-            "status": "succeeded",
-            "station": "hook",
-            "episode_no": episode_no,
-            "hook_count": len(result.get("hooks") or []),
-            "budget_cny": budget_cny,
-            "cost_cny": cost_cny,
-            "committed": True,
-        }
-
-    return _run_locked_drama_step("drama-hooks", params, progress_cb, _op)
-
-
-def _step_drama_storyboard(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    from .. import storyboard_builder
-    from ..drama_schemas import episode_paths
-    from ..utils import write_json
-
-    def _op(episode_no: int) -> Dict[str, Any]:
-        workspace = paths.workspace_name()
-        budget_cny, line_offset = _drama_budget_start("drama-storyboard", params)
-        result, attempt = _call_drama_text_model(
-            "drama-storyboard", params, episode_no,
-            lambda: storyboard_builder.run(workspace, mock=None, episode_no=episode_no),
-        )
-        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
-        if exceeded:
-            _mark_drama_text_attempt(attempt, "budget_exceeded")
-            return {**exceeded, "station": "storyboard", "episode_no": episode_no}
-        progress_cb("commit", 0.85)
-        _bind_drama_text_artifact(attempt, result)
-        write_json(episode_paths(workspace, episode_no=episode_no).storyboard_path, result)
-        _mark_drama_text_attempt(attempt, "succeeded")
-        return {"status": "succeeded", "station": "storyboard", "episode_no": episode_no,
-                "budget_cny": budget_cny, "cost_cny": cost_cny, "committed": True}
-
-    return _run_locked_drama_step("drama-storyboard", params, progress_cb, _op)
-
-
-def _step_drama_characters(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    from .. import character_designer, drama_store
-    from ..drama_schemas import (
-        DramaStoryboard, character_paths, episode_paths, validate_storyboard_hard,
-    )
-    from ..utils import read_json_optional, write_json
-
-    def _op(episode_no: int) -> Dict[str, Any]:
-        workspace = paths.workspace_name()
-        ep = episode_paths(workspace, episode_no=episode_no)
-        storyboard_data = read_json_optional(ep.storyboard_path, None)
-        if not isinstance(storyboard_data, dict):
-            raise ValueError("station 3 storyboard is missing")
-        storyboard = DramaStoryboard(**storyboard_data)
-        if storyboard.episode_no != episode_no or validate_storyboard_hard(storyboard):
-            raise ValueError("station 3 storyboard is invalid")
-        setup = read_json_optional(episode_paths(workspace, episode_no=episode_no).setup_path, {})
-        introduces_new = bool(setup.get("introduces_new_characters")) if isinstance(setup, dict) else False
-        target = character_paths(workspace).sheet_path
-        existing = read_json_optional(target, None)
-        if episode_no > 1 and not introduces_new and isinstance(existing, dict):
-            drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
-            result = character_designer.reuse_character_sheet_for_episode(
-                existing, episode_no=episode_no
-            )
-            progress_cb("commit", 0.85)
-            write_json(target, result)
-            return {"status": "succeeded", "station": "characters", "episode_no": episode_no,
-                    "skipped": True, "budget_cny": 0.0, "cost_cny": 0.0,
-                    "committed": True}
-        budget_cny, line_offset = _drama_budget_start("drama-characters", params)
-        incoming, attempt = _call_drama_text_model(
-            "drama-characters", params, episode_no,
-            lambda: character_designer.run(workspace, mock=None, episode_no=episode_no),
-        )
-        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
-        if exceeded:
-            _mark_drama_text_attempt(attempt, "budget_exceeded")
-            return {**exceeded, "station": "characters", "episode_no": episode_no}
-        result = character_designer.merge_character_sheet(existing if isinstance(existing, dict) else None, incoming)
-        progress_cb("commit", 0.85)
-        if isinstance(existing, dict):
-            drama_store.migrate_fresh_episode_fingerprints_v2(workspace)
-        _bind_drama_text_artifact(attempt, result)
-        write_json(target, result)
-        _mark_drama_text_attempt(attempt, "succeeded")
-        return {"status": "succeeded", "station": "characters", "episode_no": episode_no,
-                "skipped": False, "budget_cny": budget_cny, "cost_cny": cost_cny,
-                "committed": True}
-
-    return _run_locked_drama_step("drama-characters", params, progress_cb, _op)
-
-
-def _step_drama_review_assemble(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    from .. import character_designer, drama_reviewer, drama_store
-    from ..drama_schemas import (
-        CharacterSheet,
-        DramaEpisodeMeta,
-        character_paths,
-        episode_paths,
-    )
-    from ..utils import read_json_optional, write_json
-
-    def _op(episode_no: int) -> Dict[str, Any]:
-        workspace = paths.workspace_name()
-        setup = read_json_optional(episode_paths(workspace, episode_no=episode_no).setup_path, {})
-        sheet_data = read_json_optional(character_paths(workspace).sheet_path, {})
-        sheet = CharacterSheet(**sheet_data)
-        introduces_new = bool(
-            isinstance(setup, dict)
-            and setup.get("introduces_new_characters") is True
-        )
-        if (
-            episode_no > 1
-            and introduces_new
-            and not character_designer.character_sheet_generated_for_episode(
-                sheet, episode_no=episode_no
-            )
-        ):
-            raise ValueError("station 4 must generate episode characters before drama review")
-        character_ids = None
-        has_active_cast = any(
-            episode_no in character.appearances for character in sheet.characters
-        )
-        if episode_no > 1 and not introduces_new and not has_active_cast:
-            previous_raw = read_json_optional(
-                episode_paths(workspace, episode_no=episode_no - 1).meta_path,
-                None,
-            )
-            if not isinstance(previous_raw, dict):
-                raise ValueError(
-                    "previous episode character cast is unavailable; rerun station 4"
-                )
-            previous_meta = DramaEpisodeMeta(**previous_raw)
-            if (
-                previous_meta.episode_no != episode_no - 1
-                or previous_meta.season_no != sheet.season_no
-                or previous_meta.verdict != "Approve"
-                or previous_meta.input_fingerprint_version != drama_store.INPUT_FINGERPRINT_VERSION
-                or not previous_meta.character_fingerprint_ids
-                or drama_store.is_episode_stale(
-                    workspace, episode_no=episode_no - 1
-                )
-            ):
-                raise ValueError(
-                    "previous episode character cast is stale; rerun station 4"
-                )
-            character_ids = list(previous_meta.character_fingerprint_ids)
-            drama_store.episode_character_projection(
-                sheet_data,
-                episode_no=episode_no,
-                character_ids=character_ids,
-            )
-        budget_cny, line_offset = _drama_budget_start("drama-review-assemble", params)
-        review, attempt = _call_drama_text_model(
-            "drama-review-assemble", params, episode_no,
-            lambda: drama_reviewer.run(
-                workspace,
-                mock=None,
-                episode_no=episode_no,
-                character_ids=character_ids,
-            ),
-        )
-        exceeded, cost_cny = _drama_settle_budget(budget_cny, line_offset, progress_cb)
-        if exceeded:
-            _mark_drama_text_attempt(attempt, "budget_exceeded")
-            return {**exceeded, "station": "review", "episode_no": episode_no}
-        # Treat an explicit parse failure as a review artifact requiring human
-        # attention; settle the already-incurred cost first, but do not publish it.
-        if review.get("parse_failed"):
-            raise ValueError("drama review parse failed")
-        ep = episode_paths(workspace, episode_no=episode_no)
-        _bind_drama_text_artifact(attempt, review)
-        targets = (ep.review_path, ep.episode_path, ep.meta_path)
-        snapshots = {path: path.read_bytes() if path.is_file() else None for path in targets}
-        try:
-            progress_cb("commit-review", 0.84)
-            write_json(ep.review_path, review)
-            if review.get("verdict") == "Approve":
-                progress_cb("assemble", 0.9)
-                result = drama_store.assemble_episode(
-                    workspace,
-                    episode_no=episode_no,
-                    character_ids=character_ids,
-                )
-            else:
-                # Persist advisor evidence, but never publish a Reject/Abstain
-                # as a fresh episode.  Remove a previously approved assembly
-                # so neither the UI nor an export route can present it as the
-                # current result after this review committed.
-                ep.episode_path.unlink(missing_ok=True)
-                ep.meta_path.unlink(missing_ok=True)
-                result = {"episode": None, "meta": None, "stale": True}
-        except BaseException:
-            _restore_drama_artifacts(snapshots)
-            raise
-        _mark_drama_text_attempt(attempt, "succeeded")
-        return {
-            "status": "succeeded",
-            "station": "review",
-            "episode_no": episode_no,
-            "verdict": review.get("verdict"),
-            "assembled": bool(result.get("episode")),
-            "needs_human_review": review.get("verdict") != "Approve",
-            "budget_cny": budget_cny,
-            "cost_cny": cost_cny,
-            "committed": True,
-        }
-
-    return _run_locked_drama_step("drama-review-assemble", params, progress_cb, _op)
-
-
-def _step_drama_video(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
-    """Run the bounded episode-1 video pipeline outside the HTTP request."""
-    from .. import drama_video
-
-    def _op(episode_no: int) -> Dict[str, Any]:
-        if episode_no != 1:
-            raise ValueError("video MVP supports episode 1 only")
-        try:
-            return drama_video.run_video_job(paths.workspace_name(), params, progress_cb)
-        except drama_video.DramaVideoTimedOut as exc:
-            raise JobTimeout(str(exc)) from exc
-
-    return _run_locked_drama_step("drama-video", params, progress_cb, _op)
-
-
-def _step_drama_compose(
-    params: Dict[str, Any],
-    progress_cb: Callable[[str, float], None],
-) -> Any:
-    """Run local F1/F2 from the persisted, server-validated E3 timeline."""
-    from ..drama_compose_web import (
-        DramaComposeWebError,
-        run_workspace_compose_job,
-    )
-    episode_no = _drama_episode_no(params)
-    try:
-        return run_workspace_compose_job(
-            paths.workspace_name(),
-            episode_no=episode_no,
-            progress_cb=progress_cb,
-        )
-    except FileNotFoundError:
-        return _blocked(
-            "drama_timeline_missing",
-            "validated timeline is not available",
-        )
-    except DramaComposeWebError as exc:
-        if exc.code == "workspace_busy":
-            return _blocked("workspace_locked", "workspace locked")
-        return _blocked(exc.code, "compose prerequisite is stale or invalid")
-
-
-def _step_drama_local_demo(
-    params: Dict[str, Any],
-    progress_cb: Callable[[str, float], None],
-) -> Any:
-    """Run the explicitly synthetic, zero-provider A-F local demonstration."""
-    from ..drama_local_demo import (
-        DramaLocalDemoError,
-        run_isolated_synthetic_local_demo,
-    )
-
-    episode_no = _drama_episode_no(params)
-    demo_workspace = params.get("demo_workspace")
-    if not isinstance(demo_workspace, str):
-        return _blocked("local_demo_target_missing", "isolated demo workspace is missing")
-    try:
-        return run_isolated_synthetic_local_demo(
-            paths.workspace_name(),
-            demo_workspace=demo_workspace,
-            source_episode_no=episode_no,
-            progress_cb=progress_cb,
-        )
-    except DramaLocalDemoError as exc:
-        return _blocked(exc.code, str(exc))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Hard-coded whitelist. Adding a step here = a code review event.
@@ -3264,14 +2175,6 @@ STEP_HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str, float], None]]
     "rebuild-for-start": _step_rebuild_for_start,
     "expand-premise": _step_expand_premise,
     "extract-style": _step_extract_style,
-    "drama-plan": _step_drama_plan,
-    "drama-hooks": _step_drama_hooks,
-    "drama-storyboard": _step_drama_storyboard,
-    "drama-characters": _step_drama_characters,
-    "drama-review-assemble": _step_drama_review_assemble,
-    "drama-local-demo": _step_drama_local_demo,
-    "drama-video": _step_drama_video,
-    "drama-compose": _step_drama_compose,
 }
 
 
@@ -3343,12 +2246,6 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
     def _progress(sub_step: str, fraction: float) -> None:
         _check_cancelled(job_id, deadline, timeout_minutes)
         _update(job_id, current_step=sub_step, progress=float(fraction))
-
-    # Local media subprocesses need a cheap cancellation/deadline probe without
-    # persisting the same progress row four times per second.
-    _progress.check_cancelled = lambda: _check_cancelled(  # type: ignore[attr-defined]
-        job_id, deadline, timeout_minutes
-    )
 
     _update(job_id, status="running", started_at=_now(), current_step=step)
     try:
@@ -3526,29 +2423,6 @@ def _worker_entry(job_id: str, expected_identity: Any) -> None:
 def _summarize_result(step: str, result: Any) -> Any:
     """Coerce step-native return types into a JSON-safe summary the
     client can render without needing the full payload."""
-    if step.startswith("drama-") and isinstance(result, dict):
-        summary = {
-            key: result.get(key)
-            for key in (
-                "status", "station", "episode_no", "hook_count", "skipped",
-                "verdict", "assembled", "error_code",
-                "budget_cny", "cost_cny",
-                "duration_seconds",
-                "ratio", "resolution", "file_size_bytes", "network_requests",
-                "timeline_fingerprint", "qa_fingerprint", "export_fingerprint",
-                "acceptance_level",
-            )
-            if key in result
-        }
-        blocked = result.get("blocked")
-        first = blocked[0] if isinstance(blocked, list) and blocked else None
-        if isinstance(first, dict):
-            summary["first_blocked"] = {
-                key: first.get(key)
-                for key in ("reason", "error", "status")
-                if key in first
-            }
-        return summary
     if step in {"auto-pipeline-greenfield", "auto-pipeline"} and isinstance(result, dict):
         write_part = result.get("write") or []
         summary: Dict[str, Any] = {"chapters_written": len(write_part)}
@@ -3704,36 +2578,31 @@ def start_job(workspace: str, step: str, params: Optional[Dict[str, Any]] = None
     meta = _meta_read(workspace)
     if meta.get("_metadata_status") == "invalid":
         raise RuntimeError("workspace_metadata_invalid")
-    workspace_type = str(meta.get("type") or "novel")
-    is_drama_step = step.startswith("drama-")
-    if workspace_type == "drama" and not is_drama_step:
-        raise RuntimeError("creation_mode_conflict:drama_rejects_novel_step")
-    if workspace_type != "drama" and is_drama_step:
-        raise RuntimeError("creation_mode_conflict:novel_rejects_drama_step")
-    if meta.get("type") == "novel":
-        mode = str(meta.get("creation_mode") or "continuation")
-        requires_start = mode != "greenfield"
-        with use_workspace(workspace):
-            from ..start_point import get_start_chapter_id
+    if meta.get("type") != "novel":
+        raise RuntimeError(f"workspace_not_found:{workspace}")
+    mode = str(meta.get("creation_mode") or "continuation")
+    requires_start = mode != "greenfield"
+    with use_workspace(workspace):
+        from ..start_point import get_start_chapter_id
 
-            has_start = bool(get_start_chapter_id())
-        if step in {"prepare-greenfield", "auto-pipeline-greenfield", "expand-premise"} and requires_start:
-            raise RuntimeError("creation_mode_conflict:continuation_requires_start_point")
-        if step in {"prepare-import", "rebuild-for-start"} and not requires_start:
-            raise RuntimeError("creation_mode_conflict:greenfield_has_no_import_start")
-        start_gated_steps = {
-            "extract", "compress", "bootstrap", "apply-bootstrap", "debate",
-            "plan-chapters", "write-book", "review-chapter", "draft-once-dev",
-            "rebuild-for-start",
-        }
-        if requires_start and not has_start and step in start_gated_steps:
-            raise RuntimeError("creation_mode_conflict:start_point_required")
-        if step in {"plan-chapters", "write-book"}:
-            if "require_start_point" in params:
-                supplied = params.get("require_start_point")
-                if type(supplied) is not bool or supplied != requires_start:
-                    raise RuntimeError("creation_mode_conflict:require_start_point")
-            params["require_start_point"] = requires_start
+        has_start = bool(get_start_chapter_id())
+    if step in {"prepare-greenfield", "auto-pipeline-greenfield", "expand-premise"} and requires_start:
+        raise RuntimeError("creation_mode_conflict:continuation_requires_start_point")
+    if step in {"prepare-import", "rebuild-for-start"} and not requires_start:
+        raise RuntimeError("creation_mode_conflict:greenfield_has_no_import_start")
+    start_gated_steps = {
+        "extract", "compress", "bootstrap", "apply-bootstrap", "debate",
+        "plan-chapters", "write-book", "review-chapter", "draft-once-dev",
+        "rebuild-for-start",
+    }
+    if requires_start and not has_start and step in start_gated_steps:
+        raise RuntimeError("creation_mode_conflict:start_point_required")
+    if step in {"plan-chapters", "write-book"}:
+        if "require_start_point" in params:
+            supplied = params.get("require_start_point")
+            if type(supplied) is not bool or supplied != requires_start:
+                raise RuntimeError("creation_mode_conflict:require_start_point")
+        params["require_start_point"] = requires_start
 
     with _WORKSPACE_LOCK:
         if workspace in _WORKSPACE_JOBS:

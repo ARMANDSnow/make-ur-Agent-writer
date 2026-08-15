@@ -82,29 +82,7 @@ class NovelPhaseETests(unittest.TestCase):
             self.assertNotIn(forbidden, block)
         self.assertIn("#review", block)
 
-    def test_insights_are_readonly_and_unknown_cost_is_not_zero(self) -> None:
-        with self._novel_meta():
-            html = templates.render_workspace_insights("alpha", ["alpha"])
-        self.assertIn("只读统计", html)
-        self.assertIn("内容复用情况", html)
-        self.assertIn("内容检查分项", html)
-        js = static.JS_DASHBOARD
-        block = js[js.index("async function initInsights()"):js.index("// ===== page: drama write")]
-        self.assertIn("暂无可汇总记录", block)
-        self.assertIn("费用待确认", block)
-        self.assertNotIn("r.cost_cny || 0", block)
-        self.assertIn('typeof r.cost_cny === "number"', block)
-        for forbidden in ("data-insight-edit", "采用建议", "model)</td>", "cache_read_tokens"):
-            self.assertNotIn(forbidden, block)
 
-    def test_phase_e_responsive_and_shared_accessibility_contract(self) -> None:
-        css = static.CSS_BODY
-        self.assertIn("Iteration 156 · Phase E", css)
-        for selector in (".ui-novel .plan-page-editor", ".ui-novel .search-hit", ".ui-novel .review-issue-card"):
-            self.assertIn(selector, css)
-        self.assertRegex(css, re.compile(r"\.ui-novel #search-clear,[\s\S]*width: 100%;"))
-        self.assertIn("min-height: 44px", css)
-        self.assertNotIn(".ui-drama .review-issue-card", css)
 
     def test_unknown_readiness_fails_closed_before_paid_confirmation(self) -> None:
         js = static.JS_DASHBOARD

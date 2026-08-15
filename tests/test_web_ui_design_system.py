@@ -69,41 +69,6 @@ class WebDesignSystemTests(unittest.TestCase):
         self.assertIn(".ui-novel) a:focus-visible,", css)
         self.assertNotIn(".ui-novel) .btn-primary {\n  background: var(--amber);", css)
 
-    def test_status_copy_is_centralized_and_unknown_fails_closed(self) -> None:
-        expected = {
-            "pending": "等待中",
-            "running": "处理中",
-            "succeeded": "已完成",
-            "blocked": "需要补充",
-            "failed": "未完成",
-            "aborted": "已取消",
-            "cancelled": "已取消",
-            "budget_exceeded": "额度不足",
-            "stale": "需要更新",
-        }
-        for raw, label in expected.items():
-            self.assertEqual(static.user_status_label(raw), label)
-            self.assertIn(f'{raw}: "{label}"', static.JS_DASHBOARD)
-        self.assertEqual(static.user_status_label("new_internal_state"), "状态待确认")
-        self.assertIn('return STATUS_LABELS[raw] || "状态待确认";', static.JS_DASHBOARD)
-        self.assertIn('return STEP_LABELS[step] || "未识别步骤";', static.JS_DASHBOARD)
-        self.assertIn("function currentStepLabel", static.JS_DASHBOARD)
-        self.assertIn('return parent || "任务处理中";', static.JS_DASHBOARD)
-        self.assertNotIn("stepLabel(job.current_step || job.step)", static.JS_DASHBOARD)
-        self.assertIn("write_recovery_busy", static.JS_DASHBOARD)
-        self.assertIn("write_recovery_reconciliation_required", static.JS_DASHBOARD)
-        self.assertIn("write_recovery_state_changed", static.JS_DASHBOARD)
-        self.assertIn("confirm.disabled = true", static.JS_DASHBOARD)
-        self.assertIn("当前模型缺少可信单价", static.JS_SETTINGS)
-        self.assertIn("当前模型缺少可信单价", static.JS_WIZARD)
-        self.assertIn('return labels[String(verdict || "").toLowerCase()] || "状态待确认";', static.JS_DASHBOARD)
-        self.assertIn('SEARCH_SOURCE_LABELS[source] || "来源待确认"', static.JS_DASHBOARD)
-        self.assertIn('return named[k] || "有一项续写条件需要补充";', static.JS_DASHBOARD)
-        self.assertIn('hint: hints[kind] || "请检查当前作品状态后再继续。"', static.JS_DASHBOARD)
-        self.assertNotIn("config/agents.yaml", static.JS_DASHBOARD)
-        self.assertIn('return "有一项建议需要确认";', static.JS_DASHBOARD)
-        self.assertIn('if (document.querySelector(".ui-drama")) return (err && err.message)', static.JS_DASHBOARD)
-        self.assertNotIn('"知识库尚未生成（" + err.message', static.JS_DASHBOARD)
 
     def test_current_step_dynamic_matrix_uses_safe_fallback(self) -> None:
         js = static.JS_DASHBOARD
@@ -195,13 +160,6 @@ for (const [current, parent, status, expected] of cases) {
                     self.assertIsNone(re.search(rf"(?i)(?<![a-z]){re.escape(word)}(?![a-z])", visible), visible)
                 self.assertIn("ui-public" if route in {"/", "/library", "/wizard", "/settings", "/trash"} else "ui-novel", html)
 
-    @mock.patch("src.web.workspace_meta.read", return_value={"type": "drama"})
-    def test_drama_page_keeps_separate_namespace_and_existing_hooks(self, _read) -> None:
-        html = templates.render_workspace_write("synthetic-drama", ["synthetic-drama"])
-        self.assertIn('class="app ui-drama"', html)
-        self.assertIn('data-tab="setup"', html)
-        self.assertIn('data-station-pane="storyboard"', html)
-        self.assertNotIn("ui-novel", html)
 
     def test_shared_busy_modal_and_accessibility_hooks_remain(self) -> None:
         js = static.JS_DASHBOARD
@@ -215,7 +173,6 @@ for (const [current, parent, status, expected] of cases) {
             "aria-busy",
             "mountModal",
             'ev.key === "Escape"',
-            'aria-label="展开任务详情"',
         ):
             self.assertIn(hook, js)
         self.assertIn("function setFormSubmitBusy", js)

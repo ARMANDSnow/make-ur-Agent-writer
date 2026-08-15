@@ -3,7 +3,7 @@
   #7  起点保存无 workspace reservation —— reserved 时 PUT /start-point 仍穿过，
       绕过 409 互斥。
   #11 writer-style 样本固定临时文件 + 写在抢锁前 —— 并发 extract 互相覆盖样本。
-  #14 drama 写端点非原子 + 无 reservation。
+  #14 历史 Web 写端点非原子 + 无 reservation。
   #12 cancel/timeout 仅在 progress checkpoint 检查 —— 长 step 内不可中断。
 
 Mock-only; no network, no real workspace data. 每个 fix 一个 TestCase。
@@ -40,7 +40,7 @@ class _IsolatedWorkspaceCase(unittest.TestCase):
         jobs.reset_for_tests()
         self.addCleanup(self._restore_env)
         self.addCleanup(jobs.reset_for_tests)
-        for sub in ("小说txt", "data", "outputs/drafts", "outputs/episodes", "logs"):
+        for sub in ("小说txt", "data", "outputs/drafts", "logs"):
             (paths.WORKSPACE_DIR / self.workspace / sub).mkdir(parents=True, exist_ok=True)
 
     def _restore_env(self) -> None:

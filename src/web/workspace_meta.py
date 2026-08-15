@@ -30,7 +30,11 @@ from typing import Any, Dict, Optional
 from .. import paths
 
 
-VALID_TYPES = frozenset({"novel", "drama"})
+# ``drama`` remains known only so legacy workspaces fail closed instead of
+# being reinterpreted as novels.  This branch creates and mutates novels only.
+KNOWN_TYPES = frozenset({"novel", "drama"})
+SUPPORTED_TYPES = frozenset({"novel"})
+VALID_TYPES = KNOWN_TYPES
 VALID_CREATION_MODES = frozenset({"greenfield", "continuation"})
 SCHEMA_VERSION = 2
 _MAX_META_BYTES = 64 * 1024
@@ -194,8 +198,8 @@ def write(
 ) -> None:
     """Write ``workspace.json`` for a workspace."""
 
-    if type not in VALID_TYPES:
-        raise ValueError(f"invalid type: {type!r}")
+    if type not in SUPPORTED_TYPES:
+        raise ValueError(f"unsupported workspace type: {type!r}")
     if type == "novel":
         creation_mode = creation_mode or "continuation"
         if creation_mode not in VALID_CREATION_MODES:

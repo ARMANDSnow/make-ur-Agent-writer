@@ -36,7 +36,7 @@ workspaces/*/logs/
 workspaces/*/write.lock
 workspaces/*/write.lock.holder.json
 workspaces/*/driver_stub.py
-# Durable multimodal orchestration locks live beside workspace directories.
+# Legacy branch lock artifacts remain private and untouched on the novel-only branch.
 workspaces/.*.drama_multimodal_smoke.lock
 !workspaces/.gitkeep
 

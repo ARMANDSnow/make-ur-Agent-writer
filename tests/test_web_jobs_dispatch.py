@@ -125,28 +125,6 @@ class JobsDispatchTests(unittest.TestCase):
         self.assertEqual(data["code"], "workspace_metadata_invalid")
         self.assertIn("没有启动任务", data["error"])
 
-    def test_novel_mutations_reject_drama_workspace(self) -> None:
-        _stub_workspace(paths.WORKSPACE_DIR, "drama")
-        workspace_meta.write("drama", type="drama")
-        requests = (
-            ("POST", "/api/workspace/drama/start-point", {"start_point": "ch001"}),
-            ("PUT", "/api/workspace/drama/outline", {"outline": "novel outline"}),
-            ("PUT", "/api/workspace/drama/kb", {"content": "novel kb"}),
-        )
-        for method, path, payload in requests:
-            status, _ct, body = routes.dispatch(
-                method, path, json.dumps(payload).encode("utf-8")
-            )
-            self.assertEqual(status, 409, (path, body))
-        for path in (
-            "/api/workspace/drama/chapter/1/versions",
-            "/api/workspace/drama/chapter/1/diff?v1=current&v2=current",
-        ):
-            status, _ct, body = routes.dispatch("GET", path)
-            self.assertEqual(status, 409, (path, body))
-        self.assertFalse((paths.WORKSPACE_DIR / "drama" / "data" / "manual_overrides" / "start_chapter.json").exists())
-        self.assertFalse((paths.WORKSPACE_DIR / "drama" / "outputs" / "debate" / "outline.md").exists())
-        self.assertFalse((paths.WORKSPACE_DIR / "drama" / "data" / "knowledge_base" / "global_knowledge.md").exists())
 
     def test_run_injects_authoritative_start_policy_when_omitted(self) -> None:
         workspace_meta.write("alpha", type="novel", creation_mode="continuation")

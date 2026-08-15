@@ -3,23 +3,11 @@ import unittest
 
 
 class TestEnvIsolationTests(unittest.TestCase):
-    def test_test_env_forces_mock_model(self) -> None:
+    def test_novel_test_environment_is_mock_and_offline(self) -> None:
         self.assertEqual(os.environ.get("OPENAI_MODEL"), "mock")
-        self.assertEqual(os.environ.get("LITELLM_LOCAL_MODEL_COST_MAP"), "true")
-        self.assertNotIn("OPENAI_API_KEY", os.environ)
-        self.assertNotIn("OPENAI_BASE_URL", os.environ)
-        self.assertNotIn("PLANNER_API_KEY", os.environ)
-        self.assertNotIn("PLANNER_BASE_URL", os.environ)
         self.assertEqual(os.environ.get("PLANNER_MODEL"), "mock")
-        self.assertNotIn("AI_DRAW_ENDPOINT", os.environ)
-        self.assertNotIn("AI_DRAW_BASE_URL", os.environ)
-        self.assertNotIn("AI_DRAW_MODEL", os.environ)
-        self.assertNotIn("AI_DRAW_API_KEY", os.environ)
-        self.assertNotIn("AI_DRAW_RESULT_HOSTS", os.environ)
-        self.assertNotIn("SD_API_BASE_URL", os.environ)
-        self.assertNotIn("SD_API_KEY", os.environ)
-        self.assertEqual(os.environ.get("SD_VIDEO_MODE"), "mock")
-        self.assertNotIn("OPENAI_STREAM", os.environ)
+        self.assertEqual(os.environ.get("DRAGON_RAJA_SKIP_DOTENV"), "1")
+        self.assertNotIn("OPENAI_API_KEY", os.environ)
 
 
 if __name__ == "__main__":

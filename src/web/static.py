@@ -99,7 +99,7 @@ CSS_BODY = """\
  * radius should reach for a token, never a literal hex.
  * ====================================================================== */
 
-:root {
+:root{
   /* paper / ink palette */
   --bg-paper: #FBF7F0;
   --bg-card: #FFFEFB;
@@ -173,55 +173,51 @@ CSS_BODY = """\
   /* layout */
   --sidebar-w: 240px;
   --topbar-h: 56px;
-  --reading-w: 720px;
-}
+  --reading-w: 720px;}
 
 /* ---------- reset ---------- */
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-body {
+*, *::before, *::after{ box-sizing: border-box; }
+html, body{ margin: 0; padding: 0; }
+body{
   background: var(--bg-paper);
   color: var(--ink-1);
   font-family: var(--font-sans);
   font-size: var(--fs-md);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-h1, h2, h3, h4 { font-family: var(--font-serif); margin: 0; font-weight: 600; line-height: 1.3; color: var(--ink-1); }
-h1 { font-size: var(--fs-h1); }
-h2 { font-size: var(--fs-h2); }
-h3 { font-size: var(--fs-xl); }
-h4 { font-size: var(--fs-lg); }
-p { margin: 0 0 var(--space-3); }
-a { color: var(--jade); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color .15s ease; }
-a:hover { border-bottom-color: var(--jade); }
-code, pre, kbd, samp { font-family: var(--font-mono); font-size: var(--fs-sm); }
-pre { white-space: pre-wrap; word-break: break-word; }
-hr { border: 0; border-top: 1px solid var(--rule); margin: var(--space-4) 0; }
-small { font-size: var(--fs-xs); color: var(--ink-3); }
+  text-rendering: optimizeLegibility;}
+h1, h2, h3, h4{ font-family: var(--font-serif); margin: 0; font-weight: 600; line-height: 1.3; color: var(--ink-1); }
+h1{ font-size: var(--fs-h1); }
+h2{ font-size: var(--fs-h2); }
+h3{ font-size: var(--fs-xl); }
+h4{ font-size: var(--fs-lg); }
+p{ margin: 0 0 var(--space-3); }
+a{ color: var(--jade); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color .15s ease; }
+a:hover{ border-bottom-color: var(--jade); }
+code, pre, kbd, samp{ font-family: var(--font-mono); font-size: var(--fs-sm); }
+pre{ white-space: pre-wrap; word-break: break-word; }
+hr{ border: 0; border-top: 1px solid var(--rule); margin: var(--space-4) 0; }
+small{ font-size: var(--fs-xs); color: var(--ink-3); }
 
-.muted { color: var(--ink-3); }
-.subdued { color: var(--ink-2); }
-.eyebrow {
+.muted{ color: var(--ink-3); }
+.subdued{ color: var(--ink-2); }
+.eyebrow{
   font-family: var(--font-serif);
   text-transform: none;
   letter-spacing: 0.08em;
   font-size: var(--fs-xs);
   color: var(--jade);
-  margin: 0;
-}
-.ornament::before { content: "✦"; color: var(--jade); margin-right: .35em; }
+  margin: 0;}
+.ornament::before{ content: "✦"; color: var(--jade); margin-right: .35em; }
 
 /* ---------- layout: app shell ---------- */
-.app {
+.app{
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
-  min-height: 100vh;
-}
-.app.no-context { grid-template-columns: 1fr; }
+  min-height: 100vh;}
+.app.no-context{ grid-template-columns: 1fr; }
 
-.sidebar {
+.sidebar{
   background: var(--bg-card);
   border-right: 1px solid var(--rule);
   padding: var(--space-5) var(--space-4);
@@ -231,41 +227,37 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-}
-.sidebar .brand {
+  gap: var(--space-5);}
+.sidebar .brand{
   font-family: var(--font-serif);
   font-size: var(--fs-xl);
   color: var(--ink-1);
   display: flex;
   align-items: center;
   gap: .35em;
-  border: 0;
-}
-.sidebar .brand:hover { border-bottom: 0; color: var(--jade); }
-.sidebar-section { display: flex; flex-direction: column; gap: var(--space-1); }
-.sidebar-library { min-height: 0; }
-.sidebar-library h4 { display: flex; justify-content: space-between; gap: var(--space-2); }
-.sidebar-library h4 span { font-variant-numeric: tabular-nums; }
-.sidebar-library-list {
+  border: 0;}
+.sidebar .brand:hover{ border-bottom: 0; color: var(--jade); }
+.sidebar-section{ display: flex; flex-direction: column; gap: var(--space-1); }
+.sidebar-library{ min-height: 0; }
+.sidebar-library h4{ display: flex; justify-content: space-between; gap: var(--space-2); }
+.sidebar-library h4 span{ font-variant-numeric: tabular-nums; }
+.sidebar-library-list{
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   max-height: min(32vh, 280px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 2px;
-}
-.sidebar-section h4 {
+  padding-right: 2px;}
+.sidebar-section h4{
   font-family: var(--font-sans);
   font-size: var(--fs-xs);
   color: var(--ink-3);
   letter-spacing: 0.06em;
   margin-bottom: var(--space-2);
   font-weight: 500;
-  padding: 0 var(--space-2);
-}
-.sidebar-item {
+  padding: 0 var(--space-2);}
+.sidebar-item{
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -274,38 +266,33 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   border-radius: var(--radius-1);
   color: var(--ink-2);
   border: 0;
-  font-size: var(--fs-sm);
-}
-.sidebar-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-item:hover { background: var(--bg-sunken); color: var(--ink-1); border: 0; }
-.sidebar-item.active {
+  font-size: var(--fs-sm);}
+.sidebar-item > span{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-item:hover{ background: var(--bg-sunken); color: var(--ink-1); border: 0; }
+.sidebar-item.active{
   background: var(--jade-soft);
   color: var(--jade-strong);
-  font-weight: 600;
-}
-.sidebar-item .dot {
+  font-weight: 600;}
+.sidebar-item .dot{
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--ink-3);
-  flex: 0 0 6px;
-}
-.sidebar-item.active .dot { background: var(--jade); }
-.sidebar-item .meta { font-size: var(--fs-xs); color: var(--ink-3); }
-.sidebar-footer {
+  flex: 0 0 6px;}
+.sidebar-item.active .dot{ background: var(--jade); }
+.sidebar-item .meta{ font-size: var(--fs-xs); color: var(--ink-3); }
+.sidebar-footer{
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   font-size: var(--fs-xs);
-  color: var(--ink-3);
-}
-.sidebar-overlay { display: none; }
+  color: var(--ink-3);}
+.sidebar-overlay{ display: none; }
 
-.main {
+.main{
   display: flex;
   flex-direction: column;
-  min-width: 0;
-}
-.topbar {
+  min-width: 0;}
+.topbar{
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -315,44 +302,41 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   background: var(--bg-paper);
   position: sticky;
   top: 0;
-  z-index: 5;
-}
-.topbar .breadcrumb {
+  z-index: 5;}
+.topbar .breadcrumb{
   display: flex;
   align-items: center;
   gap: var(--space-2);
   font-size: var(--fs-sm);
-  color: var(--ink-2);
-}
-.breadcrumb a { color: var(--ink-2); border: 0; }
-.breadcrumb a:hover { color: var(--jade); }
-.breadcrumb .sep { color: var(--ink-3); }
-.breadcrumb .here { color: var(--ink-1); font-weight: 600; }
-.topbar-actions-wrap { display: flex; align-items: center; position: relative; }
-.topbar-actions { display: flex; gap: var(--space-2); align-items: center; }
+  color: var(--ink-2);}
+.breadcrumb a{ color: var(--ink-2); border: 0; }
+.breadcrumb a:hover{ color: var(--jade); }
+.breadcrumb .sep{ color: var(--ink-3); }
+.breadcrumb .here{ color: var(--ink-1); font-weight: 600; }
+.topbar-actions-wrap{ display: flex; align-items: center; position: relative; }
+.topbar-actions{ display: flex; gap: var(--space-2); align-items: center; }
 
-.page {
+.page{
   padding: var(--space-6);
   max-width: 1280px;
   width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-}
-.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); }
-.page-header .titles { display: flex; flex-direction: column; gap: var(--space-1); }
-.page-header h1 { font-size: var(--fs-display); }
+  gap: var(--space-6);}
+.page-header{ display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); }
+.page-header .titles{ display: flex; flex-direction: column; gap: var(--space-1); }
+.page-header h1{ font-size: var(--fs-display); }
 
-.section { display: flex; flex-direction: column; gap: var(--space-4); }
-.section-title { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
-.section-title h2 { font-size: var(--fs-h2); }
-.section-title .hint { color: var(--ink-3); font-size: var(--fs-sm); }
+.section{ display: flex; flex-direction: column; gap: var(--space-4); }
+.section-title{ display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.section-title h2{ font-size: var(--fs-h2); }
+.section-title .hint{ color: var(--ink-3); font-size: var(--fs-sm); }
 
 /* ---------- components ---------- */
 
 /* buttons */
-.btn {
+.btn{
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -367,50 +351,44 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   cursor: pointer;
   background: transparent;
   color: var(--ink-1);
-  transition: background .15s ease, border-color .15s ease, color .15s ease;
-}
-.btn:focus-visible { outline: 2px solid var(--jade); outline-offset: 2px; }
-.btn[disabled], .btn:disabled { opacity: .5; cursor: not-allowed; }
-.btn-primary {
+  transition: background .15s ease, border-color .15s ease, color .15s ease;}
+.btn:focus-visible{ outline: 2px solid var(--jade); outline-offset: 2px; }
+.btn[disabled], .btn:disabled{ opacity: .5; cursor: not-allowed; }
+.btn-primary{
   background: var(--amber);
   color: #fff;
-  border-color: var(--amber);
-}
-.btn-primary:hover:not(:disabled) { background: var(--amber-strong); border-color: var(--amber-strong); }
-.btn-secondary {
+  border-color: var(--amber);}
+.btn-primary:hover:not(:disabled){ background: var(--amber-strong); border-color: var(--amber-strong); }
+.btn-secondary{
   background: var(--bg-card);
   color: var(--jade-strong);
-  border-color: var(--rule-strong);
-}
-.btn-secondary:hover:not(:disabled) { background: var(--jade-soft); border-color: var(--jade); }
-.btn-ghost {
+  border-color: var(--rule-strong);}
+.btn-secondary:hover:not(:disabled){ background: var(--jade-soft); border-color: var(--jade); }
+.btn-ghost{
   background: transparent;
   color: var(--ink-2);
-  border-color: transparent;
-}
-.btn-ghost:hover:not(:disabled) { background: var(--bg-sunken); color: var(--ink-1); }
-.btn-danger {
+  border-color: transparent;}
+.btn-ghost:hover:not(:disabled){ background: var(--bg-sunken); color: var(--ink-1); }
+.btn-danger{
   background: transparent;
   color: var(--sienna);
-  border-color: var(--sienna);
-}
-.btn-icon {
+  border-color: var(--sienna);}
+.btn-icon{
   width: 44px; min-height: 44px; padding: 0;
   background: var(--bg-card);
   border-color: var(--rule);
-  color: var(--ink-2);
-}
-.btn-sm { min-height: 28px; padding: var(--space-1) var(--space-3); font-size: var(--fs-xs); }
+  color: var(--ink-2);}
+.btn-sm{ min-height: 28px; padding: var(--space-1) var(--space-3); font-size: var(--fs-xs); }
 /* iter070: hide ☰ (nav-toggle) and ⋯ (topbar-menu-toggle) on desktop. This rule
-   MUST sit AFTER `.btn { display: inline-flex }` above — both are single-class
-   selectors (0,1,0), so when this was at the top of the topbar block `.btn` won
+   MUST sit AFTER `.btn{ display: inline-flex }` above — both are single-class
+   selectors (0, 1, 0), so when this was at the top of the topbar block `.btn` won
    on source order and the two toggles leaked as dead buttons on desktop. Placed
    here it wins on source order. The <=768px media query re-shows them (same
-   0,1,0, later in the file) so mobile/landing behaviour is unchanged. */
-.nav-toggle, .topbar-menu-toggle { display: none; }
+   0, 1, 0, later in the file) so mobile/landing behaviour is unchanged. */
+.nav-toggle, .topbar-menu-toggle{ display: none; }
 
 /* badges / status pills */
-.badge {
+.badge{
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -421,73 +399,67 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   border: 1px solid var(--rule);
   background: var(--bg-card);
   color: var(--ink-2);
-  white-space: nowrap;
-}
-.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
-.badge.no-dot::before { display: none; }
-.badge.ready, .badge.succeeded, .badge.done, .badge.approve, .badge.success { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
-.badge.warn, .badge.queued, .badge.warning, .badge.abstain, .badge.unknown { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
-.badge.blocked, .badge.failed, .badge.aborted, .badge.reject, .badge.lost, .badge.danger { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
-.badge.running, .badge.pending { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
-.badge-novel { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
-.badge-drama { color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber); }
-.badge-muted { color: var(--ink-3); background: var(--bg-sunken); border-color: var(--rule); }
+  white-space: nowrap;}
+.badge::before{ content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
+.badge.no-dot::before{ display: none; }
+.badge.ready, .badge.succeeded, .badge.done, .badge.approve, .badge.success{ color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
+.badge.warn, .badge.queued, .badge.warning, .badge.abstain, .badge.unknown{ color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
+.badge.blocked, .badge.failed, .badge.aborted, .badge.reject, .badge.lost, .badge.danger{ color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
+.badge.running, .badge.pending{ color: var(--amber-strong); background: var(--amber-soft); border-color: var(--amber-soft); }
+.badge-novel{ color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
+.badge-muted{ color: var(--ink-3); background: var(--bg-sunken); border-color: var(--rule); }
 
 /* card */
-.card {
+.card{
   background: var(--bg-card);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  overflow: hidden;
-}
-.card-header {
+  overflow: hidden;}
+.card-header{
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--rule);
-}
-.card-header h3 { font-size: var(--fs-lg); }
-.card-header .lead { color: var(--ink-3); font-size: var(--fs-sm); margin: 2px 0 0; }
-.card-body { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
-.card-footer {
+  border-bottom: 1px solid var(--rule);}
+.card-header h3{ font-size: var(--fs-lg); }
+.card-header .lead{ color: var(--ink-3); font-size: var(--fs-sm); margin: 2px 0 0; }
+.card-body{ padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+.card-footer{
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--rule);
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  background: var(--bg-sunken);
-}
-.card.flush .card-body { padding: 0; }
+  background: var(--bg-sunken);}
+.card.flush .card-body{ padding: 0; }
 
 /* grid utilities */
-.grid { display: grid; gap: var(--space-4); }
-.grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.grid.cols-auto { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-.style-preset-card.active { border-color: var(--jade); background: var(--jade-soft); }
-.style-preset-card h4 { margin: 0 0 4px; font-size: var(--fs-md); }
-.style-preset-card .card-body { padding: var(--space-3); }
-.cluster { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.stack { display: flex; flex-direction: column; gap: var(--space-3); }
+.grid{ display: grid; gap: var(--space-4); }
+.grid.cols-2{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid.cols-3{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid.cols-auto{ grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.style-preset-card.active{ border-color: var(--jade); background: var(--jade-soft); }
+.style-preset-card h4{ margin: 0 0 4px; font-size: var(--fs-md); }
+.style-preset-card .card-body{ padding: var(--space-3); }
+.cluster{ display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.stack{ display: flex; flex-direction: column; gap: var(--space-3); }
 
 /* kv-list */
-.kv-list {
+.kv-list{
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: var(--space-2) var(--space-4);
-  font-size: var(--fs-sm);
-}
-.kv-list .k { color: var(--ink-3); }
-.kv-list .v { color: var(--ink-1); word-break: break-word; }
-.kv-list .v code { color: var(--ink-2); }
-.kv-list.compact { font-size: var(--fs-xs); gap: var(--space-1) var(--space-3); }
+  font-size: var(--fs-sm);}
+.kv-list .k{ color: var(--ink-3); }
+.kv-list .v{ color: var(--ink-1); word-break: break-word; }
+.kv-list .v code{ color: var(--ink-2); }
+.kv-list.compact{ font-size: var(--fs-xs); gap: var(--space-1) var(--space-3); }
 
 /* forms */
-.field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--fs-sm); }
-.field label { color: var(--ink-2); font-weight: 500; font-size: var(--fs-xs); }
-.field input, .field select, .field textarea {
+.field{ display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--fs-sm); }
+.field label{ color: var(--ink-2); font-weight: 500; font-size: var(--fs-xs); }
+.field input, .field select, .field textarea{
   width: 100%;
   min-height: 36px;
   padding: var(--space-2) var(--space-3);
@@ -496,34 +468,30 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   background: var(--bg-card);
   color: var(--ink-1);
   font-family: inherit;
-  font-size: var(--fs-sm);
-}
-.field input:focus, .field select:focus, .field textarea:focus {
+  font-size: var(--fs-sm);}
+.field input:focus, .field select:focus, .field textarea:focus{
   outline: 2px solid var(--jade);
   outline-offset: 0;
-  border-color: var(--jade);
-}
-.field-check {
+  border-color: var(--jade);}
+.field-check{
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   color: var(--ink-1);
-  font-size: var(--fs-sm);
-}
-.field-check input { width: auto; min-height: 0; }
-.form-grid { display: grid; gap: var(--space-3) var(--space-4); grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.form-grid-2 { display: grid; gap: var(--space-3) var(--space-4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.form-actions { display: flex; justify-content: flex-end; gap: var(--space-2); align-items: center; }
+  font-size: var(--fs-sm);}
+.field-check input{ width: auto; min-height: 0; }
+.form-grid{ display: grid; gap: var(--space-3) var(--space-4); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-grid-2{ display: grid; gap: var(--space-3) var(--space-4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-actions{ display: flex; justify-content: flex-end; gap: var(--space-2); align-items: center; }
 
 /* tabs */
-.tabs { display: flex; flex-direction: column; gap: var(--space-4); }
-.tab-list {
+.tabs{ display: flex; flex-direction: column; gap: var(--space-4); }
+.tab-list{
   display: flex;
   gap: var(--space-1);
   border-bottom: 1px solid var(--rule);
-  overflow-x: auto;
-}
-.tab {
+  overflow-x: auto;}
+.tab{
   border: 0;
   background: transparent;
   padding: var(--space-2) var(--space-3);
@@ -534,54 +502,50 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  white-space: nowrap;
-}
-.tab:hover { color: var(--ink-1); }
-.tab.active { color: var(--jade-strong); border-bottom-color: var(--jade); }
-.tab-panel { display: none; }
-.tab-panel.active { display: block; }
+  white-space: nowrap;}
+.tab:hover{ color: var(--ink-1); }
+.tab.active{ color: var(--jade-strong); border-bottom-color: var(--jade); }
+.tab-panel{ display: none; }
+.tab-panel.active{ display: block; }
 
 /* breadcrumbs reused in sub-pages (under topbar) */
-.subnav {
+.subnav{
   display: flex;
   gap: var(--space-1);
   align-items: center;
   font-size: var(--fs-sm);
-  color: var(--ink-3);
-}
+  color: var(--ink-3);}
 
 /* empty-state */
-.empty-state {
+.empty-state{
   text-align: center;
   padding: var(--space-7) var(--space-5);
   background: var(--bg-card);
   border: 1px dashed var(--rule-strong);
   border-radius: var(--radius-2);
-  color: var(--ink-2);
-}
-.empty-state .ornament { color: var(--jade); font-size: var(--fs-h2); display: block; margin-bottom: var(--space-3); }
-.empty-state h3 { margin-bottom: var(--space-2); color: var(--ink-1); }
-.empty-state .cta { margin-top: var(--space-4); }
-.empty-state .cta.cluster { justify-content: center; }
+  color: var(--ink-2);}
+.empty-state .ornament{ color: var(--jade); font-size: var(--fs-h2); display: block; margin-bottom: var(--space-3); }
+.empty-state h3{ margin-bottom: var(--space-2); color: var(--ink-1); }
+.empty-state .cta{ margin-top: var(--space-4); }
+.empty-state .cta.cluster{ justify-content: center; }
 
 /* skeleton — replaces "loading..." */
-.skeleton {
+.skeleton{
   background: linear-gradient(90deg, var(--bg-sunken) 0%, #EFE7D6 50%, var(--bg-sunken) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
   border-radius: var(--radius-1);
   color: transparent;
-  min-height: 1em;
-}
-.skeleton.row { height: 14px; margin: 6px 0; }
-.skeleton.row.short { width: 40%; }
-.skeleton.row.long { width: 88%; }
-.skeleton-block { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  min-height: 1em;}
+.skeleton.row{ height: 14px; margin: 6px 0; }
+.skeleton.row.short{ width: 40%; }
+.skeleton.row.long{ width: 88%; }
+.skeleton-block{ padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+@keyframes shimmer { 0%{ background-position: 200% 0; } 100%{ background-position: -200% 0; } }
 
 /* toast placeholder */
-.toast-stack { position: fixed; bottom: var(--space-5); right: var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); z-index: 50; }
-.toast {
+.toast-stack{ position: fixed; bottom: var(--space-5); right: var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); z-index: 50; }
+.toast{
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -592,295 +556,84 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-1);
   font-size: var(--fs-sm);
-  box-shadow: 0 2px 6px rgba(42, 37, 32, .08);
-}
-.toast.error { border-left-color: var(--sienna); }
-.toast.warn { border-left-color: var(--gold); }
-.toast-dismiss {
+  box-shadow: 0 2px 6px rgba(42, 37, 32, .08);}
+.toast.error{ border-left-color: var(--sienna); }
+.toast.warn{ border-left-color: var(--gold); }
+.toast-dismiss{
   border: 0;
   background: transparent;
   color: var(--ink-3);
   cursor: pointer;
   font-size: var(--fs-sm);
-  padding: 0;
-}
+  padding: 0;}
 
 /* alerts inline */
-.alert {
+.alert{
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-1);
   font-size: var(--fs-sm);
   border: 1px solid var(--rule);
-  background: var(--bg-card);
-}
-.alert.error { background: var(--sienna-soft); border-color: var(--sienna-soft); color: var(--sienna); }
-.alert.warn { background: var(--gold-soft); border-color: var(--gold-soft); color: var(--amber-strong); }
-.alert.info { background: var(--jade-soft); border-color: var(--jade-soft); color: var(--jade-strong); }
+  background: var(--bg-card);}
+.alert.error{ background: var(--sienna-soft); border-color: var(--sienna-soft); color: var(--sienna); }
+.alert.warn{ background: var(--gold-soft); border-color: var(--gold-soft); color: var(--amber-strong); }
+.alert.info{ background: var(--jade-soft); border-color: var(--jade-soft); color: var(--jade-strong); }
 
 /* tables */
-.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-.table th, .table td { padding: var(--space-2) var(--space-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
-.table th { font-weight: 600; color: var(--ink-2); font-size: var(--fs-xs); text-transform: none; letter-spacing: 0.04em; background: var(--bg-sunken); }
-.table tbody tr { transition: background .12s ease; }
-.table tbody tr:hover { background: var(--bg-sunken); }
-.table .link-cell { color: var(--jade); cursor: pointer; }
-.table-scroll {
+.table{ width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.table th, .table td{ padding: var(--space-2) var(--space-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+.table th{ font-weight: 600; color: var(--ink-2); font-size: var(--fs-xs); text-transform: none; letter-spacing: 0.04em; background: var(--bg-sunken); }
+.table tbody tr{ transition: background .12s ease; }
+.table tbody tr:hover{ background: var(--bg-sunken); }
+.table .link-cell{ color: var(--jade); cursor: pointer; }
+.table-scroll{
   width: 100%;
   overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-.table-wide { min-width: 760px; }
-.shot-image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-3);
-}
-.shot-image-candidate {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  overflow: hidden;
-  background: var(--bg-card);
-}
-.shot-image-candidate img,
-.shot-image-compare img {
-  width: 100%;
-  aspect-ratio: 9 / 16;
-  object-fit: contain;
-  background: var(--bg-sunken);
-}
-.shot-image-candidate .candidate-body { padding: var(--space-3); }
-.shot-image-compare {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-.shot-image-compare:empty { display: none; }
-.shot-image-compare figure { margin: 0; }
-.shot-image-compare figcaption { overflow-wrap: anywhere; }
-.shot-video-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: var(--space-4);
-}
-.shot-video-candidate {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-card);
-  overflow: hidden;
-}
-.shot-video-candidate video {
-  display: block;
-  width: 100%;
-  aspect-ratio: 9 / 16;
-  max-height: 480px;
-  background: #111;
-}
-.shot-video-candidate .candidate-body { padding: var(--space-3); }
-.asset-governance-root,
-.drama-media-root { display: grid; gap: var(--space-4); }
-.asset-governance-summary,
-.media-overview-summary {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-sunken);
-  padding: var(--space-4);
-}
-.asset-category-nav,
-.media-view-switcher {
-  display: flex;
-  gap: var(--space-2);
-  overflow-x: auto;
-  padding: var(--space-3);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-sunken);
-  scrollbar-width: thin;
-}
-.asset-category-nav .btn,
-.media-view-switcher .btn { flex: 0 0 auto; }
-.asset-section-layout,
-.drama-media-browser {
-  display: grid;
-  grid-template-columns: minmax(250px, 330px) minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-}
-.asset-item-list,
-.media-shot-list {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-card);
-}
-.asset-item-button,
-.media-shot-button {
-  width: 100%;
-  min-height: 88px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-card);
-  color: var(--ink-1);
-  padding: var(--space-3);
-  text-align: left;
-  display: grid;
-  gap: var(--space-1);
-  cursor: pointer;
-}
-.asset-item-button[aria-selected="true"],
-.media-shot-button[aria-selected="true"] {
-  border: 3px solid var(--jade);
-  background: var(--jade-soft);
-}
-.asset-item-button[data-state="stale"],
-.media-shot-button[data-state="stale"] { border-color: var(--amber); background: var(--gold-soft); }
-.asset-item-button[data-state="blocked"],
-.media-shot-button[data-state="blocked"],
-.media-shot-button[data-state="invalid"] { border-color: var(--sienna); background: var(--sienna-soft); }
-.asset-item-button strong,
-.media-shot-button strong { font-family: var(--font-display); font-size: var(--fs-md); }
-.asset-version-panel,
-.media-shot-panel {
-  min-width: 0;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-card);
-  padding: var(--space-4);
-}
-.asset-version-list { display: grid; gap: var(--space-3); }
-.asset-version-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-3);
-  align-items: center;
-  min-height: 88px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  padding: var(--space-3) var(--space-4);
-}
-.asset-version-row[data-selected="true"] { border: 3px solid var(--jade); background: var(--jade-soft); }
-.asset-version-row[data-state="off"] { background: var(--bg-sunken); }
-.asset-version-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
-.media-shot-panel[hidden],
-.asset-detail-panel[hidden] { display: none; }
-.media-shot-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-}
-.media-shot-summary > div {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-1);
-  background: var(--bg-sunken);
-  padding: var(--space-3);
-}
-.media-candidate-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
-  gap: var(--space-3);
-}
-.shot-image-candidate,
-.shot-video-candidate { position: relative; }
-.shot-image-candidate[data-selected="true"],
-.shot-video-candidate[data-selected="true"] { border: 3px solid var(--jade); }
-.media-candidate-grid .shot-image-candidate img,
-.media-candidate-grid .shot-video-candidate video {
-  aspect-ratio: 16 / 9;
-  max-height: none;
-  object-fit: contain;
-}
-.asset-item-button[data-state="attention"],
-.media-shot-button[data-state="attention"],
-.media-shot-button[data-state="missing"] { border-color: var(--amber); background: var(--gold-soft); }
-.shot-image-candidate[data-current="false"],
-.shot-video-candidate[data-current="false"] { border-color: var(--amber); background: var(--gold-soft); }
-.candidate-preview-placeholder {
-  min-height: 180px;
-  display: grid;
-  place-items: center;
-  background: var(--bg-sunken);
-  color: var(--ink-3);
-}
-.candidate-title { font-family: var(--font-display); font-weight: 600; }
-.media-current-selection {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  border: 1px solid var(--jade);
-  background: var(--jade-soft);
-  border-radius: var(--radius-2);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4);
-}
-.media-safety-note { margin-top: var(--space-4); }
-.drama-episode-table { min-width: 620px; }
-.drama-episode-table th, .drama-episode-table td { white-space: nowrap; }
-.storyboard-table { min-width: 1120px; }
-.storyboard-table textarea {
-  width: 100%;
-  min-width: 180px;
-  min-height: 74px;
-  resize: vertical;
-}
-.storyboard-table input[type=number] { width: 74px; }
-.storyboard-table select { min-width: 88px; }
-.storyboard-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.storyboard-duration.ready { color: var(--jade-strong); }
-.storyboard-duration.warn { color: var(--amber-strong); }
-.storyboard-duration.blocked { color: var(--sienna); }
-.jobs-table { min-width: 920px; }
-.job-toggle {
+  -webkit-overflow-scrolling: touch;}
+.table-wide{ min-width: 760px; }
+.jobs-table{ min-width: 920px; }
+.job-toggle{
   width: 28px;
   min-height: 28px;
-  padding: 0;
-}
-.job-drawer-row { display: none; }
-.job-drawer-row.open { display: table-row; }
-.job-drawer {
+  padding: 0;}
+.job-drawer-row{ display: none; }
+.job-drawer-row.open{ display: table-row; }
+.job-drawer{
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
   background: var(--bg-card);
-  border-left: 3px solid var(--jade);
-}
-.job-drawer .drawer-grid {
+  border-left: 3px solid var(--jade);}
+.job-drawer .drawer-grid{
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-3);
-}
-.job-drawer pre {
+  gap: var(--space-3);}
+.job-drawer pre{
   max-height: 240px;
   overflow: auto;
   margin: 0;
   background: var(--bg-sunken);
   padding: var(--space-3);
-  border-radius: var(--radius-1);
-}
+  border-radius: var(--radius-1);}
 
 /* progress */
-.progress { height: 8px; background: var(--bg-sunken); border-radius: var(--radius-pill); overflow: hidden; }
-.progress-fill { height: 100%; background: var(--amber); transition: width .3s ease; }
+.progress{ height: 8px; background: var(--bg-sunken); border-radius: var(--radius-pill); overflow: hidden; }
+.progress-fill{ height: 100%; background: var(--amber); transition: width .3s ease; }
 
 /* command list (recommended commands) */
-.command-list { display: flex; flex-direction: column; gap: var(--space-2); }
-.command-list code {
+.command-list{ display: flex; flex-direction: column; gap: var(--space-2); }
+.command-list code{
   display: block;
   padding: var(--space-2) var(--space-3);
   background: var(--bg-sunken);
   border-radius: var(--radius-1);
   color: var(--ink-1);
-  white-space: pre-wrap;
-}
+  white-space: pre-wrap;}
 
 /* ---------- page: dashboard / workspace shelf ---------- */
-.shelf-stats { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.workspace-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); }
-.workspace-card {
+.shelf-stats{ display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.workspace-grid{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); }
+.workspace-card{
   display: block;
   padding: var(--space-5);
   background: var(--bg-card);
@@ -888,70 +641,63 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   border-radius: var(--radius-2);
   color: var(--ink-1);
   text-decoration: none;
-  transition: border-color .15s ease, transform .12s ease;
-}
-.workspace-card:hover { border-color: var(--jade); transform: translateY(-1px); }
-.workspace-card .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); margin-bottom: var(--space-4); }
-.workspace-card h3 { font-size: var(--fs-h2); }
-.workspace-card .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
-.workspace-card .metric .k { display: block; font-size: var(--fs-xs); color: var(--ink-3); }
-.workspace-card .metric .v { display: block; margin-top: 2px; font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); }
-.workspace-card .metric .v.metric-small { font-size: var(--fs-sm); }
-.workspace-card .metric.history { opacity: .6; }
+  transition: border-color .15s ease, transform .12s ease;}
+.workspace-card:hover{ border-color: var(--jade); transform: translateY(-1px); }
+.workspace-card .card-head{ display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); margin-bottom: var(--space-4); }
+.workspace-card h3{ font-size: var(--fs-h2); }
+.workspace-card .metrics{ display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.workspace-card .metric .k{ display: block; font-size: var(--fs-xs); color: var(--ink-3); }
+.workspace-card .metric .v{ display: block; margin-top: 2px; font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); }
+.workspace-card .metric .v.metric-small{ font-size: var(--fs-sm); }
+.workspace-card .metric.history{ opacity: .6; }
 
-.sidebar-job {
-  margin-bottom: var(--space-2);
-}
-.sidebar-job.history { opacity: .6; }
+.sidebar-job{
+  margin-bottom: var(--space-2);}
+.sidebar-job.history{ opacity: .6; }
 
 /* ---------- page: workspace overview ---------- */
-.overview-hero {
+.overview-hero{
   display: grid;
   grid-template-columns: 1.5fr 1fr;
   gap: var(--space-5);
-  align-items: stretch;
-}
-.next-action {
+  align-items: stretch;}
+.next-action{
   background: var(--bg-card);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
   padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-.next-action .eyebrow { margin-bottom: 0; }
-.next-action .hint { color: var(--ink-2); }
-.next-action .cta-row { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+  gap: var(--space-3);}
+.next-action .eyebrow{ margin-bottom: 0; }
+.next-action .hint{ color: var(--ink-2); }
+.next-action .cta-row{ display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
 
-.metric-pair {
+.metric-pair{
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-3);
-}
-.metric-pair .tile {
+  gap: var(--space-3);}
+.metric-pair .tile{
   background: var(--bg-card);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  padding: var(--space-4);
-}
-.metric-pair .tile .k { font-size: var(--fs-xs); color: var(--ink-3); }
-.metric-pair .tile .v { font-size: var(--fs-display); font-weight: 600; color: var(--ink-1); font-family: var(--font-serif); }
-.metric-pair .tile .v.metric-small { font-size: var(--fs-xl); line-height: 1.25; }
-.metric-pair .tile .sub { font-size: var(--fs-xs); color: var(--ink-3); }
+  padding: var(--space-4);}
+.metric-pair .tile .k{ font-size: var(--fs-xs); color: var(--ink-3); }
+.metric-pair .tile .v{ font-size: var(--fs-display); font-weight: 600; color: var(--ink-1); font-family: var(--font-serif); }
+.metric-pair .tile .v.metric-small{ font-size: var(--fs-xl); line-height: 1.25; }
+.metric-pair .tile .sub{ font-size: var(--fs-xs); color: var(--ink-3); }
 
-.details-fold summary {
+.details-fold summary{
   cursor: pointer;
   font-size: var(--fs-sm);
   color: var(--ink-2);
   padding: var(--space-2) 0;
-  list-style: none;
-}
-.details-fold summary::before { content: "▸"; margin-right: .35em; color: var(--ink-3); }
-.details-fold[open] summary::before { content: "▾"; }
+  list-style: none;}
+.details-fold summary::before{ content: "▸"; margin-right: .35em; color: var(--ink-3); }
+.details-fold[open] summary::before{ content: "▾"; }
 
 /* ---------- page: continue (cockpit) ---------- */
-.readiness-primary {
+.readiness-primary{
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -959,24 +705,21 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   padding: var(--space-4);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  background: var(--bg-card);
-}
-.readiness-primary .copy { display: flex; flex-direction: column; gap: var(--space-1); }
-.readiness-primary h3 { font-size: var(--fs-lg); }
-.readiness-primary p { color: var(--ink-2); margin: 0; }
-.readiness-status-row { margin-top: var(--space-3); }
-.readiness-diagnostics { margin-top: var(--space-3); }
-.continue-flow {
+  background: var(--bg-card);}
+.readiness-primary .copy{ display: flex; flex-direction: column; gap: var(--space-1); }
+.readiness-primary h3{ font-size: var(--fs-lg); }
+.readiness-primary p{ color: var(--ink-2); margin: 0; }
+.readiness-status-row{ margin-top: var(--space-3); }
+.readiness-diagnostics{ margin-top: var(--space-3); }
+.continue-flow{
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-}
-.flow-step {
+  gap: var(--space-5);}
+.flow-step{
   display: grid;
   grid-template-columns: 32px 1fr;
-  gap: var(--space-4);
-}
-.flow-step .step-mark {
+  gap: var(--space-4);}
+.flow-step .step-mark{
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -986,181 +729,165 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   font-weight: 600;
   display: flex;
   align-items: center;
-  justify-content: center;
-}
-.flow-step.done .step-mark { background: var(--jade); color: #fff; }
+  justify-content: center;}
+.flow-step.done .step-mark{ background: var(--jade); color: #fff; }
 
 /* ---------- page: chapters list ---------- */
-.chapters-filter {
+.chapters-filter{
   display: flex;
   gap: var(--space-3);
   flex-wrap: wrap;
-  align-items: center;
-}
-.chapters-filter input[type=search] {
+  align-items: center;}
+.chapters-filter input[type=search]{
   min-height: 36px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   min-width: 220px;
   background: var(--bg-card);
-  font: inherit;
-}
-.filter-toggle .btn { border-radius: var(--radius-1); }
-.filter-toggle .btn.active { background: var(--jade-soft); border-color: var(--jade); color: var(--jade-strong); }
+  font: inherit;}
+.filter-toggle .btn{ border-radius: var(--radius-1); }
+.filter-toggle .btn.active{ background: var(--jade-soft); border-color: var(--jade); color: var(--jade-strong); }
 
 /* ---------- page: chapter detail ---------- */
-.chapter-meta-bar {
+.chapter-meta-bar{
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  align-items: center;
-}
-.reading-body {
+  align-items: center;}
+.reading-body{
   max-width: var(--reading-w);
   margin: 0 auto;
   padding: var(--space-5) 0;
   font-family: var(--font-serif);
   font-size: var(--fs-lg);
   line-height: 1.95;
-  color: var(--ink-1);
-}
-.reading-body p { margin: 0 0 1.1em; text-indent: 2em; }
-.reading-body h1, .reading-body h2 { text-indent: 0; text-align: center; margin: 1.5em 0 .8em; }
-.reading-body .jump-highlight { background-color: var(--gold-soft); transition: background-color 1.5s ease; }
-.review-card {
+  color: var(--ink-1);}
+.reading-body p{ margin: 0 0 1.1em; text-indent: 2em; }
+.reading-body h1, .reading-body h2{ text-indent: 0; text-align: center; margin: 1.5em 0 .8em; }
+.reading-body .jump-highlight{ background-color: var(--gold-soft); transition: background-color 1.5s ease; }
+.review-card{
   display: grid;
   grid-template-columns: minmax(140px, 1fr) 2fr;
   gap: var(--space-4);
   padding: var(--space-4);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  background: var(--bg-card);
-}
-.review-card .name { font-family: var(--font-serif); font-size: var(--fs-lg); }
-.review-card .verdict { margin-top: var(--space-1); }
-.subscore-bar { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-xs); color: var(--ink-2); }
-.subscore-bar .label { width: 56px; }
-.subscore-bar .track { flex: 1; height: 6px; background: var(--bg-sunken); border-radius: var(--radius-pill); overflow: hidden; }
-.subscore-bar .track > i { display: block; height: 100%; background: var(--jade); }
-.subscore-bar .val { width: 32px; text-align: right; }
-.subscore-cell {
+  background: var(--bg-card);}
+.review-card .name{ font-family: var(--font-serif); font-size: var(--fs-lg); }
+.review-card .verdict{ margin-top: var(--space-1); }
+.subscore-bar{ display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-xs); color: var(--ink-2); }
+.subscore-bar .label{ width: 56px; }
+.subscore-bar .track{ flex: 1; height: 6px; background: var(--bg-sunken); border-radius: var(--radius-pill); overflow: hidden; }
+.subscore-bar .track > i{ display: block; height: 100%; background: var(--jade); }
+.subscore-bar .val{ width: 32px; text-align: right; }
+.subscore-cell{
   text-align: center;
-  font-family: var(--font-mono);
-}
-.subscore-cell-empty {
+  font-family: var(--font-mono);}
+.subscore-cell-empty{
   color: var(--ink-3);
-  background: var(--bg-card);
-}
-.subscore-cell-approve { background: var(--jade-soft); }
-.subscore-cell-warn { background: var(--gold-soft); }
-.subscore-cell-fail { background: var(--sienna-soft); }
+  background: var(--bg-card);}
+.subscore-cell-approve{ background: var(--jade-soft); }
+.subscore-cell-warn{ background: var(--gold-soft); }
+.subscore-cell-fail{ background: var(--sienna-soft); }
 
-.lint-group { border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--bg-card); overflow: hidden; }
-.lint-group h4 { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--rule); background: var(--bg-sunken); font-size: var(--fs-sm); }
-.lint-group ul { list-style: none; padding: 0; margin: 0; }
-.lint-group li { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--rule); font-size: var(--fs-sm); display: flex; gap: var(--space-3); }
-.lint-group li:last-child { border-bottom: 0; }
-.lint-group li.link-cell { cursor: pointer; }
-.lint-group li.link-cell:hover { background: var(--bg-sunken); }
-.lint-group li .anchor { color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-xs); }
-.lint-group li .severity { color: var(--gold); font-size: var(--fs-xs); }
-.lint-group li .severity.error { color: var(--sienna); }
-.lint-group li .severity.warn { color: var(--gold); }
+.lint-group{ border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--bg-card); overflow: hidden; }
+.lint-group h4{ padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--rule); background: var(--bg-sunken); font-size: var(--fs-sm); }
+.lint-group ul{ list-style: none; padding: 0; margin: 0; }
+.lint-group li{ padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--rule); font-size: var(--fs-sm); display: flex; gap: var(--space-3); }
+.lint-group li:last-child{ border-bottom: 0; }
+.lint-group li.link-cell{ cursor: pointer; }
+.lint-group li.link-cell:hover{ background: var(--bg-sunken); }
+.lint-group li .anchor{ color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-xs); }
+.lint-group li .severity{ color: var(--gold); font-size: var(--fs-xs); }
+.lint-group li .severity.error{ color: var(--sienna); }
+.lint-group li .severity.warn{ color: var(--gold); }
 
-.advisor-item {
+.advisor-item{
   background: var(--bg-card);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  padding: var(--space-4);
-}
-.advisor-item .type { font-size: var(--fs-xs); color: var(--jade); text-transform: uppercase; letter-spacing: .04em; }
-.advisor-item .section { font-family: var(--font-serif); font-size: var(--fs-lg); margin-top: 2px; }
-.advisor-item .guidance { color: var(--ink-2); margin-top: var(--space-2); white-space: pre-wrap; }
+  padding: var(--space-4);}
+.advisor-item .type{ font-size: var(--fs-xs); color: var(--jade); text-transform: uppercase; letter-spacing: .04em; }
+.advisor-item .section{ font-family: var(--font-serif); font-size: var(--fs-lg); margin-top: 2px; }
+.advisor-item .guidance{ color: var(--ink-2); margin-top: var(--space-2); white-space: pre-wrap; }
 
 /* iter 074: chapter version diff (history tab) — iter075 观感打磨（不改数据流/端点） */
-.diff-panel { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--rule); }
-.diff-panel > h4 { font-size: var(--fs-sm); margin: 0 0 var(--space-3); color: var(--ink-2); letter-spacing: .02em; }
-.diff-controls { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--ink-2); }
-.diff-controls label { display: inline-flex; align-items: center; gap: var(--space-2); }
-.diff-controls select {
+.diff-panel{ margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--rule); }
+.diff-panel > h4{ font-size: var(--fs-sm); margin: 0 0 var(--space-3); color: var(--ink-2); letter-spacing: .02em; }
+.diff-controls{ display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--ink-2); }
+.diff-controls label{ display: inline-flex; align-items: center; gap: var(--space-2); }
+.diff-controls select{
   max-width: 260px; padding: var(--space-1) var(--space-2);
   border: 1px solid var(--rule-strong); border-radius: var(--radius-1);
-  background: var(--bg-card); color: var(--ink-1); font-size: var(--fs-sm);
-}
-.diff-controls select:focus { outline: none; border-color: var(--jade); box-shadow: 0 0 0 2px var(--jade-soft); }
-.diff-controls .diff-arrow { color: var(--ink-3); }
-.diff-output { margin-top: var(--space-3); }
-.diff-view {
+  background: var(--bg-card); color: var(--ink-1); font-size: var(--fs-sm);}
+.diff-controls select:focus{ outline: none; border-color: var(--jade); box-shadow: 0 0 0 2px var(--jade-soft); }
+.diff-controls .diff-arrow{ color: var(--ink-3); }
+.diff-output{ margin-top: var(--space-3); }
+.diff-view{
   border: 1px solid var(--rule); border-radius: var(--radius-2); overflow: auto;
   font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.65;
-  background: var(--bg-card); max-height: 480px; box-shadow: var(--shadow-card);
-}
-.diff-line { padding: 1px var(--space-3); white-space: pre-wrap; word-break: break-word; border-left: 3px solid transparent; }
-.diff-line.diff-add { background: var(--jade-soft); border-left-color: var(--jade); }
-.diff-line.diff-del { background: var(--sienna-soft); border-left-color: var(--sienna); }
-.diff-line.diff-hunk { color: var(--ink-3); background: var(--bg-sunken); }
-.diff-line.diff-meta { color: var(--ink-3); background: var(--bg-sunken); font-style: italic; }
-.diff-line.diff-ctx { color: var(--ink-2); }
+  background: var(--bg-card); max-height: 480px; box-shadow: var(--shadow-card);}
+.diff-line{ padding: 1px var(--space-3); white-space: pre-wrap; word-break: break-word; border-left: 3px solid transparent; }
+.diff-line.diff-add{ background: var(--jade-soft); border-left-color: var(--jade); }
+.diff-line.diff-del{ background: var(--sienna-soft); border-left-color: var(--sienna); }
+.diff-line.diff-hunk{ color: var(--ink-3); background: var(--bg-sunken); }
+.diff-line.diff-meta{ color: var(--ink-3); background: var(--bg-sunken); font-style: italic; }
+.diff-line.diff-ctx{ color: var(--ink-2); }
 
 /* iter075: 全文搜索页 */
-.search-hero { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }
-.search-box-wrap { position: relative; display: flex; align-items: center; }
-.search-box-wrap .search-icon { position: absolute; left: var(--space-4); color: var(--jade); font-size: var(--fs-lg); pointer-events: none; opacity: .7; }
-.search-box {
+.search-hero{ display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }
+.search-box-wrap{ position: relative; display: flex; align-items: center; }
+.search-box-wrap .search-icon{ position: absolute; left: var(--space-4); color: var(--jade); font-size: var(--fs-lg); pointer-events: none; opacity: .7; }
+.search-box{
   width: 100%;
   padding: var(--space-3) var(--space-4) var(--space-3) calc(var(--space-6) + var(--space-2));
   font-size: var(--fs-lg); font-family: var(--font-serif);
   border: 1px solid var(--rule-strong); border-radius: var(--radius-2);
-  background: var(--bg-card); color: var(--ink-1);
-}
-.search-box::placeholder { color: var(--ink-3); }
-.search-box:focus { outline: none; border-color: var(--jade); box-shadow: 0 0 0 3px var(--jade-soft); }
-.search-sources { gap: var(--space-4); font-size: var(--fs-sm); color: var(--ink-2); }
-.search-sources label { display: inline-flex; align-items: center; gap: var(--space-1); cursor: pointer; }
-.search-summary { margin: 0 0 var(--space-4); font-size: var(--fs-sm); }
-.search-results { display: flex; flex-direction: column; gap: var(--space-4); }
-.search-hit { padding: var(--space-4); }
-.search-hit-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); flex-wrap: wrap; }
-.search-hit-title { font-family: var(--font-serif); font-size: var(--fs-lg); color: var(--ink-1); text-decoration: none; }
-.search-hit-count { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
-.search-snippet {
+  background: var(--bg-card); color: var(--ink-1);}
+.search-box::placeholder{ color: var(--ink-3); }
+.search-box:focus{ outline: none; border-color: var(--jade); box-shadow: 0 0 0 3px var(--jade-soft); }
+.search-sources{ gap: var(--space-4); font-size: var(--fs-sm); color: var(--ink-2); }
+.search-sources label{ display: inline-flex; align-items: center; gap: var(--space-1); cursor: pointer; }
+.search-summary{ margin: 0 0 var(--space-4); font-size: var(--fs-sm); }
+.search-results{ display: flex; flex-direction: column; gap: var(--space-4); }
+.search-hit{ padding: var(--space-4); }
+.search-hit-head{ display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); flex-wrap: wrap; }
+.search-hit-title{ font-family: var(--font-serif); font-size: var(--fs-lg); color: var(--ink-1); text-decoration: none; }
+.search-hit-count{ margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.search-snippet{
   font-family: var(--font-serif); font-size: var(--fs-md); line-height: 1.9;
-  color: var(--ink-2); margin: var(--space-2) 0 0; white-space: pre-wrap; word-break: break-word;
-}
-.search-snippet + .search-snippet { padding-top: var(--space-2); border-top: 1px dashed var(--rule); }
-.search-snippet mark {
+  color: var(--ink-2); margin: var(--space-2) 0 0; white-space: pre-wrap; word-break: break-word;}
+.search-snippet + .search-snippet{ padding-top: var(--space-2); border-top: 1px dashed var(--rule); }
+.search-snippet mark{
   background: var(--amber-soft); color: var(--amber-strong);
-  padding: 0 2px; border-radius: var(--radius-1); font-weight: 600;
-}
+  padding: 0 2px; border-radius: var(--radius-1); font-weight: 600;}
 /* source badge 三色：original=金(参照)、draft=品牌绿(可编辑)、kb=砖红(参考) */
-.badge.source-original { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
-.badge.source-draft { color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
-.badge.source-kb { color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
+.badge.source-original{ color: var(--gold); background: var(--gold-soft); border-color: var(--gold-soft); }
+.badge.source-draft{ color: var(--jade-strong); background: var(--jade-soft); border-color: var(--jade-soft); }
+.badge.source-kb{ color: var(--sienna); background: var(--sienna-soft); border-color: var(--sienna-soft); }
 
 /* ---------- Review / advisor readability polish (global) ---------- */
-.subscore-bar .track { height: 8px; }
-.subscore-bar .val { font-family: var(--font-serif); font-size: var(--fs-sm); color: var(--ink-1); }
-.badge.approve, .badge.reject { font-weight: 700; }
-.advisor-item { border-left: 3px solid var(--jade); }
+.subscore-bar .track{ height: 8px; }
+.subscore-bar .val{ font-family: var(--font-serif); font-size: var(--fs-sm); color: var(--ink-1); }
+.badge.approve, .badge.reject{ font-weight: 700; }
+.advisor-item{ border-left: 3px solid var(--jade); }
 
 /* ---------- page: jobs ---------- */
-.job-row .trace {
+.job-row .trace{
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--ink-3);
-}
-.copy-btn {
+  color: var(--ink-3);}
+.copy-btn{
   background: transparent;
   border: 1px solid var(--rule);
   border-radius: var(--radius-1);
   padding: 2px 6px;
   font-size: 11px;
   color: var(--ink-3);
-  cursor: pointer;
-}
-.copy-btn:hover { color: var(--ink-1); background: var(--bg-sunken); }
-.logs-tail {
+  cursor: pointer;}
+.copy-btn:hover{ color: var(--ink-1); background: var(--bg-sunken); }
+.logs-tail{
   background: var(--bg-sunken);
   border: 1px solid var(--rule);
   border-radius: var(--radius-1);
@@ -1169,86 +896,76 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   font-size: var(--fs-xs);
   max-height: 360px;
   overflow: auto;
-  color: var(--ink-1);
-}
+  color: var(--ink-1);}
 
 /* ---------- wizard + settings (slim pages) ---------- */
-.slim-shell {
+.slim-shell{
   max-width: 720px;
   margin: 0 auto;
   padding: var(--space-7) var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-}
-.wizard-mode-card { margin: 0; }
-.wizard-help-card {
+  gap: var(--space-5);}
+.wizard-mode-card{ margin: 0; }
+.wizard-help-card{
   padding: var(--space-4);
   background: var(--bg-sunken);
   border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-}
-.wizard-help-card .eyebrow { margin-bottom: var(--space-2); }
-.wizard-advanced { border-top: 1px solid var(--rule); padding-top: var(--space-2); }
-.wizard-progress-actions {
+  border-radius: var(--radius-2);}
+.wizard-help-card .eyebrow{ margin-bottom: var(--space-2); }
+.wizard-advanced{ border-top: 1px solid var(--rule); padding-top: var(--space-2); }
+.wizard-progress-actions{
   margin-top: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-}
-.wizard-progress-actions .cluster { justify-content: flex-start; }
+  gap: var(--space-2);}
+.wizard-progress-actions .cluster{ justify-content: flex-start; }
 
 /* confirm modal */
-.modal-backdrop {
+.modal-backdrop{
   position: fixed; inset: 0;
   background: var(--bg-overlay);
   display: flex; align-items: center; justify-content: center;
   z-index: 40;
-  padding: var(--space-5);
-}
-.modal {
+  padding: var(--space-5);}
+.modal{
   width: 100%;
   max-width: 480px;
   background: var(--bg-card);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
   box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-.modal-header {
+  overflow: hidden;}
+.modal-header{
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--rule);
   font-family: var(--font-serif);
-  font-size: var(--fs-lg);
-}
-.modal-body { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
-.modal-footer {
+  font-size: var(--fs-lg);}
+.modal-body{ padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+.modal-footer{
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--rule);
   background: var(--bg-sunken);
-  display: flex; justify-content: flex-end; gap: var(--space-2);
-}
+  display: flex; justify-content: flex-end; gap: var(--space-2);}
 /* iter071 (codex F6): the 3-way leave-guard footer — equal-width, single-line
    buttons so the choices read as a tidy, consistent row instead of ragged
    content-sized boxes that wrap at different points. */
-.modal-footer-equal .btn { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+.modal-footer-equal .btn{ flex: 1 1 0; min-width: 0; white-space: nowrap; }
 
 /* ---------- responsive ---------- */
-@media (max-width: 1024px) {
+@media (max-width: 1024px){
   .overview-hero { grid-template-columns: 1fr; }
-  .grid.cols-3, .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+  .grid.cols-3, .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }}
 
 /* ---------- Landing page (investor entry) ---------- */
-.lp {
+.lp{
   max-width: 960px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  padding: var(--space-5) 0 var(--space-7);
-}
-.lp-hero {
+  padding: var(--space-5) 0 var(--space-7);}
+.lp-hero{
   text-align: center;
   padding: var(--space-8) var(--space-7);
   border: 1px solid var(--rule);
@@ -1256,160 +973,139 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
   background:
     radial-gradient(120% 80% at 18% 0%, var(--jade-soft) 0%, transparent 55%),
     radial-gradient(100% 80% at 92% 8%, var(--amber-soft) 0%, transparent 50%),
-    var(--bg-card);
-}
-.lp-hero-brand {
+    var(--bg-card);}
+.lp-hero-brand{
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
-}
-.lp-wordmark {
+  margin-bottom: var(--space-4);}
+.lp-wordmark{
   font-family: var(--font-serif);
   font-size: var(--fs-h2);
   font-weight: 600;
   color: var(--ink-1);
-  letter-spacing: .02em;
-}
-.lp-hero .eyebrow { justify-content: center; }
-.lp-title {
+  letter-spacing: .02em;}
+.lp-hero .eyebrow{ justify-content: center; }
+.lp-title{
   font-family: var(--font-serif);
   font-size: var(--fs-display);
   line-height: 1.25;
   margin: var(--space-3) 0 var(--space-4);
-  color: var(--ink-1);
-}
-.lp-lead {
+  color: var(--ink-1);}
+.lp-lead{
   max-width: 36em;
   margin: 0 auto var(--space-5);
   font-size: var(--fs-lg);
-  line-height: 1.7;
-}
-.lp-hero-cta { justify-content: center; }
-.lp-hero-cta .btn { min-width: 132px; }
+  line-height: 1.7;}
+.lp-hero-cta{ justify-content: center; }
+.lp-hero-cta .btn{ min-width: 132px; }
 
-.lp-cards {
+.lp-cards{
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-5);
-}
+  gap: var(--space-5);}
 /* iter069: 3 cards degrade to 2 columns on tablets, then to 1 column at
    <=768px (in the mobile block below). This rule MUST sit after the base
    3-col rule above — equal specificity, so source order decides the winner;
    placing it inside the earlier responsive @media block let the later base
    rule override it and stranded a cramped 3-up row at ~800px. */
-@media (max-width: 1024px) {
-  .lp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-.lp-card {
+@media (max-width: 1024px){
+  .lp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+.lp-card{
   display: flex;
   flex-direction: column;
-  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
-}
-.lp-card:hover {
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;}
+.lp-card:hover{
   transform: translateY(-2px);
   border-color: var(--rule-strong);
-  box-shadow: 0 6px 20px rgba(42, 37, 32, .08);
-}
-.lp-card .card-body {
+  box-shadow: 0 6px 20px rgba(42, 37, 32, .08);}
+.lp-card .card-body{
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-.lp-card-head {
+  gap: var(--space-3);}
+.lp-card-head{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
-}
-.lp-card-head h2 {
+  gap: var(--space-2);}
+.lp-card-head h2{
   font-family: var(--font-serif);
   font-size: var(--fs-h2);
   margin: 0;
-  color: var(--ink-1);
-}
-.lp-feats {
+  color: var(--ink-1);}
+.lp-feats{
   list-style: none;
   margin: var(--space-2) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-}
-.lp-feats li {
+  gap: var(--space-2);}
+.lp-feats li{
   position: relative;
   padding-left: var(--space-5);
   font-size: var(--fs-sm);
   color: var(--ink-2);
-  line-height: 1.5;
-}
-.lp-feats li::before {
+  line-height: 1.5;}
+.lp-feats li::before{
   content: "✦";
   position: absolute;
   left: 0;
   top: 0;
   color: var(--jade);
-  font-size: var(--fs-xs);
-}
-.lp-feat-beta { color: var(--ink-3); }
-.lp-feat-beta::before { color: var(--gold); }
-.lp-card-footer .btn { width: 100%; justify-content: center; }
+  font-size: var(--fs-xs);}
+.lp-feat-beta{ color: var(--ink-3); }
+.lp-feat-beta::before{ color: var(--gold); }
+.lp-card-footer .btn{ width: 100%; justify-content: center; }
 
-.lp-trust {
+.lp-trust{
   text-align: center;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding-top: var(--space-3);
-}
-.lp-metrics {
+  padding-top: var(--space-3);}
+.lp-metrics{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
-}
-.lp-metrics .tile {
+  gap: var(--space-4);}
+.lp-metrics .tile{
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: var(--space-4);
   background: var(--bg-card);
   border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-}
-.lp-metrics .tile .v {
+  border-radius: var(--radius-2);}
+.lp-metrics .tile .v{
   font-family: var(--font-serif);
   font-size: var(--fs-display);
   line-height: 1;
-  color: var(--jade-strong);
-}
-.lp-metrics .tile .k {
+  color: var(--jade-strong);}
+.lp-metrics .tile .k{
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--ink-1);
-}
-.lp-metrics .tile .sub {
+  color: var(--ink-1);}
+.lp-metrics .tile .sub{
   font-size: var(--fs-xs);
-  color: var(--ink-3);
-}
-.lp-chips { justify-content: center; flex-wrap: wrap; }
+  color: var(--ink-3);}
+.lp-chips{ justify-content: center; flex-wrap: wrap; }
 
 @keyframes lp-fade-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from{ opacity: 0; transform: translateY(12px); }
+  to{ opacity: 1; transform: translateY(0); }
 }
-.fade-up { animation: lp-fade-up .5s ease both; }
-.fade-up-1 { animation-delay: .08s; }
-.fade-up-2 { animation-delay: .16s; }
-.fade-up-3 { animation-delay: .24s; }
-.fade-up-4 { animation-delay: .32s; }
+.fade-up{ animation: lp-fade-up .5s ease both; }
+.fade-up-1{ animation-delay: .08s; }
+.fade-up-2{ animation-delay: .16s; }
+.fade-up-3{ animation-delay: .24s; }
+.fade-up-4{ animation-delay: .32s; }
 @media (prefers-reduced-motion: reduce) {
-  .fade-up, .fade-up-1, .fade-up-2, .fade-up-3, .fade-up-4 { animation: none; }
+  .fade-up, .fade-up-1, .fade-up-2, .fade-up-3, .fade-up-4{ animation: none; }
 }
 
 @media (max-width: 768px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar {
+  .app{ grid-template-columns: 1fr; }
+  .sidebar{
     position: fixed;
     z-index: 31;
     top: 0;
@@ -1421,38 +1117,38 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
     transition: transform .18s ease;
     box-shadow: 8px 0 24px rgba(42, 37, 32, .12);
   }
-  .sidebar.open { transform: translateX(0); }
-  .sidebar-overlay.open {
+  .sidebar.open{ transform: translateX(0); }
+  .sidebar-overlay.open{
     display: block;
     position: fixed;
     inset: 0;
     background: var(--bg-overlay);
     z-index: 30;
   }
-  .app.no-context .nav-toggle { display: none; }
-  .nav-toggle { display: inline-flex; flex: 0 0 36px; }
-  .topbar {
+  .app.no-context .nav-toggle{ display: none; }
+  .nav-toggle{ display: inline-flex; flex: 0 0 36px; }
+  .topbar{
     padding: var(--space-3) var(--space-4);
     gap: var(--space-2);
   }
-  .topbar .breadcrumb {
+  .topbar .breadcrumb{
     min-width: 0;
     flex: 1;
     overflow: hidden;
     white-space: nowrap;
   }
-  .breadcrumb a, .breadcrumb .here {
+  .breadcrumb a, .breadcrumb .here{
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 42vw;
   }
-  .topbar-menu-toggle { display: inline-flex; }
+  .topbar-menu-toggle{ display: inline-flex; }
   /* iter064 #3: scope the mobile dropdown pattern to the SHELL topbar (the only
      .topbar-actions inside .topbar-actions-wrap). The bare selector also hit
      in-page content action rows (overview "删除作品…", chapter-detail back
      links) that reuse the .topbar-actions class, hiding them at <=768px. */
-  .topbar-actions-wrap .topbar-actions {
+  .topbar-actions-wrap .topbar-actions{
     display: none;
     position: absolute;
     right: 0;
@@ -1467,12 +1163,12 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
     flex-direction: column;
     align-items: stretch;
   }
-  .topbar-actions-wrap .topbar-actions.open { display: flex; }
-  .topbar-actions-wrap .topbar-actions .btn {
+  .topbar-actions-wrap .topbar-actions.open{ display: flex; }
+  .topbar-actions-wrap .topbar-actions .btn{
     width: 100%;
     justify-content: flex-start;
   }
-  .table-scroll {
+  .table-scroll{
     margin: 0 calc(-1 * var(--space-4));
     padding: 0 var(--space-4) var(--space-2);
     background:
@@ -1481,19 +1177,19 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
       radial-gradient(farthest-side at 0 50%, rgba(42, 37, 32, .18), rgba(42, 37, 32, 0)) left center / 12px 100% no-repeat scroll,
       radial-gradient(farthest-side at 100% 50%, rgba(42, 37, 32, .18), rgba(42, 37, 32, 0)) right center / 12px 100% no-repeat scroll;
   }
-  .page { padding: var(--space-4); }
-  .page-header {
+  .page{ padding: var(--space-4); }
+  .page-header{
     align-items: flex-start;
     flex-direction: column;
   }
-  .page-header h1 { font-size: var(--fs-h1); }
-  .form-grid, .grid.cols-2, .form-grid-2 { grid-template-columns: 1fr; }
-  .review-card { grid-template-columns: 1fr; }
-  .lp { padding: var(--space-4) 0 var(--space-6); gap: var(--space-5); }
-  .lp-hero { padding: var(--space-6) var(--space-5); }
-  .lp-title { font-size: var(--fs-h1); }
-  .lp-cards { grid-template-columns: 1fr; }
-  .lp-metrics { grid-template-columns: 1fr; }
+  .page-header h1{ font-size: var(--fs-h1); }
+  .form-grid, .grid.cols-2, .form-grid-2{ grid-template-columns: 1fr; }
+  .review-card{ grid-template-columns: 1fr; }
+  .lp{ padding: var(--space-4) 0 var(--space-6); gap: var(--space-5); }
+  .lp-hero{ padding: var(--space-6) var(--space-5); }
+  .lp-title{ font-size: var(--fs-h1); }
+  .lp-cards{ grid-template-columns: 1fr; }
+  .lp-metrics{ grid-template-columns: 1fr; }
 }
 
 /* ====================================================================== *
@@ -1504,14 +1200,14 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
 
 /* topbar home: cluster nav-toggle + home + breadcrumb on the left, push
  * the page actions to the far right (override the bare space-between). */
-.topbar .home-btn { flex: 0 0 auto; }
-.topbar .breadcrumb { margin-right: auto; }
+.topbar .home-btn{ flex: 0 0 auto; }
+.topbar .breadcrumb{ margin-right: auto; }
 /* iter069: landing (page_kind=="landing" → .app.lp-chrome) hides the shared
    topbar nav cluster so the hero keeps only ⚙ 设置. We hide ONLY ☰ (nav-toggle)
    and ⌂ (home-btn): ⌂ is the sole element shown at every breakpoint, and ☰ is
    redundant on a sidebar-less landing. We deliberately do NOT hide ⋯
    (.topbar-menu-toggle): on desktop it's already hidden by the base
-   `.nav-toggle,.topbar-menu-toggle{display:none}` rule (relocated in iter070 to
+   `.nav-toggle, .topbar-menu-toggle{display:none}` rule (relocated in iter070 to
    sit after `.btn` so source order wins), and ⚙ 设置 shows inline, but on
    <=768px ⋯ is the ONLY way to open the
    .topbar-actions dropdown that holds ⚙ 设置 — hiding it would strand the lone
@@ -1519,248 +1215,114 @@ small { font-size: var(--fs-xs); color: var(--ink-3); }
    the <=768px home-btn rules (all 0-1-0); display:none also drops these from
    the a11y tree (no aria-hidden needed). Scoped to landing via APP_CLASS so
    wizard/settings keep their ⌂ / ⋯. */
-.lp-chrome .nav-toggle,
-.lp-chrome .home-btn { display: none; }
-html { scroll-behavior: smooth; }
+.lp-chrome .nav-toggle, .lp-chrome .home-btn{ display: none; }
+html{ scroll-behavior: smooth; }
 
 /* friendly error card (replaces bare .alert.error traceback dumps) */
-.error-card {
+.error-card{
   background: var(--sienna-soft);
   border: 1px solid var(--sienna);
   border-radius: var(--radius-2);
   padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-.error-card-head { display: flex; gap: var(--space-3); align-items: flex-start; }
-.error-card-icon { color: var(--sienna); font-size: var(--fs-xl); line-height: 1.2; flex: 0 0 auto; }
-.error-card-copy { min-width: 0; }
-.error-card-title { font-weight: 600; color: var(--ink-1); margin: 0; }
-.error-card-cause { color: var(--ink-2); margin: 4px 0 0; font-size: var(--fs-sm); }
-.error-card-actions { margin: 0; }
-.error-card-trace { margin: 0; font-size: var(--fs-xs); color: var(--ink-3); }
-.error-card-trace code { color: var(--ink-2); }
-.error-card-tech { margin: 0; }
-.error-card-tech > summary { cursor: pointer; font-size: var(--fs-xs); color: var(--ink-3); }
-.error-card-tech pre {
+  gap: var(--space-3);}
+.error-card-head{ display: flex; gap: var(--space-3); align-items: flex-start; }
+.error-card-icon{ color: var(--sienna); font-size: var(--fs-xl); line-height: 1.2; flex: 0 0 auto; }
+.error-card-copy{ min-width: 0; }
+.error-card-title{ font-weight: 600; color: var(--ink-1); margin: 0; }
+.error-card-cause{ color: var(--ink-2); margin: 4px 0 0; font-size: var(--fs-sm); }
+.error-card-actions{ margin: 0; }
+.error-card-trace{ margin: 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.error-card-trace code{ color: var(--ink-2); }
+.error-card-tech{ margin: 0; }
+.error-card-tech > summary{ cursor: pointer; font-size: var(--fs-xs); color: var(--ink-3); }
+.error-card-tech pre{
   background: var(--bg-sunken); border-radius: var(--radius-1);
   padding: var(--space-2) var(--space-3); font-size: var(--fs-xs);
-  color: var(--ink-2); margin: var(--space-2) 0 0;
-}
+  color: var(--ink-2); margin: var(--space-2) 0 0;}
 
 /* workbench clickable step rail */
-.stepbar { list-style: none; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; }
-.stepbar .step { display: flex; align-items: center; font-size: var(--fs-sm); color: var(--ink-3); }
-.stepbar .step a { color: var(--ink-2); border: 0; display: inline-flex; align-items: center; gap: var(--space-2); }
-.stepbar .step a:hover { color: var(--jade); border: 0; }
-.stepbar .step.done, .stepbar .step.done a { color: var(--jade-strong); }
-.stepbar .step.current, .stepbar .step.current a { color: var(--amber-strong); font-weight: 600; }
-.stepbar .step.locked { color: var(--ink-3); cursor: not-allowed; }
-.stepbar .step:not(:last-child)::after { content: "›"; color: var(--ink-3); margin-left: var(--space-3); }
-.stepbar .step-glyph {
+.stepbar{ list-style: none; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; }
+.stepbar .step{ display: flex; align-items: center; font-size: var(--fs-sm); color: var(--ink-3); }
+.stepbar .step a{ color: var(--ink-2); border: 0; display: inline-flex; align-items: center; gap: var(--space-2); }
+.stepbar .step a:hover{ color: var(--jade); border: 0; }
+.stepbar .step.done, .stepbar .step.done a{ color: var(--jade-strong); }
+.stepbar .step.current, .stepbar .step.current a{ color: var(--amber-strong); font-weight: 600; }
+.stepbar .step.locked{ color: var(--ink-3); cursor: not-allowed; }
+.stepbar .step:not(:last-child)::after{ content: "›"; color: var(--ink-3); margin-left: var(--space-3); }
+.stepbar .step-glyph{
   display: inline-flex; width: 18px; height: 18px; border-radius: 50%;
   align-items: center; justify-content: center; font-size: var(--fs-xs);
-  background: var(--bg-sunken); color: var(--ink-3);
-}
-.stepbar .step.done .step-glyph { background: var(--jade); color: #fff; }
-.stepbar .step.current .step-glyph { background: var(--amber-soft); color: var(--amber-strong); box-shadow: inset 0 0 0 2px var(--amber); }
+  background: var(--bg-sunken); color: var(--ink-3);}
+.stepbar .step.done .step-glyph{ background: var(--jade); color: #fff; }
+.stepbar .step.current .step-glyph{ background: var(--amber-soft); color: var(--amber-strong); box-shadow: inset 0 0 0 2px var(--amber); }
 
-/* locked tab (drama ④) + coming-soon pill */
-.tab.locked, .tab[disabled] { opacity: .55; cursor: not-allowed; }
-.tab.locked:hover { background: transparent; }
-.badge-soon {
-  font-size: var(--fs-xs); color: var(--amber-strong); background: var(--gold-soft);
-  border-radius: var(--radius-pill); padding: 0 var(--space-2); margin-left: var(--space-1);
-}
-
-/* drama character cards */
-.character-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-.character-card {
-  display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--space-4);
-  padding: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2);
-  background: var(--bg-card);
-}
-.character-ref-box { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
-.character-ref-img, .character-ref-placeholder {
-  width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--rule); border-radius: var(--radius-1);
-  background: var(--bg-sunken);
-}
-.character-ref-img { object-fit: contain; }
-.character-ref-placeholder {
-  display: flex; align-items: center; justify-content: center; color: var(--ink-3);
-  font-size: var(--fs-sm); text-align: center; padding: var(--space-3);
-}
-.check-row { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-2); font-size: var(--fs-sm); }
-.production-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--space-3);
-}
-.production-shot-list { display: grid; gap: var(--space-3); }
-.production-shot-row {
-  display: grid;
-  grid-template-columns: minmax(150px, .8fr) minmax(260px, 2fr) minmax(170px, 1fr);
-  gap: var(--space-3);
-  align-items: center;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-card);
-  padding: var(--space-3);
-}
-.production-canvas {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-3);
-}
-.production-node {
-  border: 1px solid var(--rule);
-  border-left: 4px solid var(--amber);
-  border-radius: var(--radius-2);
-  background: var(--bg-card);
-  padding: var(--space-3);
-  min-width: 0;
-}
-.production-node[data-state="ready"],
-.production-node[data-state="succeeded"],
-.production-node[data-state="active"] { border-left-color: var(--jade); }
-.production-node[data-state="blocked"],
-.production-node[data-state="invalid"],
-.production-node[data-state="failed"],
-.production-node[data-state="submission_unknown"] { border-left-color: var(--sienna); }
-.production-node code, .production-shot-row code { overflow-wrap: anywhere; }
-.production-view-tabs { margin-bottom: var(--space-4); }
 @media (max-width: 720px) {
-  .character-card { grid-template-columns: 1fr; }
-  .production-shot-row { grid-template-columns: 1fr; }
-  .shot-image-compare { grid-template-columns: 1fr; }
-  .form-actions { flex-wrap: wrap; justify-content: stretch; }
-  .form-actions .btn { flex: 1 1 140px; }
-  button, .btn { min-height: 44px; }
-  .btn-sm { min-height: 44px; }
-  .drama-media-header-actions { width: 100%; }
-  .drama-media-header-actions .field { flex: 1 1 100%; }
-  .asset-section-layout,
-  .drama-media-browser { grid-template-columns: 1fr; }
-  .asset-item-list,
-  .media-shot-list { order: 1; }
-  .asset-version-panel,
-  .media-shot-panel { order: 2; }
-  .media-shot-summary { grid-template-columns: 1fr; }
-  .media-candidate-grid { grid-template-columns: 1fr; }
-  .shot-image-candidate,
-  .shot-video-candidate { max-width: 300px; margin-inline: auto; width: 100%; }
-  .media-current-selection { align-items: flex-start; flex-direction: column; }
-  .asset-version-row { grid-template-columns: 1fr; }
-  .asset-version-actions { justify-content: flex-start; }
-  .media-shot-button[data-state="missing"],
-  .media-shot-button[data-state="attention"],
-  .media-shot-button[data-state="blocked"] { order: 0; }
-  .media-shot-button[data-state="ready"] { order: 2; }
+  .form-actions{ flex-wrap: wrap; justify-content: stretch; }
+  .form-actions .btn{ flex: 1 1 140px; }
+  button, .btn{ min-height: 44px; }
+  .btn-sm{ min-height: 44px; }
 }
 
-@media (min-width: 721px) and (max-width: 1100px) {
-  .asset-section-layout,
-  .drama-media-browser { grid-template-columns: 1fr; }
-  .asset-item-list,
-  .media-shot-list {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(240px, 34%);
-    overflow-x: auto;
-  }
-  .media-shot-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-/* ====================================================================== *
- * iter153 Phase A/B: production public + novel component layer.
- * Drama keeps its established production styling under `.ui-drama`; only
- * structural base rules remain shared. The namespace makes future page work
- * explicit and prevents visual changes from leaking into the drama cockpit.
- * ====================================================================== */
 :where(.ui-public, .ui-novel) {
   background: var(--ui-page-bg);
-  color: var(--ui-text);
-}
-:where(.ui-public, .ui-novel) .card,
-:where(.ui-public, .ui-novel) .sidebar,
-:where(.ui-public, .ui-novel) .modal,
-:where(.ui-public, .ui-novel) .toast {
-  background: var(--ui-card-bg);
-}
+  color: var(--ui-text);}
+:where(.ui-public, .ui-novel) .card, :where(.ui-public, .ui-novel) .sidebar, :where(.ui-public, .ui-novel) .modal, :where(.ui-public, .ui-novel) .toast {
+  background: var(--ui-card-bg);}
 :where(.ui-public, .ui-novel) .btn {
   min-height: 44px;
   min-width: 44px;
   color: var(--ui-text);
-  border-radius: var(--radius-2);
-}
+  border-radius: var(--radius-2);}
 :where(.ui-public, .ui-novel) button {
   min-height: 44px;
-  min-width: 44px;
-}
+  min-width: 44px;}
 :where(.ui-public, .ui-novel) .btn-primary {
   background: var(--ui-primary-bg);
   color: var(--ui-brand-text);
-  border-color: #B8CEC1;
-}
-:where(.ui-public, .ui-novel) .btn-primary:hover:not(:disabled) {
+  border-color: #B8CEC1;}
+:where(.ui-public, .ui-novel) .btn-primary:hover:not(:disabled){
   background: #D8E8DE;
   color: var(--ui-brand-text);
-  border-color: var(--ui-focus-ring);
-}
-:where(.ui-public, .ui-novel) .btn-secondary {
+  border-color: var(--ui-focus-ring);}
+:where(.ui-public, .ui-novel) .btn-secondary{
   background: var(--ui-card-bg);
   color: var(--ui-text);
-  border-color: var(--rule-strong);
-}
-:where(.ui-public, .ui-novel) .btn-secondary:hover:not(:disabled) {
+  border-color: var(--rule-strong);}
+:where(.ui-public, .ui-novel) .btn-secondary:hover:not(:disabled){
   background: var(--ui-primary-bg);
-  border-color: #B8CEC1;
-}
-:where(.ui-public, .ui-novel) .btn-ghost {
+  border-color: #B8CEC1;}
+:where(.ui-public, .ui-novel) .btn-ghost{
   background: transparent;
   color: var(--ui-text-muted);
-  border-color: transparent;
-}
+  border-color: transparent;}
 :where(.ui-public, .ui-novel) .btn-paid {
   background: var(--ui-paid-bg);
   color: var(--ui-text);
-  border-color: #D8AE7E;
-}
-:where(.ui-public, .ui-novel) .btn-paid:hover:not(:disabled) {
+  border-color: #D8AE7E;}
+:where(.ui-public, .ui-novel) .btn-paid:hover:not(:disabled){
   background: #F3DBC0;
   color: var(--ui-text);
-  border-color: #B97B43;
-}
+  border-color: #B97B43;}
 :where(.ui-public, .ui-novel) .btn-danger {
   background: var(--ui-danger-bg);
   color: var(--ui-danger-text);
-  border-color: #D8A18F;
-}
-:where(.ui-public, .ui-novel) .btn-danger:hover:not(:disabled) {
+  border-color: #D8A18F;}
+:where(.ui-public, .ui-novel) .btn-danger:hover:not(:disabled){
   background: #EFCFC2;
   color: #7F3D2E;
-  border-color: var(--ui-danger-text);
-}
-:where(.ui-public, .ui-novel) .btn:focus-visible,
-:where(.ui-public, .ui-novel) .tab:focus-visible,
-:where(.ui-public, .ui-novel) .sidebar-item:focus-visible,
-:where(.ui-public, .ui-novel) a:focus-visible,
-:where(.ui-public, .ui-novel) input:focus-visible,
-:where(.ui-public, .ui-novel) select:focus-visible,
-:where(.ui-public, .ui-novel) textarea:focus-visible {
+  border-color: var(--ui-danger-text);}
+:where(.ui-public, .ui-novel) .btn:focus-visible, :where(.ui-public, .ui-novel) .tab:focus-visible, :where(.ui-public, .ui-novel) .sidebar-item:focus-visible, :where(.ui-public, .ui-novel) a:focus-visible, :where(.ui-public, .ui-novel) input:focus-visible, :where(.ui-public, .ui-novel) select:focus-visible, :where(.ui-public, .ui-novel) textarea:focus-visible{
   outline: 3px solid var(--ui-focus-ring);
-  outline-offset: 2px;
-}
-:where(.ui-public, .ui-novel) .btn:active:not(:disabled) {
-  transform: translateY(1px);
-}
-:where(.ui-public, .ui-novel) .btn[disabled],
-:where(.ui-public, .ui-novel) .btn[aria-disabled="true"] {
+  outline-offset: 2px;}
+:where(.ui-public, .ui-novel) .btn:active:not(:disabled){
+  transform: translateY(1px);}
+:where(.ui-public, .ui-novel) .btn[disabled], :where(.ui-public, .ui-novel) .btn[aria-disabled="true"]{
   opacity: .52;
   cursor: not-allowed;
-  transform: none;
-}
-:where(.ui-public, .ui-novel) .btn[aria-busy="true"]::before {
+  transform: none;}
+:where(.ui-public, .ui-novel) .btn[aria-busy="true"]::before{
   content: "";
   width: 14px;
   height: 14px;
@@ -1768,70 +1330,55 @@ html { scroll-behavior: smooth; }
   border: 2px solid currentColor;
   border-right-color: transparent;
   border-radius: 50%;
-  animation: ui-busy-spin .75s linear infinite;
-}
-@keyframes ui-busy-spin { to { transform: rotate(360deg); } }
+  animation: ui-busy-spin .75s linear infinite;}
+@keyframes ui-busy-spin { to{ transform: rotate(360deg); } }
 :where(.ui-public, .ui-novel) .btn-icon {
   width: 44px;
   height: 44px;
   min-width: 44px;
   min-height: 44px;
-  padding: 0;
-}
-:where(.ui-public, .ui-novel) .field input,
-:where(.ui-public, .ui-novel) .field select,
-:where(.ui-public, .ui-novel) .field textarea {
-  min-height: 44px;
-}
-:where(.ui-public, .ui-novel) .field [aria-invalid="true"] {
+  padding: 0;}
+:where(.ui-public, .ui-novel) .field input, :where(.ui-public, .ui-novel) .field select, :where(.ui-public, .ui-novel) .field textarea{
+  min-height: 44px;}
+:where(.ui-public, .ui-novel) .field [aria-invalid="true"]{
   border-color: var(--ui-danger-text);
-  box-shadow: 0 0 0 2px var(--ui-danger-bg);
-}
-:where(.ui-public, .ui-novel) .field :disabled {
+  box-shadow: 0 0 0 2px var(--ui-danger-bg);}
+:where(.ui-public, .ui-novel) .field :disabled{
   background: var(--bg-sunken);
-  color: var(--ui-text-muted);
-}
-:where(.ui-public, .ui-novel) .field [readonly] {
+  color: var(--ui-text-muted);}
+:where(.ui-public, .ui-novel) .field [readonly]{
   background: #F8F3EA;
-  border-style: dashed;
-}
-:where(.ui-public, .ui-novel) .required-note {
+  border-style: dashed;}
+:where(.ui-public, .ui-novel) .required-note{
   color: var(--ui-danger-text);
   margin-left: var(--space-1);
-  font-weight: 500;
-}
-:where(.ui-public, .ui-novel) .field-error {
+  font-weight: 500;}
+:where(.ui-public, .ui-novel) .field-error{
   color: var(--ui-danger-text);
-  min-height: 1.4em;
-}
-:where(.ui-public, .ui-novel) .sidebar-item,
-:where(.ui-public, .ui-novel) .tab {
-  min-height: 44px;
-}
-:where(.ui-public, .ui-novel) .sidebar-item.active {
+  min-height: 1.4em;}
+:where(.ui-public, .ui-novel) .sidebar-item, :where(.ui-public, .ui-novel) .tab{
+  min-height: 44px;}
+:where(.ui-public, .ui-novel) .sidebar-item.active{
   box-shadow: inset 4px 0 0 var(--ui-focus-ring);
-  cursor: default;
-}
-:where(.ui-public, .ui-novel) .stage-card,
-:where(.ui-public, .ui-novel) .workbench-stage-card {
+  cursor: default;}
+:where(.ui-public, .ui-novel) .stage-card, :where(.ui-public, .ui-novel) .workbench-stage-card{
   background: var(--ui-card-bg);
-  border-color: var(--rule);
-}
+  border-color: var(--rule);}
 @media (prefers-reduced-motion: reduce) {
-  :where(.ui-public, .ui-novel) .btn[aria-busy="true"]::before { animation: none; }
+  :where(.ui-public, .ui-novel) .btn[aria-busy="true"]::before{ animation: none; }
 }
 @media (max-width: 600px) {
-  :where(.ui-public, .ui-novel) .workbench-stage-card > .card-header {
+  :where(.ui-public, .ui-novel) .workbench-stage-card > .card-header{
     align-items: flex-start;
     flex-direction: column;
   }
-  :where(.ui-public, .ui-novel) .workbench-stage-card > .card-header h3 {
+  :where(.ui-public, .ui-novel) .workbench-stage-card > .card-header h3{
     white-space: nowrap;
   }
 }
 
 /* iter154 Phase C: shared public-page structure. */
-.ui-public .sr-status {
+.ui-public .sr-status{
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1840,9 +1387,8 @@ html { scroll-behavior: smooth; }
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
-  border: 0;
-}
-.ui-public .public-toolbar {
+  border: 0;}
+.ui-public .public-toolbar{
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -1850,18 +1396,14 @@ html { scroll-behavior: smooth; }
   padding: var(--space-4);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-public .public-search { flex: 1 1 360px; max-width: 520px; }
-.ui-public .public-toolbar-actions { justify-content: flex-end; }
-.ui-public .workspace-list,
-.ui-public .trash-list {
+  background: var(--ui-card-bg);}
+.ui-public .public-search{ flex: 1 1 360px; max-width: 520px; }
+.ui-public .public-toolbar-actions{ justify-content: flex-end; }
+.ui-public .workspace-list, .ui-public .trash-list{
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-}
-.ui-public .public-work-card,
-.ui-public .trash-card {
+  gap: var(--space-4);}
+.ui-public .public-work-card, .ui-public .trash-card{
   display: grid;
   grid-template-columns: minmax(190px, 1.15fr) minmax(320px, 2fr) auto;
   gap: var(--space-5);
@@ -1869,120 +1411,88 @@ html { scroll-behavior: smooth; }
   padding: var(--space-5);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-public .public-work-card h2,
-.ui-public .trash-card h2 { font-size: var(--fs-h2); overflow-wrap: anywhere; }
-.ui-public .public-work-meta,
-.ui-public .trash-meta {
+  background: var(--ui-card-bg);}
+.ui-public .public-work-card h2, .ui-public .trash-card h2{ font-size: var(--fs-h2); overflow-wrap: anywhere; }
+.ui-public .public-work-meta, .ui-public .trash-meta{
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3) var(--space-5);
-  margin: 0;
-}
-.ui-public .public-work-meta div,
-.ui-public .trash-meta div { min-width: 0; }
-.ui-public .public-work-meta dt,
-.ui-public .trash-meta dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
-.ui-public .public-work-meta dd,
-.ui-public .trash-meta dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
-.ui-public .public-work-actions,
-.ui-public .trash-actions { justify-content: flex-end; }
-.ui-public .public-notice,
-.ui-public .public-mode-summary,
-.ui-public .public-next-step {
+  margin: 0;}
+.ui-public .public-work-meta div, .ui-public .trash-meta div{ min-width: 0; }
+.ui-public .public-work-meta dt, .ui-public .trash-meta dt{ color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-public .public-work-meta dd, .ui-public .trash-meta dd{ margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.ui-public .public-work-actions, .ui-public .trash-actions{ justify-content: flex-end; }
+.ui-public .public-notice, .ui-public .public-mode-summary, .ui-public .public-next-step{
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-4);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  background: var(--ui-primary-bg);
-}
-.ui-public .public-next-step { background: var(--ui-card-bg); }
-.ui-public .public-next-step ol {
+  background: var(--ui-primary-bg);}
+.ui-public .public-next-step{ background: var(--ui-card-bg); }
+.ui-public .public-next-step ol{
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
   margin: 0;
-  padding-left: var(--space-5);
-}
-.ui-public .wizard-choice {
+  padding-left: var(--space-5);}
+.ui-public .wizard-choice{
   min-height: 72px;
   align-items: flex-start;
   padding: var(--space-3);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-public .field-check {
+  background: var(--ui-card-bg);}
+.ui-public .field-check{
   min-height: 44px;
-  cursor: pointer;
-}
-.ui-public .breadcrumb a,
-.ui-public .wizard-mode-help a {
+  cursor: pointer;}
+.ui-public .breadcrumb a, .ui-public .wizard-mode-help a{
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  padding-inline: var(--space-1);
-}
-.ui-public .wizard-mode-help { margin: calc(-1 * var(--space-1)) 0 var(--space-1); }
-.ui-public .wizard-choice input { margin-top: 4px; }
-.ui-public .wizard-choice span { display: flex; flex-direction: column; gap: var(--space-1); }
-.ui-public .wizard-choice small { color: var(--ui-text-muted); font-weight: 400; }
-.ui-public form[aria-busy="true"] { opacity: .78; }
+  padding-inline: var(--space-1);}
+.ui-public .wizard-mode-help{ margin: calc(-1 * var(--space-1)) 0 var(--space-1); }
+.ui-public .wizard-choice input{ margin-top: 4px; }
+.ui-public .wizard-choice span{ display: flex; flex-direction: column; gap: var(--space-1); }
+.ui-public .wizard-choice small{ color: var(--ui-text-muted); font-weight: 400; }
+.ui-public form[aria-busy="true"]{ opacity: .78; }
 
 @media (max-width: 1199px) {
-  .ui-public .public-work-card,
-  .ui-public .trash-card { grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.5fr); }
-  .ui-public .public-work-actions,
-  .ui-public .trash-actions { grid-column: 1 / -1; justify-content: flex-start; }
-  .ui-public .public-next-step ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-public .public-work-card, .ui-public .trash-card{ grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.5fr); }
+  .ui-public .public-work-actions, .ui-public .trash-actions{ grid-column: 1 / -1; justify-content: flex-start; }
+  .ui-public .public-next-step ol{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 767px) {
-  .ui-public .public-toolbar,
-  .ui-public .public-work-card,
-  .ui-public .trash-card { display: flex; flex-direction: column; align-items: stretch; }
-  .ui-public .public-search { max-width: none; width: 100%; flex-basis: auto; }
-  .ui-public .public-toolbar-actions,
-  .ui-public .public-work-actions,
-  .ui-public .trash-actions { justify-content: stretch; width: 100%; }
-  .ui-public .public-toolbar-actions .btn,
-  .ui-public .public-work-actions .btn,
-  .ui-public .trash-actions .btn { flex: 1 1 100%; width: 100%; }
-  .ui-public .public-work-meta,
-  .ui-public .trash-meta { grid-template-columns: 1fr; }
-  .ui-public .public-next-step ol { grid-template-columns: 1fr; }
-  .ui-public .slim-shell { padding: var(--space-4) 0 var(--space-6); }
-  .ui-public .lp-hero { padding: var(--space-5); }
-  .ui-public .modal { max-height: calc(100vh - 24px); overflow-y: auto; }
-  .ui-public .toast-stack { bottom: calc(var(--space-4) + env(safe-area-inset-bottom)); }
+  .ui-public .public-toolbar, .ui-public .public-work-card, .ui-public .trash-card{ display: flex; flex-direction: column; align-items: stretch; }
+  .ui-public .public-search{ max-width: none; width: 100%; flex-basis: auto; }
+  .ui-public .public-toolbar-actions, .ui-public .public-work-actions, .ui-public .trash-actions{ justify-content: stretch; width: 100%; }
+  .ui-public .public-toolbar-actions .btn, .ui-public .public-work-actions .btn, .ui-public .trash-actions .btn{ flex: 1 1 100%; width: 100%; }
+  .ui-public .public-work-meta, .ui-public .trash-meta{ grid-template-columns: 1fr; }
+  .ui-public .public-next-step ol{ grid-template-columns: 1fr; }
+  .ui-public .slim-shell{ padding: var(--space-4) 0 var(--space-6); }
+  .ui-public .lp-hero{ padding: var(--space-5); }
+  .ui-public .modal{ max-height: calc(100vh - 24px); overflow-y: auto; }
+  .ui-public .toast-stack{ bottom: calc(var(--space-4) + env(safe-area-inset-bottom)); }
 }
-
-/* Iteration 155 · Phase D workspace flow. Kept inside ui-novel so drama stays unchanged. */
-.ui-novel [hidden] { display: none !important; }
-.ui-novel .workbench-running-note {
+.ui-novel .workbench-running-note{
   margin: 0 0 var(--space-4);
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-2);
   background: var(--jade-soft);
-  color: var(--ui-text);
-}
-.ui-novel .phase-d-toolbar {
+  color: var(--ui-text);}
+.ui-novel .phase-d-toolbar{
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(280px, auto) minmax(150px, 200px) auto;
   gap: var(--space-3);
   align-items: end;
-  margin-bottom: var(--space-4);
-}
-.ui-novel .field-label { display: block; margin-bottom: var(--space-2); font-weight: 650; }
-.ui-novel .chapter-items,
-.ui-novel .job-record-list { display: grid; gap: var(--space-3); }
-.ui-novel .chapter-item,
-.ui-novel .job-record-card {
+  margin-bottom: var(--space-4);}
+.ui-novel .field-label{ display: block; margin-bottom: var(--space-2); font-weight: 650; }
+.ui-novel .chapter-items, .ui-novel .job-record-list{ display: grid; gap: var(--space-3); }
+.ui-novel .chapter-item, .ui-novel .job-record-card{
   display: grid;
   grid-template-columns: minmax(240px, 1.4fr) minmax(300px, 1fr) auto;
   gap: var(--space-4);
@@ -1991,650 +1501,103 @@ html { scroll-behavior: smooth; }
   padding: var(--space-4);
   border: 1px solid var(--rule);
   border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-novel .chapter-item h2,
-.ui-novel .job-record-card h2 { margin: var(--space-2) 0 var(--space-1); overflow-wrap: anywhere; }
-.ui-novel .chapter-item-meta {
+  background: var(--ui-card-bg);}
+.ui-novel .chapter-item h2, .ui-novel .job-record-card h2{ margin: var(--space-2) 0 var(--space-1); overflow-wrap: anywhere; }
+.ui-novel .chapter-item-meta{
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
-  margin: 0;
-}
-.ui-novel .chapter-item-meta dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
-.ui-novel .chapter-item-meta dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
-.ui-novel .chapter-item-action,
-.ui-novel .job-record-action { display: flex; justify-content: flex-end; }
-.ui-novel .chapter-item-action .btn,
-.ui-novel .job-record-action .btn { min-width: 132px; }
-.ui-novel .save-state {
+  margin: 0;}
+.ui-novel .chapter-item-meta dt{ color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-novel .chapter-item-meta dd{ margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.ui-novel .chapter-item-action, .ui-novel .job-record-action{ display: flex; justify-content: flex-end; }
+.ui-novel .chapter-item-action .btn, .ui-novel .job-record-action .btn{ min-width: 132px; }
+.ui-novel .save-state{
   min-height: 44px;
   display: flex;
   align-items: center;
   margin-top: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-1);
-  background: var(--bg-sunken);
-}
-.ui-novel .save-state.success { background: var(--jade-soft); }
-.ui-novel .save-state.warn { background: var(--gold-soft); }
-.ui-novel .save-state.error { background: var(--ui-danger-bg); }
-.ui-novel .save-state.busy { background: var(--jade-soft); }
-.ui-novel .jobs-filter { margin-bottom: var(--space-4); }
-.ui-novel .job-record-state p { margin: var(--space-2) 0 0; color: var(--ui-text-muted); }
-.ui-novel textarea,
-.ui-novel .reading-body,
-.ui-novel .chapter-item,
-.ui-novel .job-record-card { max-width: 100%; overflow-wrap: anywhere; }
-.ui-novel .brand,
-.ui-novel .breadcrumb a,
-.ui-novel .stepbar a,
-.ui-novel summary,
-.ui-novel input,
-.ui-novel select {
+  background: var(--bg-sunken);}
+.ui-novel .save-state.success{ background: var(--jade-soft); }
+.ui-novel .save-state.warn{ background: var(--gold-soft); }
+.ui-novel .save-state.error{ background: var(--ui-danger-bg); }
+.ui-novel .save-state.busy{ background: var(--jade-soft); }
+.ui-novel .jobs-filter{ margin-bottom: var(--space-4); }
+.ui-novel .job-record-state p{ margin: var(--space-2) 0 0; color: var(--ui-text-muted); }
+.ui-novel textarea, .ui-novel .reading-body, .ui-novel .chapter-item, .ui-novel .job-record-card{ max-width: 100%; overflow-wrap: anywhere; }
+.ui-novel .brand, .ui-novel .breadcrumb a, .ui-novel .stepbar a, .ui-novel summary, .ui-novel input, .ui-novel select{
   box-sizing: border-box;
-  min-height: 44px !important;
-}
-.ui-novel .brand,
-.ui-novel .breadcrumb a,
-.ui-novel .stepbar a,
-.ui-novel summary {
+  min-height: 44px !important;}
+.ui-novel .brand, .ui-novel .breadcrumb a, .ui-novel .stepbar a, .ui-novel summary{
   display: inline-flex;
-  align-items: center;
-}
-.ui-novel .breadcrumb a { min-width: 44px; padding-inline: var(--space-2); justify-content: center; }
-.ui-novel .stepbar a { width: 100%; justify-content: center; }
-.ui-novel summary { width: 100%; padding-block: var(--space-2); }
-.ui-novel input,
-.ui-novel select { padding-block: 10px; }
+  align-items: center;}
+.ui-novel .breadcrumb a{ min-width: 44px; padding-inline: var(--space-2); justify-content: center; }
+.ui-novel .stepbar a{ width: 100%; justify-content: center; }
+.ui-novel summary{ width: 100%; padding-block: var(--space-2); }
+.ui-novel input, .ui-novel select{ padding-block: 10px; }
 
 @media (max-width: 1199px) {
-  .ui-novel .phase-d-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ui-novel .chapter-item,
-  .ui-novel .job-record-card { grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.2fr); }
-  .ui-novel .chapter-item-action,
-  .ui-novel .job-record-action { grid-column: 1 / -1; justify-content: flex-start; }
+  .ui-novel .phase-d-toolbar{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-novel .chapter-item, .ui-novel .job-record-card{ grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.2fr); }
+  .ui-novel .chapter-item-action, .ui-novel .job-record-action{ grid-column: 1 / -1; justify-content: flex-start; }
 }
 @media (max-width: 767px) {
-  .ui-novel .phase-d-toolbar,
-  .ui-novel .chapter-item,
-  .ui-novel .job-record-card { display: flex; flex-direction: column; align-items: stretch; }
-  .ui-novel .phase-d-toolbar .btn,
-  .ui-novel .chapter-item-action .btn,
-  .ui-novel .job-record-action .btn { width: 100%; }
-  .ui-novel .chapter-item-meta { grid-template-columns: 1fr; }
-  .ui-novel .tab-list { overflow-x: auto; max-width: 100%; padding-bottom: var(--space-1); }
-  .ui-novel .tab { flex: 0 0 auto; }
-  .ui-novel .jobs-filter .btn { flex: 1 1 calc(50% - var(--space-2)); }
-  .ui-novel .reading-body { padding-inline: var(--space-3); }
+  .ui-novel .phase-d-toolbar, .ui-novel .chapter-item, .ui-novel .job-record-card{ display: flex; flex-direction: column; align-items: stretch; }
+  .ui-novel .phase-d-toolbar .btn, .ui-novel .chapter-item-action .btn, .ui-novel .job-record-action .btn{ width: 100%; }
+  .ui-novel .chapter-item-meta{ grid-template-columns: 1fr; }
+  .ui-novel .tab-list{ overflow-x: auto; max-width: 100%; padding-bottom: var(--space-1); }
+  .ui-novel .tab{ flex: 0 0 auto; }
+  .ui-novel .jobs-filter .btn{ flex: 1 1 calc(50% - var(--space-2)); }
+  .ui-novel .reading-body{ padding-inline: var(--space-3); }
 }
 
 /* Iteration 156 · Phase E advanced and auxiliary pages. */
-.ui-novel .advanced-entry-note { margin-bottom: var(--space-4); }
-.ui-novel .plan-page-editor { max-width: 860px; margin-inline: auto; }
-.ui-novel .plan-page-editor textarea { width: 100%; resize: vertical; }
-.ui-novel .search-hero { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
-.ui-novel .search-box-wrap { flex: 1 1 360px; min-width: 0; }
-.ui-novel .search-sources { flex: 1 1 360px; }
-.ui-novel .search-sources label { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
-.ui-novel .search-hit { position: relative; min-width: 0; padding-bottom: calc(var(--space-4) + 44px); overflow-wrap: anywhere; }
-.ui-novel .search-hit-title,
-.ui-novel .search-snippet { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
-.ui-novel .search-hit-open { position: absolute; right: var(--space-4); bottom: var(--space-4); }
-.ui-novel .review-issue-list { display: grid; gap: var(--space-4); }
-.ui-novel .review-issue-card { min-width: 0; overflow-wrap: anywhere; }
-.ui-novel .review-safe-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0; }
-.ui-novel .review-safe-meta dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
-.ui-novel .review-safe-meta dd { margin: var(--space-1) 0 0; }
-.ui-novel .insight-value { overflow-wrap: anywhere; }
-.ui-novel .insight-score-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
-.ui-novel .insight-score-card { min-width: 0; padding: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--ui-card-bg); }
-.ui-novel .insight-score-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-3) 0 0; }
-.ui-novel .insight-score-card dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
-.ui-novel .insight-score-card dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
-.ui-novel .review-issue-card .card-footer { display: flex; justify-content: flex-end; }
+.ui-novel .advanced-entry-note{ margin-bottom: var(--space-4); }
+.ui-novel .plan-page-editor{ max-width: 860px; margin-inline: auto; }
+.ui-novel .plan-page-editor textarea{ width: 100%; resize: vertical; }
+.ui-novel .search-hero{ display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
+.ui-novel .search-box-wrap{ flex: 1 1 360px; min-width: 0; }
+.ui-novel .search-sources{ flex: 1 1 360px; }
+.ui-novel .search-sources label{ min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
+.ui-novel .search-hit{ position: relative; min-width: 0; padding-bottom: calc(var(--space-4) + 44px); overflow-wrap: anywhere; }
+.ui-novel .search-hit-title, .ui-novel .search-snippet{ min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.ui-novel .search-hit-open{ position: absolute; right: var(--space-4); bottom: var(--space-4); }
+.ui-novel .review-issue-list{ display: grid; gap: var(--space-4); }
+.ui-novel .review-issue-card{ min-width: 0; overflow-wrap: anywhere; }
+.ui-novel .review-safe-meta{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0; }
+.ui-novel .review-safe-meta dt{ color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-novel .review-safe-meta dd{ margin: var(--space-1) 0 0; }
+.ui-novel .insight-value{ overflow-wrap: anywhere; }
+.ui-novel .insight-score-list{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.ui-novel .insight-score-card{ min-width: 0; padding: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--ui-card-bg); }
+.ui-novel .insight-score-card dl{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-3) 0 0; }
+.ui-novel .insight-score-card dt{ color: var(--ui-text-muted); font-size: var(--fs-xs); }
+.ui-novel .insight-score-card dd{ margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.ui-novel .review-issue-card .card-footer{ display: flex; justify-content: flex-end; }
 
 @media (max-width: 767px) {
-  .ui-novel .continue-flow .flow-step { grid-template-columns: 36px minmax(0, 1fr); }
-  .ui-novel .search-hero,
-  .ui-novel .search-sources { flex-direction: column; align-items: stretch; }
-  .ui-novel .search-box-wrap,
-  .ui-novel .search-sources { flex-basis: auto; width: 100%; }
-  .ui-novel .search-sources label,
-  .ui-novel #search-clear,
-  .ui-novel .search-hit-open,
-  .ui-novel .review-issue-card .btn,
-  .ui-novel .plan-page-editor .form-actions .btn { width: 100%; }
-  .ui-novel .search-hit-open { position: static; margin-top: var(--space-3); }
-  .ui-novel .search-hit { padding-bottom: var(--space-4); }
-  .ui-novel .review-safe-meta { grid-template-columns: 1fr; }
-  .ui-novel .insight-score-list,
-  .ui-novel .insight-score-card dl { grid-template-columns: 1fr; }
-  .ui-novel .review-issue-card .card-header { align-items: flex-start; }
-  .ui-novel .review-issue-card .card-footer { justify-content: stretch; }
-  .ui-novel #insights-cost > div { grid-template-columns: minmax(72px, auto) minmax(80px, 1fr) minmax(100px, auto) !important; }
+  .ui-novel .continue-flow .flow-step{ grid-template-columns: 36px minmax(0, 1fr); }
+  .ui-novel .search-hero, .ui-novel .search-sources{ flex-direction: column; align-items: stretch; }
+  .ui-novel .search-box-wrap, .ui-novel .search-sources{ flex-basis: auto; width: 100%; }
+  .ui-novel .search-sources label, .ui-novel #search-clear, .ui-novel .search-hit-open, .ui-novel .review-issue-card .btn, .ui-novel .plan-page-editor .form-actions .btn{ width: 100%; }
+  .ui-novel .search-hit-open{ position: static; margin-top: var(--space-3); }
+  .ui-novel .search-hit{ padding-bottom: var(--space-4); }
+  .ui-novel .review-safe-meta{ grid-template-columns: 1fr; }
+  .ui-novel .insight-score-list, .ui-novel .insight-score-card dl{ grid-template-columns: 1fr; }
+  .ui-novel .review-issue-card .card-header{ align-items: flex-start; }
+  .ui-novel .review-issue-card .card-footer{ justify-content: stretch; }
+  .ui-novel #insights-cost > div{ grid-template-columns: minmax(72px, auto) minmax(80px, 1fr) minmax(100px, auto) !important; }
 }
-
-/* Iteration 158 · short-drama Phase A shell, overview and production. */
-.ui-drama {
-  background: var(--ui-page-bg);
-  color: var(--ui-text);
-}
-.ui-drama .drama-tablet-nav,
-.ui-drama .drama-mobile-nav { display: none; }
-.ui-drama .card,
-.ui-drama .sidebar,
-.ui-drama .next-action,
-.ui-drama .toast { background: var(--ui-card-bg); }
-.ui-drama :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+button, input, select, textarea, [tabindex]):focus-visible{
   outline: 3px solid var(--ui-focus-ring);
-  outline-offset: 3px;
-}
-.ui-drama :is(.btn, button, input, select, textarea, .sidebar-item, .drama-responsive-nav-item) {
+  outline-offset: 3px;}
+button, input, select, textarea, .sidebar-item{
   box-sizing: border-box;
   min-height: 44px;
-  min-width: 44px;
-}
-.ui-drama .brand,
-.ui-drama .breadcrumb a {
-  box-sizing: border-box;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-}
-.ui-drama .breadcrumb a { min-width: 44px; justify-content: center; padding-inline: var(--space-2); }
-.ui-drama .page { min-width: 0; overflow-x: clip; }
-.ui-drama .drama-page-header { margin-bottom: var(--space-5); }
-.ui-drama .drama-overview-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
-}
-.ui-drama .drama-summary-card {
-  min-height: 116px;
-  padding: var(--space-4);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.ui-drama .drama-summary-card .k { color: var(--ui-text-muted); font-size: var(--fs-sm); }
-.ui-drama .drama-summary-card strong { color: var(--ui-brand-text); font-family: var(--font-serif); font-size: var(--fs-h2); }
-.ui-drama .drama-overview-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(300px, .8fr);
-  gap: var(--space-5);
-  align-items: start;
-}
-.ui-drama .drama-overview-layout > .section { margin: 0; }
-.ui-drama .drama-overview-aside { display: grid; gap: var(--space-4); }
-.ui-drama .drama-stage-list { display: grid; gap: var(--space-3); }
-.ui-drama .drama-stage-row {
-  min-width: 0;
-  min-height: 76px;
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: var(--space-3);
-  align-items: center;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--rule);
-  border-left: 4px solid var(--amber);
-  border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-drama .drama-stage-row[data-state="ready"] { border-left-color: var(--jade); }
-.ui-drama .drama-stage-row[data-state="blocked"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
-.ui-drama .drama-stage-row h3,
-.ui-drama .drama-stage-row p { margin: 0; }
-.ui-drama .drama-stage-index {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--ui-primary-bg);
-  color: var(--ui-brand-text);
-  font-weight: 700;
-}
-.ui-drama .drama-state-label { font-weight: 600; color: var(--ui-text-muted); }
-.ui-drama .production-status-banner {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-4);
-  align-items: center;
-  padding: var(--space-4);
-  margin-bottom: var(--space-4);
-  border: 1px solid var(--rule);
-  border-left: 4px solid var(--amber);
-  border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-drama .production-status-banner[data-state="ready"] { border-left-color: var(--jade); }
-.ui-drama .production-status-banner[data-state="blocked"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
-.ui-drama .production-status-banner h2,
-.ui-drama .production-status-banner p { margin: 0; }
-.ui-drama .production-view-tabs {
-  flex-direction: row;
-  align-items: stretch;
-  gap: var(--space-1);
-  border-bottom: 1px solid var(--rule);
-  overflow-x: auto;
-}
-.ui-drama .production-view-tabs .tab { flex: 0 0 auto; }
-.ui-drama .production-summary-card { margin-bottom: var(--space-4); }
-.ui-drama .production-list-toolbar {
-  min-height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-.ui-drama .production-list-toolbar p { margin: 0; }
-.ui-drama .production-list-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(280px, .75fr);
-  gap: var(--space-4);
-  align-items: start;
-}
-.ui-drama .production-shot-row {
-  width: 100%;
-  min-height: 92px;
-  grid-template-columns: minmax(140px, .7fr) minmax(240px, 1.1fr) minmax(220px, 1fr);
-  color: var(--ui-text);
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-.ui-drama .production-shot-row.selected { border-color: var(--jade); box-shadow: inset 0 0 0 2px var(--jade-soft); }
-.ui-drama .production-shot-row[data-state="blocked"] { border-left: 4px solid var(--sienna); background: var(--ui-danger-bg); }
-.ui-drama .production-shot-row[data-state="stale"] { border-left: 4px solid var(--amber); background: var(--gold-soft); }
-.ui-drama .production-shot-row[data-state="ready"] { border-left: 4px solid var(--jade); }
-.ui-drama .production-shot-title { display: flex; align-items: center; gap: var(--space-3); }
-.ui-drama .production-shot-title > span:last-child,
-.ui-drama .production-shot-state { display: grid; gap: var(--space-1); }
-.ui-drama .production-shot-title small,
-.ui-drama .production-shot-state small { color: var(--ui-text-muted); line-height: 1.45; }
-.ui-drama .production-shot-media { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-.ui-drama .production-shot-detail { position: sticky; top: 80px; }
-.ui-drama .production-shot-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
-.ui-drama .production-shot-facts div { padding: var(--space-2); border-radius: var(--radius-1); background: var(--bg-sunken); }
-.ui-drama .production-shot-facts dt { color: var(--ui-text-muted); font-size: var(--fs-xs); }
-.ui-drama .production-shot-facts dd { margin: var(--space-1) 0 0; font-weight: 700; }
-.ui-drama .production-stage-canvas {
-  display: grid;
-  grid-template-columns: repeat(11, auto);
-  align-items: stretch;
-  gap: var(--space-2);
-  overflow-x: auto;
-  padding: var(--space-3) var(--space-1) var(--space-4);
-  scroll-snap-type: x proximity;
-}
-.ui-drama .production-stage-canvas .production-node {
-  width: 176px;
-  min-height: 176px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  color: var(--ui-text);
-  text-decoration: none;
-  scroll-snap-align: start;
-}
-.ui-drama .production-stage-arrow { display: grid; place-items: center; color: var(--ui-text-muted); font-size: var(--fs-xl); }
+  min-width: 44px;}
 
-/* Iteration 159 · short-drama Phase B creation workbench and character library. */
-.ui-drama .drama-write-header,
-.ui-drama .drama-characters-header { align-items: flex-end; }
-.ui-drama .drama-write-tools,
-.ui-drama .drama-character-tools { display: flex; align-items: flex-end; gap: var(--space-3); }
-.ui-drama .drama-write-tools input,
-.ui-drama .drama-character-tools input { width: 84px; }
-.ui-drama .drama-write-status {
-  min-height: 64px;
-  margin-bottom: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  border: 1px solid var(--rule);
-  border-left: 4px solid var(--amber);
-  border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-drama .drama-write-status[data-ui-state="dirty"] { background: var(--gold-soft); border-left-color: var(--amber); }
-.ui-drama .drama-write-status[data-ui-state="ready"] { border-left-color: var(--jade); }
-.ui-drama .drama-write-status[data-ui-state="running"] { background: var(--jade-soft); border-left-color: var(--jade); }
-.ui-drama .drama-write-status[data-ui-state="blocked"],
-.ui-drama .drama-write-status[data-ui-state="error"] { background: var(--ui-danger-bg); border-left-color: var(--sienna); }
-.ui-drama .drama-station-workbench { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
-.ui-drama .drama-station-nav {
-  display: grid;
-  gap: var(--space-2);
-  position: sticky;
-  top: 80px;
-  padding: var(--space-3);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-drama .drama-station-nav .tab {
-  width: 100%;
-  min-height: 56px;
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid transparent;
-  border-radius: var(--radius-2);
-  text-align: left;
-  white-space: normal;
-}
-.ui-drama .drama-station-nav .tab span { font-family: var(--font-mono); color: var(--ui-text-muted); }
-.ui-drama .drama-station-nav .tab.active { border-color: var(--jade); background: var(--ui-primary-bg); color: var(--ui-brand-text); }
-.ui-drama .drama-station-summary { grid-column: 2; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); }
-.ui-drama .drama-station-summary-item {
-  min-width: 0;
-  min-height: 76px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-1) var(--space-2);
-  align-items: center;
-  padding: var(--space-2);
-  color: var(--ui-text);
-  text-align: left;
-  font: inherit;
-  border: 1px solid var(--rule);
-  border-top: 3px solid var(--amber);
-  border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-drama .drama-station-summary-item[data-state="ready"] { border-top-color: var(--jade); }
-.ui-drama .drama-station-summary-item[data-state="blocked"] { border-top-color: var(--sienna); background: var(--ui-danger-bg); }
-.ui-drama .drama-station-summary-item > span { grid-row: 1 / span 2; font-family: var(--font-mono); color: var(--ui-text-muted); }
-.ui-drama .drama-station-summary-item small { color: var(--ui-text-muted); }
-.ui-drama .drama-station-workbench > .tab-panel { grid-column: 2; min-width: 0; }
-.ui-drama .drama-station-workbench .card { margin: 0; }
-.ui-drama .drama-review-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(260px, .7fr); gap: var(--space-4); align-items: start; }
-.ui-drama .drama-readiness-list { display: grid; gap: var(--space-2); padding: 0; margin: 0; list-style: none; }
-.ui-drama .drama-readiness-list li { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--rule); }
-.ui-drama .drama-readiness-list li[data-state="ready"] strong { color: var(--ui-brand-text); }
-.ui-drama .drama-readiness-list li[data-state="blocked"] strong { color: var(--ui-danger-text); }
-.ui-drama .drama-mobile-primary { display: none; }
-.ui-drama .drama-character-boundary { margin-bottom: var(--space-4); }
-.ui-drama .character-library-section { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--ui-card-bg); }
-.ui-drama .character-library-section.current { border-left: 4px solid var(--jade); }
-.ui-drama .character-library-section.season { border-left: 4px solid var(--amber); }
-.ui-drama .character-library-section .section-title { margin: 0; }
-.ui-drama .character-facts { display: flex; flex-wrap: wrap; gap: var(--space-2); color: var(--ui-text-muted); font-size: var(--fs-xs); }
-.ui-drama .character-facts span { padding: var(--space-1) var(--space-2); border-radius: 999px; background: var(--bg-sunken); }
-.ui-drama .character-ref-img { width: 100%; height: 220px; object-fit: cover; border-radius: var(--radius-2); }
-.ui-drama .character-ref-placeholder { min-height: 220px; display: grid; place-items: center; border-radius: var(--radius-2); background: var(--bg-sunken); color: var(--ui-text-muted); }
-
-/* Iteration 161 · short-drama Phase D delivery, episodes, insights and jobs. */
-.ui-drama .drama-compose-header { align-items: flex-end; }
-.ui-drama .drama-compose-header input { width: 84px; }
-.ui-drama .drama-compose-boundary { margin-bottom: var(--space-4); }
-.ui-drama .drama-compose-summary {
-  min-height: 116px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-5);
-  padding: var(--space-4);
-  margin-bottom: var(--space-4);
-  border: 1px solid var(--rule);
-  border-left: 4px solid var(--amber);
-  border-radius: var(--radius-2);
-  background: var(--ui-card-bg);
-}
-.ui-drama .drama-compose-summary[data-state="complete"] { border-left-color: var(--jade); background: var(--jade-soft); }
-.ui-drama .drama-compose-summary[data-state="ready"] { border-left-color: var(--jade); }
-.ui-drama .drama-compose-summary[data-state="running"] { border-left-color: var(--jade); }
-.ui-drama .drama-compose-summary[data-state="stale"],
-.ui-drama .drama-compose-summary[data-state="invalid"],
-.ui-drama .drama-compose-summary[data-state="error"],
-.ui-drama .drama-compose-summary[data-state="failed"],
-.ui-drama .drama-compose-summary[data-state="blocked"],
-.ui-drama .drama-compose-summary[data-state="lost"],
-.ui-drama .drama-compose-summary[data-state="unknown"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
-.ui-drama .drama-compose-summary h2,
-.ui-drama .drama-compose-summary p { margin: 0; }
-.ui-drama .drama-compose-facts { display: grid; grid-template-columns: repeat(3, minmax(92px, 1fr)); gap: var(--space-2); }
-.ui-drama .drama-compose-facts span { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-1); background: var(--bg-sunken); text-align: center; }
-.ui-drama .drama-compose-facts small { color: var(--ui-text-muted); }
-.ui-drama .drama-compose-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(290px, .75fr); gap: var(--space-4); align-items: start; }
-.ui-drama .drama-compose-layout .card { margin: 0; }
-.ui-drama .drama-compose-timeline { min-height: 326px; }
-.ui-drama .drama-timeline-track { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: var(--space-3); min-height: 70px; color: var(--ui-text-muted); font: var(--fs-xs)/1 var(--font-mono); text-transform: uppercase; }
-.ui-drama .drama-timeline-track i { display: block; height: 28px; border-radius: var(--radius-1); background: var(--jade-soft); }
-.ui-drama .drama-timeline-track.voice i { width: 92%; background: var(--gold-soft); }
-.ui-drama .drama-timeline-track.subtitle i { width: 96%; background: var(--bg-sunken); }
-.ui-drama .drama-compose-qa { background: var(--bg-sunken); }
-.ui-drama .drama-qa-facts { display: grid; gap: var(--space-3); margin: 0; }
-.ui-drama .drama-qa-facts div { display: flex; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--rule); }
-.ui-drama .drama-qa-facts dt { color: var(--ui-text-muted); }
-.ui-drama .drama-qa-facts dd { margin: 0; text-align: right; }
-.ui-drama .drama-compose-downloads { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
-.ui-drama .drama-compose-action { align-items: center; }
-.ui-drama .drama-compose-page > .drama-mobile-primary { display: none; }
-
-.ui-drama .drama-season-card {
-  min-height: 126px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  margin-bottom: var(--space-5);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-2);
-  background: var(--bg-sunken);
-}
-.ui-drama .drama-season-card h2,
-.ui-drama .drama-season-card p { margin: 0; }
-.ui-drama .drama-season-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
-.ui-drama .drama-episode-list { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
-.ui-drama .drama-episode-card { min-height: 96px; display: grid; grid-template-columns: 48px minmax(180px, 1fr) auto auto; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--rule); border-left: 4px solid var(--jade); border-radius: var(--radius-2); background: var(--ui-card-bg); }
-.ui-drama .drama-episode-card[data-state="stale"] { border-left-color: var(--amber); background: var(--gold-soft); }
-.ui-drama .drama-episode-number { color: var(--ui-brand-text); font: var(--fs-xl)/1 var(--font-serif); }
-.ui-drama .drama-episode-copy h3,
-.ui-drama .drama-episode-copy p { margin: 0; }
-.ui-drama .drama-episode-copy p { color: var(--ui-text-muted); font-size: var(--fs-sm); }
-.ui-drama .drama-episode-verdict,
-.ui-drama .drama-episode-actions { display: flex; align-items: center; gap: var(--space-2); }
-.ui-drama .drama-season-delivery { margin-top: var(--space-4); }
-
-.ui-drama .drama-insights-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-4); }
-.ui-drama .drama-insights-summary .drama-summary-card.unknown { border-color: var(--amber); background: var(--gold-soft); }
-.ui-drama .drama-insights-summary small { color: var(--ui-text-muted); }
-.ui-drama .drama-insights-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-.ui-drama .drama-insights-grid .card { margin: 0; min-width: 0; }
-
-.ui-drama .drama-jobs-filter { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-2); margin-bottom: var(--space-4); border: 1px solid var(--rule); border-radius: var(--radius-2); background: var(--bg-sunken); }
-.ui-drama .drama-jobs-filter .btn { flex: 1 1 128px; }
-.ui-drama .drama-jobs-filter .btn.active { border-color: var(--jade); background: var(--ui-primary-bg); color: var(--ui-brand-text); }
-.ui-drama .drama-jobs-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .7fr); gap: var(--space-4); align-items: start; }
-.ui-drama .drama-job-list { display: grid; gap: var(--space-2); }
-.ui-drama .drama-job-card { min-height: 92px; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--rule); border-left: 4px solid var(--jade); border-radius: var(--radius-2); background: var(--ui-card-bg); }
-.ui-drama .drama-job-card[data-job-group="attention"] { border-left-color: var(--amber); background: var(--gold-soft); }
-.ui-drama .drama-job-card[data-tone="danger"] { border-left-color: var(--sienna); background: var(--ui-danger-bg); }
-.ui-drama .drama-job-select { width: 100%; display: grid; grid-template-columns: 12px minmax(0, 1fr); align-items: center; gap: var(--space-3); padding: var(--space-2); border: 0; border-radius: var(--radius-1); background: transparent; color: inherit; text-align: left; font: inherit; }
-.ui-drama .drama-job-select[aria-current="true"] { background: var(--ui-primary-bg); }
-.ui-drama .drama-job-select span:last-child { display: grid; gap: var(--space-1); }
-.ui-drama .drama-job-select small,
-.ui-drama .drama-job-state p { color: var(--ui-text-muted); }
-.ui-drama .drama-job-state p { margin: var(--space-1) 0 0; }
-.ui-drama .drama-job-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--jade); }
-.ui-drama .drama-job-card[data-job-group="attention"] .drama-job-dot { background: var(--amber); }
-.ui-drama .drama-job-detail { position: sticky; top: 80px; min-height: 280px; padding: var(--space-4); border: 1px solid var(--amber); border-radius: var(--radius-2); background: var(--gold-soft); }
-.ui-drama .drama-job-detail h2 { margin-top: 0; overflow-wrap: anywhere; }
-.ui-drama .drama-job-facts { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
-.ui-drama .drama-job-facts div { display: flex; justify-content: space-between; gap: var(--space-2); }
-.ui-drama .drama-job-facts dt { color: var(--ui-text-muted); }
-.ui-drama .drama-job-facts dd { margin: 0; text-align: right; }
-
-@media (min-width: 768px) and (max-width: 1199px) {
-  .ui-drama { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .ui-drama .drama-tablet-nav {
-    display: flex;
-    position: sticky;
-    top: 0;
-    z-index: 24;
-    min-width: 0;
-    height: 72px;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 0 var(--space-4);
-    border-bottom: 1px solid var(--rule);
-    background: var(--ui-card-bg);
-  }
-  .ui-drama .drama-nav-brand { width: 44px; height: 44px; display: grid; place-items: center; color: var(--jade-strong); font-size: var(--fs-xl); }
-  .ui-drama .drama-tablet-nav-scroll { min-width: 0; flex: 1; display: flex; overflow-x: auto; gap: var(--space-1); }
-  .ui-drama .drama-responsive-nav-item { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-2); color: var(--ui-text-muted); background: transparent; text-decoration: none; }
-  .ui-drama .drama-responsive-nav-item.active { color: var(--ui-brand-text); background: var(--ui-primary-bg); font-weight: 700; }
-  .ui-drama > .sidebar { position: fixed; z-index: 31; top: 0; left: 0; width: 280px; height: 100vh; transform: translateX(-100%); transition: transform .18s ease; }
-  .ui-drama > .sidebar.open { transform: translateX(0); }
-  .ui-drama > .sidebar-overlay.open { display: block; position: fixed; inset: 0; background: var(--bg-overlay); z-index: 30; }
-  .ui-drama > .main { grid-row: 2; }
-  .ui-drama .topbar .nav-toggle { display: none; }
-  .ui-drama .drama-overview-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .ui-drama .drama-overview-layout { grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); }
-  .ui-drama .production-list-layout { grid-template-columns: 1fr; }
-  .ui-drama .production-shot-detail { position: static; }
-  .ui-drama .production-shot-row { grid-template-columns: minmax(140px, .7fr) minmax(220px, 1fr) minmax(200px, 1fr); }
-  .ui-drama .drama-station-workbench { grid-template-columns: 1fr; }
-  .ui-drama .drama-station-nav { grid-column: 1; position: static; display: flex; overflow-x: auto; scroll-snap-type: x proximity; }
-  .ui-drama .drama-station-nav .tab { flex: 0 0 190px; scroll-snap-align: start; }
-  .ui-drama .drama-station-summary,
-  .ui-drama .drama-station-workbench > .tab-panel { grid-column: 1; }
-  .ui-drama .drama-review-layout { grid-template-columns: 1fr; }
-  .ui-drama .drama-compose-layout { grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); }
-  .ui-drama .drama-episode-card { grid-template-columns: 48px minmax(180px, 1fr) auto; }
-  .ui-drama .drama-episode-actions { grid-column: 2 / -1; }
-  .ui-drama .drama-insights-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ui-drama .drama-jobs-layout { grid-template-columns: 1fr; }
-  .ui-drama .drama-job-detail { position: static; }
-}
-
-@media (max-width: 767px) {
-  .ui-drama .drama-tablet-nav { display: none; }
-  .ui-drama .drama-mobile-nav {
-    display: grid;
-    position: fixed;
-    z-index: 26;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    min-height: 72px;
-    padding: var(--space-1) max(var(--space-2), env(safe-area-inset-right)) calc(var(--space-1) + env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
-    border-top: 1px solid var(--rule);
-    background: var(--ui-card-bg);
-  }
-  .ui-drama .drama-mobile-nav .drama-responsive-nav-item {
-    min-width: 0;
-    display: grid;
-    place-items: center;
-    padding: var(--space-1);
-    border: 0;
-    border-radius: var(--radius-1);
-    background: transparent;
-    color: var(--ui-text-muted);
-    text-decoration: none;
-    font: inherit;
-    font-size: var(--fs-xs);
-  }
-  .ui-drama .drama-mobile-nav .drama-responsive-nav-item.active { background: var(--ui-primary-bg); color: var(--ui-brand-text); font-weight: 700; }
-  .ui-drama .page { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-  .ui-drama .drama-overview-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ui-drama .drama-overview-layout { display: flex; flex-direction: column; }
-  .ui-drama .drama-overview-aside { order: -1; width: 100%; }
-  .ui-drama .drama-overview-stages { width: 100%; }
-  .ui-drama .drama-stage-row { grid-template-columns: 36px minmax(0, 1fr); }
-  .ui-drama .drama-stage-row .drama-state-label { grid-column: 2; }
-  .ui-drama .production-header .cluster { width: 100%; }
-  .ui-drama .production-header .field { flex: 1; }
-  .ui-drama .production-header input { width: 72px; }
-  .ui-drama .production-summary-grid { grid-template-columns: 1fr 1fr; }
-  .ui-drama .production-list-layout { grid-template-columns: 1fr; }
-  .ui-drama .production-shot-detail { position: static; }
-  .ui-drama .production-shot-row { grid-template-columns: 1fr; }
-  .ui-drama .production-shot-media { align-items: center; }
-  .ui-drama .production-shot-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .ui-drama .production-stage-canvas { display: flex; flex-direction: column; overflow: visible; }
-  .ui-drama .production-stage-canvas .production-node { width: 100%; min-height: 132px; }
-  .ui-drama .production-stage-arrow { transform: rotate(90deg); min-height: 32px; }
-  .ui-drama .drama-write-header,
-  .ui-drama .drama-characters-header { align-items: stretch; }
-  .ui-drama .drama-write-tools,
-  .ui-drama .drama-character-tools { width: 100%; align-items: flex-end; flex-wrap: wrap; }
-  .ui-drama .drama-write-tools .field,
-  .ui-drama .drama-character-tools .field { flex: 1; }
-  .ui-drama .drama-write-status { align-items: flex-start; flex-direction: column; }
-  .ui-drama .drama-station-workbench { display: flex; flex-direction: column; }
-  .ui-drama .drama-station-nav { position: static; width: 100%; display: grid; grid-template-columns: 1fr; overflow: visible; }
-  .ui-drama .drama-station-nav .tab { width: 100%; }
-  .ui-drama .drama-station-summary { width: 100%; grid-template-columns: 1fr; }
-  .ui-drama .drama-station-summary-item { min-height: 64px; }
-  .ui-drama .drama-station-workbench > .tab-panel { width: 100%; }
-  .ui-drama .drama-review-layout { grid-template-columns: 1fr; }
-  .ui-drama .drama-mobile-primary {
-    display: flex;
-    position: fixed;
-    z-index: 25;
-    left: var(--space-3);
-    right: var(--space-3);
-    bottom: calc(78px + env(safe-area-inset-bottom));
-    min-height: 64px;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--rule-strong);
-    border-radius: var(--radius-2);
-    background: var(--ui-card-bg);
-    box-shadow: var(--shadow-2);
-  }
-  .ui-drama .drama-mobile-primary span { min-width: 0; color: var(--ui-text-muted); font-size: var(--fs-xs); }
-  .ui-drama .drama-mobile-primary .btn { flex: 0 0 auto; }
-  .ui-drama:has(.drama-mobile-primary) .page { padding-bottom: calc(172px + env(safe-area-inset-bottom)); }
-  .ui-drama .character-library-section { padding: var(--space-3); }
-  .ui-drama .character-grid { grid-template-columns: 1fr; }
-  .ui-drama .character-card { grid-template-columns: 1fr; }
-  .ui-drama .drama-compose-header { align-items: stretch; }
-  .ui-drama .drama-compose-header .cluster { width: 100%; align-items: flex-end; }
-  .ui-drama .drama-compose-header .field { flex: 1; }
-  .ui-drama .drama-compose-boundary { display: none; }
-  .ui-drama .drama-compose-summary { align-items: flex-start; flex-direction: column; }
-  .ui-drama .drama-compose-facts { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .ui-drama .drama-compose-layout { display: flex; flex-direction: column; }
-  .ui-drama .drama-compose-layout > * { width: 100%; }
-  .ui-drama .drama-compose-action { display: none; }
-  .ui-drama .drama-compose-page > .drama-mobile-primary { display: flex; }
-  .ui-drama .drama-compose-downloads { grid-template-columns: 1fr; }
-  .ui-drama .drama-season-card { align-items: stretch; flex-direction: column; }
-  .ui-drama .drama-season-actions { justify-content: stretch; }
-  .ui-drama .drama-season-actions .btn { flex: 1 1 100%; }
-  .ui-drama .drama-episode-card { grid-template-columns: 44px minmax(0, 1fr); }
-  .ui-drama .drama-episode-verdict,
-  .ui-drama .drama-episode-actions { grid-column: 2; flex-wrap: wrap; }
-  .ui-drama .drama-episode-actions .btn { flex: 1 1 132px; }
-  .ui-drama .drama-insights-summary,
-  .ui-drama .drama-insights-grid { grid-template-columns: 1fr; }
-  .ui-drama .drama-jobs-layout { display: flex; flex-direction: column; }
-  .ui-drama .drama-jobs-layout > * { width: 100%; }
-  .ui-drama .drama-job-card { grid-template-columns: 1fr; }
-  .ui-drama .drama-job-card[data-job-group="attention"] { order: -1; }
-  .ui-drama .drama-job-detail { order: -1; position: static; min-height: 0; }
-  .ui-drama .drama-job-action .btn { width: 100%; }
-}
 """
 
 
@@ -2811,7 +1774,7 @@ JS_DASHBOARD = """\
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Drama-Mutation-Intent": "mutate-v1",
+        "X-Workspace-Mutation-Intent": "mutate-v1",
       },
       body: JSON.stringify(payload || {}),
     }, opts || {}));
@@ -2821,7 +1784,7 @@ JS_DASHBOARD = """\
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        "X-Drama-Mutation-Intent": "mutate-v1",
+        "X-Workspace-Mutation-Intent": "mutate-v1",
       },
       body: JSON.stringify(payload || {}),
     }, opts || {}));
@@ -2831,55 +1794,6 @@ JS_DASHBOARD = """\
   }
   function wsHref(suffix) {
     return "/w/" + encodeURIComponent(ws) + suffix;
-  }
-  function dramaEpisodeFromInput(input) {
-    const raw = String(input && input.value == null ? "" : input.value).trim();
-    if (!/^(?:[1-9]|[1-9][0-9]|100)$/.test(raw)) {
-      if (input) {
-        input.setAttribute("aria-invalid", "true");
-        input.setCustomValidity("集数必须是 1 到 100 的整数");
-      }
-      throw new Error("集数必须是 1 到 100 的整数；未发送任何请求");
-    }
-    const value = Number(raw);
-    if (input) {
-      input.removeAttribute("aria-invalid");
-      input.setCustomValidity("");
-    }
-    const url = new URL(window.location.href);
-    url.searchParams.set("episode_no", String(value));
-    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-    syncDramaEpisodeLinks(value);
-    return value;
-  }
-  function dramaEpisodeFromUrl() {
-    const params = new URL(window.location.href).searchParams;
-    const raw = params.get("episode_no") || params.get("episode") || String(window.CHAPTER_NO || "");
-    return /^(?:[1-9]|[1-9][0-9]|100)$/.test(raw) ? Number(raw) : 1;
-  }
-  function syncDramaEpisodeLinks(value) {
-    if (!Number.isInteger(value) || value < 1 || value > 100) return;
-    document.querySelectorAll('.sidebar a,.drama-tablet-nav a,.drama-mobile-nav a').forEach(function (link) {
-      const target = new URL(link.href, window.location.origin);
-      const workspaceHome = new URL(wsHref("/"), window.location.origin).pathname;
-      if (target.pathname === workspaceHome) {
-        target.searchParams.set("episode_no", String(value));
-      } else if (target.pathname.endsWith("/write") || target.pathname.endsWith("/characters")) {
-        target.searchParams.set("episode", String(value));
-      } else if (["/production", "/assets", "/shot-images", "/shot-videos", "/compose"].some(function (suffix) {
-        return target.pathname.endsWith(suffix);
-      })) {
-        target.searchParams.set("episode_no", String(value));
-      } else {
-        return;
-      }
-      link.setAttribute("href", target.pathname + target.search);
-    });
-  }
-  function hydrateDramaEpisodeInput(input) {
-    if (!input) return;
-    const raw = new URL(window.location.href).searchParams.get("episode_no");
-    if (raw != null) input.value = raw;
   }
   let shellControlsBound = false;
   function initShellControls() {
@@ -3006,10 +1920,6 @@ JS_DASHBOARD = """\
       }
     });
     ensureLeaveGuardDelegate();
-    const app = document.querySelector(".app.ui-drama");
-    if (app) {
-      syncDramaEpisodeLinks(dramaEpisodeFromUrl());
-    }
   }
   function statusBadge(status) {
     const raw = String(status || "blocked");
@@ -3067,9 +1977,6 @@ JS_DASHBOARD = """\
     return '<span class="badge warn">文风改写未解决</span>';
   }
   function typeBadge(type) {
-    if (type === "drama") {
-      return '<span class="badge no-dot badge-drama">🎬 短剧</span>';
-    }
     if (type === "novel") return '<span class="badge no-dot badge-novel">小说</span>';
     return '<span class="badge no-dot badge-muted">类型待确认</span>';
   }
@@ -3090,18 +1997,6 @@ JS_DASHBOARD = """\
     const cls = historicalJobStatus(job && job.status) ? ' class="metric history"' : ' class="metric"';
     return '<div' + cls + '><span class="k">最近任务</span><span class="v metric-small">' +
       escapeHtml(recentJobLabel(job)) + "</span></div>";
-  }
-  function dramaProgressList(progress) {
-    if (!progress || typeof progress !== "object") return [];
-    const keys = ["station1", "station2", "station3", "station4", "station5"];
-    return keys.map(function (key) { return progress[key]; }).filter(Boolean);
-  }
-  function dramaOverallStatus(progress) {
-    const stations = dramaProgressList(progress);
-    if (stations.length !== 5) return "warn";
-    return stations.every(function (s) {
-      return s.status === "done" || s.status === "skipped";
-    }) ? "ready" : "warn";
   }
   function ctaConfig(kind, fallback) {
     const base = CTA_ACTIONS[kind] || {};
@@ -3399,7 +2294,6 @@ JS_DASHBOARD = """\
       '<p class="error-card-cause">' + escapeHtml(card.cause || "") + "</p></div></div>" +
       (actions ? '<div class="error-card-actions cluster">' + actions + "</div>" : "") +
       (card.trace_id ? '<p class="error-card-trace">编号 <code>' + escapeHtml(card.trace_id) + "</code> " + copyButton(card.trace_id) + "</p>" : "") +
-      (document.querySelector(".ui-drama") && card.technical ? '<details class="details-fold error-card-tech"><summary>技术详情</summary><pre>' + escapeHtml(card.technical) + "</pre></details>" : "") +
       "</div>";
   }
   // iter063 A2: prefer the backend card's friendly title for one-line error
@@ -3410,12 +2304,6 @@ JS_DASHBOARD = """\
     if (err && err.card && err.card.title) return err.card.title;
     if (err && err.code && FRONT_ERROR_CATALOG[err.code]) return FRONT_ERROR_CATALOG[err.code].title;
     const raw = err && err.payload && err.payload.error;
-    const friendly = {
-      real_image_would_be_overwritten: "已有付费生成的参考图，本地预览不会覆盖它",
-      paid_image_state_requires_repair: "付费生图记录需要修复，已停止覆盖参考图",
-    };
-    if (raw && friendly[raw]) return friendly[raw];
-    if (document.querySelector(".ui-drama")) return (err && err.message) || "出错了";
     return "操作没有完成";
   }
   // Translate readiness codes into bounded user copy. Unknown codes fail
@@ -3434,7 +2322,6 @@ JS_DASHBOARD = """\
     if (cfg && cfg.label) return cfg.label;
     var named = {
       overview_error: "概览数据读取失败",
-      drama_progress_error: "短剧进度读取失败",
       readiness_error: "续写入口检查失败",
       chapter_plan_invalid: "章节计划文件损坏",
       preflight_failed: "工程预检未通过",
@@ -3598,8 +2485,6 @@ JS_DASHBOARD = """\
     // which broke the /chapter/N#edit deep-link (it IS implemented). Restore it.
     "body", "edit", "review", "lint", "style", "advisor", "history",
     "chapters", "outline", "decisions",
-    "setup", "hook", "storyboard", "characters", "review",
-    "script", "storyboard-view", "characters-view", "export", "video",
   ];
   function bindHashTabs() {
     function prepare(list, listIndex) {
@@ -3617,10 +2502,6 @@ JS_DASHBOARD = """\
         }
         const selected = tab.classList.contains("active");
         tab.setAttribute("aria-selected", selected ? "true" : "false");
-        if (list.classList.contains("drama-station-nav")) {
-          if (selected) tab.setAttribute("aria-current", "step");
-          else tab.removeAttribute("aria-current");
-        }
         tab.tabIndex = selected ? 0 : -1;
         if (target) target.hidden = !selected;
       });
@@ -3634,10 +2515,6 @@ JS_DASHBOARD = """\
         const selected = t === tab;
         t.classList.toggle("active", selected);
         t.setAttribute("aria-selected", selected ? "true" : "false");
-        if (list.classList.contains("drama-station-nav")) {
-          if (selected) t.setAttribute("aria-current", "step");
-          else t.removeAttribute("aria-current");
-        }
         t.tabIndex = selected ? 0 : -1;
         const panel = tabsRoot.querySelector("#tab-" + t.dataset.tab);
         if (panel) {
@@ -3657,14 +2534,13 @@ JS_DASHBOARD = """\
     document.addEventListener("click", function (ev) {
       const tab = ev.target.closest(".tab");
       if (!tab) return;
-      // Locked tabs (e.g. drama ④) are inert — no activation/route.
+      // Locked tabs are inert — no activation/route.
       if (tab.disabled || tab.getAttribute("aria-disabled") === "true") return;
       activate(tab);
       if (tab.dataset.tab) {
         replaceActiveTabLocation(tab.dataset.tab);
       }
       loadTabPanel(tab.dataset.tab);
-      updateDramaMobilePrimary(tab.dataset.tab);
     });
     document.addEventListener("keydown", function (ev) {
       const tab = ev.target.closest && ev.target.closest('.tab[role="tab"]');
@@ -3690,7 +2566,6 @@ JS_DASHBOARD = """\
       next.focus();
       if (next.dataset.tab) replaceActiveTabLocation(next.dataset.tab);
       loadTabPanel(next.dataset.tab);
-      updateDramaMobilePrimary(next.dataset.tab);
     });
     const params = new URLSearchParams(location.search || "");
     const initialFromQuery = params.get("step") || "";
@@ -3700,7 +2575,6 @@ JS_DASHBOARD = """\
       const t = document.querySelector('.tab[data-tab="' + initial + '"]');
       if (t) activate(t);
       replaceActiveTabLocation(initial);
-      updateDramaMobilePrimary(initial);
     }
   }
 
@@ -3739,22 +2613,19 @@ JS_DASHBOARD = """\
       if (!items.length) {
         shelf.innerHTML = emptyState(
           "书架还是空的",
-          shelf.dataset.empty || "从一句话开新书、导入小说续写或新建短剧，开始你的第一部作品。",
-          '<div class="cluster"><a class="btn btn-primary" href="/wizard?type=novel">创建小说作品</a>' +
-          '<a class="btn btn-secondary" href="/wizard?type=drama">创建短剧作品</a></div>'
+          shelf.dataset.empty || "从一句话开新书或导入小说续写，开始你的第一部作品。",
+          '<a class="btn btn-primary" href="/wizard?type=novel">创建小说作品</a>'
         );
         if (stats) stats.innerHTML = "";
         if (live) live.textContent = "当前没有作品。";
         return;
       }
       const novels = items.filter((w) => w.type === "novel").length;
-      const dramas = items.filter((w) => w.type === "drama").length;
-      const unknownTypes = items.length - novels - dramas;
+      const unknownTypes = items.length - novels;
       if (stats) {
         stats.innerHTML = [
           '<span class="badge no-dot">共 ' + items.length + " 部作品</span>",
           '<span class="badge no-dot badge-novel">小说 ' + novels + "</span>",
-          '<span class="badge no-dot badge-drama">短剧 ' + dramas + "</span>",
           unknownTypes ? '<span class="badge no-dot badge-muted">类型待确认 ' + unknownTypes + "</span>" : "",
         ].join("");
       }
@@ -3803,16 +2674,13 @@ JS_DASHBOARD = """\
     }).format(date);
   }
   function renderWorkspaceCard(w) {
-    const type = w.type === "drama" ? "drama" : (w.type === "novel" ? "novel" : "unknown");
+    const type = w.type === "novel" ? "novel" : "unknown";
     const readiness = w.readiness && typeof w.readiness === "object" ? w.readiness : {};
-    const status = type === "unknown" ? "unknown" : (type === "drama" ? dramaOverallStatus(w.drama_progress) : readiness.status);
-    const progress = type === "unknown" ? "作品类型待确认" : (type === "drama"
-      ? (status === "ready" ? "创作步骤已完成" : "继续短剧创作")
-      : statusLabel(status));
-    const detail = type === "unknown" ? "请重新加载；确认前不会打开作品" : (type === "drama"
-      ? "短剧创作流程"
-      : (safePublicCount(w.draft_count) ? "已有 " + safePublicCount(w.draft_count) + " 章续写草稿" :
-        (safePublicCount(w.chapter_count) ? "已导入 " + safePublicCount(w.chapter_count) + " 章原文" : "等待准备故事内容")));
+    const status = type === "unknown" ? "unknown" : readiness.status;
+    const progress = type === "unknown" ? "作品类型待确认" : statusLabel(status);
+    const detail = type === "unknown" ? "请重新加载；确认前不会打开作品" :
+      (safePublicCount(w.draft_count) ? "已有 " + safePublicCount(w.draft_count) + " 章续写草稿" :
+        (safePublicCount(w.chapter_count) ? "已导入 " + safePublicCount(w.chapter_count) + " 章原文" : "等待准备故事内容"));
     const url = "/w/" + encodeURIComponent(w.name) + "/";
     const action = type === "unknown"
       ? '<button type="button" class="btn btn-secondary" data-cta-action="reload">重新加载</button>'
@@ -3825,7 +2693,7 @@ JS_DASHBOARD = """\
       '<div><dt>最近更新</dt><dd>' + escapeHtml(publicDateLabel(w.updated_at)) + '</dd></div>' +
       '<div><dt>当前进度</dt><dd>' + escapeHtml(progress) + '</dd></div>' +
       '<div><dt>内容概况</dt><dd>' + escapeHtml(detail) + '</dd></div>' +
-      '<div><dt>作品类型</dt><dd>' + (type === "drama" ? "短剧" : (type === "novel" ? "小说" : "待确认")) + '</dd></div>' +
+      '<div><dt>作品类型</dt><dd>' + (type === "novel" ? "小说" : "待确认") + '</dd></div>' +
       '</dl>' +
       '<div class="cluster public-work-actions">' + action + '</div>' +
       '</article>'
@@ -3843,27 +2711,10 @@ JS_DASHBOARD = """\
       recentJobMetric(w.recent_job) +
       "</div>";
   }
-  function renderDramaWorkspaceMetrics(w) {
-    const stations = dramaProgressList(w.drama_progress);
-    const stationHtml = stations.map(function (s, idx) {
-      return '<div class="metric"><span class="k">站 ' + (idx + 1) + ' · ' + escapeHtml(s.label || s.id || "") +
-        '</span><span class="v metric-small">' + escapeHtml(s.status || "?") + "</span></div>";
-    }).join("");
-    return '<div class="metrics">' +
-      (stationHtml || '<div class="metric"><span class="k">站点</span><span class="v metric-small">未初始化</span></div>') +
-      recentJobMetric(w.recent_job) +
-      "</div>";
-  }
 
   // ===== page: workspace overview =========================================
   let overviewCreationMode = "continuation";
   async function initWorkspaceOverview() {
-    const dramaProgress = document.getElementById("drama-overview-progress");
-    if (dramaProgress) {
-      initDeleteWorkspace();
-      await loadDramaOverview();
-      return;
-    }
     const summary = document.getElementById("overview-summary");
     if (!summary) {
       initDeleteWorkspace();
@@ -4031,98 +2882,6 @@ JS_DASHBOARD = """\
     }).join("") + '</div>';
   }
 
-  async function loadDramaOverview() {
-    const box = document.getElementById("drama-overview-progress");
-    const headline = document.getElementById("drama-next-headline");
-    const summary = document.getElementById("drama-overview-summary");
-    const reason = document.getElementById("drama-next-reason");
-    const actions = document.getElementById("drama-next-actions");
-    const recentBox = document.getElementById("drama-overview-recent-task");
-    if (!box) return;
-    const episodeNo = dramaEpisodeFromUrl();
-    syncDramaEpisodeLinks(episodeNo);
-    box.innerHTML = skeleton(4);
-    if (summary) summary.innerHTML = skeleton(4);
-    try {
-      const data = await fetchJson(wsUrl("/drama/progress?episode_no=" + encodeURIComponent(String(episodeNo))));
-      // Media coverage / stale reasons and the recent-task card come from
-      // existing bounded projections. They are optional enrichments: a
-      // transient failure must not hide the authoritative five-station
-      // progress or strand its recovery action.
-      const optional = await Promise.all([
-        fetchJson(wsUrl("/drama/production?episode_no=" + encodeURIComponent(String(episodeNo)))).catch(function () { return null; }),
-        fetchJson(wsUrl("/jobs/recent?n=1")).catch(function () { return null; }),
-      ]);
-      const production = optional[0] || {};
-      const productionAvailable = optional[0] !== null;
-      const recentAvailable = optional[1] !== null;
-      const recent = ((optional[1] || {}).jobs || [])[0] || null;
-      const stations = Array.isArray(data.stations) ? data.stations : [];
-      const doneCount = stations.filter(function (s) { return s.status === "done" || s.status === "skipped"; }).length;
-      const shots = Array.isArray(production.shots) ? production.shots : [];
-      const covered = shots.filter(function (shot) {
-        return shot.image_state === "covered" && shot.video_state === "ready";
-      }).length;
-      const stationStatus = { done: "已完成", skipped: "无需处理", todo: "待完成", locked: "等待上游" };
-      box.innerHTML = stations.length ? stations.map(function (s, index) {
-        const state = s.status === "done" || s.status === "skipped" ? "ready" :
-          s.status === "locked" ? "blocked" : "incomplete";
-        const detail = s.status === "locked" ? "请先完成上一阶段" :
-          s.status === "todo" ? "可从创作台继续" : "已保存到当前作品";
-        return '<article class="drama-stage-row" data-state="' + state + '">' +
-          '<span class="drama-stage-index" aria-hidden="true">' + (index + 1) + '</span>' +
-          '<div><h3>' + escapeHtml(s.label || "未命名阶段") + '</h3><p class="muted">' + detail + '</p></div>' +
-          '<span class="drama-state-label">' + escapeHtml(stationStatus[s.status] || "状态待确认") + '</span></article>';
-      }).join("")
-      : emptyState("还没有创作进度", "从创作台完成核心设定后，这里会显示各阶段。", '<a class="btn btn-primary" href="' + wsHref('/write?episode=' + encodeURIComponent(String(episodeNo)) + '&step=setup') + '">开始创作</a>');
-      if (summary) {
-        summary.innerHTML =
-          '<article class="drama-summary-card"><span class="k">当前集</span><strong>第 ' + Number(data.episode_no || 1) + ' 集</strong><span class="muted">当前查看</span></article>' +
-          '<article class="drama-summary-card"><span class="k">创作阶段</span><strong>' + doneCount + ' / 5</strong><span class="muted">已完成</span></article>' +
-          '<article class="drama-summary-card"><span class="k">媒体覆盖</span><strong>' + (productionAvailable ? covered + ' / ' + shots.length : '—') + '</strong><span class="muted">' + (productionAvailable ? '图片与视频就绪' : '暂时无法读取') + '</span></article>' +
-          '<article class="drama-summary-card"><span class="k">生产状态</span><strong>' + (productionAvailable ? escapeHtml(productionStateLabel(production.state)) : '暂时无法读取') + '</strong><span class="muted">' + (productionAvailable ? '来自生产投影' : '可从生产工作台重试') + '</span></article>';
-      }
-      if (recentBox) {
-        recentBox.innerHTML = '<p class="eyebrow ornament">最近任务</p>' + (!recentAvailable
-          ? '<h3>暂时无法读取</h3><p class="muted">已有任务不受影响，可前往任务页核对。</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">前往任务页</a>'
-          : recent
-          ? '<h3>' + escapeHtml(stepLabel(recent.step || recent.current_step)) + '</h3><p>' + statusBadge(recent.status) + '</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">查看任务</a>'
-          : '<h3>暂无任务</h3><p class="muted">创作或生产后，最近状态会显示在这里。</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">打开任务页</a>');
-      }
-      const todo = stations.find(function (s) { return s.status === "todo"; });
-      // Creative progress is the entry authority for a new/incomplete work:
-      // an expected empty production projection must not divert a first-time
-      // user away from the next unlocked station.
-      const blocked = !todo && production.state === "blocked";
-      const stale = !todo && production.state === "stale";
-      if (headline) {
-        headline.textContent = blocked ? "生产已阻塞，需先核对状态" : stale ? "上游已变化，需刷新生产结果" : todo
-          ? "继续「" + String(todo.label || "当前阶段") + "」"
-          : "创作已完成，继续准备生产";
-      }
-      if (reason) reason.textContent = blocked
-        ? productionReasonText((production.reasons || [])[0], true)
-        : stale ? productionReasonText((production.reasons || [])[0], false)
-        : todo ? "完成这一阶段后，后续阶段会按顺序解锁。" : "检查资产、镜头媒体与交付准备情况。";
-      if (actions) {
-        const href = blocked || stale || !todo
-          ? wsHref("/production?episode_no=" + encodeURIComponent(String(episodeNo)))
-          : wsHref("/write?episode=" + encodeURIComponent(String(episodeNo)) + "&step=" + encodeURIComponent(todo.id || "setup"));
-        actions.innerHTML = '<a class="btn btn-primary" href="' + href + '">' + (blocked ? "前往核对" : stale ? "打开生产工作台" : todo ? "继续创作" : "进入生产工作台") + '</a>' +
-          '<button type="button" class="btn btn-ghost" data-drama-overview-retry>刷新状态</button>';
-        const retry = actions.querySelector("[data-drama-overview-retry]");
-        if (retry) retry.addEventListener("click", loadDramaOverview);
-      }
-    } catch (err) {
-      box.innerHTML = publicLoadError("概览没有读取成功", "已保存内容不受影响。可重试或从创作台继续。", '<button type="button" class="btn btn-secondary" data-drama-overview-retry>重试</button>');
-      if (summary) summary.innerHTML = '<article class="drama-summary-card"><span class="k">当前状态</span><strong>暂时无法确认</strong><span class="muted">请重新读取</span></article>';
-      if (headline) headline.textContent = "暂时无法确认下一步";
-      if (reason) reason.textContent = "不会自动发起生成或重试提交。";
-      const retry = box.querySelector("[data-drama-overview-retry]");
-      if (retry) retry.addEventListener("click", loadDramaOverview);
-      if (recentBox) recentBox.innerHTML = '<p class="eyebrow ornament">最近任务</p><p class="muted">状态暂时无法确认。</p><a class="btn btn-ghost btn-sm" href="' + wsHref('/jobs') + '">前往任务页核对</a>';
-    }
-  }
 
   function initDeleteWorkspace() {
     const btn = document.getElementById("delete-workspace-btn");
@@ -4182,7 +2941,6 @@ JS_DASHBOARD = """\
     const app = document.querySelector(".app");
     if (app && app.classList.contains("ui-public")) backdrop.classList.add("ui-public");
     if (app && app.classList.contains("ui-novel")) backdrop.classList.add("ui-novel");
-    if (app && app.classList.contains("ui-drama")) backdrop.classList.add("ui-drama");
     document.body.appendChild(backdrop);
     document.addEventListener("keydown", onKeyDown);
     _activeModalTeardown = close;
@@ -4291,15 +3049,6 @@ JS_DASHBOARD = """\
     "prepare-greenfield": "准备开新书", "prepare-import": "整理导入原文",
     "rebuild-for-start": "重建续写底座", "expand-premise": "扩写设定",
     "extract-style": "提取文风",
-    "drama-plan": "短剧站①核心设定", "drama-hooks": "短剧站②钩子",
-    "drama-storyboard": "短剧站③分镜", "drama-characters": "短剧站④角色",
-    "drama-review-assemble": "短剧站⑤评审组装",
-    "drama-local-demo": "短剧本地 A-F 演练",
-    "drama_plan": "短剧站①核心设定", "drama_hooks": "短剧站②钩子",
-    "drama_storyboard": "短剧站③分镜", "drama_character": "短剧站④角色",
-    "drama_review": "短剧站⑤评审组装",
-    "drama-video": "短剧视频生成",
-    "drama-compose": "短剧本地合成交付",
   };
   function stepLabel(step) {
     return STEP_LABELS[step] || "未识别步骤";
@@ -6473,7 +5222,7 @@ JS_DASHBOARD = """\
     const retryStatuses = ["succeeded", "failed", "blocked", "aborted", "budget_exceeded"];
     const failureReason = summary && summary.failure_reason;
     if (actionKind !== "retry_exhausted" && job.retryable === true && retryStatuses.indexOf(job.status) >= 0 && failureReason !== "submission_unknown") {
-      const paidRetry = isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama");
+      const paidRetry = isPaidNovelJobStep(job.step);
       actions.push('<button type="button" class="btn ' + (paidRetry ? "btn-paid" : "btn-secondary") +
         ' btn-sm"' + (paidRetry ? ' data-ui-action="paid"' : "") + ' data-job-retry="' +
         escapeHtml(job.job_id || "") + '">重新开始</button>');
@@ -6561,7 +5310,7 @@ JS_DASHBOARD = """\
   }
   async function retryJob(job, btn) {
     if (!job) return;
-    if (isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama") && !await confirmPaidRetry(job)) return;
+    if (isPaidNovelJobStep(job.step) && !await confirmPaidRetry(job)) return;
     setControlBusy(btn, true, "处理中");
     try {
       const data = await postJson(wsUrl("/run"), { step: job.step, params: job.params || {} });
@@ -7671,1729 +6420,6 @@ JS_DASHBOARD = """\
     }).join("") + '</div>';
   }
 
-  // ===== page: drama write ==================================================
-  function dramaEpisodeNo() {
-    const value = Number(CHAPTER_NO == null ? 1 : CHAPTER_NO);
-    return Number.isSafeInteger(value) && value >= 1 && value <= 100 ? value : 1;
-  }
-
-  function dramaApiUrl(path) {
-    return dramaApiUrlFor(path, dramaEpisodeNo());
-  }
-
-  function dramaApiUrlFor(path, episodeNo) {
-    const separator = String(path).includes("?") ? "&" : "?";
-    return wsUrl(path + separator + "episode_no=" + encodeURIComponent(String(episodeNo)));
-  }
-
-  function dramaPayload(payload) {
-    return Object.assign({}, payload || {}, { episode_no: dramaEpisodeNo() });
-  }
-
-  function requestRealTextAuthorization(step) {
-    const labels = {
-      "drama-plan": "核心设定", "drama-hooks": "钩子候选",
-      "drama-storyboard": "分镜表", "drama-characters": "角色表",
-      "drama-review-assemble": "评审与组装",
-    };
-    return new Promise(function (resolve) {
-      let settled = false;
-      const backdrop = document.createElement("div");
-      backdrop.className = "modal-backdrop";
-      backdrop.innerHTML =
-        '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="real-text-title">' +
-        '<div class="modal-header" id="real-text-title">本次真模型授权 · ' +
-        escapeHtml(labels[step] || step) + '</div><div class="modal-body stack">' +
-        '<div class="alert warn">仅授权这一次请求。提交后可能产生费用；页面刷新不会自动重提。</div>' +
-        '<div class="form-grid-2"><div class="field"><label for="real-text-budget">预算上限（CNY）</label>' +
-        '<input id="real-text-budget" type="number" min="0.01" step="0.01" value="10" required></div>' +
-        '<div class="field"><label for="real-text-timeout">超时（分钟）</label>' +
-        '<input id="real-text-timeout" type="number" min="1" max="1440" step="1" value="10" required></div></div>' +
-        '<label class="check-row"><input id="real-text-retry" type="checkbox"> ' +
-        '这是失败后的重试；我已核对上游任务状态与账单</label>' +
-        '<div class="alert error" id="real-text-error" hidden></div>' +
-        '</div><div class="modal-footer">' +
-        '<button type="button" class="btn btn-ghost" data-real-text-cancel>取消</button>' +
-        '<button type="button" class="btn btn-primary" data-real-text-confirm>确认本次授权</button>' +
-        '</div></div>';
-      function finish(value) {
-        if (settled) return;
-        settled = true;
-        close();
-        resolve(value);
-      }
-      const close = mountModal(backdrop, {
-        initialFocus: backdrop.querySelector("#real-text-budget"),
-        onClose: function () {
-          if (!settled) { settled = true; resolve(null); }
-        },
-      });
-      backdrop.querySelector("[data-real-text-cancel]").addEventListener("click", function () {
-        finish(null);
-      });
-      backdrop.querySelector("[data-real-text-confirm]").addEventListener("click", function () {
-        const budget = Number(backdrop.querySelector("#real-text-budget").value);
-        const timeout = Number(backdrop.querySelector("#real-text-timeout").value);
-        const error = backdrop.querySelector("#real-text-error");
-        if (!Number.isFinite(budget) || budget <= 0 || !Number.isFinite(timeout) || timeout <= 0 || timeout > 1440) {
-          error.hidden = false;
-          error.textContent = "预算必须大于 0；超时必须是 1 到 1440 分钟。";
-          return;
-        }
-        finish({
-          budget_cny: budget,
-          timeout_minutes: timeout,
-          retry_checked: backdrop.querySelector("#real-text-retry").checked,
-        });
-      });
-    });
-  }
-
-  async function dramaGenerationPayload(step, payload, episodeNo) {
-    const targetEpisode = Number(episodeNo || dramaEpisodeNo());
-    const progress = await fetchJson(dramaApiUrlFor("/drama/progress", targetEpisode));
-    const realSteps = progress.real_text_steps || {};
-    const out = Object.assign({}, payload || {}, { episode_no: targetEpisode });
-    if (realSteps[step] !== true) return out;
-
-    const authorization = await requestRealTextAuthorization(step);
-    if (!authorization) throw new Error("已取消本次真模型生成");
-    out.confirm_real_text = true;
-    out.budget_cny = authorization.budget_cny;
-    out.timeout_minutes = authorization.timeout_minutes;
-    if (authorization.retry_checked) {
-      out.confirm_text_retry = true;
-      out.confirm_upstream_status_and_billing_checked = true;
-    }
-    return out;
-  }
-
-  async function initDramaWrite() {
-    bindDramaEditSafety();
-    bindHashTabs();
-    bindHookPickDelegate();
-    bindDramaWriteToolbar();
-    if (await resumeDramaActiveJob()) return;
-    await loadStationSetup();
-    await loadStationHooks();
-    await loadStationStoryboard();
-    await loadStationCharacters();
-    await loadStationReview();
-    await loadDramaProgress();
-  }
-
-  function bindDramaWriteToolbar() {
-    const episode = document.getElementById("drama-write-episode");
-    const refresh = document.getElementById("drama-write-refresh");
-    if (episode) episode.addEventListener("change", function () {
-      const value = Number(episode.value);
-      if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
-        showToast("集数必须是 1 到 100 的整数", "error");
-        episode.value = String(dramaEpisodeNo());
-        return;
-      }
-      const target = new URL(location.href);
-      target.searchParams.set("episode", String(value));
-      guardedNavigate(target.pathname + target.search + target.hash);
-    });
-    if (refresh) refresh.addEventListener("click", async function () {
-      refresh.disabled = true;
-      try {
-        await loadStationSetup();
-        await loadStationHooks();
-        await loadStationStoryboard();
-        await loadStationCharacters();
-        await loadStationReview();
-        await loadDramaProgress();
-        showToast("已重新读取保存状态", "info");
-      } finally {
-        refresh.disabled = false;
-      }
-    });
-    const primary = document.getElementById("drama-mobile-primary-action");
-    if (primary) primary.addEventListener("click", function () {
-      const active = document.querySelector(".drama-station-nav .tab.active");
-      const pane = active ? document.getElementById("tab-" + active.dataset.tab) : null;
-      const action = pane && pane.querySelector('.form-actions .btn-primary, .empty-state .btn-primary, [data-review-assemble]');
-      if (action && !action.disabled) action.click();
-      else if (action) { action.focus(); action.scrollIntoView({ block: "center" }); }
-      else if (pane) pane.scrollIntoView({ block: "start" });
-    });
-    const active = document.querySelector(".drama-station-nav .tab.active");
-    updateDramaMobilePrimary(active && active.dataset.tab);
-  }
-
-  function updateDramaMobilePrimary(step) {
-    const labels = {
-      setup: "第 1 站 · 故事设定", hook: "第 2 站 · 钩子设计",
-      storyboard: "第 3 站 · 分镜脚本", characters: "第 4 站 · 角色设计",
-      review: "第 5 站 · 评审与组装",
-    };
-    const label = document.getElementById("drama-mobile-step-label");
-    if (label) label.textContent = labels[step] || labels.setup;
-  }
-
-  let dramaEditSafetyBound = false;
-  function bindDramaEditSafety() {
-    if (dramaEditSafetyBound) return;
-    dramaEditSafetyBound = true;
-    document.addEventListener("input", function (ev) {
-      const form = ev.target && ev.target.closest ? ev.target.closest(
-        "#station-setup-form, #station-storyboard-form, [data-character-sheet-form]"
-      ) : null;
-      if (form) markDramaDirty(form);
-    });
-    window.addEventListener("beforeunload", function (ev) {
-      if (!document.querySelector('[data-drama-dirty="1"]')) return;
-      ev.preventDefault();
-      ev.returnValue = "";
-    });
-  }
-
-  function markDramaDirty(node) {
-    if (!node) return;
-    const form = node.matches && node.matches("form") ? node :
-      (node.closest ? node.closest("form") : null);
-    const pane = node.closest ? node.closest('[data-station-pane="storyboard"]') : null;
-    if (form) form.dataset.dramaDirty = "1";
-    if (pane) pane.dataset.dramaDirty = "1";
-    const status = document.getElementById("drama-write-status");
-    if (status) {
-      status.dataset.uiState = "dirty";
-      status.innerHTML = "<strong>有未保存修改</strong><span>保存后再离开或重新生成，避免覆盖当前编辑。</span>";
-    }
-  }
-
-  function clearDramaDirty(form) {
-    if (form) delete form.dataset.dramaDirty;
-    const pane = form && form.closest ? form.closest('[data-station-pane="storyboard"]') : null;
-    if (pane) delete pane.dataset.dramaDirty;
-    if (!document.querySelector('[data-drama-dirty="1"]')) {
-      const status = document.getElementById("drama-write-status");
-      if (status && status.dataset.uiState === "dirty") {
-        status.dataset.uiState = "ready";
-        status.innerHTML = "<strong>修改已保存</strong><span>可继续进入下一站。</span>";
-      }
-    }
-  }
-
-  function confirmDramaRegenerate(form, label) {
-    const pane = form && form.closest ? form.closest('[data-station-pane="storyboard"]') : null;
-    const dirty = Boolean(
-      (form && form.dataset.dramaDirty === "1") ||
-      (pane && pane.dataset.dramaDirty === "1")
-    );
-    const message = dirty
-      ? "当前有未保存修改。重新生成会丢弃这些修改并替换" + label + "，是否继续？"
-      : "重新生成会替换当前" + label + "，是否继续？";
-    return window.confirm(message);
-  }
-
-  async function resumeDramaActiveJob() {
-    try {
-      const active = await fetchJson(wsUrl("/jobs/active"));
-      const rows = active.jobs || [];
-      const job = rows.find(function (row) { return String(row.step || "").indexOf("drama-") === 0; });
-      if (!job || !job.job_id) return false;
-      const detail = await fetchJson(wsUrl("/job/" + job.job_id));
-      const params = detail.params || {};
-      if (Number(params.episode_no || 1) !== dramaEpisodeNo()) return false;
-      const stationByStep = {
-        "drama-plan": "setup", "drama-hooks": "hook", "drama-storyboard": "storyboard",
-        "drama-characters": "characters", "drama-review-assemble": "review",
-      };
-      const station = stationByStep[detail.step];
-      const pane = station ? document.querySelector('[data-station-pane="' + station + '"]') : null;
-      if (!pane) return false;
-      const stationTab = document.querySelector('.drama-station-nav .tab[data-tab="' + station + '"]');
-      if (stationTab) stationTab.click();
-      const writeStatus = document.getElementById("drama-write-status");
-      if (writeStatus) {
-        writeStatus.dataset.uiState = "running";
-        writeStatus.innerHTML = "<strong>正在恢复任务</strong><span>" + escapeHtml(stepLabel(detail.step)) + "仍在运行，可取消或等待完成。</span>";
-      }
-      await pollJob(job.job_id, pane, null, async function (done) {
-        if (done.status === "succeeded" && detail.step === "drama-review-assemble") {
-          guardedNavigate("/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(dramaEpisodeNo())));
-          return;
-        }
-        await loadStationSetup();
-        await loadStationHooks();
-        await loadStationStoryboard();
-        await loadStationCharacters();
-        await loadStationReview();
-        await loadDramaProgress();
-      });
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
-
-  async function loadDramaProgress() {
-    const box = document.getElementById("drama-write-progress");
-    if (!box) return;
-    try {
-      const data = await fetchJson(dramaApiUrl("/drama/progress"));
-      const stations = Array.isArray(data.stations) ? data.stations : [];
-      box.innerHTML = stations.map(function (s, index) {
-        const cls = (s.status === "done" || s.status === "skipped") ? "ready" :
-          s.status === "locked" ? "blocked" : "warn";
-        const statusLabel = { done: "已完成", skipped: "沿用季角色", locked: "待前置步骤", todo: "待处理", stale: "内容已变化，需重做" }[s.status] || "状态待确认";
-        return '<button type="button" class="drama-station-summary-item" data-progress-step="' + escapeHtml(s.id || "") +
-          '" data-state="' + cls + '"><span>' + String(index + 1).padStart(2, "0") + '</span><strong>' +
-          escapeHtml(s.label) + '</strong><small>' + escapeHtml(statusLabel) + "</small></button>";
-      }).join("");
-      box.querySelectorAll("[data-progress-step]").forEach(function (button) {
-        button.addEventListener("click", function () {
-          const tab = document.querySelector('.drama-station-nav .tab[data-tab="' + button.dataset.progressStep + '"]');
-          if (tab) tab.click();
-        });
-      });
-      const status = document.getElementById("drama-write-status");
-      if (status && !document.querySelector('[data-drama-dirty="1"]')) {
-        const blocked = stations.find(function (row) { return row.status === "locked"; });
-        const todo = stations.find(function (row) { return row.status === "todo" || row.status === "stale"; });
-        const complete = stations.length === 5 && stations.every(function (row) { return row.status === "done" || row.status === "skipped"; });
-        status.dataset.uiState = complete ? "ready" : blocked && !todo ? "blocked" : "editing";
-        status.innerHTML = complete
-          ? "<strong>本集五站已完成</strong><span>可从剧集页检查组装结果。</span>"
-          : todo
-            ? (todo.status === "stale"
-              ? "<strong>已有内容需要更新</strong><span>" + escapeHtml(todo.label || "当前步骤") + "的上游输入发生变化，请重新处理。</span>"
-              : "<strong>正在编辑：" + escapeHtml(todo.label || "下一站") + "</strong><span>所有状态来自已保存的五站事实。</span>")
-            : "<strong>后续步骤尚未解锁</strong><span>完成当前可用步骤后即可继续。</span>";
-      }
-    } catch (err) {
-      box.innerHTML = renderErrorCard(err);
-      const status = document.getElementById("drama-write-status");
-      if (status) {
-        status.dataset.uiState = "error";
-        status.innerHTML = "<strong>五站状态读取失败</strong><span>已保存内容不受影响，请刷新状态。</span>";
-      }
-    }
-  }
-
-  async function loadStationSetup() {
-    const pane = document.querySelector('[data-station-pane="setup"]');
-    if (!pane) return;
-    pane.innerHTML = skeleton(3);
-    try {
-      const data = await fetchJson(dramaApiUrl("/drama/progress"));
-      const station = (data.stations || []).find((s) => s.id === "setup");
-      pane.innerHTML = renderStationSetup(station, data.wizard_input);
-      bindStationSetupActions();
-    } catch (err) {
-      pane.innerHTML = renderErrorCard(err);
-    }
-  }
-
-  function renderStationSetup(station, wizardInput) {
-    const status = station ? station.status : "todo";
-    const data = station ? station.data : null;
-    const core = (data && data.core_setup) || data || {};
-    let html = '<div class="card"><div class="card-header"><h3 class="ornament">站 ① 核心设定</h3>' +
-      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + (status === "done" ? "已完成" : "待处理") + '</span></div>' +
-      '<div class="card-body stack">';
-    if (wizardInput) {
-      html += '<div class="kv-list compact">' +
-        '<div class="k">题材</div><div class="v">' + escapeHtml(wizardInput.topic || "") + "</div>" +
-        '<div class="k">赛道</div><div class="v"><code>' + escapeHtml(wizardInput.track || "") + "</code></div>" +
-        '<div class="k">集数</div><div class="v">' + escapeHtml(String(wizardInput.episode_count || 0)) + "</div>" +
-        '<div class="k">单集时长</div><div class="v">' + escapeHtml(String(wizardInput.episode_duration_seconds || 0)) + " 秒</div>" +
-        '</div>';
-    }
-    if (data) {
-      const continuationFields = dramaEpisodeNo() > 1
-        ? '<div class="field"><label>本集主线推进</label><textarea name="episode_mainline" rows="2">' + escapeHtml(data.episode_mainline || "") + '</textarea></div>' +
-          '<label class="check-row"><input type="checkbox" name="introduces_new_characters" ' + (data.introduces_new_characters ? "checked" : "") + '> 本集引入新角色（未勾选则沿用季角色并跳过站④生成）</label>'
-        : "";
-      html += '<form id="station-setup-form" class="stack">' +
-        '<div class="field"><label>一句话故事</label>' +
-        '<textarea name="logline" rows="2">' + escapeHtml(data.logline || "") + "</textarea></div>" +
-        '<div class="field"><label>主角设定</label>' +
-        '<textarea name="protagonist" rows="2">' + escapeHtml(core.protagonist || "") + "</textarea></div>" +
-        '<div class="field"><label>反派 / 对手设定</label>' +
-        '<textarea name="antagonist" rows="2">' + escapeHtml(core.antagonist || "") + "</textarea></div>" +
-        '<div class="field"><label>情绪钩子</label>' +
-        '<textarea name="emotional_hook" rows="2">' + escapeHtml(core.emotional_hook || "") + "</textarea></div>" +
-        continuationFields +
-        '<div class="form-actions">' +
-        (dramaEpisodeNo() === 1 ? '<button type="button" class="btn btn-secondary" id="regenerate-setup">重新生成</button>' : '') +
-        '<button type="submit" class="btn btn-primary">保存并进入站 ② →</button>' +
-        '</div></form>';
-    } else {
-      html += '<div class="empty-state">' +
-        '<span class="ornament">✦</span>' +
-        '<h3>等待生成核心设定</h3>' +
-        '<p class="muted">点击生成，产出主角 / 反派 / 情绪钩子。</p>' +
-        '<button type="button" class="btn btn-primary" id="generate-setup">▸ 生成核心设定</button>' +
-        "</div>";
-    }
-    html += "</div></div>";
-    return html;
-  }
-
-  function bindStationSetupActions() {
-    const genBtn = document.getElementById("generate-setup");
-    if (genBtn) {
-      genBtn.addEventListener("click", async function () {
-        genBtn.disabled = true;
-        try {
-          const data = await postJson(
-            wsUrl("/drama/plan"), await dramaGenerationPayload("drama-plan", {})
-          );
-          const pane = document.querySelector('[data-station-pane="setup"]');
-          await pollJob(data.job_id, pane, genBtn, async function (job) {
-            if (job.status !== "succeeded") return;
-            await loadStationSetup();
-            await loadStationHooks();
-            await loadStationStoryboard();
-            await loadStationCharacters();
-            await loadDramaProgress();
-          });
-        } catch (err) {
-          showToast("生成失败：" + errTitle(err), "error");
-          genBtn.disabled = false;
-        }
-      });
-    }
-    const regenBtn = document.getElementById("regenerate-setup");
-    if (regenBtn) {
-      regenBtn.addEventListener("click", async function () {
-        const form = document.getElementById("station-setup-form");
-        if (!confirmDramaRegenerate(form, "核心设定")) return;
-        regenBtn.disabled = true;
-        try {
-          const data = await postJson(
-            wsUrl("/drama/plan"), await dramaGenerationPayload(
-              "drama-plan", { confirm_new_text_revision: true }
-            )
-          );
-          const pane = document.querySelector('[data-station-pane="setup"]');
-          await pollJob(data.job_id, pane, regenBtn, async function (job) {
-            if (job.status !== "succeeded") return;
-            await loadStationSetup();
-            await loadStationHooks();
-            await loadStationStoryboard();
-            await loadStationCharacters();
-            await loadDramaProgress();
-          });
-        } catch (err) {
-          showToast("重新生成失败：" + errTitle(err), "error");
-          regenBtn.disabled = false;
-        }
-      });
-    }
-    const form = document.getElementById("station-setup-form");
-    if (form) {
-      form.addEventListener("submit", async function (ev) {
-        ev.preventDefault();
-        const payload = {
-          logline: form.elements.logline.value,
-          protagonist: form.elements.protagonist.value,
-          antagonist: form.elements.antagonist.value,
-          emotional_hook: form.elements.emotional_hook.value,
-        };
-        if (dramaEpisodeNo() > 1) {
-          payload.episode_mainline = form.elements.episode_mainline.value;
-          payload.introduces_new_characters = !!form.elements.introduces_new_characters.checked;
-        }
-        try {
-          await putJson(wsUrl("/drama/setup"), dramaPayload(payload));
-          clearDramaDirty(form);
-          showToast("已保存，进入站 ②", "info");
-          const tab = document.querySelector('.tab[data-tab="hook"]');
-          if (tab) tab.click();
-          await loadStationHooks();
-          await loadStationStoryboard();
-          await loadStationCharacters();
-          await loadDramaProgress();
-        } catch (err) {
-          showToast("保存失败：" + errTitle(err), "error");
-        }
-      });
-    }
-  }
-
-  async function loadStationHooks() {
-    const pane = document.querySelector('[data-station-pane="hook"]');
-    if (!pane) return;
-    pane.innerHTML = skeleton(3);
-    try {
-      const data = await fetchJson(dramaApiUrl("/drama/progress"));
-      const station = (data.stations || []).find((s) => s.id === "hook");
-      if (station && station.status === "locked") {
-        pane.innerHTML = '<div class="alert info">请先完成站 ①</div>';
-        return;
-      }
-      if (!station || !station.data) {
-        const candidates = await fetchJson(dramaApiUrl("/drama/hook-candidates"));
-        if (candidates.exists && (candidates.hooks || []).length) {
-          renderHookCandidates(pane, candidates.hooks || []);
-          return;
-        }
-      }
-      pane.innerHTML = renderStationHooks(station);
-      bindStationHooksActions();
-    } catch (err) {
-      pane.innerHTML = renderErrorCard(err);
-    }
-  }
-
-  function renderStationHooks(station) {
-    const status = station ? station.status : "todo";
-    const data = station ? station.data : null;
-    let html = '<div class="card"><div class="card-header"><h3 class="ornament">站 ② 钩子</h3>' +
-      '<span class="badge ' + (status === "done" ? "ready" : "warn") + '">' + (status === "done" ? "已完成" : "待处理") + '</span></div>' +
-      '<div class="card-body stack">';
-    if (!data) {
-      html += '<div class="empty-state">' +
-        '<span class="ornament">✦</span>' +
-        '<h3>等待生成钩子候选</h3>' +
-        '<p class="muted">AI 会出 3 个候选：情绪钩 / 悬念钩 / 反差钩，你选 1 个继续。</p>' +
-        '<button type="button" class="btn btn-primary" id="generate-hooks">▸ 生成 3 个钩子</button>' +
-        "</div>";
-    } else {
-      html += '<div class="kv-list compact">' +
-        '<div class="k">钩子类型</div><div class="v"><code>' + escapeHtml(data.type || "") + "</code></div>" +
-        '<div class="k">钩子内容</div><div class="v">' + escapeHtml(data.content || "") + "</div>" +
-        '</div>' +
-        '<div class="alert info">站 ② 已锁定，可以进入站 ③ 分镜。</div>';
-    }
-    html += "</div></div>";
-    return html;
-  }
-
-  function bindStationHooksActions() {
-    const btn = document.getElementById("generate-hooks");
-    if (!btn) return;
-    btn.addEventListener("click", async function () {
-      btn.disabled = true;
-      try {
-        const pane = document.querySelector('[data-station-pane="hook"]');
-        if (!pane) return;
-        const data = await postJson(
-          wsUrl("/drama/hooks"), await dramaGenerationPayload("drama-hooks", { confirm_new_text_revision: true })
-        );
-        await pollJob(data.job_id, pane, btn, async function (job) {
-          if (job.status !== "succeeded") return;
-          const candidates = await fetchJson(dramaApiUrl("/drama/hook-candidates"));
-          renderHookCandidates(pane, candidates.hooks || []);
-        });
-      } catch (err) {
-        showToast("生成失败：" + errTitle(err), "error");
-        btn.disabled = false;
-      }
-    });
-  }
-
-  function renderHookCandidates(pane, hooks) {
-    pane.innerHTML = '<div class="card"><div class="card-header"><h3 class="ornament">3 个候选 — 选 1 个</h3></div>' +
-      '<div class="card-body stack">' +
-      hooks.map(function (h, i) {
-        return '<div class="advisor-item">' +
-          '<span class="type">' + escapeHtml(h.type || "") + "</span>" +
-          '<div class="guidance">' + escapeHtml(h.content || "") + "</div>" +
-          '<button class="btn btn-secondary btn-sm" data-hook-pick="' + i + '">选这个 →</button>' +
-          '</div>';
-      }).join("") +
-      '</div></div>';
-    pane.__hooks = hooks;
-  }
-
-  let hookPickDelegateBound = false;
-  function bindHookPickDelegate() {
-    if (hookPickDelegateBound) return;
-    hookPickDelegateBound = true;
-    document.addEventListener("click", async function (ev) {
-      const pick = ev.target.closest("[data-hook-pick]");
-      if (!pick) return;
-      const pane = pick.closest('[data-station-pane="hook"]');
-      if (!pane || !pane.__hooks) return;
-      pane.querySelectorAll("[data-hook-pick]").forEach((b) => { b.disabled = true; });
-      const idx = Number(pick.getAttribute("data-hook-pick"));
-      try {
-        await putJson(wsUrl("/drama/setup"), dramaPayload({ hook: pane.__hooks[idx] }));
-        showToast("钩子已锁定", "info");
-        const tab = document.querySelector('.tab[data-tab="storyboard"]');
-        if (tab) tab.click();
-        await loadStationHooks();
-        await loadStationStoryboard();
-        await loadStationCharacters();
-        await loadDramaProgress();
-      } catch (err) {
-        showToast("保存失败：" + errTitle(err), "error");
-        pane.querySelectorAll("[data-hook-pick]").forEach((b) => { b.disabled = false; });
-      }
-    });
-  }
-
-  async function loadStationStoryboard() {
-    const pane = document.querySelector('[data-station-pane="storyboard"]');
-    if (!pane) return;
-    pane.innerHTML = skeleton(3);
-    try {
-      const progress = await fetchJson(dramaApiUrl("/drama/progress"));
-      const station = (progress.stations || []).find((s) => s.id === "storyboard");
-      if (station && station.status === "locked") {
-        pane.innerHTML = '<div class="alert info">请先完成站 ② 钩子。</div>';
-        return;
-      }
-      const data = await fetchJson(dramaApiUrl("/drama/storyboard"));
-      if (!data.exists || !data.storyboard) {
-        pane.__storyboard = null;
-        pane.innerHTML = renderStationStoryboardEmpty();
-      } else {
-        pane.__storyboard = data.storyboard;
-        pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
-        updateStoryboardDuration(pane);
-      }
-      bindStationStoryboardActions();
-    } catch (err) {
-      pane.innerHTML = renderErrorCard(err);
-    }
-  }
-
-  function renderStationStoryboardEmpty() {
-    return '<div class="card"><div class="card-header"><h3 class="ornament">站 ③ 分镜</h3>' +
-      '<span class="badge warn">待处理</span></div><div class="card-body">' +
-      '<div class="empty-state"><span class="ornament">✦</span>' +
-      '<h3>等待生成分镜表</h3>' +
-      '<p class="muted">站 ③ 会把钩子拆成 6 到 9 个可编辑镜头。</p>' +
-      '<button type="button" class="btn btn-primary" id="generate-storyboard">▸ 生成分镜表</button>' +
-      '</div></div></div>';
-  }
-
-  function renderStationStoryboard(board, warnings) {
-    const shots = board.shots || [];
-    const warningHtml = warnings && warnings.length
-      ? '<div class="alert warn">软提醒：' + warnings.map(warningText).map(escapeHtml).join("；") + '</div>'
-      : "";
-    const head = '<table class="table storyboard-table"><thead><tr>' +
-      '<th>#</th><th>景别</th><th>运镜</th><th>秒</th><th>画面</th><th>旁白</th><th>台词</th><th>高光</th><th>操作</th>' +
-      '</tr></thead><tbody>';
-    const rows = shots.map(renderStoryboardRow).join("");
-    return '<div class="card"><div class="card-header"><h3 class="ornament">站 ③ 分镜</h3>' +
-      '<span class="badge ready">已完成</span></div><div class="card-body stack">' +
-      '<form id="station-storyboard-form" class="stack">' +
-      '<div class="form-grid-2">' +
-      '<div class="field"><label>标题</label><input name="title" value="' + escapeHtml(board.title || "") + '"></div>' +
-      '<div class="field"><label>目标时长</label><input name="target_duration_seconds" type="number" min="30" max="180" value="' + Number(board.target_duration_seconds || 60) + '"></div>' +
-      '</div>' +
-      '<div class="field"><label>本集剧情</label><textarea name="narrative" rows="3">' + escapeHtml(board.narrative || "") + '</textarea></div>' +
-      warningHtml +
-      '<div class="cluster" style="justify-content:space-between">' +
-      '<strong class="storyboard-duration" data-storyboard-duration></strong>' +
-      '<div class="cluster"><button type="button" class="btn btn-secondary btn-sm" data-storyboard-add>＋ 添加镜头</button>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-storyboard-clear-highlight>清空高光</button></div>' +
-      '</div>' +
-      tableScroll(head + rows + '</tbody></table>') +
-      '<div class="form-actions">' +
-      '<button type="button" class="btn btn-secondary" id="regenerate-storyboard">重新生成</button>' +
-      '<button type="submit" class="btn btn-primary">保存并进入站 ④ →</button>' +
-      '</div></form></div></div>';
-  }
-
-  function renderStoryboardRow(shot, idx, allShots) {
-    const num = idx + 1;
-    return '<tr data-shot-row="' + idx + '">' +
-      '<td><strong>' + num + '</strong><input type="hidden" data-field="beat" value="' + escapeHtml(shot.beat || "") + '"></td>' +
-      '<td><select data-field="shot_size" aria-label="镜头 ' + num + ' 景别">' + storyboardOptions(["特写", "近景", "中景", "全景", "远景"], shot.shot_size) + '</select></td>' +
-      '<td><select data-field="camera_movement" aria-label="镜头 ' + num + ' 运镜">' + storyboardOptions(["固定", "推", "拉", "摇", "移", "跟", "升降"], shot.camera_movement) + '</select></td>' +
-      '<td><input type="number" min="1" max="30" data-field="duration_seconds" aria-label="镜头 ' + num + ' 时长（秒）" value="' + Number(shot.duration_seconds || 1) + '"></td>' +
-      '<td><textarea rows="3" data-field="visual" aria-label="镜头 ' + num + ' 画面">' + escapeHtml(shot.visual || "") + '</textarea></td>' +
-      '<td><textarea rows="3" data-field="narration" aria-label="镜头 ' + num + ' 旁白">' + escapeHtml(shot.narration || "") + '</textarea></td>' +
-      '<td><textarea rows="3" data-field="dialogue" aria-label="镜头 ' + num + ' 台词">' + escapeHtml(shot.dialogue || "") + '</textarea></td>' +
-      '<td><input type="radio" name="storyboard-highlight" data-field="is_highlight" aria-label="将镜头 ' + num + ' 设为高光" ' + (shot.is_highlight ? "checked" : "") + '></td>' +
-      '<td><div class="storyboard-actions">' +
-      '<button type="button" class="btn btn-icon" title="上移" aria-label="上移镜头 ' + num + '" data-shot-move="up">↑</button>' +
-      '<button type="button" class="btn btn-icon" title="下移" aria-label="下移镜头 ' + num + '" data-shot-move="down">↓</button>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-shot-rewrite="' + num + '">重生</button>' +
-      '<button type="button" class="btn btn-ghost btn-sm" data-shot-delete="' + idx + '"' + (allShots.length <= 6 ? ' disabled title="至少保留 6 个镜头"' : '') + '>删除</button>' +
-      '</div></td></tr>';
-  }
-
-  function storyboardOptions(values, current) {
-    return values.map(function (v) {
-      return '<option value="' + escapeHtml(v) + '"' + (v === current ? " selected" : "") + '>' + escapeHtml(v) + '</option>';
-    }).join("");
-  }
-
-  function warningText(code) {
-    const text = String(code);
-    if (text === "highlight_missing") return "尚未选择高光镜头";
-    if (text === "highlight_multiple") return "高光镜头超过 1 个";
-    if (text === "first_shot_hook_shape") return "首镜建议 2-3 秒特写或近景";
-    if (text === "last_shot_duration") return "末镜建议 8-10 秒";
-    if (text.indexOf("duration_delta:") === 0) return "总时长偏离目标 " + text.split(":")[1] + " 秒";
-    if (text.indexOf("dialogue_too_long:") === 0) return "有台词单句超过 15 字";
-    return "分镜需要人工检查";
-  }
-
-  function collectStoryboardFromPane(pane) {
-    const base = pane.__storyboard || {};
-    const form = document.getElementById("station-storyboard-form");
-    const rows = Array.from(pane.querySelectorAll("[data-shot-row]"));
-    const shots = rows.map(function (tr, idx) {
-      const source = (base.shots || [])[idx] || {};
-      const get = function (field) {
-        const el = tr.querySelector('[data-field="' + field + '"]');
-        return el ? el.value : "";
-      };
-      const high = tr.querySelector('[data-field="is_highlight"]');
-      return {
-        shot_no: idx + 1,
-        beat: get("beat"),
-        shot_size: get("shot_size"),
-        camera_movement: get("camera_movement"),
-        duration_seconds: Number(get("duration_seconds") || 1),
-        visual: get("visual"),
-        narration: get("narration"),
-        dialogue: get("dialogue"),
-        ai_draw_prompt: source.ai_draw_prompt || "",
-        is_highlight: !!(high && high.checked),
-      };
-    });
-    return Object.assign({}, base, {
-      title: form && form.elements.title ? form.elements.title.value : (base.title || ""),
-      target_duration_seconds: form && form.elements.target_duration_seconds ? Number(form.elements.target_duration_seconds.value || 60) : (base.target_duration_seconds || 60),
-      narrative: form && form.elements.narrative ? form.elements.narrative.value : (base.narrative || ""),
-      shots: shots,
-    });
-  }
-
-  function bindStationStoryboardActions() {
-    const pane = document.querySelector('[data-station-pane="storyboard"]');
-    if (!pane) return;
-    const genBtn = document.getElementById("generate-storyboard");
-    if (genBtn) {
-      genBtn.addEventListener("click", async function () {
-        genBtn.disabled = true;
-        try {
-          const data = await postJson(
-            wsUrl("/drama/storyboard"), await dramaGenerationPayload("drama-storyboard", {})
-          );
-          await pollJob(data.job_id, pane, genBtn, async function (job) {
-            if (job.status !== "succeeded") return;
-            await loadStationStoryboard();
-            await loadStationCharacters();
-            await loadDramaProgress();
-          });
-        } catch (err) {
-          showToast("生成失败：" + errTitle(err), "error");
-          genBtn.disabled = false;
-        }
-      });
-      return;
-    }
-    const form = document.getElementById("station-storyboard-form");
-    if (!form) return;
-    form.addEventListener("input", function () { updateStoryboardDuration(pane); });
-    form.addEventListener("submit", async function (ev) {
-      ev.preventDefault();
-      try {
-        const payload = collectStoryboardFromPane(pane);
-        const data = await putJson(wsUrl("/drama/storyboard"), dramaPayload({ storyboard: payload }));
-        clearDramaDirty(form);
-        pane.__storyboard = data.storyboard;
-        pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
-        bindStationStoryboardActions();
-        updateStoryboardDuration(pane);
-        await loadDramaProgress();
-        await loadStationCharacters();
-        showToast("分镜表已保存，进入站 ④", "info");
-        const charactersTab = document.querySelector('.tab[data-tab="characters"]');
-        if (charactersTab) charactersTab.click();
-      } catch (err) {
-        showToast("保存失败：" + errTitle(err), "error");
-      }
-    });
-    const regenBtn = document.getElementById("regenerate-storyboard");
-    if (regenBtn) {
-      regenBtn.addEventListener("click", async function () {
-        if (!confirmDramaRegenerate(form, "分镜表")) return;
-        regenBtn.disabled = true;
-        try {
-          const data = await postJson(
-            wsUrl("/drama/storyboard"), await dramaGenerationPayload(
-              "drama-storyboard", { confirm_new_text_revision: true }
-            )
-          );
-          await pollJob(data.job_id, pane, regenBtn, async function (job) {
-            if (job.status !== "succeeded") return;
-            await loadStationStoryboard();
-            await loadStationCharacters();
-            await loadDramaProgress();
-          });
-        } catch (err) {
-          showToast("重新生成失败：" + errTitle(err), "error");
-          regenBtn.disabled = false;
-        }
-      });
-    }
-    pane.querySelectorAll("[data-shot-move]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        const row = btn.closest("[data-shot-row]");
-        const idx = Number(row ? row.getAttribute("data-shot-row") : -1);
-        const direction = btn.getAttribute("data-shot-move");
-        const board = collectStoryboardFromPane(pane);
-        const next = direction === "up" ? idx - 1 : idx + 1;
-        if (idx < 0 || next < 0 || next >= board.shots.length) return;
-        const tmp = board.shots[idx];
-        board.shots[idx] = board.shots[next];
-        board.shots[next] = tmp;
-        pane.__storyboard = board;
-        markDramaDirty(pane);
-        pane.innerHTML = renderStationStoryboard(board, []);
-        bindStationStoryboardActions();
-        updateStoryboardDuration(pane);
-      });
-    });
-    const addBtn = pane.querySelector("[data-storyboard-add]");
-    if (addBtn) {
-      addBtn.disabled = (pane.__storyboard && pane.__storyboard.shots || []).length >= 9;
-      addBtn.addEventListener("click", function () {
-        const board = collectStoryboardFromPane(pane);
-        if (board.shots.length >= 9) {
-          showToast("每集最多 9 个镜头", "error");
-          return;
-        }
-        board.shots.push({
-          shot_no: board.shots.length + 1,
-          beat: "补充镜头",
-          shot_size: "中景",
-          camera_movement: "固定",
-          duration_seconds: 3,
-          visual: "",
-          narration: "",
-          dialogue: "",
-          ai_draw_prompt: "",
-          is_highlight: false,
-        });
-        pane.__storyboard = board;
-        markDramaDirty(pane);
-        pane.innerHTML = renderStationStoryboard(board, []);
-        bindStationStoryboardActions();
-        updateStoryboardDuration(pane);
-      });
-    }
-    pane.querySelectorAll("[data-shot-delete]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        const board = collectStoryboardFromPane(pane);
-        if (board.shots.length <= 6) {
-          showToast("每集至少保留 6 个镜头", "error");
-          return;
-        }
-        const idx = Number(btn.getAttribute("data-shot-delete"));
-        if (!Number.isInteger(idx) || idx < 0 || idx >= board.shots.length) return;
-        board.shots.splice(idx, 1);
-        board.shots.forEach(function (shot, shotIdx) { shot.shot_no = shotIdx + 1; });
-        pane.__storyboard = board;
-        markDramaDirty(pane);
-        pane.innerHTML = renderStationStoryboard(board, []);
-        bindStationStoryboardActions();
-        updateStoryboardDuration(pane);
-      });
-    });
-    pane.querySelectorAll("[data-shot-rewrite]").forEach(function (btn) {
-      btn.addEventListener("click", async function () {
-        btn.disabled = true;
-        try {
-          const shotNo = Number(btn.getAttribute("data-shot-rewrite"));
-          const data = await postJson(wsUrl("/drama/storyboard/rewrite-shot"), dramaPayload({
-            shot_no: shotNo,
-            storyboard: collectStoryboardFromPane(pane),
-          }));
-          pane.__storyboard = data.storyboard;
-          pane.innerHTML = renderStationStoryboard(data.storyboard, data.soft_warnings || []);
-          bindStationStoryboardActions();
-          clearDramaDirty(pane.querySelector("#station-storyboard-form"));
-          updateStoryboardDuration(pane);
-          showToast("本镜已重生", "info");
-          await loadStationCharacters();
-        } catch (err) {
-          showToast("重生失败：" + errTitle(err), "error");
-          btn.disabled = false;
-        }
-      });
-    });
-    const clearBtn = pane.querySelector("[data-storyboard-clear-highlight]");
-    if (clearBtn) {
-      clearBtn.addEventListener("click", function () {
-        pane.querySelectorAll('[data-field="is_highlight"]').forEach(function (el) { el.checked = false; });
-        markDramaDirty(pane);
-        updateStoryboardDuration(pane);
-      });
-    }
-  }
-
-  function updateStoryboardDuration(pane) {
-    const el = pane.querySelector("[data-storyboard-duration]");
-    if (!el) return;
-    const board = collectStoryboardFromPane(pane);
-    const total = (board.shots || []).reduce(function (sum, shot) {
-      const n = Number(shot.duration_seconds || 0);
-      return sum + (Number.isFinite(n) ? n : 0);
-    }, 0);
-    const target = Number(board.target_duration_seconds || 60);
-    const delta = total - target;
-    const cls = Math.abs(delta) <= 3 ? "ready" : (Math.abs(delta) <= 10 ? "warn" : "blocked");
-    el.className = "storyboard-duration " + cls;
-    el.textContent = "总时长 " + total + " 秒 / 目标 " + target + " 秒（" + (delta >= 0 ? "+" : "") + delta + "）";
-  }
-
-  async function loadStationCharacters() {
-    const pane = document.querySelector('[data-station-pane="characters"]');
-    if (!pane) return;
-    pane.innerHTML = skeleton(3);
-    try {
-      const progress = await fetchJson(dramaApiUrl("/drama/progress"));
-      const station = (progress.stations || []).find((s) => s.id === "characters");
-      if (station && station.status === "locked") {
-        pane.innerHTML = '<div class="alert info">请先完成站 ③ 分镜。</div>';
-        return;
-      }
-      const data = await fetchJson(dramaApiUrl("/drama/characters"));
-      if (!data.exists || !data.sheet) {
-        pane.__characterSheet = null;
-        pane.__characterSkipped = false;
-        pane.innerHTML = renderCharactersEmpty("站 ④ 角色", "站 ④ 会把主角、反派和关键视觉特征整理成角色表。");
-      } else {
-        pane.__characterSheet = data.sheet;
-        pane.__characterSkipped = !!data.skipped;
-        pane.innerHTML = renderCharacterSheet(data.sheet, "站 ④ 角色", !!data.skipped, dramaEpisodeNo());
-      }
-      bindCharacterSheetActions(pane);
-    } catch (err) {
-      pane.innerHTML = renderErrorCard(err);
-    }
-  }
-
-  async function loadStationReview() {
-    const pane = document.querySelector('[data-station-pane="review"]');
-    if (!pane) return;
-    pane.innerHTML = skeleton(3);
-    try {
-      const progress = await fetchJson(dramaApiUrl("/drama/progress"));
-      const stations = Array.isArray(progress.stations) ? progress.stations : [];
-      const station = stations.find(function (row) { return row.id === "review"; });
-      const upstream = stations.slice(0, 4);
-      if (!station || station.status === "locked") {
-        const waiting = upstream.find(function (row) { return row.status !== "done" && row.status !== "skipped"; });
-        pane.innerHTML = '<div class="drama-review-layout"><div class="card"><div class="card-header"><h3 class="ornament">站 ⑤ 评审与组装</h3><span class="badge blocked">等待前置</span></div>' +
-          '<div class="card-body"><div class="empty-state"><span class="ornament">✦</span><h3>暂时不能开始评审</h3><p class="muted">请先完成' +
-          escapeHtml(waiting ? waiting.label : "前四站") + '；已保存内容不会被修改。</p></div></div></div></div>';
-        return;
-      }
-      const completed = station.status === "done";
-      const stale = station.status === "stale";
-      pane.innerHTML = '<div class="drama-review-layout"><section class="card"><div class="card-header"><h3 class="ornament">站 ⑤ 评审与组装</h3>' +
-        '<span class="badge ' + (completed ? "ready" : "warn") + '">' + (completed ? "已完成" : stale ? "内容已变化" : "可以开始") + '</span></div>' +
-        '<div class="card-body stack"><p>' + (completed ? "本集已通过评审并完成组装。" : stale ? "前四站内容已变化，需要重新评审并生成新的组装结果。" : "系统将按当前已保存的四站内容执行评审；通过后生成本集组装结果。") + '</p>' +
-        (completed
-          ? '<a class="btn btn-primary" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(dramaEpisodeNo())) + '">查看本集结果</a>'
-          : '<button type="button" class="btn btn-primary" data-review-assemble>开始评审并组装</button>') +
-        '</div></section><aside class="card"><div class="card-header"><h3>评审输入</h3></div><div class="card-body"><ol class="drama-readiness-list">' +
-        upstream.map(function (row) { return '<li data-state="' + (row.status === "done" || row.status === "skipped" ? "ready" : "blocked") + '"><span>' + escapeHtml(row.label || "步骤") + '</span><strong>' + (row.status === "skipped" ? "沿用季角色" : row.status === "done" ? "已保存" : "待完成") + '</strong></li>'; }).join("") +
-        '</ol></div></aside></div>';
-      bindReviewAssembleAction(pane);
-    } catch (err) {
-      pane.innerHTML = renderErrorCard(err);
-    }
-  }
-
-  function bindReviewAssembleAction(root) {
-    const reviewBtn = root.querySelector("[data-review-assemble]");
-    if (!reviewBtn) return;
-    reviewBtn.addEventListener("click", async function () {
-      reviewBtn.disabled = true;
-      try {
-        const data = await postJson(
-          wsUrl("/drama/review"),
-          await dramaGenerationPayload("drama-review-assemble", { confirm_new_text_revision: true }, Number(root.__dramaEpisodeNo || dramaEpisodeNo()))
-        );
-        await pollJob(data.job_id, root, reviewBtn, async function (job) {
-          if (job.status !== "succeeded") return;
-          window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/episode/" + encodeURIComponent(String(Number(root.__dramaEpisodeNo || dramaEpisodeNo())));
-        });
-      } catch (err) {
-        showToast("组装失败：" + errTitle(err), "error");
-        reviewBtn.disabled = false;
-      }
-    });
-  }
-
-  async function initDramaCharacters() {
-    bindDramaEditSafety();
-    const root = document.getElementById("characters-page-root");
-    if (!root) return;
-    const episodeInput = document.getElementById("characters-episode-no");
-    if (episodeInput) episodeInput.addEventListener("change", function () {
-      const value = Number(episodeInput.value);
-      if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
-        showToast("集数必须是 1 到 100 的整数", "error");
-        episodeInput.value = String(dramaEpisodeNo());
-        return;
-      }
-      const target = new URL(location.href);
-      target.searchParams.set("episode", String(value));
-      guardedNavigate(target.pathname + target.search);
-    });
-    root.innerHTML = skeleton(4);
-    try {
-      const active = await fetchJson(wsUrl("/jobs/active"));
-      const requestedEpisode = dramaEpisodeNo();
-      const job = (active.jobs || []).find(function (row) {
-        return row.step === "drama-characters";
-      });
-      if (job && job.job_id) {
-        const detail = await fetchJson(wsUrl("/job/" + job.job_id));
-        const episodeNo = Number((detail.params || {}).episode_no || 1);
-        if (episodeNo === requestedEpisode) {
-          root.__dramaEpisodeNo = episodeNo;
-          await pollJob(job.job_id, root, null, async function () {
-            await loadDramaCharactersPage(root, episodeNo);
-          });
-          return;
-        }
-      }
-    } catch (err) {
-      // A stale/lost active-job record must not hide the persisted character sheet.
-    }
-    await loadDramaCharactersPage(root);
-  }
-
-  async function loadDramaCharactersPage(root, episodeNo) {
-    const targetEpisode = Number(episodeNo || root.__dramaEpisodeNo || dramaEpisodeNo());
-    root.__dramaEpisodeNo = targetEpisode;
-    try {
-      const data = await fetchJson(dramaApiUrlFor("/drama/characters", targetEpisode));
-      if (!data.exists || !data.sheet) {
-        root.__characterSheet = null;
-        root.__characterSkipped = false;
-        root.innerHTML = renderCharactersEmpty("角色库", "完成站③后，可以生成本季角色设定表。");
-      } else {
-        root.__characterSheet = data.sheet;
-        root.__characterSkipped = !!data.skipped;
-        root.innerHTML = renderCharacterSheet(data.sheet, "角色库", !!data.skipped, targetEpisode);
-      }
-      bindCharacterSheetActions(root);
-    } catch (err) {
-      if (err && (err.status === 400 || err.status === 409)) {
-        root.__characterSheet = null;
-        root.__characterSkipped = false;
-        root.innerHTML = renderCharactersBlocked(targetEpisode);
-        bindCharacterSheetActions(root);
-      } else {
-        root.innerHTML = renderErrorCard(err);
-      }
-    }
-  }
-
-  function renderCharactersEmpty(title, hint) {
-    return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
-      '<span class="badge warn">待处理</span></div><div class="card-body">' +
-      '<div class="empty-state"><span class="ornament">✦</span>' +
-      '<h3>等待生成角色表</h3>' +
-      '<p class="muted">' + escapeHtml(hint) + '</p>' +
-      '<button type="button" class="btn btn-primary" data-generate-characters>▸ 生成角色表</button>' +
-      '</div></div></div>';
-  }
-
-  function renderCharactersBlocked(targetEpisode) {
-    return '<div class="card"><div class="card-header"><h3 class="ornament">角色库</h3>' +
-      '<span class="badge danger">暂不可用</span></div><div class="card-body">' +
-      '<div class="empty-state"><span class="ornament">✦</span><h3>请先完成分镜脚本</h3>' +
-      '<p class="muted">角色设计需要读取本集分镜。回到创作台完成前序步骤后即可继续，当前内容不会被改动。</p>' +
-      '<a class="btn btn-primary" data-leave-guard href="' + wsHref('/write?episode=' + Number(targetEpisode || dramaEpisodeNo()) + '&step=storyboard#storyboard') + '">返回分镜脚本</a>' +
-      '</div></div></div>';
-  }
-
-  function renderCharacterSheet(sheet, title, skipped, requestedEpisode) {
-    const chars = sheet.characters || [];
-    const episodeNo = Number(requestedEpisode || sheet.episode_no || dramaEpisodeNo());
-    const current = [];
-    const season = [];
-    chars.forEach(function (character, index) {
-      const row = renderCharacterCard(character, index);
-      if ((character.appearances || []).map(Number).includes(episodeNo)) current.push(row);
-      else season.push(row);
-    });
-    const currentHtml = current.length ? current.join("") : '<div class="empty-state compact"><h3>本集暂无出场角色</h3><p class="muted">完成角色生成或沿用季角色后，这里会显示本集人物。</p></div>';
-    const seasonHtml = season.length ? season.join("") : '<div class="empty-state compact"><h3>暂无其他季角色</h3><p class="muted">当前季角色都已在本集出场。</p></div>';
-    return '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(title) + '</h3>' +
-      '<span class="badge ' + (skipped ? "warn" : "ready") + '">' + (skipped ? "沿用季角色" : "已完成") + '</span></div><div class="card-body stack">' +
-      (skipped ? '<div class="alert info">本集未引入新角色，沿用本季角色设定；可直接评审并组装。</div>' : '') +
-      '<form data-character-sheet-form class="stack">' +
-      '<section class="character-library-section current"><div class="section-title"><div><p class="eyebrow">当前集</p><h2>当前集角色 · 第 ' + escapeHtml(String(episodeNo)) + ' 集</h2></div><span class="hint">' + current.length + ' 人出场</span></div>' +
-      '<div class="character-grid">' + currentHtml + '</div></section>' +
-      '<section class="character-library-section season"><div class="section-title"><div><p class="eyebrow">季角色库</p><h2>第 ' + escapeHtml(String(sheet.season_no || 1)) + ' 季其他角色</h2></div><span class="hint">' + season.length + ' 人</span></div>' +
-      '<div class="character-grid">' + seasonHtml + '</div></section>' +
-      '<div class="form-actions">' +
-      (skipped ? '' : '<button type="button" class="btn btn-secondary" data-regenerate-characters>重新生成</button>') +
-      '<button type="submit" class="btn btn-primary">保存角色表</button>' +
-      '<button type="button" class="btn btn-primary" data-review-assemble>保存并进入评审</button>' +
-      '</div></form></div></div>';
-  }
-
-  function renderCharacterCard(character, idx) {
-    const vf = character.visual_features || {};
-    const img = firstCharacterImage(character);
-    const imageHtml = img
-      ? '<img class="character-ref-img" src="' + escapeHtml(characterRefUrl(character.id, img.path)) + '" alt="' + escapeHtml(character.name || character.id) + '">'
-      : '<div class="character-ref-placeholder">未生成参考图</div>';
-    const canRedrawLocal = !img || isLocalPreviewImage(img);
-    const appearances = (character.appearances || []).filter(function (value) { return Number.isSafeInteger(Number(value)); });
-    const generationLabel = img ? (canRedrawLocal ? "本地预览已生成" : "真实参考图已保护") : "尚无参考图";
-    return '<section class="character-card" data-character-card="' + idx + '">' +
-      '<div class="character-ref-box">' + imageHtml +
-      (canRedrawLocal ? '<button type="button" class="btn btn-secondary btn-sm" data-redraw-character="' + escapeHtml(character.id || "") + '">重画本地预览</button>' : '<span class="badge ready">真实参考图</span>') + '</div>' +
-      '<div class="stack">' +
-      '<div class="cluster" style="justify-content:space-between">' +
-      '<strong>' + escapeHtml(character.name || "未命名角色") + '</strong>' +
-      '<label class="check-row"><input type="checkbox" data-char-field="manual_override" ' + (character.manual_override ? "checked" : "") + '> 锁定手工修改</label>' +
-      '</div>' +
-      '<div class="character-facts"><span>出场集数：' + escapeHtml(appearances.length ? appearances.map(function (value) { return "第 " + value + " 集"; }).join("、") : "暂无") + '</span>' +
-      '<span>生成状态：' + escapeHtml(generationLabel) + '</span><span>手工覆盖：' + (character.manual_override ? "已锁定" : "未锁定") + '</span></div>' +
-      '<div class="form-grid-2">' +
-      charInput("name", "姓名", character.name || "") +
-      charInput("role", "角色", character.role || "") +
-      charInput("age_range", "年龄段", character.age_range || "") +
-      charInput("gender", "性别", character.gender || "") +
-      charInput("wardrobe_default", "默认服装", character.wardrobe_default || "") +
-      '</div>' +
-      charTextarea("visual_signature", "视觉签名", character.visual_signature || "", 2) +
-      '<div class="form-grid-2">' +
-      charTextarea("vf_face", "面部特征", vf.face || "", 2) +
-      charTextarea("vf_hair", "发型特征", vf.hair || "", 2) +
-      charTextarea("vf_body", "体态特征", vf.body || "", 2) +
-      charTextarea("expression_keywords", "表情关键词", (character.expression_keywords || []).join("，"), 2) +
-      '</div>' +
-      renderSuggestionCount(character) +
-      '</div></section>';
-  }
-
-  function charInput(field, label, value) {
-    return '<div class="field"><label>' + escapeHtml(label) + '</label><input data-char-field="' + field + '" value="' + escapeHtml(value) + '"></div>';
-  }
-
-  function charTextarea(field, label, value, rows) {
-    return '<div class="field"><label>' + escapeHtml(label) + '</label><textarea rows="' + rows + '" data-char-field="' + field + '">' + escapeHtml(value) + '</textarea></div>';
-  }
-
-  function renderSuggestionCount(character) {
-    const count = (character.agent_suggestions || []).length;
-    return count ? '<div class="alert info">已有 ' + count + ' 条创作建议待人工查看。</div>' : "";
-  }
-
-  function firstCharacterImage(character) {
-    const refs = character.reference_images || [];
-    return refs.find(function (ref) {
-      return /[.]png$/i.test(String(ref && ref.path || ""));
-    }) || null;
-  }
-
-  function isLocalPreviewImage(image) {
-    return ["placeholder_png", "mock-multimodal-smoke"].includes(String(image && image.generated_by || ""));
-  }
-
-  function characterRefUrl(cid, relPath) {
-    const parts = String(relPath || "").split("/");
-    const filename = parts[parts.length - 1] || "";
-    return wsUrl("/character-ref/" + encodeURIComponent(cid || "") + "/" + encodeURIComponent(filename));
-  }
-
-  function collectCharacterSheet(root) {
-    const base = root.__characterSheet || { schema_version: 1, season_no: 1, episode_no: 1, characters: [] };
-    const oldChars = base.characters || [];
-    const cards = Array.from(root.querySelectorAll("[data-character-card]"));
-    const characters = cards.map(function (card) {
-      const sourceIndex = Number(card.getAttribute("data-character-card"));
-      const old = oldChars[sourceIndex] || {};
-      const get = function (field, fallback) {
-        const el = card.querySelector('[data-char-field="' + field + '"]');
-        return el ? el.value : (fallback || "");
-      };
-      const checked = function (field) {
-        const el = card.querySelector('[data-char-field="' + field + '"]');
-        return !!(el && el.checked);
-      };
-      const updated = Object.assign({}, old, {
-        name: get("name"),
-        role: get("role"),
-        age_range: get("age_range"),
-        gender: get("gender"),
-        lora_token: get("lora_token", old.lora_token),
-        wardrobe_default: get("wardrobe_default"),
-        visual_signature: get("visual_signature"),
-        prompt_template_sd: get("prompt_template_sd", old.prompt_template_sd),
-        manual_override: checked("manual_override"),
-        expression_keywords: splitKeywords(get("expression_keywords")),
-        visual_features: Object.assign({}, old.visual_features || {}, {
-          face: get("vf_face"),
-          hair: get("vf_hair"),
-          body: get("vf_body"),
-        }),
-      });
-      return { sourceIndex: sourceIndex, character: updated };
-    }).sort(function (left, right) {
-      return left.sourceIndex - right.sourceIndex;
-    }).map(function (entry) { return entry.character; });
-    return Object.assign({}, base, { characters: characters });
-  }
-
-  function splitKeywords(text) {
-    return String(text || "").replaceAll("，", ",").split(",").map(function (item) { return item.trim(); }).filter(Boolean);
-  }
-
-  function bindCharacterSheetActions(root) {
-    const targetEpisode = Number(root.__dramaEpisodeNo || dramaEpisodeNo());
-    const characterPayload = function (payload) {
-      return Object.assign({}, payload || {}, { episode_no: targetEpisode });
-    };
-    const gen = root.querySelector("[data-generate-characters], [data-regenerate-characters]");
-    if (gen) {
-      gen.addEventListener("click", async function () {
-        const currentForm = root.querySelector("[data-character-sheet-form]");
-        if (gen.hasAttribute("data-regenerate-characters") && !confirmDramaRegenerate(currentForm, "角色表")) return;
-        gen.disabled = true;
-        try {
-          const data = await postJson(
-            wsUrl("/drama/characters"),
-            await dramaGenerationPayload("drama-characters", { confirm_new_text_revision: true }, targetEpisode)
-          );
-          const terminal = await pollJob(data.job_id, root, gen, async function (job) {
-            if (job.status !== "succeeded") return;
-            if (root.id === "characters-page-root") await loadDramaCharactersPage(root, targetEpisode);
-            else await loadStationCharacters();
-            await loadDramaProgress();
-          });
-          if (terminal && terminal.status === "succeeded") {
-            const skipped = !!((terminal.result_summary || {}).skipped);
-            showToast(skipped ? "本集沿用季角色" : "角色表已生成", "info");
-          }
-        } catch (err) {
-          showToast("生成失败：" + errTitle(err), "error");
-          gen.disabled = false;
-        }
-      });
-    }
-    const form = root.querySelector("[data-character-sheet-form]");
-    if (form) {
-      form.addEventListener("submit", async function (ev) {
-        ev.preventDefault();
-        try {
-          const data = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
-          clearDramaDirty(form);
-          root.__characterSheet = data.sheet;
-          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped, targetEpisode);
-          bindCharacterSheetActions(root);
-          await loadDramaProgress();
-          showToast("角色表已保存", "info");
-        } catch (err) {
-          showToast("保存失败：" + errTitle(err), "error");
-        }
-      });
-    }
-    root.querySelectorAll("[data-redraw-character]").forEach(function (btn) {
-      btn.addEventListener("click", async function () {
-        btn.disabled = true;
-        try {
-          const cid = btn.getAttribute("data-redraw-character") || "";
-          const saved = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
-          clearDramaDirty(root.querySelector("[data-character-sheet-form]"));
-          root.__characterSheet = saved.sheet;
-          const data = await postJson(
-            wsUrl("/drama/characters/" + encodeURIComponent(cid) + "/redraw"),
-            characterPayload({})
-          );
-          root.__characterSheet = data.sheet;
-          root.innerHTML = renderCharacterSheet(data.sheet, root.id === "characters-page-root" ? "角色库" : "站 ④ 角色", !!root.__characterSkipped, targetEpisode);
-          bindCharacterSheetActions(root);
-          showToast("参考图已更新", "info");
-        } catch (err) {
-          showToast("重画失败：" + errTitle(err), "error");
-          btn.disabled = false;
-        }
-      });
-    });
-    const reviewBtn = root.querySelector("[data-review-assemble]");
-    if (reviewBtn) reviewBtn.addEventListener("click", async function () {
-      reviewBtn.disabled = true;
-      try {
-        const saved = await putJson(wsUrl("/drama/characters"), characterPayload({ sheet: collectCharacterSheet(root) }));
-        clearDramaDirty(root.querySelector("[data-character-sheet-form]"));
-        root.__characterSheet = saved.sheet;
-        if (root.id !== "characters-page-root") {
-          const tab = document.querySelector('.drama-station-nav .tab[data-tab="review"]');
-          if (tab) tab.click();
-          await loadStationReview();
-        } else {
-          const target = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/write?episode=" + encodeURIComponent(String(targetEpisode)) + "&step=review#review";
-          guardedNavigate(target);
-        }
-      } catch (err) {
-        showToast("保存失败：" + errTitle(err), "error");
-        reviewBtn.disabled = false;
-      }
-    });
-  }
-
-  // ===== page: drama episodes =============================================
-  function dramaNextEpisodeReason(data) {
-    const code = String(data.next_episode_blocked_reason || "");
-    const labels = {
-      episode_sequence_gap: "检测到剧集断档，请先修复本地产物。",
-      orphan_episode_artifact: "检测到孤儿剧集产物，请先清理或恢复对应剧集。",
-      previous_episode_incomplete: "上一集尚未完整组装。",
-      previous_episode_artifact_mismatch: "上一集产物的集数不一致。",
-      previous_episode_fingerprint_missing: "上一集缺少输入指纹，需要重新组装。",
-      previous_episode_sha_mismatch: "上一集内容与 meta 校验值不一致，需要重新组装。",
-      previous_episode_stale: "上一集输入已变化，请先重新评审并组装。",
-      next_episode_setup_invalid: "下一集 setup 无法恢复，请修复后再继续。",
-      planned_episode_count_reached: "已达到计划集数。"
-    };
-    return labels[code] || String(data.next_episode_blocked_message || "下一集暂不可开始。");
-  }
-
-  async function initDramaEpisodes() {
-    const box = document.getElementById("episodes-panel");
-    if (!box) return;
-    box.innerHTML = skeleton(4);
-    try {
-      const data = await fetchJson(wsUrl("/drama/episodes"));
-      const episodes = data.episodes || [];
-      const rows = episodes.map(function (ep) {
-        const no = Number(ep.episode_no || 1);
-        const state = ep.stale ? "stale" : "complete";
-        return '<article class="drama-episode-card" data-state="' + state + '">' +
-          '<div class="drama-episode-number" aria-hidden="true">' + String(no).padStart(2, "0") + '</div>' +
-          '<div class="drama-episode-copy"><h3>' + escapeHtml(ep.title || ("第 " + no + " 集")) + '</h3>' +
-          '<p>' + escapeHtml(String(ep.estimated_duration_seconds || 0)) + ' 秒 · ' +
-          (ep.stale ? '内容已变化，需要重新评审并组装' : '当前组装结果可用') + '</p></div>' +
-          '<div class="drama-episode-verdict">' + verdictBadge(ep.verdict || "") +
-          (ep.stale ? '<span class="badge warn">需更新</span>' : '<span class="badge ready">已就绪</span>') + '</div>' +
-          '<div class="drama-episode-actions"><a class="btn btn-secondary" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/episode/' + encodeURIComponent(String(no)) + '">查看与导出</a>' +
-          '<a class="btn btn-ghost" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(no)) + '">' + (ep.stale ? '重新处理' : '编辑本集') + '</a></div></article>';
-      }).join("");
-      const episodeList = episodes.length
-        ? '<div class="drama-episode-list">' + rows + '</div>'
-        : emptyState("尚无已组装剧集", "从第 1 集创作台开始；完成评审并组装后，可导出的剧集数据会出现在这里。", "");
-      const nextNo = Number(data.next_episode_no || 0);
-      let nextAction = "";
-      if (Number.isSafeInteger(nextNo) && nextNo === 1 && !data.next_episode_blocked_reason) {
-        const label = data.next_episode_initialized ? "继续第 1 集" : "开始第 1 集";
-        nextAction = '<div class="form-actions"><a class="btn btn-primary" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=1">' + label + ' →</a></div>';
-      } else if (data.can_start_next && Number.isSafeInteger(nextNo)) {
-        const label = data.next_episode_initialized ? "继续第 " : "开始第 ";
-        nextAction = '<div class="form-actions"><button type="button" class="btn btn-primary" data-start-next-episode="' + escapeHtml(String(nextNo)) + '">' + label + escapeHtml(String(nextNo)) + ' 集 →</button></div>';
-      } else {
-        const repairNo = Number(data.next_episode_repair_no || 0);
-        const repairLink = Number.isSafeInteger(repairNo) && repairNo > 0
-          ? ' <a class="btn btn-secondary btn-sm" data-leave-guard href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(repairNo)) + '">修复第 ' + escapeHtml(String(repairNo)) + ' 集</a>'
-          : '';
-        nextAction = '<div class="alert info"><span>' + escapeHtml(dramaNextEpisodeReason(data)) + '</span>' + repairLink + '</div>';
-      }
-
-      const season = data.season_export || {};
-      const eligible = Array.isArray(season.eligible_episode_nos) ? season.eligible_episode_nos.length : 0;
-      const planned = Number(data.planned_episode_count || season.planned_episode_count || 0);
-      const seasonBase = wsUrl("/drama/season/1/export?mode=");
-      const masterButton = season.master_ready
-        ? '<a class="btn btn-primary" href="' + seasonBase + 'master" download>导出整季母包</a>'
-        : '<button type="button" class="btn btn-primary" disabled title="整季母包要求计划内全部剧集均已就绪且完整">导出整季母包</button>';
-      const snapshotButton = season.snapshot_ready
-        ? '<a class="btn btn-secondary" href="' + seasonBase + 'snapshot" download>导出阶段快照</a>'
-        : '<button type="button" class="btn btn-secondary" disabled title="至少需要一集已就绪的完整剧集">导出阶段快照</button>';
-      const excluded = Array.isArray(season.excluded) ? season.excluded : [];
-      const missingRefs = Array.isArray(season.missing_reference_images) ? season.missing_reference_images.length : 0;
-      const assetErrors = Array.isArray(season.asset_errors) ? season.asset_errors.length : 0;
-      let seasonHint = "计划内剧集与角色引用均已就绪。";
-      if (!season.master_ready) {
-        const reasons = [];
-        if (excluded.length) reasons.push(String(excluded.length) + " 集未完成或已过期");
-        if (missingRefs) reasons.push(String(missingRefs) + " 个引用图缺失");
-        if (assetErrors) reasons.push(String(assetErrors) + " 个引用资产不安全或无效");
-        seasonHint = "母包未就绪：" + (reasons.length ? reasons.join("，") : "等待完整剧集或角色引用") + "。";
-        seasonHint += season.snapshot_ready ? " 可先导出阶段快照。" : " 当前也没有可导出的阶段快照。";
-      }
-      const seasonCard = '<section class="drama-season-card"><div><p class="eyebrow">第 1 季</p><h2>' + escapeHtml(String(eligible)) + ' / ' + escapeHtml(String(planned || episodes.length)) + ' 集可交付</h2><p class="muted">' + escapeHtml(seasonHint) + '</p></div><div class="drama-season-actions">' + snapshotButton + masterButton + '</div></section>';
-      box.innerHTML = seasonCard + '<div class="section-title"><h2>剧集列表</h2><span class="hint">状态与入口均按单集当前事实显示</span></div>' + episodeList + nextAction;
-      const nextBtn = box.querySelector("[data-start-next-episode]");
-      if (nextBtn) {
-        nextBtn.addEventListener("click", async function () {
-          nextBtn.disabled = true;
-          try {
-            const result = await postJson(wsUrl("/drama/next-episode"), { after_episode_no: Number(nextBtn.getAttribute("data-start-next-episode")) - 1 });
-            const episodeNo = Number(result.episode_no || nextNo);
-            window.location.href = "/w/" + encodeURIComponent(WORKSPACE_NAME) + "/write?episode=" + encodeURIComponent(String(episodeNo));
-          } catch (err) {
-            showToast("下一集初始化失败：" + errTitle(err), "error");
-            nextBtn.disabled = false;
-          }
-        });
-      }
-    } catch (err) {
-      box.innerHTML = renderErrorCard(err);
-    }
-  }
-
-  async function initDramaEpisodeDetail() {
-    bindHashTabs();
-    try {
-      const data = await fetchJson(wsUrl("/drama/episode/" + encodeURIComponent(String(CHAPTER_NO || 1))));
-      renderDramaEpisodeDetail(data);
-    } catch (err) {
-      ["script", "storyboard-view", "characters-view", "review", "export", "video"].forEach(function (id) {
-        const box = document.getElementById("tab-" + id);
-        if (box) box.innerHTML = renderErrorCard(err);
-      });
-    }
-  }
-
-  function renderDramaEpisodeDetail(data) {
-    const assembled = !!data.episode;
-    const episode = data.episode || {};
-    const meta = data.meta || {};
-    const review = data.review || {};
-    const characters = (data.characters && data.characters.characters) || [];
-    const stale = !!data.stale;
-    const staleHtml = stale ? '<div class="alert warn">分站内容已变更，请重新评审并组装。</div>' : "";
-    const scriptBox = document.getElementById("tab-script");
-    if (scriptBox) {
-      scriptBox.innerHTML = !assembled
-        ? '<div class="alert warn">本集评审尚未通过，因此没有可发布的组装产物；请在“评审”页查看并应用建议。</div>'
-        : staleHtml +
-        '<div class="card"><div class="card-header"><h3 class="ornament">' + escapeHtml(episode.title || "未命名") + '</h3>' +
-        verdictBadge((stale && review.verdict) || meta.verdict || "") + '</div><div class="card-body stack">' +
-        '<div class="kv-list compact">' +
-        '<div class="k">一句话故事</div><div class="v">' + escapeHtml(episode.logline || "") + '</div>' +
-        '<div class="k">赛道</div><div class="v"><code>' + escapeHtml(episode.track || "") + '</code></div>' +
-        '<div class="k">预估 / 目标时长</div><div class="v">' + escapeHtml(String(episode.estimated_duration_seconds || 0)) + ' / ' + escapeHtml(String(episode.target_duration_seconds || 0)) + ' 秒</div>' +
-        '</div>' +
-        '<div class="reading-body"><p>' + escapeHtml(episode.narrative || "") + '</p></div>' +
-        '</div></div>';
-    }
-    const storyBox = document.getElementById("tab-storyboard-view");
-    if (storyBox) {
-      const rows = (episode.storyboard || []).map(function (shot) {
-        return '<tr><td>' + escapeHtml(String(shot.shot_no || "")) + '</td>' +
-          '<td>' + escapeHtml(shot.shot_size || "") + '</td>' +
-          '<td>' + escapeHtml(shot.camera_move || "") + '</td>' +
-          '<td>' + escapeHtml(String(shot.duration_seconds || 0)) + '</td>' +
-          '<td>' + escapeHtml(shot.visual_content || "") + '</td>' +
-          '<td>' + escapeHtml(shot.dialogue || "") + '</td>' +
-          '<td>' + (shot.is_highlight ? '<span class="badge ready">高光</span>' : '') + '</td></tr>';
-      }).join("");
-      storyBox.innerHTML = tableScroll('<table class="table table-wide"><thead><tr><th>#</th><th>景别</th><th>运镜</th><th>秒</th><th>画面</th><th>台词</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>');
-    }
-    const charBox = document.getElementById("tab-characters-view");
-    if (charBox) {
-      charBox.innerHTML = characters.length
-        ? '<div class="character-grid">' + characters.map(function (c) {
-            const img = firstCharacterImage(c);
-            const imageHtml = img
-              ? '<div class="character-ref-box"><img class="character-ref-img" src="' + escapeHtml(characterRefUrl(c.id, img.path)) + '" alt="' + escapeHtml(c.name || c.id) + '"></div>'
-              : '<div class="character-ref-placeholder">暂无参考图</div>';
-            return '<section class="character-card">' + imageHtml + '<div class="stack">' +
-              '<strong><code>' + escapeHtml(c.id || "") + '</code> · ' + escapeHtml(c.name || "") + '</strong>' +
-              '<p class="muted">' + escapeHtml(c.role || "") + '</p>' +
-              '<p>' + escapeHtml(c.visual_signature || "") + '</p>' +
-              '<details class="details-fold"><summary>查看 SD Prompt</summary><pre>' + escapeHtml(c.prompt_template_sd || "") + '</pre></details>' +
-              '</div></section>';
-          }).join("") + '</div>'
-        : '<p class="muted">暂无角色表。</p>';
-    }
-    const reviewBox = document.getElementById("tab-review");
-    if (reviewBox) {
-      const agents = review && review.verdict ? [review] : (meta.agent_reviews || []);
-      const suggestions = review.suggestions || [];
-      const suggestionHtml = suggestions.length
-        ? '<div class="stack">' + suggestions.map(renderDramaSuggestion).join("") + '</div>'
-        : '<p class="muted">暂无优化建议。</p>';
-      reviewBox.innerHTML = '<div class="stack">' +
-        (agents.length ? agents.map(renderDramaReviewCard).join("") : '<p class="muted">暂无评审记录。</p>') +
-        suggestionHtml +
-        '</div>';
-      bindDramaSuggestionActions(reviewBox);
-    }
-    const exportBox = document.getElementById("tab-export");
-    if (exportBox) {
-      const episodeNo = Number(CHAPTER_NO || 1);
-      const formats = [
-        ["json", "JSON 真源"],
-        ["md", "Markdown 分镜表"],
-        ["csv", "CSV（Excel 中文）"],
-        ["comfy", "Comfy workflow 模板"],
-      ];
-      const buttons = formats.map(function (item) {
-        const href = wsUrl("/drama/episode/" + encodeURIComponent(String(episodeNo)) + "/export?format=" + encodeURIComponent(item[0]));
-        return stale
-          ? '<button type="button" class="btn btn-secondary" disabled>' + escapeHtml(item[1]) + '</button>'
-          : '<a class="btn btn-secondary" download href="' + href + '">' + escapeHtml(item[1]) + '</a>';
-      }).join("");
-      exportBox.innerHTML = !assembled
-        ? '<div class="alert warn">评审通过并组装后才能导出。</div>'
-        : staleHtml + '<div class="card"><div class="card-header"><h3 class="ornament">导出</h3></div><div class="card-body stack"><p class="muted">所有格式均来自已组装的 episode JSON 真源。Comfy 为模板级 workflow，导入后仍需接入本地 checkpoint、LoRA 与节点。</p>' + (stale ? '<a class="btn btn-primary" href="/w/' + encodeURIComponent(WORKSPACE_NAME) + '/write?episode=' + encodeURIComponent(String(episodeNo)) + '#characters">返回创作台重新评审并组装</a>' : '') + '<div class="cluster">' + buttons + '</div></div></div>';
-    }
-    loadDramaVideoPanel();
-  }
-
-  function dramaVideoStateLabel(state) {
-    const labels = {
-      not_ready: "待准备", ready: "可生成", pending: "待准备",
-      "upload-assets": "上传素材", queued: "排队", generating: "生成中",
-      download: "下载 5 秒样片", succeeded: "成功", failed: "失败",
-      request_not_sent: "请求确定未发送", provider_rejected: "Provider 已拒绝",
-      submitted: "已提交·可续查", submission_unknown: "提交结果待对账",
-      aborted: "取消", cancelled: "取消", timeout: "超时", lost: "失败",
-      budget_exceeded: "成功（超预算）",
-    };
-    return labels[String(state || "")] || String(state || "待准备");
-  }
-
-  async function loadDramaVideoPanel() {
-    const box = document.getElementById("tab-video");
-    if (!box) return;
-    box.innerHTML = skeleton(2);
-    try {
-      const data = await fetchJson(wsUrl("/drama/video"));
-      renderDramaVideoPanel(box, data);
-    } catch (err) {
-      box.innerHTML = renderErrorCard(err);
-    }
-  }
-
-  function renderDramaVideoPanel(box, data) {
-    const state = String(data.state || "not_ready");
-    const video = data.video || {};
-    const job = data.job || null;
-    let body = '<div class="alert info">状态：' + escapeHtml(dramaVideoStateLabel(state)) + '</div>';
-    if ((state === "succeeded" || state === "budget_exceeded") && data.download_ready) {
-      const src = wsUrl("/drama/video/file");
-      if (state === "budget_exceeded") {
-        body += '<div class="alert warn">实际上报费用超出本次授权上限；已保留已付费生成的成片，不会自动重试。</div>';
-      }
-      body += '<video controls preload="metadata" style="display:block;width:100%;max-width:420px;aspect-ratio:9/16;background:#111" src="' + src + '"></video>' +
-        '<div class="kv-list compact"><div class="k">规格</div><div class="v">' + escapeHtml(String(video.duration_seconds || 5)) + ' 秒 · ' + escapeHtml(video.ratio || "9:16") + ' · ' + escapeHtml(video.resolution || "720p") + '</div>' +
-        '<div class="k">文件</div><div class="v">' + escapeHtml(String(video.file_size_bytes || 0)) + ' bytes</div></div>' +
-        '<a class="btn btn-primary" download="episode_01.highlight-sample.mp4" href="' + src + '">下载 5 秒高光样片</a>';
-      if (data.latest_attempt_state && ["failed", "cancelled", "timeout", "lost"].includes(data.latest_attempt_state)) {
-        body += renderErrorCard({ message: "最近一次重新生成未完成：" + dramaVideoStateLabel(data.latest_attempt_state) +
-          (job && job.error ? "（" + job.error + "）" : "") });
-      }
-    } else if (job && (job.status === "pending" || job.status === "running")) {
-      body += '<p class="muted">刷新页面会自动恢复；取消仅会停止本地轮询，不保证撤销上游已提交的计费任务。</p>' +
-        '<button type="button" class="btn btn-danger" data-video-cancel="' + escapeHtml(job.job_id || "") + '">取消视频任务</button>';
-    } else if (job && ["failed", "aborted", "lost", "budget_exceeded"].includes(job.status) &&
-        state !== "request_not_sent" && state !== "provider_rejected" &&
-        state !== "submitted" && state !== "submission_unknown") {
-      body += renderErrorCard({ message: "视频任务未完成：" + (job.error || dramaVideoStateLabel(job.status)) });
-    } else if (state === "not_ready") {
-      body += '<p class="muted">请确保第 1 集已重新评审并组装，且本集角色都有当前参考图。</p>';
-    } else {
-      if (state === "submitted") {
-        body += '<div class="alert info">上游任务已持久化提交；使用原授权参数再次点击只会续查，不会重复上传或新建任务。</div>';
-      } else if (state === "request_not_sent") {
-        body += '<div class="alert info">传输层已证明请求头和正文均未发送；系统不会自动重试。若要再次尝试，必须重新明确授权。</div>';
-      } else if (state === "provider_rejected") {
-        body += '<div class="alert warn">Provider 已明确拒绝本次 create；本次授权已消费，费用不推断为 0，页面不会重提。</div>';
-      } else if (state === "submission_unknown") {
-        body += '<div class="alert warn">提交结果未知，请先查上游任务与账单；系统不会自动重试。</div>';
-      }
-      body += '<p class="muted">MVP 固定生成 1 个 5 秒、9:16、720p、无音频无水印的视频任务。</p>' +
-        (data.real_mode && !["submitted", "provider_rejected", "submission_unknown"].includes(state)
-          ? '<div class="alert warn">真实视频是独立计费授权，不继承真文本或真生图确认。预估费用：¥' + escapeHtml(String(data.estimated_cost_cny == null ? "未配置" : data.estimated_cost_cny)) + '</div>' +
-            '<div class="form-grid-2"><div class="field"><label for="video-budget">预算上限（元）</label><input id="video-budget" type="number" min="0.01" step="0.01"></div>' +
-            '<div class="field"><label for="video-timeout">超时（分钟）</label><input id="video-timeout" type="number" min="1" max="60" step="1" value="5"></div></div>' +
-            '<label class="check-row"><input id="video-confirm" type="checkbox"> 我确认提交 1 个真实视频计费任务，且超时后不自动重试</label>'
-          : '') +
-        (["provider_rejected", "submission_unknown"].includes(state) ? '' : '<button type="button" class="btn btn-primary" data-video-generate>' +
-          (state === "submitted" ? '继续查询' : '生成视频') + '</button>');
-    }
-    box.innerHTML = '<div class="card"><div class="card-header"><h3 class="ornament">第 1 集视频</h3><span class="badge">' + escapeHtml(dramaVideoStateLabel(state)) + '</span></div><div class="card-body stack">' + body + '</div></div>';
-    const generate = box.querySelector("[data-video-generate]");
-    if (generate) generate.addEventListener("click", async function () {
-      generate.disabled = true;
-      try {
-        const payload = { episode_no: 1 };
-        if (state === "submitted") {
-          payload.resume_submitted = true;
-        } else if (data.real_mode) {
-          payload.confirm_real_video = !!(document.getElementById("video-confirm") && document.getElementById("video-confirm").checked);
-          payload.budget_cny = Number(document.getElementById("video-budget") && document.getElementById("video-budget").value);
-          payload.timeout_minutes = Number(document.getElementById("video-timeout") && document.getElementById("video-timeout").value);
-        }
-        const result = await postJson(wsUrl("/drama/video"), payload);
-        await pollJob(result.job_id, box, generate, loadDramaVideoPanel);
-      } catch (err) {
-        box.innerHTML = renderErrorCard(err);
-      }
-    });
-    const cancel = box.querySelector("[data-video-cancel]");
-    if (cancel) cancel.addEventListener("click", async function () {
-      cancel.disabled = true;
-      try {
-        await postJson(wsUrl("/job/" + encodeURIComponent(cancel.getAttribute("data-video-cancel")) + "/cancel"), {});
-        await loadDramaVideoPanel();
-      } catch (err) {
-        box.innerHTML = renderErrorCard(err);
-      }
-    });
-    if (job && (job.status === "pending" || job.status === "running") && job.job_id) {
-      setTimeout(function () { pollJob(job.job_id, box, null, loadDramaVideoPanel); }, 0);
-    }
-  }
-
-  async function initDramaInsights() {
-    const summaryBox = document.getElementById("drama-insights-summary");
-    const costBox = document.getElementById("drama-insights-cost");
-    const metricsBox = document.getElementById("drama-insights-media-metrics");
-    const durationBox = document.getElementById("drama-insights-duration");
-    const hooksBox = document.getElementById("drama-insights-hooks");
-    if (!summaryBox || !costBox || !metricsBox || !durationBox || !hooksBox) return;
-    summaryBox.innerHTML = skeleton(4);
-    costBox.innerHTML = skeleton(3);
-    metricsBox.innerHTML = skeleton(3);
-    durationBox.innerHTML = skeleton(2);
-    hooksBox.innerHTML = skeleton(3);
-    try {
-      const data = await fetchJson(wsUrl("/insights"));
-      const llm = data.llm_cost || {};
-      const meta = data.episode_meta_cost || {};
-      const mediaPricing = data.media_pricing || {};
-      const mediaMetrics = data.media_metrics || {};
-      const duration = data.duration || {};
-      const mediaMetricsKnown = mediaMetrics.status === "ok";
-      const durationKnown = duration.status === "ok";
-      const textCostsKnown = llm.status === "ok" && meta.status === "ok";
-      const knownCost = Number(llm.cost_cny || 0) + Number(meta.cost_cny || 0);
-      const mediaKnownCurrencies = Array.isArray(mediaPricing.currencies)
-        ? mediaPricing.currencies.filter(function (row) { return row.actual_known != null; }).length
-        : 0;
-      const unknownTasks = mediaMetricsKnown ? Number(mediaMetrics.unknown_submission_count || 0) : null;
-      summaryBox.innerHTML = [
-        ["创作费用", textCostsKnown ? "¥" + knownCost.toFixed(2) : "—", textCostsKnown ? String(llm.calls || 0) + " 次已记录调用" : "部分来源不可验证"],
-        ["媒体费用", mediaKnownCurrencies ? String(mediaKnownCurrencies) + " 种币种" : "—", mediaKnownCurrencies ? "分币种列示，不跨币种合并" : "暂无可确认金额"],
-        ["已组装剧集", durationKnown ? String(duration.total || 0) : "—", durationKnown ? "未知或无效记录不纳入" : "时长来源待核对"],
-        ["待核对任务", mediaMetricsKnown ? String(unknownTasks) : "—", mediaMetricsKnown ? (unknownTasks ? "需人工查询状态" : "当前没有未知样本") : "指标来源待核对"]
-      ].map(function (item, index) {
-        const unknown = (index === 0 && !textCostsKnown) || (index === 1 && !mediaKnownCurrencies) || (index === 2 && !durationKnown) || (index === 3 && !mediaMetricsKnown);
-        return '<article class="drama-summary-card' + (unknown ? ' unknown' : '') + '"><span class="k">' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong><small>' + escapeHtml(item[2]) + '</small></article>';
-      }).join("");
-      const mediaCurrencies = Array.isArray(mediaPricing.currencies) ? mediaPricing.currencies.slice(0, 16) : [];
-      const hiddenMediaCurrencies = Array.isArray(mediaPricing.currencies) ? Math.max(0, mediaPricing.currencies.length - mediaCurrencies.length) : 0;
-      const mediaCostRows = mediaCurrencies.map(function (row) {
-        const state = row.actual_complete
-          ? "完整"
-          : (Number(row.unknown_submission_tasks || 0) > 0
-            ? "含 " + String(row.unknown_submission_tasks) + " 项未知"
-            : "待实际费用");
-        return '<div class="k">媒体 ' + escapeHtml(row.currency || "???") + '</div><div class="v">估算 ' +
-          escapeHtml(row.estimate == null ? "—" : String(row.estimate)) + ' · 已知实际 ' +
-          escapeHtml(row.actual_known == null ? "—" : String(row.actual_known)) + ' · ' +
-          escapeHtml(state) + '</div>';
-      }).join("");
-      const llmCostDetail = llm.status === "ok" ? "¥" + Number(llm.cost_cny || 0).toFixed(4) + " · " + String(llm.calls || 0) + " 次" : "— · 来源待核对";
-      const metaCostDetail = meta.status === "ok" ? "¥" + Number(meta.cost_cny || 0).toFixed(4) + " · " + String(meta.episodes || 0) + " 集" : "— · 来源待核对";
-      costBox.innerHTML = '<div class="kv-list compact">' +
-        '<div class="k">文本调用</div><div class="v">' + escapeHtml(llmCostDetail) + '</div>' +
-        '<div class="k">剧集记录</div><div class="v">' + escapeHtml(metaCostDetail) + '</div>' +
-        (mediaCostRows || '<div class="k">媒体任务</div><div class="v">尚无 pricing fact</div>') +
-        (hiddenMediaCurrencies ? '<div class="k">更多币种</div><div class="v">另有 ' + escapeHtml(String(hiddenMediaCurrencies)) + ' 种，请查看 API 明细</div>' : '') +
-        (mediaPricing.status === "degraded" ? '<div class="k">媒体账本</div><div class="v">存在 ' + escapeHtml(String(mediaPricing.invalid_ledgers || 0)) + ' 个无效来源，未计入金额</div>' : '') +
-        '<div class="k">说明</div><div class="v">' + escapeHtml(data.cost_note || "mock 成本为 0，真模型启用后生效。") + '</div>' +
-        '</div>';
-      const successRate = !mediaMetricsKnown || mediaMetrics.success_rate == null
-        ? "—"
-        : (Math.max(0, Math.min(1, Number(mediaMetrics.success_rate))) * 100).toFixed(1) + "%";
-      const queueAverage = !mediaMetricsKnown || mediaMetrics.queue_wait_average_ms == null
-        ? "—"
-        : escapeHtml(String(mediaMetrics.queue_wait_average_ms)) + " ms";
-      const runAverage = !mediaMetricsKnown || mediaMetrics.run_average_ms == null
-        ? "—"
-        : escapeHtml(String(mediaMetrics.run_average_ms)) + " ms";
-      metricsBox.innerHTML = mediaMetricsKnown ? '<div class="kv-list compact">' +
-        '<div class="k">任务</div><div class="v">' + escapeHtml(String(mediaMetrics.task_count || 0)) +
-        ' · 成功 ' + escapeHtml(String(mediaMetrics.succeeded_count || 0)) +
-        ' · 失败 ' + escapeHtml(String(mediaMetrics.failed_count || 0)) +
-        ' · 取消 ' + escapeHtml(String(mediaMetrics.cancelled_count || 0)) + '</div>' +
-        '<div class="k">成功率</div><div class="v">' + escapeHtml(successRate) +
-        ' · terminal ' + escapeHtml(String(mediaMetrics.terminal_count || 0)) + '</div>' +
-        '<div class="k">等待均值</div><div class="v">' + queueAverage +
-        ' · 可证样本 ' + escapeHtml(String(mediaMetrics.queue_wait_known_samples || 0)) +
-        ' · 未知 ' + escapeHtml(String(mediaMetrics.queue_wait_unknown_samples || 0)) + '</div>' +
-        '<div class="k">运行均值</div><div class="v">' + runAverage +
-        ' · 可证样本 ' + escapeHtml(String(mediaMetrics.run_known_samples || 0)) +
-        ' · 未知 ' + escapeHtml(String(mediaMetrics.run_unknown_samples || 0)) + '</div>' +
-        '<div class="k">submission unknown</div><div class="v">' +
-        escapeHtml(String(mediaMetrics.unknown_submission_count || 0)) + '</div>' +
-        '</div>'
-        : '<div class="kv-list compact"><div class="k">指标来源</div><div class="v">— · 来源待核对；存在无效或超限 task ledger，未返回部分指标</div></div>';
-      const rate = durationKnown ? Number(duration.rate || 0) : 0;
-      const pct = Math.max(0, Math.min(100, Math.round(rate * 100)));
-      durationBox.innerHTML = durationKnown
-        ? '<div class="stack"><div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div><p><strong>' + pct + '%</strong> · ' + escapeHtml(String(duration.within_tolerance || 0)) + ' / ' + escapeHtml(String(duration.total || 0)) + ' 集在目标 ±' + escapeHtml(String(duration.tolerance_seconds || 3)) + ' 秒内</p></div>'
-        : '<p class="muted">— · 时长来源待核对，未知记录不纳入统计。</p>';
-      const hookRows = data.hook_types || [];
-      hooksBox.innerHTML = hookRows.length
-        ? tableScroll('<table class="table"><thead><tr><th>类型</th><th>集数</th></tr></thead><tbody>' + hookRows.map(function (row) { return '<tr><td>' + escapeHtml(row.type || "(unknown)") + '</td><td>' + escapeHtml(String(row.count || 0)) + '</td></tr>'; }).join("") + '</tbody></table>')
-        : '<p class="muted">' + (durationKnown ? '尚无已组装剧集。' : '来源待核对，暂不展示确定性分布。') + '</p>';
-    } catch (err) {
-      summaryBox.innerHTML = renderErrorCard(err);
-      costBox.innerHTML = renderErrorCard(err);
-      metricsBox.innerHTML = "";
-      durationBox.innerHTML = "";
-      hooksBox.innerHTML = "";
-    }
-  }
-
-  function renderDramaReviewCard(review) {
-    const sub = review.sub_scores || {};
-    const keys = ["hook", "pace", "ai_friendly", "character_consistency", "cliffhanger"];
-    const labels = { hook: "开场钩子", pace: "节奏", ai_friendly: "AI 制作友好度", character_consistency: "角色一致性", cliffhanger: "结尾钩子" };
-    const bars = keys.map(function (k) {
-      const v = sub[k];
-      const pct = (v == null ? 0 : Math.max(0, Math.min(10, Number(v))) * 10);
-      return '<div class="subscore-bar"><span class="label">' + escapeHtml(labels[k] || k) + '</span><div class="track"><i style="width:' + pct + '%"></i></div><span class="val">' + (v == null ? "—" : escapeHtml(String(v))) + '</span></div>';
-    }).join("");
-    const issues = (review.issues || []).map(function (it) { return '<li>' + escapeHtml(String(it)) + '</li>'; }).join("");
-    return '<div class="review-card"><div><div class="name">短剧评审</div><div class="verdict">' + verdictBadge(review.verdict || "") + '<span class="muted" style="margin-left:6px">总分 ' + escapeHtml(String(review.score == null ? "—" : review.score)) + '</span></div></div><div class="stack">' + bars + (issues ? '<ul>' + issues + '</ul>' : '') + '</div></div>';
-  }
-
-  function renderDramaSuggestion(suggestion, idx) {
-    return '<div class="advisor-item">' +
-      '<span class="type">' + escapeHtml(suggestion.station || "") + '</span>' +
-      '<div class="section">' + escapeHtml(suggestion.field || (suggestion.shot_no ? "shot " + suggestion.shot_no : "")) + '</div>' +
-      '<div class="guidance">' + escapeHtml(suggestion.reason || "") + '</div>' +
-      '<pre>' + escapeHtml(suggestion.new_value || "") + '</pre>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-drama-apply-suggestion="' + idx + '">应用建议</button>' +
-      '</div>';
-  }
-
-  function bindDramaSuggestionActions(root) {
-    root.querySelectorAll("[data-drama-apply-suggestion]").forEach(function (btn) {
-      btn.addEventListener("click", async function () {
-        const data = await fetchJson(wsUrl("/drama/episode/" + encodeURIComponent(String(CHAPTER_NO || 1))));
-        const review = data.review || {};
-        const suggestions = review.suggestions || [];
-        const idx = Number(btn.getAttribute("data-drama-apply-suggestion"));
-        const suggestion = suggestions[idx];
-        if (!suggestion) return;
-        btn.disabled = true;
-        try {
-          await postJson(wsUrl("/drama/apply-suggestion"), { episode_no: CHAPTER_NO || 1, suggestion: suggestion });
-          showToast("建议已应用，请重新评审并组装", "info");
-          await initDramaEpisodeDetail();
-        } catch (err) {
-          showToast("应用失败：" + errTitle(err), "error");
-          btn.disabled = false;
-        }
-      });
-    });
-  }
-
   // ===== page: jobs =======================================================
   function formatJobTimestamp(value) {
     const seconds = Number(value);
@@ -9426,115 +6452,7 @@ JS_DASHBOARD = """\
       '<th>任务</th><th>状态</th><th>耗时</th><th>输入 / 输出文字用量</th><th>尝试</th>' +
       '</tr></thead><tbody>' + body + '</tbody></table>');
   }
-  async function initDramaJobsLegacy() {
-    ensureJobCancelDelegate();
-    const recentBox = document.getElementById("jobs-recent");
-    const logsBox = document.getElementById("jobs-logs");
-    if (recentBox) recentBox.innerHTML = skeleton(4);
-    if (logsBox) logsBox.innerHTML = "";
-    try {
-      const data = await fetchJson(wsUrl("/jobs/recent?n=20"));
-      const items = Array.isArray(data.jobs) ? data.jobs : [];
-      if (!items.length) {
-        recentBox.innerHTML = emptyState("还没有任务记录", "从创作台开始一个阶段后，任务会按已保存状态出现在这里。", '<a class="btn btn-primary" data-leave-guard href="' + wsHref("/write") + '">进入创作台</a>');
-      } else {
-        function groupFor(job) {
-          const status = String(job.status || "unknown").toLowerCase();
-          return status === "running" || status === "pending" ? "active" : status === "succeeded" ? "done" : "attention";
-        }
-        function safeNote(job) {
-          const status = String(job.status || "unknown").toLowerCase();
-          if (job.persistence_degraded === true) return "任务记录未完整保存；请停留此页并刷新核对，重启后可能无法恢复。";
-          if (status === "submission_unknown" || !STATUS_LABELS[status]) return "先查询已提交任务与账单；系统不会自动重试。";
-          if (status === "lost") return "任务因服务重启中断；可前往对应页面核对已保存状态，系统不会自动重试。";
-          if (status === "blocked") return "当前条件未满足；已保存内容保持不变。";
-          if (status === "failed") return "任务未完成；请先查看对应页面的公开原因。";
-          if (["aborted", "cancelled", "canceled"].indexOf(status) >= 0) return "取消已生效；已有结果不会被清除。";
-          if (status === "error" || status === "retry_error") return "任务已结束但未完成；请核对公开状态后再决定。";
-          if (status === "budget_exceeded") return "授权额度不足；不会继续提交。";
-          if (status === "succeeded") return "结果已保存，可前往对应页面查看。";
-          return status === "running" ? "正在处理，可请求取消。" : "已进入队列，刷新后可恢复状态。";
-        }
-        function resultHref(job) {
-          const context = job && job.result_context;
-          const contextWorkspace = context && typeof context.workspace === "string" ? context.workspace : "";
-          const ep = context && typeof context.episode_no === "number" ? context.episode_no : 0;
-          if (!/^[a-zA-Z0-9_\u4e00-\u9fff](?:[a-zA-Z0-9_\u4e00-\u9fff-]{0,30}[a-zA-Z0-9_\u4e00-\u9fff])?$/.test(contextWorkspace)) return "";
-          if (contextWorkspace === "legacy" || contextWorkspace === "_trash") return "";
-          if (!Number.isInteger(ep) || ep < 1 || ep > 100) return "";
-          const suffix = job.step === "drama-compose" ? "/compose" :
-            job.step === "drama-video" ? "/shot-videos" :
-            job.step === "drama-local-demo" ? "/compose" :
-            job.step && job.step.indexOf("drama-") === 0 ? "/write" : "/";
-          const episodeParam = suffix === "/write" ? "episode" : "episode_no";
-          const base = "/w/" + encodeURIComponent(contextWorkspace) + suffix;
-          return base + (suffix === "/" ? "" : "?" + episodeParam + "=" + encodeURIComponent(String(ep)));
-        }
-        function actionFor(job, index) {
-          const status = String(job.status || "unknown").toLowerCase();
-          const href = resultHref(job);
-          if (status === "running" || status === "pending") return '<button type="button" class="btn btn-secondary" data-drama-cancel-index="' + index + '">请求取消</button>';
-          if (status === "submission_unknown" || !STATUS_LABELS[status]) return '<button type="button" class="btn btn-primary" data-refresh-jobs>查询状态</button>';
-          if (status === "lost") return href
-            ? '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(href) + '">查看恢复条件</a>'
-            : '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button>';
-          if (status === "succeeded" && href) return '<a class="btn btn-primary" data-leave-guard href="' + escapeHtml(href) + '">查看结果</a>';
-          if (status === "succeeded") return '<span class="muted">任务已完成，但结果上下文不可用</span>';
-          if (job.retryable === true && job.step === "drama-compose" && href) return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(href) + '">前往合成页恢复</a>';
-          if (job.retryable === true) return '<button type="button" class="btn btn-secondary" data-drama-retry-index="' + index + '">重新开始</button>';
-          if (href) return '<a class="btn btn-secondary" data-leave-guard href="' + escapeHtml(href) + '">查看处理条件</a>';
-          return '<span class="muted">任务结果上下文不可用</span>';
-        }
-        const rows = items.map(function (job, index) {
-          const group = groupFor(job);
-          const status = String(job.status || "unknown").toLowerCase();
-          const tone = status === "failed" || status === "blocked" ? "danger" : group === "attention" ? "warning" : group;
-          return '<article class="drama-job-card" data-job-card data-job-group="' + group + '" data-tone="' + tone + '">' +
-            '<button type="button" class="drama-job-select" data-drama-job-index="' + index + '" aria-controls="drama-job-detail" aria-label="展开任务详情"><span class="drama-job-dot" aria-hidden="true"></span><span><strong>' + escapeHtml(stepLabel(job.step)) + '</strong><small>' + escapeHtml(formatJobTimestamp(job.finished_at || job.started_at)) + '</small></span></button>' +
-            '<div class="drama-job-state">' + statusBadge(status) + '<p>' + escapeHtml(safeNote(job)) + '</p></div>' +
-            '<div class="drama-job-action">' + actionFor(job, index) + '</div></article>';
-        }).join("");
-        let initialIndex = items.findIndex(function (job) { return ["lost", "submission_unknown"].indexOf(String(job.status || "").toLowerCase()) >= 0; });
-        if (initialIndex < 0) initialIndex = items.findIndex(function (job) { return groupFor(job) === "attention"; });
-        if (initialIndex < 0) initialIndex = 0;
-        recentBox.innerHTML = '<div class="drama-jobs-layout"><div class="drama-job-list">' + rows + '<div id="jobs-empty-filter" hidden></div></div><aside class="drama-job-detail" id="drama-job-detail" aria-live="polite"></aside></div>';
-        function showDetail(index) {
-          const job = items[index] || items[0];
-          if (!job) return;
-          const detail = document.getElementById("drama-job-detail");
-          if (!detail) return;
-          const group = groupFor(job);
-          detail.innerHTML = '<p class="eyebrow">当前任务</p><h2>' + escapeHtml(stepLabel(job.step)) + '</h2>' + statusBadge(job.status || "unknown") + '<p>' + escapeHtml(safeNote(job)) + '</p><dl class="drama-job-facts"><div><dt>阶段</dt><dd>' + (group === "active" ? "进行中" : group === "done" ? "已结束" : "需要处理") + '</dd></div><div><dt>最近更新</dt><dd>' + escapeHtml(formatJobTimestamp(job.finished_at || job.started_at)) + '</dd></div></dl><div class="form-actions">' + actionFor(job, index) + '</div>';
-          recentBox.querySelectorAll("[data-drama-job-index]").forEach(function (button) { button.setAttribute("aria-current", button.dataset.dramaJobIndex === String(index) ? "true" : "false"); });
-        }
-        showDetail(initialIndex);
-        recentBox.onclick = function (ev) {
-          const select = ev.target.closest("[data-drama-job-index]");
-          if (select) { showDetail(Number(select.dataset.dramaJobIndex)); return; }
-          if (ev.target.closest("[data-refresh-jobs]")) { initDramaJobsLegacy(); return; }
-          const cancel = ev.target.closest("[data-drama-cancel-index]");
-          if (cancel) {
-            const job = items[Number(cancel.dataset.dramaCancelIndex)];
-            if (!job || !job.job_id) return;
-            cancel.disabled = true;
-            postJson(wsUrl("/job/" + encodeURIComponent(job.job_id) + "/cancel")).then(initDramaJobsLegacy).catch(function (err) { cancel.disabled = false; showToast("取消失败：" + errTitle(err), "error"); });
-            return;
-          }
-          const retry = ev.target.closest("[data-drama-retry-index]");
-          if (retry) retryJob(items[Number(retry.dataset.dramaRetryIndex)], retry);
-        };
-        bindJobFilters();
-      }
-    } catch (err) {
-      recentBox.innerHTML = publicLoadError("任务状态没有读取成功", "已保存内容不受影响；不会自动重新开始任何任务。", '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button>');
-      recentBox.onclick = function (ev) { if (ev.target.closest("[data-refresh-jobs]")) initDramaJobsLegacy(); };
-    }
-    document.querySelectorAll(".drama-jobs-header [data-refresh-jobs]").forEach(function (button) {
-      button.onclick = initDramaJobsLegacy;
-    });
-  }
   async function initJobs() {
-    if (document.querySelector(".ui-drama")) return initDramaJobsLegacy();
     bindCtaActions();
     ensureJobCancelDelegate();
     const recentBox = document.getElementById("jobs-recent");
@@ -9565,7 +6483,7 @@ JS_DASHBOARD = """\
           } else if (jobActionKind(job) === "retry_exhausted") {
             action = renderJobPageCta("retry_exhausted", job);
           } else if (job.retryable === true) {
-            const paid = isPaidNovelJobStep(job.step) && !document.querySelector(".ui-drama");
+            const paid = isPaidNovelJobStep(job.step);
             action = '<button type="button" class="btn ' + (paid ? "btn-paid" : "btn-secondary") + '" data-job-retry="' + escapeHtml(job.job_id || "") + '"' + (paid ? ' data-ui-action="paid"' : '') + '>重新开始</button>';
           } else {
             action = renderJobPageCta(jobActionKind(job), job) || '<a class="btn btn-secondary" href="' + wsHref("/workbench") + '">返回工作台</a>';
@@ -9618,16 +6536,6 @@ JS_DASHBOARD = """\
         empty.innerHTML = shown ? "" : emptyState("当前筛选没有任务", "切换到其他分类，或刷新已保存状态。", '<button type="button" class="btn btn-secondary" data-job-filter="all">查看全部</button>');
       }
       if (live) live.textContent = "显示 " + shown + " 项任务。";
-      const selected = cards.find(function (card) { return !card.hidden && card.querySelector('[aria-current="true"]'); });
-      if (!selected) {
-        const firstVisible = cards.find(function (card) { return !card.hidden; });
-        const selector = firstVisible && firstVisible.querySelector("[data-drama-job-index]");
-        if (selector) selector.click();
-        else {
-          const detail = document.getElementById("drama-job-detail");
-          if (detail) detail.innerHTML = '<p class="muted">当前筛选没有可显示的任务。</p>';
-        }
-      }
     }
     buttons.forEach(function (button) { button.addEventListener("click", function () { apply(button.dataset.jobFilter || "all"); }); });
     const recentBox = document.getElementById("jobs-recent");
@@ -9637,1575 +6545,12 @@ JS_DASHBOARD = """\
     apply("all");
   }
 
-  // ---- drama asset governance (iter129) ---------------------------------
-  function moveListboxSelection(ev, selector) {
-    if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].includes(ev.key)) return;
-    const current = ev.target.closest(selector);
-    if (!current) return;
-    const list = Array.from(current.parentElement.querySelectorAll(selector));
-    if (!list.length) return;
-    ev.preventDefault();
-    const index = list.indexOf(current);
-    let next = index;
-    if (ev.key === "Home") next = 0;
-    else if (ev.key === "End") next = list.length - 1;
-    else if (ev.key === "ArrowDown" || ev.key === "ArrowRight") next = (index + 1) % list.length;
-    else next = (index - 1 + list.length) % list.length;
-    list[next].focus();
-    list[next].click();
-  }
-
-  function assetReferenceText(refs) {
-    refs = refs || [];
-    if (!refs.length) return "尚未被已冻结分镜引用";
-    return refs.map(function (ref) {
-      const shots = (ref.shot_ids || []).length
-        ? " · " + Number(ref.shot_ids.length) + " 个镜头"
-        : "";
-      return "第 " + Number(ref.season_no) + " 季 / 第 " +
-        Number(ref.episode_no) + " 集" + shots;
-    }).join("；");
-  }
-
-  function assetPublicLabel(item, index) {
-    const kind = ({
-      character: "角色", art_direction: "美术方向", scene: "场景",
-      prop: "道具", clue: "线索",
-    })[item.kind] || "资产";
-    const scope = item.scope
-      ? " · " + ({ series: "整季", global: "全局", episode: "本集" }[item.scope] || "指定范围")
-      : "";
-    return kind + " " + String(index + 1).padStart(2, "0") + scope;
-  }
-
-  function assetSectionReason(section) {
-    return ({
-      fresh: "当前来源与选择可用。",
-      missing: "尚未建立此类资产。",
-      stale: "上游内容已变化，请先刷新相关资产。",
-      blocked_source: "上游创作或引用尚未就绪。",
-      invalid: "当前资产记录无法安全使用，变更已阻断。",
-    })[section.state] || "当前状态需要刷新后确认。";
-  }
-
-  function renderDramaAssetVersion(item, version, overview, versionIndex, sectionIndex, itemIndex) {
-    const selected = !!version.selected;
-    const disabled = version.status === "disabled";
-    const refs = version.references || [];
-    const selectAttrs = [
-      'data-asset-select',
-      'data-section-index="' + Number(sectionIndex) + '"',
-      'data-item-index="' + Number(itemIndex) + '"',
-      'data-version-index="' + Number(versionIndex) + '"',
-    ];
-    if (!version.selection_allowed) {
-      if (disabled) {
-        selectAttrs.push('title="当前季已停用，不能选择该版本"');
-        selectAttrs.push('aria-label="该版本当前季已停用，不能选择"');
-      } else {
-        selectAttrs.push('title="跨季治理阻断：其他季已停用或治理状态无效"');
-        selectAttrs.push('aria-label="该版本当前季可用，但跨季不可选择"');
-      }
-    }
-    const selectButton = selected
-      ? '<span class="badge success">当前使用</span>'
-      : '<button type="button" class="btn btn-secondary btn-sm" ' +
-          selectAttrs.join(" ") +
-          (disabled || !version.selection_allowed || !item.impact_complete ? " disabled" : "") +
-          '>设为当前</button>';
-    const statusButton =
-      '<button type="button" class="btn btn-secondary btn-sm" data-asset-status ' +
-      'data-section-index="' + Number(sectionIndex) + '" ' +
-      'data-item-index="' + Number(itemIndex) + '" ' +
-      'data-version-index="' + Number(versionIndex) + '" ' +
-      (overview.mutation_allowed || disabled ? "" : "disabled ") + '>' +
-      (disabled ? "重新启用" : "停用") + '</button>';
-    const statusLabel = disabled
-      ? '<span class="badge warning">已停用</span>'
-      : (!version.selection_allowed
-          ? '<span class="badge warning">当前季可用</span>' +
-            '<div class="hint">跨季不可选择：其他季已停用或治理状态无效</div>'
-          : '<span class="badge success">可用</span>');
-    const impact = refs.length
-      ? "用于 " + refs.length + " 处已冻结引用"
-      : "尚未进入已冻结镜头";
-    return (
-      '<article class="asset-version-row" data-selected="' + String(selected) +
-      '" data-state="' + escapeHtml(disabled ? "off" : "on") + '">' +
-      '<div><p class="candidate-title">版本 ' + Number(versionIndex + 1) +
-      (selected ? " · 当前使用" : "") + '</p><div class="cluster">' + statusLabel + '</div>' +
-      '<p class="hint">' + escapeHtml(impact) + '</p>' +
-      '<p class="hint">' + escapeHtml(assetReferenceText(refs)) + '</p></div>' +
-      '<div class="asset-version-actions">' + selectButton + statusButton + '</div></article>'
-    );
-  }
-
-  function renderDramaAssetItem(item, overview, itemIndex, panelId, sectionIndex, sectionState) {
-    const stale = (item.stale_references || []).length
-      ? '<p class="hint">切换后需重建的既有冻结引用：' +
-          escapeHtml(assetReferenceText(item.stale_references)) + '</p>'
-      : '<p class="hint">当前选中版本没有冻结引用。</p>';
-    let scopeToggle = "";
-    if ((item.scope === "global" || item.scope === "episode") && item.scope_revision != null) {
-      const selectedVersion = (item.versions || []).find(function (version) {
-        return version.selected;
-      });
-      const scopeBlocked = !item.impact_complete ||
-        (!item.enabled && selectedVersion && !selectedVersion.selection_allowed);
-      const scopeTitle = (!item.enabled && selectedVersion && !selectedVersion.selection_allowed)
-        ? (selectedVersion.status === "disabled"
-            ? 'title="当前季版本已停用，不能重新启用该覆盖" ' +
-              'aria-label="当前季版本已停用，该覆盖不可重新启用" '
-            : 'title="跨季治理阻断：其他季已停用或治理状态无效" ' +
-              'aria-label="该覆盖因跨季治理阻断而不可重新启用" ')
-        : "";
-      scopeToggle =
-        '<button type="button" class="btn btn-secondary btn-sm" data-art-scope-toggle ' +
-        'data-section-index="' + Number(sectionIndex) + '" ' +
-        'data-item-index="' + Number(itemIndex) + '" ' +
-        scopeTitle +
-        (scopeBlocked ? "disabled " : "") +
-        '>' + (item.enabled ? "清除覆盖" : "重新启用覆盖") + '</button>';
-    }
-    const label = assetPublicLabel(item, itemIndex);
-    const selectedVersion = (item.versions || []).find(function (version) { return version.selected; });
-    const state = !item.impact_complete || ["blocked_source", "invalid"].includes(sectionState)
-      ? "blocked"
-      : sectionState === "stale" ? "attention" : "ready";
-    const impactCount = (item.stale_references || []).reduce(function (total, ref) {
-      return total + Math.max(1, (ref.shot_ids || []).length);
-    }, 0);
-    return {
-      button: '<button type="button" role="option" class="asset-item-button" data-asset-item-open="' +
-        escapeHtml(panelId) + '" data-state="' + state + '" aria-controls="' +
-        escapeHtml(panelId) + '" aria-selected="' +
-        String(itemIndex === 0) + '"><strong>' + escapeHtml(label) + '</strong>' +
-        '<span class="hint">' + (selectedVersion ? "已有当前版本" : "缺少当前版本") +
-        ' · ' + (item.versions || []).length + ' 个版本</span>' +
-        '<span class="badge ' + (state === "ready" ? "success" : "warning") + '">' +
-        (state === "ready" ? (impactCount ? "切换影响 " + impactCount + " 个镜头" : "可用") :
-          state === "attention" ? "上游变化待处理" : "变更已阻断") +
-        '</span></button>',
-      panel: '<article id="' + escapeHtml(panelId) + '" class="asset-detail-panel"' +
-        (itemIndex === 0 ? "" : " hidden") + '><div class="asset-version-panel">' +
-        '<div class="section-title"><div><p class="eyebrow ornament">版本历史</p><h3>' +
-        escapeHtml(label) + '</h3>' + stale + '</div>' + scopeToggle + '</div>' +
-        '<div class="asset-version-list">' + (item.versions || []).map(function (version, index) {
-          return renderDramaAssetVersion(item, version, overview, index, sectionIndex, itemIndex);
-        }).join("") + '</div></div></article>',
-    };
-  }
-
-  function renderDramaAssetOverview(overview) {
-    const sectionLabels = {
-      characters: "角色",
-      art_direction_series: "美术方向 · 整季",
-      art_direction_global: "美术方向 · 全局",
-      art_direction_episode: "美术方向 · 本集",
-      scenes: "场景",
-      props_and_clues: "道具与线索",
-    };
-    const blockers = overview.blockers || [];
-    const summary =
-      '<div class="asset-governance-summary">' +
-      '<div class="cluster"><span class="badge ' + (blockers.length ? "warning" : "success") + '">' +
-      (blockers.length ? "影响范围待核对" : "影响范围已更新") + '</span>' +
-      '<span class="muted">已扫描第 ' +
-      ((overview.scanned_episode_nos || []).map(Number).join("、") || "—") +
-      ' 集</span></div>' +
-      (blockers.length
-        ? '<p class="hint">有 ' + Number(blockers.length) +
-          ' 项来源暂时无法安全读取；资产变更保持阻断，请刷新或先补齐上游。</p>'
-        : "") +
-      '</div>';
-    const categoryGroups = [
-      { label: "角色", keys: ["characters"] },
-      { label: "场景", keys: ["scenes"] },
-      { label: "道具 / 线索", keys: ["props_and_clues"] },
-      { label: "美术方向", keys: ["art_direction_series", "art_direction_global", "art_direction_episode"] },
-    ];
-    const categoryNav = '<div class="asset-category-nav" role="group" aria-label="资产类型">' +
-      categoryGroups.map(function (group, index) {
-        const sectionIndex = (overview.sections || []).findIndex(function (section) {
-          return group.keys.indexOf(section.key) >= 0;
-        });
-        const count = (overview.sections || []).filter(function (section) {
-          return group.keys.indexOf(section.key) >= 0;
-        }).reduce(function (total, section) { return total + (section.items || []).length; }, 0);
-        return '<button type="button" class="btn ' + (index === 0 ? "btn-primary" : "btn-ghost") +
-          ' btn-sm" data-asset-category-open="' + Number(index) +
-          '" aria-pressed="' + String(index === 0) + '">' + escapeHtml(group.label) +
-          ' ' + Number(count) + '</button>';
-      }).join("") + '</div>';
-    const sections = (overview.sections || []).map(function (section, sectionIndex) {
-      const label = sectionLabels[section.key] || section.key;
-      const stateText = {
-        fresh: "就绪",
-        missing: "尚未建立",
-        stale: "已过期",
-        blocked_source: "上游未就绪",
-        invalid: "无效（已阻断变更）",
-      }[section.state] || "状态待核对";
-      const rendered = (section.items || []).map(function (item, index) {
-        return renderDramaAssetItem(item, overview, index, "asset-detail-" +
-          Number(sectionIndex + 1) + "-" + Number(index + 1), sectionIndex, section.state);
-      });
-      const body = rendered.length
-        ? '<div class="asset-section-layout"><div class="asset-item-list" role="listbox" aria-label="' +
-          escapeHtml(label) + '">' + rendered.map(function (entry) { return entry.button; }).join("") +
-          '</div><div>' + rendered.map(function (entry) { return entry.panel; }).join("") + '</div></div>'
-        : emptyState(stateText, assetSectionReason(section), "");
-      return (
-        '<section class="section asset-category-section" data-asset-category="' +
-        Number(categoryGroups.findIndex(function (group) { return group.keys.indexOf(section.key) >= 0; })) +
-        '"' + (categoryGroups[0].keys.indexOf(section.key) >= 0 ? "" : " hidden") +
-        ' id="asset-section-' + Number((overview.sections || []).indexOf(section) + 1) +
-        '"><div class="section-title"><div><h2>' + escapeHtml(label) +
-        '</h2><p class="hint">' + escapeHtml(assetSectionReason(section)) + '</p></div>' +
-        '<span class="badge ' + (section.state === "fresh" ? "success" : "warning") + '">' +
-        escapeHtml(stateText) + '</span></div>' + body + '</section>'
-      );
-    }).join("");
-    return summary + categoryNav + sections;
-  }
-
-  function assetMutationOptions() {
-    return {
-      headers: {
-        "Content-Type": "application/json",
-        "X-Drama-Asset-Intent": "mutate-v1",
-      },
-    };
-  }
-
-  async function initDramaAssets() {
-    const root = document.getElementById("assets-page-root");
-    if (!root) return;
-    const episodeInput = document.getElementById("asset-episode-no");
-    const refresh = document.getElementById("asset-refresh");
-    let overview = null;
-    hydrateDramaEpisodeInput(episodeInput);
-    function episodeNo() {
-      return dramaEpisodeFromInput(episodeInput);
-    }
-    async function load() {
-      root.setAttribute("aria-busy", "true");
-      try {
-        overview = await fetchJson(
-          wsUrl("/drama/assets?season_no=1&episode_no=" + encodeURIComponent(episodeNo()))
-        );
-        root.innerHTML = renderDramaAssetOverview(overview);
-      } catch (err) {
-        root.innerHTML = renderErrorCard(err);
-      } finally {
-        root.removeAttribute("aria-busy");
-      }
-    }
-    if (refresh) refresh.addEventListener("click", load);
-    if (episodeInput) episodeInput.addEventListener("change", load);
-    root.addEventListener("keydown", function (ev) { moveListboxSelection(ev, "[data-asset-item-open]"); });
-    root.addEventListener("click", async function (ev) {
-      const category = ev.target.closest("[data-asset-category-open]");
-      if (category) {
-        const group = category.dataset.assetCategoryOpen;
-        root.querySelectorAll("[data-asset-category-open]").forEach(function (button) {
-          const active = button === category;
-          button.setAttribute("aria-pressed", String(active));
-          button.classList.toggle("btn-primary", active);
-          button.classList.toggle("btn-ghost", !active);
-        });
-        root.querySelectorAll(".asset-category-section").forEach(function (section) {
-          section.hidden = section.dataset.assetCategory !== group;
-        });
-        return;
-      }
-      const opener = ev.target.closest("[data-asset-item-open]");
-      if (opener) {
-        const list = opener.closest(".asset-item-list");
-        const layout = opener.closest(".asset-section-layout");
-        if (list && layout) {
-          list.querySelectorAll("[data-asset-item-open]").forEach(function (button) {
-            button.setAttribute("aria-selected", button === opener ? "true" : "false");
-          });
-          layout.querySelectorAll(".asset-detail-panel").forEach(function (panel) {
-            panel.hidden = panel.id !== opener.dataset.assetItemOpen;
-          });
-        }
-        return;
-      }
-      const select = ev.target.closest("[data-asset-select]");
-      const status = ev.target.closest("[data-asset-status]");
-      const scope = ev.target.closest("[data-art-scope-toggle]");
-      if (!select && !status && !scope) return;
-      const button = select || status || scope;
-      const section = overview && (overview.sections || [])[Number(button.dataset.sectionIndex)];
-      const item = section && (section.items || [])[Number(button.dataset.itemIndex)];
-      const version = item && button.dataset.versionIndex != null
-        ? (item.versions || [])[Number(button.dataset.versionIndex)]
-        : null;
-      if (!item || ((select || status) && !version)) return;
-      button.disabled = true;
-      try {
-        let result;
-        if (select) {
-          const payload = {
-            kind: item.kind,
-            asset_id: item.asset_id,
-            version_id: version.version_id,
-            expected_selection_revision: Number(item.selection_revision),
-            expected_selected_version_id: item.selected_version_id,
-            season_no: Number(overview.season_no),
-            view_episode_no: episodeNo(),
-          };
-          if (item.scope) payload.scope = item.scope;
-          if (item.episode_no) payload.episode_no = Number(item.episode_no);
-          result = await postJson(
-            wsUrl("/drama/assets/select"),
-            payload,
-            assetMutationOptions()
-          );
-        } else if (status) {
-          const current = version.status;
-          result = await postJson(
-            wsUrl("/drama/assets/status"),
-            {
-              kind: item.kind,
-              asset_id: item.asset_id,
-              version_id: version.version_id,
-              status: current === "disabled" ? "active" : "disabled",
-              expected_revision: Number(overview.retirement_revision),
-              expected_current_status: current,
-              season_no: 1,
-              view_episode_no: episodeNo(),
-            },
-            assetMutationOptions()
-          );
-        } else {
-          const enabled = !!item.enabled;
-          const payload = {
-            scope: item.scope,
-            enabled: !enabled,
-            expected_scope_revision: Number(item.scope_revision),
-            expected_enabled: enabled,
-            view_episode_no: episodeNo(),
-          };
-          if (item.scope === "episode") {
-            payload.season_no = Number(overview.season_no);
-            payload.episode_no = Number(item.episode_no);
-          }
-          result = await postJson(
-            wsUrl("/drama/assets/art-direction-scope"),
-            payload,
-            assetMutationOptions()
-          );
-        }
-        overview = result.overview;
-        root.innerHTML = renderDramaAssetOverview(overview);
-        const affected = (result.affected_references || []).length;
-        showToast(
-          (result.changed ? "资产状态已更新" : "状态未变化") +
-          (affected ? "；影响 " + affected + " 个集级引用" : ""),
-          "success"
-        );
-      } catch (err) {
-        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
-        if (err && err.status === 409) {
-          await load();
-        } else {
-          button.disabled = false;
-        }
-      }
-    });
-    await load();
-  }
-
-  // ---- C2 shot image candidate compare/select (iter130) ----------------
-  function shotImageBindingText(binding, shot) {
-    if (!binding) return "未选择";
-    if (binding.kind === "none") return "不使用尾帧";
-    if (binding.kind === "previous_tail") {
-      return "沿用上一镜尾帧";
-    }
-    const index = (shot && shot.candidates || []).findIndex(function (candidate) {
-      return candidate.candidate_id === binding.candidate_id;
-    });
-    return index >= 0 ? "候选 " + String.fromCharCode(65 + index) : "当前已选候选";
-  }
-
-  function shotImageStateText(state) {
-    return ({
-      needs_shot_image_assets: "尚未建立候选清单",
-      fresh: "候选清单有效",
-      stale: "候选或来源已过期",
-      invalid: "候选清单无效",
-      blocked_source: "上游未就绪",
-    })[state] || "状态待核对";
-  }
-
-  function shotImageCoverageText(state) {
-    return ({
-      covered: "首帧已选择", missing: "缺少首帧", blocked: "来源阻塞",
-      stale: "选择已过期", broken: "首尾关系需修复",
-    })[state] || "状态待核对";
-  }
-
-  function renderShotImageCandidate(candidate, mutationAllowed, shotIndex, candidateIndex) {
-    const badges = [];
-    if (candidate.selected_first) badges.push('<span class="badge success">首帧</span>');
-    if (candidate.selected_tail) badges.push('<span class="badge success">尾帧</span>');
-    if (!candidate.current) badges.push('<span class="badge warning">历史候选 · 只读</span>');
-    const candidateLabel = "候选 " + String.fromCharCode(65 + candidateIndex);
-    const identity = candidateLabel + (candidate.current ? "" : "（历史候选，只读）");
-    return (
-      '<article class="shot-image-candidate" data-selected="' +
-      String(candidate.selected_first || candidate.selected_tail) + '" data-current="' +
-      String(candidate.current) + '">' +
-      '<img data-shot-image-preview data-shot-index="' + Number(shotIndex) +
-      '" data-candidate-index="' + Number(candidateIndex) + '" alt="' +
-      escapeHtml(candidateLabel + "安全图片预览") + '" loading="lazy">' +
-      '<div class="candidate-body"><div class="cluster">' + badges.join("") + '</div>' +
-      '<p class="candidate-title">' + escapeHtml(candidateLabel) + '</p>' +
-      '<p class="hint">' + Number(candidate.width) + "×" + Number(candidate.height) +
-      (candidate.current ? " · 当前来源" : " · 上游已变化") + '</p>' +
-      '<div class="cluster">' +
-      '<button type="button" class="btn btn-ghost btn-sm" data-shot-image-compare ' +
-      'data-shot-index="' + Number(shotIndex) + '" data-candidate-index="' +
-      Number(candidateIndex) + '" aria-pressed="false" aria-label="' +
-      escapeHtml("加入对比：" + identity) +
-      '">加入对比</button>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-shot-image-select="first" ' +
-      'data-shot-index="' + Number(shotIndex) + '" data-candidate-index="' +
-      Number(candidateIndex) + '" aria-label="' +
-      escapeHtml((candidate.selected_first ? "当前首帧：" : "设为首帧：") + identity) + '"' +
-      (!mutationAllowed || !candidate.current || candidate.selected_first ? " disabled" : "") +
-      '>设为首帧</button>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-shot-image-select="tail" ' +
-      'data-shot-index="' + Number(shotIndex) + '" data-candidate-index="' +
-      Number(candidateIndex) + '" aria-label="' +
-      escapeHtml((candidate.selected_tail ? "当前尾帧：" : "设为尾帧：") + identity) + '"' +
-      (!mutationAllowed || !candidate.current || candidate.selected_tail ? " disabled" : "") +
-      '>设为尾帧</button>' +
-      '</div></div></article>'
-    );
-  }
-
-  function renderShotImageOverview(overview, needsOnly) {
-    const state = shotImageStateText(overview.state);
-    const summary =
-      '<div class="media-overview-summary"><div class="cluster">' +
-      '<span class="badge ' + (overview.state === "fresh" ? "success" : "warning") + '">' +
-      escapeHtml(state) + '</span>' +
-      (overview.coverage
-        ? '<span class="muted">整集覆盖：' +
-          escapeHtml(({ ready: "完整", incomplete: "待补充", stale: "需更新", blocked_source: "来源阻塞" })[overview.coverage.status] || "待核对") + '</span>'
-        : "") +
-      '</div>' +
-      ((overview.reasons || []).length
-        ? '<p class="hint">有 ' + Number(overview.reasons.length) + ' 项来源需要处理；选择保持只读。</p>'
-        : "") +
-      (!overview.mutation_allowed && overview.manifest_fingerprint
-        ? '<p class="hint">当前来源已变化；候选可预览比较，但需先更新镜头图片计划才能选择。</p>'
-        : "") +
-      '</div>';
-    if (!(overview.shots || []).length) {
-      return summary + emptyState("还没有镜头图片候选", state + "。先完成分镜与图片计划，再回到这里刷新。", '<a class="btn btn-primary" href="' + wsHref("/write?episode=" + Number(overview.episode_no || 1) + "&step=storyboard") + '">返回分镜脚本</a>');
-    }
-    const ordered = (overview.shots || []).map(function (shot, index) {
-      return {
-        shot: shot,
-        index: index,
-        issue: shot.coverage_state !== "covered",
-        selected: (shot.candidates || []).some(function (candidate) {
-          return candidate.selected_first || candidate.selected_tail;
-        }),
-      };
-    });
-    const visible = needsOnly
-      ? ordered.filter(function (entry) { return entry.issue || entry.selected; })
-      : ordered;
-    if (!visible.length) {
-      return summary + emptyState("当前没有待处理镜头", "所有镜头的首帧选择均已满足当前覆盖要求。", "");
-    }
-    const list = visible.map(function (entry, visibleIndex) {
-      const shot = entry.shot;
-      return '<button type="button" role="option" class="media-shot-button" data-media-shot-open="image-shot-' +
-        Number(entry.index + 1) + '" data-state="' +
-        (shot.coverage_state === "covered" ? "ready" :
-          shot.coverage_state === "missing" ? "missing" : "attention") +
-        '" aria-controls="image-shot-' + Number(entry.index + 1) +
-        '" aria-selected="' + String(visibleIndex === 0) + '"><strong>镜头 ' +
-        String(entry.index + 1).padStart(2, "0") + '</strong><span class="hint">' +
-        Number((shot.candidates || []).length) + ' 个候选 · ' +
-        escapeHtml(shotImageCoverageText(shot.coverage_state)) + '</span></button>';
-    }).join("");
-    const panels = visible.map(function (entry, visibleIndex) {
-      const shot = entry.shot;
-      const candidates = (shot.candidates || []).length
-        ? '<div class="media-candidate-grid">' + shot.candidates.map(function (candidate, index) {
-            return renderShotImageCandidate(candidate, overview.mutation_allowed, entry.index, index);
-          }).join("") + '</div>'
-        : emptyState("当前镜头还没有图片候选", "生成入口仍遵循现有安全授权；本页不会自动发起生成。", "");
-      return (
-        '<section id="image-shot-' + Number(entry.index + 1) + '" class="media-shot-panel"' +
-        (visibleIndex === 0 ? "" : " hidden") + '><div class="section-title"><div><p class="eyebrow ornament">候选详情</p><h2>镜头 ' +
-        String(entry.index + 1).padStart(2, "0") + '</h2>' +
-        '<p class="hint">首帧：' + escapeHtml(shotImageBindingText(shot.first_binding, shot)) +
-        ' · 尾帧：' + escapeHtml(shotImageBindingText(shot.tail_binding, shot)) + '</p></div>' +
-        '<span class="badge ' + (shot.coverage_state === "covered" ? "success" : "warning") + '">' +
-        escapeHtml(shotImageCoverageText(shot.coverage_state)) + '</span></div>' +
-        '<div class="media-shot-summary"><div><strong>当前首帧</strong><p>' +
-        escapeHtml(shotImageBindingText(shot.first_binding, shot)) + '</p></div>' +
-        '<div><strong>当前尾帧</strong><p>' + escapeHtml(shotImageBindingText(shot.tail_binding, shot)) +
-        '</p></div><div><strong>来源关系</strong><p>' +
-        (shot.affected ? "上游已变化，候选只读" : "当前来源可核对") + '</p></div></div>' +
-        candidates +
-        '<div class="cluster" style="margin-top:12px">' +
-        '<button type="button" class="btn btn-ghost btn-sm" data-shot-image-clear-tail ' +
-        'data-shot-index="' + Number(entry.index) + '" aria-label="' +
-        escapeHtml("清除镜头 " + String(entry.index + 1).padStart(2, "0") + " 的尾帧选择") + '"' +
-        (!overview.mutation_allowed ||
-          (shot.tail_binding && shot.tail_binding.kind === "none") ? " disabled" : "") +
-        '>清除尾帧</button></div></section>'
-      );
-    }).join("");
-    return summary + '<div class="drama-media-browser"><div class="media-shot-list" role="listbox" aria-label="镜头列表">' +
-      list + '</div><div>' + panels + '</div></div>' +
-      '<div class="callout info media-safety-note"><strong>安全边界</strong><span>只读取已登记的安全图片预览；历史或过期候选保持只读，选择与清除继续使用当前版本校验。</span></div>';
-  }
-
-  async function initDramaShotImages() {
-    const root = document.getElementById("shot-images-page-root");
-    if (!root) return;
-    const compareRoot = document.getElementById("shot-image-compare");
-    const episodeInput = document.getElementById("shot-image-episode-no");
-    const refresh = document.getElementById("shot-image-refresh");
-    const needsToggle = document.getElementById("shot-image-needs-toggle");
-    let overview = null;
-    let compared = [];
-    let needsOnly = false;
-    let imageBlobUrls = [];
-    hydrateDramaEpisodeInput(episodeInput);
-    function episodeNo() {
-      return dramaEpisodeFromInput(episodeInput);
-    }
-    function shotAt(index) {
-      return overview && (overview.shots || [])[Number(index)];
-    }
-    function candidateAt(shot, index) {
-      return shot && (shot.candidates || [])[Number(index)];
-    }
-    function revokeImagePreviews() {
-      imageBlobUrls.forEach(function (url) { URL.revokeObjectURL(url); });
-      imageBlobUrls = [];
-    }
-    async function setSafeImagePreview(img, previewUrl) {
-      if (!img || !previewUrl) return;
-      try {
-        const response = await fetch(previewUrl, { credentials: "same-origin" });
-        if (!response.ok) throw new Error("preview unavailable");
-        const blobUrl = URL.createObjectURL(await response.blob());
-        if (!img.isConnected) {
-          URL.revokeObjectURL(blobUrl);
-          return;
-        }
-        imageBlobUrls.push(blobUrl);
-        img.src = blobUrl;
-      } catch (_err) {
-        img.alt += "（暂不可用）";
-      }
-    }
-    function hydrateImagePreviews() {
-      root.querySelectorAll("[data-shot-image-preview]").forEach(function (img) {
-        const shot = shotAt(img.dataset.shotIndex);
-        const candidate = candidateAt(shot, img.dataset.candidateIndex);
-        if (candidate) void setSafeImagePreview(img, candidate.preview_url);
-      });
-    }
-    function hydrateComparedPreviews() {
-      if (!compareRoot) return;
-      compareRoot.querySelectorAll("[data-shot-image-compare-preview]").forEach(function (img) {
-        const candidate = compared[Number(img.dataset.shotImageComparePreview)];
-        if (candidate) void setSafeImagePreview(img, candidate.preview_url);
-      });
-    }
-    function renderCompare() {
-      if (!compareRoot) return;
-      compareRoot.innerHTML = compared.map(function (entry, index) {
-        return '<figure><img data-shot-image-compare-preview="' + Number(index) +
-          '" alt="对比候选 ' + Number(index + 1) + '"><figcaption>对比候选 ' +
-          Number(index + 1) + '</figcaption></figure>';
-      }).join("");
-      hydrateComparedPreviews();
-    }
-    async function load() {
-      root.setAttribute("aria-busy", "true");
-      revokeImagePreviews();
-      compared = [];
-      renderCompare();
-      try {
-        overview = await fetchJson(
-          wsUrl("/drama/shot-images?episode_no=" + encodeURIComponent(episodeNo()))
-        );
-        root.innerHTML = renderShotImageOverview(overview, needsOnly);
-        hydrateImagePreviews();
-      } catch (err) {
-        root.innerHTML = renderErrorCard(err);
-      } finally {
-        root.removeAttribute("aria-busy");
-      }
-    }
-    if (refresh) refresh.addEventListener("click", load);
-    if (episodeInput) episodeInput.addEventListener("change", load);
-    root.addEventListener("keydown", function (ev) { moveListboxSelection(ev, "[data-media-shot-open]"); });
-    if (needsToggle) needsToggle.addEventListener("click", function () {
-      needsOnly = !needsOnly;
-      needsToggle.setAttribute("aria-pressed", String(needsOnly));
-      needsToggle.textContent = needsOnly ? "查看全部镜头" : "只看需处理";
-      if (overview) {
-        revokeImagePreviews();
-        root.innerHTML = renderShotImageOverview(overview, needsOnly);
-        hydrateImagePreviews();
-      }
-    });
-    root.addEventListener("click", async function (ev) {
-      const opener = ev.target.closest("[data-media-shot-open]");
-      if (opener) {
-        const browser = opener.closest(".drama-media-browser");
-        if (browser) {
-          browser.querySelectorAll("[data-media-shot-open]").forEach(function (button) {
-            button.setAttribute("aria-selected", button === opener ? "true" : "false");
-          });
-          browser.querySelectorAll(".media-shot-panel").forEach(function (panel) {
-            panel.hidden = panel.id !== opener.dataset.mediaShotOpen;
-          });
-        }
-        return;
-      }
-      const compare = ev.target.closest("[data-shot-image-compare]");
-      const select = ev.target.closest("[data-shot-image-select]");
-      const clearTail = ev.target.closest("[data-shot-image-clear-tail]");
-      if (compare) {
-        const shot = shotAt(compare.dataset.shotIndex);
-        const candidate = candidateAt(shot, compare.dataset.candidateIndex);
-        if (!candidate) return;
-        const key = shot.shot_id + ":" + candidate.candidate_id;
-        const index = compared.findIndex(function (item) { return item.key === key; });
-        if (index >= 0) {
-          compared.splice(index, 1);
-          compare.setAttribute("aria-pressed", "false");
-          compare.textContent = "加入对比";
-        } else {
-          if (compared.length >= 2) {
-            showToast("一次最多比较两个候选", "warn");
-            return;
-          }
-          compared.push(Object.assign({ key: key }, candidate));
-          compare.setAttribute("aria-pressed", "true");
-          compare.textContent = "移出对比";
-        }
-        renderCompare();
-        return;
-      }
-      if (!select && !clearTail) return;
-      const button = select || clearTail;
-      const shot = shotAt(button.dataset.shotIndex);
-      if (!shot || !overview || !overview.manifest_fingerprint) return;
-      const frame = clearTail ? "tail" : select.dataset.shotImageSelect;
-      const selectedCandidate = clearTail ? null : candidateAt(shot, select.dataset.candidateIndex);
-      if (!clearTail && !selectedCandidate) return;
-      const candidateId = clearTail ? null : selectedCandidate.candidate_id;
-      button.disabled = true;
-      try {
-        const result = await postJson(
-          wsUrl("/drama/shot-images/select"),
-          {
-            episode_no: episodeNo(),
-            shot_id: shot.shot_id,
-            frame: frame,
-            candidate_id: candidateId,
-            expected_selection_revision: Number(shot.selection_revision),
-            expected_current_binding: frame === "first" ? shot.first_binding : shot.tail_binding,
-            expected_manifest_fingerprint: overview.manifest_fingerprint,
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "X-Drama-Shot-Image-Intent": "mutate-v1",
-            },
-          }
-        );
-        overview = result.overview;
-        revokeImagePreviews();
-        compared = [];
-        renderCompare();
-        root.innerHTML = renderShotImageOverview(overview, needsOnly);
-        hydrateImagePreviews();
-        showToast(result.changed ? "镜头图片选择已更新" : "选择未变化", "success");
-      } catch (err) {
-        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
-        if (err && err.status === 409) {
-          await load();
-        } else {
-          button.disabled = false;
-        }
-      }
-    });
-    await load();
-  }
-
-  // ---- D2-D4 shot video candidates and continuity (iter131) ------------
-  function shotVideoStateText(state) {
-    return ({
-      needs_shot_video_assets: "尚未建立视频候选清单",
-      fresh: "视频候选清单有效",
-      stale: "候选或来源已过期",
-      invalid: "视频候选清单无效",
-      blocked_source: "上游视频计划未就绪",
-    })[state] || "状态待核对";
-  }
-
-  function shotVideoCoverageText(state) {
-    return ({
-      ready: "可进入合成",
-      incomplete: "选择未完整",
-      stale: "选择已过期",
-      invalid: "候选产物无效",
-      web_unverified: "所选产物超出 Web 重验上限",
-      blocked_source: "上游来源阻塞",
-      missing: "尚未选择",
-      placeholder: "仅占位预览",
-      blocked: "来源阻塞",
-    })[state] || "状态待核对";
-  }
-
-  function shotVideoAttemptText(attempt) {
-    if (!attempt) return "尚无生成记录";
-    return ({
-      not_sent: "请求未发送，可按原入口处理",
-      unknown: "提交结果待核对，不会自动重试",
-      submitted: "已提交，等待安全恢复",
-      terminal: "本次生成已结束",
-    })[attempt.outcome] || "生成状态待核对";
-  }
-
-  function shotVideoUiState(state) {
-    if (state === "ready") return "ready";
-    if (state === "missing" || state === "incomplete") return "missing";
-    if (state === "blocked" || state === "blocked_source") return "blocked";
-    return "attention";
-  }
-
-  function renderShotVideoCandidate(candidate, mutationAllowed, shotIndex, candidateIndex) {
-    const candidateLabel = "候选 " + String.fromCharCode(65 + candidateIndex);
-    const identity = candidateLabel;
-    const badges = [];
-    if (candidate.selected) badges.push('<span class="badge success">已选择</span>');
-    if (candidate.is_placeholder) badges.push('<span class="badge warning">降级预览 · 不可交付</span>');
-    if (!candidate.current) badges.push('<span class="badge warning">历史候选 · 只读</span>');
-    if (!candidate.preview_available) badges.push('<span class="badge warning">Web 暂不可预览</span>');
-    const media = candidate.preview_available && candidate.preview_url
-      ? '<video controls preload="none" playsinline data-shot-video-preview ' +
-        'data-shot-index="' + Number(shotIndex) + '" data-candidate-index="' +
-        Number(candidateIndex) + '" aria-label="' +
-        escapeHtml(candidateLabel + "安全视频预览") + '"></video>' +
-        '<button type="button" class="btn btn-ghost btn-sm" data-shot-video-load-preview ' +
-        'data-shot-index="' + Number(shotIndex) + '" data-candidate-index="' +
-        Number(candidateIndex) + '">' +
-        '加载／重试安全预览</button>' +
-        '<p class="hint">安全派生预览：静音，最长 30 秒。</p>'
-      : '<div class="empty-state"><p>候选已登记，但超过 Web 安全预览上限。</p></div>';
-    return (
-      '<article class="shot-video-candidate" data-selected="' + String(candidate.selected) +
-      '" data-current="' + String(candidate.current) + '">' +
-      media +
-      '<div class="candidate-body"><div class="cluster">' + badges.join("") + '</div>' +
-      '<p class="candidate-title">' + escapeHtml(candidateLabel) + '</p>' +
-      '<p class="hint">' + Number(candidate.width) + "×" + Number(candidate.height) +
-      " · " + (Number(candidate.duration_milliseconds) / 1000).toFixed(1) + " 秒" +
-      (candidate.has_audio_track ? " · 含音轨" : " · 无音轨") + '</p>' +
-      '<div class="cluster">' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-shot-video-select ' +
-      'data-shot-index="' + Number(shotIndex) + '" data-candidate-index="' +
-      Number(candidateIndex) + '" aria-label="' +
-      escapeHtml((candidate.selected ? "当前选择：" : "选择：") + identity +
-        (candidate.is_placeholder ? "（仅降级预览）" : "")) + '"' +
-      (!mutationAllowed || !candidate.current || candidate.selected ? " disabled" : "") +
-      '>选择候选</button>' +
-      '</div></div></article>'
-    );
-  }
-
-  function renderShotVideoOverview(overview, needsOnly) {
-    const state = shotVideoStateText(overview.state);
-    const continuity = overview.continuity;
-    const attempts = overview.attempts || {};
-    let summary =
-      '<div class="media-overview-summary"><div class="cluster">' +
-      '<span class="badge ' + (overview.state === "fresh" ? "success" : "warning") + '">' +
-      escapeHtml(state) + '</span>' +
-      (overview.coverage
-        ? '<span class="muted">覆盖：' +
-          escapeHtml(shotVideoCoverageText(overview.coverage.status)) + '</span>'
-        : "") +
-      (continuity
-        ? '<span class="badge ' + (continuity.ready_for_compose ? "success" : "warning") +
-          '">连续性：' + (continuity.ready_for_compose ? "通过" : "需要处理") + '</span>'
-        : "") +
-      '</div>' +
-      '<p class="hint">生成记录：未发送 ' + Number(attempts.not_sent_count || 0) +
-      ' · 待核对 ' + Number(attempts.unknown_count || 0) +
-      ' · 处理中 ' + Number(attempts.submitted_count || 0) +
-      ' · 已结束 ' + Number(attempts.terminal_count || 0) + '</p>' +
-      ((overview.reasons || []).length
-        ? '<p class="hint">有 ' + Number(overview.reasons.length) + ' 项来源需要处理；不会自动提交或重试。</p>'
-        : "") +
-      (!overview.mutation_allowed && overview.manifest_fingerprint
-        ? '<p class="hint">当前视频计划来源已变化；候选仅可播放，需先更新计划才能选择。</p>'
-        : "") +
-      '</div>';
-    if (continuity) {
-      function publicShotRefs(ids) {
-        const labels = (ids || []).map(function (id) {
-          const index = (overview.shots || []).findIndex(function (shot) { return shot.shot_id === id; });
-          return index >= 0 ? "镜头 " + String(index + 1).padStart(2, "0") : null;
-        }).filter(Boolean);
-        return labels.length ? labels.join("、") : Number((ids || []).length) + " 个镜头";
-      }
-      const warnings = []
-        .concat((continuity.broken_lineage_shot_ids || []).length
-          ? ["首尾帧关系需要修复：" + publicShotRefs(continuity.broken_lineage_shot_ids)] : [])
-        .concat((continuity.character_version_change_shot_ids || []).length
-          ? ["角色版本已变化：" + publicShotRefs(continuity.character_version_change_shot_ids)] : [])
-        .concat((continuity.scene_version_change_shot_ids || []).length
-          ? ["场景版本已变化：" + publicShotRefs(continuity.scene_version_change_shot_ids)] : [])
-        .concat((continuity.camera_reversal_shot_ids || []).length
-          ? ["镜头方向可能反转：" + publicShotRefs(continuity.camera_reversal_shot_ids)] : []);
-      if (warnings.length) {
-        summary += '<div class="callout warning"><strong>连续性提示</strong><span>' +
-          escapeHtml(warnings.join("；")) + '</span></div>';
-      }
-    }
-    if (!(overview.shots || []).length) {
-      return summary + emptyState("还没有镜头视频候选", state + "。先完成镜头图片与视频计划，再回到这里刷新。", '<a class="btn btn-primary" href="' + wsHref("/shot-images?episode_no=" + Number(overview.episode_no || 1)) + '">查看镜头图片</a>');
-    }
-    const ordered = (overview.shots || []).map(function (shot, index) {
-      return { shot: shot, index: index, issue: shot.coverage_state !== "ready" };
-    });
-    const visible = needsOnly
-      ? ordered.filter(function (entry) { return entry.issue || !!entry.shot.selected; })
-      : ordered;
-    if (!visible.length) {
-      return summary + emptyState("当前没有待处理镜头", "所有已登记镜头均满足当前视频选择要求。", "");
-    }
-    const list = visible.map(function (entry, visibleIndex) {
-      const shot = entry.shot;
-      return '<button type="button" role="option" class="media-shot-button" data-media-shot-open="video-shot-' +
-        Number(entry.index + 1) + '" data-state="' + shotVideoUiState(shot.coverage_state) +
-        '" aria-controls="video-shot-' + Number(entry.index + 1) +
-        '" aria-selected="' + String(visibleIndex === 0) + '"><strong>镜头 ' +
-        String(entry.index + 1).padStart(2, "0") + '</strong><span class="hint">' +
-        Number(shot.candidate_count || 0) + ' 个候选 · ' +
-        escapeHtml(shotVideoCoverageText(shot.coverage_state)) + '</span><span class="hint">' +
-        escapeHtml(shotVideoAttemptText(shot.attempt)) + '</span></button>';
-    }).join("");
-    const panels = visible.map(function (entry, visibleIndex) {
-      const shot = entry.shot;
-      const candidates = (shot.candidates || []).length
-        ? '<div class="media-candidate-grid">' + shot.candidates.map(function (candidate, index) {
-            return renderShotVideoCandidate(candidate, overview.mutation_allowed, entry.index, index);
-          }).join("") + '</div>'
-        : emptyState("当前镜头还没有视频候选", "本页不会自动提交视频任务；请从现有安全生成入口继续。", "");
-      const omitted = Number(shot.omitted_candidate_count || 0)
-        ? '<p class="hint">为控制浏览器资源，本镜头另有 ' +
-          Number(shot.omitted_candidate_count) + ' 个候选未在本页投影。</p>'
-        : "";
-      const selectedIndex = (shot.candidates || []).findIndex(function (candidate) { return candidate.selected; });
-      const selectedLabel = selectedIndex >= 0 ? "候选 " + String.fromCharCode(65 + selectedIndex) : "尚未选择";
-      return (
-        '<section id="video-shot-' + Number(entry.index + 1) + '" class="media-shot-panel"' +
-        (visibleIndex === 0 ? "" : " hidden") + '><div class="section-title"><div><p class="eyebrow ornament">候选详情</p><h2>镜头 ' +
-        String(entry.index + 1).padStart(2, "0") + '</h2>' +
-        '<p class="hint">' + escapeHtml(shotVideoAttemptText(shot.attempt)) + '</p></div>' +
-        '<span class="badge ' + (shot.coverage_state === "ready" ? "success" : "warning") +
-        '">' + escapeHtml(shotVideoCoverageText(shot.coverage_state)) + '</span></div>' +
-        '<div class="media-current-selection"><div><strong>当前选择：' + escapeHtml(selectedLabel) +
-        '</strong><p class="hint">选择只绑定当前候选，不删除历史记录。</p></div>' +
-        '<button type="button" class="btn btn-secondary btn-sm" data-shot-video-clear ' +
-        'data-shot-index="' + Number(entry.index) + '"' +
-        (!overview.mutation_allowed || !shot.selected ? " disabled" : "") + '>清除选择</button></div>' +
-        '<div class="callout info"><strong>输入绑定</strong><span>首帧、尾帧与上一镜尾帧的绑定细节未包含在当前安全投影中；本页只显示服务端给出的覆盖与连续性结论，不在前端推断。</span></div>' +
-        candidates + omitted +
-        '</section>'
-      );
-    }).join("");
-    return summary + '<div class="drama-media-browser"><div class="media-shot-list" role="listbox" aria-label="镜头列表">' +
-      list + '</div><div>' + panels + '</div></div>' +
-      '<div class="callout info media-safety-note"><strong>安全预览</strong><span>浏览器只加载本地安全派生预览；超限候选仍保留当前选择并允许清除，提交结果待核对或丢失时不会自动重试。</span></div>';
-  }
-
-  async function initDramaShotVideos() {
-    const root = document.getElementById("shot-videos-page-root");
-    if (!root) return;
-    const episodeInput = document.getElementById("shot-video-episode-no");
-    const refresh = document.getElementById("shot-video-refresh");
-    const needsToggle = document.getElementById("shot-video-needs-toggle");
-    let overview = null;
-    let needsOnly = false;
-    let videoBlobUrls = [];
-    hydrateDramaEpisodeInput(episodeInput);
-    function episodeNo() {
-      return dramaEpisodeFromInput(episodeInput);
-    }
-    function shotAt(index) {
-      return overview && (overview.shots || [])[Number(index)];
-    }
-    function candidateAt(shot, index) {
-      return shot && (shot.candidates || [])[Number(index)];
-    }
-    function revokeVideoPreviews() {
-      videoBlobUrls.forEach(function (url) { URL.revokeObjectURL(url); });
-      videoBlobUrls = [];
-    }
-    async function load() {
-      root.setAttribute("aria-busy", "true");
-      revokeVideoPreviews();
-      try {
-        overview = await fetchJson(
-          wsUrl("/drama/shot-videos?episode_no=" + encodeURIComponent(episodeNo()))
-        );
-        root.innerHTML = renderShotVideoOverview(overview, needsOnly);
-      } catch (err) {
-        root.innerHTML = renderErrorCard(err);
-      } finally {
-        root.removeAttribute("aria-busy");
-      }
-    }
-    if (refresh) refresh.addEventListener("click", load);
-    if (episodeInput) episodeInput.addEventListener("change", load);
-    root.addEventListener("keydown", function (ev) { moveListboxSelection(ev, "[data-media-shot-open]"); });
-    if (needsToggle) needsToggle.addEventListener("click", function () {
-      needsOnly = !needsOnly;
-      needsToggle.setAttribute("aria-pressed", String(needsOnly));
-      needsToggle.textContent = needsOnly ? "查看全部镜头" : "只看需处理";
-      if (overview) {
-        revokeVideoPreviews();
-        root.innerHTML = renderShotVideoOverview(overview, needsOnly);
-      }
-    });
-    root.addEventListener("click", async function (ev) {
-      const opener = ev.target.closest("[data-media-shot-open]");
-      if (opener) {
-        const browser = opener.closest(".drama-media-browser");
-        if (browser) {
-          browser.querySelectorAll("[data-media-shot-open]").forEach(function (button) {
-            button.setAttribute("aria-selected", button === opener ? "true" : "false");
-          });
-          browser.querySelectorAll(".media-shot-panel").forEach(function (panel) {
-            panel.hidden = panel.id !== opener.dataset.mediaShotOpen;
-          });
-        }
-        return;
-      }
-      const loadPreview = ev.target.closest("[data-shot-video-load-preview]");
-      if (loadPreview) {
-        const card = loadPreview.closest(".shot-video-candidate");
-        const video = card && card.querySelector("[data-shot-video-preview]");
-        const shot = shotAt(loadPreview.dataset.shotIndex);
-        const candidate = candidateAt(shot, loadPreview.dataset.candidateIndex);
-        if (video && candidate && candidate.preview_url) {
-          loadPreview.disabled = true;
-          try {
-            const response = await fetch(candidate.preview_url, { credentials: "same-origin" });
-            if (!response.ok) throw new Error("preview unavailable");
-            const blobUrl = URL.createObjectURL(await response.blob());
-            if (!video.isConnected) {
-              URL.revokeObjectURL(blobUrl);
-              return;
-            }
-            if (video.src && video.src.indexOf("blob:") === 0) {
-              URL.revokeObjectURL(video.src);
-              videoBlobUrls = videoBlobUrls.filter(function (url) { return url !== video.src; });
-            }
-            videoBlobUrls.push(blobUrl);
-            video.src = blobUrl;
-            video.load();
-          } catch (_err) {
-            showToast("安全预览暂不可用，请稍后重试", "warn");
-          } finally {
-            loadPreview.disabled = false;
-          }
-        }
-        return;
-      }
-      const select = ev.target.closest("[data-shot-video-select]");
-      const clear = ev.target.closest("[data-shot-video-clear]");
-      if (!select && !clear) return;
-      const button = select || clear;
-      const shot = shotAt(button.dataset.shotIndex);
-      const selectedCandidate = clear ? null : candidateAt(shot, select.dataset.candidateIndex);
-      if (!clear && !selectedCandidate) return;
-      if (!shot || !overview || !overview.manifest_fingerprint) return;
-      button.disabled = true;
-      try {
-        const result = await postJson(
-          wsUrl("/drama/shot-videos/select"),
-          {
-            episode_no: episodeNo(),
-            shot_id: shot.shot_id,
-            candidate_id: clear ? null : selectedCandidate.candidate_id,
-            expected_selection_revision: Number(shot.selection_revision),
-            expected_current_selection: shot.selected,
-            expected_manifest_fingerprint: overview.manifest_fingerprint,
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "X-Drama-Shot-Video-Intent": "mutate-v1",
-            },
-          }
-        );
-        overview = result.overview;
-        revokeVideoPreviews();
-        root.innerHTML = renderShotVideoOverview(overview, needsOnly);
-        showToast(result.changed ? "镜头视频选择已更新" : "选择未变化", "success");
-      } catch (err) {
-        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
-        if (err && err.status === 409) {
-          await load();
-        } else {
-          button.disabled = false;
-        }
-      }
-    });
-    await load();
-  }
-
-  // ---- I1 unified production workbench (iter147) -----------------------
-  function productionStateLabel(state) {
-    return ({
-      ready: "已就绪", incomplete: "尚未完整", stale: "上游已变化",
-      blocked: "已阻塞", invalid: "无效", busy: "工作区繁忙",
-      missing: "尚未建立", active: "已启用", disabled: "已停用",
-      succeeded: "已完成", failed: "未完成", submission_unknown: "提交结果待核对",
-      needs_attempts: "尚无提交", fresh: "已对账", reconciliation_required: "需要对账",
-      covered: "已覆盖", selected: "已选定", terminal: "已结束",
-      not_sent: "未提交", unknown: "结果待核对", submitted: "已提交",
-      passed: "检查通过", complete: "已完成",
-    })[state] || "状态待确认";
-  }
-
-  function productionReasonText(code, blocked) {
-    return ({
-      attempt_submission_unknown: "有提交结果尚未确认，请先前往任务页核对；不会自动重试。",
-      attempt_ledger_blocked: "媒体提交记录需要对账，请先核对再继续。",
-      component_blocked: "至少一个生产阶段被阻塞，请按镜头提示修复上游状态。",
-      component_stale: "上游创作或素材已变化，请刷新并重新确认受影响镜头。",
-      production_incomplete: "生产尚未完整，可从第一个待处理阶段继续。",
-      component_busy: "当前有任务占用工作区，请等待完成后刷新。",
-    })[code] || (blocked ? "当前状态需要人工核对后才能继续。" : "当前阶段需要刷新或补全后才能继续。");
-  }
-
-  function productionBadge(state) {
-    const good = ["ready", "active", "succeeded"].indexOf(state) >= 0;
-    const bad = ["blocked", "invalid", "failed", "submission_unknown"].indexOf(state) >= 0;
-    return '<span class="badge ' + (good ? "success" : bad ? "danger" : "warning") + '">' +
-      escapeHtml(productionStateLabel(state)) + '</span>';
-  }
-
-  function productionAcceptanceLabel(level) {
-    return ({
-      "safe-blocked": "已安全阻断",
-      "mock-functional": "模拟流程通过",
-      "local-e2e": "本地全流程通过",
-      "provider-validated": "真实服务已验证",
-    })[level] || "验收状态待确认";
-  }
-
-  function productionShotState(shot) {
-    if (shot.latest_attempt_outcome === "unknown" || ["blocked", "invalid", "broken"].indexOf(shot.image_state) >= 0 || ["blocked", "invalid"].indexOf(shot.video_state) >= 0) return "blocked";
-    if (shot.image_state === "stale" || shot.video_state === "stale") return "stale";
-    if (shot.image_state === "covered" && shot.video_state === "ready") return "ready";
-    return "incomplete";
-  }
-
-  function productionShotReason(shot, state) {
-    if (shot.latest_attempt_outcome === "unknown") return "提交结果待核对，请前往任务页确认；不会自动重试。";
-    if (state === "blocked") return "图片或视频阶段被阻塞，请先修复对应的上游素材。";
-    if (state === "stale") return "上游内容已变化，请刷新后重新确认图片与视频。";
-    if (state === "ready") return "图片与视频均已就绪。";
-    return "尚有图片或视频素材未完成。";
-  }
-
-  function renderProductionSummary(data) {
-    const render = data.render || {};
-    const assets = data.assets || {};
-    const tasks = data.tasks || {};
-    const timeline = data.timeline || {};
-    const attempts = data.video_attempts || {};
-    const demo = data.local_demo || {};
-    const demoClass = demo.state === "complete" ? "success" : demo.state === "ready" ? "info" : "warning";
-    const demoButton = demo.can_start === true
-      ? '<button type="button" class="btn btn-primary" id="production-local-demo">开始本地 A-F 演练</button>'
-      : '';
-    const demoCard = '<div class="callout ' + demoClass + '"><strong>' +
-      escapeHtml(demo.label || "本地制作演练") + '</strong><span>' +
-      escapeHtml(demo.reason || "") + '</span>' + demoButton + '</div>';
-    const stateReason = data.state === "ready"
-      ? "创作、素材、媒体与时间线已就绪。"
-      : productionReasonText((data.reasons || [])[0], data.state === "blocked");
-    return '<div class="production-status-banner" data-state="' + escapeHtml(data.state || "incomplete") + '"><div><p class="eyebrow ornament">第 ' +
-      Number(data.episode_no || 1) + ' 集</p><h2>生产状态</h2><p>' + escapeHtml(stateReason) + '</p></div>' + productionBadge(data.state) + '</div>' + demoCard + '<div class="card production-summary-card"><div class="card-body">' +
-      '<div class="production-summary-grid">' +
-      '<div><p class="hint">镜头制作计划</p>' + productionBadge(render.state) +
-      '<p>' + Number(render.shot_count || 0) + ' 镜 · ' + Number(render.spoken_segment_count || 0) + ' 段口播</p></div>' +
-      '<div><p class="hint">已选素材</p>' + productionBadge(assets.state) +
-      '<p>' + Number(assets.selected_count || 0) + ' 项 · 待处理 ' + Number(assets.blocker_count || 0) + '</p></div>' +
-      '<div><p class="hint">逐镜媒体</p><p>图片 ' + productionBadge(data.image_state) +
-      ' · 视频 ' + productionBadge(data.video_state) + '</p><p>生成记录 ' +
-      productionBadge(attempts.state) + ' · 结果未知 ' + Number(attempts.unknown_count || 0) +
-      ' · 已提交 ' + Number(attempts.submitted_count || 0) + '</p></div>' +
-      '<div><p class="hint">任务编排</p>' + productionBadge(tasks.state) +
-      '<p>' + Number(tasks.task_count || 0) + ' 项 · 结果未知 ' + Number(tasks.unknown_count || 0) + '</p></div>' +
-      '<div><p class="hint">时间线与质检</p>' + productionBadge(timeline.state) +
-      '<p>' + Number(timeline.shot_count || 0) + ' 镜 · ' + Number(timeline.subtitle_count || 0) + ' 字幕</p></div>' +
-      '</div></div></div>';
-  }
-
-  function renderProductionList(data) {
-    const shots = data.shots || [];
-    const timeline = data.timeline || {};
-    const selectedSequence = Number(data.__selectedSequence || (shots[0] || {}).sequence || 0);
-    const selectedShot = shots.find(function (shot) { return Number(shot.sequence) === selectedSequence; }) || shots[0] || null;
-    const actionableOnly = data.__actionableOnly === true;
-    const orderedShots = shots.slice().sort(function (a, b) {
-      const weight = { blocked: 0, stale: 1, incomplete: 2, ready: 3 };
-      return weight[productionShotState(a)] - weight[productionShotState(b)] || Number(a.sequence) - Number(b.sequence);
-    }).filter(function (shot) { return !actionableOnly || productionShotState(shot) !== "ready"; });
-    const shotList = shots.length
-      ? '<div class="production-list-toolbar"><p><strong>' + orderedShots.length + '</strong> 个镜头' + (actionableOnly ? '需要处理' : '正在显示') + '</p><button type="button" class="btn btn-ghost btn-sm" id="production-actionable-only" aria-pressed="' + (actionableOnly ? 'true' : 'false') + '">' + (actionableOnly ? '显示全部' : '只看需处理') + '</button></div><div class="production-list-layout"><div class="production-shot-list">' + orderedShots.map(function (shot) {
-          const state = productionShotState(shot);
-          const selected = Number(shot.sequence) === selectedSequence;
-          return '<button type="button" class="production-shot-row' + (selected ? ' selected' : '') + '" data-shot-entry data-shot-sequence="' + Number(shot.sequence) + '" data-state="' + state + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' +
-            '<span class="production-shot-title"><span class="drama-stage-index">' + Number(shot.sequence) + '</span><span><strong>镜头 ' + Number(shot.sequence) + '</strong>' + (shot.is_highlight ? '<span class="badge no-dot">高光</span>' : '') + '<small>' + (shot.target_duration_seconds == null ? '时长待定' : Number(shot.target_duration_seconds) + ' 秒') + '</small></span></span>' +
-            '<span class="production-shot-media"><span>图片 ' + productionBadge(shot.image_state) + '</span><span>视频 ' + productionBadge(shot.video_state) + '</span></span>' +
-            '<span class="production-shot-state">' + productionBadge(state) + (selected ? '<span class="badge no-dot">已选中</span>' : '') + '<small>' + escapeHtml(productionShotReason(shot, state)) + '</small></span></button>';
-        }).join("") + (orderedShots.length ? '' : '<div class="empty-state"><h3>当前没有待处理镜头</h3><p>可显示全部镜头查看已就绪状态。</p></div>') + '</div>' + renderProductionShotDetail(selectedShot, data.episode_no) + '</div>'
-      : emptyState("尚无镜头制作计划", "先完成评审组装，工作台不会从文本或文件名猜测镜头。", '<a class="btn btn-primary" href="' + wsHref('/write?episode=' + encodeURIComponent(String(Number(data.episode_no || 1))) + '&step=review') + '">返回创作台</a>');
-    const qa = timeline.qa
-      ? '<div class="card"><div class="card-body"><h3>质检与交付</h3><p>' +
-        productionBadge(timeline.qa.status) + ' · ' + productionAcceptanceLabel(timeline.qa.acceptance_level) +
-        ' · 覆盖 ' + Number(timeline.qa.covered_shot_count || 0) + ' / ' + Number(timeline.qa.required_shot_count || 0) +
-        '</p><div class="cluster">' + (timeline.deliverables || []).map(function (item) {
-          return '<a class="btn btn-secondary btn-sm" href="' + escapeHtml(item.url || '') + '">' +
-            escapeHtml(String(item.kind || '').toUpperCase()) + '</a>';
-        }).join('') + '</div></div></div>'
-      : '';
-    return '<div id="production-panel-list" role="tabpanel" aria-labelledby="production-tab-list" tabindex="0" ' +
-      'data-production-panel="list">' + shotList + qa + '</div>';
-  }
-
-  function renderProductionShotDetail(shot, episodeNo) {
-    if (!shot) return '<aside class="production-shot-detail card"><div class="card-body"><h3>镜头详情</h3><p class="muted">选择一个镜头查看。</p></div></aside>';
-    const state = productionShotState(shot);
-    return '<aside class="production-shot-detail card"><div class="card-body"><p class="eyebrow ornament">已选镜头</p><h3>镜头 ' + Number(shot.sequence) + '</h3><p>' + productionBadge(state) + '</p><p>' + escapeHtml(productionShotReason(shot, state)) + '</p><dl class="production-shot-facts"><div><dt>图片候选</dt><dd>' + Number(shot.image_candidate_count || 0) + '</dd></div><div><dt>视频候选</dt><dd>' + Number(shot.video_candidate_count || 0) + '</dd></div><div><dt>口播段落</dt><dd>' + Number(shot.spoken_segment_count || 0) + '</dd></div></dl><div class="cluster"><a class="btn btn-secondary btn-sm" href="' + wsHref('/shot-images?episode_no=' + Number(episodeNo || 1)) + '">查看镜头图片</a><a class="btn btn-ghost btn-sm" href="' + wsHref('/shot-videos?episode_no=' + Number(episodeNo || 1)) + '">查看镜头视频</a></div></div></aside>';
-  }
-
-  function renderProductionCanvas(data) {
-    const render = data.render || {}, assets = data.assets || {}, tasks = data.tasks || {}, timeline = data.timeline || {};
-    const stages = [
-      ["创作", render.state, Number(render.shot_count || 0) + " 个镜头计划", "/write?step=review"],
-      ["资产", assets.state, Number(assets.selected_count || 0) + " 项已选素材", "/assets"],
-      ["图片", data.image_state, "逐镜首尾帧覆盖", "/shot-images"],
-      ["视频", data.video_state, Number((data.video_attempts || {}).unknown_count || 0) + " 项待核对", "/shot-videos"],
-      ["时间线", timeline.state, Number(timeline.shot_count || 0) + " 镜已编排", "/compose"],
-      ["合成 QA", timeline.qa ? timeline.qa.status : timeline.state, timeline.qa ? productionAcceptanceLabel(timeline.qa.acceptance_level) : "待完成质检", "/compose"],
-    ];
-    return '<div id="production-panel-canvas" role="tabpanel" aria-labelledby="production-tab-canvas" ' +
-      'data-production-panel="canvas" tabindex="0">' +
-      '<div class="callout info"><strong>同一份生产投影</strong><span>列表与画布只展示服务端已保存状态；画布节点不写入持久化事实。</span></div>' +
-      '<div class="production-stage-canvas" aria-label="创作到合成质检的生产依赖">' + stages.map(function (stage, index) {
-        const joiner = stage[3].indexOf("?") >= 0 ? "&" : "?";
-        const episodeKey = stage[3].indexOf("/write") === 0 ? "episode" : "episode_no";
-        const href = stage[3] + joiner + episodeKey + "=" + encodeURIComponent(String(Number(data.episode_no || 1)));
-        return (index ? '<span class="production-stage-arrow" aria-hidden="true">→</span>' : '') + '<a class="production-node" href="' + wsHref(href) + '" data-state="' + escapeHtml(stage[1] || "incomplete") + '"><span class="drama-stage-index">' + (index + 1) + '</span><h3>' + stage[0] + '</h3><p>' + productionBadge(stage[1]) + '</p><small>' + escapeHtml(stage[2]) + '</small></a>';
-      }).join('') + '</div><p class="hint">任务编排共 ' + Number(tasks.task_count || 0) + ' 项；每个阶段只展示安全汇总。</p></div>';
-  }
-
-  function localDemoPendingKey(sourceEpisodeNo) {
-    return "__local_demo_job_v1:" + String(window.WORKSPACE_NAME || "") + ":" +
-      String(Number(sourceEpisodeNo || 1));
-  }
-
-  function localDemoTarget(job) {
-    if (!job || job.step !== "drama-local-demo") return null;
-    const context = job.result_context || {};
-    const target = String(context.workspace || "");
-    const sourceEpisode = typeof job.source_episode_no === "number" ? job.source_episode_no : 0;
-    const targetEpisode = typeof context.episode_no === "number" ? context.episode_no : 0;
-    if (!/^localdemo_[a-f0-9]{8}_[1-9][0-9]{0,2}_[a-f0-9]{8}$/.test(target)) return null;
-    if (!Number.isInteger(sourceEpisode) || sourceEpisode < 1 || sourceEpisode > 100) return null;
-    if (targetEpisode !== 1) return null;
-    return { workspace: target, sourceEpisode: sourceEpisode, targetEpisode: targetEpisode };
-  }
-
-  function localDemoTargetHref(job) {
-    const target = localDemoTarget(job);
-    if (!target) return "";
-    return "/w/" + encodeURIComponent(target.workspace) + "/compose?episode_no=" +
-      encodeURIComponent(String(target.targetEpisode));
-  }
-
-  function renderLocalDemoHistory(job) {
-    const href = localDemoTargetHref(job);
-    if (!href || !job || job.status !== "succeeded") return "";
-    return '<div class="callout info" data-local-demo-history><strong>最近一次本地 A-F 演练已完成</strong>' +
-      '<span>目标项目 <code>' + escapeHtml(job.target_workspace) + '</code></span>' +
-      '<a class="btn btn-secondary btn-sm" href="' + href + '">打开演练交付</a></div>';
-  }
-
-  async function initDramaProduction() {
-    const root = document.getElementById("production-page-root");
-    if (!root) return;
-    const episodeInput = document.getElementById("production-episode-no");
-    const refresh = document.getElementById("production-refresh");
-    const tabs = Array.from(document.querySelectorAll("[data-production-view]"));
-    let projection = null;
-    let view = "list";
-    hydrateDramaEpisodeInput(episodeInput);
-    function episodeNo() {
-      return dramaEpisodeFromInput(episodeInput);
-    }
-    function render() {
-      if (!projection) return;
-      root.innerHTML = renderLocalDemoHistory(root.__localDemoHistory) + renderProductionSummary(projection) +
-        (view === "canvas" ? renderProductionCanvas(projection) : renderProductionList(projection));
-      const demoButton = document.getElementById("production-local-demo");
-      if (demoButton) {
-        demoButton.addEventListener("click", async function () {
-          const targetEpisode = episodeNo();
-          if (!window.confirm(
-            "将新建一个名称以 localdemo_ 开头的隔离验收项目，并在其中生成色块镜头、静音配音占位和交付文件。当前项目不会被改写，也不会调用供应商；结果只验证工程流程，不代表真实成片质量。是否继续？"
-          )) return;
-          demoButton.disabled = true;
-          try {
-            const data = await postJson(
-              wsUrl("/drama/production/local-demo"),
-              { episode_no: targetEpisode, confirm_synthetic_local: true }
-            );
-            if (!/^[a-f0-9]{32}$/.test(String(data.job_id || ""))) throw new Error("隔离验收任务创建失败");
-            try { localStorage.setItem(localDemoPendingKey(targetEpisode), String(data.job_id)); } catch (_ignored) {}
-            await pollJob(data.job_id, root, demoButton, async function (job) {
-              try { localStorage.removeItem(localDemoPendingKey(targetEpisode)); } catch (_ignored) {}
-              const target = localDemoTarget(job);
-              if (job.status !== "succeeded" || !target || target.sourceEpisode !== targetEpisode) return;
-              sessionStorage.setItem("__pending_toast", JSON.stringify({ msg: "隔离的本地 A-F 演练已完成，可下载交付文件", kind: "success" }));
-              window.location.href = localDemoTargetHref(job);
-            });
-          } catch (err) {
-            root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
-            demoButton.disabled = false;
-          }
-        });
-      }
-      const actionableToggle = document.getElementById("production-actionable-only");
-      if (actionableToggle) actionableToggle.addEventListener("click", function () {
-        projection.__actionableOnly = projection.__actionableOnly !== true;
-        render();
-        const nextToggle = document.getElementById("production-actionable-only");
-        if (nextToggle) nextToggle.focus();
-      });
-      root.querySelectorAll("[data-shot-entry]").forEach(function (entry) {
-        entry.addEventListener("click", function () {
-          projection.__selectedSequence = Number(entry.dataset.shotSequence || 0);
-          render();
-          const selected = root.querySelector('[data-shot-sequence="' + Number(projection.__selectedSequence) + '"]');
-          if (selected) selected.focus();
-        });
-      });
-      tabs.forEach(function (tab) {
-        const active = tab.dataset.productionView === view;
-        tab.classList.toggle("active", active);
-        tab.setAttribute("aria-selected", active ? "true" : "false");
-        tab.setAttribute("tabindex", active ? "0" : "-1");
-      });
-    }
-    async function load() {
-      root.setAttribute("aria-busy", "true");
-      try {
-        projection = await fetchJson(
-          wsUrl("/drama/production?episode_no=" + encodeURIComponent(episodeNo()))
-        );
-        if (projection.list_projection_fingerprint !== projection.canvas_projection_fingerprint) {
-          throw new Error("生产工作台视图来源不一致");
-        }
-        render();
-      } catch (err) {
-        root.innerHTML = renderErrorCard(err);
-      } finally {
-        root.removeAttribute("aria-busy");
-      }
-    }
-
-    async function restoreLocalDemoJob() {
-      const targetEpisode = episodeNo();
-      const storageKey = localDemoPendingKey(targetEpisode);
-      root.__localDemoHistory = null;
-      render();
-      let pendingId = "";
-      try {
-        pendingId = String(localStorage.getItem(storageKey) || "");
-      } catch (_err) {
-        pendingId = "";
-      }
-      let job = null;
-      if (/^[a-f0-9]{32}$/.test(pendingId)) {
-        try {
-          job = await fetchJson(wsUrl("/job/" + pendingId));
-        } catch (_err) {
-          try { localStorage.removeItem(storageKey); } catch (_ignored) {}
-        }
-      }
-      if (!job) {
-        try {
-          const active = await fetchJson(wsUrl("/jobs/active"));
-          job = (active.jobs || []).find(function (row) {
-            const target = localDemoTarget(row);
-            return target && target.sourceEpisode === targetEpisode;
-          }) || null;
-          if (job && job.job_id) {
-            try { localStorage.setItem(storageKey, String(job.job_id)); } catch (_ignored) {}
-          }
-        } catch (_err) {
-          job = null;
-        }
-      }
-      if (job && (job.status === "pending" || job.status === "running")) {
-        await pollJob(job.job_id, root, null, async function (terminal) {
-          try { localStorage.removeItem(storageKey); } catch (_ignored) {}
-          const target = localDemoTarget(terminal);
-          if (terminal.status === "succeeded" && target && target.sourceEpisode === targetEpisode) {
-            sessionStorage.setItem("__pending_toast", JSON.stringify({ msg: "隔离的本地 A-F 演练已完成，可下载交付文件", kind: "success" }));
-            window.location.href = localDemoTargetHref(terminal);
-          }
-        });
-        return;
-      }
-      if (job) {
-        try { localStorage.removeItem(storageKey); } catch (_ignored) {}
-        const target = localDemoTarget(job);
-        if (pendingId && job.status === "succeeded" && target && target.sourceEpisode === targetEpisode) {
-          sessionStorage.setItem("__pending_toast", JSON.stringify({ msg: "隔离的本地 A-F 演练已完成，可下载交付文件", kind: "success" }));
-          window.location.href = localDemoTargetHref(job);
-          return;
-        }
-      }
-      try {
-        const recent = await fetchJson(wsUrl("/jobs/recent?n=20"));
-        root.__localDemoHistory = (recent.jobs || []).find(function (row) {
-          const target = localDemoTarget(row);
-          return row.status === "succeeded" && target && target.sourceEpisode === targetEpisode;
-        }) || null;
-        render();
-      } catch (_err) {
-        root.__localDemoHistory = null;
-        render();
-      }
-    }
-    tabs.forEach(function (tab) {
-      tab.addEventListener("click", function () {
-        view = tab.dataset.productionView === "canvas" ? "canvas" : "list";
-        render();
-      });
-      tab.addEventListener("keydown", function (event) {
-        if (["ArrowLeft", "ArrowRight", "Home", "End"].indexOf(event.key) < 0) return;
-        event.preventDefault();
-        const current = tabs.indexOf(tab);
-        const next = event.key === "Home" ? 0
-          : event.key === "End" ? tabs.length - 1
-          : event.key === "ArrowRight" ? (current + 1) % tabs.length
-          : (current - 1 + tabs.length) % tabs.length;
-        view = tabs[next].dataset.productionView === "canvas" ? "canvas" : "list";
-        render();
-        tabs[next].focus();
-      });
-    });
-    if (refresh) refresh.addEventListener("click", async function () { await load(); await restoreLocalDemoJob(); });
-    if (episodeInput) episodeInput.addEventListener("change", async function () { await load(); await restoreLocalDemoJob(); });
-    await load();
-    await restoreLocalDemoJob();
-  }
-
-  function composeStateLabel(state) {
-    return {
-      needs_timeline: "等待合成时间线",
-      ready: "可以合成",
-      partial: "交付不完整",
-      complete: "QA 通过",
-      stale: "时间线已过期",
-      invalid: "产物无效",
-      busy: "工作区繁忙",
-    }[state] || "状态待确认";
-  }
-
-  function renderComposeOverview(data) {
-    const state = data.state || "needs_timeline";
-    const good = state === "complete";
-    const actionable = data.ready_to_compose === true;
-    const job = data.job || null;
-    const jobActive = job && (job.status === "pending" || job.status === "running");
-    const composeUiStates = {
-      needs_timeline: "empty",
-      ready: "ready",
-      partial: "blocked",
-      complete: "complete",
-      stale: "stale",
-      invalid: "error",
-      busy: "blocked",
-    };
-    const displayState = good ? "complete" : (jobActive ? "running" : (job && job.status === "submission_unknown" ? "unknown" : (job && ["failed", "blocked", "lost"].indexOf(job.status) >= 0 ? job.status : (composeUiStates[state] || "unknown"))));
-    const warningLabels = {
-      workspace_busy: "工作区正由另一项写任务占用，请稍后刷新。",
-      workspace_changed_during_read: "读取期间内容发生变化，请刷新确认当前结果。",
-      timeline_invalid: "当前时间线无法安全读取，请回到生产工作台重新生成。",
-      timeline_projection_invalid: "当前时间线投影无效，请回到生产工作台检查。",
-      deliverable_namespace_invalid: "交付文件集合无效，需要重新合成。",
-      deliverable_set_incomplete: "交付文件不完整，需要重新合成。",
-      deliverable_verification_failed: "交付文件未通过当前字节校验，需要重新合成。"
-    };
-    const warnings = !good && !actionable && (data.warnings || []).length
-      ? '<div class="callout warning drama-compose-blocker"><strong>当前阻断</strong><span>' +
-        escapeHtml((data.warnings || []).map(function (code) { return warningLabels[code] || "当前结果需要重新验证。"; }).join(" ")) + '</span></div>'
-      : "";
-    const summary = '<section class="drama-compose-summary" data-state="' + escapeHtml(displayState) + '" role="status"><div><p class="eyebrow">第 ' + Number(data.episode_no || 1) + ' 集</p><h2>' + escapeHtml(jobActive ? "正在本地合成" : composeStateLabel(state)) + '</h2><p>' + (good ? "当前时间线与 QA 已通过 exact 校验。" : actionable ? "当前时间线已验证，可以开始本地合成。" : "历史结果不会替代当前时间线。") + '</p></div><div class="drama-compose-facts"><span><strong>' + (data.duration_ms == null ? "—" : (Number(data.duration_ms) / 1000).toFixed(1) + " 秒") + '</strong><small>总时长</small></span><span><strong>' + Number(data.shot_count || 0) + '</strong><small>镜头</small></span><span><strong>' + Number(data.subtitle_count || 0) + '</strong><small>字幕</small></span></div></section>';
-    let action = "";
-    if (state === "needs_timeline") {
-      action =
-        '<div class="empty-state"><h3>尚无可消费的合成时间线</h3>' +
-        '<p>请先完成声音与时间线阶段。此页只接受经过验证的当前结果，不接受手工文件上传。</p></div>';
-    } else if (state === "stale") {
-      action =
-        '<div class="empty-state"><h3>上游事实已变化</h3>' +
-        '<p>重新完成媒体与时间线阶段后再合成；历史交付不会冒充当前结果。</p></div>';
-    } else if (state === "busy") {
-      action = '<div class="alert info">另一个写任务正在占用工作区，请稍后刷新。</div>';
-    } else if (jobActive) {
-      action = '<div class="form-actions drama-compose-action"><button type="button" class="btn btn-secondary" data-compose-cancel>请求取消</button><span class="hint">任务状态会自动刷新；取消在当前不可中断子进程结束后生效。</span></div>';
-    } else if (actionable) {
-      action =
-        '<div class="form-actions drama-compose-action"><button type="button" class="btn btn-primary" id="compose-start">' +
-        (state === "ready" ? "开始本地合成" : "重新生成完整交付") +
-        '</button><span class="hint">FFmpeg 最长 180 秒；取消会在当前不可中断子进程结束后生效。</span></div>';
-    }
-    const timeline = state === "needs_timeline" ? "" : '<section class="card drama-compose-timeline"><div class="card-header"><div><p class="eyebrow">当前时间线</p><h3>唯一可消费结果</h3></div><span class="badge ' + (state === "complete" ? "ready" : "") + '">' + escapeHtml(composeStateLabel(state)) + '</span></div><div class="card-body"><div class="drama-timeline-track"><span>视频</span><i></i></div><div class="drama-timeline-track voice"><span>声音</span><i></i></div><div class="drama-timeline-track subtitle"><span>字幕</span><i></i></div><p class="muted">所有轨道与下载共用当前时间线；字幕修订会生成新的当前版本。</p></div></section>';
-    const qa = data.qa
-      ? '<section class="card drama-compose-qa"><div class="card-header"><h3>QA 与 Exact 交付</h3><span class="badge ready">校验通过</span></div><div class="card-body"><dl class="drama-qa-facts"><div><dt>视频规格</dt><dd>竖屏交付规格已验证</dd></div><div><dt>字幕</dt><dd>SRT / ASS 可重建</dd></div><div><dt>来源覆盖</dt><dd>' + Number(data.qa.covered_shot_count || 0) + ' / ' + Number(data.qa.required_shot_count || 0) + ' 镜</dd></div><div><dt>当前字节</dt><dd>下载时重新验证</dd></div></dl></div></section>'
-      : '<section class="card drama-compose-qa"><div class="card-header"><h3>QA 与交付</h3><span class="badge">等待验证</span></div><div class="card-body"><p class="muted">完成本地合成并通过当前字节校验后，四类下载会在这里开放。</p></div></section>';
-    const deliverableLabels = { mp4: "成片 MP4", srt: "SRT 字幕", ass: "ASS 字幕", edit: "剪辑工程" };
-    const downloads = (data.deliverables || []).length
-      ? '<div class="drama-compose-downloads" aria-label="Exact 交付下载">' +
-        data.deliverables.map(function (item, index) {
-          return '<button type="button" class="btn btn-secondary" data-compose-download-index="' + index + '">' +
-            '下载' + escapeHtml(deliverableLabels[item.kind] || "当前交付") + '</button>';
-        }).join("") + '</div>'
-      : "";
-    const jobNote = job && ["blocked", "failed", "aborted", "lost", "submission_unknown"].indexOf(job.status) >= 0
-      ? '<div class="alert warn">最近一次合成任务' + escapeHtml(statusLabel(job.status)) + '。已保存内容不受影响；未知或丢失状态不会自动重试。</div>'
-      : "";
-    const mobileAction = actionable && !jobActive ? '<div class="drama-mobile-primary"><span>' + escapeHtml(composeStateLabel(state)) + '</span><button type="button" class="btn btn-primary" data-compose-mobile-start>' + (state === "ready" ? "开始合成" : "重新合成") + '</button></div>' : "";
-    return summary + warnings + '<div class="drama-compose-layout"><div class="stack">' + timeline + jobNote + action + '</div><aside class="stack">' + qa + downloads + '</aside></div>' + mobileAction;
-  }
-
-  async function initDramaCompose() {
-    const root = document.getElementById("compose-page-root");
-    if (!root) return;
-    const episodeInput = document.getElementById("compose-episode-no");
-    const refresh = document.getElementById("compose-refresh");
-    let overview = null;
-    let refreshTimer = null;
-    let loadGeneration = 0;
-    hydrateDramaEpisodeInput(episodeInput);
-    function episodeNo() {
-      return dramaEpisodeFromInput(episodeInput);
-    }
-    async function load() {
-      const generation = ++loadGeneration;
-      if (refreshTimer) clearTimeout(refreshTimer);
-      root.setAttribute("aria-busy", "true");
-      try {
-        const nextOverview = await fetchJson(
-          wsUrl("/drama/compose?episode_no=" + encodeURIComponent(episodeNo()))
-        );
-        if (generation !== loadGeneration) return;
-        overview = nextOverview;
-        root.innerHTML = renderComposeOverview(overview);
-        const job = overview.job;
-        if (job && (job.status === "pending" || job.status === "running") && job.job_id) {
-          refreshTimer = setTimeout(load, 1000);
-        }
-      } catch (err) {
-        if (generation === loadGeneration) root.innerHTML = renderErrorCard(err);
-      } finally {
-        if (generation === loadGeneration) root.removeAttribute("aria-busy");
-      }
-    }
-    if (refresh) refresh.addEventListener("click", load);
-    if (episodeInput) episodeInput.addEventListener("change", load);
-    root.addEventListener("click", async function (ev) {
-      const download = ev.target.closest("[data-compose-download-index]");
-      if (download) {
-        const item = overview && Array.isArray(overview.deliverables)
-          ? overview.deliverables[Number(download.dataset.composeDownloadIndex)]
-          : null;
-        if (!item || !item.url) return;
-        const anchor = document.createElement("a");
-        anchor.href = item.url;
-        anchor.download = item.filename || "delivery";
-        anchor.click();
-        return;
-      }
-      const cancel = ev.target.closest("[data-compose-cancel]");
-      if (cancel) {
-        const job = overview && overview.job;
-        if (!job || !job.job_id || ["pending", "running"].indexOf(job.status) < 0) return;
-        cancel.disabled = true;
-        try {
-          await postJson(wsUrl("/job/" + encodeURIComponent(job.job_id) + "/cancel"));
-          await load();
-        } catch (err) {
-          showToast("取消失败：" + errTitle(err), "error");
-          cancel.disabled = false;
-        }
-        return;
-      }
-      const start = ev.target.closest("#compose-start, [data-compose-mobile-start]");
-      if (!start) return;
-      start.disabled = true;
-      try {
-        await postJson(
-          wsUrl("/drama/compose"),
-          { episode_no: episodeNo() },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "X-Drama-Compose-Intent": "run-local-v1",
-            },
-          }
-        );
-        await load();
-      } catch (err) {
-        root.insertAdjacentHTML("afterbegin", renderErrorCard(err));
-        start.disabled = false;
-      }
-    });
-    await load();
-  }
-
   let accessibleControlSeq = 0;
   function associateFormLabels(root) {
     const scope = root && root.querySelectorAll ? root : document;
-    const scoped = scope.matches && scope.matches(".ui-public, .ui-novel, .ui-drama")
+    const scoped = scope.matches && scope.matches(".ui-public, .ui-novel")
       ? scope
-      : (scope.closest && scope.closest(".ui-public, .ui-novel, .ui-drama"));
+      : (scope.closest && scope.closest(".ui-public, .ui-novel"));
     if (!scoped && scope !== document) return;
     scope.querySelectorAll(".field > label").forEach(function (label) {
       const field = label.parentElement;
@@ -11224,7 +6569,7 @@ JS_DASHBOARD = """\
   }
 
   function observeAccessibleLabels() {
-    const app = document.querySelector(".ui-public, .ui-novel, .ui-drama");
+    const app = document.querySelector(".ui-public, .ui-novel");
     if (!app) return;
     associateFormLabels(app);
     const observer = new MutationObserver(function (records) {
@@ -11292,16 +6637,6 @@ JS_DASHBOARD = """\
     if (pageKind === "reviews") return initReviews();
     if (pageKind === "plan") return initPlan();
     if (pageKind === "insights") return initInsights();
-    if (pageKind === "drama_write") return initDramaWrite();
-    if (pageKind === "drama_characters") return initDramaCharacters();
-    if (pageKind === "drama_production") return initDramaProduction();
-    if (pageKind === "drama_assets") return initDramaAssets();
-    if (pageKind === "drama_shot_images") return initDramaShotImages();
-    if (pageKind === "drama_shot_videos") return initDramaShotVideos();
-    if (pageKind === "drama_compose") return initDramaCompose();
-    if (pageKind === "drama_episodes") return initDramaEpisodes();
-    if (pageKind === "drama_episode_detail") return initDramaEpisodeDetail();
-    if (pageKind === "drama_insights") return initDramaInsights();
     if (pageKind === "jobs") return initJobs();
   }
   document.addEventListener("DOMContentLoaded", boot);
@@ -11314,15 +6649,12 @@ JS_WIZARD = """\
 (function () {
   const panelType = document.getElementById("panel-type");
   const panelUpload = document.getElementById("panel-upload");
-  const panelDrama = document.getElementById("panel-drama");
   const panelPremise = document.getElementById("panel-premise");
   const panelProgress = document.getElementById("panel-progress");
   const typeForm = document.getElementById("type-form");
   const novelForm = document.getElementById("wizard-form");
-  const dramaForm = document.getElementById("drama-form");
   const premiseForm = document.getElementById("premise-form");
   const errBox = document.getElementById("upload-error");
-  const dramaErrBox = document.getElementById("drama-error");
   const premiseErrBox = document.getElementById("premise-error");
   const progressBody = document.getElementById("progress-body");
   const modeCard = document.getElementById("wizard-mode-card");
@@ -11404,14 +6736,11 @@ JS_WIZARD = """\
 
   loadServerMode();
 
-  // Deep-link: /wizard?type=drama (or ?type=novel) jumps straight to that panel.
+  // Deep-link to the supported novel creation panels.
   (function applyTypeFromQuery() {
     var t = new URLSearchParams(location.search || "").get("type");
     if (!t) return;
-    if (t === "drama") {
-      if (typeForm) { try { typeForm.elements.ws_type.value = "drama"; } catch (e) {} }
-      show(panelDrama);
-    } else if (t === "premise") {
+    if (t === "premise") {
       if (typeForm) { try { typeForm.elements.ws_type.value = "premise"; } catch (e) {} }
       show(panelPremise);
     } else if (t === "novel") {
@@ -11420,7 +6749,7 @@ JS_WIZARD = """\
   })();
 
   function show(panel) {
-    [panelType, panelUpload, panelDrama, panelPremise, panelProgress].forEach((p) => {
+    [panelType, panelUpload, panelPremise, panelProgress].forEach((p) => {
       if (p) p.hidden = (p !== panel);
     });
   }
@@ -11450,8 +6779,7 @@ JS_WIZARD = """\
     typeForm.addEventListener("submit", function (ev) {
       ev.preventDefault();
       const t = typeForm.elements.ws_type.value;
-      if (t === "drama") show(panelDrama);
-      else if (t === "premise") show(panelPremise);
+      if (t === "premise") show(panelPremise);
       else show(panelUpload);
     });
   }
@@ -11477,7 +6805,7 @@ JS_WIZARD = """\
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-Drama-Mutation-Intent": "mutate-v1",
+            "X-Workspace-Mutation-Intent": "mutate-v1",
           },
           body: JSON.stringify({}),
         });
@@ -11580,45 +6908,6 @@ JS_WIZARD = """\
     });
   }
 
-  if (dramaForm) {
-    dramaForm.addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      dramaErrBox.innerHTML = "";
-      const fd = new FormData(dramaForm);
-      const payload = {
-        workspace: (fd.get("workspace") || "").trim(),
-        topic: (fd.get("topic") || "").trim(),
-        track: fd.get("track") || "",
-        episode_count: Number(fd.get("episode_count") || 0),
-        episode_duration_seconds: Number(fd.get("episode_duration_seconds") || 0),
-        budget_cny: Number(fd.get("budget_cny") || 0),
-        timeout_minutes: Number(fd.get("timeout_minutes") || 0),
-      };
-      const submitBtn = dramaForm.querySelector("button[type=submit]");
-      wizardSetFormBusy(dramaForm, true, "正在创建短剧作品");
-      try {
-        const res = await fetch("/api/wizard/drama-start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          dramaErrBox.innerHTML = renderErrorCard(data);
-          wizardSetFormBusy(dramaForm, false);
-          return;
-        }
-        window.setPendingToastAndNavigate(
-          { kind: "info", msg: "短剧作品已创建：" + data.name },
-          "/w/" + encodeURIComponent(data.name) + "/write?step=setup"
-        );
-      } catch (err) {
-        err.code = err.code || "network";
-        dramaErrBox.innerHTML = renderErrorCard(err);
-        wizardSetFormBusy(dramaForm, false);
-      }
-    });
-  }
 
   async function poll(name, jobId) {
     while (true) {
@@ -11747,14 +7036,6 @@ JS_SETTINGS = """\
     { key: "PLANNER_MODEL", label: "故事规划生成服务", help: "留空时沿用默认文字生成服务。", kind: "text", group: "advanced" },
     { key: "PLANNER_BASE_URL", label: "故事规划生成地址", help: "仅在规划服务使用独立地址时填写。", kind: "text", group: "advanced" },
     { key: "PLANNER_API_KEY", label: "故事规划生成凭据", help: "页面不会回显已保存内容；留空保持不变。", kind: "secret", group: "advanced" },
-    { key: "DRAMA_MODEL", label: "短剧文字生成服务", help: "留空时沿用默认文字生成服务。", kind: "text", group: "advanced" },
-    { key: "AI_DRAW_ENDPOINT", label: "图片任务入口", help: "仅在图片服务要求独立入口时填写。", kind: "text", group: "advanced" },
-    { key: "AI_DRAW_BASE_URL", label: "图片生成地址", help: "留空时沿用项目默认地址。", kind: "text", group: "advanced" },
-    { key: "AI_DRAW_MODEL", label: "图片生成服务", help: "填写图片服务要求的完整标识。", kind: "text", group: "advanced" },
-    { key: "AI_DRAW_API_KEY", label: "图片生成凭据", help: "页面不会回显已保存内容；留空保持不变。", kind: "secret", group: "advanced" },
-    { key: "AI_DRAW_RESULT_HOSTS", label: "允许接收图片结果的地址", help: "多个地址按现有服务约定填写。", kind: "text", group: "advanced" },
-    { key: "SD_API_BASE_URL", label: "视频生成地址", help: "仅在视频服务要求独立地址时填写。", kind: "text", group: "advanced" },
-    { key: "SD_API_KEY", label: "视频生成凭据", help: "页面不会回显已保存内容；留空保持不变。", kind: "secret", group: "advanced" },
   ];
   try {
     const responses = await Promise.all([fetch("/api/settings"), fetch("/api/preflight")]);

@@ -7,7 +7,6 @@ Information architecture:
 * ``/settings`` — global .env editor (no workspace context).
 * ``/w/<name>`` — workspace overview (sidebar shows section list).
 * ``/w/<name>/continue`` — start-point + plan + write-book cockpit.
-* ``/w/<name>/write`` — drama 4-station write wizard.
 * ``/w/<name>/chapters`` — manifest + drafts list.
 * ``/w/<name>/chapter/<n>`` — single-chapter detail (text / review /
   lint / advisor / history tabs).
@@ -113,15 +112,7 @@ def _render_shell(
     chapter_no: Optional[int] = None,
     extra_scripts: str = "",
 ) -> str:
-    # Phase A namespace: public/novel pages may evolve independently from the
-    # production-heavy drama UI. Shared structural classes stay compatible;
-    # visual overrides key off this explicit scope instead of page-specific
-    # selectors. Workspace metadata is already the routing authority.
-    ui_scope = "ui-public"
-    if workspace:
-        from .workspace_meta import read as _meta_read
-
-        ui_scope = "ui-drama" if _meta_read(workspace).get("type", "novel") == "drama" else "ui-novel"
+    ui_scope = "ui-novel" if workspace else "ui-public"
     if ui_scope == "ui-public":
         breadcrumb_html = breadcrumb_html.replace(
             'class="here"', 'class="here" aria-current="page"', 1
@@ -162,27 +153,6 @@ _WORKSPACE_SECTIONS: Sequence[tuple[str, str, str]] = (
     ("jobs", "任务记录", "jobs"),
 )
 
-_SECTIONS_DRAMA: Sequence[tuple[str, str, str]] = (
-    ("overview", "概览", ""),
-    ("write", "创作台", "write"),
-    ("production", "生产工作台", "production"),
-    ("characters", "角色库", "characters"),
-    ("assets", "资产治理", "assets"),
-    ("shot_images", "镜头图片", "shot-images"),
-    ("shot_videos", "镜头视频", "shot-videos"),
-    ("compose", "合成交付", "compose"),
-    ("episodes", "剧集", "episodes"),
-    ("insights", "数据", "insights"),
-    ("jobs", "任务", "jobs"),
-)
-
-
-def _sections_for(workspace_type: str) -> Sequence[tuple[str, str, str]]:
-    if workspace_type == "drama":
-        return _SECTIONS_DRAMA
-    return _WORKSPACE_SECTIONS
-
-
 def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_section: str = "") -> str:
     items = []
     for name in workspaces:
@@ -202,14 +172,9 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
         )
     work_html = "\n".join(items) if items else '<p class="muted" style="padding:0 8px">尚无作品</p>'
     sections_html = ""
-    responsive_nav_html = ""
     if active_workspace:
-        from .workspace_meta import read as _meta_read
-
-        ws_type = _meta_read(active_workspace).get("type", "novel")
         section_items = []
-        responsive_items = []
-        for key, label, suffix in _sections_for(ws_type):
+        for key, label, suffix in _WORKSPACE_SECTIONS:
             href = f"/w/{escape(active_workspace)}/{suffix}" if suffix else f"/w/{escape(active_workspace)}/"
             if key == active_section:
                 section_items.append(
@@ -217,19 +182,11 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
                     f'<span><span class="dot"></span> {escape(label)}</span>'
                     '</span>'
                 )
-                responsive_items.append(
-                    '<span class="drama-responsive-nav-item active" aria-current="page" '
-                    f'data-drama-nav-item="{escape(key)}">{escape(label)}</span>'
-                )
             else:
                 section_items.append(
                     f'<a class="sidebar-item" href="{href}" data-leave-guard>'
                     f'<span><span class="dot"></span> {escape(label)}</span>'
                     f'</a>'
-                )
-                responsive_items.append(
-                    f'<a class="drama-responsive-nav-item" href="{href}" data-leave-guard '
-                    f'data-drama-nav-item="{escape(key)}">{escape(label)}</a>'
                 )
         sections_html = (
             '<div class="sidebar-section">'
@@ -237,30 +194,7 @@ def _sidebar(workspaces: Iterable[str], active_workspace: str = "", active_secti
             + "\n".join(section_items)
             + "</div>"
         )
-        if ws_type == "drama":
-            # The tablet rail and desktop sidebar are generated from the same
-            # canonical 11-item section tuple. Mobile keeps the four primary
-            # destinations visible; "更多" opens the existing full sidebar, so
-            # workspace switching and every route remain one guarded action away.
-            primary_keys = {"overview", "write", "production", "jobs"}
-            mobile_items = [
-                item for key, item in zip(
-                    (row[0] for row in _SECTIONS_DRAMA), responsive_items
-                ) if key in primary_keys
-            ]
-            responsive_nav_html = (
-                '<nav class="drama-tablet-nav" aria-label="短剧主导航">'
-                '<a class="drama-nav-brand" href="/library" data-leave-guard aria-label="返回书架">✦</a>'
-                '<div class="drama-tablet-nav-scroll">' + "".join(responsive_items) + '</div>'
-                '<button type="button" class="btn btn-icon" data-sidebar-toggle aria-label="切换作品" aria-controls="app-sidebar" aria-expanded="false">作品</button>'
-                '</nav>'
-                '<nav class="drama-mobile-nav" aria-label="短剧主导航">'
-                + "".join(mobile_items) +
-                '<button type="button" class="drama-responsive-nav-item" data-sidebar-toggle '
-                'aria-label="打开全部导航" aria-controls="app-sidebar" aria-expanded="false">更多</button></nav>'
-            )
     return (
-        responsive_nav_html +
         '<aside class="sidebar" id="app-sidebar" aria-label="作品导航">'
         '<a class="brand" href="/library" data-leave-guard><span>✦</span> 续写工作台</a>'
         '<div class="sidebar-section sidebar-library">'
@@ -294,30 +228,6 @@ def _topbar_actions(extra: str = "", *, current: str = "") -> str:
     return extra + base
 
 
-def render_workspace_novel_only_empty(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<section class="section">'
-        '<div class="empty-state">'
-        '<span class="ornament">✦</span>'
-        '<h3>此页面属于小说模块</h3>'
-        '<p class="muted">当前作品是短剧。该功能不适用于短剧模块。</p>'
-        '<div class="cta cluster">'
-        '<a class="btn btn-secondary" href="/w/' + escape(name) + '/">返回短剧概览</a>'
-        '<a class="btn btn-primary" href="/w/' + escape(name) + '/write">进入短剧工作台</a>'
-        '<a class="btn btn-ghost" href="/w/' + escape(name) + '/jobs">查看任务</a>'
-        '</div>'
-        '</div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 小说模块",
-        page_kind="workspace_empty",
-        main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("小说模块", None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section=""),
-        workspace=name,
-    )
 
 
 def render_workspace_type_unknown(name: str, workspaces: Iterable[str]) -> str:
@@ -325,7 +235,7 @@ def render_workspace_type_unknown(name: str, workspaces: Iterable[str]) -> str:
     main = (
         '<section class="section"><div class="empty-state">'
         '<span class="ornament">✦</span><h3>作品类型待确认</h3>'
-        '<p class="muted">暂时无法确认这部作品属于小说还是短剧，因此没有打开创作页面。作品内容没有被修改。</p>'
+        '<p class="muted">暂时无法确认这部作品是当前主线支持的小说类型，因此没有打开创作页面。作品内容没有被修改。</p>'
         '<div class="cta cluster"><a class="btn btn-secondary" href="/library">返回作品列表</a>'
         '<button type="button" class="btn btn-ghost" data-cta-action="reload">重新读取</button></div>'
         '</div></section>'
@@ -366,13 +276,13 @@ def _crumbs(parts: Sequence[tuple[str, Optional[str]]]) -> str:
 
 def render_index(workspaces: Iterable[str]) -> str:
     names: List[str] = list(workspaces)
-    empty_hint = "" if names else "还没有作品。可以创建小说作品，也可以创建短剧作品。"
+    empty_hint = "" if names else "还没有小说作品。"
     main = (
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">我的作品</p>'
         '<h1>作品列表</h1>'
-        '<p class="muted">查看小说与短剧的最近进度，从上次停下的位置继续。</p>'
+        '<p class="muted">查看小说的最近进度，从上次停下的位置继续。</p>'
         '</div>'
         '<div class="shelf-stats" id="shelf-stats"></div>'
         '</header>'
@@ -385,7 +295,7 @@ def render_index(workspaces: Iterable[str]) -> str:
         '</div>'
         '<div class="cluster public-toolbar-actions">'
         '<a class="btn btn-primary" href="/wizard?type=novel">创建小说作品</a>'
-        '<a class="btn btn-secondary" href="/wizard?type=drama">创建短剧作品</a>'
+        '<button type="button" class="btn btn-secondary" disabled aria-disabled="true">短剧模块暂未开放</button>'
         '</div>'
         '</section>'
         '<section class="section">'
@@ -441,11 +351,7 @@ def render_trash(workspaces: Iterable[str]) -> str:
 
 
 def render_workspace_overview(name: str, workspaces: Iterable[str]) -> str:
-    from .workspace_meta import read as _meta_read
-
-    meta = _meta_read(name)
-    ws_type = meta.get("type", "novel")
-    main = _drama_overview_main(name, meta) if ws_type == "drama" else _novel_overview_main(name)
+    main = _novel_overview_main(name)
     return _render_shell(
         title=f"{name} · 概览",
         page_kind="workspace_overview",
@@ -496,445 +402,31 @@ def _novel_overview_main(name: str) -> str:
     )
 
 
-def _drama_overview_main(name: str, meta: dict) -> str:
-    return (
-        '<header class="page-header drama-page-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">作品 · 短剧</p>'
-        f'<h1>{escape(name)}</h1>'
-        '<p class="muted">从创作到交付，按已保存状态继续当前一集。</p>'
-        '</div>'
-        '<div class="cluster">'
-        '<span class="badge no-dot badge-drama">短剧</span>'
-        '<button type="button" class="btn btn-danger btn-sm" id="delete-workspace-btn">删除作品…</button>'
-        '</div>'
-        '</header>'
-        '<section id="drama-overview-summary" class="drama-overview-summary" aria-live="polite">'
-        '<div class="drama-summary-card skeleton-block"></div><div class="drama-summary-card skeleton-block"></div>'
-        '<div class="drama-summary-card skeleton-block"></div><div class="drama-summary-card skeleton-block"></div>'
-        '</section>'
-        '<div class="drama-overview-layout">'
-        '<section class="section drama-overview-stages">'
-        '<div class="section-title"><div><p class="eyebrow ornament">进度</p><h2>创作与生产阶段</h2></div>'
-        '<span class="hint">状态来自已保存的安全投影</span></div>'
-        '<div id="drama-overview-progress" class="drama-stage-list"></div>'
-        '</section>'
-        '<aside class="drama-overview-aside">'
-        '<section class="next-action" id="drama-overview-next-action">'
-        '<p class="eyebrow ornament">下一步</p><h2 id="drama-next-headline">正在读取进度</h2>'
-        '<p class="muted" id="drama-next-reason">将根据当前状态给出恢复入口。</p>'
-        f'<div class="cluster" id="drama-next-actions"><a class="btn btn-primary" href="/w/{escape(name)}/write?step=setup">进入创作台</a></div>'
-        '</section>'
-        '<section class="card drama-recent-task"><div class="card-body" id="drama-overview-recent-task">'
-        '<p class="eyebrow ornament">最近任务</p><p class="muted">正在读取状态…</p></div></section>'
-        '</aside></div>'
-    )
 
 
 # ---------------------------------------------------------------------------
-# Page: drama write wizard
+# Removed feature boundary: workspace pages below are novel-only.
 # ---------------------------------------------------------------------------
 
 
-def render_workspace_write(name: str, workspaces: Iterable[str], episode_no: int = 1) -> str:
-    main = (
-        '<header class="page-header drama-page-header drama-write-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧 · 五站创作</p>'
-        f'<h1>第 {episode_no} 集 · 短剧创作台</h1>'
-        '<p class="muted">故事设定 → 钩子设计 → 分镜脚本 → 角色设计 → 评审与组装；保存后再进入下游。</p>'
-        '</div>'
-        '<div class="drama-write-tools">'
-        f'<label class="field compact" for="drama-write-episode">当前集 <input id="drama-write-episode" type="number" min="1" max="100" value="{episode_no}" inputmode="numeric"></label>'
-        '<button class="btn btn-secondary" id="drama-write-refresh" type="button">刷新状态</button>'
-        '</div>'
-        '</header>'
-        '<section id="drama-write-status" class="drama-write-status" data-ui-state="loading" aria-live="polite">'
-        '<strong>正在读取五站进度</strong><span>已保存内容不会被修改。</span></section>'
-        '<section class="tabs drama-station-workbench">'
-        '<div class="tab-list drama-station-nav" aria-label="五站创作步骤">'
-        '<button class="tab active" data-tab="setup" aria-current="step"><span>01</span>故事设定</button>'
-        '<button class="tab" data-tab="hook"><span>02</span>钩子设计</button>'
-        '<button class="tab" data-tab="storyboard"><span>03</span>分镜脚本</button>'
-        '<button class="tab" data-tab="characters"><span>04</span>角色设计</button>'
-        '<button class="tab" data-tab="review"><span>05</span>评审与组装</button>'
-        '</div>'
-        '<div id="drama-write-progress" class="drama-station-summary" aria-live="polite"></div>'
-        '<div class="tab-panel active" id="tab-setup" data-station-pane="setup">'
-        '<p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-hook" data-station-pane="hook">'
-        '<p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-storyboard" data-station-pane="storyboard">'
-        '<p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-characters" data-station-pane="characters">'
-        '<p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-review" data-station-pane="review">'
-        '<p class="muted">载入中…</p></div>'
-        '</section>'
-        '<div class="drama-mobile-primary" aria-label="当前步骤主操作">'
-        '<span id="drama-mobile-step-label">第 1 站 · 故事设定</span>'
-        '<button type="button" class="btn btn-primary" id="drama-mobile-primary-action">执行当前主操作</button>'
-        '</div>'
-    )
-    return _render_shell(
-        title=f"{name} · 短剧创作",
-        page_kind="drama_write",
-        main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), (f"第 {episode_no} 集", None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="write"),
-        workspace=name,
-        chapter_no=episode_no,
-    )
 
 
-def render_workspace_characters(name: str, workspaces: Iterable[str], episode_no: int = 1) -> str:
-    main = (
-        '<header class="page-header drama-page-header drama-characters-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧 · 角色资产</p>'
-        '<h1>第 1 季 · 角色库</h1>'
-        '<p class="muted">先处理当前集角色，再维护季级设定；锁定与真实参考图不会被普通重生成静默替换。</p>'
-        '</div>'
-        '<div class="cluster drama-character-tools">'
-        f'<label class="field compact" for="characters-episode-no">当前集 <input id="characters-episode-no" type="number" min="1" max="100" value="{episode_no}" inputmode="numeric"></label>'
-        f'<a class="btn btn-secondary" data-leave-guard href="/w/{escape(name)}/write?episode={episode_no}&step=characters#characters">回到角色设计</a>'
-        '</div>'
-        '</header>'
-        '<section class="callout info drama-character-boundary"><strong>生成边界</strong>'
-        '<span>本地预览可安全重画；真实绘图仍需逐次授权。已存在的付费参考图与生成凭据受服务端保护。</span></section>'
-        '<section id="characters-page-root" data-ui-state="loading" aria-live="polite">'
-        '<div class="character-loading"><p class="muted">正在读取当前集与季角色库…</p></div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 角色库",
-        page_kind="drama_characters",
-        main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("角色库", None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="characters"),
-        workspace=name,
-        chapter_no=episode_no,
-    )
 
 
-def render_workspace_production(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<header class="page-header drama-page-header production-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧 · I 阶段</p>'
-        '<h1>生产工作台</h1>'
-        '<p class="muted">在一处查看创作版本、资产选择、逐镜素材、任务进度、时间线、质检与交付。</p>'
-        '</div>'
-        '<div class="cluster">'
-        '<label class="field compact">集数 '
-        '<input id="production-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
-        '</label>'
-        '<button class="btn btn-secondary" id="production-refresh" type="button">刷新</button>'
-        '</div>'
-        '</header>'
-        '<section class="section production-workbench-section">'
-        '<div class="callout info">'
-        '<strong>安全的状态总览</strong>'
-        '<span>镜头列表与关系画布只读取服务端已保存状态，不会调用付费服务，也不会修改素材选择或任务状态；“本地 A-F 演练”会新建隔离验收项目，不改写当前项目。</span>'
-        '</div>'
-        '<div class="tabs production-view-tabs" role="tablist" aria-label="生产工作台视图">'
-        '<button class="tab active" type="button" role="tab" id="production-tab-list" '
-        'data-production-view="list" aria-controls="production-panel-list" aria-selected="true" tabindex="0">镜头列表</button>'
-        '<button class="tab" type="button" role="tab" id="production-tab-canvas" '
-        'data-production-view="canvas" aria-controls="production-panel-canvas" aria-selected="false" tabindex="-1">关系画布</button>'
-        '</div>'
-        '<div id="production-page-root" aria-live="polite"><p class="muted">载入中…</p></div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 生产工作台",
-        page_kind="drama_production",
-        main_html=main,
-        breadcrumb_html=_crumbs(
-            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("生产工作台", None)]
-        ),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(
-            workspaces,
-            active_workspace=name,
-            active_section="production",
-        ),
-        workspace=name,
-    )
 
 
-def render_workspace_assets(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<header class="page-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧 · B 阶段</p>'
-        '<h1>资产治理</h1>'
-        '<p class="muted">统一查看角色、美术方向、场景与道具/线索的版本、引用、停用状态和影响集。</p>'
-        '</div>'
-        '<div class="cluster">'
-        '<label class="field compact">集数 '
-        '<input id="asset-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
-        '</label>'
-        '<button class="btn btn-secondary" id="asset-refresh" type="button">刷新</button>'
-        '</div>'
-        '</header>'
-        '<section class="section drama-governance-page">'
-        '<div class="callout info">'
-        '<strong>非破坏式治理</strong>'
-        '<span>停用不会删除文件；切换版本不会改写已冻结分镜。影响集由服务端按当前引用重新计算。</span>'
-        '</div>'
-        '<div id="assets-page-root" class="asset-governance-root" aria-live="polite">'
-        '<p class="muted">载入中…</p>'
-        '</div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 资产治理",
-        page_kind="drama_assets",
-        main_html=main,
-        breadcrumb_html=_crumbs(
-            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("资产治理", None)]
-        ),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(
-            workspaces,
-            active_workspace=name,
-            active_section="assets",
-        ),
-        workspace=name,
-    )
 
 
-def render_workspace_shot_images(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<header class="page-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧 · C 阶段</p>'
-        '<h1>镜头图片候选</h1>'
-        '<p class="muted">按镜头比较安全图片预览，并在当前版本上选择首帧或尾帧。</p>'
-        '</div>'
-        '<div class="cluster drama-media-header-actions">'
-        '<label class="field compact">集数 '
-        '<input id="shot-image-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
-        '</label>'
-        '<button class="btn btn-secondary" id="shot-image-needs-toggle" type="button" aria-pressed="false">只看需处理</button>'
-        '<button class="btn btn-secondary" id="shot-image-refresh" type="button">刷新</button>'
-        '</div>'
-        '</header>'
-        '<section class="section drama-media-page">'
-        '<div class="callout info">'
-        '<strong>候选不会自动替换选择</strong>'
-        '<span>页面只读取已登记且通过校验的图片；比较和选择不会发起图片生成或付费调用。</span>'
-        '</div>'
-        '<div id="shot-image-compare" class="shot-image-compare" aria-live="polite"></div>'
-        '<div id="shot-images-page-root" class="drama-media-root" aria-live="polite">'
-        '<p class="muted">载入中…</p>'
-        '</div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 镜头图片候选",
-        page_kind="drama_shot_images",
-        main_html=main,
-        breadcrumb_html=_crumbs(
-            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("镜头图片", None)]
-        ),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(
-            workspaces,
-            active_workspace=name,
-            active_section="shot_images",
-        ),
-        workspace=name,
-    )
 
 
-def render_workspace_shot_videos(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<header class="page-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧 · D 阶段</p>'
-        '<h1>镜头视频候选</h1>'
-        '<p class="muted">播放已登记的安全候选，显式选择，并查看生成记录、整集覆盖与连续性。</p>'
-        '</div>'
-        '<div class="cluster drama-media-header-actions">'
-        '<label class="field compact">集数 '
-        '<input id="shot-video-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
-        '</label>'
-        '<button class="btn btn-secondary" id="shot-video-needs-toggle" type="button" aria-pressed="false">只看需处理</button>'
-        '<button class="btn btn-secondary" id="shot-video-refresh" type="button">刷新</button>'
-        '</div>'
-        '</header>'
-        '<section class="section drama-media-page">'
-        '<div class="callout info">'
-        '<strong>此页不会提交视频任务</strong>'
-        '<span>只读取本地安全投影；播放和选择不会提交、轮询、下载上游结果或产生付费调用。</span>'
-        '</div>'
-        '<div id="shot-videos-page-root" class="drama-media-root" aria-live="polite">'
-        '<p class="muted">载入中…</p>'
-        '</div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 镜头视频候选",
-        page_kind="drama_shot_videos",
-        main_html=main,
-        breadcrumb_html=_crumbs(
-            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("镜头视频", None)]
-        ),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(
-            workspaces,
-            active_workspace=name,
-            active_section="shot_videos",
-        ),
-        workspace=name,
-    )
 
 
-def render_workspace_compose(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<header class="page-header drama-page-header drama-compose-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧 · F 阶段</p>'
-        '<h1>本地合成与交付</h1>'
-        '<p class="muted">时间线、QA 与四类下载始终绑定同一个当前结果。</p>'
-        '</div>'
-        '<div class="cluster">'
-        '<label class="field compact">集数 '
-        '<input id="compose-episode-no" type="number" min="1" max="100" value="1" inputmode="numeric">'
-        '</label>'
-        '<button class="btn btn-secondary" id="compose-refresh" type="button">刷新</button>'
-        '</div>'
-        '</header>'
-        '<section class="section drama-compose-page">'
-        '<div class="callout info drama-compose-boundary">'
-        '<strong>合成只在本机执行</strong>'
-        '<span>此页不会调用文本、图片、视频或 TTS provider；下载只开放当前时间线经 QA 验证的 exact 产物。</span>'
-        '</div>'
-        '<div id="compose-page-root" aria-live="polite">'
-        '<p class="muted">载入中…</p>'
-        '</div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 本地合成与交付",
-        page_kind="drama_compose",
-        main_html=main,
-        breadcrumb_html=_crumbs(
-            [("书架", "/library"), (name, f"/w/{escape(name)}/"), ("合成交付", None)]
-        ),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(
-            workspaces,
-            active_workspace=name,
-            active_section="compose",
-        ),
-        workspace=name,
-    )
 
 
-def render_workspace_episodes(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<header class="page-header drama-page-header drama-episodes-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧</p>'
-        '<h1>剧集</h1>'
-        '<p class="muted">查看整季进度、单集新鲜度与当前可交付范围。</p>'
-        '</div>'
-        '</header>'
-        '<section class="section drama-episodes-page">'
-        '<div id="episodes-panel" aria-live="polite"><p class="muted">载入中…</p></div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 剧集",
-        page_kind="drama_episodes",
-        main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("剧集", None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="episodes"),
-        workspace=name,
-    )
 
 
-def render_workspace_episode_detail(name: str, workspaces: Iterable[str], episode_no: int) -> str:
-    video_tab = '<button class="tab" data-tab="video">视频</button>' if episode_no == 1 else ''
-    video_panel = '<div class="tab-panel" id="tab-video"><p class="muted">载入中…</p></div>' if episode_no == 1 else ''
-    main = (
-        '<header class="page-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧</p>'
-        f'<h1>第 {episode_no} 集</h1>'
-        '<p class="muted">剧本、分镜、角色与评审记录。</p>'
-        '</div>'
-        '<div class="cluster">'
-        f'<a class="btn btn-primary" href="/w/{escape(name)}/write?episode={episode_no}">编辑本集</a>'
-        f'<a class="btn btn-secondary" data-leave-guard href="/w/{escape(name)}/episodes">返回剧集</a>'
-        '</div>'
-        '</header>'
-        '<section class="tabs">'
-        '<div class="tab-list">'
-        '<button class="tab active" data-tab="script">剧本</button>'
-        '<button class="tab" data-tab="storyboard-view">分镜</button>'
-        '<button class="tab" data-tab="characters-view">角色</button>'
-        '<button class="tab" data-tab="review">评审</button>'
-        '<button class="tab" data-tab="export">导出</button>'
-        + video_tab +
-        '</div>'
-        '<div class="tab-panel active" id="tab-script"><p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-storyboard-view"><p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-characters-view"><p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-review"><p class="muted">载入中…</p></div>'
-        '<div class="tab-panel" id="tab-export"><p class="muted">载入中…</p></div>'
-        + video_panel +
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 第 {episode_no} 集",
-        page_kind="drama_episode_detail",
-        main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("剧集", f"/w/{escape(name)}/episodes"), (f"第 {episode_no} 集", None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="episodes"),
-        workspace=name,
-        chapter_no=episode_no,
-    )
 
 
-def render_workspace_drama_insights(name: str, workspaces: Iterable[str]) -> str:
-    main = (
-        '<header class="page-header drama-page-header drama-insights-header">'
-        '<div class="titles">'
-        '<p class="eyebrow ornament">短剧</p>'
-        '<h1>数据 Insights</h1>'
-        '<p class="muted">区分创作、媒体、任务与费用事实；未知数据不会进入确定性统计。</p>'
-        '</div>'
-        '<div class="cluster">'
-        f'<a class="btn btn-secondary" data-leave-guard href="/w/{escape(name)}/episodes">返回剧集</a>'
-        '</div>'
-        '</header>'
-        '<section class="section drama-insights-page">'
-        '<div class="drama-insights-summary" id="drama-insights-summary" aria-live="polite"></div>'
-        '<div class="drama-insights-grid">'
-        '<div class="card"><div class="card-header"><h3>费用事实</h3></div><div class="card-body" id="drama-insights-cost"></div></div>'
-        '<div class="card"><div class="card-header"><h3>媒体与任务</h3></div><div class="card-body" id="drama-insights-media-metrics"></div></div>'
-        '<div class="card"><div class="card-header"><h3>创作与时长</h3></div><div class="card-body" id="drama-insights-duration"></div></div>'
-        '<div class="card"><div class="card-header"><h3>钩子分布</h3></div><div class="card-body" id="drama-insights-hooks"></div></div>'
-        '</div>'
-        '</section>'
-    )
-    return _render_shell(
-        title=f"{name} · 短剧数据",
-        page_kind="drama_insights",
-        main_html=main,
-        breadcrumb_html=_crumbs([("书架", "/library"), (name, f"/w/{escape(name)}/"), ("数据", None)]),
-        topbar_actions_html=_topbar_actions(),
-        sidebar_html=_sidebar(workspaces, active_workspace=name, active_section="insights"),
-        workspace=name,
-    )
 # ---------------------------------------------------------------------------
 # Page: continue (cockpit)
 # ---------------------------------------------------------------------------
@@ -1562,25 +1054,7 @@ def render_workspace_insights(name: str, workspaces: Iterable[str]) -> str:
 
 
 def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
-    from .workspace_meta import read as _meta_read
-
-    is_drama = _meta_read(name).get("type", "novel") == "drama"
-    if is_drama:
-        main = (
-            '<header class="page-header drama-page-header drama-jobs-header"><div class="titles"><p class="eyebrow ornament">任务</p>'
-            '<h1>任务</h1><p class="muted">查看异步任务、取消与安全恢复；未知和丢失状态不会自动重试。</p></div>'
-            '<button type="button" class="btn btn-secondary" data-refresh-jobs>刷新状态</button></header>'
-            '<section class="jobs-filter drama-jobs-filter" role="group" aria-label="筛选任务">'
-            '<button type="button" class="btn btn-ghost active" aria-pressed="true" data-job-filter="all">全部</button>'
-            '<button type="button" class="btn btn-ghost" aria-pressed="false" data-job-filter="active">进行中</button>'
-            '<button type="button" class="btn btn-ghost" aria-pressed="false" data-job-filter="attention">需处理</button>'
-            '<button type="button" class="btn btn-ghost" aria-pressed="false" data-job-filter="done">已完成</button>'
-            '</section><div id="jobs-filter-status" class="sr-status" role="status" aria-live="polite"></div>'
-            '<section class="section drama-jobs-page"><div id="jobs-recent" aria-live="polite"></div></section>'
-            '<div id="jobs-logs" hidden aria-hidden="true"></div>'
-        )
-    else:
-        main = (
+    main = (
         '<header class="page-header">'
         '<div class="titles">'
         '<p class="eyebrow ornament">任务</p>'
@@ -1599,7 +1073,7 @@ def render_workspace_jobs(name: str, workspaces: Iterable[str]) -> str:
         '<div class="card flush"><div class="card-body" id="jobs-recent"></div></div>'
         '</section>'
         '<div id="jobs-logs" hidden aria-hidden="true"></div>'
-        )
+    )
     return _render_shell(
         title=f"{name} · 任务",
         page_kind="jobs",
@@ -1638,10 +1112,6 @@ def render_wizard() -> str:
         '<label class="field-check wizard-choice">'
         '<input type="radio" name="ws_type" value="novel" checked> '
         '<span><strong>从本地原文创建</strong><small>需要作品名和本地小说文件；提交后只在本地整理原文，随后由你选择续写起点。</small></span>'
-        '</label>'
-        '<label class="field-check wizard-choice">'
-        '<input type="radio" name="ws_type" value="drama"> '
-        '<span><strong>创建短剧作品</strong><small>需要题材、类型、集数和时长；先建立独立短剧作品，不会在此步生成媒体。</small></span>'
         '</label>'
         '<label class="field-check wizard-choice">'
         '<input type="radio" name="ws_type" value="premise"> '
@@ -1739,88 +1209,6 @@ def render_wizard() -> str:
         '</div>'
         '</section>'
 
-        '<section class="card" id="panel-drama" hidden>'
-        '<div class="card-header"><h3 class="ornament">第 1 步 · 短剧作品</h3></div>'
-        '<div class="card-body">'
-        '<div class="wizard-help-card">'
-        '<p class="eyebrow ornament">会发生什么</p>'
-        '<div class="kv-list compact">'
-        '<div class="k">1</div><div class="v">创建独立短剧作品</div>'
-        '<div class="k">2</div><div class="v">保存题材、赛道与创作规范快照</div>'
-        '<div class="k">3</div><div class="v">进入 4 站创作与评审组装流程，任务可在进度页取消</div>'
-        '</div>'
-        '</div>'
-        '<form id="drama-form" class="stack">'
-        '<div class="field">'
-        '<label for="drama-workspace">作品名</label>'
-        '<input id="drama-workspace" name="workspace" required aria-describedby="drama-workspace-help" '
-        # iter064 #5: single-sourced from _naming.WORKSPACE_NAME_HTML_PATTERN so
-        # the client check can't drift from the backend WORKSPACE_NAME_RE again.
-        # The constant keeps the iter063 A4 escaped hyphen (Chromium `v` flag)
-        # and forbids a trailing hyphen (the optional non-capturing group),
-        # which the old `[...]?` final char wrongly allowed (e.g. `foo-`).
-        f'pattern="{WORKSPACE_NAME_HTML_PATTERN}" '
-        'title="字母 / 数字 / 下划线 / 中文 / 中间可含 -；不超过 32 字符">'
-        '<small id="drama-workspace-help">必填；创建后会成为短剧作品列表中的显示名称。</small>'
-        '</div>'
-        '<div class="field">'
-        '<label for="drama-topic">题材描述（1-500 字）</label>'
-        '<textarea id="drama-topic" name="topic" rows="3" maxlength="500" required aria-describedby="drama-topic-help" '
-        'placeholder="示例：复仇 → 救赎，单线发展，强冲突"></textarea>'
-        '<small id="drama-topic-help">必填；概括核心冲突和故事走向，创建后仍可继续完善。</small>'
-        '</div>'
-        '<fieldset class="field" aria-describedby="drama-track-help">'
-        '<legend>赛道（必填）</legend>'
-        '<div class="cluster">'
-        '<label class="field-check"><input type="radio" name="track" value="霸总" required> 霸总</label>'
-        '<label class="field-check"><input type="radio" name="track" value="重生"> 重生</label>'
-        '<label class="field-check"><input type="radio" name="track" value="推理"> 推理</label>'
-        '<label class="field-check"><input type="radio" name="track" value="系统"> 系统</label>'
-        '<label class="field-check"><input type="radio" name="track" value="觉醒"> 觉醒</label>'
-        '</div>'
-        '<small id="drama-track-help">选择最接近的故事类型，用于准备对应创作规范。</small>'
-        '</fieldset>'
-        '<div class="form-grid-2">'
-        '<div class="field">'
-        '<label for="drama-episode-count">集数（1-100）</label>'
-        '<input id="drama-episode-count" name="episode_count" type="number" min="1" max="100" value="12" required aria-describedby="drama-episode-count-help">'
-        '<small id="drama-episode-count-help">必填；填写计划创建的总集数。</small>'
-        '</div>'
-        '<fieldset class="field" aria-describedby="drama-duration-help">'
-        '<legend>单集时长（秒）</legend>'
-        '<div class="cluster">'
-        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="30"> 30</label>'
-        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="60" checked> 60</label>'
-        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="90"> 90</label>'
-        '<label class="field-check"><input type="radio" name="episode_duration_seconds" value="120"> 120</label>'
-        '</div>'
-        '<small id="drama-duration-help">选择每集计划时长，默认 60 秒。</small>'
-        '</fieldset>'
-        '</div>'
-        '<details class="details-fold wizard-advanced">'
-        '<summary>高级选项</summary>'
-        '<div class="form-grid-2">'
-        '<div class="field">'
-        '<label for="drama-budget">人民币额度上限</label>'
-        '<input id="drama-budget" name="budget_cny" type="number" min="0" step="0.1" placeholder="0 = 不限制" aria-describedby="drama-budget-help">'
-        '<small id="drama-budget-help">可选；仅限制后续真实生成任务，创建作品本身不会使用额度。</small>'
-        '</div>'
-        '<div class="field">'
-        '<label for="drama-timeout">超时分钟</label>'
-        '<input id="drama-timeout" name="timeout_minutes" type="number" min="0" step="1" placeholder="0 = 不启用" aria-describedby="drama-timeout-help">'
-        '<small id="drama-timeout-help">可选；用于后续任务等待，创建作品不受影响。</small>'
-        '</div>'
-        '</div>'
-        '</details>'
-        '<div class="form-actions">'
-        '<button type="button" class="btn btn-ghost" data-back-to-type>← 返回</button>'
-        '<button type="submit" class="btn btn-primary">创建并进入短剧创作</button>'
-        '</div>'
-        '</form>'
-        '<div id="drama-error" role="alert" aria-live="assertive"></div>'
-        '</div>'
-        '</section>'
-
         '<section class="card" id="panel-progress" hidden>'
         '<div class="card-header"><h3 class="ornament">第 2 步 · 创建进度</h3></div>'
         '<div class="card-body" id="progress-body"><p class="muted">等待任务开始…</p></div>'
@@ -1910,9 +1298,9 @@ def render_landing() -> str:
         '<header class="lp-hero fade-up">'
         '<div class="lp-hero-brand">' + _LP_LOGO_SVG +
         '<span class="lp-wordmark">续写工作台</span></div>'
-        '<p class="eyebrow ornament">小说与短剧创作工具</p>'
+        '<p class="eyebrow ornament">小说续写与原创工具</p>'
         '<h1 class="lp-title">把故事从想法带到下一章</h1>'
-        '<p class="lp-lead muted">可以导入本地小说继续创作，也可以从一句话建立原创故事；短剧作品使用独立入口。作品内容保留在本机，是否使用真实生成取决于你之后的设置与逐次确认。</p>'
+        '<p class="lp-lead muted">可以导入本地小说继续创作，也可以从一句话建立原创故事。作品内容保留在本机，是否使用真实生成取决于你之后的设置与逐次确认。</p>'
         '</header>'
         '<section class="lp-cards public-entry-grid" aria-label="开始使用">'
         '<article class="card lp-card fade-up fade-up-1">'
@@ -1925,21 +1313,21 @@ def render_landing() -> str:
         '<article class="card lp-card fade-up fade-up-2">'
         '<div class="card-body">'
         '<div class="lp-card-head"><h2>打开已有作品</h2></div>'
-        '<p class="muted">查看本机已有的小说与短剧，了解最近进度并从上次停下的位置继续。</p></div>'
+        '<p class="muted">查看本机已有的小说，了解最近进度并从上次停下的位置继续。</p></div>'
         '<div class="card-footer lp-card-footer">'
         '<a class="btn btn-secondary" href="/library">打开已有作品</a></div>'
         '</article>'
         '<article class="card lp-card fade-up fade-up-3">'
         '<div class="card-body">'
-        '<div class="lp-card-head"><h2>进入短剧作品</h2></div>'
-        '<p class="muted">创建独立短剧作品并进入短剧创作流程。真实文字、图片、视频和声音仍需分别确认。</p></div>'
+        '<div class="lp-card-head"><h2>短剧模块</h2></div>'
+        '<p class="muted">入口外观暂时保留，当前主线不提供短剧创建、运行或跳转能力。</p></div>'
         '<div class="card-footer lp-card-footer">'
-        '<a class="btn btn-secondary" href="/wizard?type=drama">进入短剧作品</a></div>'
+        '<button type="button" class="btn btn-secondary" disabled aria-disabled="true">短剧模块暂未开放</button></div>'
         '</article>'
         '</section>'
         '<section class="public-next-step fade-up fade-up-4">'
         '<h2>接下来会发生什么</h2>'
-        '<ol><li>选择作品类型与创建方式</li><li>填写当前方式需要的内容</li><li>确认运行方式后创建作品</li><li>进入对应工作台继续创作</li></ol>'
+        '<ol><li>选择小说创建方式</li><li>填写当前方式需要的内容</li><li>确认运行方式后创建作品</li><li>进入小说工作台继续创作</li></ol>'
         '<p class="muted">页面初始化失败时，可以重新加载；已有本地作品不会因此改变。</p>'
         '</section>'
         '</div>'

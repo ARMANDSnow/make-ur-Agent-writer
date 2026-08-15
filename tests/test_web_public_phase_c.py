@@ -68,13 +68,6 @@ class PublicPhaseCTests(unittest.TestCase):
                 with self.subTest(route=route, word=word):
                     self.assertIsNone(re.search(rf"(?i)(?<![a-z]){re.escape(word)}(?![a-z])", visible))
 
-    def test_landing_has_three_distinct_product_entries(self) -> None:
-        html = templates.render_landing()
-        self.assertIn('href="/wizard">创建小说作品</a>', html)
-        self.assertIn('href="/library">打开已有作品</a>', html)
-        self.assertIn('href="/wizard?type=drama">进入短剧作品</a>', html)
-        self.assertNotIn("正式开放", _visible(html))
-        self.assertIn("已有本地作品不会因此改变", html)
 
     def test_library_uses_safe_card_projection_and_recoverable_states(self) -> None:
         html = templates.render_index(["synthetic"])
@@ -92,35 +85,6 @@ class PublicPhaseCTests(unittest.TestCase):
         self.assertIn('type === "novel" ? "novel" : "unknown"', js)
         self.assertIn("确认前不会打开作品", js)
 
-    def test_wizard_keeps_endpoints_and_has_accessible_busy_forms(self) -> None:
-        html = templates.render_wizard()
-        for mode in ("从本地原文创建", "创建原创故事", "创建短剧作品"):
-            self.assertIn(mode, html)
-        for control, help_id in (
-            ("upload-workspace", "upload-workspace-help"),
-            ("upload-file", "upload-file-help"),
-            ("premise-workspace", "premise-workspace-help"),
-            ("premise-text", "premise-text-help"),
-            ("drama-workspace", "drama-workspace-help"),
-            ("drama-topic", "drama-topic-help"),
-            ("drama-episode-count", "drama-episode-count-help"),
-            ("drama-budget", "drama-budget-help"),
-            ("drama-timeout", "drama-timeout-help"),
-        ):
-            self.assertIn(f'id="{control}"', html)
-            self.assertIn(f'aria-describedby="{help_id}"', html)
-            self.assertIn(f'id="{help_id}"', html)
-        js = static.JS_WIZARD
-        self.assertIn("function wizardSetFormBusy", js)
-        self.assertIn('form.setAttribute("aria-busy", busy ? "true" : "false")', js)
-        self.assertIn("wizardSetFormBusy(novelForm, true", js)
-        self.assertIn("wizardSetFormBusy(premiseForm, true", js)
-        self.assertIn("wizardSetFormBusy(dramaForm, true", js)
-        self.assertIn('typeof data.is_mock !== "boolean"', js)
-        for endpoint in (
-            "/api/wizard/start", "/api/wizard/premise-start", "/api/wizard/drama-start"
-        ):
-            self.assertIn(endpoint, js)
 
     def test_settings_projects_only_safe_editable_preferences(self) -> None:
         html = templates.render_settings()
@@ -224,22 +188,6 @@ class PublicPhaseCTests(unittest.TestCase):
                 time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(edited)),
             )
 
-    def test_public_workspace_type_fails_closed_but_keeps_legacy_novels(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace_root = Path(tmp) / "workspaces"
-            bad_data = workspace_root / "bad" / "data"
-            bad_data.mkdir(parents=True)
-            (bad_data / "workspace.json").write_text('{"type":"other"}', encoding="utf-8")
-            (workspace_root / "legacy" / "data").mkdir(parents=True)
-            linked_data = workspace_root / "linked" / "data"
-            linked_data.mkdir(parents=True)
-            outside_meta = Path(tmp) / "outside-workspace.json"
-            outside_meta.write_text('{"type":"drama"}', encoding="utf-8")
-            (linked_data / "workspace.json").symlink_to(outside_meta)
-            with mock.patch.object(routes.paths, "WORKSPACE_DIR", workspace_root):
-                self.assertEqual(routes._public_workspace_type("bad"), "unknown")
-                self.assertEqual(routes._public_workspace_type("legacy"), "novel")
-                self.assertEqual(routes._public_workspace_type("linked"), "unknown")
 
     def test_unknown_workspace_type_blocks_direct_domain_reads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -249,11 +197,9 @@ class PublicPhaseCTests(unittest.TestCase):
             (bad_data / "workspace.json").write_text("not-json", encoding="utf-8")
             with mock.patch.object(routes.paths, "WORKSPACE_DIR", workspace_root):
                 status, _ct, body = routes.render_workspace_overview("bad")
-                self.assertEqual(status, 200)
-                self.assertIn("作品类型待确认", body.decode("utf-8"))
+                self.assertEqual(status, 404)
                 status, _ct, body = routes.api_workspace_insights("bad")
-                self.assertEqual(status, 409)
-                self.assertIn("作品类型待确认", body.decode("utf-8"))
+                self.assertEqual(status, 404)
 
 
 if __name__ == "__main__":

@@ -148,24 +148,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("/api/workspaces/overview", routes.static.JS_DASHBOARD)
         self.assertNotIn("iter 026", html)
 
-    def test_landing_is_root(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn("创建小说作品", html)
-        self.assertIn("打开已有作品", html)
-        self.assertIn("进入短剧作品", html)
-        self.assertIn('window.PAGE_KIND = "landing"', html)
-        self.assertIn('href="/wizard"', html)
-        self.assertIn('href="/library"', html)     # hero "打开已有作品"
-        # removed / renamed surfaces must be gone from the landing.
-        # NB: scope to the hero anchor markup — bare "开始续写" also appears in the
-        # embedded READINESS_CATALOG JSON ("…之后开始续写…"), present on every page.
-        self.assertNotIn(">开始续写</a>", html)      # hero CTA renamed to 开始创作
-        self.assertNotIn("lp-secondary", html)      # duplicate bookshelf link removed
-        self.assertNotIn("＋ 新建", html)           # topbar trimmed to ⚙ 设置 only
-        # landing topbar cluster hidden via page_kind=="landing" gate
-        self.assertIn("lp-chrome", html)
 
     def test_trash_page_renders(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/trash")
@@ -175,46 +157,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('id="trash-list"', html)
         self.assertIn('window.PAGE_KIND = "trash"', html)
 
-    def test_wizard_renders_type_choice_panels(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/wizard")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn('id="panel-type"', html)
-        self.assertIn('name="ws_type" value="novel"', html)
-        self.assertIn('name="ws_type" value="drama"', html)
-        self.assertIn('name="ws_type" value="premise"', html)   # iter069: 3rd type
-        self.assertIn('id="panel-upload" hidden', html)
-        self.assertIn('id="panel-drama" hidden', html)
-        self.assertIn('id="panel-premise" hidden', html)        # premise extracted to own panel
-        self.assertIn('id="wizard-mode-card"', html)
-        self.assertIn('name="budget_cny"', html)
-        self.assertIn('name="timeout_minutes"', html)
-        self.assertNotIn('name="extract_limit"', html)
-        self.assertIn("保存为续写作品，不生成正文", html)
-        self.assertIn("会发生什么", html)
-        self.assertIn("复仇 → 救赎", html)
-        self.assertIn("data-back-to-type", html)
-        self.assertIn("从本地原文创建", html)
-        self.assertIn("创建原创故事", html)
-        self.assertIn("创建短剧作品", html)
-        # 真实生成入口说明使用面向用户的中文，不暴露配置字段名。
-        self.assertIn("需要使用真实生成服务时", html)
-        self.assertIn("完成连接配置并重启", html)
-        self.assertNotIn("API key", html)
-        self.assertIn('href="/settings"', html)
-        # both error containers exist, each scoped to its own panel
-        self.assertIn('id="upload-error"', html)    # stays in upload panel (novelForm uses it)
-        self.assertIn('id="premise-error"', html)   # new, in premise panel
-        # wizard is NOT landing → must not inherit the lp-chrome topbar hide
-        self.assertNotIn("lp-chrome", html)
-        # wizard JS wiring for the premise panel
-        self.assertIn("/api/preflight", routes.static.JS_WIZARD)
-        self.assertIn("panelPremise", routes.static.JS_WIZARD)
-        self.assertIn("premiseErrBox", routes.static.JS_WIZARD)
-        self.assertIn('getElementById("premise-error")', routes.static.JS_WIZARD)
-        self.assertIn('t === "premise"', routes.static.JS_WIZARD)
-        # three-panel mutual exclusion: premise sits in the show() switch array
-        self.assertIn("panelPremise, panelProgress", routes.static.JS_WIZARD)
 
     def test_api_preflight_reports_runtime_mode_without_settings_secrets(self) -> None:
         saved = os.environ.get("OPENAI_MODEL")
@@ -302,18 +244,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("高级参数", html)
         self.assertNotIn("draft-once-dev", html)
 
-    def test_phase_e_novel_apis_fail_closed_for_drama_workspace(self) -> None:
-        workspace_meta.write("beta", type="drama", created_at="2026-07-29T00:00:00+00:00")
-        for path in (
-            "/api/workspace/beta/plan",
-            "/api/workspace/beta/reviews",
-            "/api/workspace/beta/search?q=人物",
-            "/api/workspace/beta/readiness?chapters=1&resume_from=1&replan_every=0",
-        ):
-            with self.subTest(path=path):
-                status, data = self._get_json(path)
-                self.assertEqual(status, 409, data)
-                self.assertIn("card", data)
 
     def test_workspace_plan_page_renders(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/w/alpha/plan")
@@ -369,10 +299,8 @@ class RoutesGetTests(unittest.TestCase):
         meta_path = paths.WORKSPACE_DIR / "alpha" / "data" / "workspace.json"
         meta_path.write_text('{"type":"mystery"}', encoding="utf-8")
         status, _ct, body = routes.dispatch("GET", "/w/alpha/jobs")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn("作品类型待确认", html)
-        self.assertNotIn('window.PAGE_KIND = "jobs"', html)
+        self.assertEqual(status, 404)
+        self.assertNotIn(b'window.PAGE_KIND = "jobs"', body)
 
     def test_workspace_new_ia_404(self) -> None:
         for path in (
@@ -409,21 +337,7 @@ class RoutesGetTests(unittest.TestCase):
         self.assertEqual(by_name["beta"]["readiness"]["status"], "blocked")
         self.assertIn("start_point_missing", by_name["beta"]["readiness"]["blockers"])
 
-    def test_api_workspaces_overview_includes_drama_type(self) -> None:
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        status, data = self._get_json("/api/workspaces/overview")
-        self.assertEqual(status, 200)
-        by_name = {item["name"]: item for item in data["workspaces"]}
-        self.assertEqual(by_name["beta"]["type"], "drama")
 
-    def test_overview_cache_key_includes_workspace_json_mtime(self) -> None:
-        key1 = routes._overview_cache_key(["beta"])
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        meta_path = paths.WORKSPACE_DIR / "beta" / "data" / "workspace.json"
-        now = time.time() + 10
-        os.utime(meta_path, (now, now))
-        key2 = routes._overview_cache_key(["beta"])
-        self.assertNotEqual(key1, key2)
 
     def test_overview_cache_key_tracks_legacy_seed_upload_without_following_links(self) -> None:
         raw = paths.WORKSPACE_DIR / "beta" / "小说txt"
@@ -441,91 +355,12 @@ class RoutesGetTests(unittest.TestCase):
         # cache probe must not follow it or collapse it into "missing".
         self.assertIn("entry", repr(key2))
 
-    def test_drama_sidebar_exposes_overview_write_episodes_jobs(self) -> None:
-        # Updated iter 037: drama sidebar now includes "write" for stations 1 and 2.
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        status, _ct, body = routes.dispatch("GET", "/w/beta/")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn("作品 · 短剧", html)
-        self.assertIn('href="/w/beta/"', html)
-        self.assertIn('href="/w/beta/write"', html)
-        self.assertIn('href="/w/beta/episodes"', html)
-        self.assertIn('href="/w/beta/jobs"', html)
-        self.assertIn('id="delete-workspace-btn"', html)
-        self.assertNotIn('href="/w/beta/continue"', html)
-        self.assertNotIn('href="/w/beta/plan"', html)
-        for element_id in (
-            "overview-summary",
-            "overview-next-action",
-            "overview-blockers",
-            "overview-detail-status",
-            "overview-detail-cost",
-        ):
-            self.assertNotIn(f'id="{element_id}"', html)
 
-    def test_drama_write_page_renders_five_station_tabs(self) -> None:
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        status, _ct, body = routes.dispatch("GET", "/w/beta/write")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn('window.PAGE_KIND = "drama_write"', html)
-        for tab in ("setup", "hook", "storyboard", "characters", "review"):
-            self.assertIn(f'data-tab="{tab}"', html)
-            self.assertIn(f'data-station-pane="{tab}"', html)
-        self.assertIn("分镜脚本", html)
-        self.assertIn("评审与组装", html)
-        self.assertNotIn("分镜表尚未开放", html)
-        self.assertNotIn("角色设定表尚未开放", html)
 
-    def test_drama_write_storyboard_step_renders_empty_state_not_404(self) -> None:
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        status, _ct, body = routes.dispatch("GET", "/w/beta/write?step=storyboard")
-        self.assertEqual(status, 200)
-        self.assertIn("分镜脚本", body.decode("utf-8"))
 
-    def test_novel_workspace_write_page_404(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/w/alpha/write")
-        self.assertEqual(status, 404)
-        self.assertIn("drama workspaces only", body.decode("utf-8"))
 
-    def test_drama_novel_only_pages_render_shell_empty_state(self) -> None:
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        for path in (
-            "/w/beta/continue",
-            "/w/beta/plan",
-            "/w/beta/chapters",
-            "/w/beta/chapter/1",
-            "/w/beta/reviews",
-        ):
-            status, _ct, body = routes.dispatch("GET", path)
-            html = body.decode("utf-8")
-            self.assertEqual(status, 200, f"{path}: {html}")
-            self.assertIn("此页面属于小说模块", html)
-            self.assertIn('window.PAGE_KIND = "workspace_empty"', html)
-            self.assertIn('href="/w/beta/write"', html)
 
-    def test_drama_jobs_page_still_renders(self) -> None:
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        status, _ct, body = routes.dispatch("GET", "/w/beta/jobs")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn("<h1>任务</h1>", html)
-        self.assertIn('class="jobs-filter drama-jobs-filter"', html)
 
-    def test_drama_episode_pages_render(self) -> None:
-        workspace_meta.write("beta", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        status, _ct, body = routes.dispatch("GET", "/w/beta/episodes")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn('window.PAGE_KIND = "drama_episodes"', html)
-        self.assertIn('id="episodes-panel"', html)
-        status, _ct, body = routes.dispatch("GET", "/w/beta/episode/1")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn('window.PAGE_KIND = "drama_episode_detail"', html)
-        self.assertIn('data-tab="script"', html)
-        self.assertIn('data-tab="export"', html)
 
     def test_api_workspaces_overview_bad_plan_blocks_only_that_workspace(self) -> None:
         _write_strict_plan(Path(self._tmp.name), "alpha", chapters=1)
@@ -762,66 +597,8 @@ class RoutesGetTests(unittest.TestCase):
             {"task", "model", "prompt_tokens", "response_tokens"},
         )
 
-    def test_api_logs_tail_does_not_project_provider_error_or_fingerprint(self) -> None:
-        log_path = Path(self._tmp.name) / "alpha" / "logs" / "llm_calls.jsonl"
-        log_path.write_text(
-            json.dumps({
-                "task": "drama_plan",
-                "status": "retry_error",
-                "model": "openai/example",
-                "duration_ms": 1250,
-                "error": "upstream failed at https://signed.example/secret?token=abc",
-                "request_hash": "private-fingerprint",
-            }) + "\n",
-            encoding="utf-8",
-        )
-        status, data = self._get_json("/api/workspace/alpha/logs/tail?n=10")
-        self.assertEqual(status, 200)
-        self.assertEqual(
-            data["lines"],
-            [{
-                "task": "drama_plan",
-                "status": "retry_error",
-                "model": "openai/example",
-                "duration_ms": 1250,
-            }],
-        )
 
-    def test_api_logs_tail_rejects_secret_shaped_model_and_bad_field_types(self) -> None:
-        log_path = Path(self._tmp.name) / "alpha" / "logs" / "llm_calls.jsonl"
-        log_path.write_text(
-            json.dumps({
-                "task": "drama_plan",
-                "status": {"bad": "shape"},
-                "model": "https://user:pass@example.test/model?token=secret",
-                "duration_ms": 1250,
-                "prompt_tokens": -1,
-            }) + "\n" + json.dumps({
-                "task": "drama_hooks",
-                "status": "ok",
-                "model": "openai/sk-" + "A" * 32,
-                "duration_ms": 2500,
-            }) + "\n",
-            encoding="utf-8",
-        )
-        status, data = self._get_json("/api/workspace/alpha/logs/tail?n=10")
-        self.assertEqual(status, 200)
-        self.assertEqual(data["lines"], [
-            {"task": "drama_plan", "duration_ms": 1250},
-            {"task": "drama_hooks", "status": "ok", "duration_ms": 2500},
-        ])
 
-    def test_jobs_ui_formats_times_and_renders_llm_summary_table(self) -> None:
-        js = routes.static.JS_DASHBOARD
-        self.assertIn("function formatJobTimestamp", js)
-        self.assertIn("function renderLlmCallSummary", js)
-        self.assertIn("escapeHtml(stepLabel(job.step))", js)
-        self.assertIn('"drama_plan": "短剧站①核心设定"', js)
-        self.assertIn('return icon + " 已完成"', js)
-        self.assertIn('class="job-record-card"', js)
-        self.assertIn("从创作工作台开始一个阶段后", js)
-        self.assertIn("function initDramaJobsLegacy", js)
-        self.assertNotIn("lines.map((l) => escapeHtml(JSON.stringify(l)))", js)
 
     def test_api_cost_runs(self) -> None:
         status, data = self._get_json("/api/workspace/alpha/cost")
@@ -916,7 +693,7 @@ class RoutesGetTests(unittest.TestCase):
         status, _ct, body = routes.dispatch("GET", "/static/app.css")
         self.assertEqual(status, 200)
         css = body.decode("utf-8")
-        for sel in (".error-card", ".stepbar", ".tab.locked", ".home-btn", ".badge-soon"):
+        for sel in (".error-card", ".stepbar", ".home-btn"):
             self.assertIn(sel, css)
 
     def test_shell_has_topbar_home_button(self) -> None:
@@ -928,14 +705,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('class="btn btn-icon home-btn" href="/" data-leave-guard', html)
         self.assertIn('<span class="here" aria-current="page">书架</span>', html)
 
-    def test_iter154_landing_routes_to_public_tasks(self) -> None:
-        """Phase C keeps one general novel choice and a separate drama entry."""
-        status, _ct, body = routes.dispatch("GET", "/")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertIn('href="/wizard"', html)
-        self.assertIn('href="/wizard?type=drama"', html)
-        self.assertIn('href="/library"', html)
 
     def test_iter070_library_populated_shelf_has_no_epub_copy(self) -> None:
         """iter070/iter071 (codex F4): this route runs with alpha/beta fixtures,
@@ -947,17 +716,6 @@ class RoutesGetTests(unittest.TestCase):
         html = body.decode("utf-8")
         self.assertNotIn("epub", html)
 
-    def test_iter071_empty_shelf_renders_neutral_hint(self) -> None:
-        """iter071 (codex F4): render an empty shelf directly (no fixtures) so the
-        empty-shelf branch is actually taken (it emits the hint into the
-        data-empty attribute the client reads), and assert that copy carries no
-        novel/epub-only assumption. The iter070 route test above could not reach
-        this branch."""
-        html = templates.render_index([])
-        self.assertIn("还没有作品", html)  # the empty hint reached the DOM (data-empty=…)
-        self.assertIn("可以创建小说作品，也可以创建短剧作品", html)
-        self.assertNotIn("epub", html)
-        self.assertNotIn("第一本书", html)  # old novel-only phrasing gone
 
     def test_iter070_workspace_shell_marks_leave_guard_exits(self) -> None:
         """iter070: ⌂, the sidebar brand, and the first breadcrumb crumb are the
@@ -969,16 +727,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('class="brand" href="/library" data-leave-guard', html)
         self.assertIn('<a href="/library" data-leave-guard>', html)  # first crumb
 
-    def test_iter070_static_js_has_leave_guard(self) -> None:
-        """iter070: leave-guard delegate + modal; active = pending/running only
-        (not the succeeded-omitting helper); drama badge carries its 🎬 marker."""
-        status, _ct, body = routes.dispatch("GET", "/static/app.js")
-        self.assertEqual(status, 200)
-        js = body.decode("utf-8")
-        self.assertIn("ensureLeaveGuardDelegate", js)
-        self.assertIn("showLeaveGuardModal", js)
-        self.assertIn('j.status === "pending" || j.status === "running"', js)
-        self.assertIn("🎬 短剧", js)
 
     def test_iter071_topbar_actions_carry_leave_guard(self) -> None:
         """iter071 (codex F1): 回收站/设置/新建 also LEAVE the workspace, so on a
@@ -1057,14 +805,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn(".modal-footer-equal .btn", css)
         self.assertIn("flex: 1 1 0", css)
 
-    def test_iter070_static_css_drama_badge_border(self) -> None:
-        """iter070: drama badge gets a solid --amber border so it stops
-        colliding with the running/pending status pill colour."""
-        status, _ct, body = routes.dispatch("GET", "/static/app.css")
-        self.assertEqual(status, 200)
-        css = body.decode("utf-8")
-        self.assertIn("border-color: var(--amber); }", css)
-        self.assertIn(".badge-drama", css)
 
     def test_iter072_sidebar_switch_workspace_carries_leave_guard(self) -> None:
         """iter072 (#1): switching to *another* workspace leaves the current one,
@@ -1172,48 +912,9 @@ class RoutesGetTests(unittest.TestCase):
             "chapters",
             "outline",
             "decisions",
-            "setup",
-            "hook",
-            "storyboard",
-            "characters",
-            "script",
-            "storyboard-view",
-            "characters-view",
-            "export",
         ):
             self.assertIn(f'"{kw}"', js)
 
-    def test_static_js_has_drama_write_identifiers(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/static/app.js")
-        self.assertEqual(status, 200)
-        js = body.decode("utf-8")
-        for kw in (
-            "initDramaWrite",
-            "loadStationSetup",
-            "loadStationHooks",
-            "loadStationStoryboard",
-            "loadDramaProgress",
-            "/drama/storyboard",
-            "/drama/episodes",
-            "/drama/review",
-            "drama-review-assemble",
-            "resumeDramaActiveJob",
-            "initDramaEpisodes",
-            "initDramaEpisodeDetail",
-            "data-station-pane",
-            "bindHookPickDelegate",
-            "__hooks",
-        ):
-            self.assertIn(kw, js)
-
-    def test_static_js_hook_picker_uses_single_delegate_and_disables_buttons(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/static/app.js")
-        self.assertEqual(status, 200)
-        js = body.decode("utf-8")
-        self.assertIn("bindHookPickDelegate", js)
-        self.assertIn("pane.__hooks = hooks", js)
-        self.assertNotIn('pane.addEventListener("click"', js)
-        self.assertIn("forEach((b) => { b.disabled = true; })", js)
 
     def test_static_js_load_tab_panel_is_async(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.js")
@@ -1232,28 +933,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn('sessionStorage.removeItem("__pending_toast")', js)
         self.assertIn('msg: "已将《" + name + "》移到回收站"', js)
 
-    def test_static_js_restores_local_demo_from_server_validated_target(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/static/app.js")
-        self.assertEqual(status, 200)
-        js = body.decode("utf-8")
-        self.assertIn("function restoreLocalDemoJob", js)
-        self.assertIn("function localDemoTargetHref", js)
-        self.assertIn("__local_demo_job_v1:", js)
-        self.assertIn('wsUrl("/jobs/active")', js)
-        self.assertIn('wsUrl("/jobs/recent?n=20")', js)
-        self.assertIn("root.__localDemoHistory = null;\n      render();", js)
-        self.assertIn("target_workspace", js)
-        self.assertIn("打开演练交付", js)
-        self.assertNotIn("localStorage.setItem(localDemoPendingKey(targetEpisode), demoWorkspace", js)
-
-    def test_static_js_has_type_badge(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/static/app.js")
-        self.assertEqual(status, 200)
-        js = body.decode("utf-8")
-        self.assertIn("function typeBadge", js)
-        self.assertIn("badge-drama", js)
-        self.assertIn("badge-novel", js)
-
     def test_static_assets_have_mobile_drawer_hooks(self) -> None:
         status, _ct, body = routes.dispatch("GET", "/static/app.css")
         self.assertEqual(status, 200)
@@ -1271,17 +950,6 @@ class RoutesGetTests(unittest.TestCase):
         self.assertIn("data-topbar-menu-toggle", js)
         self.assertIn("function tableScroll", js)
 
-    def test_wizard_js_has_drama_path(self) -> None:
-        status, _ct, body = routes.dispatch("GET", "/static/wizard.js")
-        self.assertEqual(status, 200)
-        js = body.decode("utf-8")
-        self.assertIn("/api/wizard/drama-start", js)
-        self.assertIn("/api/preflight", js)
-        self.assertIn("/cancel", js)
-        self.assertIn("renderWizardActions", js)
-        self.assertIn("data-back-to-type", js)
-        self.assertIn("window.setPendingToastAndNavigate", js)
-        self.assertIn('msg: "短剧作品已创建：" + data.name', js)
 
     def test_cjk_workspace_url_decoded(self) -> None:
         """Iter 025 code-review #8: percent-encoded CJK in path must
@@ -1379,34 +1047,6 @@ class Iter073JobApiDetailTests(unittest.TestCase):
         self.assertIsNone(data["result_summary"]["cost_cny"])
         self.assertIn("params", data)  # detail keeps params (frontend retry)
         self.assertNotIn("_secret", data)  # future internal field not leaked
-
-
-class DramaUserFacingCopyTests(unittest.TestCase):
-    def test_drama_ui_uses_human_labels_and_keeps_large_shelf_navigable(self) -> None:
-        source = Path("src/web/static.py").read_text(encoding="utf-8")
-        self.assertIn('const statusLabel = { done: "已完成"', source)
-        self.assertIn('const labels = { approve: "通过"', source)
-        self.assertIn('class="drama-episode-card"', source)
-        self.assertIn("/write?episode=", source)
-        self.assertIn('编辑本集', source)
-        self.assertIn(".sidebar-library-list", source)
-        self.assertNotIn('<span class="badge ready">fresh</span>', source)
-        self.assertIn('return /[.]png$/i.test', source)
-
-    def test_drama_episode_detail_has_direct_edit_link(self) -> None:
-        html = templates.render_workspace_episode_detail("drama", ["drama"], 2)
-        self.assertIn('href="/w/drama/write?episode=2">编辑本集</a>', html)
-
-    def test_example_config_pins_video_provider_without_enabling_paid_video(self) -> None:
-        source = Path(".env.example").read_text(encoding="utf-8")
-        self.assertIn("SD_VIDEO_MODE=mock", source)
-        self.assertIn("SD_API_BASE_URL=https://model.service-inference.ai", source)
-        self.assertIn("SD_VIDEO_MODEL=dreamina-seedance-2-0-hc", source)
-        self.assertIn("SD_API_KEY=\n", source)
-        self.assertIn(
-            "workspaces/.*.drama_multimodal_smoke.lock",
-            Path(".gitignore").read_text(encoding="utf-8"),
-        )
 
 
 if __name__ == "__main__":

@@ -11,7 +11,6 @@ so the port is released immediately on the next start.
 from __future__ import annotations
 
 import re
-import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -22,16 +21,11 @@ from .safe_log import log_exception as _safe_log_exception
 
 _WEB_MUTATION_PATH_RE = re.compile(
     r"^/api/workspace/[^/]+/(?:"
-    r"drama/(?!progress(?:/|$)|hook-candidates(?:/|$))[^?]+/?"
-    r"|job/[^/]+/cancel/?"
+    r"job/[^/]+/cancel/?"
     r"|write-recovery/?"
     r")$"
 )
 _WEB_MUTATION_BODY_LIMIT = 64 * 1024
-_DRAMA_COMPOSE_READ_PATH_RE = re.compile(
-    r"^/api/workspace/[^/]+/drama/compose(?:/.*)?$"
-)
-_DRAMA_COMPOSE_READ_CAPACITY = threading.BoundedSemaphore(1)
 
 
 class WebHandler(BaseHTTPRequestHandler):
@@ -55,30 +49,9 @@ class WebHandler(BaseHTTPRequestHandler):
         # on stderr so it doesn't pollute --capture in test runs.
         import sys
         rendered = fmt % args
-        # The video provider callback uses a bearer capability in the path.
-        # BaseHTTPRequestHandler's request line would otherwise persist that
-        # live token verbatim in stderr/access logs.
-        rendered = re.sub(
-            r"/media/drama-assets/[A-Za-z0-9_-]{32,64}",
-            "/media/drama-assets/<redacted>",
-            rendered,
-        )
         sys.stderr.write(f"[web] {self.address_string()} {rendered}\n")
 
     def _respond(self, method: str, path: str) -> None:
-        decoded_path = unquote(urlsplit(path).path)
-        if (
-            method in {"GET", "HEAD"}
-            and _DRAMA_COMPOSE_READ_PATH_RE.fullmatch(decoded_path)
-        ):
-            if not _DRAMA_COMPOSE_READ_CAPACITY.acquire(blocking=False):
-                self.send_error(503, "Compose verification is busy")
-                return
-            try:
-                self._respond_inner(method, path)
-            finally:
-                _DRAMA_COMPOSE_READ_CAPACITY.release()
-            return
         self._respond_inner(method, path)
 
     def _respond_inner(self, method: str, path: str) -> None:
@@ -131,13 +104,8 @@ class WebHandler(BaseHTTPRequestHandler):
         # Pass lowercase-keyed headers dict — the wizard multipart
         # parser needs Content-Type; future handlers may want others.
         request_headers = {k.lower(): v for k, v in self.headers.items()}
-        response_headers = {}
         try:
-            response = routes.dispatch(method, path, body_bytes, request_headers)
-            if len(response) == 4:
-                status, content_type, body, response_headers = response
-            else:
-                status, content_type, body = response
+            status, content_type, body = routes.dispatch(method, path, body_bytes, request_headers)
         except Exception as exc:  # pragma: no cover - last-resort guard
             # iter 025 had a bug: building the 500 JSON body from
             # ``str(exc)`` produces invalid JSON if the message contains
@@ -152,31 +120,11 @@ class WebHandler(BaseHTTPRequestHandler):
                 + trace_id
                 + '"}'
             ).encode("ascii")
-            response_headers = {}
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        explicit_length = response_headers.get("Content-Length")
-        content_length = (
-            explicit_length
-            if isinstance(explicit_length, str)
-            and explicit_length.isdigit()
-            else str(len(body))
-        )
-        self.send_header("Content-Length", content_length)
+        self.send_header("Content-Length", str(len(body)))
         # No cache: dashboard data is read fresh on every load.
         self.send_header("Cache-Control", "no-store")
-        # Only download handlers use the optional fourth response item. Keep
-        # the allowlist deliberately narrow and reject CR/LF so future route
-        # code cannot turn a filename into response-header injection.
-        for key in (
-            "Content-Disposition",
-            "X-Content-Type-Options",
-            "Accept-Ranges",
-            "Content-Range",
-        ):
-            value = response_headers.get(key)
-            if isinstance(value, str) and "\r" not in value and "\n" not in value:
-                self.send_header(key, value)
         # ``routes.render_workspace_redirect`` emits a 301 body
         # whose ``<p data-redirect-to="...">`` carries the target URL.
         # The dispatcher contract is (status, content_type, body) — no

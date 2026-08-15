@@ -241,68 +241,8 @@ class WizardE2ETests(unittest.TestCase):
         )
         self.assertEqual(status, 409)
 
-    def test_drama_start_creates_empty_workspace_without_job(self) -> None:
-        status, _ct, resp = routes.dispatch(
-            "POST",
-            "/api/wizard/drama-start",
-            json.dumps(
-                {
-                    "workspace": "drama_a",
-                    "topic": "test topic",
-                    "track": "霸总",
-                    "episode_count": 12,
-                    "episode_duration_seconds": 60,
-                },
-                ensure_ascii=False,
-            ).encode("utf-8"),
-            {"content-type": "application/json"},
-        )
-        self.assertEqual(status, 200, resp.decode("utf-8"))
-        data = json.loads(resp)
-        self.assertEqual(data, {"name": "drama_a", "type": "drama"})
-        self.assertNotIn("job_id", data)
-        self.assertEqual(workspace_meta.read("drama_a")["type"], "drama")
-        self.assertTrue((paths.WORKSPACE_DIR / "drama_a" / "data" / "tables").is_dir())
-        self.assertTrue((paths.WORKSPACE_DIR / "drama_a" / "outputs" / "episodes").is_dir())
-        self.assertTrue((paths.WORKSPACE_DIR / "drama_a" / "data" / "wizard_input.json").is_file())
-        self.assertTrue((paths.WORKSPACE_DIR / "drama_a" / "data" / "creation_standard.snapshot.md").is_file())
 
-    def test_drama_start_rejects_reserved_workspace_name(self) -> None:
-        status, _ct, resp = routes.dispatch(
-            "POST",
-            "/api/wizard/drama-start",
-            json.dumps(
-                {
-                    "workspace": "_trash",
-                    "topic": "test topic",
-                    "track": "霸总",
-                    "episode_count": 12,
-                    "episode_duration_seconds": 60,
-                },
-                ensure_ascii=False,
-            ).encode("utf-8"),
-            {"content-type": "application/json"},
-        )
-        self.assertEqual(status, 400)
-        self.assertIn("invalid workspace name", json.loads(resp)["error"])
 
-    def test_drama_start_requires_json_content_type(self) -> None:
-        status, _ct, _resp = routes.dispatch(
-            "POST",
-            "/api/wizard/drama-start",
-            json.dumps(
-                {
-                    "workspace": "drama_a",
-                    "topic": "test topic",
-                    "track": "霸总",
-                    "episode_count": 12,
-                    "episode_duration_seconds": 60,
-                },
-                ensure_ascii=False,
-            ).encode("utf-8"),
-            {"content-type": "text/plain"},
-        )
-        self.assertEqual(status, 415)
 
 
 if __name__ == "__main__":

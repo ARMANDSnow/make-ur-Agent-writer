@@ -316,27 +316,6 @@ def build_parser() -> argparse.ArgumentParser:
     workspace_show_cmd = sub.add_parser("workspace-show")
     workspace_show_cmd.add_argument("--name", default=None)
 
-    drama_archive = sub.add_parser("drama-project-archive")
-    drama_archive_sub = drama_archive.add_subparsers(
-        dest="drama_archive_command", required=True
-    )
-    drama_archive_sub.add_parser(
-        "export",
-        description=(
-            "Export the selected drama workspace. Canonical usage: "
-            "python3 main.py --book <workspace> drama-project-archive export"
-        ),
-        epilog=(
-            "Required global selector: --book <workspace> may appear anywhere; "
-            "the canonical example places it before drama-project-archive."
-        ),
-    )
-    drama_archive_preflight = drama_archive_sub.add_parser("preflight")
-    drama_archive_preflight.add_argument("--archive", required=True)
-    drama_archive_import = drama_archive_sub.add_parser("import")
-    drama_archive_import.add_argument("--archive", required=True)
-    drama_archive_import.add_argument("--to", required=True, dest="to_name")
-
     run_all = sub.add_parser("run-all")
     run_all.add_argument("--chapters", type=int, default=18)
     run_all.add_argument("--extract-limit", type=int, default=None)
@@ -447,6 +426,26 @@ def _validate_cli_run_params(raw: dict, *, fields: tuple) -> None:
         raise SystemExit(2)
 
 
+def _require_supported_workspace(name: str | None) -> None:
+    """Reject direct CLI access to recognized but unsupported workspaces."""
+
+    if not name:
+        return
+    from src import paths
+    from src.web import workspace_meta
+
+    if paths.probe_workspace_identity(name) is None:
+        print("error: workspace is not available on this branch", file=sys.stderr)
+        raise SystemExit(2)
+    metadata = workspace_meta.read(name)
+    if (
+        metadata.get("type") not in workspace_meta.SUPPORTED_TYPES
+        or metadata.get("_metadata_status") == "invalid"
+    ):
+        print("error: workspace is not available on this branch", file=sys.stderr)
+        raise SystemExit(2)
+
+
 def main() -> None:
     _consume_book_pre_arg()
     args = build_parser().parse_args()
@@ -462,53 +461,16 @@ def main() -> None:
         print(render_import(result), end="")
         return
     if args.command == "workspace-show":
+        from src import paths
+
+        _require_supported_workspace(args.name or paths.workspace_name())
         summary = show_workspace(args.name)
         print(render_show(summary), end="")
         return
-    if args.command == "drama-project-archive":
-        from src import drama_project_archive, paths
+    if args.command != "web":
+        from src import paths
 
-        if args.drama_archive_command == "export":
-            workspace = paths.workspace_name()
-            if workspace is None:
-                raise SystemExit("drama-project-archive export requires --book <workspace>")
-            result = drama_project_archive.export_project_archive(workspace)
-            payload = {
-                "status": "exported",
-                "filename": result.filename,
-                "path": str(result.path.resolve(strict=True)),
-                "project_id": result.manifest.project_id,
-                "archive_fingerprint": result.manifest.archive_fingerprint,
-                "member_count": len(result.manifest.members),
-            }
-        else:
-            body = drama_project_archive.read_project_archive_file(
-                Path(args.archive).expanduser()
-            )
-            if args.drama_archive_command == "preflight":
-                manifest = drama_project_archive.preflight_project_archive(body)
-                payload = {
-                    "status": "valid",
-                    "project_id": manifest.project_id,
-                    "archive_fingerprint": manifest.archive_fingerprint,
-                    "member_count": len(manifest.members),
-                    "episode_nos": [item.episode_no for item in manifest.episodes],
-                }
-            else:
-                result = drama_project_archive.import_project_archive(
-                    body,
-                    target_workspace=args.to_name,
-                )
-                payload = {
-                    "status": "imported",
-                    "workspace": result.workspace,
-                    "project_id": result.project_id,
-                    "archive_fingerprint": result.archive_fingerprint,
-                    "member_count": result.member_count,
-                    "durability": result.durability,
-                }
-        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-        return
+        _require_supported_workspace(paths.workspace_name())
     if args.command == "normalize":
         normalize_all(lang=getattr(args, "lang", None))
     elif args.command == "split":

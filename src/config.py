@@ -252,19 +252,6 @@ RUNTIME_ENV_KEYS = (
     "PLANNER_API_KEY",
     "PLANNER_BASE_URL",
     "PLANNER_MODEL",
-    "AI_DRAW_ENDPOINT",
-    "AI_DRAW_BASE_URL",
-    "AI_DRAW_MODEL",
-    "AI_DRAW_API_KEY",
-    "AI_DRAW_RESULT_HOSTS",
-    "SD_API_BASE_URL",
-    "SD_API_KEY",
-    "SD_VIDEO_MODE",
-    "SD_VIDEO_MODEL",
-    "SD_ASSET_PUBLIC_BASE_URL",
-    "SD_VIDEO_RESULT_HOSTS",
-    "SD_VIDEO_ESTIMATED_COST_CNY",
-    "CONFIRM_REAL_VIDEO_SMOKE",
 )
 
 
@@ -377,9 +364,7 @@ def _running_under_unittest_discover() -> bool:
 
 def _pin_test_environment() -> None:
     os.environ["OPENAI_MODEL"] = "mock"
-    os.environ["DRAMA_MODEL"] = "mock"
     os.environ["PLANNER_MODEL"] = "mock"
-    os.environ["SD_VIDEO_MODE"] = "mock"
     os.environ[LITELLM_LOCAL_MODEL_COST_MAP_ENV] = "true"
     os.environ[SKIP_DOTENV_ENV] = "1"
     os.environ["PYTHON_DOTENV_DISABLED"] = "1"

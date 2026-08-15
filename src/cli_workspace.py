@@ -33,7 +33,7 @@ RESERVED_NAMES = {"legacy", "_trash", "", ".", ".."}
 
 
 def list_workspaces() -> List[str]:
-    """Return the sorted names of existing per-book workspaces.
+    """Return supported novel workspaces without exposing legacy drama data.
 
     Iter 026 code-review #6: a bare ``startswith('.')`` filter let
     tooling dirs like ``__pycache__`` / ``.pytest_cache`` show up as
@@ -42,6 +42,8 @@ def list_workspaces() -> List[str]:
     ``init_workspace`` so a real workspace always has one, and tooling
     caches never do.
     """
+    from .web import workspace_meta as _meta
+
     try:
         children = list(paths.WORKSPACE_DIR.iterdir())
     except OSError:
@@ -57,6 +59,12 @@ def list_workspaces() -> List[str]:
         present = {item[0] for item in identity.canonical_dirs}
         if not ({"data", "outputs"} & present):
             continue
+        metadata = _meta.read(child.name)
+        if (
+            metadata.get("type") not in _meta.SUPPORTED_TYPES
+            or metadata.get("_metadata_status") == "invalid"
+        ):
+            continue
         names.append(child.name)
     return sorted(names)
 
@@ -71,8 +79,8 @@ def init_workspace(
     _validate_name(name)
     from .web import workspace_meta as _meta
 
-    if type not in _meta.VALID_TYPES:
-        raise ValueError(f"invalid workspace type: {type!r}")
+    if type not in _meta.SUPPORTED_TYPES:
+        raise ValueError(f"unsupported workspace type: {type!r}")
     if type == "novel":
         creation_mode = creation_mode or "continuation"
         if creation_mode not in _meta.VALID_CREATION_MODES:
@@ -107,14 +115,6 @@ def init_workspace(
         except ValueError:
             created.append(str(sub_path))
     _meta.write(name, type=type, creation_mode=creation_mode)
-    if type == "drama":
-        for extra in ("data/tables", "outputs/debate", "outputs/episodes", "outputs/reviews"):
-            extra_path = target / extra
-            ensure_dir(extra_path)
-            try:
-                created.append(str(extra_path.relative_to(ROOT)))
-            except ValueError:
-                created.append(str(extra_path))
     return {
         "name": name,
         "path": str(target),
@@ -145,6 +145,14 @@ def import_current(to_name: str, dry_run: bool = False) -> Dict[str, Any]:
     if target_entry_exists and target_identity is None:
         raise ValueError(f"workspace '{to_name}' is missing or unsafe")
     if target_identity is not None:
+        from .web import workspace_meta as _meta
+
+        metadata = _meta.read(to_name)
+        if (
+            metadata.get("type") not in _meta.SUPPORTED_TYPES
+            or metadata.get("_metadata_status") == "invalid"
+        ):
+            raise ValueError(f"workspace '{to_name}' is not available on this branch")
         # Allow importing into an existing workspace only if its subdirs are
         # all empty — otherwise we'd overwrite real data silently.
         for sub in WORKSPACE_SUBDIRS:

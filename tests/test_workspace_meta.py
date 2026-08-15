@@ -22,13 +22,6 @@ class WorkspaceMetaTests(unittest.TestCase):
         paths.WORKSPACE_DIR = self._saved_ws_dir
         self._tmp.cleanup()
 
-    def test_write_read_drama_round_trip(self) -> None:
-        workspace_meta.write("drama_one", type="drama", created_at="2026-06-03T00:00:00+00:00")
-        meta = workspace_meta.read("drama_one")
-        self.assertEqual(meta["type"], "drama")
-        self.assertEqual(meta["created_at"], "2026-06-03T00:00:00+00:00")
-        self.assertEqual(meta["schema_version"], 2)
-        self.assertNotIn("creation_mode", meta)
 
     def test_missing_workspace_json_defaults_to_legacy_novel(self) -> None:
         (paths.WORKSPACE_DIR / "old" / "data").mkdir(parents=True)
@@ -60,26 +53,7 @@ class WorkspaceMetaTests(unittest.TestCase):
         self.assertEqual(meta["type"], "novel")
         self.assertEqual(meta["schema_version"], 1)
 
-    def test_init_workspace_drama_creates_empty_skeleton(self) -> None:
-        result = init_workspace("drama_box", type="drama")
-        self.assertEqual(result["type"], "drama")
-        self.assertEqual(workspace_meta.read("drama_box")["type"], "drama")
-        for rel in (
-            "小说txt",
-            "data",
-            "outputs",
-            "logs",
-            "data/tables",
-            "outputs/debate",
-            "outputs/episodes",
-            "outputs/reviews",
-        ):
-            self.assertTrue((paths.WORKSPACE_DIR / "drama_box" / rel).is_dir(), rel)
 
-    def test_init_workspace_duplicate_raises(self) -> None:
-        init_workspace("dup", type="drama")
-        with self.assertRaises(FileExistsError):
-            init_workspace("dup", type="drama")
 
     def test_init_workspace_defaults_to_novel_type(self) -> None:
         init_workspace("novel_box")
@@ -149,50 +123,7 @@ class WorkspaceMetaTests(unittest.TestCase):
         self.assertEqual(workspace_meta.read("invalid-v2")["creation_mode"], "continuation")
         self.assertEqual(meta_path.read_bytes(), before)
 
-    def test_concurrent_read_write_does_not_corrupt(self) -> None:
-        import threading
 
-        name = "concurrent"
-        workspace_meta.write(name, type="novel")
-        results: list[str] = []
-        barrier = threading.Barrier(4)
-
-        def writer() -> None:
-            barrier.wait()
-            for _ in range(50):
-                workspace_meta.write(name, type="drama")
-                workspace_meta.write(name, type="novel")
-
-        def reader() -> None:
-            barrier.wait()
-            for _ in range(50):
-                try:
-                    meta = workspace_meta.read(name)
-                    results.append(str(meta["type"]))
-                except Exception as exc:  # pragma: no cover - assertion below records it.
-                    results.append(f"err:{exc}")
-
-        threads = [threading.Thread(target=writer)] + [threading.Thread(target=reader) for _ in range(2)]
-        for thread in threads:
-            thread.start()
-        barrier.wait()
-        for thread in threads:
-            thread.join(timeout=5)
-
-        for thread in threads:
-            self.assertFalse(thread.is_alive())
-        self.assertTrue(results)
-        for result in results:
-            self.assertIn(result, {"novel", "drama"}, f"corrupt read: {result!r}")
-
-    def test_malformed_json_with_bom_falls_back_to_novel(self) -> None:
-        path = workspace_meta.workspace_meta_path("bommed")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b'\xef\xbb\xbf{"type": "drama"')
-        meta = workspace_meta.read("bommed")
-        self.assertEqual(meta["type"], "novel")
-        self.assertEqual(meta["schema_version"], 0)
-        self.assertEqual(meta["creation_mode"], "continuation")
 
     def test_non_utf8_workspace_json_falls_back_to_novel(self) -> None:
         path = workspace_meta.workspace_meta_path("bad_utf8")

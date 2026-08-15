@@ -3,68 +3,11 @@ from pathlib import Path
 
 
 class SmokeScriptTests(unittest.TestCase):
-    def test_drama_full_smoke_separates_text_image_gates_and_forbids_video(self) -> None:
-        text = Path("scripts/drama_smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("--confirm-real-smoke", text)
-        self.assertIn("--confirm-real-image-smoke", text)
-        self.assertIn("src.drama_smoke", text)
-        self.assertNotIn("video/generate", text)
-        source = Path("src/drama_smoke.py").read_text(encoding="utf-8")
-        self.assertIn('"video_requests": 0', source)
-        self.assertNotIn("create_video", source)
 
-    def test_drama_web_recovers_persisted_candidates_and_character_job(self) -> None:
-        source = Path("src/web/static.py").read_text(encoding="utf-8")
-        self.assertIn('fetchJson(dramaApiUrl("/drama/hook-candidates"))', source)
-        self.assertIn("function renderHookCandidates", source)
-        self.assertIn('row.step === "drama-characters"', source)
-        self.assertIn('encodeURIComponent(String(targetEpisode))', source)
-        self.assertIn("(terminal.result_summary || {}).skipped", source)
-        self.assertNotIn("showToast(data.skipped ?", source)
 
-    def test_legacy_drama_image_smoke_is_disabled(self) -> None:
-        text = Path("scripts/drama_image_smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("disabled", text)
-        self.assertIn("drama_multimodal_smoke.sh", text)
-        self.assertIn("exit 64", text)
 
-    def test_drama_video_smoke_has_two_confirmation_layers_and_no_retry_loop(self) -> None:
-        shell = Path("scripts/drama_video_smoke.sh").read_text(encoding="utf-8")
-        python = Path("src/drama_video_smoke.py").read_text(encoding="utf-8")
-        self.assertIn("--confirm-real-video", shell)
-        self.assertIn("CONFIRM_REAL_VIDEO_SMOKE", shell)
-        self.assertIn('"confirm_real_video": True', python)
-        self.assertIn('"automatic_retries": 0', python)
-        self.assertNotIn("create_video_task", python)
 
-    def test_verify_sh_unsets_real_model_env(self) -> None:
-        text = Path("scripts/verify.sh").read_text(encoding="utf-8")
-        self.assertIn("export OPENAI_MODEL=mock", text)
-        self.assertIn("export LITELLM_LOCAL_MODEL_COST_MAP=true", text)
-        self.assertIn("unset OPENAI_API_KEY OPENAI_BASE_URL", text)
-        self.assertIn('export OPENAI_API_KEY="" OPENAI_BASE_URL=""', text)
-        self.assertIn("PLANNER_API_KEY", text)
-        self.assertIn("PLANNER_MODEL=mock", text)
-        self.assertIn("DRAMA_MODEL=mock", text)
-        self.assertIn("SD_VIDEO_MODE=mock", text)
-        self.assertIn("OPENAI_STREAM", text)
-        self.assertNotIn('source "$ROOT/scripts/with_proxy.sh"', text)
-        self.assertIn('PYTHON_BIN="$ROOT/.venv/bin/python3"', text)
-        self.assertNotIn('PYTHON_BIN="python3"', text)
-        self.assertEqual(text.count("-m unittest discover -s tests -v"), 1)
-        self.assertIn("scripts/check_agent_harness.py", text)
-        self.assertIn("scripts/write_acceptance.py start", text)
-        self.assertIn("run_step local_drama_e2e", text)
-        self.assertIn("scripts/run_local_drama_e2e.py", text)
-        self.assertIn("local_drama_e2e.json", text)
-        self.assertIn(".dragon-raja-local-e2e", text)
-        self.assertIn("run_main_step preflight preflight", text)
 
-    def test_drama_mock_wrappers_pin_litellm_to_local_cost_map(self) -> None:
-        for name in ("drama_smoke.sh", "drama_multimodal_smoke.sh", "drama_video_smoke.sh"):
-            text = Path(f"scripts/{name}").read_text(encoding="utf-8")
-            self.assertIn("LITELLM_LOCAL_MODEL_COST_MAP=true", text)
-            self.assertIn("OPENAI_MODEL=mock", text)
 
     def test_debate_smoke_creates_snapshot_block(self) -> None:
         text = Path("scripts/debate_smoke.sh").read_text(encoding="utf-8")

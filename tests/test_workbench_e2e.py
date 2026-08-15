@@ -86,26 +86,6 @@ class WorkbenchE2ETests(unittest.TestCase):
         self.assertIn("单章创作工作台", html)
         self.assertIn('<span class="sidebar-item active" aria-current="page"><span><span class="dot"></span> 创作工作台</span></span>', html)
 
-    def test_workbench_page_is_novel_only(self) -> None:
-        routes.dispatch(
-            "POST",
-            "/api/wizard/drama-start",
-            json.dumps(
-                {
-                    "workspace": "dramaws",
-                    "topic": "x",
-                    "track": "霸总",
-                    "episode_count": 12,
-                    "episode_duration_seconds": 60,
-                },
-                ensure_ascii=False,
-            ).encode("utf-8"),
-            {"content-type": "application/json"},
-        )
-        st, _ct, body = routes.dispatch("GET", "/w/dramaws/workbench")
-        # novel-only guard renders the "not a novel workspace" page, not the workbench.
-        self.assertEqual(st, 200)
-        self.assertNotIn("单章创作工作台", body.decode("utf-8"))
 
     # ---- stage gate progression ------------------------------------------
 

@@ -40,20 +40,12 @@ ALLOWED_KEYS = (
     "PLANNER_MODEL",
     "PLANNER_API_KEY",
     "PLANNER_BASE_URL",
-    "DRAMA_MODEL",
-    "AI_DRAW_ENDPOINT",
-    "AI_DRAW_BASE_URL",
-    "AI_DRAW_MODEL",
-    "AI_DRAW_API_KEY",
-    "AI_DRAW_RESULT_HOSTS",
-    "SD_API_BASE_URL",
-    "SD_API_KEY",
     "OPENAI_STREAM",
     "DISABLE_PROMPT_CACHE",
     "WRITE_MAX_TOKENS",
     "WRITE_PROMPT_PROFILE",
 )
-SECRET_KEYS = frozenset({"OPENAI_API_KEY", "PLANNER_API_KEY", "AI_DRAW_API_KEY", "SD_API_KEY"})
+SECRET_KEYS = frozenset({"OPENAI_API_KEY", "PLANNER_API_KEY"})
 
 MAX_VALUE_LEN = 512
 
@@ -113,13 +105,6 @@ def put_settings(body: bytes) -> Tuple[int, str, bytes]:
     existing = _read_env(_ENV_PATH)
     merged = dict(existing)
     merged.update(updates)
-    global_model = str(merged.get("OPENAI_MODEL") or "mock").strip().lower()
-    drama_model = str(merged.get("DRAMA_MODEL") or "").strip().lower()
-    if global_model.startswith("mock") and drama_model and not drama_model.startswith("mock"):
-        return _json(400, {
-            "error": "DRAMA_MODEL cannot be real while OPENAI_MODEL is mock; the global mock guard overrides it"
-        })
-
     try:
         _write_env_atomic(_ENV_PATH, merged)
     except OSError as exc:

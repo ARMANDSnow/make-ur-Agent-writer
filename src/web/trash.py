@@ -6,10 +6,15 @@ removing _trash/ entries on the user's schedule.
 
 from __future__ import annotations
 
+import json
+import fcntl
+import os
 import re
 import shutil
+import stat
 import time
 from datetime import datetime
+from contextlib import contextmanager
 from typing import Any, Dict, List, Tuple
 
 from .. import paths
@@ -22,6 +27,91 @@ _SAFE_ENTRY_RE = re.compile(
     r"__[0-9]{8}_[0-9]{6}(?:_\d+)?$"
 )
 _RESERVED_ORIGINAL_NAMES = frozenset({"legacy", "_trash", "", ".", ".."})
+_MAX_META_BYTES = 64 * 1024
+
+
+def _entry_supported_novel_identity(entry: str) -> tuple[int, int] | None:
+    """Recognize only novel trash entries without following symlinks.
+
+    Missing metadata is the historical novel layout.  Present but malformed,
+    unknown, or explicitly unsupported metadata fails closed so the main
+    branch cannot enumerate, restore, or delete that data.
+    """
+
+    ok, _ = _safe_entry_path(entry)
+    if not ok:
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    root_fd = entry_fd = data_fd = meta_fd = None
+    try:
+        root_fd = os.open(paths.WORKSPACE_DIR / TRASH_DIR_NAME, flags)
+        entry_fd = os.open(entry, flags, dir_fd=root_fd)
+        entry_info = os.fstat(entry_fd)
+        try:
+            data_fd = os.open("data", flags, dir_fd=entry_fd)
+        except FileNotFoundError:
+            return entry_info.st_dev, entry_info.st_ino
+        try:
+            meta_fd = os.open(
+                "workspace.json",
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=data_fd,
+            )
+        except FileNotFoundError:
+            return entry_info.st_dev, entry_info.st_ino
+        info = os.fstat(meta_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_META_BYTES:
+            return None
+        raw = os.read(meta_fd, _MAX_META_BYTES + 1)
+        if len(raw) > _MAX_META_BYTES:
+            return None
+        payload = json.loads(raw.decode("utf-8"))
+        if isinstance(payload, dict) and payload.get("type") == "novel":
+            return entry_info.st_dev, entry_info.st_ino
+        return None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    finally:
+        for fd in (meta_fd, data_fd, entry_fd, root_fd):
+            if fd is not None:
+                os.close(fd)
+
+
+def _entry_is_supported_novel(entry: str) -> bool:
+    return _entry_supported_novel_identity(entry) is not None
+
+
+@contextmanager
+def _locked_trash_root():
+    """Serialize checked trash mutations and retain a nofollow parent fd."""
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    root_fd = os.open(paths.WORKSPACE_DIR / TRASH_DIR_NAME, flags)
+    lock_fd = os.open(
+        ".novel-only-trash.lock",
+        os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+        dir_fd=root_fd,
+    )
+    try:
+        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+            raise OSError("trash lock is not a regular file")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield root_fd
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
+            os.close(root_fd)
+
+
+def _entry_identity_matches(root_fd: int, entry: str, identity: tuple[int, int]) -> bool:
+    try:
+        info = os.stat(entry, dir_fd=root_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISDIR(info.st_mode) and (info.st_dev, info.st_ino) == identity
 
 
 def soft_delete_workspace(name: str) -> Tuple[bool, str]:
@@ -39,6 +129,14 @@ def soft_delete_workspace(name: str) -> Tuple[bool, str]:
     src = paths.WORKSPACE_DIR / name
     if not src.is_dir():
         return False, "workspace_not_found"
+    from . import workspace_meta
+
+    metadata = workspace_meta.read(name)
+    if (
+        metadata.get("type") not in workspace_meta.SUPPORTED_TYPES
+        or metadata.get("_metadata_status") == "invalid"
+    ):
+        return False, "unsupported_workspace_type"
     trash_root = paths.WORKSPACE_DIR / TRASH_DIR_NAME
     trash_root.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -64,6 +162,8 @@ def list_trash_entries() -> List[Dict[str, Any]]:
         if not entry.is_dir():
             continue
         name = entry.name
+        if not _entry_is_supported_novel(name):
+            continue
         original_name, ts = _split_entry_name(name)
         deleted_at = ""
         if ts:
@@ -100,16 +200,29 @@ def restore_trash_entry(entry: str) -> Tuple[bool, str]:
     ok, reason = _safe_entry_path(entry)
     if not ok:
         return False, reason
-    src = paths.WORKSPACE_DIR / TRASH_DIR_NAME / entry
-    if not src.is_dir():
+    try:
+        with _locked_trash_root() as trash_fd:
+            identity = _entry_supported_novel_identity(entry)
+            if identity is None:
+                return False, "unsupported_workspace_type"
+            original_name, _ = _split_entry_name(entry)
+            if not original_name:
+                return False, "malformed_entry"
+            target = paths.WORKSPACE_DIR / original_name
+            if target.exists():
+                return False, "name_collision"
+            if not _entry_identity_matches(trash_fd, entry, identity):
+                return False, "entry_not_found"
+            workspace_fd = os.open(
+                paths.WORKSPACE_DIR,
+                os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                os.rename(entry, original_name, src_dir_fd=trash_fd, dst_dir_fd=workspace_fd)
+            finally:
+                os.close(workspace_fd)
+    except FileNotFoundError:
         return False, "entry_not_found"
-    original_name, _ = _split_entry_name(entry)
-    if not original_name:
-        return False, "malformed_entry"
-    target = paths.WORKSPACE_DIR / original_name
-    if target.exists():
-        return False, "name_collision"
-    src.rename(target)
     return True, str(target.relative_to(paths.WORKSPACE_DIR))
 
 
@@ -119,10 +232,16 @@ def purge_trash_entry(entry: str) -> Tuple[bool, str]:
     ok, reason = _safe_entry_path(entry)
     if not ok:
         return False, reason
-    src = paths.WORKSPACE_DIR / TRASH_DIR_NAME / entry
-    if not src.is_dir():
+    try:
+        with _locked_trash_root() as trash_fd:
+            identity = _entry_supported_novel_identity(entry)
+            if identity is None:
+                return False, "unsupported_workspace_type"
+            if not _entry_identity_matches(trash_fd, entry, identity):
+                return False, "entry_not_found"
+            shutil.rmtree(entry, dir_fd=trash_fd)
+    except FileNotFoundError:
         return False, "entry_not_found"
-    shutil.rmtree(src)
     return True, "purged"
 
 

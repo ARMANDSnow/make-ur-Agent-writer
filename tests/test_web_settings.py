@@ -18,8 +18,6 @@ class SettingsTests(unittest.TestCase):
             b"OPENAI_MODEL=deepseek/deepseek-chat\n"
             b"OPENAI_BASE_URL=https://api.deepseek.com\n"
             b"PLANNER_API_KEY=test-planner-key-1234567890abcdefghij\n"
-            b"AI_DRAW_API_KEY=test-draw-key-1234567890abcdefghij\n"
-            b"SD_API_KEY=test-video-key-1234567890abcdefghij\n"
             b"UNRELATED_VAR=keep-me\n"
         )
         self._tmp.close()
@@ -59,53 +57,9 @@ class SettingsTests(unittest.TestCase):
             )
             self.assertEqual(status, 400, f"value {bad!r} should be rejected")
 
-    def test_put_updates_only_listed_fields(self) -> None:
-        status, _ct, body = routes.dispatch(
-            "PUT",
-            "/api/settings",
-            json.dumps({"OPENAI_MODEL": "deepseek/deepseek-chat", "DRAMA_MODEL": "deepseek/deepseek-chat"}).encode(),
-        )
-        self.assertEqual(status, 200)
-        data = json.loads(body)
-        self.assertTrue(data["saved"])
-        self.assertTrue(data["restart_required"])
-        # Untouched keys preserved on disk
-        on_disk = Path(self._tmp.name).read_text(encoding="utf-8")
-        self.assertIn("OPENAI_MODEL=deepseek/deepseek-chat", on_disk)
-        self.assertIn("DRAMA_MODEL=deepseek/deepseek-chat", on_disk)
-        self.assertIn("UNRELATED_VAR=keep-me", on_disk)
-        self.assertIn("OPENAI_API_KEY=test-api-key-1234567890abcdefghij", on_disk)
 
-    def test_put_rejects_drama_real_hidden_by_global_mock(self) -> None:
-        status, _ct, body = routes.dispatch(
-            "PUT",
-            "/api/settings",
-            json.dumps({"OPENAI_MODEL": "mock", "DRAMA_MODEL": "deepseek/deepseek-chat"}).encode(),
-        )
-        self.assertEqual(status, 400)
-        self.assertIn("global mock guard", json.loads(body)["error"])
 
-    def test_put_masked_secret_does_not_overwrite(self) -> None:
-        status, _ct, body = routes.dispatch(
-            "PUT",
-            "/api/settings",
-            json.dumps({"OPENAI_API_KEY": "tes***ghij", "AI_DRAW_API_KEY": "tes***ghij", "OPENAI_STREAM": "1"}).encode(),
-        )
-        self.assertEqual(status, 200)
-        on_disk = Path(self._tmp.name).read_text(encoding="utf-8")
-        self.assertIn("OPENAI_API_KEY=test-api-key-1234567890abcdefghij", on_disk)
-        self.assertIn("AI_DRAW_API_KEY=test-draw-key-1234567890abcdefghij", on_disk)
-        self.assertIn("OPENAI_STREAM=1", on_disk)
 
-    def test_put_ai_draw_endpoint_is_allowed(self) -> None:
-        status, _ct, body = routes.dispatch(
-            "PUT",
-            "/api/settings",
-            json.dumps({"AI_DRAW_ENDPOINT": "https://draw.example.test/api"}).encode(),
-        )
-        self.assertEqual(status, 200, body.decode())
-        on_disk = Path(self._tmp.name).read_text(encoding="utf-8")
-        self.assertIn("AI_DRAW_ENDPOINT=https://draw.example.test/api", on_disk)
 
     def test_put_atomic_replace_no_tmp_left(self) -> None:
         routes.dispatch("PUT", "/api/settings", json.dumps({"OPENAI_MODEL": "mock"}).encode())

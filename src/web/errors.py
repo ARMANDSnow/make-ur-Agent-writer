@@ -34,8 +34,8 @@ from .. import readiness_catalog
 # iter064 #4: a POSIX absolute path is `/` + at least two `/`-separated
 # segments. Requiring the leading slash and >=2 segments keeps normal prose
 # (`3/4`, `a/b`, `TCP/IP` — none have two slashes) untouched while catching the
-# directory tree an exception message may embed (e.g. hook_designer's
-# `setup_path`). Segments are `[^/]+` (everything but a slash, INCLUDING spaces)
+# directory tree an exception message may embed (for example, a draft loader's
+# input path). Segments are `[^/]+` (everything but a slash, INCLUDING spaces)
 # so a path with a space in a parent dir — `/Users/x/My Docs/foo/a.txt` — is
 # fully matched and redacted, not truncated at the first space (iter064 收官审查
 # P1). Matching greedily across runs only ever over-redacts, which is fail-safe.
@@ -233,7 +233,7 @@ def exception_body(exc: BaseException, *, expose_technical: bool = False) -> Dic
     iter064 #4: handlers used to inline ``{"error": str(exc), "card":
     card_for_exception(exc)}``. The card's cause is now path-redacted, but the
     sibling ``error`` key was still raw ``str(exc)`` — so an absolute path in the
-    message (e.g. hook_designer's ``setup_path``) leaked to the client through
+    message (for example, a draft input path) leaked to the client through
     that field even though the card was clean. Redact BOTH here so every call
     site closes the leak. Non-path messages are unchanged (``_redact_paths`` is a
     no-op without a leading-slash path), preserving backward compatibility."""

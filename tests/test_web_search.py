@@ -175,13 +175,6 @@ class SearchRouteTests(unittest.TestCase):
         self.assertIn('window.PAGE_KIND = "search"', html)
         self.assertIn('内容搜索', html)
 
-    def test_search_page_drama_novel_only_guard(self) -> None:
-        self._seed()
-        workspace_meta.write(self.WS, type="drama")
-        status, _ct, body = self._get(f"/w/{self.WS}/search")
-        self.assertEqual(status, 200)
-        html = body.decode("utf-8")
-        self.assertNotIn('id="search-input"', html)   # drama → novel-only 引导页
 
 
 if __name__ == "__main__":

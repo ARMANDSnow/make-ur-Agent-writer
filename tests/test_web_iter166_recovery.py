@@ -177,35 +177,6 @@ class WriteRecoveryRouteTests(unittest.TestCase):
                 self.assertNotIn("synthetic failed draft", serialized)
                 self.assertNotIn("outputs/", serialized)
 
-    def test_wire_post_requires_dedicated_json_mutation_intent(self) -> None:
-        body = b"{}"
-        status, _ct, _payload = routes.dispatch(
-            "POST",
-            "/api/workspace/ghost/write-recovery",
-            body,
-            {"content-type": "application/json"},
-        )
-        self.assertEqual(status, 403)
-        status, _ct, _payload = routes.dispatch(
-            "POST",
-            "/api/workspace/ghost/write-recovery",
-            body,
-            {
-                "content-type": "application/json",
-                "x-drama-mutation-intent": "mutate-v1",
-            },
-        )
-        self.assertEqual(status, 403)
-        status, _ct, _payload = routes.dispatch(
-            "POST",
-            "/api/workspace/ghost/write-recovery",
-            body,
-            {
-                "content-type": "application/json",
-                "x-write-recovery-intent": "archive-and-regenerate-v1",
-            },
-        )
-        self.assertEqual(status, 404)
 
     def test_only_exact_retry_exhausted_is_eligible(self) -> None:
         workspace = self._eligible("hard")

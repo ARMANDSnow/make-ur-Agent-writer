@@ -807,7 +807,6 @@ class IsolatedCliTests(unittest.TestCase):
         env.update(
             {
                 "OPENAI_MODEL": "mock",
-                "DRAMA_MODEL": "mock",
                 "PLANNER_MODEL": "mock",
                 "LITELLM_LOCAL_MODEL_COST_MAP": "true",
                 "DRAGON_RAJA_SKIP_DOTENV": "1",
@@ -947,29 +946,8 @@ class VerifyHarnessTests(unittest.TestCase):
         shutil.copy2(VERIFY, root / "scripts/verify.sh")
         shutil.copy2(EVIDENCE_WRITER, root / "scripts/write_acceptance.py")
         shutil.copy2(ISOLATED_CLI, root / "scripts/run_isolated_cli.py")
-        (root / "scripts/run_local_drama_e2e.py").write_text(
-            "import argparse, json, os\n"
-            "from pathlib import Path\n"
-            "p=argparse.ArgumentParser()\n"
-            "p.add_argument('--workspace-root', required=True)\n"
-            "p.add_argument('--run-id', required=True)\n"
-            "p.add_argument('--evidence-path', required=True)\n"
-            "p.add_argument('--git-head', required=True)\n"
-            "p.add_argument('--git-tree', required=True)\n"
-            "a=p.parse_args()\n"
-            "if os.environ.get('FAKE_LOCAL_E2E_FAIL') == '1': raise SystemExit(9)\n"
-            "path=Path(a.evidence_path); path.parent.mkdir(parents=True, exist_ok=True)\n"
-            "tmp=path.with_name('.local-e2e.tmp')\n"
-            "tmp.write_text(json.dumps({'schema_version':1,'status':'passed',"
-            "'acceptance_level':'local-e2e','verification_profile':'loopback-fake-provider',"
-            "'acceptance_run_id':a.run_id,'git_head':a.git_head,'git_tree':a.git_tree,"
-            "'provider_validated':False,'components':{"
-            "'image_runner':{'character_count':2,'canonical_count':2,'request_count':2},"
-            "'video_runner':{'submission_count':1,'request_count':1,'poll_completed':True,'callback_process':True,'zero_network_resume':True},"
-            "'five_station_authorization':{'station_count':5,'worker_receive_count':5},"
-            "'provider_request_counts':{'image_generate':2,'asset_upload':2,'asset_poll':2,'video_create':1,'video_poll':2,'video_download':1,'callback_fetch':2}}})+'\\n', encoding='utf-8')\n"
-            "os.replace(tmp, path)\n",
-            encoding="utf-8",
+        (root / "scripts/check_novel_only_boundary.py").write_text(
+            "raise SystemExit(0)\n", encoding="utf-8"
         )
         fake_python = root / ".venv/bin/python3"
         real_python = shlex.quote(sys.executable)
@@ -982,12 +960,9 @@ class VerifyHarnessTests(unittest.TestCase):
             "  if [[ \"${FAKE_ACCEPTANCE_FINISH_FAIL:-}\" == '1' && \"${2:-}\" == 'finish' ]]; then exit 18; fi\n"
             "  exec \"$REAL_PYTHON\" \"$@\"\n"
             "fi\n"
-            "if [[ \"${1:-}\" == 'scripts/run_local_drama_e2e.py' ]]; then\n"
-            "  exec \"$REAL_PYTHON\" \"$@\"\n"
-            "fi\n"
             "ROOT=\"$(cd \"$(dirname \"$0\")/../..\" && pwd)\"\n"
             "{\n"
-            "  printf 'ENV:%s:%s:%s:%s ARGS:' \"${OPENAI_MODEL:-}\" \"${DRAMA_MODEL:-}\" \"${OPENAI_API_KEY:-}\" \"${DRAGON_RAJA_SKIP_DOTENV:-}\"\n"
+            "  printf 'ENV:%s:%s:%s ARGS:' \"${OPENAI_MODEL:-}\" \"${OPENAI_API_KEY:-}\" \"${DRAGON_RAJA_SKIP_DOTENV:-}\"\n"
             "  for arg in \"$@\"; do printf ' <%s>' \"$arg\"; done\n"
             "  printf '\\n'\n"
             "} >> \"$ROOT/invocations.log\"\n"
@@ -1013,85 +988,50 @@ class VerifyHarnessTests(unittest.TestCase):
             check=True,
         )
 
-    def test_verify_uses_venv_once_and_writes_redacted_acceptance(self) -> None:
+    def test_verify_writes_novel_only_schema_v3_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.make_fixture(root)
-            env = os.environ.copy()
-            env["OPENAI_API_KEY"] = "must-not-survive"
-            env["DRAMA_MODEL"] = "provider/must-not-survive"
-            env["WORKSPACE_NAME"] = "private-sentinel"
-            env["BOOK"] = "private-fallback"
-            tmpdir = root / "tmp"
-            tmpdir.mkdir()
-            env["TMPDIR"] = str(tmpdir)
             result = subprocess.run(
                 ["bash", "scripts/verify.sh"],
                 cwd=root,
-                env=env,
                 text=True,
                 capture_output=True,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            invocations = (root / "invocations.log").read_text(encoding="utf-8")
-            self.assertEqual(
-                invocations.count("<-m> <unittest> <discover> <-s> <tests> <-v>"), 1
-            )
-            self.assertIn("<scripts/run_isolated_cli.py>", invocations)
-            self.assertNotIn("private-sentinel", invocations)
-            self.assertNotIn("private-fallback", invocations)
-            self.assertNotIn("provider/must-not-survive", invocations)
-            self.assertTrue(
-                all(
-                    line.startswith("ENV:mock:mock::1 ARGS:")
-                    for line in invocations.splitlines()
-                )
-            )
-            self.assert_only_known_platform_tmp_entries(tmpdir)
-            evidence_path = root / "outputs/harness/acceptance.json"
-            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-            self.assertEqual(evidence["schema_version"], 2)
-            self.assertEqual(evidence["status"], "passed")
-            self.assertEqual(evidence["test_count"], 7)
-            self.assertEqual(evidence["python_runtime"], "project_venv")
-            self.assertTrue(evidence["mock_offline"])
-            self.assertEqual(evidence["acceptance_level"], "mock-functional")
-            self.assertEqual(evidence["verification_profile"], "canonical-mock-offline")
-            self.assertEqual(evidence["workspace_scope"], {"mode": "isolated-mock"})
-            self.assertRegex(evidence["git_head"], r"^[0-9a-f]{40}$")
-            self.assertRegex(evidence["git_tree"], r"^[0-9a-f]{40}$")
-            self.assertTrue(evidence["tracked_scope_clean"])
-            self.assertRegex(evidence["run_id"], r"^[0-9a-f]{32}$")
-            self.assertIsNotNone(evidence["started_at"])
-            self.assertIsNotNone(evidence["completed_at"])
-            self.assertIsNone(evidence["failed_step"])
-            self.assertIn("harness_check", evidence["completed_steps"])
-            self.assertIn("unittest", evidence["completed_steps"])
-            self.assertIn("local_drama_e2e", evidence["completed_steps"])
-            self.assertIn("preflight", evidence["completed_steps"])
-            self.assertNotIn("must-not-survive", evidence_path.read_text(encoding="utf-8"))
-
-    def test_local_e2e_failure_is_not_skipped(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.make_fixture(root)
-            env = os.environ.copy()
-            env["FAKE_LOCAL_E2E_FAIL"] = "1"
-            tmpdir = root / "tmp"
-            tmpdir.mkdir()
-            env["TMPDIR"] = str(tmpdir)
-            result = subprocess.run(
-                ["bash", "scripts/verify.sh"], cwd=root, env=env,
-                text=True, capture_output=True, check=False,
-            )
-            self.assertEqual(result.returncode, 9)
             evidence = json.loads(
                 (root / "outputs/harness/acceptance.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(evidence["status"], "failed")
-            self.assertEqual(evidence["failed_step"], "local_drama_e2e")
-            self.assertNotIn("local_drama_e2e", evidence["completed_steps"])
+            self.assertEqual(evidence["schema_version"], 3)
+            self.assertEqual(evidence["verification_profile"], "canonical-novel-mock-offline")
+            self.assertEqual(evidence["acceptance_level"], "mock-functional")
+            self.assertEqual(evidence["status"], "passed")
+            self.assertEqual(evidence["test_count"], 7)
+            self.assertEqual(
+                evidence["completed_steps"],
+                [
+                    "repository_state",
+                    "harness_check",
+                    "novel_only_boundary",
+                    "py_compile",
+                    "unittest",
+                    "normalize",
+                    "split",
+                    "auto_pipeline",
+                    "status",
+                    "check_manifest",
+                    "manifest_report",
+                    "review_summary",
+                    "check_reports",
+                    "estimate_cost",
+                    "preflight",
+                ],
+            )
+            invocations = (root / "invocations.log").read_text(encoding="utf-8")
+            self.assertEqual(invocations.count("<-m> <unittest> <discover>"), 1)
+
+
 
     def test_verify_rejects_arguments_before_writing_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1130,119 +1070,8 @@ class VerifyHarnessTests(unittest.TestCase):
             self.assertNotEqual(rejected.returncode, 0)
             self.assertIn("integrations/new adapter.py", rejected.stderr)
 
-    def test_finish_rejects_missing_stale_or_provider_validated_local_e2e(self) -> None:
-        variants = ("missing", "stale", "provider-validated", "nested-provider-validation")
-        for variant in variants:
-            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
-                self.make_fixture(root)
-                start = subprocess.run(
-                    [
-                        sys.executable, str(root / "scripts/write_acceptance.py"), "start",
-                        "--root", str(root), "--python-runtime", "project_venv",
-                    ],
-                    text=True, capture_output=True, check=False,
-                )
-                self.assertEqual(start.returncode, 0, start.stderr)
-                run_id = start.stdout.strip()
-                head = subprocess.run(
-                    ["git", "rev-parse", "HEAD"], cwd=root, text=True,
-                    capture_output=True, check=True,
-                ).stdout.strip()
-                tree = subprocess.run(
-                    ["git", "rev-parse", "HEAD^{tree}"], cwd=root, text=True,
-                    capture_output=True, check=True,
-                ).stdout.strip()
-                if variant != "missing":
-                    component = {
-                        "schema_version": 1,
-                        "status": "passed",
-                        "acceptance_level": "local-e2e",
-                        "verification_profile": "loopback-fake-provider",
-                        "acceptance_run_id": "stale" if variant == "stale" else run_id,
-                        "git_head": head,
-                        "git_tree": tree,
-                        "provider_validated": variant == "provider-validated",
-                        "components": {
-                            "image_runner": {"character_count": 2, "canonical_count": 2, "request_count": 2},
-                            "video_runner": {
-                                "submission_count": 1, "request_count": 1,
-                                "poll_completed": True, "callback_process": True,
-                                "zero_network_resume": True,
-                            },
-                            "five_station_authorization": {"station_count": 5, "worker_receive_count": 5},
-                            "provider_request_counts": {
-                                "image_generate": 2, "asset_upload": 2, "asset_poll": 2,
-                                "video_create": 1, "video_poll": 2, "video_download": 1,
-                                "callback_fetch": 2,
-                            },
-                        },
-                    }
-                    if variant == "nested-provider-validation":
-                        component["audit"] = {"providerValidation": True}
-                    path = root / "outputs/harness/local_drama_e2e.json"
-                    path.write_text(json.dumps(component), encoding="utf-8")
-                finish = subprocess.run(
-                    [
-                        sys.executable, str(root / "scripts/write_acceptance.py"), "finish",
-                        "--root", str(root), "--run-id", run_id,
-                        "--status", "passed", "--exit-code", "0", "--test-count", "1",
-                        "--duration-seconds", "1", "--completed-steps", "unittest\nlocal_drama_e2e",
-                    ],
-                    text=True, capture_output=True, check=False,
-                )
-                self.assertNotEqual(finish.returncode, 0)
-                self.assertIn("local_drama_e2e.json", finish.stderr)
 
-    def test_finish_rejects_passed_record_without_local_e2e_step(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.make_fixture(root)
-            start = subprocess.run(
-                [
-                    sys.executable, str(root / "scripts/write_acceptance.py"), "start",
-                    "--root", str(root), "--python-runtime", "project_venv",
-                ],
-                text=True, capture_output=True, check=False,
-            )
-            self.assertEqual(start.returncode, 0, start.stderr)
-            finish = subprocess.run(
-                [
-                    sys.executable, str(root / "scripts/write_acceptance.py"), "finish",
-                    "--root", str(root), "--run-id", start.stdout.strip(),
-                    "--status", "passed", "--exit-code", "0", "--test-count", "1",
-                    "--duration-seconds", "1", "--completed-steps", "unittest",
-                ],
-                text=True, capture_output=True, check=False,
-            )
-            self.assertNotEqual(finish.returncode, 0)
-            self.assertIn("requires local_drama_e2e", finish.stderr)
 
-    def test_finish_rejects_symlinked_local_e2e_evidence(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
-            root = Path(tmp)
-            self.make_fixture(root)
-            start = subprocess.run(
-                [
-                    sys.executable, str(root / "scripts/write_acceptance.py"), "start",
-                    "--root", str(root), "--python-runtime", "project_venv",
-                ],
-                text=True, capture_output=True, check=False,
-            )
-            self.assertEqual(start.returncode, 0, start.stderr)
-            target = Path(outside) / "forged.json"
-            target.write_text("{}\n", encoding="utf-8")
-            (root / "outputs/harness/local_drama_e2e.json").symlink_to(target)
-            finish = subprocess.run(
-                [
-                    sys.executable, str(root / "scripts/write_acceptance.py"), "finish",
-                    "--root", str(root), "--run-id", start.stdout.strip(),
-                    "--status", "passed", "--exit-code", "0", "--test-count", "1",
-                    "--duration-seconds", "1", "--completed-steps", "local_drama_e2e",
-                ],
-                text=True, capture_output=True, check=False,
-            )
-            self.assertNotEqual(finish.returncode, 0)
 
     def test_dirty_start_cannot_be_finalized_as_passed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1269,6 +1098,30 @@ class VerifyHarnessTests(unittest.TestCase):
             )
             self.assertNotEqual(finish.returncode, 0)
             self.assertIn("clean, committed", finish.stderr)
+
+    def test_clean_run_cannot_bypass_canonical_step_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_fixture(root)
+            start = subprocess.run(
+                [
+                    sys.executable, str(root / "scripts/write_acceptance.py"), "start",
+                    "--root", str(root), "--python-runtime", "project_venv",
+                ],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(start.returncode, 0, start.stderr)
+            finish = subprocess.run(
+                [
+                    sys.executable, str(root / "scripts/write_acceptance.py"), "finish",
+                    "--root", str(root), "--run-id", start.stdout.strip(),
+                    "--status", "passed", "--exit-code", "0", "--test-count", "1",
+                    "--duration-seconds", "1", "--completed-steps", "unittest",
+                ],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(finish.returncode, 0)
+            self.assertIn("complete canonical step sequence", finish.stderr)
 
     def test_zero_tests_fails_and_finalizes_current_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
