@@ -27,10 +27,29 @@ USD_TO_CNY = 7.2
 # mock 记 0（本地 mock 跑零成本才是真实账目）。
 MODEL_PRICING: Dict[str, Tuple[float, float, float]] = {
     "deepseek": (PROMPT_USD_PER_M, CACHE_READ_USD_PER_M, RESPONSE_USD_PER_M),
+    # The pinned LiteLLM cost map bundled with this project prices the
+    # gpt-5.5 family at USD 5 / 0.5 / 30 per million input / cached-input /
+    # output tokens.  Reasoning-effort aliases such as ``-low`` and ``-high``
+    # share the same token price, so keep this family prefix explicit rather
+    # than trusting every ``openai/*`` model at one price.
+    "openai/gpt-5.5": (5.0, 0.5, 30.0),
     "mock": (0.0, 0.0, 0.0),
 }
 
 _UNKNOWN_MODEL_WARNED: Set[str] = set()
+
+
+def _matches_pricing_family(name: str, prefix: str) -> bool:
+    """Match an exact priced family, including provider and effort aliases."""
+
+    return (
+        name == prefix
+        or name.startswith(f"{prefix}/")
+        or name.startswith(f"{prefix}-")
+        or name.endswith(f"/{prefix}")
+        or f"/{prefix}/" in name
+        or f"/{prefix}-" in name
+    )
 
 
 def has_known_model_pricing(model: str) -> bool:
@@ -45,12 +64,7 @@ def has_known_model_pricing(model: str) -> bool:
     name = str(model or "").strip().lower()
     if not name:
         return False
-    return any(
-        name == prefix
-        or name.startswith(f"{prefix}/")
-        or f"/{prefix}/" in name
-        for prefix in MODEL_PRICING
-    )
+    return any(_matches_pricing_family(name, prefix) for prefix in MODEL_PRICING)
 
 
 def _mock_pricing_override() -> Tuple[float, float, float] | None:
@@ -74,7 +88,7 @@ def _pricing_for_model(model: str) -> Tuple[float, float, float]:
         return (PROMPT_USD_PER_M, CACHE_READ_USD_PER_M, RESPONSE_USD_PER_M)
     for prefix, pricing in MODEL_PRICING.items():
         # 匹配 "deepseek" / "deepseek/deepseek-chat" / "openrouter/deepseek/..."
-        if name.startswith(prefix) or f"/{prefix}" in name:
+        if _matches_pricing_family(name, prefix):
             if prefix == "mock":
                 return _mock_pricing_override() or pricing
             return pricing

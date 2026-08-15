@@ -48,6 +48,19 @@ class ModelPricingTests(unittest.TestCase):
     def test_mock_model_costs_zero(self) -> None:
         self.assertEqual(cost_cny(1_000_000, 0, 1_000_000, model="mock"), 0.0)
 
+    def test_gpt_55_effort_alias_uses_explicit_family_price(self) -> None:
+        self.assertTrue(cost_estimator.has_known_model_pricing("openai/gpt-5.5-low"))
+        expected = (800_000 * 5.0 + 200_000 * 0.5 + 100_000 * 30.0) / 1e6 * 7.2
+        self.assertAlmostEqual(
+            cost_cny(
+                1_000_000,
+                200_000,
+                100_000,
+                model="openai/gpt-5.5-high",
+            ),
+            expected,
+        )
+
     def test_unknown_model_falls_back_with_single_warn(self) -> None:
         stderr = io.StringIO()
         with redirect_stderr(stderr):
@@ -194,8 +207,8 @@ class RetryErrorLoggingTests(_WorkspaceMixin, unittest.TestCase):
         text = (self.ws / "logs" / "llm_calls.jsonl").read_text(encoding="utf-8")
         self.assertIn("retry_error", text)
         self.assertIn("error", text)
-        self.assertIn("Bearer ***", text)
-        self.assertIn("sk-***", text)
+        self.assertNotIn("Bearer", text)
+        self.assertNotIn("sk-", text)
         self.assertNotIn("sk-leakedabcdef1234567890XYZ", text)
         self.assertNotIn("sk-anotherbarekey9876543210abcdef", text)
         self.assertNotIn("configured-secret-key-123456", text)

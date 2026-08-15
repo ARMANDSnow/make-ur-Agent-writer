@@ -106,7 +106,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             if call.args[:2] == ("review", "json_parse_fallback")
         ]
         self.assertEqual(len(parse_calls), 1)
-        self.assertEqual(parse_calls[0].kwargs["content_preview"], "")
+        self.assertNotIn("content_preview", parse_calls[0].kwargs)
         self.assertGreater(parse_calls[0].kwargs["content_length"], 0)
 
     def test_unknown_verdict_does_not_become_approve(self) -> None:
@@ -138,7 +138,7 @@ class ReviewerPrecomputedLintTests(unittest.TestCase):
             if call.args[:2] == ("review", "bad_verdict_abstain")
         ]
         self.assertEqual(len(bad_verdict_calls), 1)
-        self.assertEqual(bad_verdict_calls[0].kwargs["raw_verdict"], "")
+        self.assertNotIn("raw_verdict", bad_verdict_calls[0].kwargs)
         self.assertGreater(bad_verdict_calls[0].kwargs["raw_verdict_length"], 0)
 
     def test_schema_invalid_review_abstains_without_crashing(self) -> None:
