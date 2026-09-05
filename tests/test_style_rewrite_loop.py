@@ -195,6 +195,7 @@ class StyleRewriteLoopTests(unittest.TestCase):
             linter_cls = stack.enter_context(patch("src.writer.NovelLinter"))
             linter_cls.return_value.lint.side_effect = [
                 [],
+                *([[]] if polish else []),  # Polished text receives its own lint pass.
                 candidate_lint_error if candidate_lint_error is not None else list(candidate_lint or []),
             ]
             try:
