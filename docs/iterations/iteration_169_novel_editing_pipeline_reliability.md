@@ -51,7 +51,16 @@
 - 聚焦检查：任务/runner/代理/编辑等 172 项通过，Web 安全与编辑 105 项通过，长程/伏笔/append 90 项通过；审查修正后 78 项回归通过（组间有重叠，不相加为唯一测试数）。
 - correctness、security/boundary、Web/UX 三路独立只读审查完成；损坏 JSON、回收证据漂移、归档 no-follow、异步编辑刷新、重复补齐规划和记忆失败完成态 findings 均已修复，主线程复核及增量复审无剩余有效 P0–P2。
 - JavaScript 行为验证含 PUT 中新增输入、动态字段增删/替换/顺序、节点断开、GET 倒序；Web reviewer 额外验证旧 GET 错误被忽略、最新错误保留。
-- 最终 canonical 待 implementation commit 后执行；不声明 local-e2e 或 provider-validated。
+- A169-01：PASS，JavaScript 保存版本、导航保护与过期刷新行为测试。
+- A169-02：PASS，手改记忆失效、当前稿摘录恢复与异常写入阻断测试。
+- A169-03：PASS，单步 callback 接线与取消检查回归。
+- A169-04：PASS，代理保留/显式适配及真实 normalize → Web split 合成测试。
+- A169-05：PASS，大纲人工版本/起点边界及润色、当前稿复审、旧失败归档测试。
+- A169-06：PASS，分段/恢复窗口补齐与伏笔证据/TTL/逐章检查测试。
+- A169-07：PASS，三路只读审查与增量复审闭合，聚焦回归通过。
+- A169-08：PASS。implementation `df9627b565f511e43f229471fc5ec0d804ea5ebc`（主体 `a7d67d5`）上 canonical schema v3 / `canonical-novel-mock-offline` 通过，1911 tests / 15 steps / 85 秒，run `1af2f656d61848b9ac7ca98ad8c3eb24`，`tracked_scope_clean=true`，仅 `mock-functional`。
+- 首次全量 1911 项中一条旧风格测试失败：新增润色后 lint 检查耗尽其 mock side_effect。补齐独立润色结果并保留原候选失败断言；35 项聚焦测试及 correctness 增量复审通过后重新运行全量并通过。
+- README 九阶段 SOP、handoff 当前快照与 Latest Transition、PROJECT_HISTORY 经验已就地同步，收官仅 docs-only；不声明 local-e2e 或 provider-validated。
 
 ### Knowledge Promotion
 - `decision`: `promoted`
@@ -69,7 +78,7 @@
 | `src/foreshadowing.py`, `main.py` | 伏笔证据确认与 TTL CLI |
 | `src/llm_client.py`, `scripts/with_proxy.sh` | 默认保留代理、显式适配 |
 | `src/readiness_catalog.py`, `src/web/templates.py`, `docs/product/GETTING_STARTED.md` | 恢复状态与操作说明 |
-| `tests/test_iter169_reliability.py`, `tests/test_book_runner.py`, `tests/test_mock_offline.py` | 行为回归与旧契约更新 |
+| `tests/test_iter169_reliability.py`, `tests/test_book_runner.py`, `tests/test_mock_offline.py`, `tests/test_style_rewrite_loop.py` | 行为回归与旧契约更新 |
 
 ## 不在本轮范围
 

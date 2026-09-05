@@ -94,6 +94,7 @@
 | 166 | 小说原创/续写双链失败恢复与真模型前端验证 | 动态步骤安全投影、strict-approved 完成态、exact 失败章受控恢复、provider deadline 与窄范围真实前端证据 |
 | 167 | 短剧模块安全分支拆分 | 完整基线固定到 `codex/short-drama`；main 物理收敛为 novel-only，legacy drama 只读隔离，canonical 升级 schema v3 |
 | 168 | 小说续写体检与付费安全闭环 | mutation/intent/framing、metadata-only terminal、逐章 current-plan freshness、bounded JSONL、冻结定价/预算；真链 unknown 零重提 |
+| 169 | 小说编辑与长程续写可靠性 | 保存版本确认、手改记忆恢复、单步取消、代理保留、人工大纲版本、lint 失败归档、全书规划窗口与伏笔证据 |
 
 ## Iteration Implementation Index
 
@@ -240,6 +241,7 @@
 | 166 | 闭环小说双链失败章恢复与模型调用守门 | `src/book_runner.py`、`src/llm_client.py`、`src/web/`、`tests/test_web_iter166_recovery.py`、`tests/test_iter166_model_request_limit.py` |
 | 167 | 安全拆分短剧并建立 novel-only 边界 | `main.py`、`src/web/`、`scripts/verify.sh`、`scripts/check_novel_only_boundary.py`、`tests/test_iter167_novel_only_split.py` |
 | 168 | 闭环小说 mutation、异常、freshness 与日志边界 | `src/llm_client.py`、`src/safe_*.py`、`src/web/`、`integrations/novel_client/`、`tests/test_iter168_novel_health_security.py` |
+| 169 | 编辑版本与衍生记忆恢复，分段规划和伏笔证据 | `src/story_memory.py`、`src/web/`、`src/book_runner.py`、`src/foreshadowing.py`、`tests/test_iter169_reliability.py` |
 
 ## Durable Decisions
 
@@ -366,6 +368,7 @@
 57. **多章完成态要证明全集合 current，不能用最新单章代表全体**：工作台应从当前起点与权威 chapter plan 逐章构造 expected context，计划缺失/重排/损坏、任一旧章 stale 或 external-review mismatch 都不得投影 `done`。
 58. **有界日志读取要同时绑定路径身份与实际 bytes**：dir-fd/`O_NOFOLLOW`/regular-file 还不足；读前后 fd 和最终 pathname/目录链必须一致，行长要在 strip 之前按原始 bytes 检查，再叠加单行、累计、JSON 深度和 dict-only 上限；任一失败只能降级为空。
 59. **付费真链的预算必须在请求前可证明**：未知模型定价不能靠便宜 fallback 宣称人民币上限；显式家族定价、prompt bytes + max output 保守预留、每阶段 request/budget/deadline 冻结和链级 monotonic deadline 需同时成立。`submission_unknown` 发生后原授权不能继续用于新提交，只能无提交 inspect/reconciliation 或重新取得授权后开全新链。
+60. **确认必须绑定当前版本，流程不能依赖批次大小**：保存响应只确认提交时的字段与 DOM 快照；正文审核通过不等于衍生记忆已更新，恢复写入失败仍需阻断。旧关系推进只能失效保留，不能猜测恢复。滚动规划按全书进度维护下一窗口且保留远期计划；伏笔回收绑定当前正文、计划和审核证据，逐章检查与分段启动应一致。
 
 ## Historical Evidence Notes
 

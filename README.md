@@ -1,6 +1,6 @@
 # Continuator / 续
 
-最近一次更新：**iter 168**（2026-08-15）
+最近一次更新：**iter 169**（2026-09-05）
 
 本地运行的多 agent 小说续写流水线。它将知识抽取、情节规划、正文生成、审稿和关系推进拆成可恢复步骤；开发与标准验收默认使用 mock，不产生计费模型请求。
 
@@ -78,6 +78,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 | `write-book` / `write-readiness` | 生产写作与写前守门 |
 | `review-chapter` / `chapter-status` | 单章复审与状态 |
 | `apply-advance` | 关系推进审批/自动应用 |
+| `foreshadowing list/resolve/ttl` | 查看伏笔、确认当前正文回收证据、调整期限 |
 | `drive-book start/status/resume/stop/report` | 长程驱动与恢复 |
 | `style-fingerprint` / `style-drift` | 文风 baseline、检测与报告 |
 | `web --port 8765` | 本地 Web 工作台 |
@@ -90,14 +91,14 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 | 阶段 | 动作 | 状态 |
 |---|---|---|
 | 1. 导入与标准化 | 建立小说 workspace、normalize 原文 | ✅ |
-| 2. 自动切章 | 生成 manifest、来源映射与置信度报告 | ✅ |
-| 3. 知识抽取 | 人物、事件、关系和章节事实 | ✅ |
-| 4. 知识压缩与确认 | 五类 proposal、人工确认、起点安全视图 | ✅ |
-| 5. 情节规划 | debate、chapter plan、周期 re-plan | ✅ |
-| 6. 写作 | 多上下文 writer、lint/rewrite、失败章安全恢复 | ✅ |
-| 7. 审核 | fail-closed panel、阈值、文风检测；strict-approved 才完成 | ✅ |
-| 8. 关系更新 | proposal、conflict check、auto-advance | ✅ |
-| 9. 滚动下一章 | rolling summary、预算、runner/supervisor | 🟨 工程已通；长篇真模型 capstone 待逐次授权 |
+| 2. 自动切章 | 消费规范化 txt，生成 manifest、来源映射与置信度报告 | ✅ |
+| 3. 知识抽取 | 人物、事件、关系和章节事实；Web 单步支持进度与取消 | ✅ |
+| 4. 知识压缩与确认 | 五类 proposal、人工确认、起点安全视图；单步支持取消 | ✅ |
+| 5. 情节规划 | 大纲人工版本、chapter plan、全书进度 re-plan 与窗口补齐 | ✅ |
+| 6. 写作 | 多上下文 writer、润色后重检 lint、失败章安全恢复 | ✅ |
+| 7. 审核 | 当前正文复审、安全归档旧 lint 失败；记忆更新后才 strict-approved | ✅ |
+| 8. 关系更新 | proposal、conflict check、auto-advance；手改失效旧推进，伏笔凭证据确认 | ✅ |
+| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；长篇真模型 capstone 待逐次授权 |
 
 ## 项目状态
 
@@ -106,8 +107,9 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 - iter153-156、165-166：小说 Web Phase A-E、原创/续写权威模式和失败恢复闭环。
 - iter167：完整基线保存在 `codex/short-drama`，main 收敛为 novel-only；canonical 升级为 schema v3 / `canonical-novel-mock-offline`。
 - iter168：闭环 Web mutation/付费守门、LLM 安全异常、逐章 freshness 和有界日志；synthetic 三视口达 `local-e2e`，真链在 entity graph `submission_unknown` 后零重提并记 `safe-blocked`。
+- iter169：编辑保存按提交版本确认；手改后的记忆恢复、分段规划和伏笔证据形成可回归的长程恢复流程。
 
-最新 canonical：implementation `df3bc8a`，1889 tests / 15 steps / 84 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
+最新 canonical：implementation `df9627b`，1911 tests / 15 steps / 85 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
 
 ## 目录结构
 
