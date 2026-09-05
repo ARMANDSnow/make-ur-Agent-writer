@@ -9,7 +9,7 @@
 | 更新时间 | iter 169 / 2026-09-05（完整验收基线；活动进展见 Active iteration） |
 | Accepted implementation commit | `df9627b565f511e43f229471fc5ec0d804ea5ebc` |
 | 日期 / accepted iteration | 2026-09-05 / iter169 |
-| Active iteration | iter170；实现 `99dd3eba7f0a67362ed9208b813641648d77f996`（主体 `5fae2e3`），canonical 1959 tests / 15 steps / 101秒 passed、mock-functional；run `560e215ff0c749c2ab0135fbaffc177f` |
+| Active iteration | iter170；实现 `31f19902a78ab863f06976f3900ce9e5482390d4`（主体 `5fae2e3`），canonical 1965 tests / 15 steps / 101秒 passed、mock-functional；run `27c553af886345b9a08399313c4834cf` |
 | 产品主线 | `main` 只支持小说原创与导入续写；完整小说+短剧快照在 `codex/short-drama` |
 | implementation | `df9627b`（主体 `a7d67d5`，润色 lint 测试兼容 `df9627b`） |
 | 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1911 tests / 15 steps / 85 秒；run `1af2f656d61848b9ac7ca98ad8c3eb24`；tracked scope clean |
@@ -17,7 +17,7 @@
 | 短剧 UI | 首页与作品列表保留原生 disabled 卡片按钮；无 href、handler 或跳转目标 |
 | 短剧数据 | main 隐藏并 fail-closed；不读取业务内容，不迁移、不修改、不删除 |
 | 发布状态 | 本轮仅本地分支和提交；未 push、未建 PR |
-| 本轮范围 | iter170已修F01–F11及F13–F18；包含有界流式、工作台状态、细纲覆盖与投票检查点，1959项canonical通过。F19多章请求上限已通过聚焦及审查，待更新canonical。新key/luna10章提取和Web准备成功，大纲恢复中；用户暂不考虑预算继续测试，整体仍未完成 |
+| 本轮范围 | iter170已修F01–F11及F13–F20；包含有界流式、工作台状态、细纲覆盖与投票检查点，1965项canonical通过。多章请求上限和长辩论上下文已修复。新key/luna10章提取和Web准备成功，大纲恢复中；用户暂不考虑预算继续测试，整体仍未完成 |
 
 ## Capability Map
 
@@ -34,7 +34,7 @@
 
 ## Latest Accepted Evidence
 
-- iter170 活动迭代的工程证据：`99dd3eb` canonical 1959 tests / 15 steps / 101秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
+- iter170 活动迭代的工程证据：`31f1990` canonical 1965 tests / 15 steps / 101秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
 - iter170 真实边界：2026-09-06新key/luna最小生成HTTP200/15token，原文提取与取消后缓存续接成功；单价按用户USD0.01/百万输入输出token暂算。服务对max_tokens和max_completion_tokens均忽略16token上限（实际203/214），用户随后明确暂不考虑预算继续测试，临时服务已恢复；10章提取完成，Web有界流式准备243秒成功，真实取消停止后续请求；大纲已保存28次发言并在恢复。旧provider的RateLimitError/BadGatewayError保留历史证据；正文与完整链未通过，accepted仍为169。
 
 - iter169 修复编辑保存竞态、旧故事记忆复用、单步取消、用户代理丢失、大纲人工编辑、旧 lint 失败状态和分段规划；伏笔提供当前正文证据确认及 TTL CLI，逐章检查不依赖批次大小。
@@ -139,4 +139,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter170仍未完整完成：F01–F11及F13/F14已实现，两路增量审查通过，implementation `99dd3eb` canonical 1959 tests / 15 steps / 101秒 passed。真实10章提取完成；压缩遇125秒超时，正从缓存恢复。用户已明确暂不考虑预算继续测试，F12保留为上游限制而非暂停条件。分块反馈与rolling较早缺口另列待办；accepted iteration保持169，未push。
+iter170仍未完整完成：F01–F11及F13/F14已实现，两路增量审查通过，implementation `31f1990` canonical 1965 tests / 15 steps / 101秒 passed。真实10章提取完成；压缩遇125秒超时，正从缓存恢复。用户已明确暂不考虑预算继续测试，F12保留为上游限制而非暂停条件。分块反馈与rolling较早缺口另列待办；accepted iteration保持169，未push。

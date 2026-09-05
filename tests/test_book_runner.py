@@ -298,6 +298,22 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertNotIn("private upstream URL", result["error"])
         self.assertEqual(result["failure"]["trace_id"], result["error"].rsplit("trace_id=", 1)[1])
 
+    def test_partial_resume_only_enabled_for_normal_run(self) -> None:
+        for force in (False, True):
+            with self.subTest(force=force), ExitStack() as stack:
+                for manager in self._common_patches(_strict_plan()):
+                    stack.enter_context(manager)
+                writes = stack.enter_context(patch(
+                    "src.book_runner.write_chapters", side_effect=TimeoutError("test stop")
+                ))
+                stack.enter_context(patch(
+                    "src.book_runner._snapshot",
+                    side_effect=lambda status, payload: {"status": status, **payload},
+                ))
+                run_write_book(chapters=1, force=force)
+                writes.assert_called_once()
+                self.assertEqual(writes.call_args.kwargs["resume_partial"], not force)
+
     def _readiness_with_severe_drift(self, *, require_start_point: bool):
         """iter073 (codex I): drive check_write_readiness with a real outline.md
         present and a patched SEVERE drift severity, so the warn→block escalation
@@ -384,7 +400,7 @@ class BookRunnerReadinessTests(unittest.TestCase):
         managers = self._common_patches(_strict_plan())
         with managers[0], managers[1], managers[2], managers[3], managers[4], managers[5], managers[6], managers[7], managers[8], managers[9], patch(
             "src.book_runner.chapter_status", side_effect=statuses
-        ), patch("src.book_runner.write_chapters", return_value=[]), patch(
+        ), patch("src.book_runner.write_chapters", return_value=[]) as writes, patch(
             "src.book_runner.review_target", return_value=None
         ), patch("src.book_runner._archive_chapter_artifacts", return_value=Path("archive")) as archive, patch(
             "src.book_runner.prune_from_chapter", return_value=None
@@ -396,6 +412,7 @@ class BookRunnerReadinessTests(unittest.TestCase):
             result = run_write_book(chapters=1, max_retries=1)
         self.assertEqual(result["status"], "succeeded")
         archive.assert_called_once()
+        self.assertEqual([call.kwargs["resume_partial"] for call in writes.call_args_list], [True, False])
 
     def test_replan_uses_global_chapter_boundary_and_reloads_plan(self) -> None:
         data = _strict_plan(chapters=3)

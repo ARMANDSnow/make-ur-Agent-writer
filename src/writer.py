@@ -64,6 +64,7 @@ def write_chapters(
     budget_check_cb: Optional[Callable[[], Any]] = None,
     tier: str | None = None,
     seed_feedback: str = "",
+    resume_partial: bool = False,
 ) -> List[Dict[str, Any]]:
     # iter 053b（审查 B3）seed_feedback：跨 retry 周期反馈播种。book_runner 的
     # 每个 retry 周期先归档全部产物（含 review.json）再调本函数，而本函数每章
@@ -152,6 +153,10 @@ def write_chapters(
                     continue
             else:
                 continue
+        resumed_draft = ""
+        if not out_path.exists():
+            from .partial_recovery import prepare_partial_resume
+            resumed_draft = prepare_partial_resume(chapter_no, run_context, allow_resume=resume_partial)
         from .story_memory import invalidate_from, invalidate_derived_from
         from .chapter_summary import prune_from_chapter
         # The skip path above remains read-only. Actual replacement invalidates
@@ -211,7 +216,7 @@ def write_chapters(
         try:
             for attempt in range(1, rewrite_limit + 1):
                 stage = "write"
-                progress(f"write-attempt-{attempt}", 0.05)
+                progress(f"{'resume-partial' if resumed_draft and attempt == 1 else 'write'}-attempt-{attempt}", 0.05)
                 prompt_kwargs = dict(
                     chapter_no=chapter_no,
                     knowledge=knowledge,
@@ -227,7 +232,9 @@ def write_chapters(
                 )
                 seg_plan = (chapter_plan_item or {}).get("segments") or []
                 try:
-                    if segmented_write_enabled and seg_plan:
+                    if resumed_draft and attempt == 1:
+                        draft = resumed_draft
+                    elif segmented_write_enabled and seg_plan:
                         draft = _write_chapter_segmented(
                             client, seg_plan, prompt_kwargs
                         ).strip()
@@ -737,6 +744,7 @@ def write_chapters(
                     attempt=attempt,
                     last_error=safe_exception_text(exc),
                     stage=stage,
+                    run_context=run_context,
                 )
             raise
     return reports
@@ -871,6 +879,7 @@ def _write_partial_failure(
     attempt: int,
     last_error: str,
     stage: str,
+    run_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     partial_path = drafts_dir / f"chapter_{chapter_no:02d}.partial.md"
     failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
@@ -884,6 +893,10 @@ def _write_partial_failure(
         "stage": stage,
         "draft_path": str(partial_path),
     }
+    if run_context is not None:
+        from .partial_recovery import COMPLETE_STAGES
+        failure.update(schema_version=2, run_context=run_context,
+                       resume_from_stage="lint" if stage in COMPLETE_STAGES else "")
     write_text_atomic(partial_path, draft_text + "\n")
     write_text_atomic(
         failure_path,

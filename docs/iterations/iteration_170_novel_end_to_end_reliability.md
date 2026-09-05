@@ -7,8 +7,8 @@
 ## Plan
 
 ### Implementation Context
-- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `scripts/write_book.sh`
-- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
+- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `src/partial_recovery.py`, `scripts/write_book.sh`
+- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `src/partial_recovery.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
 - `do_not_touch`: `.env`、原文源文件、所有既有 workspace 产物与短剧分支。用户仅授权主线程复制指定原文到干净测试空间；subagent 坚持只读代码/测试，禁止私有内容。
 
 1. F01 中文合集识别/正文切章/起点边界；通用规则不硬编码书名。
@@ -31,10 +31,12 @@
 - A170-05：F07/F08 当前及后续旧摘要/实体/审核失效，force 失败安全与正常 resume 不变。
 - A170-06：F09 tier 两种语法和缺值实际 argv 回归。
 - A170-07：至少 correctness、security/boundary 与 Web/计费三个只读审查；主线程复核修复 findings。
-- A170-08：implementation commit 上 canonical `bash scripts/verify.sh` 通过，等级仅 mock-functional。
+- A170-08：PASS。新增实现 `31f19902a78ab863f06976f3900ce9e5482390d4` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1965 tests / 15 steps / 101秒，run `27c553af886345b9a08399313c4834cf`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
 - A170-09：干净工作区真实准备、规划、续写与长流程/恢复实测，逐步记录模型调用、费用与真实结果；必须获得 provider-validated，未通过不得宣称本轮完成。
 
 ## Implementation Notes
+
+F21：真实首章正文完成后内部审查上游失败，已有partial缺少恢复上下文会导致正文重写。增加schema v2上下文及正文指纹，只允许完整正文阶段恢复到lint及完整审查；旧版/不匹配文件先保留不可覆盖快照后重写。安全读取拒绝符号链接、特殊文件和超限；归档失败及来源变化在模型前阻断。53项聚焦通过，correctness与security独立只读审查无剩余P0–P2，并补runner正常/force/重试参数回归。SIGKILL前未落盘正文不在此恢复保证内。真实旧版partial不会伪造元数据迁移。
 
 F20：真实36次发言完成后裁决context_too_large、零新增请求，定位旧摘要仅限条数且整体截头丢后轮。改为保留全部条目的有界头尾摘录、完整JSON，各消费者显式限额；裁决使用冻结client token门禁搜索可行摘要，大纲保留完整问题。审查发现收缩跳过窄窗口及省略标记膨胀短响应，均修复并复审通过。68项聚焦通过；原36条真实记录无模型预检：旧摘要105752字符→23999字符，完整裁决prompt27693token，全部轮次/角色仍在，原日志字节不变。
 
@@ -59,6 +61,8 @@ F14：首次细纲缺章节仍成功的问题已先写入审计，补请求数�
 先报告后立项。累计3次真实调用，最初RateLimitError，恢复后的WebUI请求BadGatewayError，不含原文的最小连通性亦失败；保留最坏费用预留5.609916元，实际账单未确认。原文路径由用户明确提供，仅主线程处理；新测试根位于系统临时目录，mock 与 real 数据隔离。
 
 ## Acceptance Result
+
+F17真实增量：裁决检查点已落盘后在4张票完成时从Web取消；同服务恢复后检查点与原4票hash全部不变，只补2票并发起大纲请求（新增3请求）。F20真实裁决已成功通过，不再发生长发言汇总上下文溢出。F19隔离真实浏览器3章自动60、切单章预设自动20、手动12后改3章仍12通过。
 
 - 聚焦检查：首批17项；修复后48项、82项、LLM/写作106项及最终65项通过（集合重叠，不相加）。
 - A170-01：PASS，最新源码原文导入保留88章，起点en_upload_ch088/尾声，normalized行138688–139405，第四部目录/正文不进入该边界，源SHA256未变化。

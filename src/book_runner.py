@@ -683,6 +683,7 @@ def _run_write_book_unlocked(
                     budget_check_cb=budget_check_cb,
                     tier=resolved_tier,
                     seed_feedback=seed_feedback,
+                    resume_partial=attempt == 0 and not force and not md_path.exists(),
                 )
                 reports.extend(write_reports if isinstance(write_reports, list) else [write_reports])
                 if require_external_review and md_path.exists():
