@@ -1,6 +1,8 @@
 # Continuator / 续
 
-最近一次更新：**iter 169**（2026-09-05）
+最近一次更新：**iter 169**（2026-09-05，完整验收基线）
+
+活动迭代：**iter170**（2026-09-05，工程通过，真实验收未完成；本页SOP已同步当前实现）。
 
 本地运行的多 agent 小说续写流水线。它将知识抽取、情节规划、正文生成、审稿和关系推进拆成可恢复步骤；开发与标准验收默认使用 mock，不产生计费模型请求。
 
@@ -91,14 +93,14 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 | 阶段 | 动作 | 状态 |
 |---|---|---|
 | 1. 导入与标准化 | 建立小说 workspace、normalize 原文 | ✅ |
-| 2. 自动切章 | 消费规范化 txt，生成 manifest、来源映射与置信度报告 | ✅ |
+| 2. 自动切章 | 消费规范化 txt，保留跨卷同名章，排除局部目录，生成 manifest 与置信度报告 | ✅ |
 | 3. 知识抽取 | 人物、事件、关系和章节事实；Web 单步支持进度与取消 | ✅ |
 | 4. 知识压缩与确认 | 五类 proposal、人工确认、起点安全视图；单步支持取消 | ✅ |
 | 5. 情节规划 | 大纲人工版本、chapter plan、全书进度 re-plan 与窗口补齐 | ✅ |
-| 6. 写作 | 多上下文 writer、润色后重检 lint、失败章安全恢复 | ✅ |
+| 6. 写作 | 多上下文 writer、润色后重检 lint、失败章安全恢复；force失效后续旧记忆 | ✅ |
 | 7. 审核 | 当前正文复审、安全归档旧 lint 失败；记忆更新后才 strict-approved | ✅ |
 | 8. 关系更新 | proposal、conflict check、auto-advance；手改失效旧推进，伏笔凭证据确认 | ✅ |
-| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；长篇真模型 capstone 待逐次授权 |
+| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；本次已授权真实测试被上游RateLimitError阻断 |
 
 ## 项目状态
 
@@ -109,7 +111,9 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 - iter168：闭环 Web mutation/付费守门、LLM 安全异常、逐章 freshness 和有界日志；synthetic 三视口达 `local-e2e`，真链在 entity graph `submission_unknown` 后零重提并记 `safe-blocked`。
 - iter169：编辑保存按提交版本确认；手改后的记忆恢复、分段规划和伏笔证据形成可回归的长程恢复流程。
 
-最新 canonical：implementation `df9627b`，1911 tests / 15 steps / 85 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
+iter170：合集导入、编辑版本冲突、日志长期容量及CLI计费停止已通过工程与浏览器回归；真实续写未通过，当前完整接受基线仍为iter169。
+
+最新 canonical：implementation `54a9f98`，1928 tests / 15 steps / 86 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
 
 ## 目录结构
 

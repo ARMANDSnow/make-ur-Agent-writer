@@ -6,9 +6,10 @@
 
 | 项目 | 当前事实 |
 |---|---|
-| 更新时间 | iter 169 / 2026-09-05 |
+| 更新时间 | iter 169 / 2026-09-05（完整验收基线；活动进展见 Active iteration） |
 | Accepted implementation commit | `df9627b565f511e43f229471fc5ec0d804ea5ebc` |
 | 日期 / accepted iteration | 2026-09-05 / iter169 |
+| Active iteration | iter170；实现 `54a9f98897ce815e0f7f315a4679540590958932`（主体 `5fae2e3`），canonical 1928 tests / 15 steps / 86秒 passed、mock-functional；run `36a0c20f612c443796d65749f18a9926` |
 | 产品主线 | `main` 只支持小说原创与导入续写；完整小说+短剧快照在 `codex/short-drama` |
 | implementation | `df9627b`（主体 `a7d67d5`，润色 lint 测试兼容 `df9627b`） |
 | 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1911 tests / 15 steps / 85 秒；run `1af2f656d61848b9ac7ca98ad8c3eb24`；tracked scope clean |
@@ -16,7 +17,7 @@
 | 短剧 UI | 首页与作品列表保留原生 disabled 卡片按钮；无 href、handler 或跳转目标 |
 | 短剧数据 | main 隐藏并 fail-closed；不读取业务内容，不迁移、不修改、不删除 |
 | 发布状态 | 本轮仅本地分支和提交；未 push、未建 PR |
-| 本轮范围 | 三项编辑/取消 P1 与追加六项问题已处理；Web txt 切章已有修复，本轮补真实 normalize → split 合成回归；其余 P2 见 Open Gaps |
+| 本轮范围 | iter170 修复合集切章、编辑加载/版本冲突、任务有序持久化/日志压缩、缺usage计费停止、force记忆和tier参数；真实首请求RateLimitError，整体未完成 |
 
 ## Capability Map
 
@@ -32,6 +33,9 @@
 | 短剧 | main 无运行能力；完整代码、协议和历史状态在 `codex/short-drama` | main 只识别 legacy 类型以隔离，所有历史入口不可达 |
 
 ## Latest Accepted Evidence
+
+- iter170 活动迭代的工程证据：`54a9f98` canonical 1928 tests / 15 steps / 86秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
+- iter170 真实边界：用户授权200元硬上限及指定原文复制，新工作区保留第三部结束前88章，源文件SHA未变；首请求`openai/gpt-5.5-low`返回`RateLimitError`，1次、最坏预留¥2.79036、实际账单未确认、无续写产物。A170-09未通过，未取得provider-validated；accepted iteration仍保留169。
 
 - iter169 修复编辑保存竞态、旧故事记忆复用、单步取消、用户代理丢失、大纲人工编辑、旧 lint 失败状态和分段规划；伏笔提供当前正文证据确认及 TTL CLI，逐章检查不依赖批次大小。
 - correctness、security/boundary、Web/UX 三路独立只读审查及增量复审完成；有效 findings 已修复，审查范围内无剩余 P0–P2。原有范围外 P2 保留为 backlog。
@@ -96,13 +100,13 @@
 1. 小说真实 provider 续写链在 entity graph 留有 `submission_unknown`；无权威 provider inspect/reconciliation 时不得重提原请求。完整单章与 10–20 章长跑仍未验证。
 2. Web 仍是本机个人研究工具，未做公网身份认证、多租户隔离或服务级 SLA。
 3. Aeloon 集成状态继续由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护。
-4. 本轮范围外 P2：取消日志竞态、日志容量、加载前编辑、包装脚本 tier、旧 write force；后续逐项复核，未在 iter169 宣称修复。
+4. iter170 已处理取消日志竞态、重复快照容量、加载前编辑、双标签保存、tier与force记忆；工程通过但真实续写/长跑被上游RateLimitError阻断。另有rolling合法JSON含非对象条目的防御候选，无正常写入反例，未纳入本轮修复。
 5. 短剧后续能力、真实媒体校准和历史数据访问只在 `codex/short-drama` 继续，不属于 main backlog。
 
 ## Next Candidates
 
 1. 先寻找不产生新提交的 provider inspect/reconciliation 证据处理 iter168 entity graph unknown；若上游不提供查询，保持 `safe-blocked`，只能在用户再次明确授权后开全新 synthetic 链。
-2. 对保存/导航与手改后逐章恢复补浏览器端到端验证，并按影响复核剩余 P2；不改变 novel-only 类型边界。
+2. 待用户恢复上游额度/可用模型，继续iter170干净工作区的真实准备→规划→续写与多章恢复；保持累计200元最坏预留上限，缺费用数据或unknown即停止。慢加载/双标签浏览器回归已通过。
 3. 定期运行静态 novel-only 边界检查，避免 generic media/production 命名的短剧残留重新进入 main。
 
 ## Recovery Commands
@@ -135,4 +139,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter169 完成编辑与长程续写可靠性修复：保存确认绑定提交版本，旧故事记忆和实体推进在手改后失效并可审核恢复，单步取消接通；代理默认保留、大纲人工编辑有来源记录、旧 lint 失败安全归档。滚动规划覆盖分段与恢复窗口，伏笔凭当前正文证据确认并逐章检查。三路只读审查闭合；canonical 在 `df9627b` 上 1911 tests / 15 steps / 85 秒 passed，级别 `mock-functional`。本轮未调用真实模型，未读取私有样本，未 push；历史 provider unknown 与范围外 P2 仍保留。
+iter170 工程修复与验证已落地，整体仍未完成：合集切章保留多卷同名章并限定目录边界；正文加载门禁与版本冲突保护；任务状态有序落盘，日志按每任务逻辑历史压缩并复核当前文件身份；Web/CLI缺失计费或日志失败停止新增请求；force排除旧当前/未来记忆并失效后代，包装器透传tier。三路审查与增量复审通过，implementation `54a9f98` canonical 1928 tests / 15 steps / 86秒 passed；浏览器local-e2e通过。真实首请求RateLimitError、保留¥2.79036最坏费用预留、零续写产物，A170-09未通过，accepted iteration保持169；未push。

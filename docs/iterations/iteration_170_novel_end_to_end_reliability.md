@@ -50,7 +50,7 @@
 - A170-05：PASS，实际legacy writer prompt捕获排除旧当前/未来记忆，后代失效；normal skip文件不变。runner归档前失效时序经独立审查。
 - A170-06：PASS，fake Python实际argv两种tier语法与缺值exit64。
 - A170-07：PASS，correctness、security/boundary、Web/计费三路审查及增量复审。真实序章误删、旧inode读取、旧超行数、CLI缺usage/坏usage已修复；范围内无剩余高置信P0–P2。
-- A170-08：待implementation commit后的最终canonical验证。
+- A170-08：PASS。implementation `54a9f98897ce815e0f7f315a4679540590958932`（主体 `5fae2e3`）上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1928 tests / 15 steps / 86秒，run `36a0c20f612c443796d65749f18a9926`，`tracked_scope_clean=true`，仅 `mock-functional`。
 - A170-09：未通过。真实首请求在extract首章返回provider_unavailable/RateLimitError，1次，无续写产物；没有provider-validated或真实长跑证据。需上游恢复，整体迭代保持未完成。
 
 ### Knowledge Promotion
@@ -78,3 +78,5 @@
 ## Notes
 
 只 commit、不 push。收官按 iter-finish 同步 README SOP、handoff、PROJECT_HISTORY；真实失败保留为未通过并说明原因。
+
+当前可继续测试的独立 Web 服务为 localhost:8768，测试根 `/private/tmp/novel-audit-20260905/real`。服务启动不发模型请求；外层累计最坏费用预留保留在该测试根，仅主线程/用户访问。此临时测试位置不属于可提交产物。
