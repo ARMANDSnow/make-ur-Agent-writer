@@ -945,7 +945,7 @@ def render_workspace_chapter_detail(name: str, chapter_no: int, workspaces: Iter
         '<div class="card"><div class="card-body">'
         '<div class="field"><label for="draft-edit-area">正文内容（可编辑）</label>'
         '<textarea id="draft-edit-area" rows="24" placeholder="载入中…"></textarea></div>'
-        '<p class="muted" id="draft-edit-help">保存后，旧的内容检查结果需要更新；“保存并重新检查”会在保存后开始一次独立检查。</p>'
+        '<p class="muted" id="draft-edit-help">保存后，本章及后文需要复核；请从最早修改章开始“保存并重新检查”。通过后更新正文摘录记忆，旧人物推进不再生效。</p>'
         '<div class="form-actions">'
         '<button type="button" id="draft-save" class="btn btn-secondary">保存</button>'
         '<button type="button" id="draft-save-review" class="btn btn-paid" data-ui-action="paid">保存并重新检查</button>'

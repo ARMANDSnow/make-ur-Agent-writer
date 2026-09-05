@@ -244,7 +244,7 @@ class MockOfflineSubprocessTests(unittest.TestCase):
 
                 assert client_module._LITELLM_MOCK_OFFLINE is False
                 assert "LITELLM_LOCAL_MODEL_COST_MAP" not in os.environ
-                assert connections == [("localhost", 63501)], connections
+                assert connections == [], connections
                 assert fake_litellm.drop_params is True
             """
         )

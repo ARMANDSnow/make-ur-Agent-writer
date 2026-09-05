@@ -1430,6 +1430,7 @@ def _step_extract(params: Dict[str, Any], progress_cb: Callable[[str, float], No
             limit=params.get("limit"),
             force=bool(params.get("force", False)),
             raise_on_failure=True,
+            progress_cb=progress_cb,
         )
     except ExtractionBatchFailure as exc:
         return _blocked("extraction_failures", str(exc))
@@ -1442,7 +1443,7 @@ def _step_compress(params: Dict[str, Any], progress_cb: Callable[[str, float], N
             "extractions_missing",
             "no extracted JSON found; run `extract` first",
         )
-    return compress_all()
+    return compress_all(progress_cb=progress_cb)
 
 
 def _step_bootstrap_all(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -1452,7 +1453,7 @@ def _step_bootstrap_all(params: Dict[str, Any], progress_cb: Callable[[str, floa
             "extractions_missing",
             "no extracted JSON found; run `extract` first",
         )
-    return bootstrap_all(force=bool(params.get("force", False)))
+    return bootstrap_all(force=bool(params.get("force", False)), progress_cb=progress_cb)
 
 
 def _step_apply_bootstrap(params: Dict[str, Any], progress_cb: Callable[[str, float], None]) -> Any:
@@ -1775,6 +1776,8 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
 
     try:
         with acquire_write_lock(source="web-review-chapter"):
+            from ..story_memory import require_current
+            require_current(drafts_dir, chapter_no)
             progress_cb("review", 0.1)
             review_target(
                 md_path,
@@ -1796,6 +1799,15 @@ def _step_review_chapter(params: Dict[str, Any], progress_cb: Callable[[str, flo
                 require_external_review=True,
                 expected_context=_run_context(item, chapter_no=chapter_no),
             )
+            memory_only = (status.get("strict_failures") == ["story_memory_stale"]
+                           and status.get("verdict") == "Approve" and not status.get("needs_review")
+                           and not status.get("failure"))
+            if status.get("approved") or memory_only:
+                from ..story_memory import refresh_after_review
+                progress_cb("refresh-memory", 0.95)
+                refresh_after_review(drafts_dir, chapter_no)
+                status = chapter_status(chapter_no, drafts_dir, validate_context=True,
+                    require_external_review=True, expected_context=_run_context(item, chapter_no=chapter_no))
     except WorkspaceLocked as exc:
         return _workspace_locked_blocked(exc)
     # iter 051b: settlement — cost of THIS job only (since initial offset).

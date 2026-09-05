@@ -2329,6 +2329,7 @@ JS_DASHBOARD = """\
     else if (raw.includes("stale debate outline")) k = "outline_stale";
     else if (raw.startsWith("outline_severe_drift")) k = "outline_drift_severe";
     else if (raw.includes("retry_exhausted") || raw.includes("existing_output_not_strict_approved")) k = "retry_exhausted";
+    else if (raw.startsWith("story_memory_")) k = "story_memory_stale";
     else if (raw.startsWith("foreshadowing_must_resolve_overdue") || raw.startsWith("foreshadowing_gate_error")) k = "foreshadowing_overdue";
     var cfg = CTA_ACTIONS[k];
     if (cfg && cfg.label) return cfg.label;
@@ -3176,6 +3177,28 @@ JS_DASHBOARD = """\
       try { return !!editor.isDirty(); } catch (e) { return false; }
     });
   }
+  // A successful response acknowledges only the values actually submitted.
+  function captureEditSnapshot(root, controls) {
+    const fields = controls || (root.matches && root.matches("input,textarea,select")
+      ? [root] : Array.from(root.querySelectorAll("input,textarea,select")));
+    return { root: root, fields: fields, explicit: !!controls, values: fields.map(function (field) { return field.value; }) };
+  }
+  function acknowledgeEditSnapshot(snapshot) {
+    if (!snapshot.root.isConnected || snapshot.fields.some(function (field) { return !field.isConnected; })) return false;
+    const current = snapshot.explicit ? snapshot.fields : captureEditSnapshot(snapshot.root).fields;
+    const changed = current.length !== snapshot.fields.length || current.some(function (field, index) {
+      return field !== snapshot.fields[index] || field.value !== snapshot.values[index];
+    });
+    if (changed) {
+      snapshot.root.dataset.dirty = "1";
+      snapshot.fields.forEach(function (field) { field.dataset.dirty = "1"; });
+      showToast("已保存提交时的内容；仍有新的修改尚未保存", "warn");
+      return false;
+    }
+    delete snapshot.root.dataset.dirty;
+    snapshot.fields.forEach(function (field) { delete field.dataset.dirty; });
+    return true;
+  }
   async function clickAndAwaitClean(button, isDirty) {
     if (!button || button.disabled) return false;
     button.click();
@@ -3286,6 +3309,7 @@ JS_DASHBOARD = """\
       } finally {
         workbenchBulkSaving = false;
       }
+      dirtyEditors().forEach(function (editor) { if (failed.indexOf(editor) === -1) failed.push(editor); });
       if (!failed.length) {
         closeModal();
         continueNavigation(href, kind);
@@ -3536,7 +3560,9 @@ JS_DASHBOARD = """\
       }
       setFormSubmitBusy(form, true, "正在保存");
       try {
+        const submitted = captureEditSnapshot(form);
         const result = await putJson(wsUrl("/chapter-plan/" + chapterNo), { fields: fields });
+        if (!acknowledgeEditSnapshot(submitted)) { setFormSubmitBusy(form, false); return false; }
         form.dataset.dirty = "0";
         if (unregisterDirty) unregisterDirty();
         const invalidated = Array.isArray(result.written_chapters_invalidated) ? result.written_chapters_invalidated : [];
@@ -3885,8 +3911,9 @@ JS_DASHBOARD = """\
       }
       kbSave.disabled = true;
       try {
+        const submitted = captureEditSnapshot(kbArea);
         await putJson(wsUrl("/kb"), { content: kbArea.value });
-        delete kbArea.dataset.dirty;
+        if (!acknowledgeEditSnapshot(submitted)) return;
         showToast("知识库已保存；下游大纲 / 细纲将提示重新生成", "info");
         if (!workbenchBulkSaving) await refreshWorkbench();
       } catch (err) {
@@ -3981,8 +4008,9 @@ JS_DASHBOARD = """\
       }
       save.disabled = true;
       try {
+        const submitted = captureEditSnapshot(els[EXPANSION_FIELDS[0].key], EXPANSION_FIELDS.map(function (f) { return els[f.key]; }));
         await putJson(wsUrl("/premise-expansion"), { fields: fields });
-        for (const f of EXPANSION_FIELDS) delete els[f.key].dataset.dirty;
+        if (!acknowledgeEditSnapshot(submitted)) return;
         showToast("扩写稿已保存；需重新生成作品知识与角色设定才会生效", "info");
         if (!workbenchBulkSaving) await refreshWorkbench();
       } catch (err) {
@@ -4138,8 +4166,9 @@ JS_DASHBOARD = """\
       if (!hasContent) { showToast("风格卡不能全空", "error"); return; }
       save.disabled = true;
       try {
+        const submitted = captureEditSnapshot(els[STYLE_FIELDS[0].key], STYLE_FIELDS.map(function (f) { return els[f.key]; }));
         await putJson(wsUrl("/writer-style"), { fields: fields });
-        for (const f of STYLE_FIELDS) delete els[f.key].dataset.dirty;
+        if (!acknowledgeEditSnapshot(submitted)) return;
         showToast("风格卡已保存；下一章写作时生效", "info");
         await renderPresetGrid();
       } catch (err) {
@@ -4263,8 +4292,9 @@ JS_DASHBOARD = """\
         }
         btn.disabled = true;
         try {
+          const submitted = captureEditSnapshot(inputs[0], inputs);
           await putJson(wsUrl("/entity/" + encodeURIComponent(btn.dataset.entityId)), { fields: fields });
-          inputs.forEach(function (input) { delete input.dataset.dirty; });
+          if (!acknowledgeEditSnapshot(submitted)) return;
           showToast("实体已保存：" + fields.name, "info");
         } catch (err) {
           showToast("保存失败：" + errTitle(err), "error");
@@ -4294,12 +4324,13 @@ JS_DASHBOARD = """\
         try {
           // iter 050d (M-2): echo src/dst so the server can detect a
           // regenerated graph (stale index) instead of editing the wrong rel.
+          const submitted = captureEditSnapshot(input);
           await putJson(wsUrl("/relationship/" + idx), {
             state: state,
             src_id: btn.dataset.srcId || "",
             dst_id: btn.dataset.dstId || "",
           });
-          delete input.dataset.dirty;
+          if (!acknowledgeEditSnapshot(submitted)) return;
           showToast("关系状态已保存", "info");
         } catch (err) {
           showToast("保存失败：" + errTitle(err), "error");
@@ -4398,8 +4429,9 @@ JS_DASHBOARD = """\
       }
       btn.disabled = true;
       try {
+        const submitted = captureEditSnapshot(area);
         await putJson(wsUrl("/outline"), { outline: area.value });
-        delete area.dataset.dirty;
+        if (!acknowledgeEditSnapshot(submitted)) return;
         showToast("大纲已保存", "info");
         if (!workbenchBulkSaving) await refreshWorkbench();
       } catch (err) {
@@ -4841,8 +4873,11 @@ JS_DASHBOARD = """\
       )) return;
       saveBtn.disabled = true;
       try {
+        const submitted = captureEditSnapshot(editorRoot);
         const res = await putJson(wsUrl("/chapter-plan/" + chapterNo), { fields: fields });
-        delete editorRoot.dataset.dirty;
+        if (!acknowledgeEditSnapshot(submitted)) return;
+        // Retire the old editor synchronously before async refresh detaches it.
+        editorRoot.innerHTML = '<p class="muted" role="status">已保存，正在刷新章节计划…</p>';
         if (unregisterDirty) unregisterDirty();
         planEditingChapter = null;
         const invalidated = res.written_chapters_invalidated || [];
@@ -5798,6 +5833,16 @@ JS_DASHBOARD = """\
   }
 
   // ===== page: chapter detail ============================================
+  let chapterDetailRequest = 0;
+  async function refreshChapterDetail(num) {
+    const request = ++chapterDetailRequest;
+    try {
+      const data = await fetchJson(wsUrl("/draft/" + num));
+      if (request === chapterDetailRequest) renderChapterDetail(data);
+    } catch (err) {
+      if (request === chapterDetailRequest) throw err;
+    }
+  }
   async function initChapterDetail() {
     bindHashTabs();
     bindLintJump();
@@ -5805,8 +5850,7 @@ JS_DASHBOARD = """\
     if (!num) return;
     bindDraftEditor(num);
     try {
-      const data = await fetchJson(wsUrl("/draft/" + num));
-      renderChapterDetail(data);
+      await refreshChapterDetail(num);
     } catch (err) {
       renderChapterDetailLoadError(err);
     }
@@ -5849,8 +5893,10 @@ JS_DASHBOARD = """\
         showToast("正文不能为空", "error");
         return null;
       }
+      const submitted = captureEditSnapshot(area);
+      ++chapterDetailRequest;
       const res = await putJson(wsUrl("/draft/" + num), { content: content });
-      delete area.dataset.dirty;
+      if (!acknowledgeEditSnapshot(submitted)) { saveState("已保存提交时的正文；仍有新的修改尚未保存", "warn"); return null; }
       return res;
     }
     area._saveBeforeLeave = async function () {
@@ -5883,8 +5929,7 @@ JS_DASHBOARD = """\
       const saved = await area._saveBeforeLeave();
       setControlBusy(saveBtn, false);
       if (saved) {
-        const data = await fetchJson(wsUrl("/draft/" + num));
-        renderChapterDetail(data);
+        await refreshChapterDetail(num);
       }
     });
     saveReviewBtn.addEventListener("click", async function () {
@@ -5913,8 +5958,7 @@ JS_DASHBOARD = """\
           params: Object.assign({ chapter: Number(num) }, NOVEL_STAGE_LIMITS["write-book"]),
         });
         await pollJob(job.job_id, statusBox, null, async function () {
-          const data = await fetchJson(wsUrl("/draft/" + num));
-          renderChapterDetail(data);
+          await refreshChapterDetail(num);
         });
       } catch (err) {
         saveState(draftSaved

@@ -104,6 +104,7 @@ def append_chapter_summary(
     ending_state: str = "",
     text_snippet: str = "",
     path: Path | None = None,
+    source_draft_sha256: str = "",
 ) -> None:
     """Append or replace one chapter summary in rolling state.
 
@@ -125,6 +126,11 @@ def append_chapter_summary(
         "key_events": [str(event).strip() for event in key_events if str(event).strip()],
         "ending_state": str(ending_state or "").strip(),
     }
+    if source_draft_sha256:
+        entry["source_draft_sha256"] = source_draft_sha256
+    # Replacement also invalidates an already-compacted copy of this chapter.
+    data["compressed_older"] = [item for item in data.get("compressed_older", [])
+                                if not isinstance(item, dict) or item.get("chapter_no") != int(chapter_no)]
     if text_snippet:
         entry["text_snippet"] = str(text_snippet).strip()
     chapters.append(entry)

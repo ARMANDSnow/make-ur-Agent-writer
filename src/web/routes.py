@@ -1492,8 +1492,40 @@ def api_workspace_outline_save(name: str, body: bytes) -> Tuple[int, str, bytes]
     try:
         with _workspace_write_guard(name, "web-manual-outline"):
             try:
-                write_text_atomic(paths.outline_path(), outline)
-            except OSError as exc:
+                from .. import start_point
+                from ..utils import sha256_text
+                try:
+                    old_outline = workspace_files.read_text(name, "outputs/debate/outline.md", max_bytes=800_000)
+                except FileNotFoundError:
+                    old_outline = ""
+                decisions = workspace_files.read_json_optional(
+                    name, "outputs/debate/decisions.json", None, max_bytes=2_000_000
+                )
+                if decisions is None:
+                    if paths.debate_decisions_path().exists():
+                        return _json(409, {"error": "outline_metadata_invalid"})
+                    decisions = {}
+                if not isinstance(decisions, dict):
+                    return _json(409, {"error": "outline_metadata_invalid"})
+                failures = start_point.outline_consistency_failures(decisions, outline_text=old_outline)
+                hard = [code for code in failures if code != start_point.OUTLINE_METADATA_MISSING]
+                if hard or (start_point.OUTLINE_METADATA_MISSING in failures and start_point.get_start_chapter_id()):
+                    return _json(409, {"error": "outline_stale", "codes": hard or failures})
+                outline = outline.replace("\r\n", "\n").replace("\r", "\n")
+                previous_edit = decisions.get("manual_edit")
+                revision = previous_edit.get("revision", 0) if isinstance(previous_edit, dict) else 0
+                if type(revision) is not int or revision < 0:
+                    return _json(409, {"error": "outline_metadata_invalid"})
+                decisions["manual_edit"] = {
+                    "source": "web", "revision": revision + 1,
+                    "base_sha256": sha256_text(old_outline),
+                    "content_sha256": sha256_text(outline),
+                    "edited_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                }
+                decisions["outline_sha256"] = sha256_text(outline)
+                workspace_files.write_text_atomic(name, "outputs/debate/outline.md", outline, max_bytes=800_000)
+                workspace_files.write_json_atomic(name, "outputs/debate/decisions.json", decisions, max_bytes=2_000_000)
+            except (OSError, ValueError) as exc:
                 return _json(500, errors.error_body(errors.card_for_exception(exc)))
     except RuntimeError as exc:
         conflict = _write_conflict_response(exc)
@@ -1661,10 +1693,13 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
             if not isinstance(meta, dict):
                 meta = {}
             try:
+                from ..story_memory import invalidate_from
+                invalidate_from(paths.drafts_dir(), chapter_no)
+                meta["story_memory_invalidated"] = True
                 workspace_files.write_text_atomic(
                     name, md_relative, draft + "\n", max_bytes=_DRAFT_FILE_MAX_BYTES
                 )
-            except workspace_files.WorkspaceFileError as exc:
+            except (OSError, ValueError) as exc:
                 trace_id = _safe_log_exception("draft.write", exc)
                 return _json(
                     500,

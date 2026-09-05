@@ -154,3 +154,20 @@ python3 main.py --book longzu drive-book status     # 看进度和账本
 ---
 
 *更深的机制（防剧透三道护栏、评审面板、diff oracle 等）和当前进度见 [PRODUCT_SPEC.md](PRODUCT_SPEC.md) 与项目根 [README.md](../../README.md)。*
+
+
+## 编辑后的恢复与伏笔确认
+
+正文编辑后，请从最早修改的章节开始，依次选择“保存并重新检查”。通过后系统使用当前正文的首尾摘录更新故事记忆，不额外请求模型生成摘要；旧人物关系推进保留为失效历史，后续有效推进再建立当前状态。未通过或记忆更新失败时，后续写作继续阻断。
+
+伏笔不会仅凭模型自述自动标为回收。可以在终端查看登记表，并凭当前已审核正文中的原句明确确认；确认记录绑定正文和审核版本，后续修改会使证据失效。以下命令只操作本地状态，不调用模型：
+
+```bash
+python3 main.py --book <book> foreshadowing list
+python3 main.py --book <book> foreshadowing resolve --id <伏笔ID> --chapter 3 --evidence '<当前正文中的回收证据原句>' --confirm
+python3 main.py --book <book> foreshadowing ttl --id <伏笔ID> --ttl 30 --confirm
+```
+
+原书在续写起点之前留下的伏笔默认只提示；续写期明确要求回收的伏笔，在每一章开始前按相同规则检查期限。调整期限不会伪造回收证据。
+
+程序与 shell 包装器默认保留用户设置的代理，不探测或删除。历史本地隧道仅在明确设置 `DRAGON_RAJA_PROXY_MODE=sandbox-63501` 时适配；探测失败保留原设置，mock 模式不探测。

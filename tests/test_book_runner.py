@@ -397,7 +397,7 @@ class BookRunnerReadinessTests(unittest.TestCase):
         self.assertEqual(result["status"], "succeeded")
         archive.assert_called_once()
 
-    def test_replan_uses_run_offset_and_reloads_plan(self) -> None:
+    def test_replan_uses_global_chapter_boundary_and_reloads_plan(self) -> None:
         data = _strict_plan(chapters=3)
         data_after_replan = _strict_plan(chapters=4)
         parsed = {
@@ -510,7 +510,7 @@ class BookRunnerReadinessTests(unittest.TestCase):
             result = run_write_book(chapters=3, resume_from=2, replan_every=2)
         self.assertEqual(result["status"], "succeeded")
         replan.assert_called_once()
-        self.assertEqual(replan.call_args.kwargs["from_chapter"], 3)
+        self.assertEqual(replan.call_args.kwargs["from_chapter"], 2)
         self.assertGreaterEqual(load_plan.call_count, 2)
 
     def test_archive_moves_entity_advance_proposals_file(self) -> None:

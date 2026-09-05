@@ -353,6 +353,26 @@ def _run_write_book_unlocked(
             raise BudgetExceeded(budget_cny=budget_cny, cost_cny=current_cost)
         return current_cost
 
+    prepared_plan_through = 0
+    if replan_every > 0 and require_plan:
+        raw = _load_raw_chapter_plan()
+        wanted = list(range(int(resume_from), int(resume_from) + min(total, replan_every)))
+        if _repairable_plan_tail(raw, wanted, require_start_point):
+            progress("complete-plan-window", 0.08)
+            budget_check_cb()
+            from .plot_planner import generate_chapter_plan
+            prepared_plan_through = ((max(wanted) + replan_every - 1) // replan_every) * replan_every
+            generate_chapter_plan(append_count=prepared_plan_through - len(raw["chapters"]),
+                                  from_chapter=len(raw["chapters"]), force=True,
+                                  require_start_point=require_start_point, preserve_tail=True)
+            plan = _load_chapter_plan()
+            refreshed = check_write_readiness(chapters=total, resume_from=resume_from, replan_every=replan_every,
+                require_start_point=require_start_point, require_plan=require_plan,
+                require_external_review=require_external_review, allow_existing_blockers=force,
+                include_next_unapproved=False, tier=tier)
+            if refreshed.get("status") == "blocked" or any(str(w).startswith("chapter_plan_tail_pending:") for w in refreshed.get("warnings", [])):
+                raise BookRunBlocked("chapter_plan_window_incomplete")
+
     for offset, chapter_no in enumerate(range(int(resume_from), int(resume_from) + total), start=1):
         chapter_base = 0.1 + 0.8 * ((offset - 1) / total)
         chapter_span = 0.8 / total
@@ -385,6 +405,47 @@ def _run_write_book_unlocked(
                         "cost_cny": exc.cost_cny,
                     },
                 )
+        # Enforce the same elapsed-chapter TTL at every actual chapter,
+        # independent of the caller's batch size.
+        from . import foreshadowing
+        overdue = foreshadowing.overdue_must_resolve(max(0, chapter_no - 1))
+        if overdue:
+            blocked.append({"chapter": chapter_no, "reason": "foreshadowing_must_resolve_overdue", "count": len(overdue)})
+            return _snap("blocked", {"chapters": written, "blocked": blocked, "advances": advances, "costs": costs})
+        if (replan_every > 0 and chapter_no > prepared_plan_through and chapter_no > 1 and (chapter_no - 1) % replan_every == 0
+                and not (drafts_dir / f"chapter_{chapter_no:02d}.md").exists()):
+            progress(f"replan-before-{chapter_no}", 0.1 + 0.8 * (offset / total))
+            from .plot_planner import generate_chapter_plan
+
+            try:
+                generate_chapter_plan(
+                    append_count=replan_every,
+                    from_chapter=chapter_no - 1,
+                    preserve_tail=True,
+                    force=True,
+                    require_start_point=require_start_point,
+                )
+                plan = _load_chapter_plan()
+            except Exception as exc:
+                blocked.append(
+                    {
+                        "chapter": chapter_no,
+                        "reason": "replan_failed",
+                        "error": safe_exception_text(exc, reason=public_llm_failure_reason(exc)),
+                    }
+                )
+                progress("blocked", 1.0)
+                return _snap(
+                    "blocked",
+                    {
+                        "chapters": written,
+                        "blocked": blocked,
+                        "advances": advances,
+                        "caveats": caveats,
+                        "costs": costs,
+                    },
+                )
+
         item = _chapter_plan_item(plan, chapter_no) if plan else None
         expected = _run_context(
             item,
@@ -772,37 +833,6 @@ def _run_write_book_unlocked(
                         "cost_cny": cost.get("cost_cny", 0.0),
                     },
                 )
-        if replan_every > 0 and offset < total and offset % replan_every == 0:
-            progress(f"replan-after-{chapter_no}", 0.1 + 0.8 * (offset / total))
-            from .plot_planner import generate_chapter_plan
-
-            try:
-                generate_chapter_plan(
-                    append_count=replan_every,
-                    from_chapter=chapter_no,
-                    force=True,
-                    require_start_point=require_start_point,
-                )
-                plan = _load_chapter_plan()
-            except Exception as exc:
-                blocked.append(
-                    {
-                        "chapter": chapter_no,
-                        "reason": "replan_failed",
-                        "error": safe_exception_text(exc, reason=public_llm_failure_reason(exc)),
-                    }
-                )
-                progress("blocked", 1.0)
-                return _snap(
-                    "blocked",
-                    {
-                        "chapters": written,
-                        "blocked": blocked,
-                        "advances": advances,
-                        "caveats": caveats,
-                        "costs": costs,
-                    },
-                )
 
     final_status = "blocked" if blocked else "succeeded"
     progress(final_status, 1.0)
@@ -885,6 +915,10 @@ def check_write_readiness(
             chapter_numbers=chapter_numbers,
             require_start_point=require_start_point,
         )
+        repairable = _repairable_plan_tail(raw_plan, chapter_numbers, require_start_point) if replan_every > 0 else False
+        if repairable:
+            warnings.extend(f"chapter_plan_tail_pending:{failure}" for failure in failures)
+            failures = []
         blockers.extend(f"chapter_plan:{failure}" for failure in failures)
         if failures:
             recommended.append(
@@ -1045,6 +1079,14 @@ def check_write_readiness(
 
     # 窗口外但承接最关键的一章：resume_from-1（下一章 prompt 直接依赖它的
     # ending_state）。正文在盘才算 gap。
+    from .story_memory import stale_before
+    try:
+        stale_memory = stale_before(drafts_dir, resume_from)
+        if stale_memory:
+            blockers.append("story_memory_stale:" + ",".join(map(str, stale_memory)))
+            recommended.append("请从最早修改章开始，在章节编辑页选择保存并重新检查，以更新故事记忆")
+    except (OSError, ValueError):
+        blockers.append("story_memory_invalid")
     _prev_no = resume_from - 1
     if _prev_no >= 1 and (drafts_dir / f"chapter_{_prev_no:02d}.md").exists():
         _note_rolling_gap(_prev_no)
@@ -1067,6 +1109,8 @@ def check_write_readiness(
             try:
                 item = _chapter_plan_item(plan, chapter_no)
             except ValueError as exc:
+                if replan_every > 0 and _repairable_plan_tail(raw_plan, chapter_numbers, require_start_point) and chapter_no > len(raw_plan.get("chapters", [])):
+                    continue
                 blockers.append(f"chapter_{chapter_no:02d}:plan_item_missing:{exc}")
                 continue
             expected = _run_context(
@@ -1281,6 +1325,19 @@ def _load_raw_chapter_plan() -> Dict[str, Any]:
     # by the schema loader _load_chapter_plan, which readiness catches above.
     data = read_json_optional(path, {})
     return data if isinstance(data, dict) else {}
+
+
+def _repairable_plan_tail(data: Dict[str, Any], wanted: List[int], require_start: bool) -> bool:
+    items = data.get("chapters") or []
+    if not items or not wanted:
+        return False
+    numbers = [item.get("chapter_no") for item in items if isinstance(item, dict)]
+    if numbers != list(range(1, len(items) + 1)):
+        return False
+    if _plan_metadata_failures(data, chapter_numbers=numbers, require_start_point=require_start):
+        return False
+    # Only a missing suffix reachable from this valid plan is repairable.
+    return min(wanted) <= len(items) + 1 and max(wanted) > len(items)
 
 
 def _plan_metadata_failures(
@@ -1619,6 +1676,34 @@ def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[s
         meta["last_blocking_reasons"] = []
 
     write_json(meta_path, meta)
+    failure_path = drafts_dir / f"chapter_{chapter_no:02d}.failure.json"
+    if failure_path.is_file() and not failure_path.is_symlink() and verdict == "Approve":
+        from .utils import sha256_text
+        from .linter import NovelLinter
+        draft_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
+        draft = draft_path.read_text(encoding="utf-8")
+        draft_hash = sha256_text(draft)
+        failure = read_json_optional(failure_path, {})
+        # Unknown provider/timeout/halt failures are never converted to success.
+        lint_failure = isinstance(failure, dict) and "lint_issues" in failure and not any(
+            key in failure for key in ("failure_reason", "reason", "stage", "last_error", "submission_state")
+        )
+        exact = (meta.get("draft_sha256") == review.get("draft_sha256") == draft_hash
+                 and isinstance(meta.get("run_context"), dict)
+                 and meta.get("run_context") == review.get("run_context")
+                 and not review.get("needs_human_review") and not review.get("panel_halted"))
+        if lint_failure and exact and not any(issue.get("severity") == "error" for issue in NovelLinter().lint(draft)):
+            archive = drafts_dir / "history" / f"chapter_{chapter_no:02d}.lint-failure.{draft_hash}.json"
+            from .story_memory import _write
+            _write(archive, failure)
+            if paths.workspace_name():
+                from .workspace_files import unlink_regular
+                unlink_regular(paths.workspace_name(), f"outputs/drafts/chapter_{chapter_no:02d}.failure.json")
+            else:
+                failure_path.unlink()
+            meta.pop("failure_path", None)
+            meta["lint_issues"] = NovelLinter().lint(draft)
+            write_json(meta_path, meta)
     return meta
 
 

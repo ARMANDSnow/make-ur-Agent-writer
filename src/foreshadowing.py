@@ -216,7 +216,13 @@ def _overdue_must_resolve_items(current_chapter: int) -> List[Dict[str, Any]]:
             continue
         status = str(it.get("status") or "").strip().lower()
         if status == "resolved":
-            continue
+            resolution = it.get("resolution")
+            if not isinstance(resolution, dict):
+                continue  # Retain legacy explicit human decisions.
+            current = resolution_is_current(resolution)
+            if current:
+                continue
+            status = "open"
         # iter047B2 M3: 'expired' always blocks; anything NOT explicitly
         # resolved/expired (open, blank, or an unknown word like 'deferred', or
         # wrong-case 'Open') is treated as still-open and blocks once past TTL —
@@ -286,3 +292,86 @@ def resolve(item_id: str) -> bool:
     if changed:
         write_json(_registry_path(), data)
     return changed
+
+
+def confirm_resolution(item_id: str, chapter: int, evidence: str, *, confirm: bool = False) -> Dict[str, Any]:
+    """Human-confirmed payoff supported by an exact, strictly reviewed draft."""
+    from .chapter_status import chapter_status
+    from .writer import _load_chapter_plan, _chapter_plan_item, _run_context
+    from .story_memory import _read, _write
+    from .utils import sha256_text
+    from . import workspace_files
+    if not confirm or type(chapter) is not int or chapter < 1 or not evidence.strip() or len(evidence) > 2000:
+        raise ValueError('foreshadowing_confirmation_required')
+    drafts = paths.drafts_dir()
+    plan = _load_chapter_plan()
+    if not plan:
+        raise ValueError('chapter_plan_missing')
+    expected = _run_context(_chapter_plan_item(plan, chapter), chapter_no=chapter)
+    status = chapter_status(chapter, drafts, validate_context=True, require_external_review=True, expected_context=expected)
+    if not status.get('approved'):
+        raise ValueError('foreshadowing_requires_current_approved_chapter')
+    if not paths.workspace_name():
+        raise ValueError('foreshadowing_requires_named_workspace')
+    draft = workspace_files.read_text(paths.workspace_name(), f'outputs/drafts/chapter_{chapter:02d}.md', max_bytes=4*1024*1024)
+    if evidence not in draft:
+        raise ValueError('foreshadowing_evidence_not_in_draft')
+    data = _read(_registry_path(), None)
+    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+        raise ValueError('foreshadowing_registry_invalid')
+    item = next((it for it in data['items'] if isinstance(it,dict) and it.get('id') == item_id), None)
+    if item is None:
+        raise ValueError('foreshadowing_item_missing')
+    meta = _read(drafts/f'chapter_{chapter:02d}.meta.json', {})
+    review = _read(drafts.parent/'reviews'/f'chapter_{chapter:02d}.review.json', {})
+    digest = sha256_text(draft)
+    if meta.get('draft_sha256') != digest or review.get('draft_sha256') != digest or meta.get('story_memory_invalidated'):
+        raise ValueError('foreshadowing_draft_changed')
+    item['status'] = 'resolved'
+    item['resolution'] = {'source':'human_confirmed', 'chapter':chapter, 'draft_sha256':digest,
+                          'evidence':evidence, 'review_sha256':sha256_text(json.dumps(review,sort_keys=True,ensure_ascii=False))}
+    _write(_registry_path(), data)
+    return {'id':item_id, 'status':'resolved', 'chapter':chapter, 'draft_sha256':digest}
+
+
+def configure_ttl(item_id: str, ttl: int, *, confirm: bool = False) -> Dict[str, Any]:
+    from .story_memory import _read, _write
+    if not confirm or type(ttl) is not int or not 1 <= ttl <= 10000 or not paths.workspace_name():
+        raise ValueError('foreshadowing_ttl_confirmation_required')
+    data = _read(_registry_path(), None)
+    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+        raise ValueError('foreshadowing_registry_invalid')
+    item = next((it for it in data['items'] if isinstance(it,dict) and it.get('id') == item_id), None)
+    if item is None:
+        raise ValueError('foreshadowing_item_missing')
+    item['ttl'] = ttl
+    if item.get('status') == 'expired':
+        item['status'] = 'open'
+    _write(_registry_path(),data)
+    return {'id':item_id, 'ttl':ttl, 'status':item.get('status')}
+
+
+def resolution_is_current(resolution: Dict[str, Any]) -> bool:
+    from .chapter_status import chapter_status
+    from .writer import _load_chapter_plan, _chapter_plan_item, _run_context
+    from .story_memory import _read
+    from . import workspace_files
+    from .utils import sha256_text
+    try:
+        chapter = resolution.get('chapter')
+        if type(chapter) is not int or chapter < 1 or not paths.workspace_name():
+            return False
+        drafts = paths.drafts_dir()
+        meta = _read(drafts/f'chapter_{chapter:02d}.meta.json', {})
+        review = _read(drafts.parent/'reviews'/f'chapter_{chapter:02d}.review.json', {})
+        plan = _load_chapter_plan()
+        if not plan:
+            return False
+        expected = _run_context(_chapter_plan_item(plan,chapter),chapter_no=chapter)
+        current = chapter_status(chapter,drafts,validate_context=True,require_external_review=True,expected_context=expected)
+        draft = workspace_files.read_text(paths.workspace_name(),f'outputs/drafts/chapter_{chapter:02d}.md',max_bytes=4*1024*1024)
+        return (bool(current.get('approved')) and not meta.get('story_memory_invalidated')
+            and sha256_text(draft) == resolution.get('draft_sha256')
+            and sha256_text(json.dumps(review,sort_keys=True,ensure_ascii=False)) == resolution.get('review_sha256'))
+    except (OSError,ValueError,TypeError,KeyError):
+        return False

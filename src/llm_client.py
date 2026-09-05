@@ -37,51 +37,26 @@ def _sanitize_error_text(error: Any, *, api_key: Optional[str] = None, max_chars
     return text
 
 
-# Iter 027: adapt HTTP(S)_PROXY for the aetherheartpool tunnel.
-# The Claude Code sandbox forces all egress through localhost:63501 (no
-# DNS / direct egress otherwise); the user's own terminal can reach the
-# tunnel directly, but ships a stale ``HTTP_PROXY=http://127.0.0.1:7897``
-# pointing at a not-always-running Clash. Mirror scripts/with_proxy.sh so
-# direct-python entrypoints (scripts/iter027_*.py, scripts/collect_*.py)
-# self-adapt without per-run env tweaks. Runs at import time so litellm
-# sees the corrected env before its first network call.
+# User proxy configuration is authoritative. The historical local tunnel
+# adapter is opt-in and never deletes configuration on a failed probe.
 def _setup_proxy() -> None:
+    if os.environ.get("DRAGON_RAJA_PROXY_MODE") != "sandbox-63501":
+        return
     import socket
-
-    proxies = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
-    sandbox_proxy = "http://localhost:63501"
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(0.5)
     try:
-        sock.connect(("localhost", 63501))
-        in_sandbox = True
+        with socket.create_connection(("localhost", 63501), timeout=0.5):
+            pass
     except OSError:
-        in_sandbox = False
-    finally:
-        sock.close()
-
-    if in_sandbox:
-        if all(os.environ.get(k) == sandbox_proxy for k in proxies) and not any(
-            k in os.environ for k in ("ALL_PROXY", "all_proxy")
-        ):
-            return
-        for k in proxies:
-            os.environ[k] = sandbox_proxy
-        # ALL_PROXY outranks HTTP(S)_PROXY in some HTTP clients — clear it
-        # so the 63501 tunnel actually wins. Mirrors scripts/with_proxy.sh.
-        for k in ("ALL_PROXY", "all_proxy"):
-            os.environ.pop(k, None)
-    else:
-        if all(k not in os.environ for k in (*proxies, "ALL_PROXY", "all_proxy")):
-            return
-        for k in (*proxies, "ALL_PROXY", "all_proxy"):
-            os.environ.pop(k, None)
+        return
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        os.environ[key] = "http://localhost:63501"
+    for key in ("ALL_PROXY", "all_proxy"):
+        os.environ.pop(key, None)
 
 
 # Iter 096: LiteLLM reads its cost-map source during import.  Resolve the
 # effective global model first so mock processes force the bundled map and do
-# not even probe the localhost proxy.  Real-model processes preserve the
-# existing proxy adaptation and remote-map behavior.
+# not even probe the localhost proxy.  Real-model processes preserve user proxies unless adaptation is explicitly enabled.
 _LITELLM_MOCK_OFFLINE = prepare_litellm_environment()
 if not _LITELLM_MOCK_OFFLINE:
     _setup_proxy()

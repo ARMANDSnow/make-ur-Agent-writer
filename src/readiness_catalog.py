@@ -105,6 +105,12 @@ KINDS: Dict[str, Dict[str, str]] = {
         "cta_action": "show_diagnostics",
         "cta_label": "查看诊断",
     },
+    "story_memory_stale": {
+        "label": "前文修改后，故事记忆待更新",
+        "cause": "请从最早修改的章节开始，在章节编辑页选择保存并重新检查；通过后更新正文摘录，旧人物推进保留为失效历史。",
+        "cta_action": "show_diagnostics",
+        "cta_label": "查看待处理章节",
+    },
     "foreshadowing_overdue": {
         "label": "有 must-resolve 伏笔超期未回收",
         "cause": "存在标记为必须回收的伏笔超期未回收。",
@@ -152,6 +158,8 @@ def classify(blocker: str) -> str:
         return "retry_exhausted"
     if b.startswith("preflight:"):
         return "preflight_failed"
+    if b.startswith("story_memory_"):
+        return "story_memory_stale"
     if b.startswith("foreshadowing_must_resolve_overdue") or b.startswith("foreshadowing_gate_error"):
         return "foreshadowing_overdue"
     return DEFAULT_KIND

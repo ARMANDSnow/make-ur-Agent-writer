@@ -244,3 +244,15 @@ def list_regular_names(
         return sorted(result)
     finally:
         os.close(directory_fd)
+
+
+def unlink_regular(workspace: str, relative: str) -> None:
+    """Remove only a regular leaf under the no-follow workspace directory fd."""
+    parent_fd, leaf = _open_parent(workspace, relative)
+    try:
+        info = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode):
+            raise WorkspaceFileError("workspace file is not regular")
+        os.unlink(leaf, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)

@@ -89,6 +89,7 @@ def generate_chapter_plan(
     from_chapter: int = 0,
     require_start_point: bool = False,
     allow_stale_outline: bool = False,
+    preserve_tail: bool = False,
 ) -> Dict[str, Any]:
     """Iter 024 P2: append mode. When ``append_count > 0``, preserves
     chapters 1..from_chapter from the existing chapter_plan.json and
@@ -124,6 +125,8 @@ def generate_chapter_plan(
     elif chapter_plan_path.exists() and not force:
         raise FileExistsError("chapter_plan.json already exists; use --force to overwrite")
 
+    from .story_memory import require_current
+    require_current(chapter_plan_path.parent.parent / "drafts", from_chapter + 1 if append_count > 0 else 10001)
     outline = outline_path.read_text(encoding="utf-8")
     # iter 053a: before trusting the outline, check its provenance against the
     # CURRENT start point (the 052 accident: a "四部曲结局后"-era outline was
@@ -264,7 +267,12 @@ def generate_chapter_plan(
         new_chapters = list(new_data.get("chapters", []) or [])
         for offset, ch in enumerate(new_chapters):
             ch["chapter_no"] = from_chapter + 1 + offset
+        new_chapters = new_chapters[:append_count]
+        if len(new_chapters) != append_count:
+            raise ValueError("chapter_plan_incomplete_generated_tail")
         merged_chapters = list(existing_chapters) + new_chapters
+        if preserve_tail:
+            merged_chapters += [item for item in all_existing if int(item["chapter_no"]) > from_chapter + append_count]
         # Preserve overall_arc from existing (don't let LLM rewrite the
         # global arc just because it's appending a tail).
         from .utils import read_json as _read_json

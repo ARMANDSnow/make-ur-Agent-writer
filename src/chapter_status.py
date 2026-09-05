@@ -309,6 +309,8 @@ def chapter_status(
                             actual = str(review_ctx.get(key) or "")
                             if expected and actual and actual != expected:
                                 strict_failures.append(f"external_review_{key}_mismatch")
+        if meta.get("story_memory_invalidated"):
+            strict_failures.append("story_memory_stale")
         approved = approved and not strict_failures
 
     return {

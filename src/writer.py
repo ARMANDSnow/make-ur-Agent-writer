@@ -127,6 +127,8 @@ def write_chapters(
     for chapter_no in range(int(resume_from), int(resume_from) + int(chapters)):
         out_path = drafts_dir / f"chapter_{chapter_no:02d}.md"
         rolling_path = drafts_dir / "rolling_chapter_summary.json"
+        from .story_memory import require_current
+        require_current(drafts_dir, chapter_no)
         rolling_context = render_rolling_context(
             max_chapters=rolling_max_chapters,
             path=rolling_path,
@@ -345,6 +347,14 @@ def write_chapters(
                         last_nonempty_draft = draft or last_nonempty_draft
                         polish_applied = True
                         polish_diff_stats = {"pre_chars": pre_chars, "post_chars": len(draft)}
+                        # Polishing changes the exact bytes being judged. Never
+                        # persist a pre-polish lint verdict for the new draft.
+                        lint_issues = linter.lint(draft)
+                        last_lint_issues = lint_issues
+                        lint_ok = not any(issue.get("severity") == "error" for issue in lint_issues)
+                        report["lint_issues"] = lint_issues
+                        if not lint_ok:
+                            report["verdict"] = "Reject"
                 except Exception as exc:
                     report["polish_error"] = safe_exception_text(exc)
                 stage = "budget_check_polish"
@@ -678,6 +688,7 @@ def write_chapters(
                 chapter_summary.get("key_events", []),
                 chapter_summary.get("ending_state", ""),
                 text_snippet=text_snippet,
+                source_draft_sha256=_draft_file_sha256(draft),
                 path=drafts_dir / "rolling_chapter_summary.json",
             )
             stage = "entity_advance"

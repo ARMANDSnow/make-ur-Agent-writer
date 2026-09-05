@@ -285,6 +285,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Iter 019: exit 0 instead of erroring when no proposals are selected.",
     )
 
+    fo_cmd = sub.add_parser("foreshadowing", help="查看伏笔，或凭已审核正文人工确认回收/调整期限")
+    fo_cmd.add_argument("action", choices=["list", "resolve", "ttl"])
+    fo_cmd.add_argument("--id", dest="item_id", default="")
+    fo_cmd.add_argument("--chapter", type=int, default=0)
+    fo_cmd.add_argument("--evidence", default="", help="当前已审核正文中证明回收的原句")
+    fo_cmd.add_argument("--ttl", type=int, default=12)
+    fo_cmd.add_argument("--confirm", action="store_true")
+
     # iter 019: chapter-status returns the failure / approval markers for a
     # chapter as JSON, so write_book.sh can branch on it without grepping.
     chapter_status_cmd = sub.add_parser("chapter-status")
@@ -788,6 +796,18 @@ def main() -> None:
             print(str(exc), file=sys.stderr)
             raise SystemExit(4)
         print(render_apply_advance_result(result), end="")
+    elif args.command == "foreshadowing":
+        from src import foreshadowing
+        from src.workspace_lock import acquire_write_lock
+        if args.action == "list":
+            result = foreshadowing.load_registry()
+        else:
+            with acquire_write_lock(source="cli-foreshadowing"):
+                if args.action == "resolve":
+                    result = foreshadowing.confirm_resolution(args.item_id, args.chapter, args.evidence, confirm=args.confirm)
+                else:
+                    result = foreshadowing.configure_ttl(args.item_id, args.ttl, confirm=args.confirm)
+        print(json.dumps(result, ensure_ascii=False))
     elif args.command == "chapter-status":
         # iter 019: thin wrapper around src.chapter_status. Always prints JSON
         # so write_book.sh can parse it deterministically.
