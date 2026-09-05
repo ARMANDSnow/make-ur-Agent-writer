@@ -7,8 +7,8 @@
 ## Plan
 
 ### Implementation Context
-- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `scripts/write_book.sh`
-- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
+- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `scripts/write_book.sh`
+- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
 - `do_not_touch`: `.env`、原文源文件、所有既有 workspace 产物与短剧分支。用户仅授权主线程复制指定原文到干净测试空间；subagent 坚持只读代码/测试，禁止私有内容。
 
 1. F01 中文合集识别/正文切章/起点边界；通用规则不硬编码书名。
@@ -35,6 +35,8 @@
 - A170-09：干净工作区真实准备、规划、续写与长流程/恢复实测，逐步记录模型调用、费用与真实结果；必须获得 provider-validated，未通过不得宣称本轮完成。
 
 ## Implementation Notes
+
+F14：首次细纲缺章节仍成功的问题已先写入审计，补请求数量校验、连续编号和target规范化，不新增付费重试；不足不落盘并保留旧计划。两项反例测试覆盖空/少章、超量/重复编号与force旧文件保护，47项聚焦通过。独立审查发现新增测试误归无隔离类，已移入临时workspace fixture并重跑；错误测试新建的合成目录按创建时间确认后移出仓库，不涉及既有workspace。需要在本次实现提交上重新canonical。
 
 用户明确暂不考虑预算继续测试，F12不再作为暂停条件，保留估算记录。原文准备从7章缓存续接。F13概览运行状态误导先记入审计，追加最小前端修复与状态转换实测，79项聚焦与两路增量审查通过；审查发现失败/未知状态误回落已修，浏览器running→succeeded、running→failed、断网状态待确认通过。将以新实现提交覆盖完整验收。
 

@@ -215,6 +215,52 @@ class ReliabilityTests(unittest.TestCase):
         r=subprocess.run(['bash','scripts/write_book.sh','--tier'],env=env,capture_output=True)
         self.assertEqual(r.returncode,64)
 
+    def _planner_response(self, numbers):
+        from src.schemas import ChapterPlan
+        return ChapterPlan(target_chapters=99, overall_arc='synthetic arc', chapters=[
+            dict(chapter_no=n, title=f'item-{i}', opening_scene='arrival',
+                 key_events=['arrive', 'investigate'], ending_hook='a clue', plot_purpose='progress')
+            for i, n in enumerate(numbers)])
+
+    def test_fresh_plan_rejects_incomplete_without_replacing_existing(self):
+        from src.plot_planner import generate_chapter_plan
+        with use_workspace('audit'):
+            paths.outline_path().parent.mkdir(parents=True, exist_ok=True)
+            paths.outline_path().write_text('# Synthetic outline')
+            for count in (0, 2):
+                for existing in (False, True):
+                    with self.subTest(count=count, existing=existing):
+                        plan = paths.chapter_plan_path()
+                        if existing:
+                            plan.write_text('{"prior": "preserved"}')
+                        else:
+                            plan.unlink(missing_ok=True)
+                        with patch('src.plot_planner.LLMClient') as client:
+                            client.return_value.complete_json.return_value = self._planner_response(range(count))
+                            with self.assertRaisesRegex(ValueError, 'incomplete_generated_plan'):
+                                generate_chapter_plan(target_chapters=3, force=True)
+                            self.assertEqual(client.return_value.complete_json.call_count, 1)
+                        self.assertEqual(plan.exists(), existing)
+                        if existing:
+                            self.assertEqual(plan.read_text(), '{"prior": "preserved"}')
+
+    def test_fresh_plan_normalizes_requested_coverage_before_fingerprinting(self):
+        from src.plot_planner import generate_chapter_plan, chapter_plan_item_fingerprint
+        with use_workspace('audit'):
+            paths.outline_path().parent.mkdir(parents=True, exist_ok=True)
+            paths.outline_path().write_text('# Synthetic outline')
+            for numbers in ([9, 9, 2], [0, 7, 7, 99]):
+                with self.subTest(numbers=numbers), patch('src.plot_planner.LLMClient') as client:
+                    client.return_value.complete_json.return_value = self._planner_response(numbers)
+                    data = generate_chapter_plan(target_chapters=3, force=True)
+                    self.assertEqual(data['target_chapters'], 3)
+                    self.assertEqual([c['chapter_no'] for c in data['chapters']], [1, 2, 3])
+                    self.assertEqual([c['title'] for c in data['chapters']], ['item-0', 'item-1', 'item-2'])
+                    for chapter in data['chapters']:
+                        self.assertEqual(chapter['chapter_plan_item_fingerprint'], chapter_plan_item_fingerprint(chapter))
+                    self.assertEqual(json.loads(paths.chapter_plan_path().read_text()), data)
+
+
 class ModelRequestCancellationTests(unittest.TestCase):
     def test_cancelled_before_request_has_no_provider_or_usage(self):
         from src.llm_client import LLMClient, llm_request_check_scope, llm_request_limit_scope

@@ -289,6 +289,13 @@ def generate_chapter_plan(
         }
     else:
         data = new_data
+        new_chapters = list(data.get("chapters", []) or [])[:target_chapters]
+        if len(new_chapters) != target_chapters:
+            raise ValueError("chapter_plan_incomplete_generated_plan")
+        for chapter_no, chapter in enumerate(new_chapters, start=1):
+            chapter["chapter_no"] = chapter_no
+        data["chapters"] = new_chapters
+        data["target_chapters"] = target_chapters
         data["start_chapter_id"] = start_chapter_id or ""
     # iter 053a (审查 A1): record which outline this plan was generated from —
     # the plan↔outline lineage link, checked warn-level by
