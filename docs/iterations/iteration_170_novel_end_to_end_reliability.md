@@ -7,8 +7,8 @@
 ## Plan
 
 ### Implementation Context
-- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `scripts/write_book.sh`
-- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
+- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `scripts/write_book.sh`
+- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
 - `do_not_touch`: `.env`、原文源文件、所有既有 workspace 产物与短剧分支。用户仅授权主线程复制指定原文到干净测试空间；subagent 坚持只读代码/测试，禁止私有内容。
 
 1. F01 中文合集识别/正文切章/起点边界；通用规则不硬编码书名。
@@ -35,6 +35,8 @@
 - A170-09：干净工作区真实准备、规划、续写与长流程/恢复实测，逐步记录模型调用、费用与真实结果；必须获得 provider-validated，未通过不得宣称本轮完成。
 
 ## Implementation Notes
+
+F17/F18：真实恢复复核发现成功票被日志重写删除、问题重建使旧票下标失去含义。先补审计后增加原子裁决检查点与发言/问题指纹、保留并验证成功票、旧票无问题版本明确阻断。新增4项隔离反例涵盖部分投票恢复、大纲失败后只重做大纲、损坏/legacy原文件保护、检查点写失败不投票。132项聚焦通过，两路独立复审完成；审查发现损坏JSON检查点可被跳过，已改为损坏/非对象记录在重写前阻断，新增首票前中断与原字节保留反例，增量复审通过。未知响应通用标题不再误称超时。
 
 F16：真实任务发现完成卡片仍有取消按钮、本页发起任务顶栏长期等待中；先记审计后修复。所有pollJob路径共享job_id绑定的顶栏更新，终态无取消，状态未知保持独立控件锁并清旧快照，恢复轮询拒绝旧任务迟到响应。两路审查有效findings均闭合，44项聚焦含真实Node忙碌清理/错序测试通过；隔离真实浏览器运行20%同步、失败无取消按钮、断网后提交仍禁用通过。真实debate继续在ffbf12a服务上运行，未中断。
 

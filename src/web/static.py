@@ -2270,7 +2270,7 @@ JS_DASHBOARD = """\
     network: { code: "network", title: "连不上本地服务", cause: "本地服务可能没在运行，或端口被占用。请确认服务已启动后重试。", actions: [{ label: "刷新重试", action: "reload" }] },
     timeout: { code: "timeout", title: "请求超时", cause: "服务端响应太慢，任务可能仍在后台长跑。可去任务页查看进度。", actions: [{ label: "去任务页", action: "go_jobs" }] },
     bad_json: { code: "bad_json", title: "返回数据异常", cause: "服务端返回的内容不是预期格式，刷新后通常即可恢复。", actions: [{ label: "刷新重试", action: "reload" }] },
-    submission_unknown: { code: "submission_unknown", title: "模型响应超时，结果未确认", cause: "为避免重复生成，系统没有自动重试。请回到工作台核对是否出现新草稿；确认没有后，再由你决定是否重新开始。", actions: [{ label: "回到工作台核对", action: "go_workbench" }] },
+    submission_unknown: { code: "submission_unknown", title: "模型请求未完成，结果待确认", cause: "为避免重复生成，系统没有自动重试。请回到工作台核对是否出现新草稿；确认没有后，再由你决定是否重新开始。", actions: [{ label: "回到工作台核对", action: "go_workbench" }] },
     provider_unavailable: { code: "provider_unavailable", title: "模型服务暂时不可用", cause: "本次生成没有完成。请稍后再试，或在设置中更换模型连接。", actions: [{ label: "回到工作台", action: "go_workbench" }] },
     request_limit_exhausted: { code: "request_limit_exhausted", title: "模型请求次数已达上限", cause: "任务已停止，不会继续请求。请缩小生成范围或调整上限后再开始。", actions: [{ label: "调整生成设置", action: "go_workbench" }] },
     context_too_large: { code: "context_too_large", title: "本次输入内容过长", cause: "模型无法接收当前上下文。请缩小生成范围或精简素材后再开始。", actions: [{ label: "调整生成设置", action: "go_workbench" }] },

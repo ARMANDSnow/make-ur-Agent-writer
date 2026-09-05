@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -106,6 +107,20 @@ def load_agents() -> List[Dict[str, Any]]:
     return cfg.get("debate_agents", [])
 
 
+def _debate_fingerprint(value: Any) -> str:
+    return sha256_text(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def _validate_debate_checkpoint(checkpoint: dict, transcript: list, agents: list) -> None:
+    decisions = checkpoint.get("decisions")
+    if (checkpoint.get("schema_version") != 1 or not isinstance(decisions, dict)
+            or checkpoint.get("decisions_fingerprint") != _debate_fingerprint(decisions)
+            or checkpoint.get("transcript_fingerprint") != _debate_fingerprint(transcript)
+            or checkpoint.get("agent_names") != [agent["name"] for agent in agents]):
+        raise ValueError("裁决检查点与当前辩论不一致，拒绝恢复；请先核对日志。")
+    DebateDecisions.model_validate(decisions)
+
+
 def run_debate(
     topic: str = "",
     force: bool = False,
@@ -186,6 +201,8 @@ def run_debate(
     transcript: List[Dict[str, Any]] = []
     done_keys: set = set()
     done_ballots: set = set()
+    retained_ballots: list[dict] = []
+    checkpoint: Optional[dict] = None
     # iter 053a: provenance head of the log (round-less meta entry written when
     # a fresh debate starts). Used by the resume guard below.
     log_meta: Optional[Dict[str, Any]] = None
@@ -197,11 +214,18 @@ def run_debate(
                     continue
                 try:
                     entry = json.loads(line)
-                except Exception:
-                    continue
+                except (ValueError, TypeError) as exc:
+                    raise ValueError("辩论日志损坏，拒绝恢复；请先核对原日志。") from exc
+                if not isinstance(entry, dict):
+                    raise ValueError("辩论日志记录格式错误，拒绝恢复；请先核对原日志。")
                 if entry.get("meta") == "debate_start_point":
                     if log_meta is None:
                         log_meta = entry
+                    continue
+                if entry.get("meta") == "debate_decisions_checkpoint":
+                    if checkpoint is not None:
+                        raise ValueError("重复的裁决检查点，拒绝恢复；请先核对日志。")
+                    checkpoint = entry
                     continue
                 ag = entry.get("agent")
                 r = entry.get("round")
@@ -210,7 +234,7 @@ def run_debate(
                 err = entry.get("error")
                 if rn == "裁决投票":
                     if not err and entry.get("ballots"):
-                        done_ballots.add(ag)
+                        retained_ballots.append(entry)
                     continue
                 if r is None or ag is None:
                     continue
@@ -251,13 +275,27 @@ def run_debate(
                     "请用 `python main.py debate --force` 归档后全新辩论。"
                 )
             log_event("debate", "resume_legacy_log_no_fingerprint")
+        if retained_ballots and checkpoint is None:
+            raise ValueError("旧投票缺少裁决问题检查点，拒绝复用。请先归档旧辩论后重新生成。")
+        if checkpoint is not None:
+            _validate_debate_checkpoint(checkpoint, transcript, agents)
+            for ballot in retained_ballots:
+                agent_name = ballot.get("agent")
+                if (agent_name not in checkpoint["agent_names"]
+                        or ballot.get("decisions_fingerprint") != checkpoint["decisions_fingerprint"]
+                        or not _ballot_data_is_complete(ballot, len(checkpoint["decisions"]["votes"]))):
+                    raise ValueError("投票与裁决检查点不一致，拒绝恢复；请先核对日志。")
+                AgentVoteBallot.model_validate(ballot)
+                if agent_name in done_ballots:
+                    raise ValueError("重复的成功投票，拒绝恢复；请先核对日志。")
+                done_ballots.add(agent_name)
         # Rewrite log keeping only retained entries so we don't accumulate
         # stale error rows on each resume (provenance head preserved).
-        with log_path.open("w", encoding="utf-8") as fh:
-            if log_meta is not None:
-                fh.write(json.dumps(log_meta, ensure_ascii=False) + "\n")
-            for item in transcript:
-                fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+        kept = ([log_meta] if log_meta is not None else []) + transcript
+        if checkpoint is not None:
+            kept.append(checkpoint)
+        kept.extend(retained_ballots)
+        write_text_atomic(log_path, "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in kept))
 
     # iter 053a: a fresh debate (no pre-existing log) opens with a provenance
     # head so later resumes can prove which start-point era the transcript
@@ -321,8 +359,21 @@ def run_debate(
                 fh.write(json.dumps(item, ensure_ascii=False) + "\n")
 
     progress("debate-decisions", 0.75)  # iter060 (#12): checkpoint before voting calls
-    decisions = build_decisions(agents, transcript, client)
-    agent_ballots: Dict[str, List[Dict[str, Any]]] = {}
+    if checkpoint is None:
+        decisions = build_decisions(agents, transcript, client)
+        checkpoint = {
+            "meta": "debate_decisions_checkpoint", "schema_version": 1,
+            "decisions": decisions, "decisions_fingerprint": _debate_fingerprint(decisions),
+            "transcript_fingerprint": _debate_fingerprint(transcript),
+            "agent_names": [agent["name"] for agent in agents],
+        }
+        write_text_atomic(log_path, log_path.read_text(encoding="utf-8") + json.dumps(checkpoint, ensure_ascii=False) + "\n")
+    else:
+        _validate_debate_checkpoint(checkpoint, transcript, agents)
+    decisions = copy.deepcopy(checkpoint["decisions"])
+    agent_ballots: Dict[str, List[Dict[str, Any]]] = {
+        item["agent"]: item["ballots"] for item in retained_ballots
+    }
     for agent in agents:
         if agent["name"] in done_ballots:
             # Reuse previously logged ballot if present.
@@ -336,28 +387,13 @@ def run_debate(
             "agent": agent["name"],
             "response": ballot_entry["response"],
             "ballots": ballot_entry["ballots"],
+            "decisions_fingerprint": checkpoint["decisions_fingerprint"],
         }
         if ballot_entry.get("error"):
             log_item["error"] = ballot_entry["error"]
         with log_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(log_item, ensure_ascii=False) + "\n")
 
-    # If any ballots were resumed from log, load them now so _apply_agent_ballots
-    # sees them too.
-    if done_ballots:
-        with log_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except Exception:
-                    continue
-                if entry.get("round_name") == "裁决投票":
-                    ag = entry.get("agent")
-                    if ag and ag in done_ballots and ag not in agent_ballots:
-                        agent_ballots[ag] = entry.get("ballots", [])
     decisions = _apply_agent_ballots(decisions, agent_ballots, len(transcript))
     progress("debate-outline", 0.95)  # iter060 (#12): checkpoint before outline LLM call
     outline = build_outline(topic, decisions, transcript, client)
