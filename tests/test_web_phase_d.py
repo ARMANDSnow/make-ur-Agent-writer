@@ -70,7 +70,7 @@ class NovelPhaseDTests(unittest.TestCase):
             self.assertIn(hook, js)
         self.assertIn("function bindJobFilters", js)
         self.assertIn("function bindChapterFilter", js)
-        self.assertIn('saveState("没有保存成功。编辑内容仍保留，请重试。"', js)
+        self.assertIn('saveState("没有保存成功。正文可能已在别处更新；修改仍保留，请先复制备份并重新加载核对。"', js)
         for choice in ("继续编辑", "放弃修改", "保存全部并继续"):
             self.assertIn(choice, js)
         self.assertIn("area._saveBeforeLeave", js)

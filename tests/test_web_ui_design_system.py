@@ -117,7 +117,7 @@ for (const [current, parent, status, expected] of cases) {
             "write-book-submit",
             "draft-save-review",
         ):
-            self.assertRegex(pages, rf'id="{hook}" class="btn btn-paid(?: btn-sm)?"')
+            self.assertRegex(pages, rf'id="{hook}"(?: disabled)? class="btn btn-paid(?: btn-sm)?"')
         self.assertIn('data-ui-action="paid"', pages)
         self.assertIn("function confirmPaidAction", static.JS_DASHBOARD)
         self.assertIn("window.uiConfirmPaidAction = confirmPaidAction", static.JS_DASHBOARD)

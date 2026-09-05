@@ -248,6 +248,13 @@ class MutationPolicyTests(unittest.TestCase):
 
 
 class SafeProjectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Each case represents an independent CLI execution. The production
+        # accounting failure marker intentionally persists until it ends.
+        from src.llm_client import _LLM_ACCOUNTING_DEGRADED
+        token = _LLM_ACCOUNTING_DEGRADED.set(None)
+        self.addCleanup(_LLM_ACCOUNTING_DEGRADED.reset, token)
+
     def test_mock_writer_task_never_routes_to_review_json(self) -> None:
         client = LLMClient("write")
         text = client._mock_text(

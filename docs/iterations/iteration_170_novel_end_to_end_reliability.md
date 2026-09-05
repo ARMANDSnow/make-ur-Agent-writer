@@ -36,6 +36,8 @@
 
 ## Implementation Notes
 
+首次canonical跑1928项，旧iter168无scope日志失败测试泄漏sticky计费停止状态，连带后续LLM用例失败，另两条UI静态合同未适配新文案/disabled。修正测试隔离与断言，77项聚焦通过，独立复审确认未削弱生产保护；将形成测试修正commit后完整重验。
+
 先报告后立项。真实调用1次遭上游RateLimitError，保留最坏费用预留2.79036元，实际账单未确认。原文路径由用户明确提供，仅主线程处理；新测试根位于系统临时目录，mock 与 real 数据隔离。
 
 ## Acceptance Result
