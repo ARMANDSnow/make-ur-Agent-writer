@@ -2116,7 +2116,7 @@ JS_DASHBOARD = """\
   function writeRecoveryStateCopy(state) {
     const copy = {
       not_needed: "这一章当前不需要强制恢复，请刷新页面查看最新评审状态。",
-      needs_review: "草稿仍在等待处理，但不是重试耗尽状态；请先查看评审意见。",
+      needs_review: "草稿仍需处理，但尚无可安全重生成的完整证据；请先查看评审意见。",
       busy: "当前作品还有任务正在处理。请等待任务结束或先请求取消，系统不会自动重复提交。",
       reconciliation_required: "上一项写作任务状态无法确认，需要先到任务记录对账；系统不会自动重复提交。",
       blocked: "当前章节不符合安全恢复条件，没有启动新任务。",

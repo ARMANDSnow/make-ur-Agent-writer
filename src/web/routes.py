@@ -1172,7 +1172,11 @@ def _collect_workbench_status_current(name: str) -> Dict[str, Any]:
         retry_required = [
             status
             for status in statuses
-            if not status.get("approved") and status.get("panel_halt_reason") == "retry_exhausted"
+            if not status.get("approved") and (
+                status.get("panel_halt_reason") == "retry_exhausted"
+                or (status.get("panel_halt_reason") == "external_review_reject"
+                    and _write_recovery_snapshot(name, int(status.get("chapter_no") or 1)).get("state") == "eligible")
+            )
         ]
         unapproved = [status for status in statuses if not status.get("approved")]
         if retry_required:
@@ -1272,6 +1276,9 @@ def _write_recovery_snapshot(name: str, chapter: int) -> Dict[str, Any]:
     snapshot["_ledger_claim"] = ledger_claim
     snapshot["_prior_job_id"] = ""
     if latest is None:
+        if snapshot.get("_halt_reason") == "external_review_reject":
+            snapshot["state"] = "blocked"
+            snapshot["state_fingerprint"] = None
         return snapshot
     status = str(latest.get("status") or "")
     if status in {"pending", "running"}:
@@ -1286,8 +1293,8 @@ def _write_recovery_snapshot(name: str, chapter: int) -> Dict[str, Any]:
     }:
         snapshot["state"] = "reconciliation_required"
         snapshot["state_fingerprint"] = None
-    elif not jobs.is_exact_write_recovery_terminal(latest, chapter):
-        # Only the explicit retry_exhausted/blocked terminal is a recoverable
+    elif not jobs.is_exact_write_recovery_terminal(latest, chapter, reason=snapshot.get("_halt_reason")):
+        # Only the matching explicit soft-reject/blocked terminal is a recoverable
         # write failure.  General failure, cancellation, budget exhaustion and
         # an inconsistent "succeeded" row never acquire a force entrypoint.
         snapshot["state"] = "blocked"

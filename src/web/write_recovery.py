@@ -360,7 +360,45 @@ def inspect_recovery_state(workspace: str, chapter: int) -> Dict[str, Any]:
         return public
     halted = meta.get("panel_halted")
     reason = halted.get("reason") if isinstance(halted, dict) else None
-    if reason != "retry_exhausted":
+    if reason is not None and not isinstance(reason, str):
+        return public
+    if reason == "external_review_reject":
+        # Only a completed, current soft rejection can acquire the explicit
+        # archive/regenerate action. Inspect the already bounded bytes here.
+        context = meta.get("run_context")
+        item = next((item for item in plan["chapters"]
+                     if isinstance(item, dict) and item.get("chapter_no") == chapter), {})
+        expected = {
+            "plan_fingerprint": plan.get("plan_fingerprint"),
+            "chapter_plan_item_fingerprint": item.get("chapter_plan_item_fingerprint"),
+        }
+        if creation_mode == "continuation":
+            expected.update(start_chapter_id=plan.get("start_chapter_id"),
+                            start_point_fingerprint=plan.get("start_point_fingerprint"))
+        digest = hashlib.sha256(draft_raw).hexdigest()
+        def hard_or_manual(report: Dict[str, Any]) -> bool:
+            votes = report.get("agent_reviews")
+            return bool(
+                report.get("hard_reject")
+                or report.get("human_review") or report.get("human_review_required")
+                or any(isinstance(vote, dict) and vote.get("_synthetic")
+                       and vote.get("verdict") == "Reject"
+                       for vote in (votes if isinstance(votes, list) else []))
+            )
+        if (
+            failure_raw is not None or not isinstance(review, dict)
+            or review.get("external_review_completed") is not True
+            or review.get("verdict") != "Reject" or meta.get("verdict") != "Reject"
+            or review.get("needs_human_review") or meta.get("needs_human_review") is not True
+            or hard_or_manual(meta) or hard_or_manual(review)
+            or meta.get("draft_sha256") != digest or review.get("draft_sha256") != digest
+            or not isinstance(context, dict) or review.get("run_context") != context
+            or type(context.get("chapter_no")) is not int or context.get("chapter_no") != chapter
+            or any(not value or context.get(key) != value for key, value in expected.items())
+        ):
+            public["state"] = "needs_review"
+            return public
+    elif reason != "retry_exhausted":
         # A failure sidecar without the exact durable halt decision is the
         # legacy/failure-only case: diagnose it, never promote it to force.
         if failure_raw is not None:
@@ -378,6 +416,7 @@ def inspect_recovery_state(workspace: str, chapter: int) -> Dict[str, Any]:
         return public
 
     public["state"] = "eligible"
+    public["_halt_reason"] = reason
     public["state_fingerprint"] = _fingerprint(
         workspace=workspace,
         chapter=chapter,

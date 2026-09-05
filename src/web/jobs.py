@@ -1215,8 +1215,8 @@ def write_recovery_job_claim(
     return ledger_state, latest, claim
 
 
-def is_exact_write_recovery_terminal(job: Any, chapter: int) -> bool:
-    """Whether ``job`` durably records retry exhaustion for this chapter."""
+def is_exact_write_recovery_terminal(job: Any, chapter: int, *, reason: Optional[str] = None) -> bool:
+    """Whether the durable terminal matches the inspected recoverable halt."""
 
     if not isinstance(job, dict) or type(chapter) is not int:
         return False
@@ -1226,7 +1226,9 @@ def is_exact_write_recovery_terminal(job: Any, chapter: int) -> bool:
         job.get("step") == "write-book"
         and job.get("status") == "blocked"
         and isinstance(first, dict)
-        and first.get("reason") == "retry_exhausted"
+        and isinstance(first.get("reason"), str)
+        and first.get("reason") in {"retry_exhausted", "external_review_reject"}
+        and (reason is None or first.get("reason") == reason)
         and type(first.get("chapter")) is int
         and first.get("chapter") == chapter
     )
@@ -1745,7 +1747,7 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
         def _recovery_precondition() -> None:
             import hmac
 
-            from .write_recovery import current_fingerprint
+            from .write_recovery import inspect_recovery_state
 
             try:
                 chapter_no = int(recovery_chapter)
@@ -1758,17 +1760,20 @@ def _step_write_book(params: Dict[str, Any], progress_cb: Callable[[str, float],
                 require_excluded_active_row=True,
             )
             actual_prior_job_id = str(latest.get("job_id") or "") if latest else ""
+            snapshot = inspect_recovery_state(paths.workspace_name(), chapter_no)
             if (
                 ledger_state != "ok"
                 or actual_prior_job_id != expected_prior_job_id
-                or (latest is not None and not is_exact_write_recovery_terminal(latest, chapter_no))
+                or (latest is None and snapshot.get("_halt_reason") == "external_review_reject")
+                or (latest is not None and not is_exact_write_recovery_terminal(
+                    latest, chapter_no, reason=snapshot.get("_halt_reason")))
                 or not isinstance(actual_ledger_claim, str)
                 or not hmac.compare_digest(
                     actual_ledger_claim, expected_recovery_ledger_claim
                 )
             ):
                 raise BookRunBlocked("write_recovery_state_changed")
-            actual = current_fingerprint(paths.workspace_name(), chapter_no)
+            actual = snapshot.get("state_fingerprint") if snapshot.get("state") == "eligible" else None
             if actual is None or not hmac.compare_digest(actual, expected_recovery_fingerprint):
                 raise BookRunBlocked("write_recovery_state_changed")
 

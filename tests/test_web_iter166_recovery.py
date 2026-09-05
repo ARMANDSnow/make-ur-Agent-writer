@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import copy
 import os
 import tempfile
 import time
@@ -177,6 +179,100 @@ class WriteRecoveryRouteTests(unittest.TestCase):
                 self.assertNotIn("synthetic failed draft", serialized)
                 self.assertNotIn("outputs/", serialized)
 
+
+    def _external_rejected(self, name: str) -> tuple[Path, dict]:
+        workspace = self._eligible(name, mode="continuation")
+        plan = json.loads((workspace / "outputs/debate/chapter_plan.json").read_text())
+        context = {key: plan[key] for key in ("plan_fingerprint", "start_chapter_id", "start_point_fingerprint")}
+        context.update(chapter_no=1, chapter_plan_item_fingerprint=plan["chapters"][0]["chapter_plan_item_fingerprint"])
+        digest = hashlib.sha256((workspace / "outputs/drafts/chapter_01.md").read_bytes()).hexdigest()
+        review = {"verdict": "Reject", "external_review_completed": True, "hard_reject": False,
+                  "draft_sha256": digest, "run_context": context}
+        meta = {**review, "needs_human_review": True, "panel_halted": {"reason": "external_review_reject"}}
+        write_json(workspace / "outputs/drafts/chapter_01.meta.json", meta)
+        write_json(workspace / "outputs/reviews/chapter_01.review.json", review)
+        prior = {"job_id": "b" * 32, "workspace": name, "step": "write-book", "status": "blocked",
+                 "params": {"chapters": 1, "resume_from": 1},
+                 "result_summary": {"first_blocked": {"chapter": 1, "reason": "external_review_reject"}}}
+        (workspace / "logs/web_jobs.jsonl").write_text(json.dumps(prior) + "\n")
+        return workspace, prior
+
+    def test_completed_soft_external_reject_has_confirmed_single_chapter_recovery(self) -> None:
+        workspace, prior = self._external_rejected("external")
+        _status, state = self._get("external")
+        self.assertEqual(state["state"], "eligible")
+        captured = {}
+        def fake_start(_name, _step, params):
+            captured.update(params)
+            return {"job_id": "c" * 32, "status": "pending"}
+        with patch("src.web.routes.jobs.start_job", side_effect=fake_start):
+            status, result = self._post("external", state["state_fingerprint"], max_model_requests=100)
+        self.assertEqual(status, 202, result)
+        self.assertEqual(captured["chapters"], 1)
+        self.assertEqual(captured["resume_from"], 1)
+        self.assertEqual(captured["max_retries"], 0)
+        self.assertTrue(captured["force"])
+        captured["_active_job_id"] = "c" * 32
+        def execute_precondition(**kwargs):
+            kwargs["precondition"]()
+            return {}
+        with use_workspace("external"), patch("src.web.jobs.write_recovery_job_claim",
+                return_value=("ok", prior, captured["expected_recovery_ledger_claim"])), patch(
+                "src.web.jobs.run_write_book", side_effect=execute_precondition):
+            jobs._step_write_book(captured, lambda *_args: None)
+            prior["result_summary"]["first_blocked"]["reason"] = "retry_exhausted"
+            with self.assertRaises(BookRunBlocked):
+                jobs._step_write_book(captured, lambda *_args: None)
+        review_path = workspace / "outputs/reviews/chapter_01.review.json"
+        review = json.loads(review_path.read_text()); review["external_review_completed"] = False
+        write_json(review_path, review)
+        with patch("src.web.routes.jobs.start_job") as start:
+            self.assertEqual(self._post("external", state["state_fingerprint"])[0], 409)
+        start.assert_not_called()
+
+    def test_external_recovery_requires_complete_current_nonhard_evidence(self) -> None:
+        workspace, prior = self._external_rejected("evidence")
+        meta_path = workspace / "outputs/drafts/chapter_01.meta.json"
+        review_path = workspace / "outputs/reviews/chapter_01.review.json"
+        meta, review = json.loads(meta_path.read_text()), json.loads(review_path.read_text())
+        cases = [
+            ("review", "external_review_completed", value) for value in (None, False, 1, "true")
+        ] + [("review", "draft_sha256", "0" * 64), ("meta", "draft_sha256", "0" * 64),
+             ("review", "run_context", {}), ("meta", "run_context", {}),
+             ("meta", "verdict", "Approve"), ("review", "verdict", "Approve"),
+             ("meta", "hard_reject", True), ("review", "hard_reject", True),
+             ("review", "agent_reviews", [{"_synthetic": True, "verdict": "Reject"}]),
+             ("meta", "human_review_required", True)]
+        for which, key, value in cases:
+            with self.subTest(which=which, key=key, value=value):
+                m, r = copy.deepcopy(meta), copy.deepcopy(review)
+                (m if which == "meta" else r)[key] = value
+                write_json(meta_path, m); write_json(review_path, r)
+                self.assertNotEqual(self._get("evidence")[1]["state"], "eligible")
+        write_json(meta_path, meta); write_json(review_path, review)
+        write_json(workspace / "outputs/drafts/chapter_01.failure.json", {"error": "synthetic"})
+        self.assertNotEqual(self._get("evidence")[1]["state"], "eligible")
+
+    def test_recovery_requires_same_halt_reason_in_terminal_and_artifacts(self) -> None:
+        workspace, prior = self._external_rejected("same-reason")
+        _status, valid_state = self._get("same-reason")
+        for reason in ("retry_exhausted", "hard_reject", [], {}):
+            other = copy.deepcopy(prior); other["result_summary"]["first_blocked"]["reason"] = reason
+            with patch("src.web.jobs.write_recovery_job_claim", return_value=("ok", other, "a" * 64)):
+                self.assertEqual(self._get("same-reason")[1]["state"], "blocked")
+                with patch("src.web.routes.jobs.start_job") as start:
+                    self.assertEqual(self._post("same-reason", valid_state["state_fingerprint"])[0], 409)
+                start.assert_not_called()
+        with patch("src.web.jobs.write_recovery_job_claim", return_value=("empty", None, "a" * 64)):
+            self.assertEqual(self._get("same-reason")[1]["state"], "blocked")
+        meta_path = workspace / "outputs/drafts/chapter_01.meta.json"
+        meta = json.loads(meta_path.read_text()); meta["panel_halted"]["reason"] = "retry_exhausted"
+        write_json(meta_path, meta)
+        self.assertEqual(self._get("same-reason")[1]["state"], "blocked")
+        for reason in ([], {}):
+            meta["panel_halted"]["reason"] = reason
+            write_json(meta_path, meta)
+            self.assertEqual(self._get("same-reason")[1]["state"], "blocked")
 
     def test_only_exact_retry_exhausted_is_eligible(self) -> None:
         workspace = self._eligible("hard")
