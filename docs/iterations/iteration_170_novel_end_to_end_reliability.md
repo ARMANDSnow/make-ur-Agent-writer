@@ -36,9 +36,9 @@
 
 ## Implementation Notes
 
-2026-09-06 新key/luna最小生成通过，按用户提供的USD0.01/百万输入输出token暂算；新模型仅临时进程配置，未写.env或仓库单价。真实准备取消已保存两章且未发第三章。新增F11先写审计报告，追加每请求取消门禁与terminal传播，74项聚焦回归通过，correctness及security/boundary两路增量审查无高置信P0–P2；将以新实现提交执行完整验收覆盖。
+2026-09-06 新key/luna最小生成通过，按用户提供的USD0.01/百万输入输出token暂算；新模型仅临时进程配置，未写.env或仓库单价。真实准备取消已保存两章且未发第三章。新增F11先写审计报告，追加每请求取消门禁与terminal传播，74项聚焦回归通过，correctness及security/boundary两路增量审查无高置信P0–P2；新实现2ae8386完整验收1932项/15步骤/83秒通过。
 
-恢复实测新增F10（阶段预算无输入），已先补入审计报告；本轮追加最小WebUI修复。保留默认费用及backend边界，准备原创3/续写20，大纲33，细纲10；不改正文/恢复合同。139项聚焦通过，correctness与security/boundary两路增量审查无findings；真实浏览器12元确认一致、21元和空值阻断通过，未新增计费。新增实现提交087aaba已重新canonical通过1928项/15步骤/87秒；旧证据由本次替代。
+恢复实测新增F10（阶段预算无输入），已先补入审计报告；本轮追加最小WebUI修复。保留默认费用及backend边界，准备原创3/续写20，大纲33，细纲10；不改正文/恢复合同。139项聚焦通过，correctness与security/boundary两路增量审查无findings；真实浏览器12元确认一致、21元和空值阻断通过，未新增计费。新增实现提交2ae8386已重新canonical通过1932项/15步骤/83秒；旧证据由本次替代。
 
 首次canonical跑1928项，旧iter168无scope日志失败测试泄漏sticky计费停止状态，连带后续LLM用例失败，另两条UI静态合同未适配新文案/disabled。修正测试隔离与断言，77项聚焦通过，独立复审确认未削弱生产保护；将形成测试修正commit后完整重验。
 
@@ -54,8 +54,9 @@
 - A170-05：PASS，实际legacy writer prompt捕获排除旧当前/未来记忆，后代失效；normal skip文件不变。runner归档前失效时序经独立审查。
 - A170-06：PASS，fake Python实际argv两种tier语法与缺值exit64。
 - A170-07：PASS，correctness、security/boundary、Web/计费三路审查及增量复审。真实序章误删、旧inode读取、旧超行数、CLI缺usage/坏usage已修复；范围内无剩余高置信P0–P2。
-- A170-08：PASS。新增实现 `087aaba7aa19262af830fd03d6c7a8fec25c7c34` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1928 tests / 15 steps / 87秒，run `6d0ce0cd60304812a3a7c06d9f331f89`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代54a9f98的上一轮工程验证。
-- A170-09：未通过。累计3次真实请求：首请求RateLimitError，恢复后的WebUI准备请求BadGatewayError，不含原文的最小连通性亦失败；保守预留5.609916元，实际费用未知，无续写产物。重启后失败任务保留、UI未误报通过，但没有provider-validated或真实长跑证据，整体保持未完成。
+- A170-08：PASS。新增实现 `2ae8386bdbd87e53a87254004ab797ea4da0f272` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1932 tests / 15 steps / 83秒，run `dc354da3a079433db15273fb40516786`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代54a9f98的上一轮工程验证。
+- A170-09：尚未全链通过。2026-09-06新key/luna最小生成HTTP200/15token；原文提取成功，第一次真实取消保留两章且未发第三章，续接缓存哈希不变。随后发现服务忽略max_tokens与max_completion_tokens（请求16，实际203/214），已请求停止；费用按用户USD0.01/百万token暂算，不能证明该服务严格执行客户端费用预留上界。正文/全链仍未验收。旧RateLimitError/BadGatewayError保持历史证据。
+- F11增量：PASS（工程）。74项聚焦、两路独立审查；新增实现2ae8386 canonical 1932项/15步骤/83秒通过，终止回调阻止新增请求并穿透修复链。在途成功响应保留。真实取消/续接在启动于F11之前的服务上观测，不混称为新代码全部真实验收。
 - F10增量：PASS，139项聚焦及两路独立审查通过。浏览器12元确认一致、21元及空值阻止提交，取消不发起请求；仅前三阶段预算可调整，正文/恢复合同不变。
 
 ### Knowledge Promotion
@@ -84,4 +85,6 @@
 
 只 commit、不 push。收官按 iter-finish 同步 README SOP、handoff、PROJECT_HISTORY；真实失败保留为未通过并说明原因。
 
-当前可继续测试的独立 Web 服务为 localhost:8768，测试根 `/private/tmp/novel-audit-20260905/real`。服务启动不发模型请求；外层累计最坏费用预留保留在该测试根，仅主线程/用户访问。此临时测试位置不属于可提交产物。
+独立 Web 服务原为 localhost:8768，2026-09-06已随含key进程停止；测试根 `/private/tmp/novel-audit-20260905/real`。服务启动不发模型请求；外层累计最坏费用预留保留在该测试根，仅主线程/用户访问。此临时测试位置不属于可提交产物。
+
+2026-09-06最终暂停快照：7章提取JSON落盘，任务明确aborted/cancelled；累计16次请求（旧模型3、新模型13，含3个诊断请求），Luna按用户单价估算含诊断约0.019253元，非服务端账单。含此前未知费用的账本预留5.667020352元；发现输出限制不生效后不把该预留宣称严格上界。专用含key进程已退出，后续无后台模型调用。真实准备/规划/正文全链仍未验收。

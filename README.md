@@ -2,7 +2,7 @@
 
 最近一次更新：**iter 169**（2026-09-05，完整验收基线）
 
-活动迭代：**iter170**（2026-09-05，工程通过，真实验收未完成；本页SOP已同步当前实现）。
+活动迭代：**iter170**（2026-09-06，工程通过，真实验收未完成；本页SOP已同步当前实现）。
 
 本地运行的多 agent 小说续写流水线。它将知识抽取、情节规划、正文生成、审稿和关系推进拆成可恢复步骤；开发与标准验收默认使用 mock，不产生计费模型请求。
 
@@ -100,7 +100,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 | 6. 写作 | 多上下文 writer、润色后重检 lint、失败章安全恢复；force失效后续旧记忆 | ✅ |
 | 7. 审核 | 当前正文复审、安全归档旧 lint 失败；记忆更新后才 strict-approved | ✅ |
 | 8. 关系更新 | proposal、conflict check、auto-advance；手改失效旧推进，伏笔凭证据确认 | ✅ |
-| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；本次已授权真实测试被上游模型服务故障阻断 |
+| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；本次已授权真实测试因当前服务忽略输出token上限暂停 |
 
 ## 项目状态
 
@@ -113,7 +113,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 
 iter170：合集导入、编辑版本冲突、日志长期容量、CLI计费停止及前三阶段可调预算已通过工程与浏览器回归；真实续写未通过，当前完整接受基线仍为iter169。
 
-最新 canonical：implementation `087aaba`，1928 tests / 15 steps / 87 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
+最新 canonical：implementation `2ae8386`，1932 tests / 15 steps / 83 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
 
 ## 目录结构
 
