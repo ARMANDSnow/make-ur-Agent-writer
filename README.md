@@ -113,7 +113,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 
 iter170：合集导入、编辑版本冲突、日志长期容量、CLI计费停止及前三阶段可调预算已通过工程与浏览器回归；真实续写未通过，当前完整接受基线仍为iter169。
 
-最新 canonical：implementation `45a2bf7`，1971 tests / 15 steps / 101 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
+最新 canonical：implementation `f4eadb9`，1971 tests / 15 steps / 101 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
 
 ## 目录结构
 

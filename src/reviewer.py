@@ -206,6 +206,47 @@ def _review_error_log_fields(exc: Exception, *, allow_content: bool) -> Dict[str
     return {"error_type": safe_exception_type_name(exc)}
 
 
+def _review_plan_block(plan: Dict[str, Any] | None) -> str:
+    """Bounded, current-item-only planning context; never treat plans as facts."""
+    if not isinstance(plan, dict):
+        return ""
+    selected: Dict[str, Any] = {}
+    for field in ("title", "opening_scene", "plot_purpose", "ending_hook"):
+        value = plan.get(field)
+        if isinstance(value, str) and value.strip():
+            selected[field] = value
+    for field, count in (("key_events", 7), ("relationships_in_play", 8)):
+        values = plan.get(field)
+        if isinstance(values, list):
+            selected[field] = [v for v in values[:count] if isinstance(v, str) and v.strip()]
+            if not selected[field]:
+                del selected[field]
+    target = plan.get("target_chinese_chars")
+    if type(target) is int and 2500 <= target <= 6000:
+        selected["target_chinese_chars"] = target
+    if not selected:
+        return ""
+    header = (
+        "## 本章计划摘要（待发生的情节，不是已经发生的事实）\n"
+        "请结合计划判断正文的推进和过渡。允许合理的新线索、登场和情节推进，"
+        "不得仅因原文未提及而拒绝；已有硬事实、人物状态和世界观约束优先于计划。"
+        "计划不能豁免真实矛盾，正文仍须提供必要铺垫和过渡。\n"
+        "摘要可能截断；未展示内容不代表不存在，不得仅据摘要遗漏判定违约。\n"
+    )
+    limit = 400
+    while True:
+        def clip(value: str) -> str:
+            return value if len(value) <= limit else value[:limit] + "…"
+        bounded = {key: ([clip(v) for v in value] if isinstance(value, list)
+                         else clip(value) if isinstance(value, str) else value)
+                   for key, value in selected.items()}
+        payload = json.dumps(bounded, ensure_ascii=False)
+        block = header + payload + "\n\n"
+        if len(block) <= 6000:
+            return block
+        limit //= 2
+
+
 def _simple_verdict_fallback(
     *,
     client: LLMClient,
@@ -214,6 +255,7 @@ def _simple_verdict_fallback(
     last_response_preview: str,
     target_name: str,
     allow_content_log: bool = True,
+    plan_block: str = "",
 ) -> Dict[str, Any] | None:
     """Debug fix: when the main review prompt produced JSON that failed
     to parse, retry the SAME agent with a stripped-down prompt that only
@@ -253,6 +295,7 @@ def _simple_verdict_fallback(
                         "请重新对下面续写章节给出最终 verdict。"
                         "只输出一个 JSON object，两个字段：verdict 和 reason。\n\n"
                         f"前次输出（已丢弃，仅供参考你的思路）:\n{last_response_preview}\n\n"
+                        f"{plan_block}"
                         f"章节正文:\n{draft}"
                     ),
                 },
@@ -526,6 +569,7 @@ def review_text(
         if scene_excerpts
         else ""
     )
+    plan_block = _review_plan_block(chapter_plan_item)
     reviews = []
     for agent in agents:
         content = client.complete_text(
@@ -550,6 +594,7 @@ def review_text(
                         f"{scene_block}"
                         f"人工全局事实:\n{facts}\n\n"
                         f"{entity_block}"
+                        f"{plan_block}"
                         f"{text[:18000]}"
                     ),
                 },
@@ -581,6 +626,7 @@ def review_text(
                 last_response_preview=content[:500],
                 target_name=target_name,
                 allow_content_log=persist,
+                plan_block=plan_block,
             )
             if simple_raw is not None:
                 simple_raw["agent_name"] = agent["name"]
@@ -642,6 +688,7 @@ def review_text(
                 last_response_preview=content[:500],
                 target_name=target_name,
                 allow_content_log=persist,
+                plan_block=plan_block,
             )
             if simple_raw is not None:
                 simple_raw["agent_name"] = agent["name"]
@@ -815,6 +862,7 @@ def review_text(
                                 '形如 {"suggestions": [{"section": "...", "type": "add|rewrite|cut", "guidance": "..."}, ...]}\n'
                                 "字段约束：section ≤ 60 字（如 '第 3 段'/'开场'/'结尾 hook'）；"
                                 "type 三选一；guidance ≤ 300 字，具体到改什么而非泛泛建议。\n\n"
+                                f"{plan_block}"
                                 f"{advisor_context}\n"
                                 f"# 章节正文（截前 12000 字）\n\n{text[:12000]}"
                             ),
