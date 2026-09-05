@@ -31,10 +31,12 @@
 - A170-05：F07/F08 当前及后续旧摘要/实体/审核失效，force 失败安全与正常 resume 不变。
 - A170-06：F09 tier 两种语法和缺值实际 argv 回归。
 - A170-07：至少 correctness、security/boundary 与 Web/计费三个只读审查；主线程复核修复 findings。
-- A170-08：PASS。新增实现 `31f19902a78ab863f06976f3900ce9e5482390d4` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1965 tests / 15 steps / 101秒，run `27c553af886345b9a08399313c4834cf`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
+- A170-08：PASS。新增实现 `45a2bf7` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1971 tests / 15 steps / 102秒，run `44bab5fd993b483baf6e446a86d64e34`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
 - A170-09：干净工作区真实准备、规划、续写与长流程/恢复实测，逐步记录模型调用、费用与真实结果；必须获得 provider-validated，未通过不得宣称本轮完成。
 
 ## Implementation Notes
+
+F22：标准档首次14–15次模型调用、一次重写增加7次，发现按章20的默认被错误用作不可提高的最大值。主写作与显式失败章恢复最大值改为160，默认仍按章20/恢复20，保留其他计费/时限/资格/确认边界。41项聚焦、两路只读审查与增量复审通过；浏览器3章手填100后改1章仍100，提示可调上限160。当前真实任务60额度未更改。
 
 F21：真实首章正文完成后内部审查上游失败，已有partial缺少恢复上下文会导致正文重写。增加schema v2上下文及正文指纹，只允许完整正文阶段恢复到lint及完整审查；旧版/不匹配文件先保留不可覆盖快照后重写。安全读取拒绝符号链接、特殊文件和超限；归档失败及来源变化在模型前阻断。53项聚焦通过，correctness与security独立只读审查无剩余P0–P2，并补runner正常/force/重试参数回归。SIGKILL前未落盘正文不在此恢复保证内。真实旧版partial不会伪造元数据迁移。
 
@@ -72,8 +74,8 @@ F17真实增量：裁决检查点已落盘后在4张票完成时从Web取消；�
 - A170-05：PASS，实际legacy writer prompt捕获排除旧当前/未来记忆，后代失效；normal skip文件不变。runner归档前失效时序经独立审查。
 - A170-06：PASS，fake Python实际argv两种tier语法与缺值exit64。
 - A170-07：PASS，correctness、security/boundary、Web/计费三路审查及增量复审。真实序章误删、旧inode读取、旧超行数、CLI缺usage/坏usage已修复；范围内无剩余高置信P0–P2。
-- A170-08：PASS。新增实现 `99dd3eba7f0a67362ed9208b813641648d77f996` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1959 tests / 15 steps / 101秒，run `560e215ff0c749c2ab0135fbaffc177f`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前F14/F15/F16的工程验证。
-- A170-09：真实全链进行中。10章提取完成（79–88）；F15原生有界流在Web完成准备（243.1秒，compress129.3秒），原提取文件hash不变。真实在途取消约20秒后本地终止且无后续请求，未知费用保留。大纲先完成16次发言后流式失败，恢复完成23次，再主动取消并重启至99dd3eb继续；细纲、正文与多章链尚未验收。用户已明确暂不考虑预算继续测试，F12不再作为暂停条件，仍记录usage估算与未知费用。
+- A170-08：PASS。新增实现 `45a2bf7` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1971 tests / 15 steps / 102秒，run `44bab5fd993b483baf6e446a86d64e34`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
+- A170-09：真实全链进行中。10章提取、Web准备、36次大纲发言/6票裁决/大纲及3章细纲成功；投票取消恢复仅补缺失票，原记录不变。首章完整正文已生成，真实审查取消后schema v2检查点恢复直接进入审查、未重复WRITE。三章严格审核与跨章记忆尚待验收。用户暂不考虑预算继续测试，仍保留usage估算及未知费用。
 - F11增量：PASS（工程）。74项聚焦、两路独立审查；新增实现2ae8386 canonical 1932项/15步骤/83秒通过，终止回调阻止新增请求并穿透修复链。在途成功响应保留。真实取消/续接在启动于F11之前的服务上观测，不混称为新代码全部真实验收。
 - F10增量：PASS，139项聚焦及两路独立审查通过。浏览器12元确认一致、21元及空值阻止提交，取消不发起请求；仅前三阶段预算可调整，正文/恢复合同不变。
 

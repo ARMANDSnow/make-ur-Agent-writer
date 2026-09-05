@@ -2110,7 +2110,7 @@ JS_DASHBOARD = """\
       tier: form && form.elements && form.elements.tier ? form.elements.tier.value || "mid" : "mid",
       budget_cny: positiveBounded("budget_cny", limits.budget_cny, limits.budget_cny),
       timeout_minutes: positiveBounded("timeout_minutes", limits.timeout_minutes, limits.timeout_minutes),
-      max_model_requests: Math.floor(positiveBounded("max_model_requests", limits.max_model_requests, limits.max_model_requests)),
+      max_model_requests: Math.floor(positiveBounded("max_model_requests", limits.max_model_requests, 160)),
     };
   }
   function writeRecoveryStateCopy(state) {
@@ -5076,9 +5076,9 @@ JS_DASHBOARD = """\
     function update() {
       const count = Number(chapters.value);
       if (!Number.isInteger(count) || count < 1) return;
-      const maximum = Math.min(160, count * 20);
-      limit.max = String(maximum);
-      if (!edited) limit.value = String(maximum);
+      const defaultLimit = Math.min(160, count * 20);
+      limit.max = "160";
+      if (!edited) limit.value = String(defaultLimit);
     }
     chapters.addEventListener("input", update);
     update();

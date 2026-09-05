@@ -232,11 +232,12 @@ class WriteRecoveryRouteTests(unittest.TestCase):
             return {"job_id": "a" * 32, "status": "pending"}
 
         with patch("src.web.routes.jobs.start_job", side_effect=fake_start):
-            status, data = self._post("submit", fingerprint)
+            status, data = self._post("submit", fingerprint, max_model_requests=100)
         self.assertEqual(status, 202, data)
         params = captured["params"]
         self.assertEqual(captured["step"], "write-book")
         self.assertEqual(params["chapters"], 1)
+        self.assertEqual(params["max_model_requests"], 100)
         self.assertEqual(params["resume_from"], 1)
         self.assertTrue(params["force"])
         self.assertEqual(params["max_retries"], 0)
@@ -587,7 +588,7 @@ class WriteRecoveryRouteTests(unittest.TestCase):
         for updates in (
             {"budget_cny": 6.1},
             {"timeout_minutes": 45.1},
-            {"max_model_requests": 21},
+            {"max_model_requests": 161},
         ):
             with self.subTest(updates=updates), patch("src.web.routes.jobs.start_job") as start:
                 status, _data = self._post("caps", state["state_fingerprint"], **updates)

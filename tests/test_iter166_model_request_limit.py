@@ -225,7 +225,7 @@ class WebModelRequestLimitValidationTests(unittest.TestCase):
             "bootstrap": (10, 3.0, 15.0),
             "debate": (45, 33.0, 60.0),
             "plan-chapters": (3, 10.0, 15.0),
-            "write-book": (20, 32.0, 45.0),
+            "write-book": (160, 32.0, 45.0),
             "review-chapter": (20, 6.0, 45.0),
             "auto-pipeline-greenfield": (160, 40.0, 120.0),
             "extract-style": (2, 2.0, 15.0),

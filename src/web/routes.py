@@ -1376,8 +1376,8 @@ def api_workspace_write_recovery_post(name: str, body: bytes) -> Tuple[int, str,
     )
     if request_error:
         return _json(400, {"error": request_error})
-    if max_model_requests > 20:
-        return _json(400, {"error": "max_model_requests must be between 1 and 20 for write recovery"})
+    if max_model_requests > jobs.MAX_MODEL_REQUESTS_PER_JOB:
+        return _json(400, {"error": f"max_model_requests must be between 1 and {jobs.MAX_MODEL_REQUESTS_PER_JOB} for write recovery"})
 
     snapshot = _write_recovery_snapshot(name, chapter)
     state = snapshot.get("state")
@@ -3071,8 +3071,8 @@ def _with_model_request_limit(
     """Resolve a finite provider-attempt cap for every Web novel model step.
 
     Browser values are never trusted: an explicit value must be an integer no
-    greater than the step-specific iter166 allowance (and the worker enforces
-    it again).  When omitted, the same value is applied as the default, so an
+    greater than the step-specific maximum (and the worker enforces
+    it again). Writing defaults scale with chapters independently, so an
     old browser cannot silently create an uncapped real-model job.
     """
 
@@ -3083,9 +3083,10 @@ def _with_model_request_limit(
     error, value = _model_request_int_value(raw)
     if error:
         return error, {}
-    if value > default:
+    maximum = jobs.MAX_MODEL_REQUESTS_PER_JOB if step == "write-book" else default
+    if value > maximum:
         return (
-            f"max_model_requests must be between 1 and {default} for {step}",
+            f"max_model_requests must be between 1 and {maximum} for {step}",
             {},
         )
     out = dict(validated)
