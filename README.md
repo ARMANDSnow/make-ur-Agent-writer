@@ -100,7 +100,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 | 6. 写作 | 多上下文 writer、润色后重检 lint、失败章安全恢复；force失效后续旧记忆 | ✅ |
 | 7. 审核 | 当前正文复审、安全归档旧 lint 失败；记忆更新后才 strict-approved | ✅ |
 | 8. 关系更新 | proposal、conflict check、auto-advance；手改失效旧推进，伏笔凭证据确认 | ✅ |
-| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；本次已授权真实测试被上游RateLimitError阻断 |
+| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；本次已授权真实测试被上游模型服务故障阻断 |
 
 ## 项目状态
 
@@ -111,9 +111,9 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 - iter168：闭环 Web mutation/付费守门、LLM 安全异常、逐章 freshness 和有界日志；synthetic 三视口达 `local-e2e`，真链在 entity graph `submission_unknown` 后零重提并记 `safe-blocked`。
 - iter169：编辑保存按提交版本确认；手改后的记忆恢复、分段规划和伏笔证据形成可回归的长程恢复流程。
 
-iter170：合集导入、编辑版本冲突、日志长期容量及CLI计费停止已通过工程与浏览器回归；真实续写未通过，当前完整接受基线仍为iter169。
+iter170：合集导入、编辑版本冲突、日志长期容量、CLI计费停止及前三阶段可调预算已通过工程与浏览器回归；真实续写未通过，当前完整接受基线仍为iter169。
 
-最新 canonical：implementation `54a9f98`，1928 tests / 15 steps / 86 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
+最新 canonical：implementation `087aaba`，1928 tests / 15 steps / 87 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
 
 ## 目录结构
 

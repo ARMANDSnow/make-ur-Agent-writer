@@ -36,11 +36,11 @@
 
 ## Implementation Notes
 
-恢复实测新增F10（阶段预算无输入），已先补入审计报告；本轮追加最小WebUI修复。保留默认费用及backend边界，准备原创3/续写20，大纲33，细纲10；不改正文/恢复合同。139项聚焦通过，correctness与security/boundary两路增量审查无findings；真实浏览器12元确认一致、21元和空值阻断通过，未新增计费。需形成新的implementation commit并重新canonical，旧证据不覆盖追加变更。
+恢复实测新增F10（阶段预算无输入），已先补入审计报告；本轮追加最小WebUI修复。保留默认费用及backend边界，准备原创3/续写20，大纲33，细纲10；不改正文/恢复合同。139项聚焦通过，correctness与security/boundary两路增量审查无findings；真实浏览器12元确认一致、21元和空值阻断通过，未新增计费。新增实现提交087aaba已重新canonical通过1928项/15步骤/87秒；旧证据由本次替代。
 
 首次canonical跑1928项，旧iter168无scope日志失败测试泄漏sticky计费停止状态，连带后续LLM用例失败，另两条UI静态合同未适配新文案/disabled。修正测试隔离与断言，77项聚焦通过，独立复审确认未削弱生产保护；将形成测试修正commit后完整重验。
 
-先报告后立项。真实调用1次遭上游RateLimitError，保留最坏费用预留2.79036元，实际账单未确认。原文路径由用户明确提供，仅主线程处理；新测试根位于系统临时目录，mock 与 real 数据隔离。
+先报告后立项。累计3次真实调用，最初RateLimitError，恢复后的WebUI请求BadGatewayError，不含原文的最小连通性亦失败；保留最坏费用预留5.609916元，实际账单未确认。原文路径由用户明确提供，仅主线程处理；新测试根位于系统临时目录，mock 与 real 数据隔离。
 
 ## Acceptance Result
 
@@ -52,8 +52,9 @@
 - A170-05：PASS，实际legacy writer prompt捕获排除旧当前/未来记忆，后代失效；normal skip文件不变。runner归档前失效时序经独立审查。
 - A170-06：PASS，fake Python实际argv两种tier语法与缺值exit64。
 - A170-07：PASS，correctness、security/boundary、Web/计费三路审查及增量复审。真实序章误删、旧inode读取、旧超行数、CLI缺usage/坏usage已修复；范围内无剩余高置信P0–P2。
-- A170-08：PASS。implementation `54a9f98897ce815e0f7f315a4679540590958932`（主体 `5fae2e3`）上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1928 tests / 15 steps / 86秒，run `36a0c20f612c443796d65749f18a9926`，`tracked_scope_clean=true`，仅 `mock-functional`。
-- A170-09：未通过。真实首请求在extract首章返回provider_unavailable/RateLimitError，1次，无续写产物；没有provider-validated或真实长跑证据。需上游恢复，整体迭代保持未完成。
+- A170-08：PASS。新增实现 `087aaba7aa19262af830fd03d6c7a8fec25c7c34` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1928 tests / 15 steps / 87秒，run `6d0ce0cd60304812a3a7c06d9f331f89`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代54a9f98的上一轮工程验证。
+- A170-09：未通过。累计3次真实请求：首请求RateLimitError，恢复后的WebUI准备请求BadGatewayError，不含原文的最小连通性亦失败；保守预留5.609916元，实际费用未知，无续写产物。重启后失败任务保留、UI未误报通过，但没有provider-validated或真实长跑证据，整体保持未完成。
+- F10增量：PASS，139项聚焦及两路独立审查通过。浏览器12元确认一致、21元及空值阻止提交，取消不发起请求；仅前三阶段预算可调整，正文/恢复合同不变。
 
 ### Knowledge Promotion
 - `decision`: `promoted`

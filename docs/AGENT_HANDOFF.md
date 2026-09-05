@@ -9,7 +9,7 @@
 | 更新时间 | iter 169 / 2026-09-05（完整验收基线；活动进展见 Active iteration） |
 | Accepted implementation commit | `df9627b565f511e43f229471fc5ec0d804ea5ebc` |
 | 日期 / accepted iteration | 2026-09-05 / iter169 |
-| Active iteration | iter170；实现 `54a9f98897ce815e0f7f315a4679540590958932`（主体 `5fae2e3`），canonical 1928 tests / 15 steps / 86秒 passed、mock-functional；run `36a0c20f612c443796d65749f18a9926` |
+| Active iteration | iter170；实现 `087aaba7aa19262af830fd03d6c7a8fec25c7c34`（主体 `5fae2e3`），canonical 1928 tests / 15 steps / 87秒 passed、mock-functional；run `6d0ce0cd60304812a3a7c06d9f331f89` |
 | 产品主线 | `main` 只支持小说原创与导入续写；完整小说+短剧快照在 `codex/short-drama` |
 | implementation | `df9627b`（主体 `a7d67d5`，润色 lint 测试兼容 `df9627b`） |
 | 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1911 tests / 15 steps / 85 秒；run `1af2f656d61848b9ac7ca98ad8c3eb24`；tracked scope clean |
@@ -17,7 +17,7 @@
 | 短剧 UI | 首页与作品列表保留原生 disabled 卡片按钮；无 href、handler 或跳转目标 |
 | 短剧数据 | main 隐藏并 fail-closed；不读取业务内容，不迁移、不修改、不删除 |
 | 发布状态 | 本轮仅本地分支和提交；未 push、未建 PR |
-| 本轮范围 | iter170 修复合集切章、编辑加载/版本冲突、任务有序持久化/日志压缩、缺usage计费停止、force记忆和tier参数；真实首请求RateLimitError，整体未完成 |
+| 本轮范围 | iter170 修复合集切章、编辑加载/版本冲突、任务有序持久化/日志压缩、缺usage计费停止、force记忆、tier参数及前三阶段可调预算；真实请求先后RateLimitError、BadGatewayError且最小连通性失败，整体未完成 |
 
 ## Capability Map
 
@@ -34,8 +34,8 @@
 
 ## Latest Accepted Evidence
 
-- iter170 活动迭代的工程证据：`54a9f98` canonical 1928 tests / 15 steps / 86秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
-- iter170 真实边界：用户授权200元硬上限及指定原文复制，新工作区保留第三部结束前88章，源文件SHA未变；首请求`openai/gpt-5.5-low`返回`RateLimitError`，1次、最坏预留¥2.79036、实际账单未确认、无续写产物。A170-09未通过，未取得provider-validated；accepted iteration仍保留169。
+- iter170 活动迭代的工程证据：`087aaba` canonical 1928 tests / 15 steps / 87秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
+- iter170 真实边界：用户授权200元硬上限及指定原文复制，新工作区保留第三部结束前88章，源文件SHA未变；`openai/gpt-5.5-low`先后返回`RateLimitError`、`BadGatewayError`，不含原文的最小连通性检查亦失败，累计3次、最坏预留¥5.609916、实际账单未确认、无续写产物。A170-09未通过，未取得provider-validated；accepted iteration仍保留169。
 
 - iter169 修复编辑保存竞态、旧故事记忆复用、单步取消、用户代理丢失、大纲人工编辑、旧 lint 失败状态和分段规划；伏笔提供当前正文证据确认及 TTL CLI，逐章检查不依赖批次大小。
 - correctness、security/boundary、Web/UX 三路独立只读审查及增量复审完成；有效 findings 已修复，审查范围内无剩余 P0–P2。原有范围外 P2 保留为 backlog。
@@ -100,7 +100,7 @@
 1. 小说真实 provider 续写链在 entity graph 留有 `submission_unknown`；无权威 provider inspect/reconciliation 时不得重提原请求。完整单章与 10–20 章长跑仍未验证。
 2. Web 仍是本机个人研究工具，未做公网身份认证、多租户隔离或服务级 SLA。
 3. Aeloon 集成状态继续由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护。
-4. iter170 已处理取消日志竞态、重复快照容量、加载前编辑、双标签保存、tier与force记忆；工程通过但真实续写/长跑被上游RateLimitError阻断。另有rolling合法JSON含非对象条目的防御候选，无正常写入反例，未纳入本轮修复。
+4. iter170 已处理取消日志竞态、重复快照容量、加载前编辑、双标签保存、tier与force记忆；工程通过但真实续写/长跑被上游模型服务故障阻断。另有rolling合法JSON含非对象条目的防御候选，无正常写入反例，未纳入本轮修复。
 5. 短剧后续能力、真实媒体校准和历史数据访问只在 `codex/short-drama` 继续，不属于 main backlog。
 
 ## Next Candidates
@@ -139,4 +139,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter170 工程修复与验证已落地，整体仍未完成：合集切章保留多卷同名章并限定目录边界；正文加载门禁与版本冲突保护；任务状态有序落盘，日志按每任务逻辑历史压缩并复核当前文件身份；Web/CLI缺失计费或日志失败停止新增请求；force排除旧当前/未来记忆并失效后代，包装器透传tier。三路审查与增量复审通过，implementation `54a9f98` canonical 1928 tests / 15 steps / 86秒 passed；浏览器local-e2e通过。真实首请求RateLimitError、保留¥2.79036最坏费用预留、零续写产物，A170-09未通过，accepted iteration保持169；未push。
+iter170 工程修复与验证已落地，整体仍未完成：合集切章保留多卷同名章并限定目录边界；正文加载门禁与版本冲突保护；任务状态有序落盘，日志按每任务逻辑历史压缩并复核当前文件身份；Web/CLI缺失计费或日志失败停止新增请求；force排除旧当前/未来记忆并失效后代，包装器透传tier；前三阶段可调预算保留默认值，实际额度进入确认弹窗，浏览器空值/超限阻断。三路审查与增量复审通过，implementation `087aaba` canonical 1928 tests / 15 steps / 87秒 passed；浏览器local-e2e通过。真实请求先后RateLimitError、BadGatewayError且最小连通性失败、保留¥5.609916最坏费用预留、零续写产物，A170-09未通过，accepted iteration保持169；未push。

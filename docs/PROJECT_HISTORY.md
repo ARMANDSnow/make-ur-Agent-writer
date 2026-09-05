@@ -95,7 +95,7 @@
 | 167 | 短剧模块安全分支拆分 | 完整基线固定到 `codex/short-drama`；main 物理收敛为 novel-only，legacy drama 只读隔离，canonical 升级 schema v3 |
 | 168 | 小说续写体检与付费安全闭环 | mutation/intent/framing、metadata-only terminal、逐章 current-plan freshness、bounded JSONL、冻结定价/预算；真链 unknown 零重提 |
 | 169 | 小说编辑与长程续写可靠性 | 保存版本确认、手改记忆恢复、单步取消、代理保留、人工大纲版本、lint 失败归档、全书规划窗口与伏笔证据 |
-| 170（未完成） | 小说导入、编辑与长期状态修复 | 工程及浏览器通过，真实首请求RateLimitError，真实续写验收未通过 |
+| 170（未完成） | 小说导入、编辑与长期状态修复 | 工程及浏览器通过，真实请求先后RateLimitError、BadGatewayError且最小连通性失败，真实续写验收未通过 |
 
 ## Iteration Implementation Index
 
@@ -375,7 +375,7 @@
 
 ## Historical Evidence Notes
 
-- iter170 活动迭代：实现 `54a9f98897ce815e0f7f315a4679540590958932` 的canonical 1928 tests / 15 steps / 86秒通过，run `36a0c20f612c443796d65749f18a9926`、mock-functional。真实浏览器慢加载/双标签冲突通过。指定原文全新工作区起点验证通过；真模型首请求RateLimitError、1次、最坏预留¥2.79036，实际账单未确认，尚无续写产物，用户要求的真实单章/长跑验收仍未通过。首次canonical的测试上下文污染及两条UI旧合同，经77项聚焦与独立复审修正后完整重验通过。
+- iter170 活动迭代：实现 `087aaba7aa19262af830fd03d6c7a8fec25c7c34` 的canonical 1928 tests / 15 steps / 87秒通过，run `6d0ce0cd60304812a3a7c06d9f331f89`、mock-functional。真实浏览器慢加载/双标签冲突通过。指定原文全新工作区起点验证通过；真模型RateLimitError、BadGatewayError及最小连通性失败、累计3次、最坏预留¥5.609916，实际账单未确认，尚无续写产物，用户要求的真实单章/长跑验收仍未通过。首次canonical的测试上下文污染及两条UI旧合同，经77项聚焦与独立复审修正后完整重验通过。
 
 
 - iter168 在 implementation `df3bc8a2f8b26ab4901837164570285551a1c8b5` 上 canonical 1889 tests / 15 steps / 84 秒通过，run `880f05b99e4e4f61bb6c2f31bf206c64`，schema v3、`mock-functional` / `canonical-novel-mock-offline`，`tracked_scope_clean=true`。mutation/intent/framing、typed terminal、逐章 freshness、bounded JSONL 与冻结定价/预算闭环；三路只读审查最终无 P0–P2。三视口 synthetic mock 为 `local-e2e`；真链 3 extract + compress + persona 获得响应，entity graph 为 `submission_unknown`后零重提，估算 ¥4.7503，结论 `safe-blocked`。短剧 backlog 已保留，9 份重复日报在验收后删除，未 push。
