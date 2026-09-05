@@ -95,7 +95,7 @@
 | 167 | 短剧模块安全分支拆分 | 完整基线固定到 `codex/short-drama`；main 物理收敛为 novel-only，legacy drama 只读隔离，canonical 升级 schema v3 |
 | 168 | 小说续写体检与付费安全闭环 | mutation/intent/framing、metadata-only terminal、逐章 current-plan freshness、bounded JSONL、冻结定价/预算；真链 unknown 零重提 |
 | 169 | 小说编辑与长程续写可靠性 | 保存版本确认、手改记忆恢复、单步取消、代理保留、人工大纲版本、lint 失败归档、全书规划窗口与伏笔证据 |
-| 170（未完成） | 小说导入、编辑与长期状态修复 | 工程及浏览器通过，新key/luna10章提取成功；用户解除当前费用暂停条件后继续，全链仍在验收 |
+| 170 | 小说真实三章与恢复可靠性闭环 | 合集边界、版本保护、任务/计量、取消、规划上下文、完整稿复用、外审完成凭证及明确拒稿受控恢复 |
 
 ## Iteration Implementation Index
 
@@ -373,9 +373,12 @@
 
 61. **目录身份、历史压缩与计费停止都不能只看局部表象**：合集的同名章不等于重复目录；正文保存必须比较读取版本。日志压缩应保留创建顺序、latest状态与append历史摘要，读者最终核对当前pathname，避免旧inode被当成当前恢复依据。缺usage/日志失败应覆盖Web和无scope CLI，在保留成功响应的同时阻断下一请求；测试必须清理模拟的执行上下文，不能因此放松生产停止规则。
 
+62. **恢复与完成需要阶段证据**：完整失败稿只有阶段、正文hash和当前上下文匹配才能复用；同hash内审不等于外审完成。完成凭证仅在完整外审结束后写入，缺凭证可补审，明确拒稿仍阻断；受控重生成须匹配同章同原因终态并保存旧稿。
+63. **额度默认值和最大值、写手和评审输入应分别对齐**：多章默认额度不能变成不可提高的上限；评审应获得与写手一致的当前计划范围，明确计划不是历史事实，不降低确定性门槛。
+
 ## Historical Evidence Notes
 
-- iter170活动迭代：实现31f1990 canonical1971项/15步骤/101秒通过；真实新key/luna生成、提取、取消后续接成功。最小长度探针确认服务忽略max_tokens与max_completion_tokens；用户单价估算不等于服务端账单与强制费用上限，此前因此停止；随后用户明确暂不考虑预算继续测试，10章提取完成，Web原生有界流式准备243秒成功，在途取消后无后续请求，大纲恢复中，完整真实验收保持未完成。新增每请求取消门禁，已成功响应保留，新增repair/chunk请求观察到取消后停止。
+- iter170：5882a33 canonical1981项/15步骤/96秒通过，仅mock-functional；新工作区从指定第三部末尾完成真实准备/规划/三章严格审核与记忆，取消/超时恢复及完成范围零模型请求通过，另记provider-validated。中途失败与拒稿保留，未降低mid门槛。provider忽略输出上限，用户单价估算不是权威账单；用户明确继续测试，历史unknown未重提。10–20章及质量/SLA未证明。
 
 
 - iter168 在 implementation `df3bc8a2f8b26ab4901837164570285551a1c8b5` 上 canonical 1889 tests / 15 steps / 84 秒通过，run `880f05b99e4e4f61bb6c2f31bf206c64`，schema v3、`mock-functional` / `canonical-novel-mock-offline`，`tracked_scope_clean=true`。mutation/intent/framing、typed terminal、逐章 freshness、bounded JSONL 与冻结定价/预算闭环；三路只读审查最终无 P0–P2。三视口 synthetic mock 为 `local-e2e`；真链 3 extract + compress + persona 获得响应，entity graph 为 `submission_unknown`后零重提，估算 ¥4.7503，结论 `safe-blocked`。短剧 backlog 已保留，9 份重复日报在验收后删除，未 push。

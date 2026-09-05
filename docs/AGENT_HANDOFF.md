@@ -6,42 +6,40 @@
 
 | 项目 | 当前事实 |
 |---|---|
-| 更新时间 | iter 169 / 2026-09-05（完整验收基线；活动进展见 Active iteration） |
-| Accepted implementation commit | `df9627b565f511e43f229471fc5ec0d804ea5ebc` |
-| 日期 / accepted iteration | 2026-09-05 / iter169 |
-| Active iteration | iter170；实现 `90fc8b8`（主体 `5fae2e3`），canonical 1978 tests / 15 steps / 96秒 passed、mock-functional；run `a0a3f71e62924402818f8285e6d9df9b` |
+| 更新时间 | iter 170 / 2026-09-06 |
+| Accepted implementation commit | `5882a335803b65f7bbf12539c82b2c758f8c8007` |
+| 日期 / accepted iteration | 2026-09-06 / iter170 |
+| Active iteration | none；iter170已收官，真实三章及恢复通过 |
 | 产品主线 | `main` 只支持小说原创与导入续写；完整小说+短剧快照在 `codex/short-drama` |
-| implementation | `df9627b`（主体 `a7d67d5`，润色 lint 测试兼容 `df9627b`） |
-| 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1911 tests / 15 steps / 85 秒；run `1af2f656d61848b9ac7ca98ad8c3eb24`；tracked scope clean |
+| implementation | `5882a33`（F25；主体及F01–F24见iteration） |
+| 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1981 tests / 15 steps / 96 秒；run `48d32684f8c0482c8b2e7c2903daba63`；tracked scope clean |
 | workspace 类型 | 可识别：`novel`、legacy `drama`；main 可创建/枚举/运行：仅 `novel` |
 | 短剧 UI | 首页与作品列表保留原生 disabled 卡片按钮；无 href、handler 或跳转目标 |
 | 短剧数据 | main 隐藏并 fail-closed；不读取业务内容，不迁移、不修改、不删除 |
 | 发布状态 | 本轮仅本地分支和提交；未 push、未建 PR |
-| 本轮范围 | iter170已修F01–F11及F13–F20；包含有界流式、工作台状态、细纲覆盖与投票检查点，1971项canonical通过。多章请求上限和长辩论上下文已修复。新key/luna10章提取和Web准备成功，大纲恢复中；用户暂不考虑预算继续测试，整体仍未完成 |
+| 本轮范围 | F01–F11、F13–F25已修复；真实三章与恢复达provider-validated。F12上游忽略输出上限保留；10–20章/SLA及评分稳定性不在本次通过结论内 |
 
 ## Capability Map
 
 | 领域 | 已有能力 | 当前边界 |
 |---|---|---|
 | 小说数据链 | normalize、split、extract、compress、五类 proposal、起点安全知识视图 | 原文和衍生运行数据保持 gitignored；不修改 `小说txt/` |
-| 小说创作 | debate、chapter plan、writer、5+1 review、lint/rewrite、rolling/advance | 标准验收为 mock；长篇真 provider 质量与 SLA 未证明 |
+| 小说创作 | debate、chapter plan、writer、5+1 review、lint/rewrite、rolling/advance | 真实3章和恢复通过；长篇质量与 SLA 未证明 |
 | 创作模式 | `workspace.json` schema v2 权威 `creation_mode`；原创/续写同源投影 | legacy 只读推断；损坏/未知 metadata fail closed |
-| 失败恢复 | 动态步骤安全中文、strict-approved 完成态、exact `retry_exhausted` 受控恢复、当前稿审核后的 lint 失败归档与记忆恢复 | lost/unknown/submission-unknown 和一般失败不自动重提 |
-| 长跑 | write-book、drive-book、supervisor、heartbeat/watchdog、预算、写锁、按全书进度补计划、逐章伏笔门禁 | 真实 10–20 章 capstone 仍需逐次授权 |
+| 失败恢复 | 动态步骤安全中文、strict-approved 完成态、exact `retry_exhausted` / 完整软性 `external_review_reject` 受控恢复、当前稿审核后的 lint 失败归档与记忆恢复 | lost/unknown/submission-unknown 和一般失败不自动重提 |
+| 长跑 | write-book、drive-book、supervisor、heartbeat/watchdog、预算、写锁、按全书进度补计划、逐章伏笔门禁 | 真实3章通过；10–20章 capstone 尚未执行 |
 | Web | 四阶段工作台、编辑、任务恢复、搜索、版本与创作数据；响应式 Phase A-E、保存版本快照、单步取消 | 本地个人研究工具，不是公网多租户产品 |
 | 安全边界 | mutation policy/intent、typed metadata-only provider failure、bounded no-follow JSONL、逐章 strict freshness、冻结计费 scope | 遥测/定价不可用时 fail closed；`submission_unknown` 无自动出边 |
 | 短剧 | main 无运行能力；完整代码、协议和历史状态在 `codex/short-drama` | main 只识别 legacy 类型以隔离，所有历史入口不可达 |
 
 ## Latest Accepted Evidence
 
-- iter170 活动迭代的工程证据：`90fc8b8` canonical 1978 tests / 15 steps / 96秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
-- iter170 真实边界：2026-09-06新key/luna最小生成HTTP200/15token，原文提取与取消后缓存续接成功；单价按用户USD0.01/百万输入输出token暂算。服务对max_tokens和max_completion_tokens均忽略16token上限（实际203/214），用户随后明确暂不考虑预算继续测试，临时服务已恢复；10章提取完成，Web有界流式准备243秒成功，真实取消停止后续请求；大纲已保存28次发言并在恢复。旧provider的RateLimitError/BadGatewayError保留历史证据；正文与完整链未通过，accepted仍为169。
-
-- iter169 修复编辑保存竞态、旧故事记忆复用、单步取消、用户代理丢失、大纲人工编辑、旧 lint 失败状态和分段规划；伏笔提供当前正文证据确认及 TTL CLI，逐章检查不依赖批次大小。
-- correctness、security/boundary、Web/UX 三路独立只读审查及增量复审完成；有效 findings 已修复，审查范围内无剩余 P0–P2。原有范围外 P2 保留为 backlog。
-- 合成回归覆盖两段五章、恢复跳章、缺失计划补齐、正文编辑后的记忆/实体失效、过期回收证据、代理默认保留和 normalize → Web split；真实 JavaScript 行为测试覆盖输入/DOM 快照与 GET 乱序。本轮未运行浏览器端到端或真实模型。
-- implementation `df9627b565f511e43f229471fc5ec0d804ea5ebc` 上 canonical schema v3 / `canonical-novel-mock-offline` 以 1911 tests / 15 steps / 85 秒 通过；run `1af2f656d61848b9ac7ca98ad8c3eb24`，`tracked_scope_clean=true`，等级 `mock-functional`。首次全量暴露旧风格测试缺少润色 lint 模拟结果，修正后 35 项聚焦及独立复审通过，再完整重验。
-- 历史 iter168 的 entity graph `submission_unknown` 仍保持 `safe-blocked`，本轮没有发出真实请求或取得新的 provider 验证证据。
+- 工程：`5882a335803b65f7bbf12539c82b2c758f8c8007` 上 canonical schema v3 / `canonical-novel-mock-offline`，1981 tests / 15 steps / 96秒 passed，run `48d32684f8c0482c8b2e7c2903daba63`，tracked scope clean，等级仅 `mock-functional`。
+- correctness、security/boundary 与 Web/计费只读审查及各次增量复审已完成；实际发现均先记录方案再修复。F25最后81项聚焦及两路独立复审通过，坏类型halt原因P2已修。
+- 浏览器：慢GET编辑禁用、双标签CAS冲突保留输入、任务终态/未知状态、预算和请求上限、取消与恢复确认实际点击通过，等级 `local-e2e`。
+- 真实链：干净工作区完成第三部末尾起点的10章知识提取、准备、36次辩论发言与完整投票、大纲和3章细纲；3章正文均通过严格内外审，外审完成凭证、正文hash、当前计划/起点与滚动记忆一致。恢复任务`ceff8cd2abd74dc7ac51e21ef38f6626`完成；实际Web再次提交完成范围，任务`53b62a0c30b442aab6f4472a1bc3b580`成功，零新增模型请求且9个正文/meta/review文件不变。
+- 等级：上述有界三章及恢复为 `provider-validated`，保留中途上游失败、45分钟超时和第三章外审拒稿的真实历史。F24修复前的提前approved投影不作最终证据；最终以明确完成凭证和严格检查为准。源文件SHA256未变化，未读取旧工作区衍生产物。
+- 计量：按用户USD0.01/百万输入输出token估算；provider忽略输出token上限，估算不是账单或严格费用上界。用户已明确暂不考虑预算继续测试。历史未知费用仍保留，不将unknown计作零。
 
 ## Retained Working Memory
 
@@ -64,8 +62,9 @@
 - Prompt 约束不能替代本地 schema、normalization 和 fail-closed fallback。空 ballot、缺字段、近似 JSON、布尔冒充整数、NaN/Infinity 和截断都必须在本地边界处理。
 - 手改正文先失效当前章及后续章记忆；按章重新审核后用当前正文摘录恢复记忆，旧实体推进保留为失效历史。审核通过但记忆更新失败仍不可完成。
 - 滚动规划按全书进度补齐下一窗口并保留远期计划；伏笔人工确认绑定当前正文/计划/审核，证据过期即恢复门禁。
-- 写作完成态要求 durable 草稿与 strict-approved review 一致。Reject、halt、重试耗尽或未知状态必须保留为可处理状态。
-- 付费失败恢复必须绑定同章 durable terminal、上游 freshness、状态指纹、claim 和当前 job ownership；不能把普通 force 当成恢复。
+- 写作完成态要求 durable 草稿、当前计划及明确外审完成凭证一致；同hash的内审报告不能证明外审完成。Reject、halt、重试耗尽或未知状态必须保留为可处理状态。
+- 完整失败稿仅在阶段、hash与上下文匹配后复用，仍须完整审核。明确外审软拒稿与重试耗尽通过显式单章归档重生成恢复，不自动放行。
+- 付费失败恢复必须绑定同章同原因 durable terminal、上游 freshness、状态指纹、claim 和当前 job ownership；不能把普通 force 当成恢复。
 
 ### 4. Web 与并发边界
 
@@ -97,16 +96,16 @@
 
 ## Open Gaps
 
-1. 小说真实 provider 续写链在 entity graph 留有 `submission_unknown`；无权威 provider inspect/reconciliation 时不得重提原请求。完整单章与 10–20 章长跑仍未验证。
+1. iter168旧entity graph请求仍为 `submission_unknown`，无权威对账不得重提。iter170全新工作区真实3章通过；10–20章长跑仍未验证。
 2. Web 仍是本机个人研究工具，未做公网身份认证、多租户隔离或服务级 SLA。
 3. Aeloon 集成状态继续由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护。
-4. iter170工程通过，真实新key/luna可生成，但provider忽略输出token上限，严格费用边界未验证。概览任务状态已修，另有分块进度和rolling坏条目/较早缺口的待办，不能宣称所有UX/长跑问题消失。
+4. provider忽略输出token上限，严格费用边界未验证。评审临界评分波动可触发整章重生成；另有评审/分块进度、确认框章节范围、rolling坏条目/较早缺口待办。曾工作台状态读取失败后锁定，根因未复现；不能宣称所有UX/长跑问题消失。
 5. 短剧后续能力、真实媒体校准和历史数据访问只在 `codex/short-drama` 继续，不属于 main backlog。
 
 ## Next Candidates
 
 1. 先寻找不产生新提交的 provider inspect/reconciliation 证据处理 iter168 entity graph unknown；若上游不提供查询，保持 `safe-blocked`，只能在用户再次明确授权后开全新 synthetic 链。
-2. 用户已明确暂不考虑预算，继续iter170的准备→规划→正文/长跑；旧key不落盘，所有费用保留用户单价估算与未知预留的区别。
+2. 下一轮优先评审稳定性及明确反馈驱动修订、细化长阶段进度，随后扩展10–20章跨窗口长跑；复用本次证据边界，不把评分反复抽样当内容改进。
 3. 定期运行静态 novel-only 边界检查，避免 generic media/production 命名的短剧残留重新进入 main。
 
 ## Recovery Commands
@@ -139,4 +138,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter170仍未完整完成：F01–F11及F13/F14已实现，两路增量审查通过，implementation `90fc8b8` canonical 1978 tests / 15 steps / 96秒 passed。真实提取、准备、大纲与3章细纲已完成；首章正文完成并验证审查取消后复用，三章严格验收仍在进行。用户已明确暂不考虑预算继续测试，F12保留为上游限制而非暂停条件。分块反馈与rolling较早缺口另列待办；accepted iteration保持169，未push。
+iter170完成：F01–F11及F13–F25经聚焦、独立审查、implementation commit与canonical闭环。真实准备、规划、三章严格审核/记忆及完成范围零请求恢复通过；新增外审完成凭证防止超时后误跳章，外审明确软拒稿可经确认归档重生成。accepted implementation为5882a33；F12、10–20章、质量稳定性和服务级SLA仍保留边界。仅本地提交，未push。
