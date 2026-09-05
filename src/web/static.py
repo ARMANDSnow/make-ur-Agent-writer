@@ -3834,19 +3834,19 @@ JS_DASHBOARD = """\
     };
     bindWorkbenchStage("prepare-form", "prepare-submit", "prepare-status",
       function () { return isGreenfield() ? "prepare-greenfield" : "rebuild-for-start"; },
-      function () {
+      function (form) {
         const limit = isGreenfield() ? NOVEL_STAGE_LIMITS["prepare-greenfield"] : NOVEL_STAGE_LIMITS["rebuild-for-start"];
         // rebuild = 补齐底座（reextract 默认 false，只补缺口）；greenfield = 强制重提。
-        return Object.assign(isGreenfield() ? { force: true } : { window: 10 }, limit);
+        return Object.assign(isGreenfield() ? { force: true } : { window: 10 }, limit, { budget_cny: Number(form.elements.budget_cny.value) });
       });
-    bindWorkbenchStage("outline-form", "outline-submit", "outline-status", "debate", function () {
-      return Object.assign({}, NOVEL_STAGE_LIMITS.debate);
+    bindWorkbenchStage("outline-form", "outline-submit", "outline-status", "debate", function (form) {
+      return Object.assign({}, NOVEL_STAGE_LIMITS.debate, { budget_cny: Number(form.elements.budget_cny.value) });
     });
     bindWorkbenchStage("plan-chapters-form", "plan-chapters-submit", "plan-chapters-status", "plan-chapters", function (form) {
       // require_start_point follows has_start_point: an existing book MUST enforce
       // the gate (else plan drifts off the real start); a greenfield premise has
       // no prior start point so it stays false.
-      return Object.assign({ target_chapters: Number(form.elements.target_chapters.value || 5) }, NOVEL_STAGE_LIMITS["plan-chapters"]);
+      return Object.assign({ target_chapters: Number(form.elements.target_chapters.value || 5) }, NOVEL_STAGE_LIMITS["plan-chapters"], { budget_cny: Number(form.elements.budget_cny.value) });
     });
     bindWorkbenchStage("write-book-form", "write-book-submit", "write-book-status", "write-book", function (form) {
       return {
@@ -4657,6 +4657,8 @@ JS_DASHBOARD = """\
     const prepareSubmit = document.getElementById("prepare-submit");
     const prepareSubtitle = document.getElementById("prepare-subtitle");
     const prepareHint = document.getElementById("prepare-hint");
+    const prepareBudget = document.getElementById("prepare-budget-input");
+    if (prepareBudget) prepareBudget.max = st.creation_mode === "greenfield" ? "3" : "20";
     if (st.creation_mode !== "greenfield") {
       if (prepareSubmit) prepareSubmit.textContent = "重建续写底座";
       if (prepareSubtitle) prepareSubtitle.textContent = st.has_start_point ? "已有续写起点：补充起点附近设定并重建续写底座" : "请先选择续写起点，再重建续写底座";

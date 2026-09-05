@@ -36,6 +36,8 @@
 
 ## Implementation Notes
 
+恢复实测新增F10（阶段预算无输入），已先补入审计报告；本轮追加最小WebUI修复。保留默认费用及backend边界，准备原创3/续写20，大纲33，细纲10；不改正文/恢复合同。139项聚焦通过，correctness与security/boundary两路增量审查无findings；真实浏览器12元确认一致、21元和空值阻断通过，未新增计费。需形成新的implementation commit并重新canonical，旧证据不覆盖追加变更。
+
 首次canonical跑1928项，旧iter168无scope日志失败测试泄漏sticky计费停止状态，连带后续LLM用例失败，另两条UI静态合同未适配新文案/disabled。修正测试隔离与断言，77项聚焦通过，独立复审确认未削弱生产保护；将形成测试修正commit后完整重验。
 
 先报告后立项。真实调用1次遭上游RateLimitError，保留最坏费用预留2.79036元，实际账单未确认。原文路径由用户明确提供，仅主线程处理；新测试根位于系统临时目录，mock 与 real 数据隔离。
