@@ -14,7 +14,7 @@ from .config import ROOT, load_config
 from .continuation_anchor import load_continuation_anchor
 from .entities import PROMPT_ENTITY_STATE_LIMIT, load_entity_graph, render_active_state
 from .kb_view import start_safe_knowledge
-from .llm_client import LLMClient, raise_if_terminal_llm_failure
+from .llm_client import LLMClient, LLMContextOverflowError, raise_if_terminal_llm_failure
 from .manual_facts import global_facts_summary
 from .persona_loader import load_personas, render_agent_fields
 from .schemas import DebateDecisions, model_to_dict
@@ -419,12 +419,73 @@ def run_debate(
     return {"decisions": decisions, "outline": outline}
 
 
-def _transcript_summary(transcript: List[Dict[str, Any]]) -> str:
-    if len(transcript) <= 30:
-        return json.dumps(transcript, ensure_ascii=False)
-    first_6 = transcript[:6]
-    last_24 = transcript[-24:]
-    return json.dumps(first_6 + [{"__truncated__": f"{len(transcript) - 30} items omitted"}] + last_24, ensure_ascii=False)
+def _transcript_excerpt(transcript: list, allowance: int) -> str:
+    rows = []
+    for item in transcript:
+        row = dict(item)
+        response = str(row.get("response", ""))
+        if len(response) > allowance:
+            head, tail = (allowance + 1) // 2, allowance // 2
+            excerpt = response[:head] + "…[中段省略]…" + (response[-tail:] if tail else "")
+            # A short response must not grow merely because a marker was added.
+            if len(json.dumps(excerpt, ensure_ascii=False)) < len(json.dumps(response, ensure_ascii=False)):
+                row["response"] = excerpt
+        rows.append(row)
+    return json.dumps(rows, ensure_ascii=False)
+
+
+def _transcript_summary(transcript: List[Dict[str, Any]], *, max_chars: int = 24000) -> str:
+    """Bound derived context without discarding a speaker or a whole round."""
+    original = json.dumps(transcript, ensure_ascii=False)
+    if len(original) <= max_chars:
+        return original
+    best = _transcript_excerpt(transcript, 0)
+    if len(best) > max_chars:
+        raise LLMContextOverflowError("debate speaker metadata exceeds summary budget")
+    low, high = 0, max((len(str(x.get("response", ""))) for x in transcript), default=0)
+    while low <= high:
+        middle = (low + high) // 2
+        candidate = _transcript_excerpt(transcript, middle)
+        if len(candidate) <= max_chars:
+            best = candidate
+            low = middle + 1
+        else:
+            high = middle - 1
+    return best
+
+
+def _fit_transcript_messages(client: LLMClient, transcript: list, make_messages: Callable,
+                             *, max_chars: int = 24000) -> list:
+    """Search within a valid excerpt interval; fixed questions are never shrunk."""
+    try:
+        output_tokens = int(client.config.get("max_tokens", 2000))
+    except (TypeError, ValueError):
+        output_tokens = 2000
+
+    def checked(limit: int) -> list:
+        messages = make_messages(_transcript_summary(transcript, max_chars=limit))
+        tokens, _method = client._count_tokens("\n".join(str(x.get("content", "")) for x in messages))
+        client._check_context(tokens, output_tokens)
+        return messages
+
+    try:
+        return checked(max_chars)
+    except LLMContextOverflowError:
+        minimum = len(_transcript_excerpt(transcript, 0))
+        if minimum >= max_chars:
+            raise
+        best = checked(minimum)  # Only this proves required metadata cannot fit.
+        low, high = minimum + 1, max_chars - 1
+        while low <= high:
+            middle = (low + high) // 2
+            try:
+                candidate = checked(middle)
+            except LLMContextOverflowError:
+                high = middle - 1
+            else:
+                best = candidate
+                low = middle + 1
+        return best
 
 
 def _fallback_ballots(agent_name: str, votes: List[Dict[str, Any]], reason: str) -> List[Dict[str, Any]]:
@@ -565,7 +626,7 @@ def _collect_agent_vote_json(
             "position 只能是 agree、abstain 或 reject，并写一句简短 reason。"
             "如果你倾向支持，必须显式写 position: agree；反对写 reject；无法判断写 abstain。"
         )
-        transcript_text = f"\n\n辩论记录摘要:\n{_transcript_summary(transcript)[:8000]}"
+        transcript_text = f"\n\n辩论记录摘要:\n{_transcript_summary(transcript, max_chars=8000)}"
     content = client.complete_text(
         [
             {"role": "system", "content": system_content},
@@ -825,7 +886,7 @@ def _legacy_llm_derived_votes(
                         "for/against 填 agent 名；不确定可留空。\n\n"
                         f"Agent 列表: {json.dumps(voter_names, ensure_ascii=False)}\n\n"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
-                        f"辩论记录:\n{_transcript_summary(transcript)[:10000]}"
+                        f"辩论记录:\n{_transcript_summary(transcript, max_chars=10000)}"
                     ),
                 },
             ]
@@ -877,7 +938,7 @@ def build_decisions(
         return data
     try:
         result = client.complete_json(
-            [
+            _fit_transcript_messages(client, transcript, lambda summary: [
                 {"role": "system", "content": "你是辩论汇总裁判。根据多轮辩论记录，提取核心投票裁决，输出合法 JSON。"},
                 {
                     "role": "user",
@@ -888,10 +949,10 @@ def build_decisions(
                         f"{_start_point_prompt_block()}"
                         f"{_anchor_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
-                        f"辩论记录:\n{_transcript_summary(transcript)}"
+                        f"辩论记录:\n{summary}"
                     ),
                 },
-            ],
+            ]),
             DebateDecisions,
         )
         data = model_to_dict(result)
@@ -968,8 +1029,8 @@ def build_outline(
                         f"{_style_prompt_block()}"
                         f"人工全局事实:\n{global_facts or global_facts_summary()}\n\n"
                         f"{entity_block}"
-                        f"裁决结果:\n{json.dumps(decisions, ensure_ascii=False)[:6000]}\n\n"
-                        f"辩论摘要:\n{_transcript_summary(transcript)[:6000]}\n\n"
+                        f"裁决结果:\n{json.dumps(decisions, ensure_ascii=False)}\n\n"
+                        f"辩论摘要:\n{_transcript_summary(transcript, max_chars=6000)}\n\n"
                         "请输出 Markdown 大纲，包含：核心共识、投票裁决、章节方向（默认 18 章）。"
                     ),
                 },

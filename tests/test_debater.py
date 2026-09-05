@@ -256,11 +256,11 @@ class DebaterAgentFailureTests(unittest.TestCase):
 
 
 class DebaterTranscriptTests(unittest.TestCase):
-    def test_transcript_summary_truncates_long_transcript(self) -> None:
+    def test_transcript_summary_keeps_many_short_records(self) -> None:
         transcript = [{"round": 1, "agent": f"a{i}", "response": "x"} for i in range(50)]
         summary = _transcript_summary(transcript)
         data = json.loads(summary)
-        self.assertTrue(any("__truncated__" in item for item in data))
+        self.assertEqual(data, transcript)
 
     def test_transcript_summary_keeps_short_transcript_intact(self) -> None:
         transcript = [{"round": 1, "agent": "a1", "response": "x"}]
