@@ -3076,7 +3076,7 @@ def _with_model_request_limit(
     old browser cannot silently create an uncapped real-model job.
     """
 
-    default = jobs.default_model_request_limit(step)
+    default = jobs.default_model_request_limit(step, validated.get("chapters", 1))
     if default is None:
         return None, validated
     raw = incoming.get("max_model_requests", default)

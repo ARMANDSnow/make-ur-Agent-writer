@@ -3855,6 +3855,7 @@ JS_DASHBOARD = """\
   // next card is gated on the previous stage's artifact (GET /workbench).
   async function initWorkbench() {
     bindCtaActions();
+    bindWriteRequestLimit(document.getElementById("write-book-form"));
     // iter068 (Cluster A): an existing book (has_start_point) must rebuild its
     // continuation base — NOT run greenfield onboarding. The stage ① job, and
     // the require_start_point gate on plan-chapters / write-book, all follow
@@ -5056,16 +5057,36 @@ JS_DASHBOARD = """\
         item.setAttribute("aria-pressed", item === btn ? "true" : "false");
       });
       if (form.elements.tier) form.elements.tier.value = preset.tier;
-      if (form.elements.chapters) form.elements.chapters.value = String(preset.chapters);
+      if (form.elements.chapters) {
+        form.elements.chapters.value = String(preset.chapters);
+        form.elements.chapters.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       if (form.elements.max_retries) form.elements.max_retries.value = String(preset.max_retries);
       if (form.elements.budget_cny) form.elements.budget_cny.value = String(preset.budget_cny);
       if (form.elements.auto_advance) form.elements.auto_advance.checked = Boolean(preset.auto_advance);
       scheduleReadiness();
     });
   }
+  function bindWriteRequestLimit(form) {
+    if (!form || !form.elements.chapters || !form.elements.max_model_requests) return;
+    const chapters = form.elements.chapters;
+    const limit = form.elements.max_model_requests;
+    let edited = false;
+    limit.addEventListener("input", function () { edited = true; });
+    function update() {
+      const count = Number(chapters.value);
+      if (!Number.isInteger(count) || count < 1) return;
+      const maximum = Math.min(160, count * 20);
+      limit.max = String(maximum);
+      if (!edited) limit.value = String(maximum);
+    }
+    chapters.addEventListener("input", update);
+    update();
+  }
   function bindWriteBook() {
     const form = document.getElementById("write-book-form");
     if (!form) return;
+    bindWriteRequestLimit(form);
     const submit = document.getElementById("write-book-submit");
     const jobBox = document.getElementById("write-book-status");
     bindWritePresets(form);

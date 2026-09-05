@@ -144,7 +144,9 @@ _MODEL_TASKS = (
 )
 
 
-def default_model_request_limit(step: str) -> Optional[int]:
+def default_model_request_limit(step: str, chapters: int = 1) -> Optional[int]:
+    if step == "write-book":
+        return min(MAX_MODEL_REQUESTS_PER_JOB, 20 * max(1, chapters))
     return NOVEL_MODEL_REQUEST_DEFAULTS.get(step)
 
 
