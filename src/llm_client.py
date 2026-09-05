@@ -100,6 +100,10 @@ if (
     os.environ.pop("OPENAI_STREAM", None)
 
 
+class LLMExecutionStopped(RuntimeError):
+    """Cooperative execution stop; never retry or repair after this signal."""
+
+
 class LLMContextOverflowError(RuntimeError):
     pass
 
@@ -174,6 +178,7 @@ def raise_if_terminal_llm_failure(exc: BaseException) -> None:
     if isinstance(
         exc,
         (
+            LLMExecutionStopped,
             LLMProviderFailure,
             LLMResponseValidationError,
             LLMCallDeadlineExceeded,
@@ -185,6 +190,19 @@ def raise_if_terminal_llm_failure(exc: BaseException) -> None:
         ),
     ):
         raise exc
+
+
+_LLM_REQUEST_CHECK: ContextVar[Any] = ContextVar("llm_request_check", default=None)
+
+
+@contextmanager
+def llm_request_check_scope(check):
+    """Run the job cancellation check before each provider attempt."""
+    token = _LLM_REQUEST_CHECK.set(check)
+    try:
+        yield
+    finally:
+        _LLM_REQUEST_CHECK.reset(token)
 
 
 _LLM_DEADLINE: ContextVar[float | None] = ContextVar("llm_deadline", default=None)
@@ -306,6 +324,9 @@ def llm_request_limit_scope(max_model_requests: Any, *, required: bool = False):
 def _claim_model_request(model: str = "", *, reserved_cost_cny: float = 0.0) -> None:
     """Atomically claim the next attempt in the current execution context."""
 
+    check = _LLM_REQUEST_CHECK.get()
+    if check is not None:
+        check()
     if llm_accounting_degraded():
         raise LLMAccountingUnavailable(
             "paid model accounting is unavailable after telemetry failure"
@@ -684,6 +705,7 @@ class LLMClient:
                 )
                 return content
             except (
+                LLMExecutionStopped,
                 LLMRequestLimitExceeded,
                 LLMBudgetLimitExceeded,
                 LLMPricingUnavailable,

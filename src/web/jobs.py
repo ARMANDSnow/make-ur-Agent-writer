@@ -39,6 +39,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from ..llm_client import LLMExecutionStopped
 from .. import auto_pipeline, paths, start_point
 from ..auto_bootstrap import bootstrap_all
 from ..chapter_splitter import split_all
@@ -155,7 +156,7 @@ def max_novel_execution_limits(step: str) -> Optional[tuple[float, float]]:
     return NOVEL_EXECUTION_LIMIT_MAXIMA.get(step)
 
 
-class JobCancelled(RuntimeError):
+class JobCancelled(LLMExecutionStopped):
     """Raised inside a worker when a cooperative cancel checkpoint fires."""
 
 
@@ -2406,6 +2407,7 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
             llm_deadline_scope,
             llm_model_config_scope,
             llm_request_limit_scope,
+            llm_request_check_scope,
         )
 
         with use_workspace(workspace):
@@ -2424,6 +2426,7 @@ def _worker(job_id: str, expected_identity: Any = None) -> None:
                 )
 
             with (
+                llm_request_check_scope(lambda: _check_cancelled(job_id, deadline, timeout_minutes)),
                 llm_model_config_scope(model_configs),
                 llm_deadline_scope(deadline),
                 llm_request_limit_scope(

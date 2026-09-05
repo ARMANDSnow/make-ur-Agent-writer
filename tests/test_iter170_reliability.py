@@ -214,3 +214,61 @@ class ReliabilityTests(unittest.TestCase):
             self.assertEqual(r.returncode,0,r.stderr);self.assertEqual(r.stdout.splitlines()[-2:],['--tier','mid'])
         r=subprocess.run(['bash','scripts/write_book.sh','--tier'],env=env,capture_output=True)
         self.assertEqual(r.returncode,64)
+
+class ModelRequestCancellationTests(unittest.TestCase):
+    def test_cancelled_before_request_has_no_provider_or_usage(self):
+        from src.llm_client import LLMClient, llm_request_check_scope, llm_request_limit_scope
+        with patch.object(llm_client, 'resolved_model_config', return_value={'model':'openai/gpt-5.5','max_tokens':32}):
+            client=LLMClient()
+        def stopped(): raise jobs.JobCancelled('test cancel')
+        with patch('litellm.completion') as provider, patch.object(client,'_try_log_call') as log:
+            with llm_request_limit_scope(2), llm_request_check_scope(stopped):
+                with self.assertRaises(jobs.JobCancelled): client.complete_text([{'role':'user','content':'test'}])
+                self.assertEqual(llm_client._LLM_REQUEST_LIMIT.get(),(2,0))
+            provider.assert_not_called(); log.assert_not_called()
+
+    def test_cancel_after_bad_response_prevents_json_repair(self):
+        from pydantic import BaseModel
+        from src.llm_client import LLMClient, llm_request_check_scope
+        class Answer(BaseModel):
+            answer: str
+        cancelled=False
+        def check():
+            if cancelled: raise jobs.JobCancelled('test cancel')
+        def complete(**kwargs):
+            nonlocal cancelled
+            cancelled=True
+            return {'choices':[{'message':{'content':'{broken'}}],'usage':{'prompt_tokens':3,'completion_tokens':2}}
+        with patch.object(llm_client,'resolved_model_config',return_value={'model':'openai/gpt-5.5','max_tokens':32,'json_repair':True}):
+            client=LLMClient()
+        with patch('litellm.completion',side_effect=complete) as provider, patch.object(client,'_try_log_call') as log, llm_request_check_scope(check):
+            with self.assertRaises(jobs.JobCancelled): client.complete_json([{'role':'user','content':'test'}],Answer)
+            self.assertEqual(provider.call_count,1)
+            self.assertEqual(log.call_count,1)
+            self.assertEqual(log.call_args.args[1],'ok')
+
+    def test_success_in_flight_is_retained_then_next_call_stops(self):
+        from src.llm_client import LLMClient, llm_request_check_scope
+        cancelled=False
+        def check():
+            if cancelled: raise jobs.JobTimeout('test timeout')
+        def complete(**kwargs):
+            nonlocal cancelled
+            cancelled=True
+            return {'choices':[{'message':{'content':'OK'}}],'usage':{'prompt_tokens':3,'completion_tokens':2}}
+        with patch.object(llm_client,'resolved_model_config',return_value={'model':'openai/gpt-5.5','max_tokens':32}): client=LLMClient()
+        with patch('litellm.completion',side_effect=complete) as provider, patch.object(client,'_try_log_call') as log, llm_request_check_scope(check):
+            self.assertEqual(client.complete_text([{'role':'user','content':'test'}]),'OK')
+            with self.assertRaises(jobs.JobTimeout):client.complete_text([{'role':'user','content':'next'}])
+            self.assertEqual(provider.call_count,1);self.assertEqual(log.call_count,1)
+        self.assertIsNone(llm_client._LLM_REQUEST_CHECK.get())
+
+    def test_nested_cancel_scope_restores_parent(self):
+        from src.llm_client import llm_request_check_scope
+        def parent(): pass
+        def child(): raise jobs.JobCancelled('test')
+        with llm_request_check_scope(parent):
+            with self.assertRaises(jobs.JobCancelled), llm_request_check_scope(child):
+                llm_client._claim_model_request()
+            self.assertIs(llm_client._LLM_REQUEST_CHECK.get(),parent)
+        self.assertIsNone(llm_client._LLM_REQUEST_CHECK.get())
