@@ -1677,12 +1677,18 @@ def api_workspace_draft_save(name: str, chapter: str, body: bytes) -> Tuple[int,
             md_relative = f"outputs/drafts/chapter_{chapter_no:02d}.md"
             meta_relative = f"outputs/drafts/chapter_{chapter_no:02d}.meta.json"
             try:
-                workspace_files.read_bytes(name, md_relative, max_bytes=_DRAFT_FILE_MAX_BYTES)
+                current_bytes = workspace_files.read_bytes(name, md_relative, max_bytes=_DRAFT_FILE_MAX_BYTES)
             except FileNotFoundError:
                 return _json(404, {"error": f"chapter_{chapter_no:02d}.md not found"})
             except workspace_files.WorkspaceFileError as exc:
                 _safe_log_exception("draft.read_target", exc)
                 return _json(409, {"error": "workspace draft layout is unsafe"})
+            expected = payload.get("expected_sha256")
+            if not isinstance(expected, str) or re.fullmatch(r"[a-f0-9]{64}", expected) is None:
+                return _json(428, {"error": "请先加载当前正文再保存", "code": "draft_version_required"})
+            import hashlib
+            if hashlib.sha256(current_bytes).hexdigest() != expected:
+                return _json(409, {"error": "正文已在别处更新，请保留修改并重新加载核对", "code": "draft_version_conflict"})
             try:
                 meta = workspace_files.read_json_optional(
                     name, meta_relative, {}, max_bytes=_DRAFT_JSON_MAX_BYTES
@@ -2662,6 +2668,7 @@ def api_workspace_draft(name: str, chapter: str, variant: str = "") -> Tuple[int
             "variant": variant or "final",
             "path": relative,
             "content": text,
+            "draft_sha256": __import__("hashlib").sha256(text.encode("utf-8")).hexdigest(),
             "meta": meta_out,
             "review": review if isinstance(review, dict) else {},
         }

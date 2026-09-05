@@ -129,12 +129,6 @@ def write_chapters(
         rolling_path = drafts_dir / "rolling_chapter_summary.json"
         from .story_memory import require_current
         require_current(drafts_dir, chapter_no)
-        rolling_context = render_rolling_context(
-            max_chapters=rolling_max_chapters,
-            path=rolling_path,
-            snippet_chapters=rolling_snippet_chapters,
-        )
-        previous_chapter_ending = latest_ending_state(path=rolling_path)
         chapter_plan_item = _chapter_plan_item(chapter_plan, chapter_no)
         run_context = _run_context(
             chapter_plan_item,
@@ -158,6 +152,20 @@ def write_chapters(
                     continue
             else:
                 continue
+        from .story_memory import invalidate_from, invalidate_derived_from
+        from .chapter_summary import prune_from_chapter
+        # The skip path above remains read-only. Actual replacement invalidates
+        # descendants before the first paid request, even if generation fails.
+        if out_path.exists():
+            invalidate_from(drafts_dir, chapter_no)
+        invalidate_derived_from(drafts_dir, chapter_no)
+        prune_from_chapter(chapter_no, path=rolling_path)
+        rolling_context = render_rolling_context(
+            max_chapters=rolling_max_chapters,
+            path=rolling_path,
+            snippet_chapters=rolling_snippet_chapters,
+        )
+        previous_chapter_ending = latest_ending_state(path=rolling_path)
         # Debug fix: derive enforce_relationship_checklist from the plan.
         # The relationship-consistency agent's strict checklist mode is
         # right for chapters with a small, tight cast (≤ 4 relationships

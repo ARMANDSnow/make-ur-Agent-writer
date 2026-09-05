@@ -140,11 +140,11 @@ const document={getElementById(id){return {'draft-edit-area':area,'draft-save':s
 const showToast=()=>{}; const wsUrl=x=>x; let finish, sent, registered, chapterDetailRequest=0;
 const putJson=(_url,body)=>{sent=body.content;return new Promise(r=>finish=r)};
 const registerDirtyEditor=(_id,value)=>{registered=value};
-(async()=>{bindDraftEditor(1);area.dataset.dirty='1';
-const pending=area._saveBeforeLeave(); area.value='B'; finish({saved:true});
+(async()=>{bindDraftEditor(1);area.dataset.loaded='1';area.dataset.version='v1';area.dataset.dirty='1';
+const pending=area._saveBeforeLeave(); area.value='B'; finish({saved:true,draft_sha256:"v2"});
 assert.equal(await pending,false); assert.equal(sent,'A'); assert.equal(registered.isDirty(),true);
 assert.match(status.textContent,/尚未保存/);
-const again=area._saveBeforeLeave(); finish({saved:true}); assert.equal(await again,true);assert.equal(sent,'B');assert.equal(registered.isDirty(),false);
+const again=area._saveBeforeLeave(); finish({saved:true,draft_sha256:"v2"}); assert.equal(await again,true);assert.equal(sent,'B');assert.equal(registered.isDirty(),false);
 })().catch(e=>{console.error(e);process.exitCode=1});
 '''
         result=subprocess.run([node,'-e',helpers+editor+harness],text=True,capture_output=True,timeout=10)
@@ -175,7 +175,7 @@ const again=area._saveBeforeLeave(); finish({saved:true}); assert.equal(await ag
             graph={'relationships':[{'timeline':[{'anchor_chapter':'source','state':'baseline','active':False},{'anchor_chapter':'续写第01章','state':'OLD ENTITY','active':True}]}]}
             write_json(self.root/'data/entity_graph.json',graph)
             write_json(d/'chapter_01.entity_advance_proposals.json',{'proposed_advances':[{'new_state':'OLD PROPOSAL'}]})
-            st,_,body=routes.api_workspace_draft_save('synthetic',1,json.dumps({'content':'New current city is south.'}).encode())
+            st,_,body=routes.api_workspace_draft_save('synthetic',1,json.dumps({'content':'New current city is south.', 'expected_sha256':meta['draft_sha256']}).encode())
             self.assertEqual(st,200,body)
             with self.assertRaisesRegex(ValueError,'story_memory_stale'): story_memory.require_current(d,2)
             new=json.loads((d/'chapter_01.meta.json').read_text());new.update(verdict='Approve',needs_human_review=False)
@@ -334,7 +334,7 @@ const again=area._saveBeforeLeave(); finish({saved:true}); assert.equal(await ag
 const assert=require('node:assert/strict'); const showToast=()=>{};
 function field(value){return {value,isConnected:true,dataset:{}}}
 let fields=[field('a'),field('b')];
-const root={isConnected:true,dataset:{dirty:'1'},matches(){return false},querySelectorAll(){return fields}};
+const root={isConnected:true,dataset:{dirty:'1',loaded:'1',version:'test-version'},matches(){return false},querySelectorAll(){return fields}};
 let s=captureEditSnapshot(root);fields.push(field('c'));assert.equal(acknowledgeEditSnapshot(s),false);
 s=captureEditSnapshot(root);fields=fields.slice(1);assert.equal(acknowledgeEditSnapshot(s),false);
 s=captureEditSnapshot(root);fields.reverse();assert.equal(acknowledgeEditSnapshot(s),false);

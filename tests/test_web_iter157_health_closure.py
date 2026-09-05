@@ -59,7 +59,7 @@ class WorkspaceFileBoundaryTests(_WorkspaceFixture):
         self.assertEqual(json.loads(body)["meta"], {})
 
         status, _ct, body = routes.api_workspace_draft_save(
-            "partial", "1", json.dumps({"content": "# 第一章\n\n修改。"}).encode()
+            "partial", "1", json.dumps({"content": "# 第一章\n\n修改。", "expected_sha256": json.loads(body)["draft_sha256"]}).encode()
         )
         self.assertEqual(status, 200, body)
         self.assertTrue((drafts / "chapter_01.meta.json").is_file())
@@ -97,7 +97,7 @@ class WorkspaceFileBoundaryTests(_WorkspaceFixture):
         status, _ct, body = routes.api_workspace_draft_save(
             "multibyte",
             "1",
-            json.dumps({"content": draft_content}, ensure_ascii=False).encode("utf-8"),
+            json.dumps({"content": draft_content, "expected_sha256": __import__("hashlib").sha256(b"original\n").hexdigest()}, ensure_ascii=False).encode("utf-8"),
         )
         self.assertEqual(status, 200, body)
         self.assertEqual(
@@ -269,7 +269,7 @@ class SafeExceptionProjectionTests(_WorkspaceFixture):
             workspace_files, "write_json_atomic", side_effect=OSError(_SECRET)
         ):
             status, _ct, body = routes.api_workspace_draft_save(
-                "meta", "1", json.dumps({"content": "replacement"}).encode()
+                "meta", "1", json.dumps({"content": "replacement", "expected_sha256": __import__("hashlib").sha256(b"original\n").hexdigest()}).encode()
             )
         self.assertEqual(status, 500)
         self.assertNotIn(_SECRET, body.decode())

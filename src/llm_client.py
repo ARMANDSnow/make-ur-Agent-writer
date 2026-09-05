@@ -982,8 +982,7 @@ class LLMClient:
         except BaseException:
             # Deliberately drop all exception text: filesystem and serializer
             # errors may themselves carry user-controlled content.
-            if _LLM_ACCOUNTING_DEGRADED.get() is not None:
-                _LLM_ACCOUNTING_DEGRADED.set(True)
+            _LLM_ACCOUNTING_DEGRADED.set(True)
             return
 
     def _log_call(
@@ -1016,6 +1015,14 @@ class LLMClient:
         if request_meta and request_meta.get("token_method") != response_method:
             record["response_token_method"] = response_method
         usage = self._usage_dict(response)
+        if status == "ok" and not str(self.model).lower().startswith("mock"):
+            prompt_usage = usage.get("prompt_tokens")
+            completion_usage = usage.get("completion_tokens", usage.get("response_tokens"))
+            reliable_usage = all(type(value) is int and value >= 0
+                                 for value in (prompt_usage, completion_usage))
+            record["usage_reliable"] = reliable_usage
+            if not reliable_usage:
+                _LLM_ACCOUNTING_DEGRADED.set(True)
         if usage:
             record["prompt_tokens"] = int(usage.get("prompt_tokens", record.get("prompt_tokens", 0)) or 0)
             record["response_tokens"] = int(

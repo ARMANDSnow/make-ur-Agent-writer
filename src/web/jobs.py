@@ -69,7 +69,7 @@ _WORKSPACE_LOCK = threading.Lock()
 
 # All jobs, keyed by job_id. Survives only as long as the process.
 _JOBS: Dict[str, Dict[str, Any]] = {}
-_JOBS_LOCK = threading.Lock()
+_JOBS_LOCK = threading.RLock()
 _JOB_LOG_LOCK = threading.Lock()
 _WORKER_THREADS: Dict[str, threading.Thread] = {}
 _WORKER_THREADS_LOCK = threading.Lock()
@@ -687,7 +687,18 @@ def _read_job_rows(workspace: str) -> list[Dict[str, Any]]:
         return _read_job_rows_unlocked(workspace)
 
 
+def _job_log_current(workspace: str, directory_fd: int, before: Any, workspace_identity: Any) -> bool:
+    try:
+        current = os.stat("web_jobs.jsonl", dir_fd=directory_fd, follow_symlinks=False)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+        return (stat.S_ISREG(current.st_mode) and identity(current) == identity(before)
+                and workspace_identity is not None and paths.workspace_identity_matches(workspace_identity))
+    except OSError:
+        return False
+
+
 def _read_job_rows_unlocked(workspace: str) -> list[Dict[str, Any]]:
+    workspace_identity = paths.probe_workspace_identity(workspace)
     directory_fd = _open_job_logs_directory(workspace, create=False)
     if directory_fd is None:
         return []
@@ -732,7 +743,7 @@ def _read_job_rows_unlocked(workspace: str) -> list[Dict[str, Any]]:
             if not isinstance(row, dict):
                 return []
             rows.append(row)
-        return rows
+        return rows if _job_log_current(workspace, directory_fd, before, workspace_identity) else []
     except (FileNotFoundError, OSError):
         return []
     finally:
@@ -753,6 +764,7 @@ def _read_job_rows_for_recovery(workspace: str) -> tuple[str, list[Dict[str, Any
     """
 
     with _JOB_LOG_LOCK:
+        workspace_identity = paths.probe_workspace_identity(workspace)
         logs_path = paths.WORKSPACE_DIR / workspace / "logs"
         try:
             logs_stat = os.lstat(logs_path)
@@ -813,6 +825,8 @@ def _read_job_rows_for_recovery(workspace: str) -> tuple[str, list[Dict[str, Any
                 if not isinstance(row, dict):
                     return "indeterminate", []
                 rows.append(row)
+            if not _job_log_current(workspace, directory_fd, before, workspace_identity):
+                return "indeterminate", []
             return "ok", rows
         except OSError:
             return "indeterminate", []
@@ -820,6 +834,33 @@ def _read_job_rows_for_recovery(workspace: str) -> tuple[str, list[Dict[str, Any
             if file_fd is not None:
                 os.close(file_fd)
             os.close(directory_fd)
+
+
+def _logical_job_rows(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Lossless per-job latest projection with an append-history digest.
+
+    First insertion order remains creation order. Compaction changes neither
+    this projection nor recovery CAS; even an A->B->A update changes its hash.
+    """
+    latest: dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        jid = row.get("job_id")
+        if not isinstance(jid, str) or not jid:
+            raise ValueError("job ledger identity missing")
+        previous = latest.get(jid, {})
+        item = dict(row)
+        digest = item.get("_history_digest")
+        if digest is not None:
+            if not isinstance(digest, str) or re.fullmatch(r"[a-f0-9]{64}", digest) is None:
+                raise ValueError("job ledger history invalid")
+        else:
+            encoded = json.dumps(item, sort_keys=True, ensure_ascii=False,
+                                 separators=(",", ":"), allow_nan=False).encode("utf-8")
+            item["_history_digest"] = hashlib.sha256(
+                str(previous.get("_history_digest", "")).encode("ascii") + b"\x00" + encoded
+            ).hexdigest()
+        latest[jid] = item
+    return list(latest.values())
 
 
 def _persist_job(job: Dict[str, Any]) -> bool:
@@ -856,10 +897,16 @@ def _persist_job(job: Dict[str, Any]) -> bool:
                 return False
             file_fd: Optional[int] = None
             original_size: Optional[int] = None
+            lock_fd: Optional[int] = None
+            temp_name: Optional[str] = None
             try:
+                lock_fd = os.open("web_jobs.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory_fd)
+                if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+                    return False
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 file_fd = os.open(
                     "web_jobs.jsonl",
-                    os.O_WRONLY
+                    os.O_RDWR
                     | os.O_APPEND
                     | os.O_CREAT
                     | getattr(os, "O_NOFOLLOW", 0)
@@ -871,8 +918,53 @@ def _persist_job(job: Dict[str, Any]) -> bool:
                 info = os.fstat(file_fd)
                 if not stat.S_ISREG(info.st_mode):
                     return False
-                if info.st_size + len(payload) > _MAX_JOB_LOG_BYTES:
+                if info.st_size > _MAX_JOB_LOG_BYTES:
                     return False
+                raw = os.pread(file_fd, _MAX_JOB_LOG_BYTES + 1, 0)
+                lines = raw.splitlines()
+                if any(len(line) > _MAX_JOB_LOG_LINE_BYTES for line in lines):
+                    return False
+                rows = [json.loads(line) for line in lines]
+                if any(not isinstance(row, dict) for row in rows):
+                    return False
+                logical = _logical_job_rows(rows)
+                # The new row extends its job's logical history exactly once.
+                previous = next((row for row in logical if row.get("job_id") == durable.get("job_id")), {})
+                encoded = json.dumps(_finite_json_safe(durable), sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":"), allow_nan=False).encode("utf-8")
+                durable["_history_digest"] = hashlib.sha256(
+                    str(previous.get("_history_digest", "")).encode("ascii") + b"\x00" + encoded
+                ).hexdigest()
+                payload = json.dumps(_finite_json_safe(durable), ensure_ascii=False, allow_nan=False,
+                                     separators=(",", ":")).encode("utf-8") + b"\n"
+                if len(payload) > _MAX_JOB_LOG_LINE_BYTES:
+                    return False
+                if info.st_size + len(payload) > _MAX_JOB_LOG_BYTES or len(lines) + 1 > _MAX_JOB_LOG_ROWS:
+                    compacted = _logical_job_rows(logical + [durable])
+                    compact_bytes = b"".join(json.dumps(row, ensure_ascii=False, allow_nan=False,
+                        separators=(",", ":")).encode("utf-8") + b"\n" for row in compacted)
+                    # Never evict active/unknown or recovery authority to make room.
+                    if len(compacted) > _MAX_JOB_LOG_ROWS or len(compact_bytes) > _MAX_JOB_LOG_BYTES:
+                        return False
+                    temp_name = "web_jobs." + uuid.uuid4().hex + ".tmp"
+                    tmp_fd = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                     0o600, dir_fd=directory_fd)
+                    try:
+                        with os.fdopen(tmp_fd, "wb") as handle:
+                            handle.write(compact_bytes)
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                        current = os.stat("web_jobs.jsonl", dir_fd=directory_fd, follow_symlinks=False)
+                        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                            return False
+                        os.replace(temp_name, "web_jobs.jsonl", src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+                        temp_name = None
+                        os.fsync(directory_fd)
+                        return True
+                    finally:
+                        if temp_name is not None:
+                            os.unlink(temp_name, dir_fd=directory_fd)
+                            temp_name = None
                 original_size = info.st_size
                 written = os.write(file_fd, payload)
                 if written != len(payload):
@@ -890,6 +982,8 @@ def _persist_job(job: Dict[str, Any]) -> bool:
             finally:
                 if file_fd is not None:
                     os.close(file_fd)
+                if lock_fd is not None:
+                    os.close(lock_fd)
                 os.close(directory_fd)
     except (OSError, TypeError, ValueError, RecursionError, OverflowError):
         return False
@@ -1106,7 +1200,7 @@ def write_recovery_job_claim(
     latest = _latest_write_job_from_rows(workspace, chapter, claim_rows)
     try:
         encoded = json.dumps(
-            claim_rows,
+            _logical_job_rows(claim_rows),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -1114,7 +1208,7 @@ def write_recovery_job_claim(
         ).encode("utf-8")
     except (TypeError, ValueError, OverflowError):
         return "indeterminate", None, None
-    claim = hashlib.sha256(b"write-recovery-ledger-v1\x00" + encoded).hexdigest()
+    claim = hashlib.sha256(b"write-recovery-ledger-v2\x00" + encoded).hexdigest()
     return ledger_state, latest, claim
 
 
@@ -1168,8 +1262,8 @@ def _update(job_id: str, **fields: Any) -> None:
             return
         job.update(fields)
         snapshot = dict(job)
-    if snapshot is not None and not _persist_job(snapshot):
-        _mark_persistence_degraded(job_id)
+        if snapshot is not None and not _persist_job(snapshot):
+            _mark_persistence_degraded(job_id)
 
 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
@@ -1228,9 +1322,9 @@ def request_cancel(
         job["cancel_requested"] = True
         job["cancel_reason"] = reason
         snapshot = dict(job)
-    if snapshot is not None and not _persist_job(snapshot):
-        _mark_persistence_degraded(job_id)
-        snapshot["persistence_degraded"] = True
+        if snapshot is not None and not _persist_job(snapshot):
+            _mark_persistence_degraded(job_id)
+            snapshot["persistence_degraded"] = True
     return snapshot
 
 
@@ -1305,8 +1399,8 @@ def _complete_job(job_id: str, terminal: str, step: str, result: Any) -> None:
                 }
             )
         snapshot = dict(job)
-    if snapshot is not None and not _persist_job(snapshot):
-        _mark_persistence_degraded(job_id)
+        if snapshot is not None and not _persist_job(snapshot):
+            _mark_persistence_degraded(job_id)
 
 
 def workspace_busy(workspace: str) -> Optional[str]:

@@ -5887,6 +5887,7 @@ JS_DASHBOARD = """\
     }
     area.addEventListener("input", function () { area.dataset.dirty = "1"; saveState("有尚未保存的修改", "warn"); });
     async function saveDraft() {
+      if (area.dataset.loaded !== "1") throw new Error("正文尚未加载成功");
       const content = area.value;
       if (!content.trim()) {
         saveState("没有保存成功。正文不能为空，修改仍保留。", "error");
@@ -5895,7 +5896,8 @@ JS_DASHBOARD = """\
       }
       const submitted = captureEditSnapshot(area);
       ++chapterDetailRequest;
-      const res = await putJson(wsUrl("/draft/" + num), { content: content });
+      const res = await putJson(wsUrl("/draft/" + num), { content: content, expected_sha256: area.dataset.version });
+      area.dataset.version = res.draft_sha256;
       if (!acknowledgeEditSnapshot(submitted)) { saveState("已保存提交时的正文；仍有新的修改尚未保存", "warn"); return null; }
       return res;
     }
@@ -5910,7 +5912,7 @@ JS_DASHBOARD = """\
         showToast("第 " + num + " 章已保存；内容检查需要更新", "info");
         return true;
       } catch (err) {
-        saveState("没有保存成功。编辑内容仍保留，请重试。", "error");
+        saveState("没有保存成功。正文可能已在别处更新；修改仍保留，请先复制备份并重新加载核对。", "error");
         return false;
       } finally {
         saveBtn.disabled = false;
@@ -6097,6 +6099,7 @@ JS_DASHBOARD = """\
     const editArea = document.getElementById("draft-edit-area");
     const saveBtn = document.getElementById("draft-save");
     const saveReviewBtn = document.getElementById("draft-save-review");
+    if (!data || typeof data.content !== "string" || typeof data.draft_sha256 !== "string") throw new Error("正文加载数据不完整");
     if (editArea) {
       editArea.disabled = false;
       editArea.placeholder = "";
@@ -6117,9 +6120,11 @@ JS_DASHBOARD = """\
         (meta.needs_human_review === true ? '<span class="badge warn">需复核</span>' : "");
     }
     // edit tab — populate unless the user is mid-edit (mirrors outline-md)
-    if (editArea && !editArea.dataset.dirty && document.activeElement !== editArea) {
-      editArea.value = typeof data.content === "string" ? data.content : "";
+    if (editArea && !editArea.dataset.dirty && (editArea.dataset.loaded !== "1" || document.activeElement !== editArea)) {
+      editArea.value = data.content;
+      editArea.dataset.version = data.draft_sha256;
     }
+    if (editArea) editArea.dataset.loaded = "1";
     // body — render as paragraphs
     const body = document.getElementById("chapter-body");
     if (body) {

@@ -39,7 +39,7 @@ def _write(path: Path, value):
         write_json(path, value)
 
 
-def invalidate_from(drafts: Path, chapter: int) -> None:
+def invalidate_from(drafts: Path, chapter: int, *, include_target: bool = True) -> None:
     """Called under the workspace write lock BEFORE replacing the draft.
 
     Mark descendants too: reviewing the edited chapter must not silently make
@@ -49,14 +49,14 @@ def invalidate_from(drafts: Path, chapter: int) -> None:
     if len(metas) > 10000:
         raise ValueError('story_memory_limit')
     target = drafts / f'chapter_{chapter:02d}.meta.json'
-    if target not in metas:
+    if include_target and target not in metas:
         metas.append(target)
     for path in metas:
         try:
             no = int(path.name.split('_')[1].split('.')[0])
         except ValueError:
             continue
-        if no < chapter:
+        if no < chapter or (no == chapter and not include_target):
             continue
         meta = _read(path, {})
         if not isinstance(meta, dict):
@@ -118,6 +118,29 @@ def refresh_after_review(drafts: Path, chapter: int) -> bool:
     # repeated review of an already-recovered manually edited chapter.
     meta['story_memory_invalidated'] = True
     _write(meta_path, meta)
+    invalidate_derived_from(drafts, chapter)
+    rolling_path = drafts/'rolling_chapter_summary.json'
+    rolling = _read(rolling_path, {'chapters':[], 'compressed_older':[]})
+    if not isinstance(rolling,dict) or not isinstance(rolling.get('chapters'),list) or not isinstance(rolling.get('compressed_older'),list):
+        raise ValueError('story_memory_rolling_invalid')
+    rolling['chapters'] = [entry for entry in rolling['chapters'] if isinstance(entry,dict) and entry.get('chapter_no') != chapter]
+    rolling['compressed_older'] = [entry for entry in rolling['compressed_older'] if isinstance(entry,dict) and entry.get('chapter_no') != chapter]
+    rolling['chapters'].append({'chapter_no':chapter, 'summary':'当前正文摘录（非语义摘要）：'+draft[:1200],
+        'key_events':[], 'ending_state':'当前正文末段：'+draft[-1200:],
+        'text_snippet':draft[:600]+'\n…\n'+draft[-600:], 'source_draft_sha256':digest})
+    rolling['chapters'].sort(key=lambda entry: int(entry['chapter_no']))
+    _compact_older(rolling)
+    _write(rolling_path,rolling)
+    meta['story_memory_draft_sha256'] = digest
+    meta['story_memory_invalidated'] = False
+    meta['story_memory_kind'] = 'reviewed_excerpt'
+    _write(meta_path, meta)
+    return True
+
+
+def invalidate_derived_from(drafts: Path, chapter: int) -> None:
+    """Retain old entity history but prevent replay before any rewrite."""
+    from .entity_advance import parse_chapter_anchor
     graph_path = drafts.parent.parent / 'data/entity_graph.json'
     graph = _read(graph_path, None)
     if graph is not None:
@@ -142,21 +165,4 @@ def refresh_after_review(drafts: Path, chapter: int) -> bool:
         if no >= chapter:
             previous = _read(proposal, {})
             _write(proposal, {'chapter_no':no, 'proposed_advances':[], 'invalidated_by_edit':chapter,
-                              'previous_proposals':previous.get('proposed_advances', []) if isinstance(previous,dict) else []})
-    rolling_path = drafts/'rolling_chapter_summary.json'
-    rolling = _read(rolling_path, {'chapters':[], 'compressed_older':[]})
-    if not isinstance(rolling,dict) or not isinstance(rolling.get('chapters'),list) or not isinstance(rolling.get('compressed_older'),list):
-        raise ValueError('story_memory_rolling_invalid')
-    rolling['chapters'] = [entry for entry in rolling['chapters'] if isinstance(entry,dict) and entry.get('chapter_no') != chapter]
-    rolling['compressed_older'] = [entry for entry in rolling['compressed_older'] if isinstance(entry,dict) and entry.get('chapter_no') != chapter]
-    rolling['chapters'].append({'chapter_no':chapter, 'summary':'当前正文摘录（非语义摘要）：'+draft[:1200],
-        'key_events':[], 'ending_state':'当前正文末段：'+draft[-1200:],
-        'text_snippet':draft[:600]+'\n…\n'+draft[-600:], 'source_draft_sha256':digest})
-    rolling['chapters'].sort(key=lambda entry: int(entry['chapter_no']))
-    _compact_older(rolling)
-    _write(rolling_path,rolling)
-    meta['story_memory_draft_sha256'] = digest
-    meta['story_memory_invalidated'] = False
-    meta['story_memory_kind'] = 'reviewed_excerpt'
-    _write(meta_path, meta)
-    return True
+                              'previous_proposals':(previous.get('proposed_advances') or previous.get('previous_proposals', [])) if isinstance(previous,dict) else []})

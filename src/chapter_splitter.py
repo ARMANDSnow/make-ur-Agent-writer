@@ -82,33 +82,43 @@ def normalize_heading_key(heading: str) -> str:
 
 def candidate_headings(lines: List[str], volume_id: str, lang: str = "zh") -> List[Tuple[int, str]]:
     candidates = [(i, line.strip()) for i, line in enumerate(lines, 1) if is_heading(line, lang) and heading_allowed(volume_id, line.strip(), lang)]
-    early = [item for item in candidates if item[0] <= 100]
-    if len(early) >= 5:
-        first_line, first_heading = early[0]
-        first_key = normalize_heading_key(first_heading)
-        repeated_first = [
-            line_no
-            for line_no, heading in candidates
-            if line_no > first_line and line_no <= 140 and normalize_heading_key(heading) == first_key
-        ]
-        if repeated_first:
-            toc_end = repeated_first[0] - 1
-            candidates = [item for item in candidates if item[0] > toc_end]
-        elif first_heading.startswith(("序幕", "序章", "楔子")):
-            toc_end = max(i for i, _ in early) + 3
-            candidates = [early[0]] + [item for item in candidates if item[0] > toc_end]
-        else:
-            toc_end = max(i for i, _ in early) + 3
-            candidates = [item for item in candidates if item[0] > toc_end]
+    # Repeated chapter names belong to different volumes/POVs. Never dedupe
+    # globally. A table of contents is a local, explicitly labelled region.
+    def chapter_key(heading: str) -> str:
+        match = re.match(rf"第[{CN_NUM}]+[章节幕]|楔子|序章|序幕|尾声|CHAPTER\s+[IVXLCDM0-9]+|Chapter\s+[0-9]+", heading)
+        return normalize_heading_key(match.group(0) if match else heading)
 
-    seen: Dict[str, int] = {}
-    for idx, (_, heading) in enumerate(candidates):
-        seen[normalize_heading_key(heading)] = idx
-    deduped = []
-    for idx, item in enumerate(candidates):
-        if seen[normalize_heading_key(item[1])] == idx:
-            deduped.append(item)
-    return deduped
+    excluded: set[int] = set()
+    markers = [i for i, line in enumerate(lines, 1)
+               if re.fullmatch(r"目\s*录|contents|table of contents", line.strip(), re.I)]
+    for marker in markers:
+        next_marker = next((n for n in markers if n > marker), len(lines) + 1)
+        local = [(n, title) for n, title in candidates if marker < n < next_marker]
+        if not local:
+            continue
+        first_n, first_title = local[0]
+        # Stop at prose rather than guessing an offset from a line count.
+        block = []
+        last_n = marker
+        for position, (n, title) in enumerate(local):
+            between = lines[last_n:n - 1]
+            if any(len(line.strip()) > 100 for line in between):
+                break
+            if block and chapter_key(title) == chapter_key(first_title):
+                break
+            if n - last_n > 40:
+                break
+            following_n = local[position + 1][0] if position + 1 < len(local) else next_marker
+            gap = lines[n:following_n - 1]
+            padding_only = all(not line.strip() or line.strip().isdecimal() for line in gap)
+            repeated_later = any(chapter_key(other) == chapter_key(title) for _, other in local[position + 1:])
+            if not padding_only and not repeated_later:
+                break
+            block.append(n)
+            last_n = n
+        if len(block) >= 3:
+            excluded.update(block)
+    return [(n, title) for n, title in candidates if n not in excluded]
 
 
 def _heading_confidence(title: str, char_count: int, in_dedup_risk_zone: bool) -> float:
@@ -140,9 +150,20 @@ def split_file(path: Path, lang: str | None = None) -> List[ChapterManifestEntry
     ]
     early_dense = sum(1 for line_no, _ in raw_candidates if line_no <= 100) >= 5
     headings = candidate_headings(lines, volume_id, lang)
+    kept_lines = {n for n, _ in headings}
+    toc_starts = []
+    for n, line in enumerate(lines, 1):
+        if re.fullmatch(r"目\s*录|contents|table of contents", line.strip(), re.I):
+            following = [pos for pos, _ in raw_candidates if pos > n][:3]
+            if len(following) == 3 and all(pos not in kept_lines for pos in following):
+                toc_starts.append(n)
     entries: List[ChapterManifestEntry] = []
     for chapter_index, (start_line, title) in enumerate(headings, 1):
         end_line = (headings[chapter_index][0] - 1) if chapter_index < len(headings) else len(lines)
+        # A following volume's TOC/preamble is not part of this chapter.
+        boundaries = [n - 1 for n in toc_starts if start_line < n <= end_line]
+        if boundaries:
+            end_line = min(boundaries)
         chapter_text = "\n".join(lines[start_line - 1 : end_line])
         char_count = len(chapter_text)
         in_risk_zone = early_dense and start_line <= 100

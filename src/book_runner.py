@@ -655,6 +655,8 @@ def _run_write_book_unlocked(
                     # 死亡的 retry 延续——同样播种，别让重写重蹈上一稿拒因。
                     if attempt > 0 or stale_reject_rewrite:
                         seed_feedback = _cross_cycle_seed_feedback(drafts_dir, chapter_no)
+                    from .story_memory import invalidate_from, invalidate_derived_from
+                    invalidate_from(drafts_dir, chapter_no, include_target=False)
                     archive_dir = _archive_chapter_artifacts(
                         drafts_dir,
                         chapter_no,
@@ -664,6 +666,7 @@ def _run_write_book_unlocked(
                             else ("stale_reject_resume" if stale_reject_rewrite else "force_rewrite")
                         ),
                     )
+                    invalidate_derived_from(drafts_dir, chapter_no)
                     prune_from_chapter(chapter_no)
                     attempt_summaries.append({"attempt": attempt, "archived_to": str(archive_dir)})
                 elif not md_path.exists():

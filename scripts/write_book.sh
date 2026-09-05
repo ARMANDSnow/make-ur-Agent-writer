@@ -23,6 +23,7 @@ REQUIRE_START_POINT="1"
 REQUIRE_EXTERNAL_REVIEW="1"
 FORCE="0"
 START_POINT=""
+TIER=""
 
 need_value() {
   if [ $# -lt 2 ] || [ -z "$2" ]; then
@@ -33,6 +34,16 @@ need_value() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --tier)
+      need_value "$1" "${2-}"
+      TIER="$2"
+      shift 2
+      ;;
+    --tier=*)
+      TIER="${1#--tier=}"
+      need_value --tier "$TIER"
+      shift
+      ;;
     --book)
       need_value "$1" "${2-}"
       BOOK="$2"
@@ -173,4 +184,7 @@ if [ "$REQUIRE_EXTERNAL_REVIEW" = "0" ]; then
   cmd+=(--skip-external-review)
 fi
 
+if [ -n "$TIER" ]; then
+  cmd+=(--tier "$TIER")
+fi
 exec "${cmd[@]}"

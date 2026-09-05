@@ -99,7 +99,7 @@ class DraftEditTests(unittest.TestCase):
         status, _ct, body = routes.dispatch(
             "PUT",
             f"/api/workspace/{ws}/draft/{chapter}",
-            json.dumps({"content": content}, ensure_ascii=False).encode("utf-8"),
+            json.dumps({"content": content, "expected_sha256": json.loads(routes.dispatch("GET", f"/api/workspace/{ws}/draft/{chapter}")[2]).get("draft_sha256", "")}, ensure_ascii=False).encode("utf-8"),
             {"content-type": "application/json"},
         )
         return status, json.loads(body)
