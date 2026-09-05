@@ -1700,7 +1700,7 @@ JS_DASHBOARD = """\
       control.setAttribute("aria-busy", "true");
       if (label) control.textContent = label;
     } else {
-      control.disabled = control.dataset.uiWasDisabled === "1";
+      control.disabled = control.dataset.uiWasDisabled === "1" || control.dataset.workbenchLocked === "1";
       control.removeAttribute("aria-busy");
       if (control.dataset.uiIdleLabel) control.textContent = control.dataset.uiIdleLabel;
       delete control.dataset.uiIdleLabel;
@@ -4526,12 +4526,15 @@ JS_DASHBOARD = """\
   let recoveredWorkbenchJobId = "";
   function setWorkbenchMutationLock(locked) {
     document.querySelectorAll('[data-workbench-mutation],#expansion-regen,#style-extract-btn,[data-style-activate],[data-entity-save],[data-rel-save],[data-plan-edit]').forEach(function (control) {
+      control.dataset.workbenchLocked = locked ? "1" : "0";
       control.disabled = !!locked;
     });
   }
   function renderWorkbenchHydration(kind, job) {
     const note = document.querySelector(".workbench-running-note");
     if (!note) return;
+    note.dataset.jobId = kind === "running" && job ? job.job_id : "";
+    if (kind === "error" || kind === "reconcile") lastWorkbenchStatus = null;
     if (kind === "loading") {
       note.innerHTML = '<span class="muted">正在读取作品与任务状态…</span>';
     } else if (kind === "error") {
@@ -4542,7 +4545,7 @@ JS_DASHBOARD = """\
       note.innerHTML = '<div class="alert info"><strong>' + escapeHtml(stepLabel(job.step)) + '正在处理</strong>。冲突操作已锁定。 ' +
         '<span id="workbench-active-progress">' + escapeHtml(statusLabel(job.status || "running")) + '</span> ' +
         '<a class="btn btn-secondary btn-sm" href="' + wsHref('/jobs') + '">查看任务</a> ' +
-        '<button type="button" class="btn btn-ghost btn-sm" id="workbench-cancel-active">请求取消</button></div>';
+        '<button type="button" class="btn btn-ghost btn-sm" id="workbench-cancel-active"' + (job.cancel_requested ? ' disabled' : '') + '>请求取消</button></div>';
       const cancel = document.getElementById("workbench-cancel-active");
       if (cancel) cancel.addEventListener("click", async function () {
         cancel.disabled = true;
@@ -4556,18 +4559,44 @@ JS_DASHBOARD = """\
       note.textContent = "任务开始后可以离开此页，处理仍会继续；随时从“任务记录”返回查看。";
     }
   }
+  function updateWorkbenchActiveJob(jobId, job) {
+    const note = document.querySelector(".workbench-running-note");
+    if (!note || note.dataset.jobId !== jobId) return;
+    if (!job || job.job_id !== jobId || jobPollDisposition(job.status) === "invalid") {
+      setWorkbenchMutationLock(true);
+      renderWorkbenchHydration("error");
+      return;
+    }
+    if (job.status === "lost") {
+      setWorkbenchMutationLock(true);
+      renderWorkbenchHydration("reconcile");
+      return;
+    }
+    const progress = document.getElementById("workbench-active-progress");
+    if (progress) {
+      const pct = Number.isFinite(Number(job.progress)) ? Math.round(Number(job.progress) * 100) + "%" : "";
+      progress.textContent = statusLabel(job.status) + (pct ? " · " + pct : "");
+    }
+    const cancel = document.getElementById("workbench-cancel-active");
+    if (cancel && (job.cancel_requested || jobPollDisposition(job.status) !== "active")) cancel.disabled = true;
+  }
   async function watchRecoveredWorkbenchJob(job) {
     if (!job || !job.job_id || recoveredWorkbenchJobId === job.job_id) return;
     recoveredWorkbenchJobId = job.job_id;
     while (recoveredWorkbenchJobId === job.job_id) {
       await new Promise(function (resolve) { setTimeout(resolve, 1200); });
+      if (recoveredWorkbenchJobId !== job.job_id) return;
       let current;
       try { current = await fetchJson(wsUrl("/job/" + job.job_id)); }
       catch (err) {
+        const note = document.querySelector(".workbench-running-note");
+        if (recoveredWorkbenchJobId !== job.job_id || !note || note.dataset.jobId !== job.job_id) return;
         renderWorkbenchHydration("error");
         recoveredWorkbenchJobId = "";
         return;
       }
+      const note = document.querySelector(".workbench-running-note");
+      if (recoveredWorkbenchJobId !== job.job_id || !note || note.dataset.jobId !== job.job_id) return;
       if (!current || !["pending", "running", "succeeded", "failed", "blocked", "aborted", "budget_exceeded", "lost", "submission_unknown", "request_not_sent", "provider_rejected"].includes(current.status)) {
         renderWorkbenchHydration("error");
         recoveredWorkbenchJobId = "";
@@ -4579,11 +4608,7 @@ JS_DASHBOARD = """\
         recoveredWorkbenchJobId = "";
         return;
       }
-      const progress = document.getElementById("workbench-active-progress");
-      if (progress) {
-        const pct = Number.isFinite(Number(current.progress)) ? Math.round(Number(current.progress) * 100) + "%" : "";
-        progress.textContent = statusLabel(current.status) + (pct ? " · " + pct : "");
-      }
+      updateWorkbenchActiveJob(job.job_id, current);
       if (current.status !== "pending" && current.status !== "running") {
         recoveredWorkbenchJobId = "";
         await refreshWorkbench();
@@ -5487,16 +5512,19 @@ JS_DASHBOARD = """\
       try {
         job = await fetchJson(wsUrl("/job/" + jobId));
       } catch (err) {
+        updateWorkbenchActiveJob(jobId, null);
         renderJobReconcile(box);
         setControlBusy(submit, false);
         return;
       }
       const disposition = jobPollDisposition(job && job.status);
       if (disposition === "invalid") {
+        updateWorkbenchActiveJob(jobId, null);
         renderJobReconcile(box);
         setControlBusy(submit, false);
         return null;
       }
+      updateWorkbenchActiveJob(jobId, job);
       const pct = Math.round((job.progress || 0) * 100);
       // iter068 (Cluster C): a cancel control + jobs-page link on the live card,
       // so a long run can be stopped from wherever it's polled (workbench /
@@ -5516,10 +5544,10 @@ JS_DASHBOARD = """\
         "</div>" +
         '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
         '<div class="form-actions" style="margin-top:8px">' +
-        '<button type="button" class="btn btn-ghost btn-sm" data-cancel-job="' + escapeHtml(jobId) + '"' + (cancelPending ? " disabled" : "") + ">取消任务</button>" +
+        (disposition === "active" ? '<button type="button" class="btn btn-ghost btn-sm" data-cancel-job="' + escapeHtml(jobId) + '"' + (cancelPending ? " disabled" : "") + ">取消任务</button>" : "") +
         ' <a class="btn btn-ghost btn-sm" data-leave-guard href="' + wsHref("/jobs") + '">任务页</a>' +
         "</div>" +
-        (cancelPending
+        (cancelPending && disposition === "active"
           ? '<div class="alert warn" style="margin-top:6px">已请求取消 · 当前步骤「' + escapeHtml(currentStepLabel(job.current_step, job.step, job.status)) + "」" + waited + "；最多再等当前一次不可中断调用或本地子进程结束。</div>"
           : "") +
         (job.persistence_degraded === true

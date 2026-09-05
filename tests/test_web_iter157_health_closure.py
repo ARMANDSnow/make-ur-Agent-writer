@@ -451,6 +451,7 @@ const submit = {disabled: true};
 const progressBody = {innerHTML: ''};
 const novelForm = {};
 function ensureJobCancelDelegate() {}
+function updateWorkbenchActiveJob() {}
 function wsUrl(value) { return value; }
 function wsHref(value) { return '/w/test' + value; }
 function setControlBusy(control, busy) { control.disabled = busy; busyReleased = !busy; }
@@ -484,6 +485,88 @@ function setTimeout() { timerCount += 1; throw new Error('timer scheduled'); }
         result = subprocess.run(
             ["node", "-e", script], text=True, capture_output=True, check=False
         )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_workbench_job_updates_and_terminal_cancel_controls(self) -> None:
+        functions = "\n".join(self._extract_function(static.JS_DASHBOARD, name)
+                              for name in ("pollJob", "jobPollDisposition", "renderJobReconcile", "updateWorkbenchActiveJob", "setControlBusy", "setWorkbenchMutationLock", "renderWorkbenchHydration"))
+        script = functions + r"""
+const note = {dataset:{jobId:'current'},innerHTML:''};
+const progress = {textContent:''};
+const cancel = {disabled:false, addEventListener(){}};
+const box = {innerHTML:''};
+const submit = {dataset:{}, disabled:false, textContent:"submit", attrs:{}, getAttribute(k){return this.attrs[k];}, setAttribute(k,v){this.attrs[k]=v;}, removeAttribute(k){delete this.attrs[k];}};
+const document = {querySelector:() => note, querySelectorAll:() => [submit], getElementById:(id) => id === 'workbench-active-progress' ? progress : cancel};
+let lock = false, hydration = '', queue = [], calls = 0, snapshots = [];
+let lastWorkbenchStatus = {};
+function refreshWorkbench() {}
+function ensureJobCancelDelegate() {}
+function wsUrl(s) { return s; }
+function wsHref(s) { return s; }
+function statusLabel(s) { return s; }
+function statusBadge(s) { return s; }
+function escapeHtml(s) { return String(s); }
+function currentStepLabel(s) { return s || ''; }
+function stepLabel(s) { return s || ''; }
+function showToast() {}
+function renderJobFailureCard() { return ''; }
+function jobBlockedDetail() { return null; }
+const CTA_ACTIONS = {};
+function fetchJson() { calls++; const value=queue.shift(); return value instanceof Error ? Promise.reject(value) : Promise.resolve(value); }
+function setTimeout(cb) { snapshots.push({html:box.innerHTML, progress:progress.textContent}); cb(); }
+(async () => {
+  updateWorkbenchActiveJob('old', {job_id:'old',status:'failed'});
+  if (cancel.disabled || note.innerHTML || progress.textContent) throw Error('old job overwrote current');
+  queue = [{job_id:'current',status:'pending',progress:0}, {job_id:'current',status:'running',progress:.1}, {job_id:'current',status:'succeeded',progress:1}];
+  await pollJob('current',box,submit,null);
+  if (calls!==3 || snapshots[1].progress!=='running · 10%' || !snapshots[1].html.includes('data-cancel-job')) throw Error('active status failed');
+  if (box.innerHTML.includes('data-cancel-job') || !cancel.disabled) throw Error('terminal cancel still active');
+  for (const status of ['succeeded','failed','aborted','lost','blocked','budget_exceeded']) {
+    queue=[{job_id:'current',status:status,cancel_requested:true}];
+    await pollJob('current',box,submit);
+    if (box.innerHTML.includes('data-cancel-job') || box.innerHTML.includes('已请求取消')) throw Error('terminal cancel copy leaked');
+  }
+  note.dataset.jobId='current'; cancel.disabled=false;
+  updateWorkbenchActiveJob('current',{job_id:'current',status:'running',cancel_requested:true});
+  if (!cancel.disabled) throw Error('pending cancellation enabled');
+  note.dataset.jobId='current'; lock=false;
+  submit.disabled=false; setControlBusy(submit,true);
+  queue=[new Error('offline')];
+  await pollJob('current',box,submit,null);
+  setControlBusy(submit,false); // outer form finally must not undo unknown-state lock
+  if (!submit.disabled || !note.innerHTML.includes('状态读取失败') || lastWorkbenchStatus!==null) throw Error('failed fetch kept active controls');
+})().catch((err)=>{process.stderr.write(String(err));process.exit(1);});
+"""
+        result = subprocess.run(["node", "-e", script], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_recovered_job_late_response_cannot_replace_new_job(self) -> None:
+        functions = self._extract_function(static.JS_DASHBOARD, "watchRecoveredWorkbenchJob")
+        script = functions + r"""
+let recoveredWorkbenchJobId='', events=[], resolver, rejecter;
+const note={dataset:{jobId:'A'}};
+const document={querySelector:()=>note};
+function setTimeout(cb){cb();}
+function wsUrl(s){return s;}
+function fetchJson(){return new Promise((resolve,reject)=>{resolver=resolve;rejecter=reject;});}
+function renderWorkbenchHydration(kind){events.push(kind);}
+function updateWorkbenchActiveJob(){events.push('updated');}
+function setWorkbenchMutationLock(){events.push('locked');}
+async function refreshWorkbench(){events.push('refreshed');}
+(async()=>{
+  for(const failed of [false,true]) {
+    recoveredWorkbenchJobId='';note.dataset.jobId='A';events=[];
+    const old=watchRecoveredWorkbenchJob({job_id:'A'});
+    await Promise.resolve();
+    recoveredWorkbenchJobId='B';note.dataset.jobId='B';
+    if(failed) rejecter(new Error('old failure'));
+    else resolver({job_id:'A',status:'succeeded'});
+    await old;
+    if(recoveredWorkbenchJobId!=='B'||events.length)throw Error('stale response changed new job');
+  }
+})().catch((err)=>{process.stderr.write(String(err));process.exit(1);});
+"""
+        result = subprocess.run(["node", "-e", script], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_paid_save_review_busy_regression(self) -> None:
