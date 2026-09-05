@@ -92,6 +92,7 @@ class BookRunnerReviewContextTests(unittest.TestCase):
 
                 ready = {"status": "ready", "blockers": [], "warnings": [], "recommended_commands": []}
                 with ExitStack() as stack:
+                    stack.enter_context(patch("src.reviewer._reviews_dir", return_value=reviews))
                     stack.enter_context(patch("src.book_runner.check_write_readiness", return_value=ready))
                     stack.enter_context(patch("src.book_runner._load_chapter_plan", return_value={2: plan_item}))
                     stack.enter_context(patch("src.book_runner._run_context", return_value=run_context))

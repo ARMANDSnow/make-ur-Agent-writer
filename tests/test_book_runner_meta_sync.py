@@ -46,6 +46,7 @@ class BookRunnerMetaSyncTests(unittest.TestCase):
                 write_json(
                     reviews / "chapter_02.review.json",
                     {
+                        "external_review_completed": True,
                         "verdict": "Approve",
                         "agent_reviews": [{"agent_name": "external", "verdict": "Approve"}],
                         "run_context": ctx,
@@ -103,6 +104,7 @@ class BookRunnerMetaSyncTests(unittest.TestCase):
                 write_json(
                     reviews / "chapter_02.review.json",
                     {
+                        "external_review_completed": True,
                         "verdict": "Reject",
                         "needs_human_review": True,
                         "agent_reviews": [{"agent_name": "external", "verdict": "Reject"}],
@@ -147,6 +149,7 @@ class BookRunnerMetaSyncTests(unittest.TestCase):
                     write_json(
                         reviews / "chapter_02.review.json",
                         {
+                        "external_review_completed": True,
                             "verdict": "Approve",
                             "agent_reviews": [{"agent_name": "external", "verdict": "Approve"}],
                             "run_context": {},

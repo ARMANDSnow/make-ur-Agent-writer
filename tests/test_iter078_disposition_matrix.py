@@ -87,6 +87,7 @@ class DispositionMatrixTests(unittest.TestCase):
         status = _status(
             verdict="Approve",
             strict_failures=["external_review_missing", "external_review_stale"],
+            needs_review=False,
         )
         # 多重失败不走补外审——但仍在 stale 白名单内 → 归档重写
         self.assertIs(self._c(status), ChapterDisposition.STALE_REJECT_REWRITE)

@@ -161,7 +161,7 @@ const again=area._saveBeforeLeave(); finish({saved:true,draft_sha256:"v2"}); ass
         meta={'verdict':'Approve','needs_human_review':False,'draft_sha256':sha256_text(text),'run_context':context}
         (d/f'chapter_{chapter:02d}.md').write_text(text)
         write_json(d/f'chapter_{chapter:02d}.meta.json',meta)
-        write_json(d.parent/'reviews'/f'chapter_{chapter:02d}.review.json',meta)
+        write_json(d.parent/'reviews'/f'chapter_{chapter:02d}.review.json',dict(meta, external_review_completed=True))
         return d,meta
 
     def test_edit_review_refreshes_summary_and_disables_old_advances(self):
@@ -381,7 +381,7 @@ waiting[1]('B');await b;waiting[0]('A');await a;assert.deepEqual(rendered,['B'])
             drafts=paths.drafts_dir()
             self.assertFalse((drafts/'chapter_01.failure.json').exists())
             meta=json.loads((drafts/'chapter_01.meta.json').read_text())
-            review={**meta,'verdict':'Approve','needs_human_review':False}
+            review={**meta,'verdict':'Approve','needs_human_review':False,'external_review_completed':True}
             write_json(drafts.parent/'reviews/chapter_01.review.json',review)
             _sync_meta_with_external_review(drafts,1)
             self.assertTrue(chapter_status(1,drafts,validate_context=True,require_external_review=True,expected_context=meta['run_context'])['approved'])

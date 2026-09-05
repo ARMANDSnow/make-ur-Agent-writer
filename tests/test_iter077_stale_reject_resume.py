@@ -246,7 +246,7 @@ class StaleRejectRewriteTests(_RunHarness):
 class ReviewedExistingPolicyTests(_RunHarness):
     def _reviewed_existing_run(self, policy: dict) -> tuple[dict, list, Path]:
         statuses = [
-            _status(verdict="Approve", strict_failures=["external_review_missing"]),
+            dict(_status(verdict="Approve", strict_failures=["external_review_missing"]), needs_review=False),
             _status(verdict="Reject", strict_failures=["external_review_reject"]),
         ]
         return self._run(

@@ -1064,7 +1064,7 @@ def review_target(
                 if isinstance(ctx, dict):
                     run_context = ctx
                 draft_sha256 = str(meta.get("draft_sha256") or "")
-        return review_text(
+        report = review_text(
             path.read_text(encoding="utf-8"),
             path.name,
             enforce_relationship_checklist=enforce_relationship_checklist,
@@ -1076,6 +1076,9 @@ def review_target(
             draft_sha256=draft_sha256,
             chapter_plan_item=chapter_plan_item,
         )
+        report["external_review_completed"] = True
+        write_json(_reviews_dir() / f"{path.stem}.review.json", report)
+        return report
 
     if target.is_file():
         return [_review_file(target)]

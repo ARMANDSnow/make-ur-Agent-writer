@@ -177,6 +177,7 @@ class ChapterStatusTests(unittest.TestCase):
             (reviews / "chapter_02.review.json").write_text(
                 json.dumps(
                     {
+                        "external_review_completed": True,
                         "verdict": "Approve",
                         "run_context": ctx,
                         "draft_sha256": sha256_text(draft),

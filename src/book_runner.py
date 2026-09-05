@@ -1652,6 +1652,8 @@ def _sync_meta_with_external_review(drafts_dir: Path, chapter_no: int) -> Dict[s
     review = read_json_optional(review_path, {})
     if not isinstance(meta, dict) or not isinstance(review, dict):
         return {}
+    if review.get("external_review_completed") is not True:
+        return {}
 
     # iter063 ④: a corrupt meta.json degrades to {} via read_json_optional. If we
     # then merged the verdict into that empty base and wrote it back, we'd clobber

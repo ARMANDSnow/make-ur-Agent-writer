@@ -147,7 +147,7 @@ class SupplementBranchCompensationTests(unittest.TestCase):
                     # SUPPLEMENT_EXTERNAL_REVIEW（「落盘→外审」窗口被杀的形状）。
                     st = _status(chapter_no, written=True)
                     st["approved"] = False
-                    st["strict_failures"] = ["external_review_missing"]
+                    st["strict_failures"] = ["external_review_incomplete"]
                     return st
                 return _status(chapter_no, written=True)  # 补审后：strict approved
 

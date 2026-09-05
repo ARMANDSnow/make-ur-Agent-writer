@@ -313,7 +313,7 @@ class BookRunnerResidualCorruptTests(unittest.TestCase):
         corrupt = "{bad json — writer history lives here}"
         (self.drafts / "chapter_01.meta.json").write_text(corrupt, encoding="utf-8")
         (self.reviews / "chapter_01.review.json").write_text(
-            '{"verdict": "Approve", "panel_score": 8.0}', encoding="utf-8"
+            '{"verdict": "Approve", "panel_score": 8.0, "external_review_completed": true}', encoding="utf-8"
         )
         result = book_runner._sync_meta_with_external_review(self.drafts, 1)
         self.assertEqual(result, {})  # sync skipped

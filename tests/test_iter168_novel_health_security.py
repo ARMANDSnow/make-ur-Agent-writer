@@ -680,6 +680,7 @@ class WorkbenchFreshnessTests(unittest.TestCase):
                 write_json(
                     reviews / f"chapter_{chapter:02d}.review.json",
                     {
+                        "external_review_completed": True,
                         "verdict": "Approve",
                         "needs_human_review": False,
                         "run_context": context,
@@ -787,6 +788,7 @@ class WorkbenchFreshnessTests(unittest.TestCase):
                 write_json(
                     artifact,
                     {
+                        **({"external_review_completed": True} if artifact.name.endswith(".review.json") else {}),
                         "verdict": "Approve",
                         "needs_human_review": False,
                         "run_context": context,

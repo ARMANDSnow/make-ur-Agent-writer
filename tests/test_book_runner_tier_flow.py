@@ -41,6 +41,7 @@ class BookRunnerTierFlowTests(unittest.TestCase):
                 write_json(
                     reviews / "chapter_01.review.json",
                     {
+                        "external_review_completed": True,
                         "verdict": "Approve",
                         "needs_human_review": False,
                         "agent_reviews": [],

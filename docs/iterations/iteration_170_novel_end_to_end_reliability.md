@@ -7,8 +7,8 @@
 ## Plan
 
 ### Implementation Context
-- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `src/partial_recovery.py`, `src/reviewer.py`, `scripts/write_book.sh`
-- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `src/partial_recovery.py`, `src/reviewer.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
+- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `src/partial_recovery.py`, `src/reviewer.py`, `src/chapter_status.py`, `scripts/write_book.sh`
+- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `src/debater.py`, `src/partial_recovery.py`, `src/reviewer.py`, `src/chapter_status.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
 - `do_not_touch`: `.env`、原文源文件、所有既有 workspace 产物与短剧分支。用户仅授权主线程复制指定原文到干净测试空间；subagent 坚持只读代码/测试，禁止私有内容。
 
 1. F01 中文合集识别/正文切章/起点边界；通用规则不硬编码书名。
@@ -31,10 +31,12 @@
 - A170-05：F07/F08 当前及后续旧摘要/实体/审核失效，force 失败安全与正常 resume 不变。
 - A170-06：F09 tier 两种语法和缺值实际 argv 回归。
 - A170-07：至少 correctness、security/boundary 与 Web/计费三个只读审查；主线程复核修复 findings。
-- A170-08：PASS。新增实现 `f4eadb9` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1973 tests / 15 steps / 97秒，run `71fc3a36e6004f08a739b86d2c4b6832`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
+- A170-08：PASS。新增实现 `b2e88fa` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1975 tests / 15 steps / 96秒，run `a141f355da604416902f54e297e8e20f`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
 - A170-09：干净工作区真实准备、规划、续写与长流程/恢复实测，逐步记录模型调用、费用与真实结果；必须获得 provider-validated，未通过不得宣称本轮完成。
 
 ## Implementation Notes
+
+F24（P1）：a69f2a29真实45分钟截止于第三章外审顾问，内审同hash报告竟让严格状态提前批准。仅review_target完整结束后写精确bool外审完成凭证；strict及meta同步要求凭证，旧报告保守补审而不迁移。补审分类同时阻断failure/panel_halted及主审Approve但需人工/硬拒绝的盘面，防止回落自动重写。337项相关聚焦与两路独立复审通过，含第五票后顾问取消、标记落盘失败、内审覆盖清标、补审writer零调用和advance补偿。真实三章正文及rolling均完整，但新规则下均仅external_review_incomplete，等待真实补审，不沿用旧的提前通过投影。
 
 F23：真实多轮修订仍Reject后查明写手计划未传模型评审，可能导致新增事件修改要求不对称。仅将本章指纹白名单字段构成≤6000字符完整JSON摘要，五评审/顾问/两处简化回退共用；缺计划不变、排除未来章节和额外字段。明确计划非既有事实且不得覆盖硬事实，不改阈值。两路只读审查通过；合成捕获验证所有请求路径，原有计划/关系硬拒绝和评分回归通过。真实旧任务7244078f在审查取消，保留v2完整失败稿用于新上下文恢复；此前内容评分不宣称误判或通过。
 
@@ -76,7 +78,7 @@ F17真实增量：裁决检查点已落盘后在4张票完成时从Web取消；�
 - A170-05：PASS，实际legacy writer prompt捕获排除旧当前/未来记忆，后代失效；normal skip文件不变。runner归档前失效时序经独立审查。
 - A170-06：PASS，fake Python实际argv两种tier语法与缺值exit64。
 - A170-07：PASS，correctness、security/boundary、Web/计费三路审查及增量复审。真实序章误删、旧inode读取、旧超行数、CLI缺usage/坏usage已修复；范围内无剩余高置信P0–P2。
-- A170-08：PASS。新增实现 `f4eadb9` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1973 tests / 15 steps / 97秒，run `71fc3a36e6004f08a739b86d2c4b6832`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
+- A170-08：PASS。新增实现 `b2e88fa` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1975 tests / 15 steps / 96秒，run `a141f355da604416902f54e297e8e20f`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前工程验证。
 - A170-09：真实全链进行中。10章提取、Web准备、36次大纲发言/6票裁决/大纲及3章细纲成功；投票取消恢复仅补缺失票，原记录不变。首章完整正文已生成，真实审查取消后schema v2检查点恢复直接进入审查、未重复WRITE。三章严格审核与跨章记忆尚待验收。用户暂不考虑预算继续测试，仍保留usage估算及未知费用。
 - F11增量：PASS（工程）。74项聚焦、两路独立审查；新增实现2ae8386 canonical 1932项/15步骤/83秒通过，终止回调阻止新增请求并穿透修复链。在途成功响应保留。真实取消/续接在启动于F11之前的服务上观测，不混称为新代码全部真实验收。
 - F10增量：PASS，139项聚焦及两路独立审查通过。浏览器12元确认一致、21元及空值阻止提交，取消不发起请求；仅前三阶段预算可调整，正文/恢复合同不变。

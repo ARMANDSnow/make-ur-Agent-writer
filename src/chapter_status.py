@@ -36,6 +36,7 @@ class ChapterDisposition(str, Enum):
 RESUMABLE_REJECT_FAILURES = frozenset(
     {
         "external_review_missing",
+        "external_review_incomplete",
         "external_review_reject",
         "external_review_needs_human",
         "external_review_stale",
@@ -98,10 +99,15 @@ def classify_disposition(
     if status.get("caveat_approved"):
         return ChapterDisposition.SKIP_CAVEAT
     if status.get("exists"):
+        if (status.get("failure") or status.get("panel_halted")
+                or (status.get("verdict") == "Approve"
+                    and (status.get("needs_review") or status.get("hard_reject")))):
+            return ChapterDisposition.BLOCK
         if (
             require_external_review
             and status.get("verdict") == "Approve"
-            and (status.get("strict_failures") or []) == ["external_review_missing"]
+            and bool(status.get("strict_failures"))
+            and set(status["strict_failures"]).issubset({"external_review_missing", "external_review_incomplete"})
         ):
             return ChapterDisposition.SUPPLEMENT_EXTERNAL_REVIEW
         if is_resumable_stale_reject(status):
@@ -280,6 +286,8 @@ def chapter_status(
                 if not isinstance(review, dict):
                     strict_failures.append("external_review_invalid")
                 else:
+                    if review.get("external_review_completed") is not True:
+                        strict_failures.append("external_review_incomplete")
                     hard_reject = hard_reject or _has_hard_synthetic_reject(review)
                     if review.get("verdict") != "Approve":
                         strict_failures.append("external_review_reject")
