@@ -2734,13 +2734,26 @@ JS_DASHBOARD = """\
       return;
     }
     if (summary) summary.innerHTML = skeleton(4);
-    try {
-      const data = await fetchJson("/api/workspaces/overview");
-      const item = (data.workspaces || []).find((w) => w.name === ws) || {};
-      renderOverview(item);
-    } catch (err) {
-      if (summary) summary.innerHTML = renderErrorCard(err);
+    let wasActive = false;
+    async function refreshOverview() {
+      try {
+        const data = await fetchJson("/api/workspaces/overview");
+        const item = (data.workspaces || []).find((w) => w.name === ws);
+        if (!item) throw new Error("作品状态未找到");
+        renderOverview(item);
+        const active = item.recent_job && (item.recent_job.status === "pending" || item.recent_job.status === "running");
+        if (wasActive && !active) loadOverviewRecentChapter();
+        wasActive = !!active;
+        if (active && !item.error) window.setTimeout(refreshOverview, 3000);
+      } catch (err) {
+        if (summary) summary.innerHTML = renderErrorCard(err);
+        const badge = document.getElementById("overview-status-badge");
+        if (badge) badge.textContent = "状态待确认";
+        const next = document.getElementById("overview-next-action");
+        if (next) next.innerHTML = publicLoadError("任务状态没有读取成功", "请从任务记录确认进度，刷新页面后重试读取。", '<a class="btn btn-secondary" href="' + wsHref("/jobs") + '">查看任务记录</a>');
+      }
     }
+    await refreshOverview();
     loadOverviewRecentChapter();
     loadOverviewDetails();
     initDeleteWorkspace();
@@ -2781,7 +2794,16 @@ JS_DASHBOARD = """\
     const stage = item.workbench_stage || (item.workbench && item.workbench.stage) || "prepare";
     const finalStage = stage === "write" || stage === "done";
     const statusEl = document.getElementById("overview-status-badge");
-    if (statusEl) statusEl.innerHTML = statusBadge(finalStage ? (readiness.status || "blocked") : "pending");
+    const recent = item.recent_job;
+    const active = !item.error && recent && (recent.status === "pending" || recent.status === "running");
+    const incomplete = recent && ["failed", "blocked", "aborted", "budget_exceeded"].includes(recent.status);
+    const uncertain = !!item.error || (recent && !["pending", "running", "succeeded", "failed", "blocked", "aborted", "budget_exceeded"].includes(recent.status));
+    if (statusEl) {
+      if (uncertain) statusEl.textContent = "状态待确认";
+      else if (active || incomplete) statusEl.innerHTML = statusBadge(recent.status);
+      else if (finalStage) statusEl.innerHTML = statusBadge(readiness.status || "blocked");
+      else statusEl.textContent = "准备阶段";
+    }
     const summary = document.getElementById("overview-summary");
     if (summary) {
       summary.innerHTML =
@@ -2801,7 +2823,16 @@ JS_DASHBOARD = """\
         : "未设置";
       let hint = "";
       let cta = '<a class="btn btn-primary" href="/w/' + encodeURIComponent(ws) + '/workbench">进入创作工作台</a>';
-      if (!finalStage) {
+      if (uncertain) {
+        hint = "任务状态待确认，请先查看任务记录。";
+        cta = '<a class="btn btn-primary" href="' + wsHref("/jobs") + '">查看任务记录</a>';
+      } else if (incomplete) {
+        hint = "上次任务未完成，请查看任务记录后继续。";
+        cta = '<a class="btn btn-primary" href="' + wsHref("/jobs") + '">查看任务记录</a>';
+      } else if (active) {
+        hint = (recent.status === "pending" ? "等待开始：" : "正在处理：") + stepLabel(recent.step);
+        cta = '<a class="btn btn-primary" href="' + wsHref("/jobs") + '">查看任务进度</a>';
+      } else if (!finalStage) {
         const stageHints = {
           start: "先选择续写起点",
           prepare: greenfield ? "下一步：准备原创设定" : "下一步：整理续写设定",
