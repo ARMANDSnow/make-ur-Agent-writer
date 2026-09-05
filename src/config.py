@@ -194,6 +194,7 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
             "LLM_REQUEST_TIMEOUT", _safe_float(default.get("request_timeout", 0), 0)
         ),
         "json_repair": _env_bool("JSON_REPAIR", bool(default.get("json_repair", True))),
+        "openai_web_stream": _env_bool("OPENAI_WEB_STREAM", False),
         "context_limit": _safe_int(context_limit, _default_context_limit(str(model))),
         "cache_enabled": _env_bool("DISABLE_PROMPT_CACHE", False) is False
         and bool(default.get("cache_enabled", False)),
@@ -208,7 +209,7 @@ def get_model_config(task: str = "default") -> Dict[str, Any]:
                 "api_key", "base_url", "model", "max_tokens",
                 "request_timeout", "retry_attempts", "retry_backoff_seconds",
                 "retry_backoff_cap_seconds", "retry_backoff_jitter_seconds",
-                "json_repair", "temperature", "context_limit", "cache_enabled",
+                "json_repair", "temperature", "context_limit", "cache_enabled", "openai_web_stream",
             }
         },
     }

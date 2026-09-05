@@ -256,9 +256,16 @@ def estimate_cost_since(line_offset: int = 0, root: Path | None = None) -> Dict[
         out["response_tokens"] += response
         out["cache_read_tokens"] += cache_read
         out["cache_write_tokens"] += int(record.get("cache_write_tokens", 0) or 0)
-        total_cost += cost_cny(
+        row_cost = cost_cny(
             prompt, cache_read, response, model=str(record.get("model") or "")
         )
+        if record.get("status") == "retry_error" and record.get("usage_unknown") is True:
+            import math
+            reserved = record.get("reserved_cost_cny")
+            if type(reserved) not in (int, float) or not math.isfinite(reserved) or reserved < 0:
+                raise ValueError("unknown usage requires a valid retained reservation")
+            row_cost = max(row_cost, float(reserved))
+        total_cost += row_cost
     out["cost_cny"] = round(total_cost, 4)
     if out["dirty_lines"]:
         _warn_dirty_lines(path, out["dirty_lines"])

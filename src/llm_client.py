@@ -630,6 +630,13 @@ class LLMClient:
             raise RuntimeError("litellm is required for real model calls") from exc
 
         use_stream = self.stream_default if stream is None else bool(stream)
+        bounded_stream = (
+            _LLM_DEADLINE.get() is not None
+            and os.name == "posix"
+            and self.config.get("openai_web_stream") is True
+            and str(self.model).startswith("openai/")
+            and stream is not False
+        )
         # A synchronous streaming iterator can block inside ``next()`` before
         # Python regains control to check the outer job deadline.  Web jobs
         # always install an LLM deadline, so use the non-streaming transport in
@@ -684,7 +691,30 @@ class LLMClient:
                     self.model,
                 )
                 _claim_model_request(self.model, reserved_cost_cny=reserved_cost)
-                if use_stream:
+                if bounded_stream:
+                    from .openai_stream import receive, BoundedStreamFailure
+                    try:
+                        content, response = receive({**kwargs, "_deadline": _LLM_DEADLINE.get()}, lambda: (
+                            _LLM_REQUEST_CHECK.get()() if _LLM_REQUEST_CHECK.get() else None
+                        ))
+                    except LLMExecutionStopped as exc:
+                        # This cancellation happened after admission, so retain
+                        # the attempted call even though no partial is returned.
+                        _LLM_ACCOUNTING_DEGRADED.set(True)
+                        unknown_meta = {**request_meta, "usage_unknown": True,
+                                        "usage_reliable": False, "reserved_cost_cny": reserved_cost}
+                        self._try_log_call("complete_text", "retry_error", started,
+                                           BoundedStreamFailure("cancelled submitted stream"),
+                                           attempt=attempt, request_meta=unknown_meta,
+                                           trace_id=failure_trace_id)
+                        raise
+                    except Exception:
+                        # Never infer a safe retry from a mid-stream SDK error.
+                        _LLM_ACCOUNTING_DEGRADED.set(True)
+                        request_meta = {**request_meta, "usage_unknown": True,
+                                        "usage_reliable": False, "reserved_cost_cny": reserved_cost}
+                        raise BoundedStreamFailure("stream did not complete") from None
+                elif use_stream:
                     kwargs["stream"] = True
                     # include_usage asks the upstream to emit a final SSE chunk
                     # with usage tallies; supported by litellm >= 1.40-ish.

@@ -9,7 +9,7 @@
 | 更新时间 | iter 169 / 2026-09-05（完整验收基线；活动进展见 Active iteration） |
 | Accepted implementation commit | `df9627b565f511e43f229471fc5ec0d804ea5ebc` |
 | 日期 / accepted iteration | 2026-09-05 / iter169 |
-| Active iteration | iter170；实现 `2ae8386bdbd87e53a87254004ab797ea4da0f272`（主体 `5fae2e3`），canonical 1932 tests / 15 steps / 83秒 passed、mock-functional；run `dc354da3a079433db15273fb40516786` |
+| Active iteration | iter170；实现 `8bf8b6d8aa7f397dc0a454c502ecc5c535d16241`（主体 `5fae2e3`），canonical 1934 tests / 15 steps / 87秒 passed、mock-functional；run `e5a618b4886a41a6884a27116747ab96` |
 | 产品主线 | `main` 只支持小说原创与导入续写；完整小说+短剧快照在 `codex/short-drama` |
 | implementation | `df9627b`（主体 `a7d67d5`，润色 lint 测试兼容 `df9627b`） |
 | 标准验收 | schema v3、`canonical-novel-mock-offline`、`mock-functional`、passed；1911 tests / 15 steps / 85 秒；run `1af2f656d61848b9ac7ca98ad8c3eb24`；tracked scope clean |
@@ -17,7 +17,7 @@
 | 短剧 UI | 首页与作品列表保留原生 disabled 卡片按钮；无 href、handler 或跳转目标 |
 | 短剧数据 | main 隐藏并 fail-closed；不读取业务内容，不迁移、不修改、不删除 |
 | 发布状态 | 本轮仅本地分支和提交；未 push、未建 PR |
-| 本轮范围 | iter170已修F01–F11；新增每请求取消门禁，1932项canonical通过。新key/luna真实生成与提取成功，但服务忽略两种输出token上限，严格费用边界未验证，整体仍未完成 |
+| 本轮范围 | iter170已修F01–F11及F13/F14；包含概览任务状态、首次细纲覆盖校验，1934项canonical通过。新key/luna10章提取成功，知识压缩超时后恢复中；用户暂不考虑预算继续测试，整体仍未完成 |
 
 ## Capability Map
 
@@ -34,8 +34,8 @@
 
 ## Latest Accepted Evidence
 
-- iter170 活动迭代的工程证据：`2ae8386` canonical 1932 tests / 15 steps / 83秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
-- iter170 真实边界：2026-09-06新key/luna最小生成HTTP200/15token，原文提取与取消后缓存续接成功；单价按用户USD0.01/百万输入输出token暂算。服务对max_tokens和max_completion_tokens均忽略16token上限（实际203/214），已停止准备及含key临时服务。旧provider的RateLimitError/BadGatewayError保留历史证据；正文与完整链未通过，accepted仍为169。
+- iter170 活动迭代的工程证据：`8bf8b6d` canonical 1934 tests / 15 steps / 87秒 passed、`mock-functional`；真实浏览器慢GET和双标签冲突通过（`local-e2e`），三路只读审查及增量复审无剩余高置信P0–P2。
+- iter170 真实边界：2026-09-06新key/luna最小生成HTTP200/15token，原文提取与取消后缓存续接成功；单价按用户USD0.01/百万输入输出token暂算。服务对max_tokens和max_completion_tokens均忽略16token上限（实际203/214），用户随后明确暂不考虑预算继续测试，临时服务已恢复；10章提取完成，知识压缩125秒Timeout后继续恢复。旧provider的RateLimitError/BadGatewayError保留历史证据；正文与完整链未通过，accepted仍为169。
 
 - iter169 修复编辑保存竞态、旧故事记忆复用、单步取消、用户代理丢失、大纲人工编辑、旧 lint 失败状态和分段规划；伏笔提供当前正文证据确认及 TTL CLI，逐章检查不依赖批次大小。
 - correctness、security/boundary、Web/UX 三路独立只读审查及增量复审完成；有效 findings 已修复，审查范围内无剩余 P0–P2。原有范围外 P2 保留为 backlog。
@@ -100,13 +100,13 @@
 1. 小说真实 provider 续写链在 entity graph 留有 `submission_unknown`；无权威 provider inspect/reconciliation 时不得重提原请求。完整单章与 10–20 章长跑仍未验证。
 2. Web 仍是本机个人研究工具，未做公网身份认证、多租户隔离或服务级 SLA。
 3. Aeloon 集成状态继续由 [`AELOON_INTEGRATION.md`](AELOON_INTEGRATION.md) 单独维护。
-4. iter170工程通过，真实新key/luna可生成，但provider忽略输出token上限，严格费用边界未验证。另有概览准备任务状态、分块进度和rolling坏条目/较早缺口的待办，不能宣称所有UX/长跑问题消失。
+4. iter170工程通过，真实新key/luna可生成，但provider忽略输出token上限，严格费用边界未验证。概览任务状态已修，另有分块进度和rolling坏条目/较早缺口的待办，不能宣称所有UX/长跑问题消失。
 5. 短剧后续能力、真实媒体校准和历史数据访问只在 `codex/short-drama` 继续，不属于 main backlog。
 
 ## Next Candidates
 
 1. 先寻找不产生新提交的 provider inspect/reconciliation 证据处理 iter168 entity graph unknown；若上游不提供查询，保持 `safe-blocked`，只能在用户再次明确授权后开全新 synthetic 链。
-2. 待当前服务修复输出token上限，或提供可靠服务端费用上限，再继续iter170的准备→规划→正文/长跑；旧key不落盘，所有费用保留用户单价估算与未知预留的区别。
+2. 用户已明确暂不考虑预算，继续iter170的准备→规划→正文/长跑；旧key不落盘，所有费用保留用户单价估算与未知预留的区别。
 3. 定期运行静态 novel-only 边界检查，避免 generic media/production 命名的短剧残留重新进入 main。
 
 ## Recovery Commands
@@ -139,4 +139,4 @@ bash scripts/verify.sh
 
 ## Latest Transition
 
-iter170仍未完整完成：F01–F11已实现，新增每请求取消门禁；两路增量审查通过，implementation `2ae8386` canonical 1932 tests / 15 steps / 83秒 passed。真实新key/luna生成、提取及取消后续接有效；服务忽略两种输出token上限，严格费用边界未验证，已停止，A170-09未通过。概览等待状态和缺分块反馈另列UX待办；accepted iteration保持169，未push。
+iter170仍未完整完成：F01–F11及F13/F14已实现，两路增量审查通过，implementation `8bf8b6d` canonical 1934 tests / 15 steps / 87秒 passed。真实10章提取完成；压缩遇125秒超时，正从缓存恢复。用户已明确暂不考虑预算继续测试，F12保留为上游限制而非暂停条件。分块反馈与rolling较早缺口另列待办；accepted iteration保持169，未push。

@@ -7,8 +7,8 @@
 ## Plan
 
 ### Implementation Context
-- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `scripts/write_book.sh`
-- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
+- `must_read`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `scripts/write_book.sh`
+- `expected_changes`: `src/text_normalizer.py`, `src/chapter_splitter.py`, `src/web/static.py`, `src/web/templates.py`, `src/web/routes.py`, `src/web/jobs.py`, `src/llm_client.py`, `src/story_memory.py`, `src/writer.py`, `src/book_runner.py`, `src/plot_planner.py`, `src/config.py`, `src/openai_stream.py`, `src/cost_estimator.py`, `scripts/write_book.sh`, `tests/test_iter170_reliability.py`, `docs/audits/novel-audit-2026-09-05.md`
 - `do_not_touch`: `.env`、原文源文件、所有既有 workspace 产物与短剧分支。用户仅授权主线程复制指定原文到干净测试空间；subagent 坚持只读代码/测试，禁止私有内容。
 
 1. F01 中文合集识别/正文切章/起点边界；通用规则不硬编码书名。
@@ -36,7 +36,9 @@
 
 ## Implementation Notes
 
-F14：首次细纲缺章节仍成功的问题已先写入审计，补请求数量校验、连续编号和target规范化，不新增付费重试；不足不落盘并保留旧计划。两项反例测试覆盖空/少章、超量/重复编号与force旧文件保护，47项聚焦通过。独立审查发现新增测试误归无隔离类，已移入临时workspace fixture并重跑；错误测试新建的合成目录按创建时间确认后移出仓库，不涉及既有workspace。需要在本次实现提交上重新canonical。
+F15：Web非流式compress两次125秒超时，独立CLI stream155.43秒成功。新增显式OPENAI_WEB_STREAM，仅openai/且Web deadline作用域启用原生SDK有界流。审查提出模型参数映射、异步DNS/清理超时、在途取消未知计费三项，已增加GPT-5/o系列参数转换、spawn独立进程硬退出边界、unknown预留持久化与费用累计保留。补修IPC半帧阻塞为非阻塞有界JSON接收；补修spawn大参数发送阻塞为启动后非阻塞IPC发送，覆盖JSON转义膨胀；72项流式/LLM和32项费用配置聚焦通过，三路独立增量复审全部通过，将在实现提交上canonical。
+
+F14：首次细纲缺章节仍成功的问题已先写入审计，补请求数量校验、连续编号和target规范化，不新增付费重试；不足不落盘并保留旧计划。两项反例测试覆盖空/少章、超量/重复编号与force旧文件保护，47项聚焦通过。独立审查发现新增测试误归无隔离类，已移入临时workspace fixture并重跑；错误测试新建的合成目录按创建时间确认后移出仓库，不涉及既有workspace。两路复审通过；新实现8bf8b6d canonical1934项/15步骤/87秒通过。
 
 用户明确暂不考虑预算继续测试，F12不再作为暂停条件，保留估算记录。原文准备从7章缓存续接。F13概览运行状态误导先记入审计，追加最小前端修复与状态转换实测，79项聚焦与两路增量审查通过；审查发现失败/未知状态误回落已修，浏览器running→succeeded、running→failed、断网状态待确认通过。将以新实现提交覆盖完整验收。
 
@@ -58,8 +60,8 @@ F14：首次细纲缺章节仍成功的问题已先写入审计，补请求数�
 - A170-05：PASS，实际legacy writer prompt捕获排除旧当前/未来记忆，后代失效；normal skip文件不变。runner归档前失效时序经独立审查。
 - A170-06：PASS，fake Python实际argv两种tier语法与缺值exit64。
 - A170-07：PASS，correctness、security/boundary、Web/计费三路审查及增量复审。真实序章误删、旧inode读取、旧超行数、CLI缺usage/坏usage已修复；范围内无剩余高置信P0–P2。
-- A170-08：PASS。新增实现 `2ae8386bdbd87e53a87254004ab797ea4da0f272` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1932 tests / 15 steps / 83秒，run `dc354da3a079433db15273fb40516786`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代54a9f98的上一轮工程验证。
-- A170-09：尚未全链通过。2026-09-06新key/luna最小生成HTTP200/15token；原文提取成功，第一次真实取消保留两章且未发第三章，续接缓存哈希不变。随后发现服务忽略max_tokens与max_completion_tokens（请求16，实际203/214），已请求停止；费用按用户USD0.01/百万token暂算，不能证明该服务严格执行客户端费用预留上界。正文/全链仍未验收。旧RateLimitError/BadGatewayError保持历史证据。
+- A170-08：PASS。新增实现 `8bf8b6d8aa7f397dc0a454c502ecc5c535d16241` 上 canonical schema v3 / `canonical-novel-mock-offline` 通过；1934 tests / 15 steps / 87秒，run `e5a618b4886a41a6884a27116747ab96`，`tracked_scope_clean=true`，仅 `mock-functional`。此证据替代此前F13/F11的工程验证。
+- A170-09：真实全链进行中。10章提取已完成（79–88），87的大请求125秒超时后改用临时较小分块成功；知识压缩连续两次125秒Timeout，保留10章缓存进行独立CLI流式对照。用户已明确暂不考虑预算继续测试，F12不再作为暂停条件；仍记录usage估算与未知费用。大纲、细纲、正文与多章链尚未验收。
 - F11增量：PASS（工程）。74项聚焦、两路独立审查；新增实现2ae8386 canonical 1932项/15步骤/83秒通过，终止回调阻止新增请求并穿透修复链。在途成功响应保留。真实取消/续接在启动于F11之前的服务上观测，不混称为新代码全部真实验收。
 - F10增量：PASS，139项聚焦及两路独立审查通过。浏览器12元确认一致、21元及空值阻止提交，取消不发起请求；仅前三阶段预算可调整，正文/恢复合同不变。
 
@@ -89,6 +91,6 @@ F14：首次细纲缺章节仍成功的问题已先写入审计，补请求数�
 
 只 commit、不 push。收官按 iter-finish 同步 README SOP、handoff、PROJECT_HISTORY；真实失败保留为未通过并说明原因。
 
-独立 Web 服务原为 localhost:8768，2026-09-06已随含key进程停止；测试根 `/private/tmp/novel-audit-20260905/real`。服务启动不发模型请求；外层累计最坏费用预留保留在该测试根，仅主线程/用户访问。此临时测试位置不属于可提交产物。
+独立 Web 服务原为 localhost:8768，2026-09-06已按用户继续测试指令恢复临时服务；测试根 `/private/tmp/novel-audit-20260905/real`。服务启动不发模型请求；外层累计最坏费用预留保留在该测试根，仅主线程/用户访问。此临时测试位置不属于可提交产物。
 
-2026-09-06最终暂停快照：7章提取JSON落盘，任务明确aborted/cancelled；累计16次请求（旧模型3、新模型13，含3个诊断请求），Luna按用户单价估算含诊断约0.019253元，非服务端账单。含此前未知费用的账本预留5.667020352元；发现输出限制不生效后不把该预留宣称严格上界。专用含key进程已退出，后续无后台模型调用。真实准备/规划/正文全链仍未验收。
+2026-09-06先前暂停快照（后续已恢复）：7章提取JSON落盘，任务明确aborted/cancelled；累计16次请求（旧模型3、新模型13，含3个诊断请求），Luna按用户单价估算含诊断约0.019253元，非服务端账单。含此前未知费用的账本预留5.667020352元；发现输出限制不生效后不把该预留宣称严格上界。专用含key进程已退出，后续无后台模型调用。真实准备/规划/正文全链仍未验收。

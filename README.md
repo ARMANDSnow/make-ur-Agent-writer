@@ -100,7 +100,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 | 6. 写作 | 多上下文 writer、润色后重检 lint、失败章安全恢复；force失效后续旧记忆 | ✅ |
 | 7. 审核 | 当前正文复审、安全归档旧 lint 失败；记忆更新后才 strict-approved | ✅ |
 | 8. 关系更新 | proposal、conflict check、auto-advance；手改失效旧推进，伏笔凭证据确认 | ✅ |
-| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；本次已授权真实测试因当前服务忽略输出token上限暂停 |
+| 9. 滚动下一章 | 当前稿记忆、逐章伏笔期限、保留远期计划、预算与 runner/supervisor | 🟨 工程已通；本次已授权真实测试继续，10章提取已完成，全链待验收 |
 
 ## 项目状态
 
@@ -113,7 +113,7 @@ Web 只管理小说 workspace。首页与作品列表中的短剧按钮为原生
 
 iter170：合集导入、编辑版本冲突、日志长期容量、CLI计费停止及前三阶段可调预算已通过工程与浏览器回归；真实续写未通过，当前完整接受基线仍为iter169。
 
-最新 canonical：implementation `2ae8386`，1932 tests / 15 steps / 83 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
+最新 canonical：implementation `8bf8b6d`，1934 tests / 15 steps / 87 秒，`mock-functional`，`tracked_scope_clean=true`。这不代表真实 provider 完整链、长篇质量或 SLA 已验证。
 
 ## 目录结构
 
@@ -149,3 +149,5 @@ docs/iterations/           逐轮审计记录
 ## 声明与技术栈
 
 这是研究性质的个人创作工具，不是公网多租户产品。原作小说不重新分发，生成内容和本地运行数据不提交。技术栈为 Python 3.9+、LiteLLM、Pydantic、tiktoken、python-dotenv；Web 使用标准库 HTTP server 与原生 JS。
+
+本地 Web 使用 OpenAI 兼容服务且长响应遇到网关超时，可在启动进程中显式设置 `OPENAI_WEB_STREAM=1`。仅 macOS/Linux 上 `openai/` 模型的 Web 任务使用原生 SDK 流式接收，独立进程在取消或总时限到达后退出；正文不完整时不保存半截响应，也不自动重发。缺失服务计量时保留费用未知和预算预留。默认传输保持不变；此选项不保证所有中转服务或模型参数都兼容。
