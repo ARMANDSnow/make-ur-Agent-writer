@@ -1,0 +1,15 @@
+{
+  "name": "Dragon Raja AI Continuer",
+  "install": "bash .cursor/install.sh",
+  "chromeExecutablePath": "/usr/local/bin/google-chrome",
+  "terminals": [
+    {
+      "name": "novel-web",
+      "command": "OPENAI_MODEL=mock LITELLM_LOCAL_MODEL_COST_MAP=true .venv/bin/python3 main.py web --port 8765",
+      "description": "Local novel-writing Web UI in offline mock mode on http://127.0.0.1:8765 (no billable model calls)."
+    }
+  ],
+  "ports": [
+    { "name": "novel-web", "port": 8765 }
+  ]
+}

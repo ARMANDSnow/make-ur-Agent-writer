@@ -46,6 +46,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# --- local virtualenv (created via README quick-start, not committed) ---
+.venv/
+venv/
+
 # --- backups ---
 *.bak
 *.bak_*
